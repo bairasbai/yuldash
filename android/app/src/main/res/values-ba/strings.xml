@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">Юлдаш</string>
+    <string name="app_tagline">Үҙебеҙҙекеләр араһында юллашыу</string>
+    <string name="login_title">Телефон аша инеү</string>
+    <string name="login_subtitle">Телефон номеры бронь раҫланғанға тиклем йәшерелә.</string>
+    <string name="phone_number">Телефон номеры</string>
+    <string name="continue_action">Дауам итергә</string>
+    <string name="map">Карта</string>
+    <string name="rides">Сәфәрҙәр</string>
+    <string name="profile">Профиль</string>
+    <string name="create_ride">Мин барам</string>
+    <string name="support_yuldash">Юлдашҡа ярҙам итеү</string>
+    <string name="support_subtitle">Серверҙарҙы, карталарҙы, SMS һәм ярҙам хеҙмәтен түләргә ярҙам итә.</string>
+    <string name="boost_route">Иғланды өҫкә күтәреү</string>
+    <string name="language">Тел</string>
+    <string name="phone_hidden">Телефон раҫланғандан һуң ғына асыла</string>
+</resources>
+

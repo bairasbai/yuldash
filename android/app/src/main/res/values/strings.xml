@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">Юлдаш</string>
+    <string name="app_tagline">Поездки между своими</string>
+    <string name="login_title">Войти по телефону</string>
+    <string name="login_subtitle">Номер будет скрыт до подтверждения брони.</string>
+    <string name="phone_number">Номер телефона</string>
+    <string name="continue_action">Продолжить</string>
+    <string name="map">Карта</string>
+    <string name="rides">Поездки</string>
+    <string name="profile">Профиль</string>
+    <string name="create_ride">Я еду</string>
+    <string name="support_yuldash">Поддержать Юлдаш</string>
+    <string name="support_subtitle">Помогает оплачивать серверы, карты, SMS и поддержку.</string>
+    <string name="boost_route">Поднять объявление</string>
+    <string name="language">Язык</string>
+    <string name="phone_hidden">Телефон скрыт до подтверждения</string>
+</resources>
+

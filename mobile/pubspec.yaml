@@ -1,0 +1,32 @@
+name: yuldash
+description: "Yuldash mobile app for local shared rides."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  go_router: any
+  flutter_bloc: any
+  dio: any
+  hive: any
+  flutter_secure_storage: any
+  yandex_mapkit: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+
+flutter:
+  uses-material-design: true
+  generate: true
+  assets:
+    - assets/l10n/
+    - assets/brand/

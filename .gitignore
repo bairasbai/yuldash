@@ -1,0 +1,54 @@
+# Android
+android/.gradle/
+android/local.properties
+android/**/build/
+android/captures/
+
+# Kotlin / Gradle
+.gradle/
+build/
+
+# Flutter, if mobile/ is used later again
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/build/
+mobile/android/
+mobile/ios/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Подпись / ключи — НИКОГДА не коммитить
+*.jks
+*.keystore
+keystore.properties
+
+# Backend (Python)
+**/.venv/
+**/venv/
+**/__pycache__/
+*.pyc
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+# (.env.example — шаблон, остаётся в репо)
+
+# Нативная сборка
+**/.cxx/
+
+# Временные скриншоты/дампы агентов (QA на эмуляторе)
+_*.png
+*.uix
+# QA-артефакты в корне android/: скриншоты и uiautomator-дампы.
+# (в gitignore «*» не пересекает «/», поэтому res/mipmap-иконки и app/src/**.xml НЕ затрагиваются)
+/android/*.png
+/android/*.xml
+/android/*.json

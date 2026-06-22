@@ -1,0 +1,57 @@
+﻿[
+    {
+        "File":  "fullqa3-screen-Кабинет пассажира.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    },
+    {
+        "File":  "fullqa3-screen-Кабинет рекламы.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    },
+    {
+        "File":  "fullqa3-screen-Проверка водителя.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    },
+    {
+        "File":  "fullqa3-screen-Настройки.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    },
+    {
+        "File":  "fullqa3-screen-Безопасность.xml",
+        "OK":  false,
+        "Texts":  "text=\"Silent\"; text=\"Android System\"; text=\"•\"; text=\"now\"; text=\"2\"; text=\"Physical keyboards configured\"; text=\"Tap to view keyboards\"; text=\"Serial console enabled\"; text=\"Performance is impacted. To disable, check bootloader.\"; text=\"Virtual SD card\"; text=\"•\"; text=\"1 day ago\""
+    },
+    {
+        "File":  "fullqa3-screen-Попросить звонок.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    },
+    {
+        "File":  "fullqa3-screen-Простой режим.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    },
+    {
+        "File":  "fullqa3-screen-Поддержать Юлдаш.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    },
+    {
+        "File":  "fullqa3-screen-Помощь.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    },
+    {
+        "File":  "fullqa3-screen-Доверенные контакты.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    },
+    {
+        "File":  "fullqa3-screen-Кабинет водителя.xml",
+        "OK":  false,
+        "Texts":  "missing"
+    }
+]
