@@ -122,4 +122,9 @@ $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 .\gradlew.bat :app:assembleDebug --no-daemon
 ```
 
+### Релиз (подписанный, для Google Play) — добавлено 2026-06-23
+- Ключ подписи: `android/yuldash.jks` + `android/keystore.properties` (пароль). **ОБА в `.gitignore`, НЕ в git.** ⚠️ Беречь: потеря ключа = НЕЛЬЗЯ обновлять приложение в Google Play. Сделать бэкап в надёжное место (пароль-менеджер/облако).
+- Сборка: `gradlew :app:assembleRelease :app:bundleRelease`. Артефакты: `app/build/outputs/apk/release/app-release.apk` (прямая установка), `app/build/outputs/bundle/release/app-release.aab` (загрузка в Play). Подпись: `CN=Yuldash` (проверено `apksigner verify`).
+- `isMinifyEnabled=false` (надёжность > размер). Уменьшение (R8/ABI-split/strip) — позже; сейчас APK ~117 МБ из-за нативных либ MapKit (`libmaps-mobile.so`).
+
 ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подробности запуска/эмулятора/smoke-теста — в `../CONTINUE_FOR_AI.md`.
