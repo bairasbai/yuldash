@@ -56,6 +56,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.AddRoad
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -290,15 +291,19 @@ private data class OnboardingItem(
 
 private val LocalAppLanguage = staticCompositionLocalOf { AppLanguage.Ru }
 
-private val CanonGreen = Color(0xFF073F25)
-private val CanonGreen2 = Color(0xFF0B6B3A)
-private val CanonMint = Color(0xFFE7F5EC)
-private val CanonYellow = Color(0xFFFFE3A1)
-private val CanonBg = Color(0xFFFAFAF6)
-private val CanonText = Color(0xFF0B1F14)
-private val CanonMuted = Color(0xFF686F66)
-private val CanonBorder = Color(0x1F000000)
-private val CanonRed = Color(0xFFD93025)
+// Адаптивная палитра: один и тот же `CanonX` отдаёт светлый/тёмный цвет по системной теме.
+// 410 использований не трогаем — меняется только определение (@Composable-геттер).
+private val CanonGreen: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF7FE3AB) else Color(0xFF073F25)
+private val CanonGreen2: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF2FB36E) else Color(0xFF0B6B3A)
+private val CanonMint: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF143024) else Color(0xFFE7F5EC)
+private val CanonYellow: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF4A3A14) else Color(0xFFFFE3A1)
+private val CanonBg: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF0F1613) else Color(0xFFFAFAF6)
+private val CanonText: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFEAF2EC) else Color(0xFF0B1F14)
+private val CanonMuted: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF9BA49D) else Color(0xFF686F66)
+private val CanonBorder: Color @Composable get() = if (isSystemInDarkTheme()) Color(0x24FFFFFF) else Color(0x1F000000)
+private val CanonRed: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFFF6B5E) else Color(0xFFD93025)
+// Поверхность карточек: была хардкод Color.White — теперь адаптивная.
+private val CanonSurface: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF192420) else Color(0xFFFFFFFF)
 private val CanonCardShape = RoundedCornerShape(28.dp)
 private val CanonItemShape = RoundedCornerShape(22.dp)
 
@@ -1135,7 +1140,7 @@ private fun onboardingHeroIcon(hero: OnboardingHero): ImageVector {
 @Composable
 private fun OnboardingFeatureCard(item: OnboardingItem) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
@@ -1203,7 +1208,7 @@ private fun OnboardingRoleCard(
 
 @Composable
 private fun OnboardingTrustStrip() {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OnboardingMiniTrust(Icons.Default.PhoneLocked, appText("Скрытый\nномер", "Йәшерен\nномер"), Modifier.weight(1f))
             OnboardingMiniTrust(Icons.Default.Pin, appText("Код\nпосадки", "Ултырыу\nкоды"), Modifier.weight(1f))
@@ -1380,7 +1385,7 @@ private fun LoginFormCard(
 
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
         shape = RoundedCornerShape(24.dp)
     ) {
@@ -1688,7 +1693,7 @@ private fun HeroPill(icon: ImageVector, text: String) {
 private fun TrustCard(modifier: Modifier = Modifier) {
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(22.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
@@ -1933,7 +1938,7 @@ private fun YuldashBottomBar(
     onSelect: (HomeTab) -> Unit
 ) {
     Surface(
-        color = Color.White.copy(alpha = 0.98f),
+        color = CanonSurface.copy(alpha = 0.98f),
         shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
         shadowElevation = 12.dp
     ) {
@@ -2129,7 +2134,7 @@ private fun MapScreen(
         ModalBottomSheet(
             onDismissRequest = { selectedRide = null },
             sheetState = sheetState,
-            containerColor = Color.White
+            containerColor = CanonSurface
         ) {
             Column(Modifier.padding(horizontal = 14.dp).padding(bottom = 24.dp)) {
                 RideCard(
@@ -2254,7 +2259,7 @@ private fun QuickSearchCard(
     }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -2365,7 +2370,7 @@ private fun SeniorAccessCard(onSimpleMode: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .bounceClick(onSimpleMode),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         border = BorderStroke(1.dp, Color(0x1A0B6B3A))
@@ -2591,7 +2596,7 @@ private fun YandexMapCard(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
+                colors = CardDefaults.cardColors(containerColor = CanonSurface),
                 shape = RoundedCornerShape(18.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
@@ -2690,7 +2695,7 @@ private fun MapPreview(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(14.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(containerColor = CanonSurface),
             shape = RoundedCornerShape(18.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
@@ -2876,7 +2881,7 @@ private fun MyTripCard(
     onSecondary: () -> Unit
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -2957,7 +2962,7 @@ private fun RideCard(
     Card(
         modifier = (if (compact && !fullWidth) Modifier.width(320.dp) else Modifier.fillMaxWidth())
             .clickable(enabled = compact, onClick = onBook),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -3210,7 +3215,7 @@ private fun RequestSummaryCard(
     action: String,
     onAction: () -> Unit
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
@@ -3293,7 +3298,7 @@ private fun FullRideCard(
         modifier = Modifier
             .fillMaxWidth()
             .bounceClick(onBook),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -3487,7 +3492,7 @@ private fun ChatScreen(
 @Composable
 private fun ChatCard(initial: String, name: String, subtitle: String, message: String, time: String, unread: Int, verified: Boolean, support: Boolean = false) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(24.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -3540,7 +3545,7 @@ private fun ChatComposer(
     onVoice: () -> Unit
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(22.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
@@ -3610,7 +3615,7 @@ private fun SimpleModeScreen(
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(appText("Юлдаш без сложностей", "Юлдаш еңел"), color = CanonGreen, fontSize = 27.sp, lineHeight = 29.sp, fontWeight = FontWeight.Black)
                         Text(appText("Большие кнопки для родителей, бабушек и дедушек. Можно говорить голосом или попросить звонок.", "Ата-әсә, өләсәй һәм олатайҙар өсөн ҙур төймәләр. Тауыш менән әйтергә йәки шылтыратыу һорарға була."), color = CanonMuted, fontSize = 16.sp, lineHeight = 21.sp)
@@ -3665,7 +3670,7 @@ private fun SeniorBigAction(icon: ImageVector, title: String, subtitle: String, 
 private fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier.bounceClick(onClick),
-        color = Color.White,
+        color = CanonSurface,
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, CanonBorder),
         shadowElevation = 1.dp
@@ -3683,7 +3688,7 @@ private fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> U
 
 @Composable
 private fun LocalRequestCard(request: LocalRequest) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(request.title, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
@@ -4000,7 +4005,7 @@ private fun TrustedContactsScreen(
 
 @Composable
 private fun TrustedContactCard(contact: TrustedContact) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
                 Text(contact.name.first().toString(), modifier = Modifier.padding(14.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 20.sp)
@@ -4051,7 +4056,7 @@ private fun RepeatTripScreen(
 
 @Composable
 private fun FrequentTripCard(trip: FrequentTrip, onClick: () -> Unit) {
-    Card(modifier = Modifier.bounceClick(onClick).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(modifier = Modifier.bounceClick(onClick).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
                 Icon(if (trip.category == "В больницу") Icons.Default.LocalHospital else Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(28.dp))
@@ -4107,7 +4112,7 @@ private fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest
 
 @Composable
 private fun VoiceParsedCard(title: String, lines: List<String>) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
             lines.forEach { line ->
@@ -4342,7 +4347,7 @@ private fun ProfileActionCard(
     val clickModifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier
     Card(
         modifier = clickModifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
@@ -4484,7 +4489,7 @@ private fun DriverCabinetScreen(
 
 @Composable
 private fun CabinetMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, color = Color.White, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, CanonBorder)) {
+    Surface(modifier = modifier, color = CanonSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Text(label, color = CanonMuted, fontSize = 11.sp, lineHeight = 13.sp, textAlign = TextAlign.Center, maxLines = 2)
@@ -4536,7 +4541,7 @@ private fun AdsAdminPreview(ads: List<PartnerAd>, adStats: Map<String, AdStats>)
     val totalImpressions = ads.sumOf { adStats[it.id]?.impressions ?: 0 }
     val totalClicks = ads.sumOf { adStats[it.id]?.clicks ?: 0 }
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         border = BorderStroke(1.dp, Color(0x1A0B6B3A))
@@ -4663,7 +4668,7 @@ private fun InfoCard(
     val clickModifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier
     Card(
         modifier = clickModifier,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
@@ -4692,7 +4697,7 @@ private fun EmptyStateCard(
     onAction: (() -> Unit)? = null
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         border = BorderStroke(1.dp, CanonBorder)
@@ -4790,7 +4795,7 @@ private fun PartnerAdCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         border = BorderStroke(1.dp, Color(0x1A0B6B3A))
@@ -4921,6 +4926,7 @@ private fun AdStatus.label(): String {
     }
 }
 
+@Composable
 private fun AdStatus.color(): Color {
     return when (this) {
         AdStatus.Active -> CanonGreen2
@@ -4965,6 +4971,7 @@ private fun DetailMeta(icon: androidx.compose.ui.graphics.vector.ImageVector, te
 
 @Composable
 private fun RouteMiniIcon() {
+    val routeColor = CanonGreen2  // читаем адаптивный цвет ДО DrawScope (там @Composable недоступен)
     Canvas(Modifier.size(width = 34.dp, height = 70.dp)) {
         val start = Offset(size.width * 0.55f, size.height * 0.12f)
         val end = Offset(size.width * 0.35f, size.height * 0.88f)
@@ -4972,9 +4979,9 @@ private fun RouteMiniIcon() {
             moveTo(start.x, start.y)
             cubicTo(size.width * 0.08f, size.height * 0.30f, size.width * 0.86f, size.height * 0.55f, end.x, end.y)
         }
-        drawPath(path, color = CanonGreen2, style = Stroke(width = 5f, cap = StrokeCap.Round))
-        drawCircle(CanonGreen2, radius = 10f, center = start)
-        drawCircle(CanonGreen2, radius = 10f, center = end)
+        drawPath(path, color = routeColor, style = Stroke(width = 5f, cap = StrokeCap.Round))
+        drawCircle(routeColor, radius = 10f, center = start)
+        drawCircle(routeColor, radius = 10f, center = end)
     }
 }
 
@@ -4985,7 +4992,7 @@ private fun TripInfoRow(
     value: String
 ) {
     Surface(
-        color = Color.White,
+        color = CanonSurface,
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, Color(0x2235A363))
     ) {
@@ -5038,7 +5045,7 @@ private fun BookingScreen(
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         RouteMiniIcon()
                         Spacer(Modifier.width(12.dp))
@@ -5056,7 +5063,7 @@ private fun BookingScreen(
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(color = CanonMint, shape = CircleShape) {
@@ -5206,7 +5213,7 @@ private fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
 
 @Composable
 private fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, time: String, unread: Boolean) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
                 Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
@@ -5408,7 +5415,7 @@ private fun HelpScreen(
 
 @Composable
 private fun HelpRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
                 Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(13.dp))
@@ -5425,7 +5432,7 @@ private fun HelpRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title
 
 @Composable
 private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(vertical = 8.dp), content = content)
     }
 }
@@ -5527,7 +5534,7 @@ private fun ActiveTripScreen(
             contentPadding = PaddingValues(bottom = 28.dp)
         ) {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("${ride?.from ?: "—"}  →  ${ride?.to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Black)
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -5561,7 +5568,7 @@ private fun ActiveTripScreen(
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                     Row(
                         Modifier.fillMaxWidth().clickable { showShare = true }.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -5611,7 +5618,7 @@ private fun ActiveTripScreen(
     }
 
     if (showShare) {
-        ModalBottomSheet(onDismissRequest = { showShare = false }, sheetState = shareSheet, containerColor = Color.White) {
+        ModalBottomSheet(onDismissRequest = { showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
                 Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 if (contacts.isEmpty()) {
@@ -5677,7 +5684,7 @@ private fun SosScreen(onBack: () -> Unit) {
         ) {
             item {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = CanonSurface),
                     shape = RoundedCornerShape(24.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
@@ -5877,7 +5884,7 @@ private fun SupportScreen(onBack: () -> Unit) {
         ) {
             item {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = CanonSurface),
                     shape = RoundedCornerShape(24.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
@@ -5974,7 +5981,7 @@ private fun BoostScreen(onBack: () -> Unit) {
 private fun BoostPlan(title: String, text: String, price: String, onClick: () -> Unit) {
     Card(
         modifier = Modifier.bounceClick(onClick),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
