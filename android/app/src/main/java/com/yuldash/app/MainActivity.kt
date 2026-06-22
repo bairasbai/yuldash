@@ -182,6 +182,7 @@ import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.MessageDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -205,6 +206,7 @@ private enum class Screen {
     Support,
     Boost,
     Booking,
+    ActiveTrip,
     Sos,
     CreateRequest,
     VerifyDriver,
@@ -364,7 +366,8 @@ private data class TrustedContact(
     val name: String,
     val relation: String,
     val phone: String,
-    val notifyByDefault: Boolean
+    val notifyByDefault: Boolean,
+    val id: Int = 0
 )
 
 private data class FrequentTrip(
@@ -609,6 +612,8 @@ private fun YuldashApp() {
     val rides = remember { mutableStateListOf<Ride>().apply { addAll(demoRides) } }
     val trustedContacts = remember { mutableStateListOf<TrustedContact>().apply { addAll(demoTrustedContacts) } }
     val localRequests = remember { mutableStateListOf<LocalRequest>() }
+    val appScope = rememberCoroutineScope()
+    var activeBookingId by remember { mutableStateOf<Int?>(null) }
     val voiceMessages = remember { mutableStateListOf<LocalVoiceMessage>() }
     var screen by remember {
         mutableStateOf(
@@ -701,7 +706,7 @@ private fun YuldashApp() {
             ApiClient.getContacts().onSuccess { list ->
                 if (list.isNotEmpty()) {
                     trustedContacts.clear()
-                    trustedContacts.addAll(list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault) })
+                    trustedContacts.addAll(list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) })
                 }
             }
         }
@@ -799,9 +804,22 @@ private fun YuldashApp() {
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
                 onConfirmRide = {
-                    selectedRide?.id?.toIntOrNull()?.let { rid -> ApiClient.fireBook(rid, 1) }
-                    Toast.makeText(context, "Поездка забронирована", Toast.LENGTH_SHORT).show()
+                    val rid = selectedRide?.id?.toIntOrNull()
+                    if (rid != null) {
+                        appScope.launch {
+                            ApiClient.book(rid, 1)
+                                .onSuccess { bid -> activeBookingId = bid; screen = Screen.ActiveTrip }
+                                .onFailure { Toast.makeText(context, "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
+                        }
+                    }
                 }
+            )
+            Screen.ActiveTrip -> ActiveTripScreen(
+                ride = selectedRide,
+                contacts = trustedContacts,
+                bookingId = activeBookingId,
+                onBack = { openHome(HomeTab.Rides) },
+                onSos = { screen = Screen.Sos }
             )
             Screen.Sos -> SosScreen(onBack = { openHome(HomeTab.Map) })
             Screen.VerifyDriver -> VerifyDriverScreen(
@@ -5480,6 +5498,168 @@ private fun CompactProfileBanner() {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ActiveTripScreen(
+    ride: Ride?,
+    contacts: List<TrustedContact>,
+    bookingId: Int?,
+    onBack: () -> Unit,
+    onSos: () -> Unit
+) {
+    val context = LocalContext.current
+    var messages by remember { mutableStateOf<List<MessageDto>>(emptyList()) }
+    var draft by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var showShare by remember { mutableStateOf(false) }
+    val shareSheet = rememberModalBottomSheetState()
+
+    LaunchedEffect(bookingId) {
+        bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { messages = it } }
+    }
+
+    Scaffold(
+        containerColor = CanonBg,
+        topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), onBack) }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 28.dp)
+        ) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${ride?.from ?: "—"}  →  ${ride?.to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(ride?.driver ?: appText("Водитель", "Водитель"), color = CanonMuted)
+                            ride?.time?.let { Spacer(Modifier.width(10.dp)); Text(it, color = CanonMuted) }
+                        }
+                    }
+                }
+            }
+            item { Text(appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold) }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "sat" to appText("Я сел", "Ултырҙым"),
+                        "arrived" to appText("Доехал", "Барып еттем"),
+                        "done" to appText("Завершить", "Тамам")
+                    ).forEach { (st, label) ->
+                        FilledTonalButton(
+                            onClick = { status = st; bookingId?.let { ApiClient.fireSetTripStatus(it, st) } },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = if (status == st) CanonMint else Color.White,
+                                contentColor = CanonText
+                            )
+                        ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
+                }
+            }
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showShare = true }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(color = CanonMint, shape = CircleShape) {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(appText("Поделиться поездкой с близким", "Сәфәрҙе яҡының менән уртаҡлашыу"), fontWeight = FontWeight.Bold)
+                            Text(appText("Близкий будет видеть статус поездки", "Яҡының сәфәр хәлен күреп торор"), color = CanonMuted, fontSize = 13.sp)
+                        }
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
+                    }
+                }
+            }
+            item { Text(appText("Чат по поездке", "Сәфәр буйынса чат"), fontWeight = FontWeight.Bold) }
+            item {
+                ChatComposer(
+                    draft = draft,
+                    onDraftChange = { draft = it },
+                    onSend = {
+                        val t = draft.trim()
+                        if (t.isNotEmpty() && bookingId != null) {
+                            ApiClient.fireSendMessage(bookingId, t)
+                            messages = messages + MessageDto(0, t, -1)
+                            draft = ""
+                        }
+                    },
+                    onVoice = {}
+                )
+            }
+            items(messages) { m -> MessageBubble(m.text, mine = m.senderId == -1) }
+            item {
+                Button(
+                    onClick = onSos,
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
+                ) {
+                    Icon(Icons.Default.Sos, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("SOS", fontWeight = FontWeight.Black)
+                }
+            }
+        }
+    }
+
+    if (showShare) {
+        ModalBottomSheet(onDismissRequest = { showShare = false }, sheetState = shareSheet, containerColor = Color.White) {
+            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+                Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                if (contacts.isEmpty()) {
+                    Text(appText("Сначала добавьте доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтәгеҙ"), color = CanonMuted)
+                }
+                contacts.forEach { c ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            bookingId?.let { ApiClient.fireShareTrip(it, c.id) }
+                            showShare = false
+                            Toast.makeText(context, "Поездка отправлена: ${c.name}", Toast.LENGTH_SHORT).show()
+                        }.padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(Modifier.size(44.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+                            Text(c.name.take(1), fontWeight = FontWeight.Black)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(c.name, fontWeight = FontWeight.Bold)
+                            Text(c.relation, color = CanonMuted, fontSize = 13.sp)
+                        }
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageBubble(text: String, mine: Boolean) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+        Surface(
+            color = if (mine) CanonGreen2 else Color.White,
+            shape = RoundedCornerShape(18.dp),
+            shadowElevation = 1.dp
+        ) {
+            Text(
+                text,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                color = if (mine) Color.White else CanonText,
+                fontSize = 15.sp
+            )
+        }
+    }
+}
+
 @Composable
 private fun SosScreen(onBack: () -> Unit) {
     val categories = listOf("Медицина", "Поломка авто", "Другое")

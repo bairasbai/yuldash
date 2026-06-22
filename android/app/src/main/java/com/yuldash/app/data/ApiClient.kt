@@ -53,6 +53,14 @@ object ApiClient {
         bg.launch { sendMessage(bookingId, text) }
     }
 
+    fun fireShareTrip(bookingId: Int, contactId: Int) {
+        bg.launch { shareTrip(bookingId, contactId) }
+    }
+
+    fun fireSetTripStatus(bookingId: Int, status: String) {
+        bg.launch { setTripStatus(bookingId, status) }
+    }
+
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) {
         val p = context.applicationContext.getSharedPreferences("yuldash", Context.MODE_PRIVATE)
@@ -137,12 +145,12 @@ object ApiClient {
         auth = true,
     ).map { }
 
-    /** Забронировать поездку. */
-    suspend fun book(rideId: Int, seats: Int): Result<Unit> = call(
+    /** Забронировать поездку. Возвращает id брони. */
+    suspend fun book(rideId: Int, seats: Int): Result<Int> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats),
         auth = true,
-    ).map { }
+    ).map { it.optInt("id") }
 
     // ---------- Заявки ----------
 
@@ -204,6 +212,7 @@ object ApiClient {
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 ContactDto(
+                    id = o.optInt("id"),
                     name = o.optString("name"),
                     relation = o.optString("relation"),
                     phone = o.optString("phone"),
@@ -226,6 +235,23 @@ object ApiClient {
 
     suspend fun sendMessage(bookingId: Int, text: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true).map { }
+
+    suspend fun getMessages(bookingId: Int): Result<List<MessageDto>> =
+        call("GET", "/bookings/$bookingId/messages", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                MessageDto(o.optInt("id"), o.optString("text"), o.optInt("sender_id"))
+            }
+        }
+
+    // ---------- Активная поездка: поделиться / статус ----------
+
+    suspend fun shareTrip(bookingId: Int, contactId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/share", JSONObject().put("contact_id", contactId), auth = true).map { }
+
+    suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
+        call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
 
     // ---------- Базовый вызов ----------
 
@@ -306,8 +332,16 @@ data class RequestDto(
 
 /** Доверенный контакт с сервера. */
 data class ContactDto(
+    val id: Int,
     val name: String,
     val relation: String,
     val phone: String,
     val notifyByDefault: Boolean,
+)
+
+/** Сообщение чата с сервера. */
+data class MessageDto(
+    val id: Int,
+    val text: String,
+    val senderId: Int,
 )
