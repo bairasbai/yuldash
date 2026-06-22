@@ -1381,7 +1381,7 @@ private fun LoginScreen(
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFFFAFBF8)
+        color = CanonBg
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -1448,7 +1448,7 @@ private fun LoginFormCard(
         ) {
             Text(
                 text = stringResource(R.string.login_title),
-                color = Color(0xFF111816),
+                color = CanonText,
                 fontSize = 24.sp,
                 lineHeight = 28.sp,
                 fontWeight = FontWeight.Black
@@ -1456,7 +1456,7 @@ private fun LoginFormCard(
             Text(
                 text = if (step == 0) stringResource(R.string.login_subtitle)
                 else appText("Код отправлен на $phone", "Код $phone номерыңа ебәрелде"),
-                color = Color(0xFF626D67),
+                color = CanonMuted,
                 fontSize = 16.sp,
                 lineHeight = 22.sp
             )
@@ -1466,7 +1466,7 @@ private fun LoginFormCard(
                     onValueChange = { phone = it; error = null },
                     placeholder = { Text(stringResource(R.string.phone_number), fontSize = 16.sp) },
                     leadingIcon = {
-                        Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = Color(0xFFADB5C2))
+                        Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonMuted)
                     },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     modifier = Modifier
@@ -1481,7 +1481,7 @@ private fun LoginFormCard(
                     onValueChange = { code = it.filter { c -> c.isDigit() }.take(6); error = null },
                     placeholder = { Text(appText("Код из SMS", "SMS коды"), fontSize = 16.sp) },
                     leadingIcon = {
-                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFADB5C2))
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted)
                     },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     modifier = Modifier
@@ -1491,7 +1491,7 @@ private fun LoginFormCard(
                     shape = RoundedCornerShape(14.dp)
                 )
                 TextButton(onClick = { step = 0; code = ""; error = null }) {
-                    Text(appText("Изменить номер", "Номерҙы үҙгәртеү"), color = Color(0xFF078347))
+                    Text(appText("Изменить номер", "Номерҙы үҙгәртеү"), color = CanonGreen2)
                 }
             }
             error?.let {
@@ -1542,7 +1542,7 @@ private fun LoginFormCard(
                     .fillMaxWidth()
                     .height(58.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF078347))
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
                 if (loading) {
                     CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
@@ -1781,7 +1781,7 @@ private fun TrustDivider() {
             .padding(start = 72.dp)
             .fillMaxWidth()
             .height(1.dp)
-            .background(Color(0xFFE9ECE8))
+            .background(CanonBorder)
     )
 }
 
@@ -1795,17 +1795,17 @@ private fun TrustRow(icon: ImageVector, title: String, subtitle: String) {
     ) {
         Surface(
             modifier = Modifier.size(48.dp),
-            color = Color(0xFFEAF4EF),
+            color = CanonMint,
             shape = RoundedCornerShape(14.dp)
         ) {
-            Icon(icon, contentDescription = null, tint = Color(0xFF078347), modifier = Modifier.padding(12.dp))
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
         }
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = Color(0xFF111816), fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium)
-            Text(subtitle, color = Color(0xFF758094), fontSize = 14.sp, lineHeight = 18.sp)
+            Text(title, color = CanonText, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium)
+            Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp)
         }
-        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = Color(0xFF9BA3AF), modifier = Modifier.size(28.dp))
+        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -1817,10 +1817,10 @@ private fun SafetyFooter(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFF078347), modifier = Modifier.size(19.dp))
+            Icon(Icons.Default.Shield, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(19.dp))
             Text(
                 text = appText("Безопасность поездок — наш приоритет", "Сәфәр хәүефһеҙлеге — беҙҙең өҫтөнлөк"),
-                color = Color(0xFF078347),
+                color = CanonGreen2,
                 fontSize = 14.sp,
                 lineHeight = 18.sp,
                 fontWeight = FontWeight.Black,
@@ -1829,7 +1829,7 @@ private fun SafetyFooter(modifier: Modifier = Modifier) {
         }
         Text(
             text = appText("Юлдаш заботится о вас", "Юлдаш һеҙҙең хаҡта хәстәрләй"),
-            color = Color(0xFF758094),
+            color = CanonMuted,
             fontSize = 13.sp,
             lineHeight = 17.sp,
             fontWeight = FontWeight.Medium,
@@ -2708,7 +2708,7 @@ private fun MapPreview(modifier: Modifier = Modifier) {
     ) {
         Canvas(Modifier.fillMaxSize()) {
             drawCircle(Color.White.copy(alpha = 0.55f), radius = 170f, center = Offset(size.width * 0.05f, size.height * 0.12f))
-            drawCircle(Color(0xFF167A4A).copy(alpha = 0.08f), radius = 210f, center = Offset(size.width * 0.95f, size.height * 0.88f))
+            drawCircle(Color(0xFF0B6B3A).copy(alpha = 0.08f), radius = 210f, center = Offset(size.width * 0.95f, size.height * 0.88f))
             val route = Path().apply {
                 moveTo(size.width * 0.16f, size.height * 0.28f)
                 cubicTo(
@@ -2727,8 +2727,8 @@ private fun MapPreview(modifier: Modifier = Modifier) {
             drawPath(sideRoad, Color.White.copy(alpha = 0.75f), style = Stroke(width = 11f, cap = StrokeCap.Round))
             drawPath(sideRoad, Color(0xFF8DB39A).copy(alpha = 0.45f), style = Stroke(width = 3f, cap = StrokeCap.Round))
             drawPath(route, Color.White, style = Stroke(width = 22f, cap = StrokeCap.Round))
-            drawPath(route, Color(0xFF167A4A), style = Stroke(width = 7f, cap = StrokeCap.Round))
-            drawCircle(Color(0xFF167A4A), radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
+            drawPath(route, Color(0xFF0B6B3A), style = Stroke(width = 7f, cap = StrokeCap.Round))
+            drawCircle(Color(0xFF0B6B3A), radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
             drawCircle(Color(0xFFE2A11B), radius = 15f, center = Offset(size.width * 0.84f, size.height * 0.68f))
         }
         MapLabel("Баймаҡ", Modifier.align(Alignment.TopStart).padding(20.dp))
@@ -3058,7 +3058,7 @@ private fun RideCard(
                         Text(ride.driver, fontWeight = FontWeight.Bold)
                         if (ride.verified) {
                             Spacer(Modifier.width(4.dp))
-                            Icon(Icons.Default.Verified, contentDescription = null, tint = Color(0xFF1D7A46), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                         }
                     }
                     Text(ride.car, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -3135,12 +3135,12 @@ private fun VerifiedBadge() {
 @Composable
 private fun BoostBadge() {
     Surface(
-        color = Color(0xFFFFF1C7),
+        color = CanonYellow,
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, Color(0xFFE2A11B).copy(alpha = 0.25f))
     ) {
         Row(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.TrendingUp, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color(0xFF167A4A))
+            Icon(Icons.Default.TrendingUp, contentDescription = null, modifier = Modifier.size(15.dp), tint = CanonGreen2)
             Spacer(Modifier.width(4.dp))
             Text("Вверху", fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
@@ -3151,7 +3151,7 @@ private fun BoostBadge() {
 private fun Metric(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
-        color = Color(0xFFF6F6EF),
+        color = CanonSurface,
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
@@ -3633,7 +3633,7 @@ private fun ChatComposer(
 
 @Composable
 private fun VoiceMessageCard(message: LocalVoiceMessage) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF7FAF5)), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonGreen2, shape = CircleShape) {
                 Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.padding(12.dp).size(24.dp))
@@ -4333,7 +4333,7 @@ private fun ProfileScreen(
                                 Text(appText("Телефон скрыт до подтверждения поездки", "Телефон сәфәр раҫланғанға тиклем йәшерелгән"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, lineHeight = 16.sp)
                             }
                         }
-                        Surface(color = Color(0xFFDDF5E7), shape = RoundedCornerShape(999.dp)) {
+                        Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -4634,7 +4634,7 @@ private fun AdsAdminPreview(ads: List<PartnerAd>, adStats: Map<String, AdStats>)
             Text(appText("Объявления", "Иғландар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
             ads.take(4).forEach { ad ->
                 val stats = adStats[ad.id] ?: AdStats()
-                Surface(color = Color(0xFFF7FAF5), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, CanonBorder)) {
+                Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(ad.title, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -4698,7 +4698,7 @@ private fun AdChecklistRow(title: String, subtitle: String, done: Boolean) {
 
 @Composable
 private fun AdPackageRow(title: String, subtitle: String, price: String) {
-    Surface(color = Color(0xFFF7FAF5), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CanonBorder)) {
+    Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CanonBorder)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(9.dp))
@@ -4937,7 +4937,7 @@ private fun PartnerAdCard(
 
 @Composable
 private fun AdChip(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, color = Color(0xFFF7FAF5), shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, CanonBorder)) {
+    Surface(modifier = modifier, color = CanonSurface, shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, CanonBorder)) {
         Row(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(5.dp))
@@ -5831,7 +5831,7 @@ private fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Uni
                 Text(appText("Мы проверяем ваши данные, чтобы пассажиры могли вам доверять", "Пассажирҙар ышанһын өсөн мәғлүмәтте тикшерәбеҙ"), color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp)
             }
             item {
-                Surface(color = Color(0xFFF2FAF5), shape = CanonItemShape, border = BorderStroke(1.dp, Color(0x2235A363))) {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, Color(0x2235A363))) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(color = CanonMint, shape = CircleShape) {
