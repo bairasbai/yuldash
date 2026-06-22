@@ -61,7 +61,7 @@ def _send_sms(phone: str, code: str) -> None:
                 params={"api_id": settings.sms_ru_api_id, "to": phone, "msg": f"Yuldash: kod {code}", "json": 1},
                 timeout=10,
             )
-            print(f"[SMS] {phone}: smsru status={r.status_code}")  # код в проде НЕ логируем
+            print(f"[SMS] {phone}: smsru http={r.status_code} resp={r.text[:160]}")  # код НЕ логируем
         except Exception as e:  # noqa: BLE001
             print(f"[SMS] {phone}: smsru error {e}")
     else:
