@@ -12,10 +12,11 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from .config import settings
-from .db import get_session, init_db
+from .db import engine, get_session, init_db
 from .models import (
-    Booking, BookingStatus, DriverProfile, OtpCode, Ride, RideCategory,
-    RideRequest, RideStatus, User,
+    Block, Booking, BookingStatus, DriverProfile, Message, OtpCode, Report,
+    Ride, RideCategory, RideRequest, RideStatus, SosEvent, TripShare,
+    TrustedContact, User, UserRole,
 )
 from .security import current_user, gen_otp, make_token
 
@@ -23,6 +24,8 @@ from .security import current_user, gen_otp, make_token
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    with Session(engine) as session:
+        _seed_demo(session)
     yield
 
 
@@ -95,6 +98,69 @@ class RideIn(BaseModel):
     comment: str = ""
 
 
+class RideOut(BaseModel):
+    """Поездка + витрина водителя (имя/рейтинг/авто) — чтобы приложение рисовало карточку."""
+    id: int
+    driver_id: int
+    from_city: str
+    to_city: str
+    depart_at: datetime
+    seats_total: int
+    seats_left: int
+    price: int
+    category: RideCategory
+    comment: str
+    status: RideStatus
+    driver_name: str
+    driver_rating: float
+    driver_verified: bool
+    driver_car: str
+
+
+def _ride_out(ride: Ride, session: Session) -> RideOut:
+    drv = session.get(User, ride.driver_id)
+    prof = session.exec(
+        select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)
+    ).first()
+    car = f"{prof.car_make} {prof.car_model}".strip() if prof else ""
+    return RideOut(
+        **ride.model_dump(exclude={"created_at"}),
+        driver_name=(drv.name if drv else "Водитель"),
+        driver_rating=(prof.rating if prof else 5.0),
+        driver_verified=(drv.verified if drv else False),
+        driver_car=car,
+    )
+
+
+def _seed_demo(session: Session) -> None:
+    """Демо-поездки в пустой БД — чтобы экран «Ближайшие поездки» был живым."""
+    if session.exec(select(Ride)).first():
+        return
+    demo = [
+        ("Ильдар", 4.8, True, "Lada", "Vesta", "Баймаҡ", "Сибай", 350, 3),
+        ("Айгуль", 4.9, True, "Kia", "Rio", "Темясово", "Уфа", 1400, 3),
+        ("Рустам", 4.6, False, "Renault", "Logan", "Сибай", "Баймаҡ", 300, 2),
+        ("Гүзәл", 5.0, True, "Hyundai", "Solaris", "Учалы", "Магнитогорск", 800, 4),
+    ]
+    base = datetime.utcnow() + timedelta(hours=3)
+    for i, (name, rating, verified, make, model, frm, to, price, seats) in enumerate(demo):
+        u = User(phone=f"+7000000000{i}", name=name, role=UserRole.driver, verified=verified)
+        session.add(u)
+        session.commit()
+        session.refresh(u)
+        session.add(DriverProfile(
+            user_id=u.id, rating=rating, trips_count=42,
+            car_make=make, car_model=model, seats=seats,
+        ))
+        session.add(Ride(
+            driver_id=u.id, from_city=frm, to_city=to,
+            depart_at=base + timedelta(hours=i * 6),
+            seats_total=seats, seats_left=seats, price=price,
+            category=RideCategory.regular,
+        ))
+    session.commit()
+
+
 @app.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ride = Ride(driver_id=user.id, seats_left=body.seats_total, **body.model_dump())
@@ -104,7 +170,7 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     return ride
 
 
-@app.get("/rides", response_model=List[Ride])
+@app.get("/rides", response_model=List[RideOut])
 def search_rides(
     from_city: Optional[str] = None,
     to_city: Optional[str] = None,
@@ -118,7 +184,8 @@ def search_rides(
         q = q.where(Ride.to_city.contains(to_city))
     if category:
         q = q.where(Ride.category == category)
-    return session.exec(q.order_by(Ride.depart_at)).all()
+    rides = session.exec(q.order_by(Ride.depart_at)).all()
+    return [_ride_out(r, session) for r in rides]
 
 
 @app.get("/rides/{ride_id}", response_model=Ride)
@@ -231,3 +298,124 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     session.commit()
     session.refresh(dp)
     return dp
+
+
+# ----------------------------- Чат (сообщения по брони) -----------------------------
+class MessageIn(BaseModel):
+    text: str = ""
+    voice_url: Optional[str] = None
+    transcript: Optional[str] = None
+
+
+@app.post("/bookings/{booking_id}/messages", response_model=Message)
+def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    if not session.get(Booking, booking_id):
+        raise HTTPException(404, "Бронь не найдена")
+    msg = Message(booking_id=booking_id, sender_id=user.id, **body.model_dump())
+    session.add(msg)
+    session.commit()
+    session.refresh(msg)
+    return msg
+
+
+@app.get("/bookings/{booking_id}/messages", response_model=List[Message])
+def list_messages(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    return session.exec(select(Message).where(Message.booking_id == booking_id).order_by(Message.id)).all()
+
+
+# ----------------------------- Семейный контроль -----------------------------
+class ContactIn(BaseModel):
+    name: str
+    relation: str = ""
+    phone: str = ""
+    notify_by_default: bool = True
+
+
+@app.post("/trusted-contacts", response_model=TrustedContact)
+def add_contact(body: ContactIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    contact = TrustedContact(user_id=user.id, **body.model_dump())
+    session.add(contact)
+    session.commit()
+    session.refresh(contact)
+    return contact
+
+
+@app.get("/trusted-contacts", response_model=List[TrustedContact])
+def list_contacts(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    return session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+
+
+class ShareIn(BaseModel):
+    contact_id: int
+
+
+@app.post("/bookings/{booking_id}/share", response_model=TripShare)
+def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    if not session.get(Booking, booking_id):
+        raise HTTPException(404, "Бронь не найдена")
+    share = TripShare(booking_id=booking_id, contact_id=body.contact_id)
+    session.add(share)
+    session.commit()
+    session.refresh(share)
+    return share
+
+
+class TripStatusIn(BaseModel):
+    status: str  # sat / arrived / done
+
+
+@app.post("/bookings/{booking_id}/trip-status", response_model=List[TripShare])
+def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id)).all()
+    for share in shares:
+        share.last_status = body.status
+        session.add(share)
+    session.commit()
+    for share in shares:
+        session.refresh(share)  # после commit объекты «обнуляются» — перечитываем
+    # TODO: тут — push/SMS близким («сел», «доехал»)
+    return shares
+
+
+# ----------------------------- Безопасность -----------------------------
+class SosIn(BaseModel):
+    category: str = "other"      # medical / breakdown / other
+    booking_id: Optional[int] = None
+    note: str = ""
+
+
+@app.post("/sos", response_model=SosEvent)
+def sos(body: SosIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    event = SosEvent(user_id=user.id, **body.model_dump())
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    # TODO: уведомить экстренные службы/поддержку/доверенные контакты
+    return event
+
+
+class ReportIn(BaseModel):
+    target_user_id: int
+    reason: str = ""
+
+
+@app.post("/reports", response_model=Report)
+def create_report(body: ReportIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    report = Report(reporter_id=user.id, **body.model_dump())
+    session.add(report)
+    session.commit()
+    session.refresh(report)
+    return report
+
+
+class BlockIn(BaseModel):
+    blocked_user_id: int
+
+
+@app.post("/blocks", response_model=Block)
+def create_block(body: BlockIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    block = Block(user_id=user.id, **body.model_dump())
+    session.add(block)
+    session.commit()
+    session.refresh(block)
+    return block

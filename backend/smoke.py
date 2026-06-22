@@ -48,4 +48,22 @@ with TestClient(app) as c:
     dp = c.post("/driver/online", headers=h, json={"online": True}).json()
     assert dp["online"] is True
 
+    # чат по брони
+    c.post(f"/bookings/{bk['id']}/messages", headers=h, json={"text": "Буду у вокзала в 17:20"})
+    msgs = c.get(f"/bookings/{bk['id']}/messages", headers=h).json()
+    print("messages:", len(msgs))
+    assert len(msgs) >= 1
+
+    # семейный контроль: контакт → шаринг поездки → статус «сел»
+    contact = c.post("/trusted-contacts", headers=h, json={"name": "Гульназ", "relation": "Сестра", "phone": "+79277778899"}).json()
+    c.post(f"/bookings/{bk['id']}/share", headers=h, json={"contact_id": contact["id"]})
+    shares = c.post(f"/bookings/{bk['id']}/trip-status", headers=h, json={"status": "sat"}).json()
+    print("family share status:", shares[0]["last_status"])
+    assert shares[0]["last_status"] == "sat"
+
+    # безопасность: SOS
+    sos = c.post("/sos", headers=h, json={"category": "medical", "note": "нужна помощь"}).json()
+    print("sos:", sos["id"], sos["category"], sos["status"])
+    assert sos["status"] == "open"
+
     print("SMOKE OK")

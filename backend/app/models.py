@@ -105,3 +105,58 @@ class Booking(SQLModel, table=True):
     status: BookingStatus = BookingStatus.pending
     boarding_code: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ---- Фаза 2: чат, семья, безопасность ----
+
+class Message(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    booking_id: int = Field(index=True)
+    sender_id: int
+    text: str = ""
+    voice_url: Optional[str] = None
+    transcript: Optional[str] = None        # расшифровка голосового
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TrustedContact(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    name: str
+    relation: str = ""
+    phone: str = ""
+    notify_by_default: bool = True
+
+
+class TripShare(SQLModel, table=True):
+    """Поездка, расшаренная близкому (семейный контроль)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    booking_id: int = Field(index=True)
+    contact_id: int
+    last_status: str = "shared"             # shared / sat / arrived / done
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SosEvent(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    booking_id: Optional[int] = None
+    category: str = "other"                 # medical / breakdown / other
+    note: str = ""
+    status: str = "open"                    # open / handled
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Report(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    reporter_id: int = Field(index=True)
+    target_user_id: int
+    reason: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Block(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    blocked_user_id: int
+    created_at: datetime = Field(default_factory=datetime.utcnow)

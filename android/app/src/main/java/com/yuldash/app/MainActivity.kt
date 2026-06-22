@@ -27,6 +27,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -38,11 +39,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -123,6 +126,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -177,6 +181,7 @@ import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
+import com.yuldash.app.data.ApiClient
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -298,6 +303,15 @@ private val CanonItemShape = RoundedCornerShape(22.dp)
 @Composable
 private fun appText(ru: String, ba: String): String {
     return if (LocalAppLanguage.current == AppLanguage.Ba) ba else ru
+}
+
+/** ISO-дата сервера "2026-06-22T22:24:07" → "22.06, 22:24" для карточки поездки. */
+private fun formatDepart(iso: String): String = try {
+    val d = iso.substringBefore('T')
+    val t = iso.substringAfter('T')
+    "${d.substring(8, 10)}.${d.substring(5, 7)}, ${t.substring(0, 5)}"
+} catch (e: Exception) {
+    iso
 }
 
 private data class Ride(
@@ -574,7 +588,11 @@ private fun YuldashApp() {
     val voiceMessages = remember { mutableStateListOf<LocalVoiceMessage>() }
     var screen by remember {
         mutableStateOf(
-            if (prefs.getBoolean("onboarding_completed", false)) Screen.Login else Screen.Onboarding
+            when {
+                !prefs.getBoolean("onboarding_completed", false) -> Screen.Onboarding
+                ApiClient.isLoggedIn() -> Screen.Home          // уже вошёл → сразу домой
+                else -> Screen.Login
+            }
         )
     }
     var language by remember { mutableStateOf(AppLanguage.Ru) }
@@ -606,6 +624,32 @@ private fun YuldashApp() {
         Toast.makeText(context, "${ad.title}: ${ad.primaryButton}", Toast.LENGTH_SHORT).show()
     }
 
+    // Поездки — с сервера. Стартуем с демо (мгновенно), при ответе заменяем на серверные.
+    // Сервер недоступен (ТСПУ/офлайн) → остаются демо, экран не пустеет.
+    LaunchedEffect(Unit) {
+        ApiClient.getRides().onSuccess { dtos ->
+            if (dtos.isNotEmpty()) {
+                rides.clear()
+                rides.addAll(
+                    dtos.map { d ->
+                        Ride(
+                            id = d.id.toString(),
+                            from = d.fromCity,
+                            to = d.toCity,
+                            time = formatDepart(d.departAt),
+                            driver = d.driverName,
+                            car = d.driverCar,
+                            price = d.price,
+                            seats = d.seatsLeft,
+                            rating = d.driverRating,
+                            verified = d.driverVerified,
+                            boosted = false,
+                        )
+                    }
+                )
+            }
+        }
+    }
     CompositionLocalProvider(LocalAppLanguage provides language) {
         BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home) {
             screen = Screen.Home
@@ -1202,8 +1246,6 @@ private fun LoginScreen(
     onToggleLanguage: () -> Unit,
     onContinue: () -> Unit
 ) {
-    var phone by remember { mutableStateOf("") }
-
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = Color(0xFFFAFBF8)
@@ -1214,25 +1256,20 @@ private fun LoginScreen(
             contentPadding = PaddingValues(bottom = 28.dp)
         ) {
             item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(530.dp)
-                ) {
+                Column {
                     BrandHero(
                         currentLanguage = currentLanguage,
                         onToggleLanguage = onToggleLanguage,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(390.dp)
+                            .height(360.dp)
                     )
                     LoginFormCard(
-                        phone = phone,
-                        onPhoneChange = { phone = it },
                         onContinue = onContinue,
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
                             .padding(horizontal = 24.dp)
+                            .offset(y = (-44).dp)
                     )
                 }
             }
@@ -1256,11 +1293,16 @@ private fun LoginScreen(
 
 @Composable
 private fun LoginFormCard(
-    phone: String,
-    onPhoneChange: (String) -> Unit,
     onContinue: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val scope = rememberCoroutineScope()
+    var step by remember { mutableStateOf(0) }            // 0 — ввод телефона, 1 — ввод кода
+    var phone by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1279,38 +1321,105 @@ private fun LoginFormCard(
                 fontWeight = FontWeight.Black
             )
             Text(
-                text = stringResource(R.string.login_subtitle),
+                text = if (step == 0) stringResource(R.string.login_subtitle)
+                else appText("Код отправлен на $phone", "Код $phone номерыңа ебәрелде"),
                 color = Color(0xFF626D67),
                 fontSize = 16.sp,
                 lineHeight = 22.sp
             )
-            OutlinedTextField(
-                value = phone,
-                onValueChange = onPhoneChange,
-                placeholder = { Text(stringResource(R.string.phone_number), fontSize = 16.sp) },
-                leadingIcon = {
-                    Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = Color(0xFFADB5C2))
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp)
-            )
+            if (step == 0) {
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it; error = null },
+                    placeholder = { Text(stringResource(R.string.phone_number), fontSize = 16.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = Color(0xFFADB5C2))
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(58.dp),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+            } else {
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it.filter { c -> c.isDigit() }.take(6); error = null },
+                    placeholder = { Text(appText("Код из SMS", "SMS коды"), fontSize = 16.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFADB5C2))
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(58.dp),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+                TextButton(onClick = { step = 0; code = ""; error = null }) {
+                    Text(appText("Изменить номер", "Номерҙы үҙгәртеү"), color = Color(0xFF078347))
+                }
+            }
+            error?.let {
+                Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp)
+            }
+            // строки ошибок считаем здесь (в @Composable-контексте); в onClick отдаём готовый текст
+            val errEnterPhone = appText("Введите номер телефона", "Телефон номерын индерегеҙ")
+            val errSendFail = appText("Не получилось отправить код. Повтори.", "Код ебәреп булманы. Ҡабатла.")
+            val errEnterCode = appText("Введите код из SMS", "SMS кодын индерегеҙ")
+            val errBadCode = appText("Неверный код", "Код дөрөҫ түгел")
             Button(
-                onClick = onContinue,
+                onClick = {
+                    if (loading) return@Button
+                    error = null
+                    if (step == 0) {
+                        val p = phone.trim()
+                        if (p.length < 5) {
+                            error = errEnterPhone
+                            return@Button
+                        }
+                        loading = true
+                        scope.launch {
+                            ApiClient.requestCode(p)
+                                .onSuccess { loading = false; step = 1 }
+                                .onFailure {
+                                    loading = false
+                                    error = it.message ?: errSendFail
+                                }
+                        }
+                    } else {
+                        if (code.length < 4) {
+                            error = errEnterCode
+                            return@Button
+                        }
+                        loading = true
+                        scope.launch {
+                            ApiClient.verifyCode(phone.trim(), code.trim(), "")
+                                .onSuccess { loading = false; onContinue() }
+                                .onFailure {
+                                    loading = false
+                                    error = it.message ?: errBadCode
+                                }
+                        }
+                    }
+                },
+                enabled = !loading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(58.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF078347))
             ) {
-                Text(
-                    text = stringResource(R.string.continue_action),
-                    fontWeight = FontWeight.Black,
-                    fontSize = 16.sp
-                )
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                } else {
+                    Text(
+                        text = if (step == 0) appText("Получить код", "Код алыу") else appText("Войти", "Инеү"),
+                        fontWeight = FontWeight.Black,
+                        fontSize = 16.sp
+                    )
+                }
             }
         }
     }
@@ -1418,53 +1527,49 @@ private fun BrandHero(
             Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
         }
 
-        Row(
+        Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(top = 56.dp, start = 28.dp, end = 22.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(top = 52.dp, start = 28.dp, end = 22.dp)
         ) {
-            Surface(
-                modifier = Modifier.size(68.dp),
-                shape = CircleShape,
-                color = Color.White,
-                shadowElevation = 6.dp
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.yuldash_logo),
-                    contentDescription = null,
-                    modifier = Modifier.padding(8.dp),
-                    contentScale = ContentScale.Fit
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    modifier = Modifier.size(68.dp),
+                    shape = CircleShape,
+                    color = Color.White,
+                    shadowElevation = 6.dp
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.yuldash_logo),
+                        contentDescription = null,
+                        modifier = Modifier.padding(8.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                Spacer(Modifier.width(16.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Юлдаш", color = Color.White, fontSize = 40.sp, lineHeight = 42.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        text = appText("Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = 18.sp,
+                        lineHeight = 22.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
-            Spacer(Modifier.width(16.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Юлдаш", color = Color.White, fontSize = 40.sp, lineHeight = 42.sp, fontWeight = FontWeight.Black)
-                Text(
-                    text = appText("Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
-                    color = Color.White.copy(alpha = 0.94f),
-                    fontSize = 18.sp,
-                    lineHeight = 22.sp,
-                    fontWeight = FontWeight.Medium
-                )
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HeroPill(Icons.Default.PhoneLocked, appText("Скрытый номер", "Йәшерен номер"))
+                HeroPill(Icons.Default.Pin, appText("Код посадки", "Ултырыу коды"))
             }
-        }
-
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 28.dp, bottom = 170.dp, end = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            HeroPill(Icons.Default.PhoneLocked, appText("Скрытый номер", "Йәшерен номер"))
-            HeroPill(Icons.Default.Pin, appText("Код посадки", "Ултырыу коды"))
         }
 
         Surface(
         modifier = Modifier
             .align(Alignment.BottomEnd)
-                .padding(end = 50.dp, bottom = 28.dp)
+                .padding(end = 50.dp, bottom = 70.dp)
                 .size(width = 70.dp, height = 42.dp),
             shape = RoundedCornerShape(14.dp),
             color = Color(0xFF0D6549).copy(alpha = 0.88f),
@@ -2352,6 +2457,23 @@ private fun YandexMapCard(
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     v.parent?.requestDisallowInterceptTouchEvent(true)
                 }
+                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    val width = v.width.toFloat().coerceAtLeast(1f)
+                    val height = v.height.toFloat().coerceAtLeast(1f)
+                    val x = event.x / width
+                    val y = event.y / height
+                    val tappedRide = when {
+                        kotlin.math.abs(x - 0.66f) < 0.13f && kotlin.math.abs(y - 0.45f) < 0.12f ->
+                            currentRides.firstOrNull { it.from == "Сибай" } ?: currentRides.firstOrNull()
+                        kotlin.math.abs(x - 0.36f) < 0.14f && kotlin.math.abs(y - 0.22f) < 0.14f ->
+                            currentRides.firstOrNull { it.from == "Баймаҡ" } ?: currentRides.firstOrNull()
+                        else -> null
+                    }
+                    if (tappedRide != null) {
+                        currentOnTap(tappedRide)
+                        return@setOnTouchListener true
+                    }
+                }
                 false
             }
         }
@@ -2372,6 +2494,7 @@ private fun YandexMapCard(
             .border(1.dp, Color(0x1A000000), RoundedCornerShape(24.dp))
     ) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+        MapMarkerHitTargets(rides = rides, onRideTap = onRideTap)
         MapLabel("Баймаҡ", Modifier.align(Alignment.TopStart).padding(20.dp))
         MapLabel("Сибай", Modifier.align(Alignment.CenterEnd).padding(20.dp))
         Surface(
@@ -2401,6 +2524,37 @@ private fun YandexMapCard(
                     Text(appText("Геолокация откроется после подтверждения поездки", "Геолокация сәфәр раҫланғас асыла"), fontSize = 15.sp)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MapMarkerHitTargets(rides: List<Ride>, onRideTap: (Ride) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize().zIndex(5f)) {
+        val byCity = rides.groupBy { it.from }
+        byCity["Баймаҡ"]?.firstOrNull()?.let { ride ->
+            Box(
+                Modifier
+                    .offset(x = maxWidth * 0.34f, y = maxHeight * 0.18f)
+                    .size(width = 96.dp, height = 64.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onRideTap(ride) }
+                    )
+            )
+        }
+        byCity["Сибай"]?.firstOrNull()?.let { ride ->
+            Box(
+                Modifier
+                    .offset(x = maxWidth * 0.62f, y = maxHeight * 0.39f)
+                    .size(width = 112.dp, height = 72.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onRideTap(ride) }
+                    )
+            )
         }
     }
 }

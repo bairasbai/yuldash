@@ -178,13 +178,15 @@
   },
   "active": "b0844c90eb403744",
   "lastOpenFiles": [
+    "server.md",
     "backend.md",
+    "decisions.md",
+    "map-design.md",
     "backend.md.tmp.26792.2aff15437ddf",
     "architecture.md",
     "00-INDEX.md",
     "tasks.md.tmp.16160.dc7d908bca7c",
     "architecture.md.tmp.16160.b962ee09f720",
-    "map-design.md",
     "stitch/karta.png",
     "stitch",
     "lessons.md"
