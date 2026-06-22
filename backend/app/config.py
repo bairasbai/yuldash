@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     otp_ttl_sec: int = 300              # код жив 5 минут
     sms_provider: str = "mock"          # mock | smsru
     sms_ru_api_id: str = ""             # api_id из кабинета sms.ru (нужен для sms_provider=smsru)
+    sms_from: str = ""                  # буквенный отправитель sms.ru после модерации (напр. Yuldash)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

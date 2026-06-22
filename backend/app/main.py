@@ -52,18 +52,24 @@ class VerifyIn(BaseModel):
 
 
 def _send_sms(phone: str, code: str) -> None:
-    """Отправка OTP. `smsru` — реально через sms.ru; иначе мок (код в лог)."""
+    """Отправка OTP. `smsru` — реально через sms.ru; иначе мок (код в лог).
+    Если sms.ru НЕ отправил (напр. нет одобренного отправителя) — код падает в лог,
+    чтобы вход работал на период настройки отправителя."""
     if settings.sms_provider == "smsru" and settings.sms_ru_api_id:
         try:
             import httpx
-            r = httpx.get(
-                "https://sms.ru/sms/send",
-                params={"api_id": settings.sms_ru_api_id, "to": phone, "msg": f"Yuldash: kod {code}", "json": 1},
-                timeout=10,
-            )
-            print(f"[SMS] {phone}: smsru http={r.status_code} resp={r.text[:160]}")  # код НЕ логируем
+            params = {"api_id": settings.sms_ru_api_id, "to": phone, "msg": f"Yuldash: kod {code}", "json": 1}
+            if settings.sms_from:
+                params["from"] = settings.sms_from
+            data = httpx.get("https://sms.ru/sms/send", params=params, timeout=10).json()
+            sms = (data.get("sms") or {}).get(phone, {})
+            ok = sms.get("status_code") == 100
+            print(f"[SMS] {phone}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
+            if not ok:
+                print(f"[OTP] {phone} -> {code}")  # фоллбэк: SMS не ушла → код в лог
         except Exception as e:  # noqa: BLE001
             print(f"[SMS] {phone}: smsru error {e}")
+            print(f"[OTP] {phone} -> {code}")  # фоллбэк при ошибке сети
     else:
         print(f"[OTP] {phone} -> {code}")  # мок/dev — код в логе
 
