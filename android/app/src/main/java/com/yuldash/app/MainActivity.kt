@@ -330,6 +330,13 @@ private fun apiCategoryToUi(category: String, withKids: Boolean): String = when 
     else -> "Обычная"
 }
 
+/** Категория SOS из UI → enum бэкенда. */
+private fun sosCategoryToApi(ui: String): String = when (ui) {
+    "Медицина" -> "medical"
+    "Поломка авто" -> "breakdown"
+    else -> "other"
+}
+
 private data class Ride(
     val id: String,
     val from: String,
@@ -689,6 +696,15 @@ private fun YuldashApp() {
                 )
             }
         }
+        // Доверенные контакты — с сервера (после входа).
+        LaunchedEffect(Unit) {
+            ApiClient.getContacts().onSuccess { list ->
+                if (list.isNotEmpty()) {
+                    trustedContacts.clear()
+                    trustedContacts.addAll(list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault) })
+                }
+            }
+        }
         BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home) {
             screen = Screen.Home
         }
@@ -866,6 +882,7 @@ private fun YuldashApp() {
                 onBack = { screen = Screen.SimpleMode },
                 onAddContact = { contact ->
                     trustedContacts.add(contact)
+                    ApiClient.fireAddContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault)
                     Toast.makeText(context, "Контакт добавлен", Toast.LENGTH_SHORT).show()
                 }
             )
@@ -5528,7 +5545,10 @@ private fun SosScreen(onBack: () -> Unit) {
             }
             item {
                 Button(
-                    onClick = { sent = true },
+                    onClick = {
+                        sent = true
+                        ApiClient.fireSos(sosCategoryToApi(selected), description.trim())
+                    },
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD43C31))

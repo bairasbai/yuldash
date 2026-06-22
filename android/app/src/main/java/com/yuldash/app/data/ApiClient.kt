@@ -41,6 +41,14 @@ object ApiClient {
         bg.launch { book(rideId, seats) }
     }
 
+    fun fireAddContact(name: String, relation: String, phone: String, notifyByDefault: Boolean) {
+        bg.launch { addContact(name, relation, phone, notifyByDefault) }
+    }
+
+    fun fireSos(category: String, note: String) {
+        bg.launch { sos(category, note) }
+    }
+
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) {
         val p = context.applicationContext.getSharedPreferences("yuldash", Context.MODE_PRIVATE)
@@ -177,6 +185,32 @@ object ApiClient {
             }
         }
 
+    // ---------- Доверенные контакты / SOS ----------
+
+    suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean): Result<Unit> =
+        call(
+            "POST", "/trusted-contacts",
+            JSONObject().put("name", name).put("relation", relation).put("phone", phone).put("notify_by_default", notifyByDefault),
+            auth = true,
+        ).map { }
+
+    suspend fun getContacts(): Result<List<ContactDto>> =
+        call("GET", "/trusted-contacts", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                ContactDto(
+                    name = o.optString("name"),
+                    relation = o.optString("relation"),
+                    phone = o.optString("phone"),
+                    notifyByDefault = o.optBoolean("notify_by_default"),
+                )
+            }
+        }
+
+    suspend fun sos(category: String, note: String): Result<Unit> =
+        call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -252,4 +286,12 @@ data class RequestDto(
     val comment: String,
     val forRelativeName: String?,
     val status: String,
+)
+
+/** Доверенный контакт с сервера. */
+data class ContactDto(
+    val name: String,
+    val relation: String,
+    val phone: String,
+    val notifyByDefault: Boolean,
 )
