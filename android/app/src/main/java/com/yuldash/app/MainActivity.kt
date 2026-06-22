@@ -310,6 +310,9 @@ private val CanonRed: Color @Composable get() = if (isSystemInDarkTheme()) Color
 private val CanonSurface: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF192420) else Color(0xFFFFFFFF)
 // Подложка опасности/ошибки (SOS, ошибки) — адаптивная (светло-розовая / тёмно-красная).
 private val CanonDangerBg: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF3A1B18) else Color(0xFFFDECEA)
+// Предупреждение/в процессе (pending, черновик): подложка + текст — адаптивные.
+private val CanonWarnBg: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF3A2E12) else Color(0xFFFFF2D6)
+private val CanonWarn: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFE8B86A) else Color(0xFFB87400)
 private val CanonCardShape = RoundedCornerShape(28.dp)
 private val CanonItemShape = RoundedCornerShape(22.dp)
 
@@ -2850,7 +2853,7 @@ private fun RidesScreen(
                     MyTripCard(
                         ride = rides.getOrElse(2) { rides.first() },
                         status = appText("Ожидает", "Көтә"),
-                        statusColor = Color(0xFFFFF0D1),
+                        statusColor = CanonWarnBg,
                         icon = Icons.Default.Schedule,
                         primaryAction = appText("Подробнее", "Ентекле"),
                         secondaryAction = appText("Написать", "Яҙыу"),
@@ -3333,8 +3336,8 @@ private fun DraftRequestCard() {
                 Text("18 мая, в 10:00", color = CanonMuted, fontSize = 13.sp)
                 Text("450 ₽ предлагаю", color = CanonMuted, fontSize = 13.sp)
             }
-            Surface(color = Color(0xFFFFE3A1), shape = RoundedCornerShape(999.dp)) {
-                Text(appText("Черновик", "Черновик"), modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = Color(0xFFC17800), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Surface(color = CanonWarnBg, shape = RoundedCornerShape(999.dp)) {
+                Text(appText("Черновик", "Черновик"), modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
         }
@@ -4687,8 +4690,8 @@ private fun AdsLaunchChecklist() {
 @Composable
 private fun AdChecklistRow(title: String, subtitle: String, done: Boolean) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Surface(color = if (done) CanonMint else Color(0xFFFFF0D1), shape = CircleShape) {
-            Icon(if (done) Icons.Default.CheckCircle else Icons.Default.Schedule, contentDescription = null, tint = if (done) CanonGreen2 else Color(0xFFC17800), modifier = Modifier.padding(9.dp).size(18.dp))
+        Surface(color = if (done) CanonMint else CanonWarnBg, shape = CircleShape) {
+            Icon(if (done) Icons.Default.CheckCircle else Icons.Default.Schedule, contentDescription = null, tint = if (done) CanonGreen2 else CanonWarn, modifier = Modifier.padding(9.dp).size(18.dp))
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -4985,7 +4988,7 @@ private fun AdStatus.label(): String {
 private fun AdStatus.color(): Color {
     return when (this) {
         AdStatus.Active -> CanonGreen2
-        AdStatus.Moderation -> Color(0xFFC17800)
+        AdStatus.Moderation -> CanonWarn
         AdStatus.Draft -> CanonMuted
         AdStatus.Paused -> Color(0xFF7C5C00)
         AdStatus.Finished -> Color(0xFF6F7570)
@@ -5914,7 +5917,7 @@ private fun DocumentRow(icon: androidx.compose.ui.graphics.vector.ImageVector, t
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
-            Text(status, color = if (loaded) CanonGreen2 else Color(0xFFC17800), fontSize = 13.sp)
+            Text(status, color = if (loaded) CanonGreen2 else CanonWarn, fontSize = 13.sp)
         }
         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
     }
