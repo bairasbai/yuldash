@@ -16,11 +16,11 @@
 
 ## Бэкенд (FastAPI)
 - Код: `/opt/yuldash` (залит из `backend/`). venv: `/opt/yuldash/.venv`.
-- Конфиг: `/opt/yuldash/.env` (`env=prod`, `jwt_secret` случайный, SQLite `yuldash.db`). **НЕ в git.**
+- Конфиг: `/opt/yuldash/.env` (`env=prod`, `jwt_secret`, `DATABASE_URL` → PostgreSQL, `SMS_PROVIDER`). **НЕ в git.**
 - Сервис: systemd **`yuldash-api`** (uvicorn на `127.0.0.1:8000`, автозапуск при загрузке, `Restart=always`).
 - nginx: проксь `:443`/`:80` → `:8000`. Конфиг `/etc/nginx/sites-available/yuldash`.
-- **API публично (HTTPS): `https://85-239-52-55.sslip.io`** (HTTP → 301 на HTTPS). Проверка: `curl https://85-239-52-55.sslip.io/health` → `{"status":"ok","env":"prod"}`.
-- SSL: Let's Encrypt через `certbot` (плагин nginx), имя — бесплатный `sslip.io` поверх IP. Авто-обновление: `certbot.timer`. Cert: `/etc/letsencrypt/live/85-239-52-55.sslip.io/`.
+- **API публично (HTTPS): `https://yulbash.ru`** (HTTP → 301 на HTTPS). Проверка: `curl https://yulbash.ru/health` → `{"status":"ok","env":"prod"}`.
+- Домен: **`yulbash.ru`** (A-запись → `85.239.52.55`, регистратор Timeweb). SSL: Let's Encrypt (`certbot`, плагин nginx) для `yulbash.ru` + `www.yulbash.ru`. Авто-обновление: `certbot.timer`. Cert: `/etc/letsencrypt/live/yulbash.ru/`. (Старый `sslip.io`-cert тоже остался, не мешает.)
 
 ## 🚪 Как подключиться и управлять (шпаргалка для Александра)
 
@@ -40,7 +40,7 @@ ssh root@85.239.52.55
 | API живой? | `systemctl status yuldash-api` (выход — `q`) |
 | Перезапустить API | `systemctl restart yuldash-api` |
 | Логи живьём | `journalctl -u yuldash-api -f` (выход — `Ctrl+C`) |
-| Проверка здоровья | `curl https://85-239-52-55.sslip.io/health` |
+| Проверка здоровья | `curl https://yulbash.ru/health` |
 | Место на диске | `df -h` |
 | Память | `free -h` |
 
@@ -59,7 +59,7 @@ ssh root@85.239.52.55 "systemctl restart yuldash-api"
 
 ## Не сделано (следующие шаги)
 - [x] **HTTPS/SSL** — включён бесплатно через `sslip.io` + Let's Encrypt (без покупки домена). Захочешь красивый адрес — купить домен, привязать A-запись на `85.239.52.55`, `certbot --nginx -d домен` (1 команда), сменить базовый URL в приложении.
-- [x] **Подключить Android к API (CRUD-ядро)**: ✅ вход (SMS→JWT→автологин), ✅ поездки с сервера (`GET /rides`, карточки с водителем), ✅ заявки (`POST /requests` + `GET /requests/mine` — видны на вкладке «Заявка»), ✅ публикация поездки (`POST /rides` — проверено: БД 5→6), ✅ бронь (`POST /bookings` — проверено curl: booking id1, тот же fire-and-forget механизм). Клиент `data/ApiClient.kt` (HttpURLConnection, без зависимостей). **Важный фикс:** POST'ы — на долгоживущем scope `ApiClient` (fire-and-forget), иначе scope экрана отменялся при навигации и обрывал запрос. Бэкенд `/rides` дополнен `RideOut`+сид демо-поездок. ✅ **SOS** (`POST /sos` — проверено: БД 1→2), ✅ **доверенные контакты** (`POST`/`GET /trusted-contacts` — curl id1, загрузка в экран). ✅ **чат — минимальный шов**: composer с реальным вводом → `POST /bookings/{id}/messages` в последнюю бронь юзера (бэкенд проверен curl: message id1). Осталось: полные чат-треды по брони (загрузка истории + список диалогов — сейчас в чате мок-карточки), семейные share/trip-status, реальный SMS-провайдер. Базовый URL: `https://85-239-52-55.sslip.io`.
+- [x] **Подключить Android к API (CRUD-ядро)**: ✅ вход (SMS→JWT→автологин), ✅ поездки с сервера (`GET /rides`, карточки с водителем), ✅ заявки (`POST /requests` + `GET /requests/mine` — видны на вкладке «Заявка»), ✅ публикация поездки (`POST /rides` — проверено: БД 5→6), ✅ бронь (`POST /bookings` — проверено curl: booking id1, тот же fire-and-forget механизм). Клиент `data/ApiClient.kt` (HttpURLConnection, без зависимостей). **Важный фикс:** POST'ы — на долгоживущем scope `ApiClient` (fire-and-forget), иначе scope экрана отменялся при навигации и обрывал запрос. Бэкенд `/rides` дополнен `RideOut`+сид демо-поездок. ✅ **SOS** (`POST /sos` — проверено: БД 1→2), ✅ **доверенные контакты** (`POST`/`GET /trusted-contacts` — curl id1, загрузка в экран). ✅ **чат — минимальный шов**: composer с реальным вводом → `POST /bookings/{id}/messages` в последнюю бронь юзера (бэкенд проверен curl: message id1). Осталось: полные чат-треды по брони (загрузка истории + список диалогов — сейчас в чате мок-карточки), семейные share/trip-status, реальный SMS-провайдер. Базовый URL: `https://yulbash.ru`.
 - [x] **SMS-провайдер** — код готов (`sms.ru` + мок-фоллбэк). Для реального SMS Александру: аккаунт sms.ru → `api_id` → в `/opt/yuldash/.env` поставить `SMS_PROVIDER=smsru` и `SMS_RU_API_ID=...` → `systemctl restart yuldash-api`. Сейчас мок (код в логе).
 - [x] **БД: PostgreSQL** — переключено с SQLite (`DATABASE_URL=postgresql+psycopg2://yuldash@localhost:5432/yuldash`). PG слушает только localhost + firewall закрывает 5432 снаружи. Схема+сид пересозданы (реальных данных не было). Драйвер `psycopg2-binary` в requirements.
 - [x] **Экран активной поездки** (`ActiveTripScreen`) — закрывает чат-треды + семейный share: после брони открывается «Моя поездка» с чатом по брони (история `GET` + отправка), «поделиться с близким» (`POST /bookings/{id}/share`), статусом поездки (сел/доехал/завершить → `POST /bookings/{id}/trip-status`), SOS. Все эндпоинты curl-проверены (share→TripShare id1, trip-status→sat, messages→id1). book возвращает booking_id для контекста.

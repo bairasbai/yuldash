@@ -17,10 +17,10 @@ import java.net.URL
  * Встроенный HttpURLConnection + org.json — БЕЗ внешних зависимостей.
  * Токен храним в SharedPreferences, чтобы вход не слетал между запусками.
  *
- * Базовый URL — пока бесплатный sslip.io+HTTPS; сменится на домен одной строкой.
+ * Базовый URL — домен yulbash.ru (HTTPS, Let's Encrypt).
  */
 object ApiClient {
-    private const val BASE = "https://85-239-52-55.sslip.io"
+    private const val BASE = "https://yulbash.ru"
 
     @Volatile private var token: String? = null
     @Volatile private var prefs: android.content.SharedPreferences? = null
