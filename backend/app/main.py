@@ -51,6 +51,23 @@ class VerifyIn(BaseModel):
     name: str = ""
 
 
+def _send_sms(phone: str, code: str) -> None:
+    """Отправка OTP. `smsru` — реально через sms.ru; иначе мок (код в лог)."""
+    if settings.sms_provider == "smsru" and settings.sms_ru_api_id:
+        try:
+            import httpx
+            r = httpx.get(
+                "https://sms.ru/sms/send",
+                params={"api_id": settings.sms_ru_api_id, "to": phone, "msg": f"Yuldash: kod {code}", "json": 1},
+                timeout=10,
+            )
+            print(f"[SMS] {phone}: smsru status={r.status_code}")  # код в проде НЕ логируем
+        except Exception as e:  # noqa: BLE001
+            print(f"[SMS] {phone}: smsru error {e}")
+    else:
+        print(f"[OTP] {phone} -> {code}")  # мок/dev — код в логе
+
+
 @app.post("/auth/request-code")
 def request_code(body: PhoneIn, session: Session = Depends(get_session)):
     code = gen_otp()
@@ -59,7 +76,7 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session)):
         expires_at=datetime.utcnow() + timedelta(seconds=settings.otp_ttl_sec),
     ))
     session.commit()
-    print(f"[OTP] {body.phone} -> {code}")  # TODO: реальный SMS-провайдер
+    _send_sms(body.phone, code)
     resp = {"sent": True}
     if settings.env == "dev":
         resp["dev_code"] = code  # в dev возвращаем код, чтобы тестировать без SMS
