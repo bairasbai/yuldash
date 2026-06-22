@@ -155,6 +155,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -200,6 +202,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Screen {
+    Splash,
     Onboarding,
     Login,
     Home,
@@ -306,6 +309,46 @@ private val CanonRed: Color @Composable get() = if (isSystemInDarkTheme()) Color
 private val CanonSurface: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF192420) else Color(0xFFFFFFFF)
 private val CanonCardShape = RoundedCornerShape(28.dp)
 private val CanonItemShape = RoundedCornerShape(22.dp)
+
+// Стартовый сплэш: лого появляется с масштабом+прозрачностью, текст — следом. ~1.6с → следующий экран.
+@Composable
+private fun SplashScreen() {
+    var start by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(targetValue = if (start) 1f else 0.62f, animationSpec = tween(820), label = "logoScale")
+    val logoAlpha by animateFloatAsState(targetValue = if (start) 1f else 0f, animationSpec = tween(620), label = "logoAlpha")
+    val textAlpha by animateFloatAsState(targetValue = if (start) 1f else 0f, animationSpec = tween(640, delayMillis = 380), label = "textAlpha")
+    LaunchedEffect(Unit) { start = true }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF0B6B3A), Color(0xFF073F25)))),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Surface(
+                modifier = Modifier.size(132.dp).scale(scale).alpha(logoAlpha),
+                shape = CircleShape,
+                color = Color.White,
+                shadowElevation = 18.dp
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.yuldash_logo),
+                    contentDescription = "Юлдаш",
+                    modifier = Modifier.padding(22.dp)
+                )
+            }
+            Spacer(Modifier.height(26.dp))
+            Text("Юлдаш", color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Black, modifier = Modifier.alpha(textAlpha))
+            Spacer(Modifier.height(6.dp))
+            Text(
+                appText("Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 15.sp,
+                modifier = Modifier.alpha(textAlpha)
+            )
+        }
+    }
+}
 
 @Composable
 private fun appText(ru: String, ba: String): String {
@@ -620,15 +663,15 @@ private fun YuldashApp() {
     val appScope = rememberCoroutineScope()
     var activeBookingId by remember { mutableStateOf<Int?>(null) }
     val voiceMessages = remember { mutableStateListOf<LocalVoiceMessage>() }
-    var screen by remember {
-        mutableStateOf(
-            when {
-                !prefs.getBoolean("onboarding_completed", false) -> Screen.Onboarding
-                ApiClient.isLoggedIn() -> Screen.Home          // уже вошёл → сразу домой
-                else -> Screen.Login
-            }
-        )
+    // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
+    val splashTarget = remember {
+        when {
+            !prefs.getBoolean("onboarding_completed", false) -> Screen.Onboarding
+            ApiClient.isLoggedIn() -> Screen.Home          // уже вошёл → сразу домой
+            else -> Screen.Login
+        }
     }
+    var screen by remember { mutableStateOf(Screen.Splash) }
     var language by remember { mutableStateOf(AppLanguage.Ru) }
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
     var startHomeTab by remember { mutableStateOf(HomeTab.Map) }
@@ -715,7 +758,7 @@ private fun YuldashApp() {
                 }
             }
         }
-        BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home) {
+        BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash) {
             screen = Screen.Home
         }
         AnimatedContent(
@@ -731,6 +774,10 @@ private fun YuldashApp() {
             label = "screen"
         ) { scr ->
         when (scr) {
+            Screen.Splash -> {
+                SplashScreen()
+                LaunchedEffect(Unit) { delay(1300); screen = splashTarget }
+            }
             Screen.Onboarding -> OnboardingScreen(onFinish = ::finishOnboarding)
             Screen.Login -> LoginScreen(
                 currentLanguage = language,
