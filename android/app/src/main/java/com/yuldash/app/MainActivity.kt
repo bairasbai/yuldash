@@ -157,6 +157,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -1018,7 +1019,7 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
                     contentPadding = PaddingValues(bottom = 14.dp)
                 ) {
                     item { Spacer(Modifier.height(8.dp)) }
-                    item { OnboardingHeroCard(slide) }
+                    item { OnboardingHeroCard(slide) { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction } }
                     item {
                         Text(
                             text = appText(slide.titleRu, slide.titleBa),
@@ -1112,7 +1113,7 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
 }
 
 @Composable
-private fun OnboardingHeroCard(slide: OnboardingSlide) {
+private fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float = { 0f }) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1161,11 +1162,13 @@ private fun OnboardingHeroCard(slide: OnboardingSlide) {
             fontWeight = FontWeight.Medium,
             modifier = Modifier
                 .align(Alignment.TopStart)
+                .graphicsLayer { translationX = pageOffset() * 75f }
                 .padding(top = 78.dp, end = 14.dp)
         )
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
+                .graphicsLayer { translationX = pageOffset() * 150f; translationY = pageOffset() * -28f }
                 .size(96.dp)
                 .background(Color.White.copy(alpha = 0.18f), CircleShape),
             contentAlignment = Alignment.Center
@@ -1300,11 +1303,14 @@ private fun OnboardingSafetyNote(text: String) {
 private fun OnboardingDots(count: Int, selected: Int, modifier: Modifier = Modifier) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         repeat(count) { index ->
+            val active = selected == index
+            val w by animateDpAsState(if (active) 26.dp else 8.dp, tween(320), label = "dotW")
+            val c by animateColorAsState(if (active) CanonGreen2 else CanonMuted.copy(alpha = 0.32f), tween(320), label = "dotC")
             Box(
                 modifier = Modifier
                     .padding(horizontal = 4.dp)
-                    .size(width = if (selected == index) 24.dp else 8.dp, height = 8.dp)
-                    .background(if (selected == index) CanonGreen2 else Color.Black.copy(alpha = 0.18f), RoundedCornerShape(999.dp))
+                    .size(width = w, height = 8.dp)
+                    .background(c, RoundedCornerShape(999.dp))
             )
         }
     }
