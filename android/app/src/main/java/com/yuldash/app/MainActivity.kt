@@ -308,6 +308,8 @@ private val CanonBorder: Color @Composable get() = if (isSystemInDarkTheme()) Co
 private val CanonRed: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFFF6B5E) else Color(0xFFD93025)
 // Поверхность карточек: была хардкод Color.White — теперь адаптивная.
 private val CanonSurface: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF192420) else Color(0xFFFFFFFF)
+// Подложка опасности/ошибки (SOS, ошибки) — адаптивная (светло-розовая / тёмно-красная).
+private val CanonDangerBg: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF3A1B18) else Color(0xFFFDECEA)
 private val CanonCardShape = RoundedCornerShape(28.dp)
 private val CanonItemShape = RoundedCornerShape(22.dp)
 
@@ -2276,7 +2278,7 @@ private fun HomeHeader(onSos: () -> Unit) {
         Surface(
             modifier = Modifier.bounceClick(onSos),
             shape = RoundedCornerShape(16.dp),
-            color = Color(0xFFFFE8E4),
+            color = CanonDangerBg,
             border = BorderStroke(1.dp, Color(0xFFFFC8C0))
         ) {
             Row(
@@ -3701,7 +3703,7 @@ private fun SimpleModeScreen(
 private fun SeniorBigAction(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, danger: Boolean = false) {
     Card(
         modifier = Modifier.bounceClick(onClick).fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = if (danger) Color(0xFFFFF2F0) else Color.White),
+        colors = CardDefaults.cardColors(containerColor = if (danger) CanonDangerBg else CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
@@ -4791,7 +4793,7 @@ private fun InlinePartnerAdCard(
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAF6)),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = BorderStroke(1.dp, Color(0x12000000))
@@ -5303,9 +5305,9 @@ private fun SafetyScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, onS
                 Text(appText("Ваши данные и поездки под защитой", "Һеҙҙең мәғлүмәт һәм сәфәрҙәр һаҡланған"), color = CanonMuted, fontSize = 15.sp)
             }
             item {
-                Surface(color = Color(0xFFFFF5F3), shape = CanonItemShape, border = BorderStroke(1.dp, Color(0x33D93025))) {
+                Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, Color(0x33D93025))) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = Color(0xFFFFE1DD), shape = RoundedCornerShape(18.dp)) {
+                        Surface(color = CanonDangerBg, shape = RoundedCornerShape(18.dp)) {
                             Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Default.Sos, contentDescription = null, tint = CanonRed, modifier = Modifier.size(34.dp))
                                 Text("SOS", color = CanonRed, fontWeight = FontWeight.Black)
@@ -5742,8 +5744,8 @@ private fun SosScreen(onBack: () -> Unit) {
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = Color(0xFFFFE8E4), shape = CircleShape) {
-                            Icon(Icons.Default.Sos, contentDescription = null, tint = Color(0xFFD43C31), modifier = Modifier.padding(14.dp))
+                        Surface(color = CanonDangerBg, shape = CircleShape) {
+                            Icon(Icons.Default.Sos, contentDescription = null, tint = CanonRed, modifier = Modifier.padding(14.dp))
                         }
                         Spacer(Modifier.width(14.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -5761,7 +5763,7 @@ private fun SosScreen(onBack: () -> Unit) {
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(18.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (selected == category) Color(0xFFFFD5CE) else Color.White
+                                containerColor = if (selected == category) CanonDangerBg else CanonSurface
                             ),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                         ) {
@@ -5803,7 +5805,7 @@ private fun SosScreen(onBack: () -> Unit) {
                     },
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD43C31))
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
                 ) { Text(appText("Отправить SOS", "SOS ебәреү")) }
             }
             item { TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text(appText("Назад", "Кире")) } }
