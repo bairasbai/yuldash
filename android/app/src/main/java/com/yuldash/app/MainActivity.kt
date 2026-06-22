@@ -3381,6 +3381,11 @@ private fun ChatScreen(
 ) {
     var selected by remember { mutableStateOf("Активные") }
     var voiceSent by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf("") }
+    var latestBookingId by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(Unit) {
+        ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
+    }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -3428,7 +3433,16 @@ private fun ChatScreen(
         }
         item {
             ChatComposer(
-                voiceSent = voiceSent,
+                draft = draft,
+                onDraftChange = { draft = it },
+                onSend = {
+                    val text = draft.trim()
+                    if (text.isNotEmpty()) {
+                        latestBookingId?.let { ApiClient.fireSendMessage(it, text) }
+                        onAddVoiceMessage(LocalVoiceMessage("Байрас", text, "сейчас"))
+                        draft = ""
+                    }
+                },
                 onVoice = {
                     onAddVoiceMessage(LocalVoiceMessage("Байрас", "Я буду у вокзала, подойдите к главному входу.", "сейчас"))
                     voiceSent = true
@@ -3501,7 +3515,12 @@ private fun ChatCard(initial: String, name: String, subtitle: String, message: S
 }
 
 @Composable
-private fun ChatComposer(voiceSent: Boolean, onVoice: () -> Unit) {
+private fun ChatComposer(
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onVoice: () -> Unit
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = RoundedCornerShape(22.dp),
@@ -3511,33 +3530,26 @@ private fun ChatComposer(voiceSent: Boolean, onVoice: () -> Unit) {
             modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
+            OutlinedTextField(
+                value = draft,
+                onValueChange = onDraftChange,
+                placeholder = { Text(appText("Сообщение", "Хәбәр"), fontSize = 14.sp) },
                 modifier = Modifier.weight(1f),
-                color = Color(0xFFF7FAF5),
                 shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, CanonBorder)
-            ) {
-                Row(Modifier.padding(horizontal = 13.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.ChatBubble, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (voiceSent) appText("Голос распознан и отправлен", "Тауыш танылды һәм ебәрелде") else appText("Сообщение или голос", "Хәбәр йәки тауыш"),
-                        color = if (voiceSent) CanonGreen2 else CanonMuted,
-                        fontSize = 14.sp,
-                        fontWeight = if (voiceSent) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+                maxLines = 3
+            )
             Spacer(Modifier.width(10.dp))
             IconButton(
-                onClick = onVoice,
+                onClick = if (draft.isBlank()) onVoice else onSend,
                 modifier = Modifier
                     .size(52.dp)
                     .background(CanonGreen2, CircleShape)
             ) {
-                Icon(Icons.Default.HeadsetMic, contentDescription = appText("Записать голос", "Тауыш яҙҙырыу"), tint = Color.White)
+                if (draft.isBlank()) {
+                    Icon(Icons.Default.HeadsetMic, contentDescription = appText("Записать голос", "Тауыш яҙҙырыу"), tint = Color.White)
+                } else {
+                    Icon(Icons.Default.NearMe, contentDescription = appText("Отправить", "Ебәреү"), tint = Color.White)
+                }
             }
         }
     }

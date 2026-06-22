@@ -49,6 +49,10 @@ object ApiClient {
         bg.launch { sos(category, note) }
     }
 
+    fun fireSendMessage(bookingId: Int, text: String) {
+        bg.launch { sendMessage(bookingId, text) }
+    }
+
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) {
         val p = context.applicationContext.getSharedPreferences("yuldash", Context.MODE_PRIVATE)
@@ -210,6 +214,18 @@ object ApiClient {
 
     suspend fun sos(category: String, note: String): Result<Unit> =
         call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }
+
+    // ---------- Чат (сообщения по брони) ----------
+
+    /** Id моих броней (чату нужен booking_id). */
+    suspend fun getMyBookings(): Result<List<Int>> =
+        call("GET", "/bookings/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> arr.getJSONObject(i).optInt("id") }
+        }
+
+    suspend fun sendMessage(bookingId: Int, text: String): Result<Unit> =
+        call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true).map { }
 
     // ---------- Базовый вызов ----------
 
