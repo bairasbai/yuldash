@@ -1,7 +1,10 @@
 package com.yuldash.app.data
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -21,6 +24,22 @@ object ApiClient {
 
     @Volatile private var token: String? = null
     @Volatile private var prefs: android.content.SharedPreferences? = null
+
+    // Долгоживущий scope для POST'ов «отправил и забыл». НЕ привязан к экрану —
+    // переживает навигацию (scope экрана отменяется при уходе и обрывает запрос).
+    private val bg = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    fun fireCreateRequest(fromCity: String, toCity: String, seats: Int, category: String, withKids: Boolean, comment: String, maxPrice: Int) {
+        bg.launch { createRequest(fromCity, toCity, seats, category, withKids, comment, maxPrice) }
+    }
+
+    fun firePublishRide(fromCity: String, toCity: String, departAt: String, seats: Int, price: Int, comment: String) {
+        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment) }
+    }
+
+    fun fireBook(rideId: Int, seats: Int) {
+        bg.launch { book(rideId, seats) }
+    }
 
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) {
@@ -85,6 +104,34 @@ object ApiClient {
             }
         }
 
+    /** Опубликовать поездку (текущий пользователь = водитель). depart_at — ISO-строка. */
+    suspend fun publishRide(
+        fromCity: String,
+        toCity: String,
+        departAt: String,
+        seats: Int,
+        price: Int,
+        comment: String,
+    ): Result<Unit> = call(
+        "POST", "/rides",
+        JSONObject()
+            .put("from_city", fromCity)
+            .put("to_city", toCity)
+            .put("depart_at", departAt)
+            .put("seats_total", seats)
+            .put("price", price)
+            .put("category", "regular")
+            .put("comment", comment),
+        auth = true,
+    ).map { }
+
+    /** Забронировать поездку. */
+    suspend fun book(rideId: Int, seats: Int): Result<Unit> = call(
+        "POST", "/bookings",
+        JSONObject().put("ride_id", rideId).put("seats", seats),
+        auth = true,
+    ).map { }
+
     // ---------- Заявки ----------
 
     /** Создать заявку пассажира (требует входа). */
@@ -95,6 +142,7 @@ object ApiClient {
         category: String,
         withKids: Boolean,
         comment: String,
+        maxPrice: Int,
     ): Result<Unit> = call(
         "POST", "/requests",
         JSONObject()
@@ -103,6 +151,7 @@ object ApiClient {
             .put("seats", seats)
             .put("category", category)
             .put("with_kids", withKids)
+            .put("max_price", maxPrice)
             .put("comment", comment),
         auth = true,
     ).map { }
@@ -120,6 +169,7 @@ object ApiClient {
                     seats = o.optInt("seats"),
                     category = o.optString("category"),
                     withKids = o.optBoolean("with_kids"),
+                    maxPrice = o.optInt("max_price"),
                     comment = o.optString("comment"),
                     forRelativeName = o.optString("for_relative_name").ifBlank { null },
                     status = o.optString("status"),
@@ -198,6 +248,7 @@ data class RequestDto(
     val seats: Int,
     val category: String,
     val withKids: Boolean,
+    val maxPrice: Int,
     val comment: String,
     val forRelativeName: String?,
     val status: String,

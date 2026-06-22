@@ -374,6 +374,7 @@ private data class LocalRequest(
     val time: String,
     val passenger: String,
     val status: String,
+    val price: Int = 0,
     val trustedContact: String? = null
 )
 
@@ -681,6 +682,7 @@ private fun YuldashApp() {
                             time = reqByAgreement,
                             passenger = r.forRelativeName ?: "Байрас",
                             status = reqWaitingStatus,
+                            price = r.maxPrice,
                             trustedContact = r.comment.ifBlank { null },
                         )
                     }
@@ -713,6 +715,7 @@ private fun YuldashApp() {
             )
             Screen.Home -> HomeScreen(
                 rides = rides,
+                requests = localRequests,
                 ads = demoPartnerAds,
                 adStats = adStats,
                 voiceMessages = voiceMessages,
@@ -780,7 +783,8 @@ private fun YuldashApp() {
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
                 onConfirmRide = {
-                    Toast.makeText(context, "Поездка подтверждена", Toast.LENGTH_SHORT).show()
+                    selectedRide?.id?.toIntOrNull()?.let { rid -> ApiClient.fireBook(rid, 1) }
+                    Toast.makeText(context, "Поездка забронирована", Toast.LENGTH_SHORT).show()
                 }
             )
             Screen.Sos -> SosScreen(onBack = { openHome(HomeTab.Map) })
@@ -1762,6 +1766,7 @@ private fun ScreenTopBar(title: String, onBack: () -> Unit) {
 @Composable
 private fun HomeScreen(
     rides: List<Ride>,
+    requests: List<LocalRequest>,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
     voiceMessages: List<LocalVoiceMessage>,
@@ -1853,6 +1858,7 @@ private fun HomeScreen(
                     onAdClick = onAdClick
                 )
                 HomeTab.Request -> MyRequestsScreen(
+                    requests = requests,
                     onCreateNew = onCreateRequest,
                     onViewResponses = { selectedTab = HomeTab.Chat }
                 )
@@ -3067,7 +3073,7 @@ private fun Metric(icon: androidx.compose.ui.graphics.vector.ImageVector, text: 
 }
 
 @Composable
-private fun MyRequestsScreen(onCreateNew: () -> Unit, onViewResponses: () -> Unit) {
+private fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> Unit, onViewResponses: () -> Unit) {
     val activeLabel = appText("Мои заявки", "Минең заявкалар")
     val responsesLabel = appText("Отклики", "Яуаптар")
     val draftsLabel = appText("Черновики", "Черновиктар")
@@ -3102,34 +3108,31 @@ private fun MyRequestsScreen(onCreateNew: () -> Unit, onViewResponses: () -> Uni
             )
         }
         if (selectedTab == "active") {
-            item {
-                Box(Modifier.appearIn(0)) {
-                RequestSummaryCard(
-                    icon = Icons.Default.LocalHospital,
-                    from = "Баймаҡ",
-                    to = "Сибай",
-                    date = appText("Сегодня, после 17:00", "Бөгөн, 17:00-тан һуң"),
-                    reason = appText("В больницу", "Больницаға"),
-                    price = "350 ₽",
-                    badge = appText("2 отклика", "2 яуап"),
-                    action = appText("Посмотреть отклики", "Яуаптарҙы ҡарау"),
-                    onAction = onViewResponses
-                )
+            if (requests.isEmpty()) {
+                item {
+                    Box(Modifier.appearIn(0)) {
+                        InfoCard(
+                            title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
+                            text = appText("Создайте заявку — водители увидят её и откликнутся.", "Заявка булдырығыҙ — водителдәр уны күреп яуап бирер."),
+                            icon = Icons.Default.AddBox
+                        )
+                    }
                 }
-            }
-            item {
-                Box(Modifier.appearIn(1)) {
-                RequestSummaryCard(
-                    icon = Icons.Default.DirectionsCar,
-                    from = "Сибай",
-                    to = "Баймаҡ",
-                    date = appText("Завтра утром", "Иртәгә иртән"),
-                    reason = appText("Обычная", "Ғәҙәти"),
-                    price = "300 ₽",
-                    badge = appText("1 отклик", "1 яуап"),
-                    action = appText("Посмотреть отклики", "Яуаптарҙы ҡарау"),
-                    onAction = onViewResponses
-                )
+            } else {
+                items(requests) { req ->
+                    Box(Modifier.appearIn(0)) {
+                        RequestSummaryCard(
+                            icon = if (req.title.contains("больниц", ignoreCase = true)) Icons.Default.LocalHospital else Icons.Default.DirectionsCar,
+                            from = req.route.substringBefore(" → "),
+                            to = req.route.substringAfter(" → "),
+                            date = req.time,
+                            reason = req.title,
+                            price = if (req.price > 0) appText("${req.price} ₽ предлагаю", "${req.price} ₽ тәҡдим итәм") else appText("цена договорная", "хаҡ килешеү буйынса"),
+                            badge = req.status,
+                            action = appText("Посмотреть отклики", "Яуаптарҙы ҡарау"),
+                            onAction = onViewResponses
+                        )
+                    }
                 }
             }
         } else if (selectedTab == "responses") {
@@ -3734,7 +3737,6 @@ private fun CreatePassengerRequestScreen(
     var comment by remember { mutableStateOf("") }
     val categories = listOf("Обычная", "В больницу", "Посылка", "С детьми")
     val waitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
-    val scope = rememberCoroutineScope()
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Создать заявку", "Заявка булдырыу"), onBack) }) { padding ->
         LazyColumn(
@@ -3823,13 +3825,12 @@ private fun CreatePassengerRequestScreen(
                 Button(
                     onClick = {
                         val (apiCat, withKids) = categoryToApi(category)
-                        scope.launch {
-                            ApiClient.createRequest(
-                                from.trim(), to.trim(),
-                                seats.toIntOrNull() ?: 1,
-                                apiCat, withKids, comment.trim(),
-                            )
-                        }
+                        val priceVal = price.toIntOrNull() ?: 0
+                        ApiClient.fireCreateRequest(
+                            from.trim(), to.trim(),
+                            seats.toIntOrNull() ?: 1,
+                            apiCat, withKids, comment.trim(), priceVal,
+                        )
                         onCreateRequest(
                             LocalRequest(
                                 title = category,
@@ -3837,6 +3838,7 @@ private fun CreatePassengerRequestScreen(
                                 time = time,
                                 passenger = "Байрас",
                                 status = waitingStatus,
+                                price = priceVal,
                                 trustedContact = comment.ifBlank { null }
                             )
                         )
@@ -4125,16 +4127,23 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             item {
                 Button(
                     onClick = {
+                        val fromVal = from.ifBlank { "Баймаҡ" }
+                        val toVal = to.ifBlank { "Сибай" }
+                        val priceVal = price.toIntOrNull() ?: 300
+                        val seatsVal = seats.toIntOrNull() ?: 2
+                        val departIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                            .format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L))
+                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim())
                         onPublish(
                             Ride(
                                 id = "local-${System.currentTimeMillis()}",
-                                from = from.ifBlank { "Баймаҡ" },
-                                to = to.ifBlank { "Сибай" },
+                                from = fromVal,
+                                to = toVal,
                                 time = dateTime.ifBlank { "Сегодня, 18:00" },
                                 driver = "Байрас",
                                 car = comment.ifBlank { "Моя машина" },
-                                price = price.toIntOrNull() ?: 300,
-                                seats = seats.toIntOrNull() ?: 2,
+                                price = priceVal,
+                                seats = seatsVal,
                                 rating = 5.0,
                                 verified = false,
                                 boosted = false
