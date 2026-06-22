@@ -314,6 +314,22 @@ private fun formatDepart(iso: String): String = try {
     iso
 }
 
+/** Категория из UI → (enum бэкенда, признак «с детьми»). */
+private fun categoryToApi(ui: String): Pair<String, Boolean> = when (ui) {
+    "В больницу" -> "hospital" to false
+    "Посылка" -> "parcel" to false
+    "С детьми" -> "regular" to true
+    else -> "regular" to false
+}
+
+/** Категория бэкенда → подпись для карточки заявки. */
+private fun apiCategoryToUi(category: String, withKids: Boolean): String = when {
+    category == "hospital" -> "В больницу"
+    category == "parcel" -> "Посылка"
+    withKids -> "С детьми"
+    else -> "Обычная"
+}
+
 private data class Ride(
     val id: String,
     val from: String,
@@ -651,6 +667,26 @@ private fun YuldashApp() {
         }
     }
     CompositionLocalProvider(LocalAppLanguage provides language) {
+        // Мои заявки — с сервера (после входа). Точное время в Фазе 1 не храним.
+        val reqWaitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
+        val reqByAgreement = appText("по договорённости", "килешеү буйынса")
+        LaunchedEffect(Unit) {
+            ApiClient.getMyRequests().onSuccess { reqs ->
+                localRequests.clear()
+                localRequests.addAll(
+                    reqs.map { r ->
+                        LocalRequest(
+                            title = apiCategoryToUi(r.category, r.withKids),
+                            route = "${r.fromCity} → ${r.toCity}",
+                            time = reqByAgreement,
+                            passenger = r.forRelativeName ?: "Байрас",
+                            status = reqWaitingStatus,
+                            trustedContact = r.comment.ifBlank { null },
+                        )
+                    }
+                )
+            }
+        }
         BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home) {
             screen = Screen.Home
         }
@@ -3698,6 +3734,7 @@ private fun CreatePassengerRequestScreen(
     var comment by remember { mutableStateOf("") }
     val categories = listOf("Обычная", "В больницу", "Посылка", "С детьми")
     val waitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
+    val scope = rememberCoroutineScope()
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Создать заявку", "Заявка булдырыу"), onBack) }) { padding ->
         LazyColumn(
@@ -3785,6 +3822,14 @@ private fun CreatePassengerRequestScreen(
             item {
                 Button(
                     onClick = {
+                        val (apiCat, withKids) = categoryToApi(category)
+                        scope.launch {
+                            ApiClient.createRequest(
+                                from.trim(), to.trim(),
+                                seats.toIntOrNull() ?: 1,
+                                apiCat, withKids, comment.trim(),
+                            )
+                        }
                         onCreateRequest(
                             LocalRequest(
                                 title = category,

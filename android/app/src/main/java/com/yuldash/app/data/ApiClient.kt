@@ -85,6 +85,48 @@ object ApiClient {
             }
         }
 
+    // ---------- Заявки ----------
+
+    /** Создать заявку пассажира (требует входа). */
+    suspend fun createRequest(
+        fromCity: String,
+        toCity: String,
+        seats: Int,
+        category: String,
+        withKids: Boolean,
+        comment: String,
+    ): Result<Unit> = call(
+        "POST", "/requests",
+        JSONObject()
+            .put("from_city", fromCity)
+            .put("to_city", toCity)
+            .put("seats", seats)
+            .put("category", category)
+            .put("with_kids", withKids)
+            .put("comment", comment),
+        auth = true,
+    ).map { }
+
+    /** Мои заявки (для вкладки «Заявка»). */
+    suspend fun getMyRequests(): Result<List<RequestDto>> =
+        call("GET", "/requests/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                RequestDto(
+                    id = o.optInt("id"),
+                    fromCity = o.optString("from_city"),
+                    toCity = o.optString("to_city"),
+                    seats = o.optInt("seats"),
+                    category = o.optString("category"),
+                    withKids = o.optBoolean("with_kids"),
+                    comment = o.optString("comment"),
+                    forRelativeName = o.optString("for_relative_name").ifBlank { null },
+                    status = o.optString("status"),
+                )
+            }
+        }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -146,4 +188,17 @@ data class RideDto(
     val driverRating: Double,
     val driverVerified: Boolean,
     val driverCar: String,
+)
+
+/** Заявка пассажира с сервера. */
+data class RequestDto(
+    val id: Int,
+    val fromCity: String,
+    val toCity: String,
+    val seats: Int,
+    val category: String,
+    val withKids: Boolean,
+    val comment: String,
+    val forRelativeName: String?,
+    val status: String,
 )
