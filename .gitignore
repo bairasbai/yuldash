@@ -52,3 +52,7 @@ _*.png
 /android/*.png
 /android/*.xml
 /android/*.json
+# Промо (Remotion): игнорим только тяжёлое/сгенерированное, исходник остаётся в репо
+promo/node_modules/
+promo/out/
+promo/.remotion/
