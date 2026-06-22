@@ -5581,7 +5581,7 @@ private fun ActiveTripScreen(
             contentPadding = PaddingValues(bottom = 28.dp)
         ) {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                Card(modifier = Modifier.appearIn(0), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("${ride?.from ?: "—"}  →  ${ride?.to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Black)
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -5593,9 +5593,9 @@ private fun ActiveTripScreen(
                     }
                 }
             }
-            item { Text(appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold) }
+            item { Text(appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(1)) }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(modifier = Modifier.appearIn(2), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(
                         "sat" to appText("Я сел", "Ултырҙым"),
                         "arrived" to appText("Доехал", "Барып еттем"),
@@ -5607,7 +5607,7 @@ private fun ActiveTripScreen(
                             shape = RoundedCornerShape(16.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (status == st) CanonMint else Color.White,
+                                containerColor = if (status == st) CanonMint else CanonSurface,
                                 contentColor = CanonText
                             )
                         ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -5617,7 +5617,7 @@ private fun ActiveTripScreen(
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                     Row(
-                        Modifier.fillMaxWidth().clickable { showShare = true }.padding(16.dp),
+                        Modifier.appearIn(3).fillMaxWidth().clickable { showShare = true }.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(color = CanonMint, shape = CircleShape) {
@@ -5632,7 +5632,7 @@ private fun ActiveTripScreen(
                     }
                 }
             }
-            item { Text(appText("Чат по поездке", "Сәфәр буйынса чат"), fontWeight = FontWeight.Bold) }
+            item { Text(appText("Чат по поездке", "Сәфәр буйынса чат"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(4)) }
             item {
                 ChatComposer(
                     draft = draft,
