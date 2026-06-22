@@ -24,7 +24,7 @@
 
 ## Навигация (как устроены экраны)
 
-- Нет навигационной библиотеки. Всё через `enum Screen` + `when(screen)` в `YuldashApp()`.
+- Нет навигационной библиотеки. Всё через `enum Screen` + `when(screen)` в `YuldashApp()`. **Первый экран — `Screen.Splash`** (анимированное лого ~1.3с → онбординг/логин/хоум, цель `splashTarget` вычисляется заранее).
 - Внутри главного экрана 5 вкладок — `enum HomeTab` (Map, Rides, Request, Chat, Profile).
 - Состояние держится в `remember { mutableStateOf(...) }`. Сохраняется на диск только флаг онбординга (`SharedPreferences "yuldash_prefs" → onboarding_completed`).
 - Язык: `enum AppLanguage` (Ru/Ba), переключается кнопкой, раздаётся через `LocalAppLanguage`.
@@ -113,6 +113,12 @@
 - Нижнее меню `YuldashBottomItem`: анимация пилюли и масштаба иконки (`animateColorAsState`, `animateFloatAsState`).
 - Хелпер `Modifier.bounceClick(onClick)` (рядом с `YuldashBottomItem`) — лёгкое сжатие при нажатии; применён к карточкам/строкам/SOS вместо обычного `clickable`.
 - Хелпер `Modifier.appearIn(index)` (рядом с `bounceClick`) — карточки каскадом всплывают снизу при появлении; применён к спискам всех 5 вкладок (Карта, Поездки, Заявка, Чат, Профиль) через `Box(Modifier.appearIn(i)) { ... }`.
+
+## Дизайн-спринт (добавлено 2026-06-23)
+- **Тёмная тема (Material 3).** Палитра `Canon*` адаптивна: каждый цвет — `@Composable`-геттер `if (isSystemInDarkTheme()) тёмный else светлый` (вверху MainActivity.kt). 410 использований не тронуты. `Theme.kt` — `darkColorScheme`. Карточки: `Color.White` → адаптивный `CanonSurface`. Подводный камень: `@Composable`-геттер нельзя вне composable (Canvas/DrawScope, не-composable хелперы) — см. lessons.
+- **Сплэш.** `Screen.Splash` + `SplashScreen()` (лого scale+alpha, текст следом, ~1.3с). Системный сплэш Android 12 брендирован в `styles.xml` (`windowBackground` + `windowSplashScreenBackground` = `@color/yuldash_splash`) — без белой вспышки.
+- **Онбординг.** `OnboardingHeroCard(slide, pageOffset: () -> Float)` — параллакс героя на свайпе (deferred read `currentPageOffsetFraction`). `OnboardingDots` — анимированные ширина+цвет активной точки.
+- **Иконка.** `drawable/ic_launcher_bg.xml` — мягкий радиальный мятный градиент вместо плоского белого; adaptive-icon background обновлён.
 
 ## Сборка и запуск
 
