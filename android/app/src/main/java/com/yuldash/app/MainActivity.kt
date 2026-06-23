@@ -197,6 +197,9 @@ import com.yandex.mapkit.geometry.Circle
 import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.geometry.Polyline
 import com.yandex.mapkit.map.CameraPosition
+import com.yandex.mapkit.Animation
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -2805,6 +2808,18 @@ private fun YandexMapCard(
         MapMarkerHitTargets(rides = rides, onRideTap = onRideTap)
         MapLabel("Баймаҡ", Modifier.align(Alignment.TopStart).padding(20.dp))
         MapLabel("Сибай", Modifier.align(Alignment.CenterEnd).padding(20.dp))
+        // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
+        MapZoomControls(
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 14.dp),
+            onZoomIn = {
+                val cam = mapView.mapWindow.map.cameraPosition
+                mapView.mapWindow.map.move(CameraPosition(cam.target, (cam.zoom + 1f).coerceAtMost(18f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
+            },
+            onZoomOut = {
+                val cam = mapView.mapWindow.map.cameraPosition
+                mapView.mapWindow.map.move(CameraPosition(cam.target, (cam.zoom - 1f).coerceAtLeast(3f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
+            }
+        )
         Surface(
             modifier = Modifier.align(Alignment.TopEnd).padding(18.dp),
             color = Color.White.copy(alpha = 0.92f),
@@ -2946,6 +2961,22 @@ private fun MapLabel(text: String, modifier: Modifier) {
         shadowElevation = 3.dp
     ) {
         Text(text, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontWeight = FontWeight.Bold)
+    }
+}
+
+// Кнопки масштаба карты ＋/− (стек справа, как в Яндекс.Картах).
+@Composable
+private fun MapZoomControls(modifier: Modifier = Modifier, onZoomIn: () -> Unit, onZoomOut: () -> Unit) {
+    Surface(modifier = modifier, color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(16.dp), shadowElevation = 3.dp) {
+        Column {
+            IconButton(onClick = onZoomIn, modifier = Modifier.size(46.dp)) {
+                Icon(Icons.Default.Add, contentDescription = appText("Приблизить", "Яҡынайтыу"), tint = CanonGreen2)
+            }
+            Box(Modifier.width(28.dp).height(1.dp).background(Color(0x14000000)).align(Alignment.CenterHorizontally))
+            IconButton(onClick = onZoomOut, modifier = Modifier.size(46.dp)) {
+                Icon(Icons.Default.Remove, contentDescription = appText("Отдалить", "Йыраҡлаштырыу"), tint = CanonGreen2)
+            }
+        }
     }
 }
 
