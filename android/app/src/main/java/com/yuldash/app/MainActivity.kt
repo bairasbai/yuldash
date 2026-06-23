@@ -360,6 +360,9 @@ private val CanonGreen: Color @Composable get() = if (appIsDark()) Color(0xFF7FE
 private val CanonGreen2: Color @Composable get() = if (appIsDark()) Color(0xFF2FB36E) else Color(0xFF0B6B3A)
 private val CanonMint: Color @Composable get() = if (appIsDark()) Color(0xFF143024) else Color(0xFFE7F5EC)
 private val CanonYellow: Color @Composable get() = if (appIsDark()) Color(0xFF4A3A14) else Color(0xFFFFE3A1)
+// Брендовое золото (как дорога на карте/лого) — заливка акцентной кнопки. Золотое в обеих темах → текст фиксированно тёмный.
+private val CanonGold: Color @Composable get() = if (appIsDark()) Color(0xFFE8C36B) else Color(0xFFF5B301)
+private val CanonGoldInk: Color = Color(0xFF0B3D20)
 private val CanonBg: Color @Composable get() = if (appIsDark()) Color(0xFF0F1613) else Color(0xFFFAFAF6)
 private val CanonText: Color @Composable get() = if (appIsDark()) Color(0xFFEAF2EC) else Color(0xFF0B1F14)
 private val CanonMuted: Color @Composable get() = if (appIsDark()) Color(0xFF9BA49D) else Color(0xFF686F66)
@@ -2562,11 +2565,10 @@ private fun MapHero(
                 onClick = onDriver,
                 modifier = Modifier.weight(0.95f).height(52.dp),
                 shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CanonSurface, contentColor = CanonText),
-                border = BorderStroke(1.dp, CanonBorder),
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGold, contentColor = CanonGoldInk),
                 contentPadding = PaddingValues(horizontal = 10.dp)
             ) {
-                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
+                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
             }
