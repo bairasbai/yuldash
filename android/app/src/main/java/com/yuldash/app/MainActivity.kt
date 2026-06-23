@@ -758,6 +758,7 @@ private fun YuldashApp() {
     // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
     val splashTarget = remember {
         when {
+            BuildConfig.DEBUG -> Screen.Home               // DEV-обход входа: только debug-сборка. Релиз — вход как обычно.
             !prefs.getBoolean("onboarding_completed", false) -> Screen.Onboarding
             ApiClient.isLoggedIn() -> Screen.Home          // уже вошёл → сразу домой
             else -> Screen.Login
@@ -1340,7 +1341,7 @@ private fun OnboardingRoleCard(
 ) {
     Card(
         modifier = Modifier.bounceClick(onClick),
-        colors = CardDefaults.cardColors(containerColor = if (selected) CanonMint else Color.White),
+        colors = CardDefaults.cardColors(containerColor = if (selected) CanonMint else CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
@@ -2599,6 +2600,7 @@ private fun YandexMapCard(
     showPrivacyNotice: Boolean = true
 ) {
     val context = LocalContext.current
+    val nightMap = isSystemInDarkTheme()   // тёмная тема → ночной стиль карты
     // Свежие ссылки на rides/onRideTap, чтобы tap-listener не «застревал» на старых данных.
     val currentRides by rememberUpdatedState(rides)
     val currentOnTap by rememberUpdatedState(onRideTap)
@@ -2614,6 +2616,7 @@ private fun YandexMapCard(
         MapKitFactory.initialize(context)
         MapView(context).also { view ->
             val map = view.mapWindow.map
+            map.isNightModeEnabled = nightMap
             map.move(CameraPosition(MapMidPoint, 9.0f, 0f, 0f))
             map.mapObjects.addPolyline(Polyline(listOf(BaymakPoint, SibayPoint))).apply {
                 setStrokeColor(0xFF0B6B3A.toInt())
@@ -2667,6 +2670,8 @@ private fun YandexMapCard(
             }
         }
     }
+    // Тёмная тема → ночной стиль карты (обновляется при смене темы).
+    LaunchedEffect(nightMap) { mapView.mapWindow.map.isNightModeEnabled = nightMap }
     // Жизненный цикл карты привязан к появлению/скрытию экрана «Карта».
     DisposableEffect(Unit) {
         MapKitFactory.getInstance().onStart()
@@ -2986,7 +2991,7 @@ private fun SegmentedTabs(
         items(tabs) { tab ->
             Surface(
                 modifier = Modifier.bounceClick { onSelect(tab) },
-                color = if (selected == tab) CanonGreen2 else Color.White,
+                color = if (selected == tab) CanonGreen2 else CanonSurface,
                 shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(1.dp, if (selected == tab) Color.Transparent else CanonBorder),
                 shadowElevation = if (selected == tab) 2.dp else 1.dp
@@ -3583,7 +3588,7 @@ private fun ChatScreen(
                         shape = RoundedCornerShape(18.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = if (selected == key) CanonMint else Color.White,
+                            containerColor = if (selected == key) CanonMint else CanonSurface,
                             contentColor = CanonText
                         )
                     ) {
@@ -4924,7 +4929,7 @@ private fun InlinePartnerAdCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Surface(color = Color.White, shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, Color(0x10000000))) {
+                Surface(color = CanonMint, shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, CanonBorder)) {
                     Text(label, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = CanonGreen2, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
@@ -5876,7 +5881,7 @@ private fun ActiveTripScreen(
 private fun MessageBubble(text: String, mine: Boolean) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Surface(
-            color = if (mine) CanonGreen2 else Color.White,
+            color = if (mine) CanonGreen2 else CanonSurface,
             shape = RoundedCornerShape(18.dp),
             shadowElevation = 1.dp
         ) {
@@ -6079,7 +6084,7 @@ private fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Uni
 
 @Composable
 private fun StepDot(done: Boolean) {
-    Surface(color = if (done) CanonGreen2 else Color.White, shape = CircleShape, border = BorderStroke(1.dp, if (done) CanonGreen2 else CanonBorder)) {
+    Surface(color = if (done) CanonGreen2 else CanonSurface, shape = CircleShape, border = BorderStroke(1.dp, if (done) CanonGreen2 else CanonBorder)) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             if (done) Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
         }
@@ -6139,7 +6144,7 @@ private fun SupportScreen(onBack: () -> Unit) {
                                 completed = false
                             },
                             colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (selectedAmount == amount) MaterialTheme.colorScheme.primaryContainer else Color.White
+                                containerColor = if (selectedAmount == amount) MaterialTheme.colorScheme.primaryContainer else CanonSurface
                             )
                         ) {
                             Text("$amount ₽")
