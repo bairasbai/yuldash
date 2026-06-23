@@ -198,6 +198,7 @@ import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.geometry.Polyline
 import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.Animation
+import com.yandex.mapkit.user_location.UserLocationLayer
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import com.yandex.mapkit.map.IconStyle
@@ -2370,28 +2371,6 @@ private fun MapHero(
         } else {
             MapPreview(Modifier.matchParentSize())
         }
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(14.dp)
-                .widthIn(max = 214.dp),
-            color = Color.White.copy(alpha = 0.94f),
-            shape = RoundedCornerShape(999.dp),
-            shadowElevation = 3.dp
-        ) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    appText("Геолокация скрыта", "Геолокация йәшерелгән"),
-                    color = CanonText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -2706,6 +2685,11 @@ private fun YandexMapCard(
     showPrivacyNotice: Boolean = true
 ) {
     val context = LocalContext.current
+    // Геолокация по согласию: точка «я тут» только после тапа по плашке (приватность «между своими»).
+    var showMyLocation by remember { mutableStateOf(false) }
+    val locationPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) showMyLocation = true
+    }
     val nightMap = isSystemInDarkTheme()   // тёмная тема → ночной стиль карты
     // Свежие ссылки на rides/onRideTap, чтобы tap-listener не «застревал» на старых данных.
     val currentRides by rememberUpdatedState(rides)
@@ -2768,6 +2752,16 @@ private fun YandexMapCard(
     }
     // Тёмная тема → ночной стиль карты (обновляется при смене темы).
     LaunchedEffect(nightMap) { mapView.mapWindow.map.isNightModeEnabled = nightMap }
+    // Слой «моя геопозиция» (точка) — включается только по согласию (плашка-тумблер).
+    val userLocationLayer = remember { MapKitFactory.getInstance().createUserLocationLayer(mapView.mapWindow) }
+    LaunchedEffect(showMyLocation) {
+        userLocationLayer.setVisible(showMyLocation)
+        if (showMyLocation) {
+            userLocationLayer.cameraPosition()?.target?.let { p ->
+                mapView.mapWindow.map.move(CameraPosition(p, 14f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.4f), null)
+            }
+        }
+    }
     // Маркеры поездок: известный город — мгновенно, прочий — геокодер (кэш по городу = экономия квоты).
     val rideMarkerCache = remember { mutableMapOf<String, Point>() }
     val placedRideIds = remember { mutableSetOf<String>() }
@@ -2809,6 +2803,41 @@ private fun YandexMapCard(
         MapMarkerHitTargets(rides = rides, onRideTap = onRideTap)
         MapLabel("Баймаҡ", Modifier.align(Alignment.TopStart).padding(20.dp))
         MapLabel("Сибай", Modifier.align(Alignment.CenterEnd).padding(20.dp))
+        // Плашка-тумблер геолокации: тап → запрос разрешения → точка «я тут» (по согласию).
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(14.dp)
+                .widthIn(max = 234.dp)
+                .clickable {
+                    when {
+                        showMyLocation -> showMyLocation = false
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED -> showMyLocation = true
+                        else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    }
+                },
+            color = Color.White.copy(alpha = 0.94f),
+            shape = RoundedCornerShape(999.dp),
+            shadowElevation = 3.dp
+        ) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (showMyLocation) Icons.Default.LocationOn else Icons.Default.Lock,
+                    contentDescription = if (showMyLocation) appText("Скрыть геопозицию", "Геопозицияны йәшереү") else appText("Показать геопозицию", "Геопозицияны күрһәтеү"),
+                    tint = CanonGreen2,
+                    modifier = Modifier.size(17.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (showMyLocation) appText("Геопозиция видна", "Геопозицияң күренә") else appText("Геолокация скрыта", "Геолокация йәшерелгән"),
+                    color = CanonText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
         // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
         MapZoomControls(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 14.dp),
