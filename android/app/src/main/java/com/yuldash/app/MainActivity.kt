@@ -2306,7 +2306,6 @@ private fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(11.dp),
                 contentPadding = PaddingValues(top = 11.dp, bottom = 8.dp)
             ) {
-                item { Box(Modifier.appearIn(2)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
                 item {
                     Box(Modifier.appearIn(3)) {
                         Row(
@@ -2396,7 +2395,7 @@ private fun MapHero(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(280.dp)
+                .height(350.dp)
         ) {
             if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
                 YandexMapCard(
@@ -2967,7 +2966,7 @@ private fun YandexMapCard(
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
         // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
         MapZoomControls(
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 14.dp),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp),
             onZoomIn = {
                 val cam = mapView.mapWindow.map.cameraPosition
                 val t = if (LocationPrefs.sharingEnabled) (lastUserPoint ?: cam.target) else cam.target
@@ -2993,7 +2992,7 @@ private fun YandexMapCard(
                     else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                 }
             },
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 108.dp, end = 14.dp).size(46.dp).zIndex(6f),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 14.dp).size(46.dp).zIndex(6f),
             shape = CircleShape,
             color = Color.White,
             shadowElevation = 4.dp
@@ -5081,7 +5080,7 @@ private fun ProfileScreen(
             item {
                 Text(appText("Для родителей и близких", "Ата-әсә һәм яҡындар өсөн"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
             }
-            item { Box(Modifier.appearIn(8)) { ProfileActionCard(appText("Простой режим", "Ябай режим"), appText("Большие кнопки и голосовая заявка", "Ҙур төймәләр һәм тауыш заявкаһы"), Icons.Default.VolumeUp, onSimpleMode) } }
+            item { Box(Modifier.appearIn(8)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
             item { Box(Modifier.appearIn(9)) { ProfileActionCard(appText("Доверенные контакты", "Ышаныслы контакттар"), appText("Кому отправлять статус поездки", "Сәфәр статусын кемгә ебәрергә"), Icons.Default.Person, onTrustedContacts) } }
             item { Box(Modifier.appearIn(10)) { ProfileActionCard(appText("Попросить звонок", "Шылтыратыу һорау"), appText("Помощь без чата и сложных форм", "Чатһыҙ һәм ҡатмарлы формаларһыҙ ярҙам"), Icons.Default.HeadsetMic, onCallbackHelp) } }
             item {
