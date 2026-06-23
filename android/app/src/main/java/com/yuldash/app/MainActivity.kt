@@ -2574,6 +2574,18 @@ private fun MapHero(
     }
 }
 
+// Приветствие по времени суток (утро/день/вечер/ночь).
+@Composable
+private fun timeGreeting(name: String): String {
+    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    return when (hour) {
+        in 5..10 -> appText("Доброе утро, $name", "Хәйерле иртә, $name")
+        in 11..16 -> appText("Добрый день, $name", "Хәйерле көн, $name")
+        in 17..22 -> appText("Добрый вечер, $name", "Хәйерле кис, $name")
+        else -> appText("Доброй ночи, $name", "Тыныс төн, $name")
+    }
+}
+
 @Composable
 private fun HomeHeader(onSos: () -> Unit) {
     Row(
@@ -2581,7 +2593,7 @@ private fun HomeHeader(onSos: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(appText("Доброе утро, Байрас", "Хәйерле иртә, Байрас"), color = CanonMuted, fontSize = 14.sp)
+            Text(timeGreeting("Байрас"), color = CanonMuted, fontSize = 14.sp)
             Text(
                 appText("Куда поедем?", "Ҡайҙа барабыҙ?"),
                 color = CanonGreen,
