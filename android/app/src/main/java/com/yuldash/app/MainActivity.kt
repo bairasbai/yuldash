@@ -2639,24 +2639,32 @@ private fun cityPoint(city: String): Point? = when (city.trim().lowercase()) {
 
 // Маркер-«ценник» (стиль Яндекс/Airbnb): белая пилюля с ценой, цветная рамка, остриё вниз.
 // Boosted-поездка — золотой акцент, обычная — фирменный зелёный.
-// Стрелка «я еду»: бренд-навигатор, крутится по курсу (RotationType.ROTATE).
+// «Я еду»: круглая точка + мягкий луч-конус направления (как в Яндекс.Картах), крутится по курсу.
 private fun userArrowBitmap(): Bitmap {
-    val size = 60
-    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val s = 96
+    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
-    val path = android.graphics.Path().apply {
-        moveTo(size / 2f, 8f)              // вершина (вперёд)
-        lineTo(size - 12f, size - 12f)     // правый низ
-        lineTo(size / 2f, size - 22f)      // выемка по центру
-        lineTo(12f, size - 12f)            // левый низ
+    val cx = s / 2f
+    val cy = s / 2f
+    // Конус направления (вверх = курс), полупрозрачный, тает кверху.
+    val cone = android.graphics.Path().apply {
+        moveTo(cx, cy)
+        lineTo(cx - 24f, 12f)
+        quadTo(cx, 2f, cx + 24f, 12f)
         close()
     }
-    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 7f; strokeJoin = Paint.Join.ROUND
+    c.drawPath(cone, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = android.graphics.LinearGradient(
+            cx, cy, cx, 8f,
+            android.graphics.Color.parseColor("#700B6B3A"),
+            android.graphics.Color.parseColor("#000B6B3A"),
+            android.graphics.Shader.TileMode.CLAMP
+        )
     })
-    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.parseColor("#0B6B3A"); style = Paint.Style.FILL
-    })
+    // Точка: тень-ободок + белое кольцо + зелёный центр.
+    c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#330B6B3A") })
+    c.drawCircle(cx, cy, 13f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+    c.drawCircle(cx, cy, 9f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
     return bmp
 }
 
