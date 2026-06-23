@@ -2795,8 +2795,7 @@ private fun YandexMapCard(
                 }
                 if (firstFix) {
                     firstFix = false
-                    // цель чуть южнее точки → сама точка рисуется выше, не под плашкой маршрутов
-                    map.move(CameraPosition(Point(pt.latitude - 0.0022, pt.longitude), 15f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
+                    map.move(CameraPosition(pt, 15f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
                 }
             }
             override fun onProviderEnabled(provider: String) {}
@@ -2863,11 +2862,13 @@ private fun YandexMapCard(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 14.dp),
             onZoomIn = {
                 val cam = mapView.mapWindow.map.cameraPosition
-                mapView.mapWindow.map.move(CameraPosition(cam.target, (cam.zoom + 1f).coerceAtMost(18f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
+                val t = if (LocationPrefs.sharingEnabled) (lastUserPoint ?: cam.target) else cam.target
+                mapView.mapWindow.map.move(CameraPosition(t, (cam.zoom + 1f).coerceAtMost(18f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
             },
             onZoomOut = {
                 val cam = mapView.mapWindow.map.cameraPosition
-                mapView.mapWindow.map.move(CameraPosition(cam.target, (cam.zoom - 1f).coerceAtLeast(3f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
+                val t = if (LocationPrefs.sharingEnabled) (lastUserPoint ?: cam.target) else cam.target
+                mapView.mapWindow.map.move(CameraPosition(t, (cam.zoom - 1f).coerceAtLeast(3f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
             }
         )
         // Кнопка «к себе» (как в Яндекс.Картах): центр на моей позиции; если выключено — включает.
@@ -2876,7 +2877,7 @@ private fun YandexMapCard(
                 when {
                     LocationPrefs.sharingEnabled -> lastUserPoint?.let { p ->
                         mapView.mapWindow.map.move(
-                            CameraPosition(Point(p.latitude - 0.0022, p.longitude), 15f, 0f, 0f),
+                            CameraPosition(p, 15f, 0f, 0f),
                             Animation(Animation.Type.SMOOTH, 0.4f), null
                         )
                     }
