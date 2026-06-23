@@ -5815,6 +5815,7 @@ private fun ActiveTripScreen(
             }
             item { Text(appText("Чат по поездке", "Сәфәр буйынса чат"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(4)) }
             item {
+                val voiceSoon = appText("Голосовые сообщения скоро", "Тауыш хәбәрҙәре тиҙҙән")
                 ChatComposer(
                     draft = draft,
                     onDraftChange = { draft = it },
@@ -5826,7 +5827,7 @@ private fun ActiveTripScreen(
                             draft = ""
                         }
                     },
-                    onVoice = {}
+                    onVoice = { Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show() }
                 )
             }
             items(messages) { m -> MessageBubble(m.text, mine = m.senderId == -1) }
