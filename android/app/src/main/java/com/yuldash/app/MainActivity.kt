@@ -2464,8 +2464,8 @@ private fun QuickSearchCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(if (compact) 12.dp else 14.dp),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp)
+            modifier = Modifier.padding(if (compact) 10.dp else 14.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)
         ) {
             HorizontalPager(
                 state = pagerState,
@@ -2507,7 +2507,7 @@ private fun QuickSearchCard(
                         "${route.from} → ${route.to}",
                         color = CanonGreen,
                         fontWeight = FontWeight.Black,
-                        fontSize = if (compact) 22.sp else 24.sp,
+                        fontSize = if (compact) 20.sp else 24.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -2618,7 +2618,7 @@ private fun SeniorAccessCard(onSimpleMode: () -> Unit) {
 // Координаты для карты (Башкортостан). Старт — Баймаҡ, финиш — Сибай.
 private val BaymakPoint = Point(52.5911, 58.3222)
 private val SibayPoint = Point(52.7236, 58.6651)
-private val MapMidPoint = Point(52.71, 58.45)
+private val MapMidPoint = Point(52.55, 58.49) // южнее центра маршрута → точки рисуются в верхней части, не под плашкой
 
 // Город → точка: частые города Башкортостана мгновенно; прочие догружает геокодер (см. YandexMapCard).
 private fun cityPoint(city: String): Point? = when (city.trim().lowercase()) {
