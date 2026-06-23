@@ -2878,8 +2878,6 @@ private fun YandexMapCard(
     ) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
         MapMarkerHitTargets(rides = rides, onRideTap = onRideTap)
-        MapLabel("Баймаҡ", Modifier.align(Alignment.TopStart).padding(20.dp))
-        MapLabel("Сибай", Modifier.align(Alignment.CenterEnd).padding(20.dp))
         // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
         MapZoomControls(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 14.dp),
