@@ -2639,45 +2639,45 @@ private fun cityPoint(city: String): Point? = when (city.trim().lowercase()) {
 
 // Маркер-«ценник» (стиль Яндекс/Airbnb): белая пилюля с ценой, цветная рамка, остриё вниз.
 // Boosted-поездка — золотой акцент, обычная — фирменный зелёный.
-// «Я еду»: круглая точка + мягкий луч-конус направления (как в Яндекс.Картах), крутится по курсу.
+// «Я еду»: крупная круглая точка + лёгкий луч направления (как в Яндекс.Картах), крутится по курсу.
 private fun userArrowBitmap(): Bitmap {
-    val s = 96
+    val s = 110
     val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
     val cx = s / 2f
     val cy = s / 2f
-    // Конус направления (вверх = курс), полупрозрачный, тает кверху.
+    // Луч направления: короткий, широкий вверху, светло-зелёный и почти прозрачный (мягкое свечение, не треугольник).
     val cone = android.graphics.Path().apply {
         moveTo(cx, cy)
-        lineTo(cx - 24f, 12f)
-        quadTo(cx, 2f, cx + 24f, 12f)
+        lineTo(cx - 30f, 20f)
+        quadTo(cx, 10f, cx + 30f, 20f)
         close()
     }
     c.drawPath(cone, Paint(Paint.ANTI_ALIAS_FLAG).apply {
         shader = android.graphics.LinearGradient(
-            cx, cy, cx, 8f,
-            android.graphics.Color.parseColor("#700B6B3A"),
-            android.graphics.Color.parseColor("#000B6B3A"),
+            cx, cy, cx, 16f,
+            android.graphics.Color.parseColor("#3C2FA86C"),
+            android.graphics.Color.parseColor("#002FA86C"),
             android.graphics.Shader.TileMode.CLAMP
         )
     })
-    // Точка: тень-ободок + белое кольцо + зелёный центр.
-    c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#330B6B3A") })
-    c.drawCircle(cx, cy, 13f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
-    c.drawCircle(cx, cy, 9f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
+    // Точка крупная и круглая — главный элемент: тень + белое кольцо + зелёный центр.
+    c.drawCircle(cx, cy, 19f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#22000000") })
+    c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+    c.drawCircle(cx, cy, 11f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
     return bmp
 }
 
-// Метка «моя геопозиция»: бренд-пак (белое кольцо + зелёная точка), как в топ-картах.
+// Метка «моя геопозиция» на стоянке: круглая точка (тень + белое кольцо + зелёный центр).
 private fun userPuckBitmap(): Bitmap {
-    val size = 56
+    val size = 64
     val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
     val cx = size / 2f
     val cy = size / 2f
-    c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#330B6B3A") })
-    c.drawCircle(cx, cy, 13f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
-    c.drawCircle(cx, cy, 9f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
+    c.drawCircle(cx, cy, 19f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#22000000") })
+    c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+    c.drawCircle(cx, cy, 11f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
     return bmp
 }
 
