@@ -2709,7 +2709,7 @@ private fun YandexMapCard(
 ) {
     val context = LocalContext.current
     // Геолокация управляется из Профиль → Конфиденциальность (общий LocationPrefs); FAB «к себе» тоже включает.
-    var recenterTick by remember { mutableStateOf(0) }
+    var lastUserPoint by remember { mutableStateOf<Point?>(null) }
     val locationPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) LocationPrefs.sharingEnabled = true
     }
@@ -2776,7 +2776,7 @@ private fun YandexMapCard(
     // Тёмная тема → ночной стиль карты (обновляется при смене темы).
     LaunchedEffect(nightMap) { mapView.mapWindow.map.isNightModeEnabled = nightMap }
     // «Моя геопозиция» — СВОЯ точка-плейсмарк через LocationManager (полный контроль, без дефолтной стрелки MapKit).
-    DisposableEffect(LocationPrefs.sharingEnabled, recenterTick) {
+    DisposableEffect(LocationPrefs.sharingEnabled) {
         val map = mapView.mapWindow.map
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
         var placemark: com.yandex.mapkit.map.PlacemarkMapObject? = null
@@ -2784,6 +2784,7 @@ private fun YandexMapCard(
         val listener = object : android.location.LocationListener {
             override fun onLocationChanged(loc: android.location.Location) {
                 val pt = Point(loc.latitude, loc.longitude)
+                lastUserPoint = pt   // запоминаем — кнопка «к себе» центрирует на ней в любой момент
                 val pm = placemark
                 if (pm == null) {
                     placemark = map.mapObjects.addPlacemark(pt).apply {
@@ -2873,7 +2874,12 @@ private fun YandexMapCard(
         Surface(
             onClick = {
                 when {
-                    LocationPrefs.sharingEnabled -> recenterTick++
+                    LocationPrefs.sharingEnabled -> lastUserPoint?.let { p ->
+                        mapView.mapWindow.map.move(
+                            CameraPosition(Point(p.latitude - 0.0022, p.longitude), 15f, 0f, 0f),
+                            Animation(Animation.Type.SMOOTH, 0.4f), null
+                        )
+                    }
                     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED -> LocationPrefs.sharingEnabled = true
                     else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                 }
