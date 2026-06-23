@@ -157,6 +157,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import android.Manifest
+import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.media.MediaRecorder
+import android.os.Build
+import android.os.SystemClock
+import java.io.File
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import android.content.Context
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
 import androidx.compose.animation.core.animateDpAsState
@@ -485,8 +498,36 @@ private data class LocalRequest(
 private data class LocalVoiceMessage(
     val author: String,
     val transcript: String,
-    val time: String
+    val time: String,
+    val audioPath: String? = null,
+    val durationSec: Int = 0
 )
+
+// Запись голоса с микрофона: MediaRecorder → m4a в кэше приложения.
+private class VoiceRecorder(private val context: Context) {
+    private var recorder: MediaRecorder? = null
+    private var path: String? = null
+    fun start(): Boolean = try {
+        val f = File(context.cacheDir, "voice_${SystemClock.elapsedRealtime()}.m4a")
+        path = f.absolutePath
+        recorder = (if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()).apply {
+            setAudioSource(MediaRecorder.AudioSource.MIC)
+            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            setOutputFile(path)
+            prepare()
+            start()
+        }
+        true
+    } catch (e: Exception) {
+        recorder?.release(); recorder = null; false
+    }
+    fun stop(): String? = try {
+        recorder?.stop(); recorder?.release(); recorder = null; path
+    } catch (e: Exception) {
+        recorder?.release(); recorder = null; null
+    }
+}
 
 private val demoTrustedContacts = listOf(
     TrustedContact("Айгуль", "Дочь", "+7 927 111-22-33", true, relationBa = "Ҡыҙы"),
@@ -3617,8 +3658,8 @@ private fun ChatScreen(
                         draft = ""
                     }
                 },
-                onVoice = {
-                    onAddVoiceMessage(LocalVoiceMessage("Байрас", voiceDemoText, nowText))
+                onVoiceRecorded = { path, dur ->
+                    onAddVoiceMessage(LocalVoiceMessage("Байрас", "", nowText, audioPath = path, durationSec = dur))
                     voiceSent = true
                 }
             )
@@ -3693,8 +3734,20 @@ private fun ChatComposer(
     draft: String,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
-    onVoice: () -> Unit
+    onVoiceRecorded: (String, Int) -> Unit
 ) {
+    val context = LocalContext.current
+    val recorder = remember { VoiceRecorder(context) }
+    var recording by remember { mutableStateOf(false) }
+    var startMs by remember { mutableStateOf(0L) }
+    fun begin() { if (recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
+    fun finish() {
+        val p = recorder.stop()
+        val dur = ((SystemClock.elapsedRealtime() - startMs) / 1000).toInt().coerceAtLeast(1)
+        recording = false
+        if (p != null) onVoiceRecorded(p, dur)
+    }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) begin() }
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(22.dp),
@@ -3704,26 +3757,40 @@ private fun ChatComposer(
             modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                placeholder = { Text(appText("Сообщение", "Хәбәр"), fontSize = 14.sp) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(18.dp),
-                maxLines = 3
-            )
+            if (recording) {
+                Spacer(Modifier.width(6.dp))
+                Box(Modifier.size(12.dp).background(CanonRed, CircleShape))
+                Spacer(Modifier.width(10.dp))
+                Text(appText("Идёт запись… нажмите, чтобы отправить", "Яҙыла… ебәреү өсөн баҫығыҙ"), modifier = Modifier.weight(1f), color = CanonText, fontSize = 14.sp)
+            } else {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    placeholder = { Text(appText("Сообщение", "Хәбәр"), fontSize = 14.sp) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(18.dp),
+                    maxLines = 3
+                )
+            }
             Spacer(Modifier.width(10.dp))
             IconButton(
-                onClick = if (draft.isBlank()) onVoice else onSend,
+                onClick = {
+                    when {
+                        recording -> finish()
+                        draft.isNotBlank() -> onSend()
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> begin()
+                        else -> permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
                 modifier = Modifier
                     .size(52.dp)
-                    .background(CanonGreen2, CircleShape)
+                    .background(if (recording) CanonRed else CanonGreen2, CircleShape)
             ) {
-                if (draft.isBlank()) {
-                    Icon(Icons.Default.HeadsetMic, contentDescription = appText("Записать голос", "Тауыш яҙҙырыу"), tint = Color.White)
-                } else {
-                    Icon(Icons.Default.NearMe, contentDescription = appText("Отправить", "Ебәреү"), tint = Color.White)
-                }
+                Icon(
+                    if (recording || draft.isNotBlank()) Icons.Default.NearMe else Icons.Default.HeadsetMic,
+                    contentDescription = if (recording) appText("Отправить запись", "Яҙманы ебәреү") else if (draft.isBlank()) appText("Записать голос", "Тауыш яҙҙырыу") else appText("Отправить", "Ебәреү"),
+                    tint = Color.White
+                )
             }
         }
     }
@@ -3731,16 +3798,48 @@ private fun ChatComposer(
 
 @Composable
 private fun VoiceMessageCard(message: LocalVoiceMessage) {
+    var playing by remember { mutableStateOf(false) }
+    val player = remember { mutableStateOf<MediaPlayer?>(null) }
+    DisposableEffect(message.audioPath) { onDispose { runCatching { player.value?.release() }; player.value = null } }
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonGreen2, shape = CircleShape) {
-                Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.padding(12.dp).size(24.dp))
+                IconButton(
+                    onClick = {
+                        val path = message.audioPath ?: return@IconButton
+                        if (playing) {
+                            runCatching { player.value?.stop(); player.value?.release() }
+                            player.value = null; playing = false
+                        } else {
+                            runCatching {
+                                player.value = MediaPlayer().apply {
+                                    setDataSource(path)
+                                    setOnCompletionListener { playing = false; runCatching { release() }; player.value = null }
+                                    prepare(); start()
+                                }
+                                playing = true
+                            }
+                        }
+                    },
+                    modifier = Modifier.padding(4.dp)
+                ) {
+                    Icon(
+                        if (playing) Icons.Default.Close else if (message.audioPath != null) Icons.Default.PlayArrow else Icons.Default.VolumeUp,
+                        contentDescription = appText("Воспроизвести", "Уйнатыу"),
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText("Голосовое от ${message.author}", "Тауыш хәбәр: ${message.author}"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                Text(message.transcript, color = CanonText, fontSize = 14.sp, lineHeight = 18.sp)
-                Text(appText("Расшифровка для водителя", "Водитель өсөн текст"), color = CanonMuted, fontSize = 12.sp)
+                if (message.audioPath != null) {
+                    Text(appText("${message.durationSec} сек · нажмите ▶", "${message.durationSec} сек · ▶ баҫығыҙ"), color = CanonMuted, fontSize = 13.sp)
+                } else {
+                    Text(message.transcript, color = CanonText, fontSize = 14.sp, lineHeight = 18.sp)
+                    Text(appText("Расшифровка для водителя", "Водитель өсөн текст"), color = CanonMuted, fontSize = 12.sp)
+                }
             }
             Text(message.time, color = CanonMuted, fontSize = 12.sp)
         }
@@ -5821,7 +5920,7 @@ private fun ActiveTripScreen(
             }
             item { Text(appText("Чат по поездке", "Сәфәр буйынса чат"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(4)) }
             item {
-                val voiceSoon = appText("Голосовые сообщения скоро", "Тауыш хәбәрҙәре тиҙҙән")
+                val voiceSoon = appText("Голос записан", "Тауыш яҙылды")
                 ChatComposer(
                     draft = draft,
                     onDraftChange = { draft = it },
@@ -5833,7 +5932,7 @@ private fun ActiveTripScreen(
                             draft = ""
                         }
                     },
-                    onVoice = { Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show() }
+                    onVoiceRecorded = { _, _ -> Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show() }
                 )
             }
             items(messages) { m -> MessageBubble(m.text, mine = m.senderId == -1) }

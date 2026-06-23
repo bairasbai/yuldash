@@ -5,6 +5,8 @@
     <!-- Геолокация: понадобится для «моё местоположение» (запрашиваем в рантайме, после подтверждения поездки) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Запись голосовых сообщений -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:name=".YuldashApplication"
