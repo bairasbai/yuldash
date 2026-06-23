@@ -61,6 +61,27 @@ class VerifyIn(BaseModel):
     name: str = ""
 
 
+def _send_text(phone: str, text: str) -> None:
+    """Отправка произвольного SMS (SOS, статусы близким). smsru → реально; иначе/фоллбэк — в лог."""
+    if settings.sms_provider == "smsru" and settings.sms_ru_api_id:
+        try:
+            import httpx
+            params = {"api_id": settings.sms_ru_api_id, "to": phone, "msg": text, "json": 1}
+            if settings.sms_from:
+                params["from"] = settings.sms_from
+            data = httpx.get("https://sms.ru/sms/send", params=params, timeout=10).json()
+            sms = (data.get("sms") or {}).get(phone, {})
+            ok = sms.get("status_code") == 100
+            print(f"[SMS] {phone}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
+            if not ok:
+                print(f"[SMS-FALLBACK] {phone}: {text}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[SMS] {phone}: smsru error {e}")
+            print(f"[SMS-FALLBACK] {phone}: {text}")
+    else:
+        print(f"[SMS-MOCK] {phone}: {text}")
+
+
 def _send_sms(phone: str, code: str) -> None:
     """Отправка OTP. `smsru` — реально через sms.ru; иначе мок (код в лог).
     Если sms.ru НЕ отправил (напр. нет одобренного отправителя) — код падает в лог,
@@ -425,7 +446,13 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
     session.commit()
     for share in shares:
         session.refresh(share)  # после commit объекты «обнуляются» — перечитываем
-    # TODO: тут — push/SMS близким («сел», «доехал»)
+    # Реально уведомляем близких по SMS о статусе поездки.
+    status_text = {"sat": "сел в машину", "arrived": "доехал до места", "done": "завершил поездку"}.get(body.status, body.status)
+    who = user.name or user.phone
+    for share in shares:
+        c = session.get(TrustedContact, share.contact_id)
+        if c and c.phone:
+            _send_text(c.phone, f"Юлдаш: {who} {status_text}.")
     return shares
 
 
@@ -442,7 +469,15 @@ def sos(body: SosIn, user: User = Depends(current_user), session: Session = Depe
     session.add(event)
     session.commit()
     session.refresh(event)
-    # TODO: уведомить экстренные службы/поддержку/доверенные контакты
+    # Реально уведомляем доверенные контакты по SMS.
+    contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+    who = user.name or user.phone
+    notified = 0
+    for c in contacts:
+        if c.phone:
+            _send_text(c.phone, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.")
+            notified += 1
+    print(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
     return event
 
 
