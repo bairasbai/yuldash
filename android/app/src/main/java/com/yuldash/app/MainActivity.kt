@@ -2913,18 +2913,6 @@ private fun YandexMapCard(
                 )
             }
         }
-        Surface(
-            modifier = Modifier.align(Alignment.TopEnd).padding(18.dp),
-            color = Color.White.copy(alpha = 0.92f),
-            shape = RoundedCornerShape(999.dp),
-            shadowElevation = 3.dp
-        ) {
-            Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(16.dp), tint = CanonGreen2)
-                Spacer(Modifier.width(5.dp))
-                Text("43 км", fontWeight = FontWeight.Bold)
-            }
-        }
         if (showPrivacyNotice) {
             Card(
                 modifier = Modifier
