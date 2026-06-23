@@ -158,7 +158,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -242,6 +241,11 @@ private enum class AppLanguage {
     Ru,
     Ba
 }
+
+private data class LocalizedText(
+    val ru: String,
+    val ba: String
+)
 
 private enum class RideRole {
     Passenger,
@@ -361,6 +365,37 @@ private fun appText(ru: String, ba: String): String {
     return if (LocalAppLanguage.current == AppLanguage.Ba) ba else ru
 }
 
+private fun appTextFor(language: AppLanguage, ru: String, ba: String): String {
+    return if (language == AppLanguage.Ba) ba else ru
+}
+
+@Composable
+private fun LocalizedText.text(): String = appText(ru, ba)
+
+@Composable
+private fun seatsText(count: Int): String = appText("$count места", "$count урын")
+
+@Composable
+private fun Ride.timeText(): String = appText(time, timeBa ?: time)
+
+@Composable
+private fun Ride.carText(): String = appText(car, carBa ?: car)
+
+@Composable
+private fun PopularRoute.minutesText(): String = appText(minutes, minutesBa ?: minutes)
+
+@Composable
+private fun PopularRoute.labelText(): String = appText(label, labelBa ?: label)
+
+@Composable
+private fun TrustedContact.relationText(): String = appText(relation, relationBa ?: relation)
+
+@Composable
+private fun FrequentTrip.titleText(): String = appText(title, titleBa)
+
+@Composable
+private fun FrequentTrip.timeHintText(): String = appText(timeHint, timeHintBa)
+
 /** ISO-дата сервера "2026-06-22T22:24:07" → "22.06, 22:24" для карточки поездки. */
 private fun formatDepart(iso: String): String = try {
     val d = iso.substringBefore('T')
@@ -378,19 +413,11 @@ private fun categoryToApi(ui: String): Pair<String, Boolean> = when (ui) {
     else -> "regular" to false
 }
 
-/** Категория бэкенда → подпись для карточки заявки. */
-private fun apiCategoryToUi(category: String, withKids: Boolean): String = when {
-    category == "hospital" -> "В больницу"
-    category == "parcel" -> "Посылка"
-    withKids -> "С детьми"
-    else -> "Обычная"
-}
-
-/** Категория SOS из UI → enum бэкенда. */
-private fun sosCategoryToApi(ui: String): String = when (ui) {
-    "Медицина" -> "medical"
-    "Поломка авто" -> "breakdown"
-    else -> "other"
+private fun apiCategoryToUiFor(language: AppLanguage, category: String, withKids: Boolean): String = when {
+    category == "hospital" -> appTextFor(language, "В больницу", "Больницаға")
+    category == "parcel" -> appTextFor(language, "Посылка", "Посылка")
+    withKids -> appTextFor(language, "С детьми", "Балалар менән")
+    else -> appTextFor(language, "Обычная", "Ғәҙәти")
 }
 
 private data class Ride(
@@ -398,8 +425,10 @@ private data class Ride(
     val from: String,
     val to: String,
     val time: String,
+    val timeBa: String? = null,
     val driver: String,
     val car: String,
+    val carBa: String? = null,
     val price: Int,
     val seats: Int,
     val rating: Double,
@@ -411,9 +440,11 @@ private data class PopularRoute(
     val from: String,
     val to: String,
     val minutes: String,
+    val minutesBa: String? = null,
     val distance: String,
     val nearbyCount: Int,
-    val label: String
+    val label: String,
+    val labelBa: String? = null
 )
 
 private data class TrustedContact(
@@ -421,15 +452,18 @@ private data class TrustedContact(
     val relation: String,
     val phone: String,
     val notifyByDefault: Boolean,
-    val id: Int = 0
+    val id: Int = 0,
+    val relationBa: String? = null
 )
 
 private data class FrequentTrip(
     val title: String,
+    val titleBa: String,
     val from: String,
     val to: String,
     val timeHint: String,
-    val category: String
+    val timeHintBa: String,
+    val categoryKey: String
 )
 
 private data class LocalRequest(
@@ -449,38 +483,47 @@ private data class LocalVoiceMessage(
 )
 
 private val demoTrustedContacts = listOf(
-    TrustedContact("Айгуль", "Дочь", "+7 927 111-22-33", true),
-    TrustedContact("Рамиль", "Сосед", "+7 927 444-55-66", false)
+    TrustedContact("Айгуль", "Дочь", "+7 927 111-22-33", true, relationBa = "Ҡыҙы"),
+    TrustedContact("Рамиль", "Сосед", "+7 927 444-55-66", false, relationBa = "Күрше")
 )
 
 private val demoFrequentTrips = listOf(
-    FrequentTrip("В больницу", "Баймаҡ", "Сибай", "завтра утром", "В больницу"),
-    FrequentTrip("К детям", "Баймаҡ", "Уфа", "пятница, 08:00", "Межгород"),
-    FrequentTrip("На рынок", "Баймаҡ", "Сибай", "сегодня после 15:00", "Обычная")
+    FrequentTrip("В больницу", "Больницаға", "Баймаҡ", "Сибай", "завтра утром", "иртәгә иртән", "hospital"),
+    FrequentTrip("К детям", "Балаларға", "Баймаҡ", "Уфа", "пятница, 08:00", "йома, 08:00", "intercity"),
+    FrequentTrip("На рынок", "Баҙарға", "Баймаҡ", "Сибай", "сегодня после 15:00", "бөгөн 15:00-тан һуң", "regular")
 )
 
 private data class PartnerAd(
     val id: String,
     val title: String,
+    val titleBa: String? = null,
     val description: String,
+    val descriptionBa: String? = null,
     val address: String,
+    val addressBa: String? = null,
     val advertiserName: String,
     val erid: String,
     val city: String,
     val routeFrom: String? = null,
     val routeTo: String? = null,
     val category: String? = null,
+    val categoryBa: String? = null,
     val startDate: String,
     val endDate: String,
     val status: AdStatus,
     val placements: Set<AdPlacement>,
     val packageName: String,
+    val packageNameBa: String? = null,
     val budgetLabel: String,
+    val budgetLabelBa: String? = null,
     val targetAction: String,
+    val targetActionBa: String? = null,
     val contact: String,
     val mapPoint: String,
     val primaryButton: String,
+    val primaryButtonBa: String? = null,
     val secondaryButton: String? = null,
+    val secondaryButtonBa: String? = null,
     val icon: ImageVector
 )
 
@@ -496,7 +539,9 @@ private val demoPartnerAds = listOf(
     PartnerAd(
         id = "ad-pharmacy-hospital",
         title = "Аптека «Здоровье»",
+        titleBa = "«Здоровье» дарыуханаһы",
         description = "Скидка 10% для поездок в больницу",
+        descriptionBa = "Больницаға сәфәрҙәр өсөн 10% ташлама",
         address = "Баймаҡ, ул. Ленина, 12",
         advertiserName = "ООО «Аптека Здоровье»",
         erid = "2VtzqxXXXX",
@@ -504,24 +549,33 @@ private val demoPartnerAds = listOf(
         routeFrom = "Баймаҡ",
         routeTo = "Сибай",
         category = "В больницу",
+        categoryBa = "Больницаға",
         startDate = "2026-06-22",
         endDate = "2026-07-22",
         status = AdStatus.Active,
         placements = setOf(AdPlacement.Nearby, AdPlacement.Profile, AdPlacement.Help, AdPlacement.TripDetails),
         packageName = "Город + категория",
+        packageNameBa = "Ҡала + категория",
         budgetLabel = "3 000 ₽ / 30 дней",
+        budgetLabelBa = "3 000 ₽ / 30 көн",
         targetAction = "Открыть карточку и построить маршрут",
+        targetActionBa = "Карточканы асыу һәм маршрут төҙөү",
         contact = "+7 927 000-12-12",
         mapPoint = "53.9306, 58.3142",
         primaryButton = "Открыть",
+        primaryButtonBa = "Асыу",
         secondaryButton = "Маршрут",
+        secondaryButtonBa = "Маршрут",
         icon = Icons.Default.LocalHospital
     ),
     PartnerAd(
         id = "ad-cafe-route",
         title = "Кафе «Юлдаш»",
+        titleBa = "«Юлдаш» кафеһы",
         description = "Горячий чай и еда по дороге Баймаҡ → Сибай",
+        descriptionBa = "Баймаҡ → Сибай юлында эҫе сәй һәм аш",
         address = "5 минут от трассы",
+        addressBa = "Трассанан 5 минут",
         advertiserName = "ИП Хусаинов",
         erid = "2VtzqyYYYY",
         city = "Сибай",
@@ -532,17 +586,23 @@ private val demoPartnerAds = listOf(
         status = AdStatus.Active,
         placements = setOf(AdPlacement.Route, AdPlacement.RidesList, AdPlacement.TripDetails),
         packageName = "Маршрут",
+        packageNameBa = "Маршрут",
         budgetLabel = "2 500 ₽ / 14 дней",
+        budgetLabelBa = "2 500 ₽ / 14 көн",
         targetAction = "Показать предложение по маршруту",
+        targetActionBa = "Маршрут буйынса тәҡдим күрһәтеү",
         contact = "+7 927 000-23-23",
         mapPoint = "53.7442, 58.6638",
         primaryButton = "Посмотреть",
+        primaryButtonBa = "Ҡарау",
         icon = Icons.Default.Star
     ),
     PartnerAd(
         id = "ad-service-rides",
         title = "СТО «АвтоМастер»",
+        titleBa = "«АвтоМастер» СТО",
         description = "Проверка машины перед дальней поездкой",
+        descriptionBa = "Оҙон сәфәр алдынан машинаны тикшереү",
         address = "Сибай",
         advertiserName = "ООО «АвтоМастер»",
         erid = "2VtzqzZZZZ",
@@ -550,40 +610,54 @@ private val demoPartnerAds = listOf(
         routeFrom = "Сибай",
         routeTo = "Баймаҡ",
         category = "Межгород",
+        categoryBa = "Ҡалалар араһы",
         startDate = "2026-06-22",
         endDate = "2026-07-22",
         status = AdStatus.Active,
         placements = setOf(AdPlacement.RidesList, AdPlacement.Route),
         packageName = "Спонсор списка",
+        packageNameBa = "Исемлек спонсоры",
         budgetLabel = "5 000 ₽ / 30 дней",
+        budgetLabelBa = "5 000 ₽ / 30 көн",
         targetAction = "Позвонить или открыть точку на карте",
+        targetActionBa = "Шылтыратыу йәки картала нөктәне асыу",
         contact = "+7 927 000-34-34",
         mapPoint = "52.7200, 58.6650",
         primaryButton = "Позвонить",
+        primaryButtonBa = "Шылтыратыу",
         secondaryButton = "На карте",
+        secondaryButtonBa = "Картала",
         icon = Icons.Default.Settings
     ),
     PartnerAd(
         id = "ad-hotel-moderation",
         title = "Гостиница «Ирендык»",
+        titleBa = "«Ирендык» ҡунаҡханаһы",
         description = "Номер на ночь для тех, кто едет через Сибай",
+        descriptionBa = "Сибай аша барыусылар өсөн төнгөлөк бүлмә",
         address = "Сибай, центр",
+        addressBa = "Сибай, үҙәк",
         advertiserName = "ИП Каримова",
         erid = "ожидает присвоения",
         city = "Сибай",
         routeFrom = "Баймаҡ",
         routeTo = "Сибай",
         category = "Межгород",
+        categoryBa = "Ҡалалар араһы",
         startDate = "2026-07-01",
         endDate = "2026-07-31",
         status = AdStatus.Moderation,
         placements = setOf(AdPlacement.Route, AdPlacement.Help),
         packageName = "Маршрут",
+        packageNameBa = "Маршрут",
         budgetLabel = "4 000 ₽ / 30 дней",
+        budgetLabelBa = "4 000 ₽ / 30 көн",
         targetAction = "Открыть карточку гостиницы",
+        targetActionBa = "Ҡунаҡхана карточкаһын асыу",
         contact = "+7 927 000-45-45",
         mapPoint = "52.7182, 58.6657",
         primaryButton = "Посмотреть",
+        primaryButtonBa = "Ҡарау",
         icon = Icons.Default.LocationOn
     )
 )
@@ -594,8 +668,10 @@ private val demoRides = listOf(
         from = "Баймаҡ",
         to = "Сибай",
         time = "Сегодня, 17:30",
+        timeBa = "Бөгөн, 17:30",
         driver = "Ильдар",
         car = "Lada Vesta, белая",
+        carBa = "Lada Vesta, аҡ",
         price = 350,
         seats = 2,
         rating = 4.8,
@@ -607,8 +683,10 @@ private val demoRides = listOf(
         from = "Темясово",
         to = "Уфа",
         time = "Завтра, 06:00",
+        timeBa = "Иртәгә, 06:00",
         driver = "Айгуль",
         car = "Hyundai Solaris, серебро",
+        carBa = "Hyundai Solaris, көмөш төҫ",
         price = 1400,
         seats = 2,
         rating = 4.9,
@@ -620,8 +698,10 @@ private val demoRides = listOf(
         from = "Сибай",
         to = "Баймак",
         time = "Пятница, 13:20",
+        timeBa = "Йома, 13:20",
         driver = "Рустам",
         car = "Renault Logan, синий",
+        carBa = "Renault Logan, күк",
         price = 300,
         seats = 1,
         rating = 4.6,
@@ -635,25 +715,31 @@ private val demoPopularRoutes = listOf(
         from = "Баймаҡ",
         to = "Сибай",
         minutes = "15 мин",
+        minutesBa = "15 мин",
         distance = "43 км",
         nearbyCount = 3,
-        label = "Популярный маршрут"
+        label = "Популярный маршрут",
+        labelBa = "Популяр маршрут"
     ),
     PopularRoute(
         from = "Сибай",
         to = "Баймаҡ",
         minutes = "18 мин",
+        minutesBa = "18 мин",
         distance = "43 км",
         nearbyCount = 2,
-        label = "Возвращаются домой"
+        label = "Возвращаются домой",
+        labelBa = "Өйгә ҡайталар"
     ),
     PopularRoute(
         from = "Темясово",
         to = "Уфа",
         minutes = "3 ч 40 мин",
+        minutesBa = "3 сәғ 40 мин",
         distance = "310 км",
         nearbyCount = 1,
-        label = "Межгород сегодня"
+        label = "Межгород сегодня",
+        labelBa = "Бөгөн ҡалалар араһы"
     )
 )
 
@@ -704,7 +790,9 @@ private fun YuldashApp() {
     fun trackAdClick(ad: PartnerAd) {
         val current = adStats[ad.id] ?: AdStats()
         adStats = adStats + (ad.id to current.copy(clicks = current.clicks + 1))
-        Toast.makeText(context, "${ad.title}: ${ad.primaryButton}", Toast.LENGTH_SHORT).show()
+        val title = if (language == AppLanguage.Ba) ad.titleBa ?: ad.title else ad.title
+        val button = if (language == AppLanguage.Ba) ad.primaryButtonBa ?: ad.primaryButton else ad.primaryButton
+        Toast.makeText(context, "$title: $button", Toast.LENGTH_SHORT).show()
     }
 
     // Поездки — с сервера. Стартуем с демо (мгновенно), при ответе заменяем на серверные.
@@ -743,7 +831,7 @@ private fun YuldashApp() {
                 localRequests.addAll(
                     reqs.map { r ->
                         LocalRequest(
-                            title = apiCategoryToUi(r.category, r.withKids),
+                            title = apiCategoryToUiFor(language, r.category, r.withKids),
                             route = "${r.fromCity} → ${r.toCity}",
                             time = reqByAgreement,
                             passenger = r.forRelativeName ?: "Байрас",
@@ -805,18 +893,30 @@ private fun YuldashApp() {
                 onBoost = { screen = Screen.Boost },
                 onPublishRide = { ride ->
                     rides.add(0, ride)
-                    Toast.makeText(context, "Заявка опубликована", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка баҫтырылды" else "Заявка опубликована", Toast.LENGTH_SHORT).show()
                 },
                 onBookRide = { ride ->
                     selectedRide = ride
                     screen = Screen.Booking
                 },
-                onShareRide = { ride -> shareRide(context, ride) },
+                onShareRide = { ride ->
+                    val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time
+                    val shareText = if (language == AppLanguage.Ba) {
+                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, йөрөтөүсе ${ride.driver}, ${ride.price} ₽, буш урын: ${ride.seats}."
+                    } else {
+                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, водитель ${ride.driver}, ${ride.price} ₽, свободно ${ride.seats} места."
+                    }
+                    shareRide(
+                        context = context,
+                        text = shareText,
+                        chooserTitle = if (language == AppLanguage.Ba) "Сәфәр менән бүлешеү" else "Поделиться поездкой"
+                    )
+                },
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
                 onAddVoiceMessage = { message ->
                     voiceMessages.add(0, message)
-                    Toast.makeText(context, "Голосовое отправлено", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (language == AppLanguage.Ba) "Тауыш хәбәре ебәрелде" else "Голосовое отправлено", Toast.LENGTH_SHORT).show()
                 },
                 onSos = { screen = Screen.Sos },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
@@ -838,7 +938,7 @@ private fun YuldashApp() {
                 onBack = { openHome(HomeTab.Request) },
                 onPublish = { ride ->
                     rides.add(0, ride)
-                    Toast.makeText(context, "Поездка опубликована", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (language == AppLanguage.Ba) "Сәфәр баҫтырылды" else "Поездка опубликована", Toast.LENGTH_SHORT).show()
                     openHome(HomeTab.Rides)
                 }
             )
@@ -846,7 +946,7 @@ private fun YuldashApp() {
                 onBack = { openHome(HomeTab.Request) },
                 onCreateRequest = { request ->
                     localRequests.add(0, request)
-                    Toast.makeText(context, "Заявка создана", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка булдырылды" else "Заявка создана", Toast.LENGTH_SHORT).show()
                     openHome(HomeTab.Request)
                 }
             )
@@ -867,7 +967,7 @@ private fun YuldashApp() {
                         appScope.launch {
                             ApiClient.book(rid, 1)
                                 .onSuccess { bid -> activeBookingId = bid; screen = Screen.ActiveTrip }
-                                .onFailure { Toast.makeText(context, "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
                         }
                     }
                 }
@@ -940,7 +1040,7 @@ private fun YuldashApp() {
                 onBack = { screen = Screen.SimpleMode },
                 onCreateRequest = { request ->
                     localRequests.add(0, request)
-                    Toast.makeText(context, "Заявка создана", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка булдырылды" else "Заявка создана", Toast.LENGTH_SHORT).show()
                     screen = Screen.SimpleMode
                 }
             )
@@ -949,7 +1049,7 @@ private fun YuldashApp() {
                 onBack = { screen = Screen.SimpleMode },
                 onCreateRequest = { request ->
                     localRequests.add(0, request)
-                    Toast.makeText(context, "Поездка за близкого создана", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (language == AppLanguage.Ba) "Яҡын кеше өсөн сәфәр булдырылды" else "Поездка за близкого создана", Toast.LENGTH_SHORT).show()
                     screen = Screen.SimpleMode
                 }
             )
@@ -959,7 +1059,7 @@ private fun YuldashApp() {
                 onAddContact = { contact ->
                     trustedContacts.add(contact)
                     ApiClient.fireAddContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault)
-                    Toast.makeText(context, "Контакт добавлен", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (language == AppLanguage.Ba) "Контакт өҫтәлде" else "Контакт добавлен", Toast.LENGTH_SHORT).show()
                 }
             )
             Screen.RepeatTrip -> RepeatTripScreen(
@@ -967,7 +1067,7 @@ private fun YuldashApp() {
                 onBack = { screen = Screen.SimpleMode },
                 onRepeat = { request ->
                     localRequests.add(0, request)
-                    Toast.makeText(context, "Частая поездка повторена", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (language == AppLanguage.Ba) "Йыш сәфәр ҡабатланды" else "Частая поездка повторена", Toast.LENGTH_SHORT).show()
                     screen = Screen.SimpleMode
                 }
             )
@@ -976,7 +1076,7 @@ private fun YuldashApp() {
                 onBack = { screen = Screen.SimpleMode },
                 onRequest = {
                     callbackRequested = true
-                    Toast.makeText(context, "Заявка на звонок создана", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (language == AppLanguage.Ba) "Шылтыратыу заявкаһы булдырылды" else "Заявка на звонок создана", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -984,13 +1084,12 @@ private fun YuldashApp() {
     }
 }
 
-private fun shareRide(context: android.content.Context, ride: Ride) {
-    val text = "Юлдаш: ${ride.from} → ${ride.to}, ${ride.time}, водитель ${ride.driver}, ${ride.price} ₽, свободно ${ride.seats} места."
+private fun shareRide(context: android.content.Context, text: String, chooserTitle: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, text)
     }
-    context.startActivity(Intent.createChooser(intent, "Поделиться поездкой"))
+    context.startActivity(Intent.createChooser(intent, chooserTitle))
 }
 
 @Composable
@@ -1403,6 +1502,7 @@ private fun LoginScreen(
                             .height(360.dp)
                     )
                     LoginFormCard(
+                        currentLanguage = currentLanguage,
                         onContinue = onContinue,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1413,6 +1513,7 @@ private fun LoginScreen(
             }
             item {
                 TrustCard(
+                    currentLanguage = currentLanguage,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
@@ -1420,6 +1521,7 @@ private fun LoginScreen(
             }
             item {
                 SafetyFooter(
+                    currentLanguage = currentLanguage,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
@@ -1431,6 +1533,7 @@ private fun LoginScreen(
 
 @Composable
 private fun LoginFormCard(
+    currentLanguage: AppLanguage,
     onContinue: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1452,15 +1555,15 @@ private fun LoginFormCard(
             verticalArrangement = Arrangement.spacedBy(13.dp)
         ) {
             Text(
-                text = stringResource(R.string.login_title),
+                text = appTextFor(currentLanguage, "Войти по телефону", "Телефон аша инеү"),
                 color = CanonText,
                 fontSize = 24.sp,
                 lineHeight = 28.sp,
                 fontWeight = FontWeight.Black
             )
             Text(
-                text = if (step == 0) stringResource(R.string.login_subtitle)
-                else appText("Код отправлен на $phone", "Код $phone номерыңа ебәрелде"),
+                text = if (step == 0) appTextFor(currentLanguage, "Номер будет скрыт до подтверждения брони.", "Телефон номеры бронь раҫланғанға тиклем йәшерелә.")
+                else appTextFor(currentLanguage, "Код отправлен на $phone", "Код $phone номерыңа ебәрелде"),
                 color = CanonMuted,
                 fontSize = 16.sp,
                 lineHeight = 22.sp
@@ -1469,7 +1572,7 @@ private fun LoginFormCard(
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { phone = it; error = null },
-                    placeholder = { Text(stringResource(R.string.phone_number), fontSize = 16.sp) },
+                    placeholder = { Text(appTextFor(currentLanguage, "Номер телефона", "Телефон номеры"), fontSize = 16.sp) },
                     leadingIcon = {
                         Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonMuted)
                     },
@@ -1484,7 +1587,7 @@ private fun LoginFormCard(
                 OutlinedTextField(
                     value = code,
                     onValueChange = { code = it.filter { c -> c.isDigit() }.take(6); error = null },
-                    placeholder = { Text(appText("Код из SMS", "SMS коды"), fontSize = 16.sp) },
+                    placeholder = { Text(appTextFor(currentLanguage, "Код из SMS", "SMS коды"), fontSize = 16.sp) },
                     leadingIcon = {
                         Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted)
                     },
@@ -1496,17 +1599,17 @@ private fun LoginFormCard(
                     shape = RoundedCornerShape(14.dp)
                 )
                 TextButton(onClick = { step = 0; code = ""; error = null }) {
-                    Text(appText("Изменить номер", "Номерҙы үҙгәртеү"), color = CanonGreen2)
+                    Text(appTextFor(currentLanguage, "Изменить номер", "Номерҙы үҙгәртеү"), color = CanonGreen2)
                 }
             }
             error?.let {
                 Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp)
             }
             // строки ошибок считаем здесь (в @Composable-контексте); в onClick отдаём готовый текст
-            val errEnterPhone = appText("Введите номер телефона", "Телефон номерын индерегеҙ")
-            val errSendFail = appText("Не получилось отправить код. Повтори.", "Код ебәреп булманы. Ҡабатла.")
-            val errEnterCode = appText("Введите код из SMS", "SMS кодын индерегеҙ")
-            val errBadCode = appText("Неверный код", "Код дөрөҫ түгел")
+            val errEnterPhone = appTextFor(currentLanguage, "Введите номер телефона", "Телефон номерын индерегеҙ")
+            val errSendFail = appTextFor(currentLanguage, "Не получилось отправить код. Повтори.", "Код ебәреп булманы. Ҡабатла.")
+            val errEnterCode = appTextFor(currentLanguage, "Введите код из SMS", "SMS кодын индерегеҙ")
+            val errBadCode = appTextFor(currentLanguage, "Неверный код", "Код дөрөҫ түгел")
             Button(
                 onClick = {
                     if (loading) return@Button
@@ -1523,7 +1626,7 @@ private fun LoginFormCard(
                                 .onSuccess { loading = false; step = 1 }
                                 .onFailure {
                                     loading = false
-                                    error = it.message ?: errSendFail
+                                    error = errSendFail
                                 }
                         }
                     } else {
@@ -1537,7 +1640,7 @@ private fun LoginFormCard(
                                 .onSuccess { loading = false; onContinue() }
                                 .onFailure {
                                     loading = false
-                                    error = it.message ?: errBadCode
+                                    error = errBadCode
                                 }
                         }
                     }
@@ -1553,7 +1656,7 @@ private fun LoginFormCard(
                     CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
                 } else {
                     Text(
-                        text = if (step == 0) appText("Получить код", "Код алыу") else appText("Войти", "Инеү"),
+                        text = if (step == 0) appTextFor(currentLanguage, "Получить код", "Код алыу") else appTextFor(currentLanguage, "Войти", "Инеү"),
                         fontWeight = FontWeight.Black,
                         fontSize = 16.sp
                     )
@@ -1572,75 +1675,37 @@ private fun BrandHero(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(Color(0xFF058356), Color(0xFF2AAD69), Color(0xFFF0C84F))
-                )
-            )
+            .background(Color(0xFF0B6B3A))
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawCircle(Color.White.copy(alpha = 0.18f), radius = 58f, center = Offset(size.width * 0.86f, size.height * 0.53f))
-            drawCircle(Color(0xFFF8D874).copy(alpha = 0.92f), radius = 21f, center = Offset(size.width * 0.86f, size.height * 0.47f))
-
-            val cloud = Path().apply {
-                moveTo(size.width * 0.18f, size.height * 0.24f)
-                cubicTo(size.width * 0.29f, size.height * 0.15f, size.width * 0.43f, size.height * 0.26f, size.width * 0.57f, size.height * 0.22f)
-                cubicTo(size.width * 0.68f, size.height * 0.19f, size.width * 0.75f, size.height * 0.25f, size.width * 0.82f, size.height * 0.23f)
-            }
-            drawPath(cloud, Color.White.copy(alpha = 0.15f), style = Stroke(width = 36f, cap = StrokeCap.Round))
-
-            val farMountains = Path().apply {
-                moveTo(0f, size.height * 0.68f)
-                lineTo(size.width * 0.20f, size.height * 0.58f)
-                lineTo(size.width * 0.38f, size.height * 0.64f)
-                lineTo(size.width * 0.55f, size.height * 0.52f)
-                lineTo(size.width * 0.70f, size.height * 0.64f)
-                lineTo(size.width * 0.88f, size.height * 0.54f)
-                lineTo(size.width, size.height * 0.61f)
-                lineTo(size.width, size.height)
-                lineTo(0f, size.height)
-                close()
-            }
-            drawPath(farMountains, Color(0xFF2B9367).copy(alpha = 0.76f))
-
-            val nearHills = Path().apply {
-                moveTo(0f, size.height * 0.78f)
-                cubicTo(size.width * 0.18f, size.height * 0.67f, size.width * 0.34f, size.height * 0.76f, size.width * 0.52f, size.height * 0.68f)
-                cubicTo(size.width * 0.70f, size.height * 0.59f, size.width * 0.82f, size.height * 0.76f, size.width, size.height * 0.64f)
-                lineTo(size.width, size.height)
-                lineTo(0f, size.height)
-                close()
-            }
-            drawPath(nearHills, Color(0xFF147A4B).copy(alpha = 0.70f))
-
-            val treeLine = Path().apply {
-                moveTo(0f, size.height * 0.72f)
-                lineTo(size.width, size.height * 0.70f)
-                lineTo(size.width, size.height * 0.78f)
-                lineTo(0f, size.height * 0.80f)
-                close()
-            }
-            drawPath(treeLine, Color(0xFF08613F).copy(alpha = 0.54f))
-
-            val road = Path().apply {
-                moveTo(size.width * 0.35f, size.height)
-                cubicTo(size.width * 0.48f, size.height * 0.82f, size.width * 0.68f, size.height * 0.80f, size.width, size.height * 0.70f)
-                lineTo(size.width, size.height * 0.83f)
-                cubicTo(size.width * 0.72f, size.height * 0.87f, size.width * 0.60f, size.height * 0.93f, size.width * 0.54f, size.height)
-                close()
-            }
-            drawPath(road, Color(0xFF5A6159).copy(alpha = 0.92f))
-            val roadEdge = Path().apply {
-                moveTo(size.width * 0.37f, size.height * 0.98f)
-                cubicTo(size.width * 0.51f, size.height * 0.84f, size.width * 0.69f, size.height * 0.82f, size.width * 0.98f, size.height * 0.72f)
-            }
-            drawPath(roadEdge, Color.White.copy(alpha = 0.88f), style = Stroke(width = 6f, cap = StrokeCap.Round))
-            val roadLine = Path().apply {
-                moveTo(size.width * 0.58f, size.height * 0.98f)
-                cubicTo(size.width * 0.66f, size.height * 0.88f, size.width * 0.76f, size.height * 0.84f, size.width * 0.95f, size.height * 0.77f)
-            }
-            drawPath(roadLine, Color.White.copy(alpha = 0.85f), style = Stroke(width = 5f, cap = StrokeCap.Round))
-        }
+        Image(
+            painter = painterResource(R.drawable.login_car_hero_square),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color(0x99175F3F),
+                        0.44f to Color(0x33175F3F),
+                        0.72f to Color(0x2206130F),
+                        1f to Color(0xE606130F)
+                    )
+                )
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        0f to Color(0x66105239),
+                        0.55f to Color.Transparent,
+                        1f to Color(0x3306130F)
+                    )
+                )
+        )
 
         Row(
             modifier = Modifier
@@ -1689,7 +1754,7 @@ private fun BrandHero(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Юлдаш", color = Color.White, fontSize = 40.sp, lineHeight = 42.sp, fontWeight = FontWeight.Black)
                     Text(
-                        text = appText("Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
+                        text = appTextFor(currentLanguage, "Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
                         color = Color.White.copy(alpha = 0.94f),
                         fontSize = 18.sp,
                         lineHeight = 22.sp,
@@ -1699,27 +1764,11 @@ private fun BrandHero(
             }
             Spacer(Modifier.height(22.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                HeroPill(Icons.Default.PhoneLocked, appText("Скрытый номер", "Йәшерен номер"))
-                HeroPill(Icons.Default.Pin, appText("Код посадки", "Ултырыу коды"))
+                HeroPill(Icons.Default.PhoneLocked, appTextFor(currentLanguage, "Скрытый номер", "Йәшерен номер"))
+                HeroPill(Icons.Default.Pin, appTextFor(currentLanguage, "Код посадки", "Ултырыу коды"))
             }
         }
 
-        Surface(
-        modifier = Modifier
-            .align(Alignment.BottomEnd)
-                .padding(end = 50.dp, bottom = 70.dp)
-                .size(width = 70.dp, height = 42.dp),
-            shape = RoundedCornerShape(14.dp),
-            color = Color(0xFF0D6549).copy(alpha = 0.88f),
-            shadowElevation = 4.dp
-        ) {
-            Icon(
-                Icons.Default.DirectionsCar,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.padding(9.dp)
-            )
-        }
     }
 }
 
@@ -1748,7 +1797,7 @@ private fun HeroPill(icon: ImageVector, text: String) {
 }
 
 @Composable
-private fun TrustCard(modifier: Modifier = Modifier) {
+private fun TrustCard(currentLanguage: AppLanguage, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -1760,20 +1809,20 @@ private fun TrustCard(modifier: Modifier = Modifier) {
         ) {
             TrustRow(
                 icon = Icons.Default.PhoneLocked,
-                title = appText("Телефон скрыт", "Телефон йәшерелгән"),
-                subtitle = appText("До подтверждения брони", "Бронь раҫланғанға тиклем")
+                title = appTextFor(currentLanguage, "Телефон скрыт", "Телефон йәшерелгән"),
+                subtitle = appTextFor(currentLanguage, "До подтверждения брони", "Бронь раҫланғанға тиклем")
             )
             TrustDivider()
             TrustRow(
                 icon = Icons.Default.Shield,
-                title = appText("Код посадки", "Ултырыу коды"),
-                subtitle = appText("Для вашей безопасности", "Һеҙҙең хәүефһеҙлек өсөн")
+                title = appTextFor(currentLanguage, "Код посадки", "Ултырыу коды"),
+                subtitle = appTextFor(currentLanguage, "Для вашей безопасности", "Һеҙҙең хәүефһеҙлек өсөн")
             )
             TrustDivider()
             TrustRow(
                 icon = Icons.Default.Verified,
-                title = appText("Проверка водителя и машины", "Водитель һәм машинаны тикшереү"),
-                subtitle = appText("Каждый водитель проходит проверку", "Һәр водитель тикшереү үтә")
+                title = appTextFor(currentLanguage, "Проверка водителя и машины", "Водитель һәм машинаны тикшереү"),
+                subtitle = appTextFor(currentLanguage, "Каждый водитель проходит проверку", "Һәр водитель тикшереү үтә")
             )
         }
     }
@@ -1815,7 +1864,7 @@ private fun TrustRow(icon: ImageVector, title: String, subtitle: String) {
 }
 
 @Composable
-private fun SafetyFooter(modifier: Modifier = Modifier) {
+private fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1824,7 +1873,7 @@ private fun SafetyFooter(modifier: Modifier = Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Default.Shield, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(19.dp))
             Text(
-                text = appText("Безопасность поездок — наш приоритет", "Сәфәр хәүефһеҙлеге — беҙҙең өҫтөнлөк"),
+                text = appTextFor(currentLanguage, "Безопасность поездок — наш приоритет", "Сәфәр хәүефһеҙлеге — беҙҙең өҫтөнлөк"),
                 color = CanonGreen2,
                 fontSize = 14.sp,
                 lineHeight = 18.sp,
@@ -1833,7 +1882,7 @@ private fun SafetyFooter(modifier: Modifier = Modifier) {
             )
         }
         Text(
-            text = appText("Юлдаш заботится о вас", "Юлдаш һеҙҙең хаҡта хәстәрләй"),
+            text = appTextFor(currentLanguage, "Юлдаш заботится о вас", "Юлдаш һеҙҙең хаҡта хәстәрләй"),
             color = CanonMuted,
             fontSize = 13.sp,
             lineHeight = 17.sp,
@@ -1850,7 +1899,7 @@ private fun ScreenTopBar(title: String, onBack: () -> Unit) {
         title = { Text(title, fontWeight = FontWeight.Black) },
         navigationIcon = {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Назад")
+                Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"))
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -2340,7 +2389,7 @@ private fun QuickSearchCard(
                                 Icon(Icons.Default.Star, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    route.label,
+                                    route.labelText(),
                                     color = CanonGreen2,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = if (compact) 11.sp else 12.sp,
@@ -2352,7 +2401,7 @@ private fun QuickSearchCard(
                         Spacer(Modifier.weight(1f))
                         Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
                             Text(
-                                route.minutes,
+                                route.minutesText(),
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 color = CanonGreen,
                                 fontWeight = FontWeight.Black,
@@ -2797,13 +2846,21 @@ private fun RidesScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit
 ) {
-    var selectedStatus by remember { mutableStateOf("Активные") }
+    var selectedStatus by remember { mutableStateOf("active") }
+    val activeLabel = appText("Активные", "Актив")
+    val historyLabel = appText("История", "Тарих")
+    val allLabel = appText("Все", "Бөтәһе")
+    val selectedStatusLabel = when (selectedStatus) {
+        "history" -> historyLabel
+        "all" -> allLabel
+        else -> activeLabel
+    }
     val routeAd = ads.forPlacement(AdPlacement.Route).filter { it.matchesRoute("Баймаҡ", "Сибай") }.firstOrNull { it.id == "ad-cafe-route" }
         ?: ads.forPlacement(AdPlacement.Route).firstOrNull { it.matchesRoute("Баймаҡ", "Сибай") }
     val sponsoredAd = ads.forPlacement(AdPlacement.RidesList).firstOrNull { it.id == "ad-service-rides" }
     val inlineAd = routeAd ?: sponsoredAd
     LaunchedEffect(presetTo, presetToday) {
-        if (presetTo.isNotBlank() || presetToday) selectedStatus = "Активные"
+        if (presetTo.isNotBlank() || presetToday) selectedStatus = "active"
     }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         LazyColumn(
@@ -2818,9 +2875,15 @@ private fun RidesScreen(
             }
             item {
                 SegmentedTabs(
-                    tabs = listOf("Активные", "История", "Все"),
-                    selected = selectedStatus,
-                    onSelect = { selectedStatus = it }
+                    tabs = listOf(activeLabel, historyLabel, allLabel),
+                    selected = selectedStatusLabel,
+                    onSelect = {
+                        selectedStatus = when (it) {
+                            historyLabel -> "history"
+                            allLabel -> "all"
+                            else -> "active"
+                        }
+                    }
                 )
             }
             if (rides.isEmpty()) {
@@ -2875,7 +2938,21 @@ private fun RidesScreen(
                 item {
                     Box(Modifier.appearIn(2)) {
                     MyTripCard(
-                        ride = Ride("done", "Баймаҡ", "Сибай", "12 мая, 17:40", "Рамиль", "Lada Vesta", 300, 2, 5.0, true, false),
+                        ride = Ride(
+                            id = "done",
+                            from = "Баймаҡ",
+                            to = "Сибай",
+                            time = "12 мая, 17:40",
+                            timeBa = "12 май, 17:40",
+                            driver = "Рамиль",
+                            car = "Lada Vesta",
+                            carBa = "Lada Vesta",
+                            price = 300,
+                            seats = 2,
+                            rating = 5.0,
+                            verified = true,
+                            boosted = false
+                        ),
                         status = appText("Завершена", "Тамамланды"),
                         statusColor = Color(0xFFEDEDED),
                         icon = Icons.Default.CheckCircle,
@@ -2970,8 +3047,8 @@ private fun MyTripCard(
                             Text(status, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                         }
                     }
-                    DetailMeta(Icons.Default.Schedule, ride.time)
-                    DetailMeta(Icons.Default.Person, "${ride.seats} места · ${ride.price} ₽")
+                    DetailMeta(Icons.Default.Schedule, ride.timeText())
+                DetailMeta(Icons.Default.Person, "${seatsText(ride.seats)} · ${ride.price} ₽")
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -3046,7 +3123,7 @@ private fun RideCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(5.dp))
-                Text(ride.time, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(ride.timeText(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -3066,7 +3143,7 @@ private fun RideCard(
                             Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                         }
                     }
-                    Text(ride.car, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(ride.carText(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(18.dp))
                 Text(ride.rating.toString())
@@ -3075,7 +3152,7 @@ private fun RideCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(6.dp))
-                    Text("${ride.seats} места · ", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${seatsText(ride.seats)} · ", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("${ride.price} ₽", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -3101,7 +3178,7 @@ private fun RideCard(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Metric(Icons.Default.Payments, "${ride.price} ₽", Modifier.weight(1f))
-                    Metric(Icons.Default.EventSeat, "${ride.seats} места", Modifier.weight(1f))
+            Metric(Icons.Default.EventSeat, seatsText(ride.seats), Modifier.weight(1f))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
@@ -3112,10 +3189,10 @@ private fun RideCard(
                         Text(appText("Забронировать", "Бронләү"))
                     }
                     IconButton(onClick = onShare) {
-                        Icon(Icons.Default.IosShare, contentDescription = "Поделиться")
+                        Icon(Icons.Default.IosShare, contentDescription = appText("Поделиться", "Бүлешеү"))
                     }
                     IconButton(onClick = onBoost) {
-                        Icon(Icons.Default.TrendingUp, contentDescription = stringResource(R.string.boost_route))
+                            Icon(Icons.Default.TrendingUp, contentDescription = appText("Поднять объявление", "Иғланды өҫкә күтәреү"))
                     }
                 }
             }
@@ -3147,7 +3224,7 @@ private fun BoostBadge() {
         Row(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.TrendingUp, contentDescription = null, modifier = Modifier.size(15.dp), tint = CanonGreen2)
             Spacer(Modifier.width(4.dp))
-            Text("Вверху", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Text(appText("Вверху", "Өҫтә"), fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
     }
 }
@@ -3299,7 +3376,7 @@ private fun RequestSummaryCard(
                     }
                     DetailMeta(Icons.Default.CalendarMonth, date)
                     DetailMeta(Icons.Default.AddBox, reason)
-                    DetailMeta(Icons.Default.Payments, "$price  предлагаю")
+                    DetailMeta(Icons.Default.Payments, appText("$price ₽ предлагаю", "$price ₽ тәҡдим итәм"))
                 }
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(CanonBorder))
@@ -3332,9 +3409,9 @@ private fun DraftRequestCard() {
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Баймаҡ → Уфа", color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("18 мая, в 10:00", color = CanonMuted, fontSize = 13.sp)
-                Text("450 ₽ предлагаю", color = CanonMuted, fontSize = 13.sp)
+                Text(appText("Баймак → Уфа", "Баймаҡ → Өфө"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(appText("18 мая, в 10:00", "18 май, 10:00"), color = CanonMuted, fontSize = 13.sp)
+                Text(appText("450 ₽ предлагаю", "450 ₽ тәҡдим итәм"), color = CanonMuted, fontSize = 13.sp)
             }
             Surface(color = CanonWarnBg, shape = RoundedCornerShape(999.dp)) {
                 Text(appText("Черновик", "Черновик"), modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -3412,12 +3489,12 @@ private fun FullRideCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(ride.time, color = CanonMuted, fontSize = 14.sp)
+                        Text(ride.timeText(), color = CanonMuted, fontSize = 14.sp)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("${ride.seats} места", color = CanonMuted, fontSize = 14.sp)
+                        Text(seatsText(ride.seats), color = CanonMuted, fontSize = 14.sp)
                         Text(" · ", color = CanonMuted, fontSize = 14.sp)
                         Text("${ride.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
                     }
@@ -3444,10 +3521,10 @@ private fun FullRideCard(
                     Text(appText("Поехать", "Барырға"), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
                 }
                 IconButton(onClick = onShare) {
-                    Icon(Icons.Default.IosShare, contentDescription = "Поделиться", tint = CanonText)
+                    Icon(Icons.Default.IosShare, contentDescription = appText("Поделиться", "Бүлешеү"), tint = CanonText)
                 }
                 IconButton(onClick = onBoost) {
-                    Icon(Icons.Default.TrendingUp, contentDescription = stringResource(R.string.boost_route), tint = CanonText)
+                    Icon(Icons.Default.TrendingUp, contentDescription = appText("Поднять объявление", "Иғланды өҫкә күтәреү"), tint = CanonText)
                 }
             }
         }
@@ -3460,10 +3537,17 @@ private fun ChatScreen(
     onAddVoiceMessage: (LocalVoiceMessage) -> Unit,
     onNotifications: () -> Unit
 ) {
-    var selected by remember { mutableStateOf("Активные") }
+    var selected by remember { mutableStateOf("active") }
     var voiceSent by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var latestBookingId by remember { mutableStateOf<Int?>(null) }
+    val chatTabs = listOf(
+        "active" to LocalizedText("Активные", "Актив"),
+        "requests" to LocalizedText("Заявки", "Заявкалар"),
+        "system" to LocalizedText("Система", "Система")
+    )
+    val nowText = appText("сейчас", "хәҙер")
+    val voiceDemoText = appText("Я буду у вокзала, подойдите к главному входу.", "Мин вокзалда булам, төп инеү урынына килегеҙ.")
     LaunchedEffect(Unit) {
         ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
     }
@@ -3488,26 +3572,24 @@ private fun ChatScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(
-                    "Активные" to Icons.Default.ChatBubble,
-                    "Заявки" to Icons.Default.ListAlt,
-                    "Система" to Icons.Default.Settings
-                ).forEach { (label, icon) ->
+                chatTabs.zip(listOf(Icons.Default.ChatBubble, Icons.Default.ListAlt, Icons.Default.Settings)).forEach { (tab, icon) ->
+                    val (key, label) = tab
+                    val labelText = label.text()
                     FilledTonalButton(
                         onClick = {
-                            if (label == "Система") onNotifications() else selected = label
+                            if (key == "system") onNotifications() else selected = key
                         },
                         modifier = Modifier.weight(1f).height(50.dp),
                         shape = RoundedCornerShape(18.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = if (selected == label) CanonMint else Color.White,
+                            containerColor = if (selected == key) CanonMint else Color.White,
                             contentColor = CanonText
                         )
                     ) {
-                        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selected == label) CanonGreen2 else CanonMuted)
+                        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selected == key) CanonGreen2 else CanonMuted)
                         Spacer(Modifier.width(5.dp))
-                        Text(label, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(labelText, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -3520,12 +3602,12 @@ private fun ChatScreen(
                     val text = draft.trim()
                     if (text.isNotEmpty()) {
                         latestBookingId?.let { ApiClient.fireSendMessage(it, text) }
-                        onAddVoiceMessage(LocalVoiceMessage("Байрас", text, "сейчас"))
+                        onAddVoiceMessage(LocalVoiceMessage("Байрас", text, nowText))
                         draft = ""
                     }
                 },
                 onVoice = {
-                    onAddVoiceMessage(LocalVoiceMessage("Байрас", "Я буду у вокзала, подойдите к главному входу.", "сейчас"))
+                    onAddVoiceMessage(LocalVoiceMessage("Байрас", voiceDemoText, nowText))
                     voiceSent = true
                 }
             )
@@ -3533,9 +3615,9 @@ private fun ChatScreen(
         items(voiceMessages) { message ->
             VoiceMessageCard(message)
         }
-        item { Box(Modifier.appearIn(0)) { ChatCard(initial = "Р", name = "Рамиль", subtitle = "Баймаҡ → Сибай", message = "Буду у вокзала в 17:20", time = "16:48", unread = 2, verified = true) } }
-        item { Box(Modifier.appearIn(1)) { ChatCard(initial = "Л", name = "Лилия", subtitle = "Заявка в больницу", message = "Могу забрать после 18:00", time = "15:30", unread = 0, verified = false) } }
-        item { Box(Modifier.appearIn(2)) { ChatCard(initial = "Ю", name = "Поддержка Юлдаш", subtitle = "Система", message = "Ваш профиль подтверждён", time = "Вчера", unread = 0, verified = true, support = true) } }
+        item { Box(Modifier.appearIn(0)) { ChatCard(initial = "Р", name = "Рамиль", subtitle = "Баймаҡ → Сибай", message = appText("Буду у вокзала в 17:20", "17:20-лә вокзалда булам"), time = "16:48", unread = 2, verified = true) } }
+        item { Box(Modifier.appearIn(1)) { ChatCard(initial = "Л", name = "Лилия", subtitle = appText("Заявка в больницу", "Больницаға заявка"), message = appText("Могу забрать после 18:00", "18:00-дән һуң алып китә алам"), time = "15:30", unread = 0, verified = false) } }
+        item { Box(Modifier.appearIn(2)) { ChatCard(initial = "Ю", name = appText("Поддержка Юлдаш", "Юлдаш ярҙамы"), subtitle = appText("Система", "Система"), message = appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды"), time = appText("Вчера", "Кисә"), unread = 0, verified = true, support = true) } }
         item {
             InfoCard(
                 title = appText("Телефон открывается только после подтверждения поездки", "Телефон сәфәр раҫланғандан һуң ғына асыла"),
@@ -3771,6 +3853,9 @@ private fun VoiceRequestScreen(
 ) {
     var recognized by remember { mutableStateOf(false) }
     val trusted = contacts.firstOrNull()
+    val voiceRequestTitle = appText("Голосовая заявка", "Тауыш заявкаһы")
+    val voiceRequestTime = appText("завтра утром", "иртәгә иртән")
+    val voiceRequestStatus = appText("ищем водителя", "водитель эҙләйбеҙ")
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Голосовая заявка", "Тауыш заявкаһы"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -3814,11 +3899,11 @@ private fun VoiceRequestScreen(
                         onClick = {
                             onCreateRequest(
                                 LocalRequest(
-                                    title = "Голосовая заявка",
+                                    title = voiceRequestTitle,
                                     route = "Баймаҡ → Сибай",
-                                    time = "завтра утром",
+                                    time = voiceRequestTime,
                                     passenger = "Байрас",
-                                    status = "ищем водителя",
+                                    status = voiceRequestStatus,
                                     trustedContact = trusted?.name
                                 )
                             )
@@ -3840,12 +3925,19 @@ private fun CreatePassengerRequestScreen(
 ) {
     var from by remember { mutableStateOf("Баймаҡ") }
     var to by remember { mutableStateOf("Сибай") }
-    var time by remember { mutableStateOf("сегодня после 17:00") }
+    val defaultRequestTime = appText("сегодня после 17:00", "бөгөн 17:00-тан һуң")
+    var time by remember { mutableStateOf(defaultRequestTime) }
     var seats by remember { mutableStateOf("1") }
-    var category by remember { mutableStateOf("Обычная") }
+    var category by remember { mutableStateOf("regular") }
     var price by remember { mutableStateOf("350") }
     var comment by remember { mutableStateOf("") }
-    val categories = listOf("Обычная", "В больницу", "Посылка", "С детьми")
+    val categories = listOf(
+        "regular" to LocalizedText("Обычная", "Ғәҙәти"),
+        "hospital" to LocalizedText("В больницу", "Больницаға"),
+        "parcel" to LocalizedText("Посылка", "Посылка"),
+        "kids" to LocalizedText("С детьми", "Балалар менән")
+    )
+    val selectedCategoryText = categories.firstOrNull { it.first == category }?.second?.text() ?: categories.first().second.text()
     val waitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Создать заявку", "Заявка булдырыу"), onBack) }) { padding ->
@@ -3895,18 +3987,19 @@ private fun CreatePassengerRequestScreen(
             }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(categories) { item ->
-                        if (category == item) {
+                    items(categories) { (key, label) ->
+                        val labelText = label.text()
+                        if (category == key) {
                             Button(
-                                onClick = { category = item },
+                                onClick = { category = key },
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                            ) { Text(item, fontWeight = FontWeight.Bold) }
+                            ) { Text(labelText, fontWeight = FontWeight.Bold) }
                         } else {
                             OutlinedButton(
-                                onClick = { category = item },
+                                onClick = { category = key },
                                 shape = RoundedCornerShape(16.dp)
-                            ) { Text(item, fontWeight = FontWeight.Bold) }
+                            ) { Text(labelText, fontWeight = FontWeight.Bold) }
                         }
                     }
                 }
@@ -3926,7 +4019,7 @@ private fun CreatePassengerRequestScreen(
                     title = appText("Проверка заявки", "Заявканы тикшереү"),
                     lines = listOf(
                         "$from → $to",
-                        "$time · $seats ${appText("место", "урын")} · $category",
+                        "$time · $seats ${appText("место", "урын")} · $selectedCategoryText",
                         appText("Готовая сумма: $price ₽", "Әҙер сумма: $price ₽")
                     )
                 )
@@ -3934,7 +4027,12 @@ private fun CreatePassengerRequestScreen(
             item {
                 Button(
                     onClick = {
-                        val (apiCat, withKids) = categoryToApi(category)
+                        val (apiCat, withKids) = when (category) {
+                            "hospital" -> "hospital" to false
+                            "parcel" -> "parcel" to false
+                            "kids" -> "regular" to true
+                            else -> "regular" to false
+                        }
                         val priceVal = price.toIntOrNull() ?: 0
                         ApiClient.fireCreateRequest(
                             from.trim(), to.trim(),
@@ -3943,7 +4041,7 @@ private fun CreatePassengerRequestScreen(
                         )
                         onCreateRequest(
                             LocalRequest(
-                                title = category,
+                                title = selectedCategoryText,
                                 route = "$from → $to",
                                 time = time,
                                 passenger = "Байрас",
@@ -3969,7 +4067,11 @@ private fun FamilyOrderScreen(
     onBack: () -> Unit,
     onCreateRequest: (LocalRequest) -> Unit
 ) {
-    var passenger by remember { mutableStateOf("Мама") }
+    val defaultPassenger = appText("Мама", "Әсәй")
+    val familyRequestTitle = appText("Заказ за близкого", "Яҡын кеше өсөн заказ")
+    val familyRequestTime = appText("сегодня после 17:00", "бөгөн 17:00-тан һуң")
+    val familyRequestStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
+    var passenger by remember { mutableStateOf(defaultPassenger) }
     var phone by remember { mutableStateOf("+7 927 222-33-44") }
     var notifyContact by remember { mutableStateOf(true) }
     val trusted = contacts.firstOrNull()
@@ -4001,11 +4103,11 @@ private fun FamilyOrderScreen(
                     onClick = {
                         onCreateRequest(
                             LocalRequest(
-                                title = "Заказ за близкого",
+                                title = familyRequestTitle,
                                 route = "Баймаҡ → Сибай",
-                                time = "сегодня после 17:00",
+                                time = familyRequestTime,
                                 passenger = passenger,
-                                status = "ждём отклики",
+                                status = familyRequestStatus,
                                 trustedContact = if (notifyContact) trusted?.name else null
                             )
                         )
@@ -4046,7 +4148,7 @@ private fun TrustedContactsScreen(
                 Button(
                     onClick = {
                         if (!added) {
-                            onAddContact(TrustedContact("Гульназ", "Сестра", "+7 927 777-88-99", true))
+                            onAddContact(TrustedContact("Гульназ", "Сестра", "+7 927 777-88-99", true, relationBa = "Һеңле"))
                             added = true
                         }
                     },
@@ -4071,7 +4173,7 @@ private fun TrustedContactCard(contact: TrustedContact) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(contact.name, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                Text("${contact.relation} · ${contact.phone}", color = CanonMuted, fontSize = 13.sp)
+                Text("${contact.relationText()} · ${contact.phone}", color = CanonMuted, fontSize = 13.sp)
             }
             Text(if (contact.notifyByDefault) appText("Статус", "Статус") else appText("Только SOS", "Тик SOS"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
@@ -4093,15 +4195,18 @@ private fun RepeatTripScreen(
         ) {
             item { Text(appText("Частые поездки", "Йыш сәфәрҙәр"), color = CanonGreen, fontSize = 28.sp, fontWeight = FontWeight.Black) }
             itemsIndexed(demoFrequentTrips) { index, trip ->
+                val repeatTitle = appText("Повтор: ${trip.title}", "Ҡабатлау: ${trip.titleBa}")
+                val repeatStatus = appText("создана", "булдырылды")
+                val repeatTime = trip.timeHintText()
                 Box(Modifier.appearIn(index)) {
                 FrequentTripCard(trip) {
                     onRepeat(
                         LocalRequest(
-                            title = "Повтор: ${trip.title}",
+                            title = repeatTitle,
                             route = "${trip.from} → ${trip.to}",
-                            time = trip.timeHint,
+                            time = repeatTime,
                             passenger = "Байрас",
-                            status = "создана",
+                            status = repeatStatus,
                             trustedContact = trusted?.name
                         )
                     )
@@ -4117,13 +4222,13 @@ private fun FrequentTripCard(trip: FrequentTrip, onClick: () -> Unit) {
     Card(modifier = Modifier.bounceClick(onClick).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-                Icon(if (trip.category == "В больницу") Icons.Default.LocalHospital else Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(28.dp))
+                Icon(if (trip.categoryKey == "hospital") Icons.Default.LocalHospital else Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(28.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(trip.title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                Text(trip.titleText(), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
                 Text("${trip.from} → ${trip.to}", color = CanonGreen, fontWeight = FontWeight.Bold)
-                Text(trip.timeHint, color = CanonMuted, fontSize = 13.sp)
+                Text(trip.timeHintText(), color = CanonMuted, fontSize = 13.sp)
             }
             Icon(Icons.Default.Refresh, contentDescription = null, tint = CanonGreen2)
         }
@@ -4132,7 +4237,8 @@ private fun FrequentTripCard(trip: FrequentTrip, onClick: () -> Unit) {
 
 @Composable
 private fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest: () -> Unit) {
-    var reason by remember { mutableStateOf("Помогите создать заявку") }
+    val defaultReason = appText("Помогите создать заявку", "Заявка булдырырға ярҙам итегеҙ")
+    var reason by remember { mutableStateOf(defaultReason) }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Помощь звонком", "Шылтыратыу ярҙамы"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -4193,9 +4299,11 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var seats by remember { mutableStateOf("2") }
     var price by remember { mutableStateOf("300") }
     var comment by remember { mutableStateOf("") }
+    val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
+    val defaultCar = appText("Моя машина", "Минең машина")
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { ScreenTopBar("Создать поездку", onBack) }
+        topBar = { ScreenTopBar(appText("Создать поездку", "Сәфәр булдырыу"), onBack) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -4204,24 +4312,24 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Text("Маршрут для своих", fontSize = 24.sp, fontWeight = FontWeight.Black)
-                Text("Укажите путь, места и цену. Контакты откроются после подтверждения.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Black)
+                Text(appText("Укажите путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            item { OutlinedTextField(value = from, onValueChange = { from = it }, label = { Text("Откуда") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-            item { OutlinedTextField(value = to, onValueChange = { to = it }, label = { Text("Куда") }, leadingIcon = { Icon(Icons.Default.NearMe, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-            item { OutlinedTextField(value = dateTime, onValueChange = { dateTime = it }, label = { Text("Дата и время") }, placeholder = { Text("Сегодня, 18:00") }, leadingIcon = { Icon(Icons.Default.Schedule, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item { OutlinedTextField(value = from, onValueChange = { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item { OutlinedTextField(value = to, onValueChange = { to = it }, label = { Text(appText("Куда", "Ҡайҙа")) }, leadingIcon = { Icon(Icons.Default.NearMe, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item { OutlinedTextField(value = dateTime, onValueChange = { dateTime = it }, label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) }, placeholder = { Text(defaultTime) }, leadingIcon = { Icon(Icons.Default.Schedule, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(value = seats, onValueChange = { seats = it.filter(Char::isDigit) }, label = { Text("Мест") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
-                    OutlinedTextField(value = price, onValueChange = { price = it.filter(Char::isDigit) }, label = { Text("Цена, ₽") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
+                    OutlinedTextField(value = seats, onValueChange = { seats = it.filter(Char::isDigit) }, label = { Text(appText("Мест", "Урын")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
+                    OutlinedTextField(value = price, onValueChange = { price = it.filter(Char::isDigit) }, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
                 }
             }
             item {
                 OutlinedTextField(
                     value = comment,
                     onValueChange = { comment = it },
-                    label = { Text("Комментарий") },
-                    placeholder = { Text("Например: могу взять посылку, заеду через Темясово") },
+                    label = { Text(appText("Комментарий", "Комментарий")) },
+                    placeholder = { Text(appText("Например: могу взять посылку, заеду через Темясово", "Мәҫәлән: посылка ала алам, Темясово аша инәм")) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp)
@@ -4229,8 +4337,8 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             }
             item {
                 InfoCard(
-                    title = "Платное поднятие",
-                    text = "Можно добавить после публикации. Обычные поездки остаются бесплатными.",
+                    title = appText("Платное поднятие", "Түләүле күтәреү"),
+                    text = appText("Можно добавить после публикации. Обычные поездки остаются бесплатными.", "Баҫтырғандан һуң өҫтәп була. Ғәҙәти сәфәрҙәр бушлай ҡала."),
                     icon = Icons.Default.TrendingUp
                 )
             }
@@ -4249,9 +4357,11 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                                 id = "local-${System.currentTimeMillis()}",
                                 from = fromVal,
                                 to = toVal,
-                                time = dateTime.ifBlank { "Сегодня, 18:00" },
+                                time = dateTime.ifBlank { defaultTime },
+                                timeBa = dateTime.ifBlank { defaultTime },
                                 driver = "Байрас",
-                                car = comment.ifBlank { "Моя машина" },
+                                car = comment.ifBlank { defaultCar },
+                                carBa = comment.ifBlank { defaultCar },
                                 price = priceVal,
                                 seats = seatsVal,
                                 rating = 5.0,
@@ -4263,12 +4373,12 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text("Опубликовать")
+                    Text(appText("Опубликовать", "Баҫтырыу"))
                 }
             }
             item {
                 TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-                    Text("Отмена")
+                    Text(appText("Отмена", "Кире алыу"))
                 }
             }
         }
@@ -4642,23 +4752,23 @@ private fun AdsAdminPreview(ads: List<PartnerAd>, adStats: Map<String, AdStats>)
                 Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(ad.title, modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(ad.titleText(), modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Surface(color = ad.status.color().copy(alpha = 0.12f), shape = RoundedCornerShape(999.dp)) {
                                 Text(ad.status.label(), modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = ad.status.color(), fontWeight = FontWeight.Bold, fontSize = 11.sp)
                             }
                         }
-                        Text("erid: ${ad.erid} · ${ad.advertiserName}", color = CanonMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("erid: ${ad.eridText()} · ${ad.advertiserName}", color = CanonMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             appText(
-                                "Пакет: ${ad.packageName} · бюджет: ${ad.budgetLabel}",
-                                "Пакет: ${ad.packageName} · бюджет: ${ad.budgetLabel}"
+                                "Пакет: ${ad.packageText()} · бюджет: ${ad.budgetText()}",
+                                "Пакет: ${ad.packageText()} · бюджет: ${ad.budgetText()}"
                             ),
                             color = CanonMuted,
                             fontSize = 11.sp,
                             lineHeight = 14.sp
                         )
-                        Text("Показы: ${ad.placementsLabel()}", color = CanonMuted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("Точка: ${ad.mapPoint} · ${ad.contact}", color = CanonMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(appText("Показы: ${ad.placementsLabel()}", "Күрһәтә: ${ad.placementsLabel()}"), color = CanonMuted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(appText("Точка: ${ad.mapPoint} · ${ad.contact}", "Нөктә: ${ad.mapPoint} · ${ad.contact}"), color = CanonMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text("${ad.startDate} — ${ad.endDate} · impressions_count ${stats.impressions} · clicks_count ${stats.clicks}", color = CanonMuted, fontSize = 11.sp)
                     }
                 }
@@ -4807,7 +4917,7 @@ private fun InlinePartnerAdCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    appText("Реклама · erid: ${ad.erid}", "Реклама · erid: ${ad.erid}"),
+                    appText("Реклама · erid: ${ad.eridText()}", "Реклама · erid: ${ad.eridText()}"),
                     modifier = Modifier.weight(1f),
                     color = CanonMuted,
                     fontSize = 10.sp,
@@ -4824,11 +4934,11 @@ private fun InlinePartnerAdCard(
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(ad.title, color = CanonText, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(ad.description, color = CanonMuted, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(ad.titleText(), color = CanonText, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(ad.descriptionText(), color = CanonMuted, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 TextButton(onClick = { onClick(ad) }) {
-                    Text(ad.primaryButton, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                    Text(ad.primaryButtonText(), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                 }
             }
         }
@@ -4861,7 +4971,7 @@ private fun PartnerAdCard(
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    appText("Реклама · erid: ${ad.erid}", "Реклама · erid: ${ad.erid}"),
+                    appText("Реклама · erid: ${ad.eridText()}", "Реклама · erid: ${ad.eridText()}"),
                     modifier = Modifier.weight(1f),
                     color = CanonMuted,
                     fontSize = 11.sp,
@@ -4872,8 +4982,8 @@ private fun PartnerAdCard(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                AdChip(ad.packageName, Icons.Default.Payments, Modifier.weight(0.9f))
-                AdChip(if (showAdminDetails) ad.placementsLabel() else (ad.category ?: ad.city), Icons.Default.Map, Modifier.weight(1.2f))
+                AdChip(ad.packageText(), Icons.Default.Payments, Modifier.weight(0.9f))
+                AdChip(if (showAdminDetails) ad.placementsLabel() else (ad.categoryText() ?: ad.city), Icons.Default.Map, Modifier.weight(1.2f))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
@@ -4881,9 +4991,9 @@ private fun PartnerAdCard(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(ad.title, color = CanonText, fontWeight = FontWeight.Black, fontSize = if (compact) 16.sp else 18.sp, lineHeight = 20.sp)
-                    Text(ad.description, color = CanonText, fontSize = 14.sp, lineHeight = 18.sp, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis)
-                    Text(ad.address, color = CanonMuted, fontSize = 13.sp, lineHeight = 16.sp)
+                    Text(ad.titleText(), color = CanonText, fontWeight = FontWeight.Black, fontSize = if (compact) 16.sp else 18.sp, lineHeight = 20.sp)
+                    Text(ad.descriptionText(), color = CanonText, fontSize = 14.sp, lineHeight = 18.sp, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis)
+                    Text(ad.addressText(), color = CanonMuted, fontSize = 13.sp, lineHeight = 16.sp)
                 }
             }
             Text(
@@ -4898,7 +5008,7 @@ private fun PartnerAdCard(
             )
             if (showAdminDetails) {
                 Text(
-                    appText("Действие: ${ad.targetAction} · контакт: ${ad.contact}", "Ғәмәл: ${ad.targetAction} · бәйләнеш: ${ad.contact}"),
+                    appText("Действие: ${ad.targetActionText()} · контакт: ${ad.contact}", "Ғәмәл: ${ad.targetActionText()} · бәйләнеш: ${ad.contact}"),
                     color = CanonMuted,
                     fontSize = 11.sp,
                     lineHeight = 14.sp,
@@ -4913,9 +5023,9 @@ private fun PartnerAdCard(
                     shape = RoundedCornerShape(15.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
-                    Text(ad.primaryButton, fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
+                    Text(ad.primaryButtonText(), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
                 }
-                ad.secondaryButton?.let { button ->
+                ad.secondaryButtonText()?.let { button ->
                     OutlinedButton(
                         onClick = { onClick(ad) },
                         modifier = Modifier.weight(1f).height(44.dp),
@@ -4954,6 +5064,39 @@ private fun AdChip(text: String, icon: androidx.compose.ui.graphics.vector.Image
 private fun PartnerAd.matchesRoute(from: String, to: String): Boolean {
     return routeFrom == null || routeTo == null || (routeFrom == from && routeTo == to)
 }
+
+@Composable
+private fun PartnerAd.titleText(): String = appText(title, titleBa ?: title)
+
+@Composable
+private fun PartnerAd.descriptionText(): String = appText(description, descriptionBa ?: description)
+
+@Composable
+private fun PartnerAd.addressText(): String = appText(address, addressBa ?: address)
+
+@Composable
+private fun PartnerAd.categoryText(): String? = category?.let { appText(it, categoryBa ?: it) }
+
+@Composable
+private fun PartnerAd.packageText(): String = appText(packageName, packageNameBa ?: packageName)
+
+@Composable
+private fun PartnerAd.budgetText(): String = appText(budgetLabel, budgetLabelBa ?: budgetLabel)
+
+@Composable
+private fun PartnerAd.targetActionText(): String = appText(targetAction, targetActionBa ?: targetAction)
+
+@Composable
+private fun PartnerAd.primaryButtonText(): String = appText(primaryButton, primaryButtonBa ?: primaryButton)
+
+@Composable
+private fun PartnerAd.secondaryButtonText(): String? = secondaryButton?.let { appText(it, secondaryButtonBa ?: it) }
+
+@Composable
+private fun PartnerAd.eridText(): String = appText(
+    erid,
+    if (erid == "ожидает присвоения") "бирелеүен көтә" else erid
+)
 
 private fun List<PartnerAd>.activeAds(): List<PartnerAd> = filter { it.status == AdStatus.Active }
 
@@ -5014,7 +5157,7 @@ private fun AdPlacement.labelForLanguage(isBashkir: Boolean): String {
         AdPlacement.RidesList -> if (isBashkir) "Сәфәрҙәр исемлеге" else "Список поездок"
         AdPlacement.TripDetails -> if (isBashkir) "Сәфәр тураһында" else "Детали поездки"
         AdPlacement.Profile -> "Профиль"
-        AdPlacement.Help -> if (isBashkir) "Ярдам" else "Помощь"
+        AdPlacement.Help -> if (isBashkir) "Ярҙам" else "Помощь"
     }
 }
 
@@ -5097,7 +5240,7 @@ private fun BookingScreen(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Назад", tint = CanonText)
+            Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"), tint = CanonText)
                     }
                     Text(appText("Детали поездки", "Сәфәр тураһында"), color = CanonGreen, fontSize = 26.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
                 }
@@ -5110,8 +5253,8 @@ private fun BookingScreen(
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                             Text("${ride.from}  →  ${ride.to}", color = CanonText, fontSize = 19.sp, lineHeight = 21.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                DetailMeta(Icons.Default.CalendarMonth, ride.time, modifier = Modifier.weight(1.45f))
-                                DetailMeta(Icons.Default.Person, "${ride.seats} места", modifier = Modifier.weight(0.8f))
+                                DetailMeta(Icons.Default.CalendarMonth, ride.timeText(), modifier = Modifier.weight(1.45f))
+                    DetailMeta(Icons.Default.Person, seatsText(ride.seats), modifier = Modifier.weight(0.8f))
                             }
                         }
                         Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
@@ -5137,7 +5280,7 @@ private fun BookingScreen(
                                     }
                                 }
                                 Text(appText("Опытный водитель", "Тәжрибәле водитель"), color = CanonMuted, fontSize = 14.sp)
-                                DetailMeta(Icons.Default.DirectionsCar, ride.car)
+                                DetailMeta(Icons.Default.DirectionsCar, ride.carText())
                             }
                             Surface(color = CanonMint, shape = CircleShape) {
                                 Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
@@ -5199,14 +5342,24 @@ private fun BookingScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit) {
-    var selected by remember { mutableStateOf("Все") }
+    var selected by remember { mutableStateOf("all") }
     var cleared by remember { mutableStateOf(false) }
+    val allLabel = appText("Все", "Бөтәһе")
+    val ridesLabel = appText("Поездки", "Сәфәрҙәр")
+    val chatLabel = appText("Чат", "Чат")
+    val systemLabel = appText("Система", "Система")
+    val selectedLabel = when (selected) {
+        "rides" -> ridesLabel
+        "chat" -> chatLabel
+        "system" -> systemLabel
+        else -> allLabel
+    }
     val notifications = listOf(
         Triple(Icons.Default.DirectionsCar, appText("Водитель откликнулся на заявку", "Водитель заявкаға яуап бирҙе"), appText("Рамиль едет к вам", "Рамиль һеҙгә килә")),
-        Triple(Icons.Default.CheckCircle, appText("Поездка подтверждена", "Сәфәр раҫланды"), "Баймаҡ → Сибай, сегодня в 17:30"),
-        Triple(Icons.Default.ChatBubble, appText("Новое сообщение в чате", "Чатта яңы хәбәр"), "Рамиль: «Буду у вокзала в 17:20»"),
+        Triple(Icons.Default.CheckCircle, appText("Поездка подтверждена", "Сәфәр раҫланды"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30")),
+        Triple(Icons.Default.ChatBubble, appText("Новое сообщение в чате", "Чатта яңы хәбәр"), appText("Рамиль: «Буду у вокзала в 17:20»", "Рамиль: «17:20-лә вокзалда булам»")),
         Triple(Icons.Default.Shield, appText("Профиль успешно проверен", "Профиль уңышлы тикшерелде"), appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды")),
-        Triple(Icons.Default.Schedule, appText("Поездка начнётся через 30 минут", "Сәфәр 30 минуттан башлана"), "Баймаҡ → Сибай, сегодня в 17:30")
+        Triple(Icons.Default.Schedule, appText("Поездка начнётся через 30 минут", "Сәфәр 30 минуттан башлана"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30"))
     )
     Scaffold(
         containerColor = CanonBg,
@@ -5232,7 +5385,18 @@ private fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
                 }
             }
             item {
-                SegmentedTabs(listOf("Все", "Поездки", "Чат", "Система"), selected, onSelect = { selected = it })
+                SegmentedTabs(
+                    listOf(allLabel, ridesLabel, chatLabel, systemLabel),
+                    selectedLabel,
+                    onSelect = {
+                        selected = when (it) {
+                            ridesLabel -> "rides"
+                            chatLabel -> "chat"
+                            systemLabel -> "system"
+                            else -> "all"
+                        }
+                    }
+                )
             }
             if (cleared) {
                 item {
@@ -5244,10 +5408,10 @@ private fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
                 }
             } else {
                 val visibleNotifications = notifications.filter { (icon, _, _) ->
-                    selected == "Все" ||
-                        (selected == "Поездки" && icon != Icons.Default.ChatBubble && icon != Icons.Default.Shield) ||
-                        (selected == "Чат" && icon == Icons.Default.ChatBubble) ||
-                        (selected == "Система" && icon == Icons.Default.Shield)
+                    selected == "all" ||
+                        (selected == "rides" && icon != Icons.Default.ChatBubble && icon != Icons.Default.Shield) ||
+                        (selected == "chat" && icon == Icons.Default.ChatBubble) ||
+                        (selected == "system" && icon == Icons.Default.Shield)
                 }
                 items(visibleNotifications) { (icon, title, subtitle) ->
                     NotificationRow(
@@ -5577,6 +5741,7 @@ private fun ActiveTripScreen(
     var status by remember { mutableStateOf<String?>(null) }
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
+    val tripSharedPrefix = appText("Поездка отправлена", "Сәфәр ебәрелде")
 
     LaunchedEffect(bookingId) {
         bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { messages = it } }
@@ -5687,7 +5852,7 @@ private fun ActiveTripScreen(
                         Modifier.fillMaxWidth().clickable {
                             bookingId?.let { ApiClient.fireShareTrip(it, c.id) }
                             showShare = false
-                            Toast.makeText(context, "Поездка отправлена: ${c.name}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
                         }.padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -5727,10 +5892,15 @@ private fun MessageBubble(text: String, mine: Boolean) {
 
 @Composable
 private fun SosScreen(onBack: () -> Unit) {
-    val categories = listOf("Медицина", "Поломка авто", "Другое")
-    var selected by remember { mutableStateOf(categories.first()) }
+    val categories = listOf(
+        "medical" to LocalizedText("Медицина", "Медицина"),
+        "breakdown" to LocalizedText("Поломка авто", "Машина боҙолдо"),
+        "other" to LocalizedText("Другое", "Башҡа")
+    )
+    var selected by remember { mutableStateOf(categories.first().first) }
     var description by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }
+    val selectedLabel = categories.firstOrNull { it.first == selected }?.second?.text() ?: categories.first().second.text()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -5760,18 +5930,19 @@ private fun SosScreen(onBack: () -> Unit) {
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    categories.forEach { category ->
+                    categories.forEach { (key, label) ->
+                        val labelText = label.text()
                         FilledTonalButton(
-                            onClick = { selected = category; sent = false },
+                            onClick = { selected = key; sent = false },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(18.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (selected == category) CanonDangerBg else CanonSurface
+                                containerColor = if (selected == key) CanonDangerBg else CanonSurface
                             ),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                         ) {
                             Text(
-                                category,
+                                labelText,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -5795,7 +5966,7 @@ private fun SosScreen(onBack: () -> Unit) {
                 item {
                     InfoCard(
                         title = appText("SOS отправлен", "SOS ебәрелде"),
-                        text = appText("Категория: $selected. Статус: ожидание отклика.", "Категория: $selected. Статус: яуап көтөү."),
+                        text = appText("Категория: $selectedLabel. Статус: ожидание отклика.", "Категория: $selectedLabel. Статус: яуап көтөү."),
                         icon = Icons.Default.Sos
                     )
                 }
@@ -5804,7 +5975,14 @@ private fun SosScreen(onBack: () -> Unit) {
                 Button(
                     onClick = {
                         sent = true
-                        ApiClient.fireSos(sosCategoryToApi(selected), description.trim())
+                        ApiClient.fireSos(
+                            when (selected) {
+                                "medical" -> "medical"
+                                "breakdown" -> "breakdown"
+                                else -> "other"
+                            },
+                            description.trim()
+                        )
                     },
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(16.dp),
@@ -5932,7 +6110,7 @@ private fun SupportScreen(onBack: () -> Unit) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { ScreenTopBar(stringResource(R.string.support_yuldash), onBack) }
+        topBar = { ScreenTopBar(appText("Поддержать Юлдаш", "Юлдашҡа ярҙам итеү"), onBack) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -5947,8 +6125,8 @@ private fun SupportScreen(onBack: () -> Unit) {
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Добровольная поддержка", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-                        Text(stringResource(R.string.support_subtitle), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(appText("Добровольная поддержка", "Ирекле ярҙам"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                        Text(appText("Помогает оплачивать серверы, карты, SMS и поддержку.", "Серверҙарҙы, карталарҙы, SMS һәм ярҙам хеҙмәтен түләргә ярҙам итә."), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -5971,28 +6149,28 @@ private fun SupportScreen(onBack: () -> Unit) {
             }
             item {
                 OutlinedButton(onClick = { selectedAmount = 150; completed = false }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Своя сумма")
+                    Text(appText("Своя сумма", "Үҙеңдең сумма"))
                 }
             }
             item {
                 Button(onClick = { completed = true }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp)) {
                     Icon(Icons.Default.Payments, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Поддержать на $selectedAmount ₽")
+                    Text(appText("Поддержать на $selectedAmount ₽", "$selectedAmount ₽ менән ярҙам итеү"))
                 }
             }
             if (completed) {
                 item {
                     InfoCard(
-                        title = "Спасибо за поддержку",
-                        text = "Мок-платёж на $selectedAmount ₽ отмечен как успешный. Реальную оплату подключим позже.",
+                        title = appText("Спасибо за поддержку", "Ярҙәмегеҙ өсөн рәхмәт"),
+                        text = appText("Мок-платёж на $selectedAmount ₽ отмечен как успешный. Реальную оплату подключим позже.", "$selectedAmount ₽ мок-түләү уңышлы тип билдәләнде. Реаль түләүҙе һуңыраҡ тоташтырабыҙ."),
                         icon = Icons.Default.VolunteerActivism
                     )
                 }
             }
             item {
                 TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-                    Text("Не сейчас")
+                    Text(appText("Не сейчас", "Хәҙер түгел"))
                 }
             }
         }
@@ -6003,9 +6181,15 @@ private fun SupportScreen(onBack: () -> Unit) {
 @Composable
 private fun BoostScreen(onBack: () -> Unit) {
     var activatedPlan by remember { mutableStateOf<String?>(null) }
+    val activatedPlanText = when (activatedPlan) {
+        "quick" -> appText("Быстрое поднятие", "Тиҙ күтәреү")
+        "day" -> appText("День вверху", "Көн буйы өҫтә")
+        "urgent" -> appText("Срочная поездка", "Ашығыс сәфәр")
+        else -> null
+    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { ScreenTopBar(stringResource(R.string.boost_route), onBack) }
+        topBar = { ScreenTopBar(appText("Поднять объявление", "Иғланды өҫкә күтәреү"), onBack) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -6013,21 +6197,21 @@ private fun BoostScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { BoostPlan("Быстрое поднятие", "2 часа выше в списке", "20 ₽", onClick = { activatedPlan = "Быстрое поднятие" }) }
-            item { BoostPlan("День вверху", "24 часа выше в списке + выделение на карте", "50 ₽", onClick = { activatedPlan = "День вверху" }) }
-            item { BoostPlan("Срочная поездка", "6 часов выше в списке, выделение, метка срочно", "70 ₽", onClick = { activatedPlan = "Срочная поездка" }) }
+            item { BoostPlan(appText("Быстрое поднятие", "Тиҙ күтәреү"), appText("2 часа выше в списке", "2 сәғәт исемлектә өҫтәрәк"), "20 ₽", onClick = { activatedPlan = "quick" }) }
+            item { BoostPlan(appText("День вверху", "Көн буйы өҫтә"), appText("24 часа выше в списке + выделение на карте", "24 сәғәт исемлектә өҫтәрәк + картала айырыу"), "50 ₽", onClick = { activatedPlan = "day" }) }
+            item { BoostPlan(appText("Срочная поездка", "Ашығыс сәфәр"), appText("6 часов выше в списке, выделение, метка срочно", "6 сәғәт исемлектә өҫтәрәк, айырыу, ашығыс билдәһе"), "70 ₽", onClick = { activatedPlan = "urgent" }) }
             if (activatedPlan != null) {
                 item {
                     InfoCard(
-                        title = "Поднятие включено",
-                        text = "Тариф «$activatedPlan» активирован в мок-режиме. Реальный платёж подключим позже.",
+                        title = appText("Поднятие включено", "Күтәреү ҡабыҙылды"),
+                        text = appText("Тариф «$activatedPlanText» активирован в мок-режиме. Реальный платёж подключим позже.", "«$activatedPlanText» тарифы мок-режимда ҡабыҙылды. Реаль түләүҙе һуңыраҡ тоташтырабыҙ."),
                         icon = Icons.Default.TrendingUp
                     )
                 }
             }
             item {
                 Text(
-                    "Поднятие не гарантирует бронирование и влияет только на релевантные результаты.",
+                    appText("Поднятие не гарантирует бронирование и влияет только на релевантные результаты.", "Күтәреү бронде гарантияламай һәм тик тура килгән һөҙөмтәләргә генә йоғонто яһай."),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
