@@ -463,6 +463,25 @@ private fun formatDepart(iso: String): String = try {
     iso
 }
 
+/** Поездка с сервера → UI-модель (для карточек/брони). Один шов RideDto→Ride. */
+private fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
+    id = id.toString(),
+    from = fromCity,
+    to = toCity,
+    time = formatDepart(departAt),
+    driver = driverName.ifBlank { "Водитель" },
+    car = driverCar,
+    price = price,
+    seats = seatsLeft,
+    rating = driverRating,
+    verified = driverVerified,
+    boosted = false,
+)
+
+/** Километры коротко: «2.3 км» вблизи, «243 км» вдали. */
+private fun fmtKm(d: Double): String =
+    if (d < 10) String.format(java.util.Locale.US, "%.1f", d) else Math.round(d).toString()
+
 /** Категория из UI → (enum бэкенда, признак «с детьми»). */
 private fun categoryToApi(ui: String): Pair<String, Boolean> = when (ui) {
     "В больницу" -> "hospital" to false
@@ -2367,6 +2386,20 @@ private fun MapScreen(
     val nearbyAd = ads.forPlacement(AdPlacement.Nearby).firstOrNull { it.city == "Баймаҡ" }
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
     val sheetState = rememberModalBottomSheetState()
+    // Ближайшие поездки: маршрут клиента (активная поездка → её маршрут) + сортировка по времени выезда + гео-дистанция.
+    var nearby by remember { mutableStateOf<List<com.yuldash.app.data.RideDto>>(emptyList()) }
+    var nearbyLoading by remember { mutableStateOf(true) }
+    var nearbyReload by remember { mutableStateOf(0) }
+    val focusFrom = activeTrip?.from
+    val focusTo = activeTrip?.to
+    val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
+    val userLng = LocationPrefs.lastLng
+    LaunchedEffect(focusFrom, focusTo, userLat, userLng, nearbyReload) {
+        nearbyLoading = true
+        ApiClient.getNearbyRides(focusFrom, focusTo, userLat, userLng)
+            .onSuccess { nearby = it }
+        nearbyLoading = false
+    }
     Scaffold(containerColor = CanonBg) { padding ->
         Column(
             modifier = Modifier
@@ -2402,22 +2435,29 @@ private fun MapScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр"), modifier = Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-                            Text(appText("${rides.size} рядом", "${rides.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Column(Modifier.weight(1f)) {
+                                Text(appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр"), fontSize = 16.sp, fontWeight = FontWeight.Black)
+                                if (focusFrom != null && focusTo != null) {
+                                    Text("$focusFrom → $focusTo", color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                            if (nearby.isNotEmpty()) {
+                                Text(appText("${nearby.size} рядом", "${nearby.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
                         }
                     }
                 }
                 item {
                     Box(Modifier.appearIn(4)) {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(rides) { ride ->
-                                RideCard(
-                                    ride = ride,
-                                    compact = true,
-                                    onBook = { onBookRide(ride) },
-                                    onShare = { onShareRide(ride) },
-                                    onBoost = onBoost
-                                )
+                        when {
+                            nearbyLoading && nearby.isEmpty() -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                NearbySkeletonCard(); NearbySkeletonCard()
+                            }
+                            nearby.isEmpty() -> NearbyEmptyCard(hasRoute = focusFrom != null, onRetry = { nearbyReload++ })
+                            else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                itemsIndexed(nearby) { i, dto ->
+                                    NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
+                                }
                             }
                         }
                     }
@@ -2827,6 +2867,9 @@ private val SibayPoint = Point(52.7236, 58.6651)
 // Согласие на показ геолокации — общий флаг (Профиль → Конфиденциальность ↔ карта).
 private object LocationPrefs {
     var sharingEnabled by mutableStateOf(false)
+    // Последняя позиция клиента (с карты) — для «сколько в N км от тебя» в «Ближайших поездках».
+    var lastLat by mutableStateOf<Double?>(null)
+    var lastLng by mutableStateOf<Double?>(null)
 }
 
 private val MapMidPoint = Point(52.55, 58.49) // южнее центра маршрута → точки рисуются в верхней части, не под плашкой
@@ -3006,6 +3049,7 @@ private fun YandexMapCard(
             override fun onLocationChanged(loc: android.location.Location) {
                 val pt = Point(loc.latitude, loc.longitude)
                 lastUserPoint = pt   // запоминаем — кнопка «к себе» центрирует на ней в любой момент
+                LocationPrefs.lastLat = loc.latitude; LocationPrefs.lastLng = loc.longitude
                 val pm = placemark
                 if (pm == null) {
                     placemark = map.mapObjects.addPlacemark(pt).apply {
@@ -3532,6 +3576,128 @@ private fun MyTripCard(
                         Text(secondaryAction, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
+            }
+        }
+    }
+}
+
+// Карточка «ближайшей поездки» — строго 1-в-1 (фикс. размер), сортировка по времени выезда.
+// Первая (самая ранняя) помечается «ближайшая». Показывает дистанцию до точки выезда (если есть гео).
+@Composable
+private fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean, onOpen: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .width(290.dp)
+            .height(190.dp)
+            .clickable(onClick = onOpen),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${dto.fromCity} → ${dto.toCity}",
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.Black, fontSize = 16.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+                if (dto.driverVerified) {
+                    Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(5.dp))
+                Text(formatDepart(dto.departAt), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                if (soonest) {
+                    Spacer(Modifier.width(8.dp))
+                    Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
+                        Text(
+                            appText("ближайшая", "иң яҡыны"),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+                    Text(dto.driverName.take(1).uppercase(), fontWeight = FontWeight.Black, fontSize = 14.sp, color = CanonGreen2)
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(3.dp))
+                Text(dto.driverRating.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                dto.distanceKm?.let { km ->
+                    Icon(Icons.Default.NearMe, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text(appText("${fmtKm(km)} км", "${fmtKm(km)} км"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CanonText)
+                    Spacer(Modifier.width(10.dp))
+                }
+                Text("${dto.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = onOpen,
+                    modifier = Modifier.height(38.dp),
+                    shape = RoundedCornerShape(13.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                    contentPadding = PaddingValues(horizontal = 16.dp)
+                ) {
+                    Text(appText("Поехать", "Барырға"), fontWeight = FontWeight.Black, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NearbySkeletonCard() {
+    Card(
+        modifier = Modifier.width(290.dp).height(190.dp),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.fillMaxWidth(0.7f).height(16.dp).background(CanonMint, RoundedCornerShape(8.dp)))
+            Box(Modifier.fillMaxWidth(0.4f).height(13.dp).background(CanonMint, RoundedCornerShape(7.dp)))
+            Box(Modifier.fillMaxWidth(0.55f).height(13.dp).background(CanonMint, RoundedCornerShape(7.dp)))
+            Spacer(Modifier.weight(1f))
+            Box(Modifier.fillMaxWidth(0.5f).height(34.dp).background(CanonMint, RoundedCornerShape(13.dp)))
+        }
+    }
+}
+
+@Composable
+private fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
+            Text(
+                if (hasRoute) appText("На этом маршруте пока нет машин", "Был маршрутта әлегә машина юҡ")
+                else appText("Поездок рядом пока нет", "Яҡында сәфәрҙәр әлегә юҡ"),
+                fontWeight = FontWeight.Bold, fontSize = 15.sp
+            )
+            Text(appText("Появятся — покажем здесь", "Барлыҡҡа килһә — бында күрһәтәбеҙ"), color = CanonMuted, fontSize = 13.sp)
+            TextButton(onClick = onRetry) {
+                Text(appText("Обновить", "Яңыртыу"), color = CanonGreen2, fontWeight = FontWeight.Black)
             }
         }
     }

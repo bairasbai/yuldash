@@ -139,6 +139,50 @@ object ApiClient {
             }
         }
 
+    /**
+     * Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).
+     * Координаты (lat/lng) → дистанция до точки выезда; radiusKm → фильтр по радиусу.
+     */
+    suspend fun getNearbyRides(
+        fromCity: String?,
+        toCity: String?,
+        lat: Double? = null,
+        lng: Double? = null,
+        radiusKm: Double? = null,
+    ): Result<List<RideDto>> {
+        val params = buildList {
+            fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
+            toCity?.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
+            lat?.let { add("lat=$it") }
+            lng?.let { add("lng=$it") }
+            radiusKm?.let { add("radius_km=$it") }
+        }
+        val path = "/rides/near" + if (params.isEmpty()) "" else "?" + params.joinToString("&")
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                RideDto(
+                    id = o.optInt("id"),
+                    fromCity = o.optString("from_city"),
+                    toCity = o.optString("to_city"),
+                    departAt = o.optString("depart_at"),
+                    seatsTotal = o.optInt("seats_total"),
+                    seatsLeft = o.optInt("seats_left"),
+                    price = o.optInt("price"),
+                    category = o.optString("category"),
+                    driverName = o.optString("driver_name"),
+                    driverRating = o.optDouble("driver_rating", 5.0),
+                    driverVerified = o.optBoolean("driver_verified"),
+                    driverCar = o.optString("driver_car"),
+                    distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
+                )
+            }
+        }
+    }
+
+    private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
+
     /** Опубликовать поездку (текущий пользователь = водитель). depart_at — ISO-строка. */
     suspend fun publishRide(
         fromCity: String,
@@ -403,6 +447,7 @@ data class RideDto(
     val driverRating: Double,
     val driverVerified: Boolean,
     val driverCar: String,
+    val distanceKm: Double? = null,   // дистанция клиент→точка выезда (только из /rides/near с координатами)
 )
 
 /** Заявка пассажира с сервера. */

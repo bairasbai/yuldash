@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import List, Optional
 import base64
+import math
 import os
 import uuid
 
@@ -186,6 +187,28 @@ def _ride_out(ride: Ride, session: Session) -> RideOut:
     )
 
 
+# Координаты городов Башкортостана (approx) — для гео-дистанции «сколько в N км от тебя».
+CITY_COORDS = {
+    "Баймаҡ": (52.591, 58.317), "Баймак": (52.591, 58.317),
+    "Сибай": (52.716, 58.664),
+    "Уфа": (54.735, 55.958),
+    "Темясово": (52.972, 58.160),
+    "Учалы": (54.304, 59.430),
+    "Магнитогорск": (53.412, 58.984),
+    "Ургаза": (52.850, 58.300),
+    "Зилаир": (52.230, 57.443),
+    "Акъяр": (51.880, 58.198),
+}
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
 def _seed_demo(session: Session) -> None:
     """Демо-поездки в пустой БД — чтобы экран «Ближайшие поездки» был живым."""
     if session.exec(select(Ride)).first():
@@ -240,6 +263,39 @@ def search_rides(
         q = q.where(Ride.category == category)
     rides = session.exec(q.order_by(Ride.depart_at)).all()
     return [_ride_out(r, session) for r in rides]
+
+
+@app.get("/rides/near")
+def rides_near(
+    from_city: Optional[str] = None,
+    to_city: Optional[str] = None,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    radius_km: Optional[float] = None,
+    session: Session = Depends(get_session),
+):
+    """Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).
+    Если переданы координаты клиента (lat/lng) — добавляем дистанцию до точки выезда и (опц.) фильтр по радиусу.
+    Сценарий: водитель отменил/сломался → клиент видит ближайшую по времени машину на своём маршруте и уезжает."""
+    q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0)
+    if from_city:
+        q = q.where(Ride.from_city.contains(from_city))
+    if to_city:
+        q = q.where(Ride.to_city.contains(to_city))
+    rides = session.exec(q.order_by(Ride.depart_at)).all()  # по времени выезда ↑
+    items: list = []
+    for r in rides:
+        dist = None
+        if lat is not None and lng is not None:
+            c = CITY_COORDS.get(r.from_city)
+            if c:
+                dist = round(_haversine_km(lat, lng, c[0], c[1]), 1)
+        if radius_km is not None and dist is not None and dist > radius_km:
+            continue
+        out = _ride_out(r, session).model_dump()
+        out["distance_km"] = dist
+        items.append(out)
+    return {"count": len(items), "items": items}
 
 
 @app.get("/rides/{ride_id}", response_model=Ride)
