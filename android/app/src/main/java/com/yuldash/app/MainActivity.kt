@@ -203,6 +203,8 @@ import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MessageDto
+import com.yuldash.app.data.GeocoderClient
+import com.yuldash.app.data.GeoHit
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -3939,6 +3941,59 @@ private fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> U
     }
 }
 
+// Поле адреса с автоподсказкой через Яндекс.Геокодер.
+@Composable
+private fun AddressSuggestField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    leadingIcon: ImageVector
+) {
+    var hits by remember { mutableStateOf<List<GeoHit>>(emptyList()) }
+    var picked by remember { mutableStateOf(true) }   // не подсказывать для предзаполненных значений при открытии
+    LaunchedEffect(value) {
+        if (picked) { picked = false; return@LaunchedEffect }
+        if (value.trim().length < 2) { hits = emptyList(); return@LaunchedEffect }
+        delay(350)
+        hits = GeocoderClient.suggest(value)
+    }
+    Column(Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            leadingIcon = { Icon(leadingIcon, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            singleLine = true
+        )
+        if (hits.isNotEmpty()) {
+            Surface(
+                color = CanonSurface,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, CanonBorder),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            ) {
+                Column {
+                    hits.forEach { hit ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { picked = true; onValueChange(hit.title); hits = emptyList() }
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(hit.title, color = CanonText, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun LocalRequestCard(request: LocalRequest) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
@@ -4170,8 +4225,8 @@ private fun CreatePassengerRequestScreen(
                     icon = Icons.Default.Lock
                 )
             }
-            item { OutlinedTextField(value = from, onValueChange = { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-            item { OutlinedTextField(value = to, onValueChange = { to = it }, label = { Text(appText("Куда", "Ҡайҙа")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) }
+            item { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
             item { OutlinedTextField(value = time, onValueChange = { time = it }, label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -4523,8 +4578,8 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Black)
                 Text(appText("Укажите путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            item { OutlinedTextField(value = from, onValueChange = { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-            item { OutlinedTextField(value = to, onValueChange = { to = it }, label = { Text(appText("Куда", "Ҡайҙа")) }, leadingIcon = { Icon(Icons.Default.NearMe, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) }
+            item { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
             item { OutlinedTextField(value = dateTime, onValueChange = { dateTime = it }, label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) }, placeholder = { Text(defaultTime) }, leadingIcon = { Icon(Icons.Default.Schedule, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

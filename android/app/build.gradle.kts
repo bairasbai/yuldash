@@ -12,6 +12,12 @@ val mapkitKey: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YANDEX_MAPKIT_KEY", "")
 
+// Ключ Яндекс Геокодера (HTTP API, поиск адресов) — тоже из local.properties.
+val geocoderKey: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YANDEX_GEOCODER_KEY", "")
+
 // Подпись релиза: данные из keystore.properties (в .gitignore, в git не попадает).
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
@@ -38,6 +44,7 @@ android {
 
         // Пробрасываем ключ в BuildConfig (в коде не хардкодим).
         buildConfigField("String", "YANDEX_MAPKIT_KEY", "\"$mapkitKey\"")
+        buildConfigField("String", "YANDEX_GEOCODER_KEY", "\"$geocoderKey\"")
     }
 
     buildFeatures {
