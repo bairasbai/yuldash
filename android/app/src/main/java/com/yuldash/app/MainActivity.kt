@@ -199,6 +199,9 @@ import com.yandex.mapkit.geometry.Polyline
 import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.Animation
 import com.yandex.mapkit.user_location.UserLocationLayer
+import com.yandex.mapkit.user_location.UserLocationObjectListener
+import com.yandex.mapkit.user_location.UserLocationView
+import com.yandex.mapkit.layers.ObjectEvent
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import com.yandex.mapkit.map.IconStyle
@@ -2624,6 +2627,19 @@ private fun cityPoint(city: String): Point? = when (city.trim().lowercase()) {
 
 // Маркер-«ценник» (стиль Яндекс/Airbnb): белая пилюля с ценой, цветная рамка, остриё вниз.
 // Boosted-поездка — золотой акцент, обычная — фирменный зелёный.
+// Метка «моя геопозиция»: бренд-пак (белое кольцо + зелёная точка), как в топ-картах.
+private fun userPuckBitmap(): Bitmap {
+    val size = 56
+    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bmp)
+    val cx = size / 2f
+    val cy = size / 2f
+    c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#330B6B3A") })
+    c.drawCircle(cx, cy, 13f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+    c.drawCircle(cx, cy, 9f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
+    return bmp
+}
+
 private fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
     val accent = android.graphics.Color.parseColor(if (boosted) "#C98A00" else "#0B6B3A")
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -2753,12 +2769,32 @@ private fun YandexMapCard(
     // Тёмная тема → ночной стиль карты (обновляется при смене темы).
     LaunchedEffect(nightMap) { mapView.mapWindow.map.isNightModeEnabled = nightMap }
     // Слой «моя геопозиция» (точка) — включается только по согласию (плашка-тумблер).
-    val userLocationLayer = remember { MapKitFactory.getInstance().createUserLocationLayer(mapView.mapWindow) }
+    val userLocationLayer = remember {
+        MapKitFactory.getInstance().createUserLocationLayer(mapView.mapWindow).apply {
+            // Своя метка как в Яндекс.Картах: бренд-пак вместо дефолтной точки.
+            setObjectListener(object : UserLocationObjectListener {
+                override fun onObjectAdded(view: UserLocationView) {
+                    val puck = ImageProvider.fromBitmap(userPuckBitmap())
+                    view.pin.setIcon(puck)
+                    view.arrow.setIcon(puck)
+                    view.accuracyCircle.fillColor = 0x220B6B3A
+                }
+                override fun onObjectRemoved(view: UserLocationView) {}
+                override fun onObjectUpdated(view: UserLocationView, event: ObjectEvent) {}
+            })
+        }
+    }
     LaunchedEffect(showMyLocation) {
         userLocationLayer.setVisible(showMyLocation)
         if (showMyLocation) {
-            userLocationLayer.cameraPosition()?.target?.let { p ->
-                mapView.mapWindow.map.move(CameraPosition(p, 14f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.4f), null)
+            // ждём GPS-фикс и центрируем карту на текущей позиции телефона
+            repeat(20) {
+                val target = userLocationLayer.cameraPosition()?.target
+                if (target != null) {
+                    mapView.mapWindow.map.move(CameraPosition(target, 15f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
+                    return@LaunchedEffect
+                }
+                delay(500)
             }
         }
     }
