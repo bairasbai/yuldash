@@ -422,6 +422,20 @@ def popular_routes(session: Session = Depends(get_session)):
     return [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
 
 
+@app.get("/my-routes")
+def my_routes(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Частые поездки пользователя — из его истории броней."""
+    from collections import Counter
+    bookings = session.exec(select(Booking).where(Booking.passenger_id == user.id)).all()
+    pairs = []
+    for b in bookings:
+        r = session.get(Ride, b.ride_id)
+        if r and r.from_city and r.to_city:
+            pairs.append((r.from_city, r.to_city))
+    cnt = Counter(pairs)
+    return [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
+
+
 @app.get("/notifications")
 def notifications(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Лента событий: входящие сообщения по броням пользователя (как пассажир и водитель)."""

@@ -4525,6 +4525,15 @@ private fun RepeatTripScreen(
     onRepeat: (LocalRequest) -> Unit
 ) {
     val trusted = contacts.firstOrNull()
+    // Частые поездки — из истории юзера (сервер); демо, пока истории нет.
+    var frequent by remember { mutableStateOf(demoFrequentTrips) }
+    LaunchedEffect(Unit) {
+        ApiClient.getMyRoutes().onSuccess { srv ->
+            if (srv.isNotEmpty()) frequent = srv.map { s ->
+                FrequentTrip(title = "Частая поездка", titleBa = "Йыш сәфәр", from = s.from, to = s.to, timeHint = "", timeHintBa = "", categoryKey = "regular")
+            }
+        }
+    }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Повторить поездку", "Сәфәрҙе ҡабатлау"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -4532,7 +4541,7 @@ private fun RepeatTripScreen(
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item { Text(appText("Частые поездки", "Йыш сәфәрҙәр"), color = CanonGreen, fontSize = 28.sp, fontWeight = FontWeight.Black) }
-            itemsIndexed(demoFrequentTrips) { index, trip ->
+            itemsIndexed(frequent) { index, trip ->
                 val repeatTitle = appText("Повтор: ${trip.title}", "Ҡабатлау: ${trip.titleBa}")
                 val repeatStatus = appText("создана", "булдырылды")
                 val repeatTime = trip.timeHintText()

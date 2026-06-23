@@ -274,6 +274,16 @@ object ApiClient {
             }
         }
 
+    // Частые поездки пользователя — из истории его броней.
+    suspend fun getMyRoutes(): Result<List<PopularRouteDto>> =
+        call("GET", "/my-routes", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                PopularRouteDto(o.optString("from_city"), o.optString("to_city"), o.optInt("count"))
+            }
+        }
+
     // Лента событий (входящие сообщения по броням).
     suspend fun getNotifications(): Result<List<NotifDto>> =
         call("GET", "/notifications", null, auth = true).map { obj ->
