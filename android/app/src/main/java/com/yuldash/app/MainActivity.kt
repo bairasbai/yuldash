@@ -206,6 +206,9 @@ import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.ConversationDto
+import com.yuldash.app.data.PopularRouteDto
+import com.yuldash.app.data.NotifDto
+import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -822,6 +825,16 @@ private fun YuldashApp() {
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
     var startHomeTab by remember { mutableStateOf(HomeTab.Map) }
     var callbackRequested by remember { mutableStateOf(false) }
+    // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
+    var partnerAds by remember { mutableStateOf(demoPartnerAds) }
+    LaunchedEffect(Unit) {
+        ApiClient.getAds().onSuccess { srv ->
+            val tmpl = demoPartnerAds.firstOrNull()
+            if (srv.isNotEmpty() && tmpl != null) partnerAds = srv.map { a ->
+                tmpl.copy(id = a.id, title = a.title, titleBa = a.title, description = a.text, descriptionBa = a.text, erid = a.erid, primaryButton = a.button, primaryButtonBa = a.button)
+            }
+        }
+    }
     var adStats by remember {
         mutableStateOf(demoPartnerAds.associate { it.id to AdStats() })
     }
@@ -937,7 +950,7 @@ private fun YuldashApp() {
             Screen.Home -> HomeScreen(
                 rides = rides,
                 requests = localRequests,
-                ads = demoPartnerAds,
+                ads = partnerAds,
                 adStats = adStats,
                 voiceMessages = voiceMessages,
                 initialTab = startHomeTab,
@@ -1014,7 +1027,7 @@ private fun YuldashApp() {
             Screen.Boost -> BoostScreen(onBack = { openHome(HomeTab.Rides) })
             Screen.Booking -> BookingScreen(
                 ride = selectedRide ?: rides.first(),
-                ads = demoPartnerAds,
+                ads = partnerAds,
                 adStats = adStats,
                 onBack = { openHome(HomeTab.Rides) },
                 onSelectTab = { tab -> openHome(tab) },
@@ -1057,7 +1070,7 @@ private fun YuldashApp() {
                 language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
             })
             Screen.Help -> HelpScreen(
-                ads = demoPartnerAds,
+                ads = partnerAds,
                 adStats = adStats,
                 onBack = { openHome(HomeTab.Profile) },
                 onSelectTab = { tab -> openHome(tab) },
@@ -1080,7 +1093,7 @@ private fun YuldashApp() {
                 onBoost = { screen = Screen.Boost }
             )
             Screen.AdsCabinet -> AdsCabinetScreen(
-                ads = demoPartnerAds,
+                ads = partnerAds,
                 adStats = adStats,
                 onBack = { openHome(HomeTab.Profile) }
             )
@@ -2326,6 +2339,16 @@ private fun MapHero(
     onFind: (PopularRoute) -> Unit,
     onDriver: () -> Unit
 ) {
+    // Популярные маршруты — порядок с сервера (из реальных поездок); демо для богатого вида.
+    var popular by remember { mutableStateOf(demoPopularRoutes) }
+    LaunchedEffect(Unit) {
+        ApiClient.getPopularRoutes().onSuccess { srv ->
+            if (srv.isNotEmpty()) popular = srv.map { s ->
+                demoPopularRoutes.firstOrNull { it.from == s.from && it.to == s.to }
+                    ?: PopularRoute(from = s.from, to = s.to, minutes = "—", minutesBa = "—", distance = "", nearbyCount = s.count, label = "Поездки", labelBa = "Сәфәрҙәр")
+            }
+        }
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -2368,7 +2391,7 @@ private fun MapHero(
                 .align(Alignment.BottomCenter)
                 .padding(12.dp)
         ) {
-            QuickSearchCard(routes = demoPopularRoutes, onFind = onFind, onDriver = onDriver, compact = true)
+            QuickSearchCard(routes = popular, onFind = onFind, onDriver = onDriver, compact = true)
         }
     }
 }
@@ -2487,8 +2510,10 @@ private fun QuickSearchCard(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        Spacer(Modifier.width(8.dp))
-                        Text("· ${route.distance}", color = CanonMuted, fontSize = 12.sp)
+                        if (route.distance.isNotBlank()) {
+                            Spacer(Modifier.width(8.dp))
+                            Text("· ${route.distance}", color = CanonMuted, fontSize = 12.sp)
+                        }
                         Spacer(Modifier.weight(1f))
                         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             safeRoutes.forEachIndexed { index, _ ->
@@ -5647,13 +5672,17 @@ private fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
         "system" -> systemLabel
         else -> allLabel
     }
-    val notifications = listOf(
+    var serverNotifs by remember { mutableStateOf<List<NotifDto>>(emptyList()) }
+    LaunchedEffect(Unit) { ApiClient.getNotifications().onSuccess { serverNotifs = it } }
+    val demoNotifs = listOf(
         Triple(Icons.Default.DirectionsCar, appText("Водитель откликнулся на заявку", "Водитель заявкаға яуап бирҙе"), appText("Рамиль едет к вам", "Рамиль һеҙгә килә")),
         Triple(Icons.Default.CheckCircle, appText("Поездка подтверждена", "Сәфәр раҫланды"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30")),
         Triple(Icons.Default.ChatBubble, appText("Новое сообщение в чате", "Чатта яңы хәбәр"), appText("Рамиль: «Буду у вокзала в 17:20»", "Рамиль: «17:20-лә вокзалда булам»")),
         Triple(Icons.Default.Shield, appText("Профиль успешно проверен", "Профиль уңышлы тикшерелде"), appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды")),
         Triple(Icons.Default.Schedule, appText("Поездка начнётся через 30 минут", "Сәфәр 30 минуттан башлана"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30"))
     )
+    // Реальные события с сервера; демо — пока их нет (новый юзер).
+    val notifications = if (serverNotifs.isNotEmpty()) serverNotifs.map { Triple(Icons.Default.ChatBubble, it.title, it.text) } else demoNotifs
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Chat, onSelect = onSelectTab) }

@@ -264,6 +264,36 @@ object ApiClient {
             }
         }
 
+    // Популярные маршруты — считаются из реальных поездок на сервере.
+    suspend fun getPopularRoutes(): Result<List<PopularRouteDto>> =
+        call("GET", "/popular-routes", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                PopularRouteDto(o.optString("from_city"), o.optString("to_city"), o.optInt("count"))
+            }
+        }
+
+    // Лента событий (входящие сообщения по броням).
+    suspend fun getNotifications(): Result<List<NotifDto>> =
+        call("GET", "/notifications", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                NotifDto(o.optString("title"), o.optString("text"))
+            }
+        }
+
+    // Партнёрская реклама — сервер-управляемая.
+    suspend fun getAds(): Result<List<AdDto>> =
+        call("GET", "/ads", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                AdDto(o.optString("id"), o.optString("title"), o.optString("text"), o.optString("button"), o.optString("erid"), o.optString("placement"))
+            }
+        }
+
     // ---------- Активная поездка: поделиться / статус ----------
 
     suspend fun shareTrip(bookingId: Int, contactId: Int): Result<Unit> =
@@ -372,3 +402,7 @@ data class ConversationDto(
     val route: String,
     val lastMessage: String,
 )
+
+data class PopularRouteDto(val from: String, val to: String, val count: Int)
+data class NotifDto(val title: String, val text: String)
+data class AdDto(val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String)

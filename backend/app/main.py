@@ -413,6 +413,41 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
     return out
 
 
+@app.get("/popular-routes")
+def popular_routes(session: Session = Depends(get_session)):
+    """Топ направлений — считаем из реальных поездок."""
+    from collections import Counter
+    rides = session.exec(select(Ride)).all()
+    cnt = Counter((r.from_city, r.to_city) for r in rides if r.from_city and r.to_city)
+    return [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
+
+
+@app.get("/notifications")
+def notifications(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Лента событий: входящие сообщения по броням пользователя (как пассажир и водитель)."""
+    booking_ids = [b.id for b in session.exec(select(Booking).where(Booking.passenger_id == user.id)).all()]
+    my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user.id)).all())
+    if my_ride_ids:
+        booking_ids += [b.id for b in session.exec(select(Booking).where(Booking.ride_id.in_(my_ride_ids))).all()]
+    out: list = []
+    if booking_ids:
+        msgs = session.exec(
+            select(Message).where(Message.booking_id.in_(booking_ids), Message.sender_id != user.id).order_by(Message.id.desc())
+        ).all()
+        for m in msgs[:15]:
+            out.append({"type": "message", "title": "Новое сообщение", "text": (m.text if m.text else "Голосовое сообщение")})
+    return out
+
+
+@app.get("/ads")
+def ads():
+    """Партнёрская реклама — сервер-управляемая (пока сид; заменяется реальными размещениями)."""
+    return [
+        {"id": "a_cafe", "title": "Кафе «Юлдаш»", "text": "Горячий чай и еда по дороге Баймаҡ → Сибай", "button": "Посмотреть", "erid": "2VtzqyYYYY", "placement": "route"},
+        {"id": "a_sto", "title": "СТО «АвтоМастер»", "text": "Проверка перед дальней дорогой, скидка попутчикам", "button": "Узнать", "erid": "2VtzqyZZZZ", "placement": "ridesList"},
+    ]
+
+
 class VoiceIn(BaseModel):
     audio_b64: str
     ext: str = "m4a"
