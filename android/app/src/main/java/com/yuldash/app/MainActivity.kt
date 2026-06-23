@@ -2967,14 +2967,14 @@ private fun MapLabel(text: String, modifier: Modifier) {
 // Кнопки масштаба карты ＋/− (стек справа, как в Яндекс.Картах).
 @Composable
 private fun MapZoomControls(modifier: Modifier = Modifier, onZoomIn: () -> Unit, onZoomOut: () -> Unit) {
-    Surface(modifier = modifier, color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(16.dp), shadowElevation = 3.dp) {
+    Surface(modifier = modifier, color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(13.dp), shadowElevation = 3.dp) {
         Column {
-            IconButton(onClick = onZoomIn, modifier = Modifier.size(46.dp)) {
-                Icon(Icons.Default.Add, contentDescription = appText("Приблизить", "Яҡынайтыу"), tint = CanonGreen2)
+            IconButton(onClick = onZoomIn, modifier = Modifier.size(38.dp)) {
+                Icon(Icons.Default.Add, contentDescription = appText("Приблизить", "Яҡынайтыу"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
             }
-            Box(Modifier.width(28.dp).height(1.dp).background(Color(0x14000000)).align(Alignment.CenterHorizontally))
-            IconButton(onClick = onZoomOut, modifier = Modifier.size(46.dp)) {
-                Icon(Icons.Default.Remove, contentDescription = appText("Отдалить", "Йыраҡлаштырыу"), tint = CanonGreen2)
+            Box(Modifier.width(20.dp).height(1.dp).background(Color(0x14000000)).align(Alignment.CenterHorizontally))
+            IconButton(onClick = onZoomOut, modifier = Modifier.size(38.dp)) {
+                Icon(Icons.Default.Remove, contentDescription = appText("Отдалить", "Йыраҡлаштырыу"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
             }
         }
     }
