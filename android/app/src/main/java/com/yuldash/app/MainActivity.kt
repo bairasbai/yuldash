@@ -2612,7 +2612,7 @@ private val BaymakPoint = Point(52.5911, 58.3222)
 private val SibayPoint = Point(52.7236, 58.6651)
 private val MapMidPoint = Point(52.71, 58.45)
 
-// Город → точка на карте (mock-геоданные для маркеров поездок).
+// Город → точка: частые города Башкортостана мгновенно; прочие догружает геокодер (см. YandexMapCard).
 private fun cityPoint(city: String): Point? = when (city.trim().lowercase()) {
     "баймаҡ", "баймак" -> BaymakPoint
     "сибай" -> SibayPoint
@@ -2620,6 +2620,14 @@ private fun cityPoint(city: String): Point? = when (city.trim().lowercase()) {
     "уфа" -> Point(54.7388, 55.9721)
     "учалы" -> Point(54.3050, 59.4040)
     "магнитогорск" -> Point(53.4072, 58.9794)
+    "стерлитамак" -> Point(53.6303, 55.9311)
+    "салават" -> Point(53.3617, 55.9244)
+    "нефтекамск" -> Point(56.0911, 54.2486)
+    "октябрьский" -> Point(54.4817, 53.4708)
+    "белорецк" -> Point(53.9694, 58.4097)
+    "ишимбай" -> Point(53.4528, 56.0386)
+    "туймазы" -> Point(54.6014, 53.6947)
+    "кумертау" -> Point(52.7639, 55.7964)
     else -> null
 }
 
@@ -2718,17 +2726,7 @@ private fun YandexMapCard(
                 strokeWidth = 2.5f
                 fillColor = 0xFFE2A11B.toInt()
             }
-            // Маркеры-ценники поездок: тап → карточка снизу.
-            rides.forEach { ride ->
-                val point = cityPoint(ride.from) ?: return@forEach
-                map.mapObjects.addPlacemark().apply {
-                    geometry = point
-                    setIcon(ImageProvider.fromBitmap(ridePinBitmap("${ride.price} ₽", ride.boosted)))
-                    setIconStyle(IconStyle().setAnchor(PointF(0.5f, 1f)))
-                    userData = ride.id
-                    addTapListener(tapListener)
-                }
-            }
+            // Маркеры-ценники поездок добавляются ниже (LaunchedEffect: гео + кэш квоты).
             // Карта внутри прокручиваемого списка: на касании просим родителя (LazyColumn)
             // не перехватывать жест — иначе тап по маркеру и панорамирование «съедает» скролл.
             view.setOnTouchListener { v, event ->
@@ -2758,6 +2756,28 @@ private fun YandexMapCard(
     }
     // Тёмная тема → ночной стиль карты (обновляется при смене темы).
     LaunchedEffect(nightMap) { mapView.mapWindow.map.isNightModeEnabled = nightMap }
+    // Маркеры поездок: известный город — мгновенно, прочий — геокодер (кэш по городу = экономия квоты).
+    val rideMarkerCache = remember { mutableMapOf<String, Point>() }
+    val placedRideIds = remember { mutableSetOf<String>() }
+    LaunchedEffect(rides) {
+        val map = mapView.mapWindow.map
+        rides.forEach { ride ->
+            if (!placedRideIds.add(ride.id)) return@forEach
+            val key = ride.from.trim()
+            val point = cityPoint(key) ?: rideMarkerCache[key] ?: run {
+                val hit = GeocoderClient.suggest(key).firstOrNull()
+                if (hit == null) { placedRideIds.remove(ride.id); return@forEach }
+                Point(hit.lat, hit.lon).also { rideMarkerCache[key] = it }
+            }
+            map.mapObjects.addPlacemark().apply {
+                geometry = point
+                setIcon(ImageProvider.fromBitmap(ridePinBitmap("${ride.price} ₽", ride.boosted)))
+                setIconStyle(IconStyle().setAnchor(PointF(0.5f, 1f)))
+                userData = ride.id
+                addTapListener(tapListener)
+            }
+        }
+    }
     // Жизненный цикл карты привязан к появлению/скрытию экрана «Карта».
     DisposableEffect(Unit) {
         MapKitFactory.getInstance().onStart()
