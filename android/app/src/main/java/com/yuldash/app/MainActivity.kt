@@ -198,6 +198,8 @@ import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.geometry.Polyline
 import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.Animation
+import com.yandex.mapkit.map.CameraListener
+import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.NearMe
@@ -2752,29 +2754,27 @@ private fun YandexMapCard(
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     v.parent?.requestDisallowInterceptTouchEvent(true)
                 }
-                if (event.actionMasked == MotionEvent.ACTION_UP) {
-                    val width = v.width.toFloat().coerceAtLeast(1f)
-                    val height = v.height.toFloat().coerceAtLeast(1f)
-                    val x = event.x / width
-                    val y = event.y / height
-                    val tappedRide = when {
-                        kotlin.math.abs(x - 0.66f) < 0.13f && kotlin.math.abs(y - 0.45f) < 0.12f ->
-                            currentRides.firstOrNull { it.from == "Сибай" } ?: currentRides.firstOrNull()
-                        kotlin.math.abs(x - 0.36f) < 0.14f && kotlin.math.abs(y - 0.22f) < 0.14f ->
-                            currentRides.firstOrNull { it.from == "Баймаҡ" } ?: currentRides.firstOrNull()
-                        else -> null
-                    }
-                    if (tappedRide != null) {
-                        currentOnTap(tappedRide)
-                        return@setOnTouchListener true
-                    }
-                }
                 false
             }
         }
     }
     // Тёмная тема → ночной стиль карты (обновляется при смене темы).
     LaunchedEffect(nightMap) { mapView.mapWindow.map.isNightModeEnabled = nightMap }
+    // Жесты пальцами: щипок-зум держит мою точку по центру; панорама пальцем — выключает слежение.
+    DisposableEffect(Unit) {
+        val map = mapView.mapWindow.map
+        var prevZoom = map.cameraPosition.zoom
+        val cl = CameraListener { _, pos, reason, finished ->
+            // Щипок-зум пальцами → держим мою точку по центру (как кнопки зума). Панораму не трогаем.
+            if (reason == CameraUpdateReason.GESTURES && finished &&
+                LocationPrefs.sharingEnabled && kotlin.math.abs(pos.zoom - prevZoom) > 0.05f) {
+                lastUserPoint?.let { p -> map.move(CameraPosition(p, pos.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.2f), null) }
+            }
+            prevZoom = pos.zoom
+        }
+        map.addCameraListener(cl)
+        onDispose { map.removeCameraListener(cl) }
+    }
     // «Моя геопозиция» — СВОЯ точка-плейсмарк через LocationManager (полный контроль, без дефолтной стрелки MapKit).
     DisposableEffect(LocationPrefs.sharingEnabled) {
         val map = mapView.mapWindow.map
