@@ -2264,15 +2264,16 @@ private fun MapScreen(
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
     val sheetState = rememberModalBottomSheetState()
     Scaffold(containerColor = CanonBg) { padding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .padding(padding)
-                .padding(horizontal = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(11.dp)
+                .fillMaxSize()
         ) {
-            item { Spacer(Modifier.height(2.dp)) }
-            item { Box(Modifier.appearIn(0)) { HomeHeader(onSos = onSos) } }
-            item {
+            // Закреплённый верх: шапка + карта (НЕ в прокрутке → вертикальный пан двигает карту, а не страницу).
+            Column(modifier = Modifier.padding(horizontal = 14.dp)) {
+                Spacer(Modifier.height(2.dp))
+                Box(Modifier.appearIn(0)) { HomeHeader(onSos = onSos) }
+                Spacer(Modifier.height(11.dp))
                 Box(Modifier.appearIn(1)) {
                     MapHero(
                         rides = rides,
@@ -2282,47 +2283,56 @@ private fun MapScreen(
                     )
                 }
             }
-            item { Box(Modifier.appearIn(2)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
-            item {
-                Box(Modifier.appearIn(3)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр"), modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Black)
-                    Text(appText("${rides.size} рядом", "${rides.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
-                }
-            }
-            item {
-                Box(Modifier.appearIn(4)) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(rides) { ride ->
-                        RideCard(
-                            ride = ride,
-                            compact = true,
-                            onBook = { onBookRide(ride) },
-                            onShare = { onShareRide(ride) },
-                            onBoost = onBoost
-                        )
-                    }
-                }
-                }
-            }
-            nearbyAd?.let { ad ->
+            // Прокручиваемый низ: простой режим, ближайшие поездки, реклама.
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(11.dp),
+                contentPadding = PaddingValues(top = 11.dp, bottom = 8.dp)
+            ) {
+                item { Box(Modifier.appearIn(2)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
                 item {
-                    Box(Modifier.appearIn(5)) {
-                        PartnerAdCard(
-                            ad = ad,
-                            stats = adStats[ad.id] ?: AdStats(),
-                            label = appText("Партнёр рядом", "Яҡындағы партнёр"),
-                            onImpression = onAdImpression,
-                            onClick = onAdClick
-                        )
+                    Box(Modifier.appearIn(3)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр"), modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Black)
+                            Text(appText("${rides.size} рядом", "${rides.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                item {
+                    Box(Modifier.appearIn(4)) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(rides) { ride ->
+                                RideCard(
+                                    ride = ride,
+                                    compact = true,
+                                    onBook = { onBookRide(ride) },
+                                    onShare = { onShareRide(ride) },
+                                    onBoost = onBoost
+                                )
+                            }
+                        }
+                    }
+                }
+                nearbyAd?.let { ad ->
+                    item {
+                        Box(Modifier.appearIn(5)) {
+                            PartnerAdCard(
+                                ad = ad,
+                                stats = adStats[ad.id] ?: AdStats(),
+                                label = appText("Партнёр рядом", "Яҡындағы партнёр"),
+                                onImpression = onAdImpression,
+                                onClick = onAdClick
+                            )
+                        }
                     }
                 }
             }
-            item { Spacer(Modifier.height(2.dp)) }
         }
     }
     // Тап по маркеру поездки → карточка снизу с деталями и действиями.
