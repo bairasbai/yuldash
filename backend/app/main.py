@@ -377,6 +377,42 @@ def list_messages(booking_id: int, user: User = Depends(current_user), session: 
     return session.exec(select(Message).where(Message.booking_id == booking_id).order_by(Message.id)).all()
 
 
+class ConversationOut(BaseModel):
+    booking_id: int
+    peer_name: str
+    route: str
+    last_message: str
+
+
+@app.get("/conversations", response_model=List[ConversationOut])
+def conversations(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Инбокс: брони пользователя (как пассажир и как водитель), где есть сообщения."""
+    bookings = list(session.exec(select(Booking).where(Booking.passenger_id == user.id)).all())
+    my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user.id)).all())
+    if my_ride_ids:
+        bookings += session.exec(select(Booking).where(Booking.ride_id.in_(my_ride_ids))).all()
+    seen: set = set()
+    out: list = []
+    for b in bookings:
+        if b.id in seen:
+            continue
+        seen.add(b.id)
+        last = session.exec(
+            select(Message).where(Message.booking_id == b.id).order_by(Message.id.desc())
+        ).first()
+        if last is None:
+            continue
+        ride = session.get(Ride, b.ride_id)
+        peer = session.get(User, ride.driver_id) if (ride and b.passenger_id == user.id) else session.get(User, b.passenger_id)
+        out.append(ConversationOut(
+            booking_id=b.id,
+            peer_name=(peer.name if peer and peer.name else "Собеседник"),
+            route=(f"{ride.from_city} → {ride.to_city}" if ride else ""),
+            last_message=(last.text if last.text else "Голосовое"),
+        ))
+    return out
+
+
 class VoiceIn(BaseModel):
     audio_b64: str
     ext: str = "m4a"

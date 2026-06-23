@@ -205,6 +205,7 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
+import com.yuldash.app.data.ConversationDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -974,6 +975,12 @@ private fun YuldashApp() {
                 onSos = { screen = Screen.Sos },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onNotifications = { screen = Screen.Notifications },
+                onOpenChat = { bid, peer, route ->
+                    val parts = route.split("→").map { it.trim() }
+                    selectedRide = Ride(id = bid.toString(), from = parts.getOrElse(0) { "" }, to = parts.getOrElse(1) { "" }, time = "", driver = peer, car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
+                    activeBookingId = bid
+                    screen = Screen.ActiveTrip
+                },
                 onSafety = { screen = Screen.Safety },
                 onSettings = { screen = Screen.Settings },
                 onHelp = { screen = Screen.Help },
@@ -1984,6 +1991,7 @@ private fun HomeScreen(
     onSos: () -> Unit,
     onVerifyDriver: () -> Unit,
     onNotifications: () -> Unit,
+    onOpenChat: (Int, String, String) -> Unit,
     onSafety: () -> Unit,
     onSettings: () -> Unit,
     onHelp: () -> Unit,
@@ -2065,7 +2073,8 @@ private fun HomeScreen(
                 HomeTab.Chat -> ChatScreen(
                     voiceMessages = voiceMessages,
                     onAddVoiceMessage = onAddVoiceMessage,
-                    onNotifications = onNotifications
+                    onNotifications = onNotifications,
+                    onOpenChat = onOpenChat
                 )
                 HomeTab.Profile -> ProfileScreen(
                     ads = ads,
@@ -3592,12 +3601,14 @@ private fun FullRideCard(
 private fun ChatScreen(
     voiceMessages: List<LocalVoiceMessage>,
     onAddVoiceMessage: (LocalVoiceMessage) -> Unit,
-    onNotifications: () -> Unit
+    onNotifications: () -> Unit,
+    onOpenChat: (Int, String, String) -> Unit
 ) {
     var selected by remember { mutableStateOf("active") }
     var voiceSent by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var latestBookingId by remember { mutableStateOf<Int?>(null) }
+    var conversations by remember { mutableStateOf<List<ConversationDto>>(emptyList()) }
     val chatTabs = listOf(
         "active" to LocalizedText("Активные", "Актив"),
         "requests" to LocalizedText("Заявки", "Заявкалар"),
@@ -3606,6 +3617,7 @@ private fun ChatScreen(
     val nowText = appText("сейчас", "хәҙер")
     LaunchedEffect(Unit) {
         ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
+        ApiClient.getConversations().onSuccess { conversations = it }
     }
     LazyColumn(
         modifier = Modifier
@@ -3671,9 +3683,27 @@ private fun ChatScreen(
         items(voiceMessages) { message ->
             VoiceMessageCard(message)
         }
-        item { Box(Modifier.appearIn(0)) { ChatCard(initial = "Р", name = "Рамиль", subtitle = "Баймаҡ → Сибай", message = appText("Буду у вокзала в 17:20", "17:20-лә вокзалда булам"), time = "16:48", unread = 2, verified = true) } }
-        item { Box(Modifier.appearIn(1)) { ChatCard(initial = "Л", name = "Лилия", subtitle = appText("Заявка в больницу", "Больницаға заявка"), message = appText("Могу забрать после 18:00", "18:00-дән һуң алып китә алам"), time = "15:30", unread = 0, verified = false) } }
-        item { Box(Modifier.appearIn(2)) { ChatCard(initial = "Ю", name = appText("Поддержка Юлдаш", "Юлдаш ярҙамы"), subtitle = appText("Система", "Система"), message = appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды"), time = appText("Вчера", "Кисә"), unread = 0, verified = true, support = true) } }
+        if (conversations.isNotEmpty()) {
+            itemsIndexed(conversations) { i, c ->
+                Box(Modifier.appearIn(i)) {
+                    ChatCard(
+                        initial = c.peerName.take(1).uppercase(),
+                        name = c.peerName,
+                        subtitle = c.route,
+                        message = c.lastMessage,
+                        time = "",
+                        unread = 0,
+                        verified = true,
+                        onClick = { onOpenChat(c.bookingId, c.peerName, c.route) }
+                    )
+                }
+            }
+        } else {
+            // Демо-диалоги, пока нет реальных переписок (новый юзер / офлайн).
+            item { Box(Modifier.appearIn(0)) { ChatCard(initial = "Р", name = "Рамиль", subtitle = "Баймаҡ → Сибай", message = appText("Буду у вокзала в 17:20", "17:20-лә вокзалда булам"), time = "16:48", unread = 2, verified = true) } }
+            item { Box(Modifier.appearIn(1)) { ChatCard(initial = "Л", name = "Лилия", subtitle = appText("Заявка в больницу", "Больницаға заявка"), message = appText("Могу забрать после 18:00", "18:00-дән һуң алып китә алам"), time = "15:30", unread = 0, verified = false) } }
+            item { Box(Modifier.appearIn(2)) { ChatCard(initial = "Ю", name = appText("Поддержка Юлдаш", "Юлдаш ярҙамы"), subtitle = appText("Система", "Система"), message = appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды"), time = appText("Вчера", "Кисә"), unread = 0, verified = true, support = true) } }
+        }
         item {
             InfoCard(
                 title = appText("Телефон открывается только после подтверждения поездки", "Телефон сәфәр раҫланғандан һуң ғына асыла"),
@@ -3686,8 +3716,9 @@ private fun ChatScreen(
 }
 
 @Composable
-private fun ChatCard(initial: String, name: String, subtitle: String, message: String, time: String, unread: Int, verified: Boolean, support: Boolean = false) {
+private fun ChatCard(initial: String, name: String, subtitle: String, message: String, time: String, unread: Int, verified: Boolean, support: Boolean = false, onClick: (() -> Unit)? = null) {
     Card(
+        modifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(24.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)

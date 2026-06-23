@@ -254,6 +254,16 @@ object ApiClient {
     suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true).map { }
 
+    // Инбокс: брони с сообщениями (как пассажир и как водитель).
+    suspend fun getConversations(): Result<List<ConversationDto>> =
+        call("GET", "/conversations", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"))
+            }
+        }
+
     // ---------- Активная поездка: поделиться / статус ----------
 
     suspend fun shareTrip(bookingId: Int, contactId: Int): Result<Unit> =
@@ -354,4 +364,11 @@ data class MessageDto(
     val text: String,
     val senderId: Int,
     val voiceUrl: String? = null,
+)
+
+data class ConversationDto(
+    val bookingId: Int,
+    val peerName: String,
+    val route: String,
+    val lastMessage: String,
 )
