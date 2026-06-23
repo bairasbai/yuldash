@@ -2402,8 +2402,8 @@ private fun MapScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр"), modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Black)
-                            Text(appText("${rides.size} рядом", "${rides.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            Text(appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр"), modifier = Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.Black)
+                            Text(appText("${rides.size} рядом", "${rides.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
@@ -3572,7 +3572,7 @@ private fun RideCard(
                     "${ride.from} → ${ride.to}",
                     modifier = Modifier.weight(1f),
                     fontWeight = FontWeight.Black,
-                    fontSize = if (compact) 22.sp else 18.sp,
+                    fontSize = if (compact) 17.sp else 18.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
