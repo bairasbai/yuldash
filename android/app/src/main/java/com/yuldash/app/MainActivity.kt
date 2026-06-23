@@ -198,11 +198,6 @@ import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.geometry.Polyline
 import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.Animation
-import com.yandex.mapkit.user_location.UserLocationLayer
-import com.yandex.mapkit.user_location.UserLocationObjectListener
-import com.yandex.mapkit.user_location.UserLocationView
-import com.yandex.mapkit.layers.ObjectEvent
-import com.yandex.mapkit.map.RotationType
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.NearMe
@@ -2639,36 +2634,7 @@ private fun cityPoint(city: String): Point? = when (city.trim().lowercase()) {
 
 // Маркер-«ценник» (стиль Яндекс/Airbnb): белая пилюля с ценой, цветная рамка, остриё вниз.
 // Boosted-поездка — золотой акцент, обычная — фирменный зелёный.
-// «Я еду»: крупная круглая точка + лёгкий луч направления (как в Яндекс.Картах), крутится по курсу.
-private fun userArrowBitmap(): Bitmap {
-    val s = 110
-    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
-    val c = Canvas(bmp)
-    val cx = s / 2f
-    val cy = s / 2f
-    // Луч направления: короткий, широкий вверху, светло-зелёный и почти прозрачный (мягкое свечение, не треугольник).
-    val cone = android.graphics.Path().apply {
-        moveTo(cx, cy)
-        lineTo(cx - 30f, 20f)
-        quadTo(cx, 10f, cx + 30f, 20f)
-        close()
-    }
-    c.drawPath(cone, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        shader = android.graphics.LinearGradient(
-            cx, cy, cx, 16f,
-            android.graphics.Color.parseColor("#3C2FA86C"),
-            android.graphics.Color.parseColor("#002FA86C"),
-            android.graphics.Shader.TileMode.CLAMP
-        )
-    })
-    // Точка крупная и круглая — главный элемент: тень + белое кольцо + зелёный центр.
-    c.drawCircle(cx, cy, 19f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#22000000") })
-    c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
-    c.drawCircle(cx, cy, 11f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
-    return bmp
-}
-
-// Метка «моя геопозиция» на стоянке: круглая точка (тень + белое кольцо + зелёный центр).
+// Метка «моя геопозиция»: круглая точка (тень + белое кольцо + зелёный центр).
 private fun userPuckBitmap(): Bitmap {
     val size = 64
     val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -2809,34 +2775,47 @@ private fun YandexMapCard(
     }
     // Тёмная тема → ночной стиль карты (обновляется при смене темы).
     LaunchedEffect(nightMap) { mapView.mapWindow.map.isNightModeEnabled = nightMap }
-    // Слой «моя геопозиция» (точка) — включается только по согласию (плашка-тумблер).
-    val userLocationLayer = remember {
-        MapKitFactory.getInstance().createUserLocationLayer(mapView.mapWindow).apply {
-            // Своя метка как в Яндекс.Картах: бренд-пак вместо дефолтной точки.
-            setObjectListener(object : UserLocationObjectListener {
-                override fun onObjectAdded(view: UserLocationView) {
-                    // Стоит на месте — точка; едет — стрелка, крутится по направлению движения.
-                    view.pin.setIcon(ImageProvider.fromBitmap(userPuckBitmap()))
-                    view.arrow.setIcon(ImageProvider.fromBitmap(userArrowBitmap()), IconStyle().setRotationType(RotationType.ROTATE))
-                    view.accuracyCircle.fillColor = 0x220B6B3A
+    // «Моя геопозиция» — СВОЯ точка-плейсмарк через LocationManager (полный контроль, без дефолтной стрелки MapKit).
+    DisposableEffect(LocationPrefs.sharingEnabled, recenterTick) {
+        val map = mapView.mapWindow.map
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        var placemark: com.yandex.mapkit.map.PlacemarkMapObject? = null
+        var firstFix = true
+        val listener = object : android.location.LocationListener {
+            override fun onLocationChanged(loc: android.location.Location) {
+                val pt = Point(loc.latitude, loc.longitude)
+                val pm = placemark
+                if (pm == null) {
+                    placemark = map.mapObjects.addPlacemark(pt).apply {
+                        setIcon(ImageProvider.fromBitmap(userPuckBitmap()))
+                    }
+                } else {
+                    pm.geometry = pt
                 }
-                override fun onObjectRemoved(view: UserLocationView) {}
-                override fun onObjectUpdated(view: UserLocationView, event: ObjectEvent) {}
-            })
-        }
-    }
-    LaunchedEffect(LocationPrefs.sharingEnabled, recenterTick) {
-        userLocationLayer.setVisible(LocationPrefs.sharingEnabled)
-        if (LocationPrefs.sharingEnabled) {
-            // ждём GPS-фикс и центрируем карту на текущей позиции телефона
-            repeat(20) {
-                val target = userLocationLayer.cameraPosition()?.target
-                if (target != null) {
-                    mapView.mapWindow.map.move(CameraPosition(target, 15f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
-                    return@LaunchedEffect
+                if (firstFix) {
+                    firstFix = false
+                    // цель чуть южнее точки → сама точка рисуется выше, не под плашкой маршрутов
+                    map.move(CameraPosition(Point(pt.latitude - 0.0022, pt.longitude), 15f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
                 }
-                delay(500)
             }
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+        }
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (LocationPrefs.sharingEnabled && granted) {
+            try {
+                lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 2000L, 5f, listener)
+                lm.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 2000L, 5f, listener)
+                (lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                    ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER))?.let { listener.onLocationChanged(it) }
+            } catch (e: SecurityException) {
+            } catch (e: IllegalArgumentException) {
+            }
+        }
+        onDispose {
+            lm.removeUpdates(listener)
+            placemark?.let { map.mapObjects.remove(it) }
         }
     }
     // Маркеры поездок: известный город — мгновенно, прочий — геокодер (кэш по городу = экономия квоты).
