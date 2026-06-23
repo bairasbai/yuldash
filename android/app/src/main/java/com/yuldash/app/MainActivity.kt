@@ -2342,11 +2342,14 @@ private fun MapHero(
     // Популярные маршруты — порядок с сервера (из реальных поездок); демо для богатого вида.
     var popular by remember { mutableStateOf(demoPopularRoutes) }
     LaunchedEffect(Unit) {
-        ApiClient.getPopularRoutes().onSuccess { srv ->
-            if (srv.isNotEmpty()) popular = srv.map { s ->
-                demoPopularRoutes.firstOrNull { it.from == s.from && it.to == s.to }
-                    ?: PopularRoute(from = s.from, to = s.to, minutes = "—", minutesBa = "—", distance = "", nearbyCount = s.count, label = "Поездки", labelBa = "Сәфәрҙәр")
+        while (true) {
+            ApiClient.getPopularRoutes().onSuccess { srv ->
+                if (srv.isNotEmpty()) popular = srv.map { s ->
+                    demoPopularRoutes.firstOrNull { it.from == s.from && it.to == s.to }
+                        ?: PopularRoute(from = s.from, to = s.to, minutes = "—", minutesBa = "—", distance = "", nearbyCount = s.count, label = "Поездки", labelBa = "Сәфәрҙәр")
+                }
             }
+            delay(45_000)   // обновляем карусель под актуальные поездки
         }
     }
     Box(
@@ -2438,14 +2441,19 @@ private fun QuickSearchCard(
     compact: Boolean = false
 ) {
     val safeRoutes = routes.ifEmpty { demoPopularRoutes.take(1) }
-    val pagerState = rememberPagerState(pageCount = { safeRoutes.size })
+    val realCount = safeRoutes.size
+    // Бесконечная карусель: виртуальный счётчик страниц, контент по модулю → всегда вперёд, без отката назад.
+    val pagerState = rememberPagerState(
+        initialPage = if (realCount > 1) realCount * 1000 else 0,
+        pageCount = { if (realCount > 1) Int.MAX_VALUE else realCount }
+    )
 
-    LaunchedEffect(safeRoutes.size) {
-        if (safeRoutes.size <= 1) return@LaunchedEffect
+    LaunchedEffect(realCount) {
+        if (realCount <= 1) return@LaunchedEffect
         while (true) {
             delay(4_500)
             if (!pagerState.isScrollInProgress) {
-                pagerState.animateScrollToPage((pagerState.currentPage + 1) % safeRoutes.size)
+                pagerState.animateScrollToPage(pagerState.currentPage + 1)
             }
         }
     }
@@ -2463,7 +2471,7 @@ private fun QuickSearchCard(
                 state = pagerState,
                 pageSpacing = 10.dp
             ) { page ->
-                val route = safeRoutes[page]
+                val route = safeRoutes[page % realCount]
                 Column(verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
@@ -2519,9 +2527,9 @@ private fun QuickSearchCard(
                             safeRoutes.forEachIndexed { index, _ ->
                                 Box(
                                     modifier = Modifier
-                                        .size(if (index == pagerState.currentPage) 7.dp else 6.dp)
+                                        .size(if (index == pagerState.currentPage % realCount) 7.dp else 6.dp)
                                         .background(
-                                            if (index == pagerState.currentPage) CanonGreen2 else Color(0x33000000),
+                                            if (index == pagerState.currentPage % realCount) CanonGreen2 else Color(0x33000000),
                                             CircleShape
                                         )
                                 )
