@@ -2414,7 +2414,7 @@ private fun MapHero(
                     .fillMaxWidth()
                     .padding(10.dp)
             ) {
-                Column {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     AnimatedVisibility(
                         visible = !cardCollapsed,
                         enter = slideInHorizontally { it } + fadeIn(),
