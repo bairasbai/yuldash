@@ -155,6 +155,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
 import androidx.compose.animation.core.animateDpAsState
@@ -301,6 +303,10 @@ private val LocalAppLanguage = staticCompositionLocalOf { AppLanguage.Ru }
 
 // Адаптивная палитра: один и тот же `CanonX` отдаёт светлый/тёмный цвет по системной теме.
 // 410 использований не трогаем — меняется только определение (@Composable-геттер).
+// СБП-перевод по номеру телефона (донат/boost) — P2P, без мерчант-аккаунта. Позже вынести в конфиг/бэкенд.
+private const val SBP_PHONE_DISPLAY = "+7 (999) 134-82-75"
+private const val SBP_PHONE_DIGITS = "+79991348275"
+
 private val CanonGreen: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF7FE3AB) else Color(0xFF073F25)
 private val CanonGreen2: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF2FB36E) else Color(0xFF0B6B3A)
 private val CanonMint: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF143024) else Color(0xFFE7F5EC)
@@ -6107,12 +6113,59 @@ private fun DocumentRow(icon: androidx.compose.ui.graphics.vector.ImageVector, t
     }
 }
 
+// Перевод по СБП на номер телефона (без мерчанта). Копировать номер + инструкция + «я перевёл».
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val copied = appText("Номер скопирован", "Номер күсерелде")
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(appText("Перевод по СБП", "СБП аша күсереү"), fontSize = 22.sp, fontWeight = FontWeight.Black, color = CanonText)
+            Text("$amountRub ₽", fontSize = 42.sp, fontWeight = FontWeight.Black, color = CanonGreen2)
+            Surface(color = CanonMint, shape = CanonItemShape) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(appText("Получатель · СБП", "Алыусы · СБП"), color = CanonMuted, fontSize = 13.sp)
+                    Text(SBP_PHONE_DISPLAY, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    Text(appText("Александр · Юлдаш", "Александр · Юлдаш"), color = CanonMuted, fontSize = 13.sp)
+                }
+            }
+            Text(
+                appText(
+                    "Откройте банк → Переводы → По номеру телефона (СБП) → вставьте номер и сумму $amountRub ₽.",
+                    "Банк ҡушымтаһын асығыҙ → Күсереүҙәр → Телефон номеры буйынса (СБП) → номерҙы һәм $amountRub ₽ сумманы ҡуйығыҙ."
+                ),
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
+            )
+            Button(
+                onClick = {
+                    clipboard.setText(AnnotatedString(SBP_PHONE_DIGITS))
+                    Toast.makeText(context, copied, Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+            ) {
+                Text(appText("Скопировать номер", "Номерҙы күсереү"), fontWeight = FontWeight.Black)
+            }
+            OutlinedButton(onClick = onPaid, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp)) {
+                Text(appText("Я перевёл", "Күсерҙем"))
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SupportScreen(onBack: () -> Unit) {
     val amounts = listOf(10, 30, 50, 100)
     var selectedAmount by remember { mutableIntStateOf(30) }
     var completed by remember { mutableStateOf(false) }
+    var showSbp by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -6159,7 +6212,7 @@ private fun SupportScreen(onBack: () -> Unit) {
                 }
             }
             item {
-                Button(onClick = { completed = true }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp)) {
+                Button(onClick = { showSbp = true }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp)) {
                     Icon(Icons.Default.Payments, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(appText("Поддержать на $selectedAmount ₽", "$selectedAmount ₽ менән ярҙам итеү"))
@@ -6169,7 +6222,7 @@ private fun SupportScreen(onBack: () -> Unit) {
                 item {
                     InfoCard(
                         title = appText("Спасибо за поддержку", "Ярҙәмегеҙ өсөн рәхмәт"),
-                        text = appText("Мок-платёж на $selectedAmount ₽ отмечен как успешный. Реальную оплату подключим позже.", "$selectedAmount ₽ мок-түләү уңышлы тип билдәләнде. Реаль түләүҙе һуңыраҡ тоташтырабыҙ."),
+                        text = appText("Если перевод по СБП на $selectedAmount ₽ прошёл — спасибо! Деньги идут на серверы, карты и SMS.", "СБП аша $selectedAmount ₽ күсерелгән булһа — рәхмәт! Аҡса серверҙарға, карталарға һәм SMS-ҡа китә."),
                         icon = Icons.Default.VolunteerActivism
                     )
                 }
@@ -6180,6 +6233,7 @@ private fun SupportScreen(onBack: () -> Unit) {
                 }
             }
         }
+        if (showSbp) SbpTransferSheet(selectedAmount, onPaid = { showSbp = false; completed = true }, onDismiss = { showSbp = false })
     }
 }
 
@@ -6187,6 +6241,7 @@ private fun SupportScreen(onBack: () -> Unit) {
 @Composable
 private fun BoostScreen(onBack: () -> Unit) {
     var activatedPlan by remember { mutableStateOf<String?>(null) }
+    var pendingPlan by remember { mutableStateOf<Pair<String, Int>?>(null) }
     val activatedPlanText = when (activatedPlan) {
         "quick" -> appText("Быстрое поднятие", "Тиҙ күтәреү")
         "day" -> appText("День вверху", "Көн буйы өҫтә")
@@ -6203,14 +6258,14 @@ private fun BoostScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { BoostPlan(appText("Быстрое поднятие", "Тиҙ күтәреү"), appText("2 часа выше в списке", "2 сәғәт исемлектә өҫтәрәк"), "20 ₽", onClick = { activatedPlan = "quick" }) }
-            item { BoostPlan(appText("День вверху", "Көн буйы өҫтә"), appText("24 часа выше в списке + выделение на карте", "24 сәғәт исемлектә өҫтәрәк + картала айырыу"), "50 ₽", onClick = { activatedPlan = "day" }) }
-            item { BoostPlan(appText("Срочная поездка", "Ашығыс сәфәр"), appText("6 часов выше в списке, выделение, метка срочно", "6 сәғәт исемлектә өҫтәрәк, айырыу, ашығыс билдәһе"), "70 ₽", onClick = { activatedPlan = "urgent" }) }
+            item { BoostPlan(appText("Быстрое поднятие", "Тиҙ күтәреү"), appText("2 часа выше в списке", "2 сәғәт исемлектә өҫтәрәк"), "20 ₽", onClick = { pendingPlan = "quick" to 20 }) }
+            item { BoostPlan(appText("День вверху", "Көн буйы өҫтә"), appText("24 часа выше в списке + выделение на карте", "24 сәғәт исемлектә өҫтәрәк + картала айырыу"), "50 ₽", onClick = { pendingPlan = "day" to 50 }) }
+            item { BoostPlan(appText("Срочная поездка", "Ашығыс сәфәр"), appText("6 часов выше в списке, выделение, метка срочно", "6 сәғәт исемлектә өҫтәрәк, айырыу, ашығыс билдәһе"), "70 ₽", onClick = { pendingPlan = "urgent" to 70 }) }
             if (activatedPlan != null) {
                 item {
                     InfoCard(
                         title = appText("Поднятие включено", "Күтәреү ҡабыҙылды"),
-                        text = appText("Тариф «$activatedPlanText» активирован в мок-режиме. Реальный платёж подключим позже.", "«$activatedPlanText» тарифы мок-режимда ҡабыҙылды. Реаль түләүҙе һуңыраҡ тоташтырабыҙ."),
+                        text = appText("Тариф «$activatedPlanText» включён после перевода по СБП. Спасибо!", "«$activatedPlanText» тарифы СБП аша түләүҙән һуң ҡабыҙылды. Рәхмәт!"),
                         icon = Icons.Default.TrendingUp
                     )
                 }
@@ -6221,6 +6276,9 @@ private fun BoostScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+        pendingPlan?.let { (key, price) ->
+            SbpTransferSheet(price, onPaid = { activatedPlan = key; pendingPlan = null }, onDismiss = { pendingPlan = null })
         }
     }
 }
