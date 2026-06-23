@@ -2395,7 +2395,7 @@ private fun MapHero(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(430.dp)
+            .height(340.dp)
     ) {
         if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
             YandexMapCard(
