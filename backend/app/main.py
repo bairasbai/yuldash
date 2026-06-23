@@ -422,6 +422,26 @@ def popular_routes(session: Session = Depends(get_session)):
     return [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
 
 
+@app.get("/feed")
+def feed(session: Session = Depends(get_session)):
+    """Живая лента карты: счётчики поездок за период (день/неделя/месяц/год) + топ-маршрут недели. Из реальных данных."""
+    from collections import Counter
+    now = datetime.utcnow()
+    bookings = session.exec(select(Booking)).all()
+    def since(days: int) -> int:
+        edge = now - timedelta(days=days)
+        return sum(1 for b in bookings if b.created_at and b.created_at >= edge)
+    rides = session.exec(select(Ride)).all()
+    week_rides = [r for r in rides if r.created_at and r.created_at >= now - timedelta(days=7) and r.from_city and r.to_city]
+    top = Counter((r.from_city, r.to_city) for r in week_rides).most_common(1)
+    top_route = ({"from_city": top[0][0][0], "to_city": top[0][0][1], "count": top[0][1]} if top else None)
+    return {
+        "today": since(1), "week": since(7), "month": since(30), "year": since(365),
+        "drivers": len({r.driver_id for r in rides}),
+        "top_route": top_route,
+    }
+
+
 @app.get("/my-routes")
 def my_routes(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Частые поездки пользователя — из его истории броней."""

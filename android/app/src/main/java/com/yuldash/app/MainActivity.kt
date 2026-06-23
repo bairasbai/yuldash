@@ -222,6 +222,7 @@ import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.ConversationDto
 import com.yuldash.app.data.PopularRouteDto
+import com.yuldash.app.data.FeedDto
 import com.yuldash.app.data.NotifDto
 import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
@@ -840,32 +841,58 @@ private data class MapFeedCard(
     val route: PopularRoute? = null    // задан → карточка-маршрут, обновляет выбор для «Найти поездку»
 )
 
-// 5 карточек, крутятся по кругу. Периоды (день/неделя/месяц) разнесены → лента «живёт» в течение дня.
-private fun mapFeedFrom(popular: List<PopularRoute>): List<MapFeedCard> {
+// Русский плюрал: 1 поездка / 2 поездки / 5 поездок.
+private fun plRu(n: Int, one: String, few: String, many: String): String {
+    val m10 = n % 10; val m100 = n % 100
+    return when {
+        m100 in 11..14 -> many
+        m10 == 1 -> one
+        m10 in 2..4 -> few
+        else -> many
+    }
+}
+private fun ridesRu(n: Int) = plRu(n, "поездка", "поездки", "поездок")
+private fun driversRu(n: Int) = plRu(n, "водитель", "водителя", "водителей")
+
+// 6 карточек по кругу. Периоды день/неделя/месяц/год + факт → лента «живёт».
+// Числа РЕАЛЬНЫЕ с сервера (feed); офлайн (feed=null) — демо-значения, чтоб лента не выглядела пустой.
+private fun mapFeedFrom(popular: List<PopularRoute>, feed: FeedDto? = null): List<MapFeedCard> {
     val routes = popular.ifEmpty { demoPopularRoutes }
     val r0 = routes.getOrNull(0) ?: demoPopularRoutes[0]
     val r1 = routes.getOrNull(1) ?: r0
+    val today = feed?.today ?: 142
+    val month = feed?.month ?: 4700
+    val year = feed?.year ?: 38500
+    val drivers = feed?.drivers ?: 1200
+    val topFrom = feed?.topFrom?.takeIf { it.isNotBlank() } ?: r1.from
+    val topTo = feed?.topTo?.takeIf { it.isNotBlank() } ?: r1.to
+    val topCount = feed?.topCount?.takeIf { it > 0 } ?: 320
+    val topRoute = routes.firstOrNull { it.from == topFrom && it.to == topTo } ?: r1
     return listOf(
         MapFeedCard(FeedKind.Route, "Популярно", "Популяр",
             "${r0.from} → ${r0.to}", "${r0.from} → ${r0.to}",
             "${r0.nearbyCount} рядом · ${r0.distance}", "${r0.nearbyCount} яҡында · ${r0.distance}",
             r0.minutes, r0.minutesBa ?: r0.minutes, route = r0),
         MapFeedCard(FeedKind.Live, "Сегодня", "Бөгөн",
-            "142 поездки за день", "Көнөнә 142 сәфәр",
+            "$today ${ridesRu(today)} за день", "Көнөнә $today сәфәр",
             "Земляки уже в пути", "Яҡташтар юлда",
-            "+18 за час", "сәғәткә +18"),
+            "за 24 ч", "24 сәғәт"),
         MapFeedCard(FeedKind.Top, "Хит недели", "Аҙна хиты",
-            "${r1.from} → ${r1.to}", "${r1.from} → ${r1.to}",
-            "Самый частый маршрут", "Иң йыш маршрут",
-            "320 раз", "320 тапҡыр", route = r1),
+            "$topFrom → $topTo", "$topFrom → $topTo",
+            "Самый частый маршрут недели", "Аҙнаның иң йыш маршруты",
+            "$topCount ${plRu(topCount, "раз", "раза", "раз")}", "$topCount тапҡыр", route = topRoute),
         MapFeedCard(FeedKind.Fact, "Факт", "Факт",
             "Каждая 3-я — домой на выходные", "Һәр 3-сө сәфәр — өйгә",
             "Земляки едут к родным", "Яҡташтар тыуғандарға бара",
             "78%", "78%"),
-        MapFeedCard(FeedKind.Community, "Сообщество", "Берләшмә",
-            "4 700 поездок за месяц", "Айына 4 700 сәфәр",
-            "Спасибо, что вы вместе", "Бергә булғанға рәхмәт",
-            "1 200 за рулём", "1 200 водитель")
+        MapFeedCard(FeedKind.Community, "За месяц", "Айға",
+            "$month ${ridesRu(month)}", "Айына $month сәфәр",
+            "$drivers ${driversRu(drivers)} за рулём", "Юлда $drivers водитель",
+            "месяц", "ай"),
+        MapFeedCard(FeedKind.Community, "За год", "Йылға",
+            "$year ${ridesRu(year)}", "Йылына $year сәфәр",
+            "Спасибо, что вы вместе ❤️", "Бергә булғанға рәхмәт ❤️",
+            "год", "йыл")
     )
 }
 
@@ -2449,6 +2476,14 @@ private fun MapHero(
             delay(45_000)   // обновляем карусель под актуальные поездки
         }
     }
+    // Живые цифры ленты (поездок за день/неделю/месяц/год + топ-маршрут) — с сервера.
+    var liveFeed by remember { mutableStateOf<FeedDto?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            ApiClient.getFeed().onSuccess { liveFeed = it }
+            delay(60_000)
+        }
+    }
     var cardCollapsed by remember { mutableStateOf(false) }
     var activeRoute by remember { mutableStateOf<PopularRoute?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2481,7 +2516,7 @@ private fun MapHero(
                         exit = slideOutHorizontally { it } + fadeOut()
                     ) {
                         QuickSearchCard(
-                            feed = remember(popular) { mapFeedFrom(popular) },
+                            feed = remember(popular, liveFeed) { mapFeedFrom(popular, liveFeed) },
                             onCollapse = { cardCollapsed = true },
                             onRouteChange = { activeRoute = it },
                             compact = true

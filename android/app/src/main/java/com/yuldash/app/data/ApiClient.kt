@@ -284,6 +284,22 @@ object ApiClient {
             }
         }
 
+    // Живая лента карты: счётчики поездок за период + топ-маршрут недели (из реальных данных).
+    suspend fun getFeed(): Result<FeedDto> =
+        call("GET", "/feed", null, auth = false).map { o ->
+            val tr = o.optJSONObject("top_route")
+            FeedDto(
+                today = o.optInt("today"),
+                week = o.optInt("week"),
+                month = o.optInt("month"),
+                year = o.optInt("year"),
+                drivers = o.optInt("drivers"),
+                topFrom = tr?.optString("from_city").orEmpty(),
+                topTo = tr?.optString("to_city").orEmpty(),
+                topCount = tr?.optInt("count") ?: 0
+            )
+        }
+
     // Лента событий (входящие сообщения по броням).
     suspend fun getNotifications(): Result<List<NotifDto>> =
         call("GET", "/notifications", null, auth = true).map { obj ->
@@ -414,5 +430,10 @@ data class ConversationDto(
 )
 
 data class PopularRouteDto(val from: String, val to: String, val count: Int)
+/** Живая лента карты: счётчики поездок за период + топ-маршрут недели. */
+data class FeedDto(
+    val today: Int, val week: Int, val month: Int, val year: Int,
+    val drivers: Int, val topFrom: String, val topTo: String, val topCount: Int
+)
 data class NotifDto(val title: String, val text: String)
 data class AdDto(val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String)
