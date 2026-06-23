@@ -13,6 +13,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -2363,6 +2366,8 @@ private fun MapHero(
             delay(45_000)   // обновляем карусель под актуальные поездки
         }
     }
+    var cardCollapsed by remember { mutableStateOf(false) }
+    var activeRoute by remember { mutableStateOf<PopularRoute?>(null) }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -2381,9 +2386,70 @@ private fun MapHero(
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .fillMaxWidth()
                 .padding(12.dp)
         ) {
-            QuickSearchCard(routes = popular, onFind = onFind, onDriver = onDriver, compact = true)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Подсказка-маршрут: свайп вправо → язычок; тап по язычку → назад.
+                AnimatedVisibility(
+                    visible = !cardCollapsed,
+                    enter = slideInHorizontally { it } + fadeIn(),
+                    exit = slideOutHorizontally { it } + fadeOut()
+                ) {
+                    QuickSearchCard(
+                        routes = popular,
+                        onCollapse = { cardCollapsed = true },
+                        onRouteChange = { activeRoute = it },
+                        compact = true
+                    )
+                }
+                AnimatedVisibility(
+                    visible = cardCollapsed,
+                    modifier = Modifier.align(Alignment.End),
+                    enter = slideInHorizontally { it } + fadeIn(),
+                    exit = slideOutHorizontally { it } + fadeOut()
+                ) {
+                    Surface(
+                        onClick = { cardCollapsed = false },
+                        shape = RoundedCornerShape(topStart = 18.dp, bottomStart = 18.dp),
+                        color = CanonSurface,
+                        shadowElevation = 4.dp
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowBackIosNew,
+                            contentDescription = appText("Показать популярный маршрут", "Популяр маршрутты күрһәтеү"),
+                            tint = CanonGreen2,
+                            modifier = Modifier.padding(vertical = 14.dp, horizontal = 12.dp).size(16.dp)
+                        )
+                    }
+                }
+                // Постоянные действия — не прячутся при сворачивании подсказки.
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = { onFind(activeRoute ?: popular.firstOrNull() ?: demoPopularRoutes.first()) },
+                        modifier = Modifier.weight(1.25f).height(52.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                        contentPadding = PaddingValues(horizontal = 10.dp)
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(appText("Найти поездку", "Сәфәр табыу"), fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1)
+                    }
+                    Button(
+                        onClick = onDriver,
+                        modifier = Modifier.weight(0.95f).height(52.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonSurface, contentColor = CanonText),
+                        border = BorderStroke(1.dp, CanonBorder),
+                        contentPadding = PaddingValues(horizontal = 10.dp)
+                    ) {
+                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
+                    }
+                }
+            }
         }
     }
 }
@@ -2425,8 +2491,8 @@ private fun HomeHeader(onSos: () -> Unit) {
 @Composable
 private fun QuickSearchCard(
     routes: List<PopularRoute>,
-    onFind: (PopularRoute) -> Unit,
-    onDriver: () -> Unit,
+    onCollapse: () -> Unit,
+    onRouteChange: (PopularRoute) -> Unit,
     compact: Boolean = false
 ) {
     val safeRoutes = routes.ifEmpty { demoPopularRoutes.take(1) }
@@ -2446,8 +2512,19 @@ private fun QuickSearchCard(
             }
         }
     }
+    LaunchedEffect(pagerState.currentPage, realCount) {
+        onRouteChange(safeRoutes[pagerState.currentPage % realCount])
+    }
+    var dragAccum by remember { mutableStateOf(0f) }
 
     Card(
+        modifier = Modifier.fillMaxWidth().pointerInput(Unit) {
+            // Свайп вправо по карточке → свернуть в язычок (карусель листается сама).
+            detectHorizontalDragGestures(
+                onDragEnd = { if (dragAccum > 110f) onCollapse(); dragAccum = 0f },
+                onDragCancel = { dragAccum = 0f }
+            ) { _, dragAmount -> if (dragAmount > 0f) dragAccum += dragAmount }
+        },
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -2458,7 +2535,8 @@ private fun QuickSearchCard(
         ) {
             HorizontalPager(
                 state = pagerState,
-                pageSpacing = 10.dp
+                pageSpacing = 10.dp,
+                userScrollEnabled = false
             ) { page ->
                 val route = safeRoutes[page % realCount]
                 Column(verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 10.dp)) {
@@ -2524,30 +2602,6 @@ private fun QuickSearchCard(
                                         )
                                 )
                             }
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(
-                            onClick = { onFind(route) },
-                            modifier = Modifier.weight(1.25f).height(if (compact) 48.dp else 52.dp),
-                            shape = RoundedCornerShape(18.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
-                            contentPadding = PaddingValues(horizontal = 10.dp)
-                        ) {
-                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(22.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(appText("Найти поездку", "Сәфәр табыу"), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
-                        }
-                        OutlinedButton(
-                            onClick = onDriver,
-                            modifier = Modifier.weight(0.95f).height(if (compact) 48.dp else 52.dp),
-                            shape = RoundedCornerShape(18.dp),
-                            border = BorderStroke(1.dp, CanonBorder),
-                            contentPadding = PaddingValues(horizontal = 10.dp)
-                        ) {
-                            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.Black, color = CanonText, fontSize = 12.sp, maxLines = 1)
                         }
                     }
                 }
