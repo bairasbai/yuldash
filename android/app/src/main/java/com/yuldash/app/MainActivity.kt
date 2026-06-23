@@ -61,7 +61,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.AddRoad
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -821,6 +825,49 @@ private val demoPopularRoutes = listOf(
         labelBa = "Бөгөн ҡалалар араһы"
     )
 )
+
+// ── Лента-карусель на карте ──────────────────────────────────────────────
+// MOCK: микс карточек — маршруты (тапаются на «Найти поездку») + живые цифры дня/недели/месяца + факты.
+// Всё про поездки. Реальные числа подставит бэкенд позже (один шов — mapFeedFrom).
+private enum class FeedKind { Route, Live, Top, Fact, Community }
+
+private data class MapFeedCard(
+    val kind: FeedKind,
+    val badge: String, val badgeBa: String,
+    val title: String, val titleBa: String,
+    val sub: String, val subBa: String,
+    val pill: String, val pillBa: String,
+    val route: PopularRoute? = null    // задан → карточка-маршрут, обновляет выбор для «Найти поездку»
+)
+
+// 5 карточек, крутятся по кругу. Периоды (день/неделя/месяц) разнесены → лента «живёт» в течение дня.
+private fun mapFeedFrom(popular: List<PopularRoute>): List<MapFeedCard> {
+    val routes = popular.ifEmpty { demoPopularRoutes }
+    val r0 = routes.getOrNull(0) ?: demoPopularRoutes[0]
+    val r1 = routes.getOrNull(1) ?: r0
+    return listOf(
+        MapFeedCard(FeedKind.Route, "Популярно", "Популяр",
+            "${r0.from} → ${r0.to}", "${r0.from} → ${r0.to}",
+            "${r0.nearbyCount} рядом · ${r0.distance}", "${r0.nearbyCount} яҡында · ${r0.distance}",
+            r0.minutes, r0.minutesBa ?: r0.minutes, route = r0),
+        MapFeedCard(FeedKind.Live, "Сегодня", "Бөгөн",
+            "142 поездки за день", "Көнөнә 142 сәфәр",
+            "Земляки уже в пути", "Яҡташтар юлда",
+            "+18 за час", "сәғәткә +18"),
+        MapFeedCard(FeedKind.Top, "Хит недели", "Аҙна хиты",
+            "${r1.from} → ${r1.to}", "${r1.from} → ${r1.to}",
+            "Самый частый маршрут", "Иң йыш маршрут",
+            "320 раз", "320 тапҡыр", route = r1),
+        MapFeedCard(FeedKind.Fact, "Факт", "Факт",
+            "Каждая 3-я — домой на выходные", "Һәр 3-сө сәфәр — өйгә",
+            "Земляки едут к родным", "Яҡташтар тыуғандарға бара",
+            "78%", "78%"),
+        MapFeedCard(FeedKind.Community, "Сообщество", "Берләшмә",
+            "4 700 поездок за месяц", "Айына 4 700 сәфәр",
+            "Спасибо, что вы вместе", "Бергә булғанға рәхмәт",
+            "1 200 за рулём", "1 200 водитель")
+    )
+}
 
 @Composable
 private fun YuldashApp() {
@@ -2434,7 +2481,7 @@ private fun MapHero(
                         exit = slideOutHorizontally { it } + fadeOut()
                     ) {
                         QuickSearchCard(
-                            routes = popular,
+                            feed = remember(popular) { mapFeedFrom(popular) },
                             onCollapse = { cardCollapsed = true },
                             onRouteChange = { activeRoute = it },
                             compact = true
@@ -2557,21 +2604,21 @@ private fun HomeHeader(onSos: () -> Unit) {
 
 @Composable
 private fun QuickSearchCard(
-    routes: List<PopularRoute>,
+    feed: List<MapFeedCard>,
     onCollapse: () -> Unit,
     onRouteChange: (PopularRoute) -> Unit,
     compact: Boolean = false
 ) {
-    val safeRoutes = routes.ifEmpty { demoPopularRoutes.take(1) }
-    val realCount = safeRoutes.size
-    // Бесконечная карусель: виртуальный счётчик страниц, контент по модулю → всегда вперёд, без отката назад.
+    val safeFeed = feed.ifEmpty { mapFeedFrom(demoPopularRoutes) }
+    val count = safeFeed.size
+    // Бесконечная карусель: виртуальный счётчик страниц, контент по модулю → всегда вперёд, без отката.
     val pagerState = rememberPagerState(
-        initialPage = if (realCount > 1) realCount * 1000 else 0,
-        pageCount = { if (realCount > 1) Int.MAX_VALUE else realCount }
+        initialPage = if (count > 1) count * 1000 else 0,
+        pageCount = { if (count > 1) Int.MAX_VALUE else count }
     )
 
-    LaunchedEffect(realCount) {
-        if (realCount <= 1) return@LaunchedEffect
+    LaunchedEffect(count) {
+        if (count <= 1) return@LaunchedEffect
         while (true) {
             delay(4_500)
             if (!pagerState.isScrollInProgress) {
@@ -2579,8 +2626,9 @@ private fun QuickSearchCard(
             }
         }
     }
-    LaunchedEffect(pagerState.currentPage, realCount) {
-        onRouteChange(safeRoutes[pagerState.currentPage % realCount])
+    // Выбор для «Найти поездку» обновляем только на карточках-маршрутах (на цифрах/фактах — держим прошлый).
+    LaunchedEffect(pagerState.currentPage, count) {
+        safeFeed[pagerState.currentPage % count].route?.let(onRouteChange)
     }
     var dragAccum by remember { mutableStateOf(0f) }
 
@@ -2596,77 +2644,75 @@ private fun QuickSearchCard(
         shape = CanonCardShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(if (compact) 10.dp else 14.dp),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)
-        ) {
+        Column(modifier = Modifier.padding(if (compact) 12.dp else 14.dp)) {
             HorizontalPager(
                 state = pagerState,
-                pageSpacing = 10.dp,
+                pageSpacing = 12.dp,
                 userScrollEnabled = false
             ) { page ->
-                val route = safeRoutes[page % realCount]
-                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 10.dp)) {
+                val card = safeFeed[page % count]
+                val icon = when (card.kind) {
+                    FeedKind.Route -> Icons.Default.Star
+                    FeedKind.Live -> Icons.Default.Bolt
+                    FeedKind.Top -> Icons.Default.EmojiEvents
+                    FeedKind.Fact -> Icons.Default.Lightbulb
+                    FeedKind.Community -> Icons.Default.Favorite
+                }
+                // Единый макет: бейдж+пилюля (верх) · заголовок фикс.высоты · подпись+точки (низ).
+                // Фикс. высота заголовка → все карточки ровно одного размера, карусель не «прыгает».
+                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 9.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = if (compact) 5.dp else 7.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Star, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    route.labelText(),
-                                    color = CanonGreen2,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = if (compact) 11.sp else 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    appText(card.badge, card.badgeBa),
+                                    color = CanonGreen2, fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
                         Spacer(Modifier.weight(1f))
-                        Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+                        Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                             Text(
-                                route.minutesText(),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = if (compact) 6.dp else 8.dp),
-                                color = CanonGreen,
-                                fontWeight = FontWeight.Black,
-                                fontSize = if (compact) 13.sp else 14.sp,
-                                maxLines = 1
+                                appText(card.pill, card.pillBa),
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                                color = CanonGreen, fontWeight = FontWeight.Black,
+                                fontSize = 13.sp, maxLines = 1
                             )
                         }
                     }
-                    Text(
-                        "${route.from} → ${route.to}",
-                        color = CanonGreen,
-                        fontWeight = FontWeight.Black,
-                        fontSize = if (compact) 20.sp else 24.sp,
-                        lineHeight = if (compact) 22.sp else 26.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Box(
+                        modifier = Modifier.height(if (compact) 46.dp else 54.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            appText(card.title, card.titleBa),
+                            color = CanonGreen, fontWeight = FontWeight.Black,
+                            fontSize = if (compact) 19.sp else 23.sp,
+                            lineHeight = if (compact) 22.sp else 26.sp,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            appText("${route.nearbyCount} рядом", "${route.nearbyCount} яҡында"),
-                            color = CanonMuted,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            appText(card.sub, card.subBa),
+                            color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
-                        if (route.distance.isNotBlank()) {
-                            Spacer(Modifier.width(8.dp))
-                            Text("· ${route.distance}", color = CanonMuted, fontSize = 12.sp)
-                        }
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            safeRoutes.forEachIndexed { index, _ ->
+                            val active = pagerState.currentPage % count
+                            safeFeed.forEachIndexed { index, _ ->
                                 Box(
                                     modifier = Modifier
-                                        .size(if (index == pagerState.currentPage % realCount) 7.dp else 6.dp)
-                                        .background(
-                                            if (index == pagerState.currentPage % realCount) CanonGreen2 else Color(0x33000000),
-                                            CircleShape
-                                        )
+                                        .size(if (index == active) 7.dp else 6.dp)
+                                        .background(if (index == active) CanonGreen2 else CanonBorder, CircleShape)
                                 )
                             }
                         }
