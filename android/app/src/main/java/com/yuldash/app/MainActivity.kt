@@ -2732,7 +2732,8 @@ private fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
         Bitmap.Config.ARGB_8888
     )
     val c = Canvas(bmp)
-    val left = pad; val top = pad; val right = pad + pillW; val bottom = pad + pillH
+    val left = pad; val right = pad + pillW
+    val pillTop = pad + pointer; val pillBottom = pillTop + pillH
     val radius = pillH / 2
     val cx = (left + right) / 2
     val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
@@ -2740,20 +2741,20 @@ private fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
         style = Paint.Style.STROKE; strokeWidth = 3f; color = accent
     }
     val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22000000 }
-    // остриё рисуем первым — пилюля сверху перекроет его верхнюю грань
+    // остриё СВЕРХУ (смотрит на город), пилюля под ним → цена ниже названия города
     val tip = android.graphics.Path().apply {
-        moveTo(cx - pointer / 2, bottom - 2f)
-        lineTo(cx + pointer / 2, bottom - 2f)
-        lineTo(cx, bottom + pointer)
+        moveTo(cx - pointer / 2, pillTop + 2f)
+        lineTo(cx + pointer / 2, pillTop + 2f)
+        lineTo(cx, pad)
         close()
     }
-    c.drawRoundRect(left, top + 3f, right, bottom + 3f, radius, radius, shadow)
+    c.drawRoundRect(left, pillTop + 3f, right, pillBottom + 3f, radius, radius, shadow)
     c.drawPath(tip, white)
     c.drawPath(tip, border)
-    c.drawRoundRect(left, top, right, bottom, radius, radius, white)
-    c.drawRoundRect(left, top, right, bottom, radius, radius, border)
+    c.drawRoundRect(left, pillTop, right, pillBottom, radius, radius, white)
+    c.drawRoundRect(left, pillTop, right, pillBottom, radius, radius, border)
     val fm = textPaint.fontMetrics
-    val ty = top + pillH / 2 - (fm.ascent + fm.descent) / 2
+    val ty = pillTop + pillH / 2 - (fm.ascent + fm.descent) / 2
     c.drawText(price, left + padX, ty, textPaint)
     return bmp
 }
@@ -2797,21 +2798,7 @@ private fun YandexMapCard(
             val map = view.mapWindow.map
             map.isNightModeEnabled = nightMap
             map.move(CameraPosition(MapMidPoint, 9.0f, 0f, 0f))
-            map.mapObjects.addPolyline(Polyline(listOf(BaymakPoint, SibayPoint))).apply {
-                setStrokeColor(0xFF0B6B3A.toInt())
-                strokeWidth = 4.5f
-            }
-            map.mapObjects.addCircle(Circle(BaymakPoint, 600f)).apply {
-                strokeColor = 0xFFFFFFFF.toInt()
-                strokeWidth = 2.5f
-                fillColor = 0xFF167A4A.toInt()
-            }
-            map.mapObjects.addCircle(Circle(SibayPoint, 600f)).apply {
-                strokeColor = 0xFFFFFFFF.toInt()
-                strokeWidth = 2.5f
-                fillColor = 0xFFE2A11B.toInt()
-            }
-            // Маркеры-ценники поездок добавляются ниже (LaunchedEffect: гео + кэш квоты).
+            // Маршруты-линии + ценники поездок рисуются ниже (LaunchedEffect, по реальным заказам).
             // Карта внутри прокручиваемого списка: на касании просим родителя (LazyColumn)
             // не перехватывать жест — иначе тап по маркеру и панорамирование «съедает» скролл.
             view.setOnTouchListener { v, event ->
@@ -2887,18 +2874,30 @@ private fun YandexMapCard(
     val placedRideIds = remember { mutableSetOf<String>() }
     LaunchedEffect(rides) {
         val map = mapView.mapWindow.map
+        suspend fun resolve(city: String): Point? {
+            val k = city.trim()
+            cityPoint(k)?.let { return it }
+            rideMarkerCache[k]?.let { return it }
+            val hit = GeocoderClient.suggest(k).firstOrNull() ?: return null
+            return Point(hit.lat, hit.lon).also { rideMarkerCache[k] = it }
+        }
         rides.forEach { ride ->
             if (!placedRideIds.add(ride.id)) return@forEach
-            val key = ride.from.trim()
-            val point = cityPoint(key) ?: rideMarkerCache[key] ?: run {
-                val hit = GeocoderClient.suggest(key).firstOrNull()
-                if (hit == null) { placedRideIds.remove(ride.id); return@forEach }
-                Point(hit.lat, hit.lon).also { rideMarkerCache[key] = it }
+            val fromPt = resolve(ride.from)
+            if (fromPt == null) { placedRideIds.remove(ride.id); return@forEach }
+            val toPt = resolve(ride.to)
+            // Зелёная линия маршрута from→to — по реальным городам заказа.
+            if (toPt != null) {
+                map.mapObjects.addPolyline(Polyline(listOf(fromPt, toPt))).apply {
+                    setStrokeColor(0xCC0B6B3A.toInt())
+                    strokeWidth = 3.2f
+                }
             }
+            // Ценник — у города отправления, ПОД его названием (якорь сверху).
             map.mapObjects.addPlacemark().apply {
-                geometry = point
+                geometry = fromPt
                 setIcon(ImageProvider.fromBitmap(ridePinBitmap("${ride.price} ₽", ride.boosted)))
-                setIconStyle(IconStyle().setAnchor(PointF(0.5f, 1f)))
+                setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0f)))
                 userData = ride.id
                 addTapListener(tapListener)
             }
