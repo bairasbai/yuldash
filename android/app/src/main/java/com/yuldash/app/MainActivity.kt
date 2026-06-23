@@ -492,7 +492,8 @@ private data class LocalRequest(
     val passenger: String,
     val status: String,
     val price: Int = 0,
-    val trustedContact: String? = null
+    val trustedContact: String? = null,
+    val voiceUrl: String? = null
 )
 
 private data class LocalVoiceMessage(
@@ -3951,6 +3952,37 @@ private fun LocalRequestCard(request: LocalRequest) {
             request.trustedContact?.let {
                 Text(appText("Статус получит: $it", "Статус ала: $it"), color = CanonMuted, fontSize = 12.sp)
             }
+            request.voiceUrl?.let { url -> VoiceRequestPlayRow(url) }
+        }
+    }
+}
+
+@Composable
+private fun VoiceRequestPlayRow(url: String) {
+    var playing by remember { mutableStateOf(false) }
+    val player = remember { mutableStateOf<MediaPlayer?>(null) }
+    DisposableEffect(url) { onDispose { runCatching { player.value?.release() }; player.value = null } }
+    Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = {
+                    if (playing) {
+                        runCatching { player.value?.stop(); player.value?.release() }; player.value = null; playing = false
+                    } else runCatching {
+                        player.value = MediaPlayer().apply {
+                            setDataSource(url)
+                            setOnPreparedListener { it.start() }
+                            setOnCompletionListener { playing = false; runCatching { release() }; player.value = null }
+                            prepareAsync()
+                        }
+                        playing = true
+                    }
+                },
+                modifier = Modifier.size(34.dp)
+            ) {
+                Icon(if (playing) Icons.Default.Close else Icons.Default.PlayArrow, contentDescription = appText("Слушать заявку", "Заявканы тыңлау"), tint = CanonGreen2)
+            }
+            Text(appText("Голосовая заявка", "Тауыш заявкаһы"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
     }
 }
@@ -3961,11 +3993,26 @@ private fun VoiceRequestScreen(
     onBack: () -> Unit,
     onCreateRequest: (LocalRequest) -> Unit
 ) {
-    var recognized by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val recorder = remember { VoiceRecorder(context) }
+    var recording by remember { mutableStateOf(false) }
+    var startMs by remember { mutableStateOf(0L) }
+    var recordedPath by remember { mutableStateOf<String?>(null) }
+    var recordedDur by remember { mutableStateOf(0) }
+    var uploading by remember { mutableStateOf(false) }
     val trusted = contacts.firstOrNull()
-    val voiceRequestTitle = appText("Голосовая заявка", "Тауыш заявкаһы")
-    val voiceRequestTime = appText("завтра утром", "иртәгә иртән")
     val voiceRequestStatus = appText("ищем водителя", "водитель эҙләйбеҙ")
+    val vrTitle = appText("Голосовая заявка", "Тауыш заявкаһы")
+    val vrRoute = appText("Голосом — водитель слушает", "Тауыш менән — водитель тыңлай")
+    val vrNow = appText("сейчас", "хәҙер")
+    fun begin() { if (recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
+    fun finish() {
+        recordedPath = recorder.stop()
+        recordedDur = ((SystemClock.elapsedRealtime() - startMs) / 1000).toInt().coerceAtLeast(1)
+        recording = false
+    }
+    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) begin() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Голосовая заявка", "Тауыш заявкаһы"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -3975,53 +4022,61 @@ private fun VoiceRequestScreen(
             item {
                 InfoCard(
                     title = appText("Нажмите и скажите", "Баҫығыҙ һәм әйтегеҙ"),
-                    text = appText("Например: «Мне завтра утром из Баймака в Сибай, в больницу».", "Мәҫәлән: «Иртәгә иртән Баймаҡтан Сибайға, больницаға»." ),
+                    text = appText("Скажите голосом: откуда, куда и когда. Водитель послушает — на русском или башкирском.", "Тауыш менән әйтегеҙ: ҡайҙан, ҡайҙа, ҡасан. Водитель тыңлар — урыҫса йәки башҡортса."),
                     icon = Icons.Default.VolumeUp
                 )
             }
             item {
                 Button(
-                    onClick = { recognized = true },
+                    onClick = {
+                        when {
+                            recording -> finish()
+                            recordedPath != null -> recordedPath = null
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> begin()
+                            else -> perm.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth().height(78.dp),
                     shape = RoundedCornerShape(22.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                    colors = ButtonDefaults.buttonColors(containerColor = if (recording) CanonRed else CanonGreen2)
                 ) {
                     Icon(Icons.Default.HeadsetMic, contentDescription = null, modifier = Modifier.size(30.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text(appText("Сказать заявку", "Заявканы әйтеү"), fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    Text(
+                        if (recording) appText("Стоп — готово", "Туҡта — әҙер") else if (recordedPath != null) appText("Записать заново", "Ҡабат яҙыу") else appText("Сказать заявку", "Заявканы әйтеү"),
+                        fontWeight = FontWeight.Black, fontSize = 20.sp
+                    )
                 }
             }
-            if (recognized) {
+            recordedPath?.let { path ->
                 item {
-                    VoiceParsedCard(
-                        title = appText("Распознано", "Танылды"),
-                        lines = listOf(
-                            appText("Откуда: Баймаҡ", "Ҡайҙан: Баймаҡ"),
-                            appText("Куда: Сибай", "Ҡайҙа: Сибай"),
-                            appText("Когда: завтра утром", "Ҡасан: иртәгә иртән"),
-                            appText("Цель: в больницу", "Маҡсат: больницаға"),
-                            appText("Близкий: ${trusted?.name ?: "не выбран"}", "Яҡын: ${trusted?.name ?: "һайланмаған"}")
-                        )
-                    )
+                    VoiceMessageCard(LocalVoiceMessage(appText("Вы", "Һеҙ"), "", appText("сейчас", "хәҙер"), audioPath = path, durationSec = recordedDur))
                 }
                 item {
                     Button(
                         onClick = {
-                            onCreateRequest(
-                                LocalRequest(
-                                    title = voiceRequestTitle,
-                                    route = "Баймаҡ → Сибай",
-                                    time = voiceRequestTime,
-                                    passenger = "Байрас",
-                                    status = voiceRequestStatus,
-                                    trustedContact = trusted?.name
+                            uploading = true
+                            scope.launch {
+                                val bytes = runCatching { File(path).readBytes() }.getOrNull()
+                                val url = if (bytes != null) ApiClient.uploadVoice(bytes).getOrNull() else null
+                                onCreateRequest(
+                                    LocalRequest(
+                                        title = vrTitle,
+                                        route = vrRoute,
+                                        time = vrNow,
+                                        passenger = "Байрас",
+                                        status = voiceRequestStatus,
+                                        trustedContact = trusted?.name,
+                                        voiceUrl = url ?: path
+                                    )
                                 )
-                            )
+                            }
                         },
+                        enabled = !uploading,
                         modifier = Modifier.fillMaxWidth().height(58.dp),
                         shape = RoundedCornerShape(18.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                    ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Black, fontSize = 17.sp) }
+                    ) { Text(if (uploading) appText("Отправка…", "Ебәрелә…") else appText("Создать голосовую заявку", "Тауыш заявкаһын булдырыу"), fontWeight = FontWeight.Black, fontSize = 17.sp) }
                 }
             }
         }
