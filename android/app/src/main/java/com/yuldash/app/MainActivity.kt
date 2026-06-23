@@ -3604,7 +3604,6 @@ private fun ChatScreen(
         "system" to LocalizedText("Система", "Система")
     )
     val nowText = appText("сейчас", "хәҙер")
-    val voiceDemoText = appText("Я буду у вокзала, подойдите к главному входу.", "Мин вокзалда булам, төп инеү урынына килегеҙ.")
     LaunchedEffect(Unit) {
         ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
     }
