@@ -2475,11 +2475,11 @@ private fun QuickSearchCard(
                 pageSpacing = 10.dp
             ) { page ->
                 val route = safeRoutes[page % realCount]
-                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = if (compact) 5.dp else 7.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(Icons.Default.Star, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
@@ -2498,7 +2498,7 @@ private fun QuickSearchCard(
                         Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
                             Text(
                                 route.minutesText(),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = if (compact) 6.dp else 8.dp),
                                 color = CanonGreen,
                                 fontWeight = FontWeight.Black,
                                 fontSize = if (compact) 13.sp else 14.sp,
@@ -2511,6 +2511,7 @@ private fun QuickSearchCard(
                         color = CanonGreen,
                         fontWeight = FontWeight.Black,
                         fontSize = if (compact) 20.sp else 24.sp,
+                        lineHeight = if (compact) 22.sp else 26.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
