@@ -158,6 +158,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import android.Manifest
+import android.app.Activity
+import android.speech.RecognizerIntent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
@@ -4006,6 +4008,8 @@ private fun VoiceRequestScreen(
     val vrTitle = appText("Голосовая заявка", "Тауыш заявкаһы")
     val vrRoute = appText("Голосом — водитель слушает", "Тауыш менән — водитель тыңлай")
     val vrNow = appText("сейчас", "хәҙер")
+    val vrPrompt = appText("Скажите маршрут", "Маршрутты әйтегеҙ")
+    val vrNoStt = appText("Распознавание недоступно на устройстве", "Таныу ҡорамалда юҡ")
     fun begin() { if (recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
     fun finish() {
         recordedPath = recorder.stop()
@@ -4013,6 +4017,21 @@ private fun VoiceRequestScreen(
         recording = false
     }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) begin() }
+    var recognizedText by remember { mutableStateOf<String?>(null) }
+    val sttLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val t = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!t.isNullOrBlank()) recognizedText = t
+        }
+    }
+    fun recognizeRu() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, vrPrompt)
+        }
+        runCatching { sttLauncher.launch(intent) }.onFailure { Toast.makeText(context, vrNoStt, Toast.LENGTH_SHORT).show() }
+    }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Голосовая заявка", "Тауыш заявкаһы"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -4046,6 +4065,30 @@ private fun VoiceRequestScreen(
                         if (recording) appText("Стоп — готово", "Туҡта — әҙер") else if (recordedPath != null) appText("Записать заново", "Ҡабат яҙыу") else appText("Сказать заявку", "Заявканы әйтеү"),
                         fontWeight = FontWeight.Black, fontSize = 20.sp
                     )
+                }
+            }
+            item {
+                OutlinedButton(
+                    onClick = { recognizeRu() },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Icon(Icons.Default.HeadsetMic, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(appText("Сказать на русском (текстом)", "Урыҫса әйтеү (текст)"), fontWeight = FontWeight.Bold)
+                }
+            }
+            recognizedText?.let { text ->
+                item { VoiceParsedCard(title = appText("Распознано", "Танылды"), lines = listOf(text)) }
+                item {
+                    Button(
+                        onClick = {
+                            onCreateRequest(LocalRequest(title = vrTitle, route = text, time = vrNow, passenger = "Байрас", status = voiceRequestStatus, trustedContact = trusted?.name))
+                        },
+                        modifier = Modifier.fillMaxWidth().height(58.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                    ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Black, fontSize = 17.sp) }
                 }
             }
             recordedPath?.let { path ->
