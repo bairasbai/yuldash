@@ -978,6 +978,12 @@ private fun YuldashApp() {
                     selectedRide = ride
                     screen = Screen.Booking
                 },
+                onOpenActiveTrip = { ride ->
+                    selectedRide = ride
+                    activeTrip = ride
+                    activeBookingId = ride.id.toIntOrNull()
+                    screen = Screen.ActiveTrip
+                },
                 onShareRide = { ride ->
                     val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time
                     val shareText = if (language == AppLanguage.Ba) {
@@ -2013,6 +2019,7 @@ private fun HomeScreen(
     onBoost: () -> Unit,
     onPublishRide: (Ride) -> Unit,
     onBookRide: (Ride) -> Unit,
+    onOpenActiveTrip: (Ride) -> Unit,
     onShareRide: (Ride) -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
@@ -2089,6 +2096,7 @@ private fun HomeScreen(
                     presetTo = ridesPresetTo,
                     presetToday = ridesPresetToday,
                     onBookRide = onBookRide,
+                    onOpenActiveTrip = onOpenActiveTrip,
                     onMessage = { selectedTab = HomeTab.Chat },
                     onShareRide = onShareRide,
                     onBoost = onBoost,
@@ -3154,6 +3162,7 @@ private fun RidesScreen(
     presetTo: String,
     presetToday: Boolean,
     onBookRide: (Ride) -> Unit,
+    onOpenActiveTrip: (Ride) -> Unit,
     onMessage: () -> Unit,
     onShareRide: (Ride) -> Unit,
     onBoost: () -> Unit,
@@ -3221,7 +3230,7 @@ private fun RidesScreen(
                         icon = Icons.Default.DirectionsCar,
                         primaryAction = appText("Подробнее", "Ентекле"),
                         secondaryAction = appText("Связаться", "Бәйләнеү"),
-                        onPrimary = { onBookRide(rides.first()) },
+                        onPrimary = { onOpenActiveTrip(rides.first()) },
                         onSecondary = onMessage
                     )
                     }
