@@ -5847,6 +5847,7 @@ private fun ActiveTripScreen(
 ) {
     val context = LocalContext.current
     var messages by remember { mutableStateOf<List<MessageDto>>(emptyList()) }
+    val voiceScope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
     var showShare by remember { mutableStateOf(false) }
@@ -5932,10 +5933,19 @@ private fun ActiveTripScreen(
                             draft = ""
                         }
                     },
-                    onVoiceRecorded = { _, _ -> Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show() }
+                    onVoiceRecorded = { path, _ ->
+                        Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show()
+                        if (bookingId != null) voiceScope.launch {
+                            val bytes = runCatching { File(path).readBytes() }.getOrNull()
+                            if (bytes != null) ApiClient.uploadVoice(bytes).onSuccess { url ->
+                                ApiClient.sendVoiceMessage(bookingId, url)
+                                ApiClient.getMessages(bookingId).onSuccess { messages = it }
+                            }
+                        }
+                    }
                 )
             }
-            items(messages) { m -> MessageBubble(m.text, mine = m.senderId == -1) }
+            items(messages) { m -> MessageBubble(m.text, m.voiceUrl, mine = m.senderId == -1) }
             item {
                 Button(
                     onClick = onSos,
@@ -5984,19 +5994,47 @@ private fun ActiveTripScreen(
 }
 
 @Composable
-private fun MessageBubble(text: String, mine: Boolean) {
+private fun MessageBubble(text: String, voiceUrl: String?, mine: Boolean) {
+    var playing by remember { mutableStateOf(false) }
+    val player = remember { mutableStateOf<MediaPlayer?>(null) }
+    DisposableEffect(voiceUrl) { onDispose { runCatching { player.value?.release() }; player.value = null } }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Surface(
             color = if (mine) CanonGreen2 else CanonSurface,
             shape = RoundedCornerShape(18.dp),
             shadowElevation = 1.dp
         ) {
-            Text(
-                text,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                color = if (mine) Color.White else CanonText,
-                fontSize = 15.sp
-            )
+            if (voiceUrl != null) {
+                Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = {
+                            if (playing) {
+                                runCatching { player.value?.stop(); player.value?.release() }; player.value = null; playing = false
+                            } else runCatching {
+                                player.value = MediaPlayer().apply {
+                                    setDataSource(voiceUrl)
+                                    setOnPreparedListener { it.start() }
+                                    setOnCompletionListener { playing = false; runCatching { release() }; player.value = null }
+                                    prepareAsync()
+                                }
+                                playing = true
+                            }
+                        },
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(if (playing) Icons.Default.Close else Icons.Default.PlayArrow, contentDescription = appText("Воспроизвести", "Уйнатыу"), tint = if (mine) Color.White else CanonGreen2)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text(appText("Голосовое", "Тауыш"), modifier = Modifier.padding(end = 8.dp), color = if (mine) Color.White else CanonText, fontSize = 14.sp)
+                }
+            } else {
+                Text(
+                    text,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = if (mine) Color.White else CanonText,
+                    fontSize = 15.sp
+                )
+            }
         }
     }
 }
@@ -6230,7 +6268,7 @@ private fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () -
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(appText("Получатель · СБП", "Алыусы · СБП"), color = CanonMuted, fontSize = 13.sp)
                     Text(SBP_PHONE_DISPLAY, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                    Text(appText("Александр · Юлдаш", "Александр · Юлдаш"), color = CanonMuted, fontSize = 13.sp)
+                    Text(appText("Байрас · Юлдаш", "Байрас · Юлдаш"), color = CanonMuted, fontSize = 13.sp)
                 }
             }
             Text(

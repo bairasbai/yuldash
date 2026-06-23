@@ -1,6 +1,7 @@
 package com.yuldash.app.data
 
 import android.content.Context
+import android.util.Base64
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -241,9 +242,17 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                MessageDto(o.optInt("id"), o.optString("text"), o.optInt("sender_id"))
+                MessageDto(o.optInt("id"), o.optString("text"), o.optInt("sender_id"), o.optString("voice_url").ifBlank { null })
             }
         }
+
+    // Голосовое: загрузить аудио (base64) → URL, затем отправить сообщение со ссылкой.
+    suspend fun uploadVoice(bytes: ByteArray): Result<String> =
+        call("POST", "/voice", JSONObject().put("audio_b64", Base64.encodeToString(bytes, Base64.NO_WRAP)).put("ext", "m4a"), auth = true)
+            .map { it.optString("url") }
+
+    suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String): Result<Unit> =
+        call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true).map { }
 
     // ---------- Активная поездка: поделиться / статус ----------
 
@@ -344,4 +353,5 @@ data class MessageDto(
     val id: Int,
     val text: String,
     val senderId: Int,
+    val voiceUrl: String? = null,
 )

@@ -5,9 +5,13 @@ SMS пока мок: код пишется в лог и (в dev) возвращ�
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import List, Optional
+import base64
+import os
+import uuid
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -33,6 +37,12 @@ app = FastAPI(title="Yuldash API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+# Медиа (голосовые сообщения). Файлы в /opt/yuldash/media, отдаются по /media/...
+MEDIA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media")
+VOICE_DIR = os.path.join(MEDIA_DIR, "voice")
+os.makedirs(VOICE_DIR, exist_ok=True)
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 
 @app.get("/health")
@@ -344,6 +354,25 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
 @app.get("/bookings/{booking_id}/messages", response_model=List[Message])
 def list_messages(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     return session.exec(select(Message).where(Message.booking_id == booking_id).order_by(Message.id)).all()
+
+
+class VoiceIn(BaseModel):
+    audio_b64: str
+    ext: str = "m4a"
+
+
+@app.post("/voice")
+def upload_voice(body: VoiceIn, user: User = Depends(current_user)):
+    """Загрузка голосового (base64) → сохранение в media → публичный URL."""
+    try:
+        data = base64.b64decode(body.audio_b64)
+    except Exception:
+        raise HTTPException(400, "Некорректное аудио")
+    ext = "".join(c for c in body.ext if c.isalnum()) or "m4a"
+    name = f"{uuid.uuid4().hex}.{ext}"
+    with open(os.path.join(VOICE_DIR, name), "wb") as f:
+        f.write(data)
+    return {"url": f"https://yulbash.ru/media/voice/{name}"}
 
 
 # ----------------------------- Семейный контроль -----------------------------
