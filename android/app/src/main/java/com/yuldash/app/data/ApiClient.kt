@@ -24,6 +24,7 @@ object ApiClient {
     private const val BASE = "https://yulbash.ru"
 
     @Volatile private var token: String? = null
+    @Volatile private var userName: String? = null
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
     // Долгоживущий scope для POST'ов «отправил и забыл». НЕ привязан к экрану —
@@ -67,9 +68,19 @@ object ApiClient {
         val p = context.applicationContext.getSharedPreferences("yuldash", Context.MODE_PRIVATE)
         prefs = p
         token = p.getString("token", null)
+        userName = p.getString("user_name", null)
     }
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
+
+    /** Имя вошедшего клиента (для приветствия и профиля). null → не вошёл (демо). */
+    fun cachedName(): String? = userName?.takeIf { it.isNotBlank() }
+
+    fun saveName(n: String) {
+        if (n.isBlank()) return
+        userName = n
+        prefs?.edit()?.putString("user_name", n)?.apply()
+    }
 
     fun saveToken(t: String) {
         token = t
@@ -78,7 +89,8 @@ object ApiClient {
 
     fun logout() {
         token = null
-        prefs?.edit()?.remove("token")?.apply()
+        userName = null
+        prefs?.edit()?.remove("token")?.remove("user_name")?.apply()
     }
 
     // ---------- Авторизация по SMS-коду ----------
@@ -95,10 +107,12 @@ object ApiClient {
             auth = false,
         ).onSuccess { obj ->
             obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
+            saveName(obj.optString("name").ifBlank { name })
         }
 
-    /** Текущий пользователь по токену (проверка валидности сессии). */
+    /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = call("GET", "/me", null, auth = true)
+        .onSuccess { o -> o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName) }
 
     // ---------- Поездки ----------
 

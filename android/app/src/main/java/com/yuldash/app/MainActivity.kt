@@ -2595,7 +2595,7 @@ private fun HomeHeader(onSos: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(timeGreeting("Байрас"), color = CanonMuted, fontSize = 14.sp)
+            Text(timeGreeting(ApiClient.cachedName() ?: "Байрас"), color = CanonMuted, fontSize = 14.sp)
             Text(
                 appText("Куда поедем?", "Ҡайҙа барабыҙ?"),
                 color = CanonGreen,
@@ -5182,11 +5182,11 @@ private fun ProfileScreen(
                                     .background(Color.White.copy(alpha = 0.18f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("Б", color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
+                                Text((ApiClient.cachedName() ?: "Байрас").take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
                             }
                             Spacer(Modifier.width(14.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("Байрас", color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                                Text(ApiClient.cachedName() ?: "Байрас", color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
                                 Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                                 Text(appText("Телефон скрыт до подтверждения поездки", "Телефон сәфәр раҫланғанға тиклем йәшерелгән"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, lineHeight = 16.sp)
                             }
@@ -6461,11 +6461,11 @@ private fun CompactProfileBanner() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(Modifier.size(62.dp).background(Color.White.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
-                Text("Б", color = Color.White, fontWeight = FontWeight.Black, fontSize = 24.sp)
+                Text((ApiClient.cachedName() ?: "Байрас").take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 24.sp)
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Байрас", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                Text(ApiClient.cachedName() ?: "Байрас", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
                 Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                 Text(appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерен"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
             }
