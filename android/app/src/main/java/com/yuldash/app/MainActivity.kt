@@ -2992,8 +2992,8 @@ private fun YandexMapCard(
                     else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                 }
             },
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 14.dp).size(46.dp).zIndex(6f),
-            shape = CircleShape,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 14.dp).size(38.dp).zIndex(6f),
+            shape = RoundedCornerShape(13.dp),
             color = Color.White,
             shadowElevation = 4.dp
         ) {
