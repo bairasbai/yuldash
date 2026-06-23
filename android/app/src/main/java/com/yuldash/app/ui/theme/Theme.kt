@@ -44,9 +44,12 @@ private val YuldashDarkColors: ColorScheme = darkColorScheme(
 )
 
 @Composable
-fun YuldashTheme(content: @Composable () -> Unit) {
+fun YuldashTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit
+) {
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) YuldashDarkColors else YuldashLightColors,
+        colorScheme = if (darkTheme) YuldashDarkColors else YuldashLightColors,
         content = content
     )
 }

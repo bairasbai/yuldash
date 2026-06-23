@@ -61,6 +61,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.AddRoad
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBackIosNew
@@ -225,8 +227,11 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Восстановить выбор темы день/ночь (если пользователь переключал тумблером в шапке).
+        val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
+        if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
         setContent {
-            YuldashTheme {
+            YuldashTheme(darkTheme = appIsDark()) {
                 YuldashApp()
             }
         }
@@ -338,22 +343,30 @@ private val LocalAppLanguage = staticCompositionLocalOf { AppLanguage.Ru }
 private const val SBP_PHONE_DISPLAY = "+7 (999) 134-82-75"
 private const val SBP_PHONE_DIGITS = "+79991348275"
 
-private val CanonGreen: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF7FE3AB) else Color(0xFF073F25)
-private val CanonGreen2: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF2FB36E) else Color(0xFF0B6B3A)
-private val CanonMint: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF143024) else Color(0xFFE7F5EC)
-private val CanonYellow: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF4A3A14) else Color(0xFFFFE3A1)
-private val CanonBg: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF0F1613) else Color(0xFFFAFAF6)
-private val CanonText: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFEAF2EC) else Color(0xFF0B1F14)
-private val CanonMuted: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF9BA49D) else Color(0xFF686F66)
-private val CanonBorder: Color @Composable get() = if (isSystemInDarkTheme()) Color(0x24FFFFFF) else Color(0x1F000000)
-private val CanonRed: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFFF6B5E) else Color(0xFFD93025)
+// Тема приложения: null = как в системе, true = тёмная, false = светлая (тумблер день/ночь в шапке).
+private object ThemePrefs {
+    var darkOverride by mutableStateOf<Boolean?>(null)
+}
+
+@Composable
+private fun appIsDark(): Boolean = ThemePrefs.darkOverride ?: isSystemInDarkTheme()
+
+private val CanonGreen: Color @Composable get() = if (appIsDark()) Color(0xFF7FE3AB) else Color(0xFF073F25)
+private val CanonGreen2: Color @Composable get() = if (appIsDark()) Color(0xFF2FB36E) else Color(0xFF0B6B3A)
+private val CanonMint: Color @Composable get() = if (appIsDark()) Color(0xFF143024) else Color(0xFFE7F5EC)
+private val CanonYellow: Color @Composable get() = if (appIsDark()) Color(0xFF4A3A14) else Color(0xFFFFE3A1)
+private val CanonBg: Color @Composable get() = if (appIsDark()) Color(0xFF0F1613) else Color(0xFFFAFAF6)
+private val CanonText: Color @Composable get() = if (appIsDark()) Color(0xFFEAF2EC) else Color(0xFF0B1F14)
+private val CanonMuted: Color @Composable get() = if (appIsDark()) Color(0xFF9BA49D) else Color(0xFF686F66)
+private val CanonBorder: Color @Composable get() = if (appIsDark()) Color(0x24FFFFFF) else Color(0x1F000000)
+private val CanonRed: Color @Composable get() = if (appIsDark()) Color(0xFFFF6B5E) else Color(0xFFD93025)
 // Поверхность карточек: была хардкод Color.White — теперь адаптивная.
-private val CanonSurface: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF192420) else Color(0xFFFFFFFF)
+private val CanonSurface: Color @Composable get() = if (appIsDark()) Color(0xFF192420) else Color(0xFFFFFFFF)
 // Подложка опасности/ошибки (SOS, ошибки) — адаптивная (светло-розовая / тёмно-красная).
-private val CanonDangerBg: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF3A1B18) else Color(0xFFFDECEA)
+private val CanonDangerBg: Color @Composable get() = if (appIsDark()) Color(0xFF3A1B18) else Color(0xFFFDECEA)
 // Предупреждение/в процессе (pending, черновик): подложка + текст — адаптивные.
-private val CanonWarnBg: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFF3A2E12) else Color(0xFFFFF2D6)
-private val CanonWarn: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFE8B86A) else Color(0xFFB87400)
+private val CanonWarnBg: Color @Composable get() = if (appIsDark()) Color(0xFF3A2E12) else Color(0xFFFFF2D6)
+private val CanonWarn: Color @Composable get() = if (appIsDark()) Color(0xFFE8B86A) else Color(0xFFB87400)
 private val CanonCardShape = RoundedCornerShape(28.dp)
 private val CanonItemShape = RoundedCornerShape(22.dp)
 
@@ -2495,6 +2508,35 @@ private fun HomeHeader(onSos: () -> Unit) {
                 fontWeight = FontWeight.Black
             )
         }
+        // Тумблер день/ночь: иконка солнца в тёмной теме (тап → светлая), луны в светлой (тап → тёмная).
+        val themeCtx = LocalContext.current
+        val isDarkNow = appIsDark()
+        Surface(
+            modifier = Modifier
+                .bounceClick {
+                    val newDark = !isDarkNow
+                    ThemePrefs.darkOverride = newDark
+                    themeCtx.getSharedPreferences("yuldash_theme", Context.MODE_PRIVATE)
+                        .edit().putBoolean("dark_override", newDark).apply()
+                }
+                .size(44.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = CanonSurface,
+            border = BorderStroke(1.dp, CanonBorder)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    if (isDarkNow) Icons.Default.LightMode else Icons.Default.DarkMode,
+                    contentDescription = appText(
+                        if (isDarkNow) "Светлая тема" else "Тёмная тема",
+                        if (isDarkNow) "Яҡты тема" else "Ҡараңғы тема"
+                    ),
+                    tint = CanonGreen2,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
         Surface(
             modifier = Modifier.bounceClick(onSos),
             shape = RoundedCornerShape(16.dp),
@@ -2814,7 +2856,7 @@ private fun YandexMapCard(
     val locationPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) LocationPrefs.sharingEnabled = true
     }
-    val nightMap = isSystemInDarkTheme()   // тёмная тема → ночной стиль карты
+    val nightMap = appIsDark()   // тёмная тема → ночной стиль карты
     // Свежие ссылки на активную поездку/тап, чтобы tap-listener не «застревал» на старых данных.
     val currentTrip by rememberUpdatedState(activeTrip)
     val currentOnTap by rememberUpdatedState(onRideTap)
