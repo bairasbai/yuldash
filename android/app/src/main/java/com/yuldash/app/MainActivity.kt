@@ -820,6 +820,7 @@ private fun YuldashApp() {
     val localRequests = remember { mutableStateListOf<LocalRequest>() }
     val appScope = rememberCoroutineScope()
     var activeBookingId by remember { mutableStateOf<Int?>(null) }
+    var activeTrip by remember { mutableStateOf<Ride?>(null) }   // подтверждённая поездка → маршрут на карте; исчезает при завершении
     val voiceMessages = remember { mutableStateListOf<LocalVoiceMessage>() }
     // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
     val splashTarget = remember {
@@ -959,6 +960,7 @@ private fun YuldashApp() {
             )
             Screen.Home -> HomeScreen(
                 rides = rides,
+                activeTrip = activeTrip,
                 requests = localRequests,
                 ads = partnerAds,
                 adStats = adStats,
@@ -1050,7 +1052,7 @@ private fun YuldashApp() {
                     if (rid != null) {
                         appScope.launch {
                             ApiClient.book(rid, 1)
-                                .onSuccess { bid -> activeBookingId = bid; screen = Screen.ActiveTrip }
+                                .onSuccess { bid -> activeBookingId = bid; activeTrip = selectedRide; screen = Screen.ActiveTrip }
                                 .onFailure { Toast.makeText(context, if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
                         }
                     }
@@ -1061,6 +1063,7 @@ private fun YuldashApp() {
                 contacts = trustedContacts,
                 bookingId = activeBookingId,
                 onBack = { openHome(HomeTab.Rides) },
+                onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
                 onSos = { screen = Screen.Sos }
             )
             Screen.Sos -> SosScreen(onBack = { openHome(HomeTab.Map) })
@@ -1998,6 +2001,7 @@ private fun ScreenTopBar(title: String, onBack: () -> Unit) {
 @Composable
 private fun HomeScreen(
     rides: List<Ride>,
+    activeTrip: Ride?,
     requests: List<LocalRequest>,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
@@ -2065,6 +2069,7 @@ private fun HomeScreen(
             when (tab) {
                 HomeTab.Map -> MapScreen(
                     rides = rides,
+                    activeTrip = activeTrip,
                     ads = ads,
                     adStats = adStats,
                     onBookRide = onBookRide,
@@ -2248,6 +2253,7 @@ private fun Modifier.appearIn(index: Int = 0): Modifier {
 @Composable
 private fun MapScreen(
     rides: List<Ride>,
+    activeTrip: Ride?,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
     onBookRide: (Ride) -> Unit,
@@ -2276,7 +2282,7 @@ private fun MapScreen(
                 Spacer(Modifier.height(11.dp))
                 Box(Modifier.appearIn(1)) {
                     MapHero(
-                        rides = rides,
+                        activeTrip = activeTrip,
                         onRideTap = { selectedRide = it },
                         onFind = onOpenPopular,
                         onDriver = onDriver
@@ -2358,7 +2364,7 @@ private fun MapScreen(
 
 @Composable
 private fun MapHero(
-    rides: List<Ride>,
+    activeTrip: Ride?,
     onRideTap: (Ride) -> Unit,
     onFind: (PopularRoute) -> Unit,
     onDriver: () -> Unit
@@ -2386,7 +2392,7 @@ private fun MapHero(
         if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
             YandexMapCard(
                 modifier = Modifier.matchParentSize(),
-                rides = rides,
+                activeTrip = activeTrip,
                 onRideTap = onRideTap,
                 showPrivacyNotice = false
             )
@@ -2713,6 +2719,25 @@ private fun userPuckBitmap(): Bitmap {
     return bmp
 }
 
+// Флажок пункта назначения (точка Б) — зелёный вымпел на флагштоке. Якорь у основания.
+private fun destFlagBitmap(): Bitmap {
+    val w = 50
+    val h = 62
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bmp)
+    val green = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") }
+    val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
+    val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22000000 }
+    c.drawOval(android.graphics.RectF(4f, h - 12f, 22f, h - 2f), shadow)   // тень у земли
+    c.drawRect(11f, 8f, 14.5f, h - 6f, green)                              // флагшток
+    // полотнище: белая кайма + зелёный вымпел
+    c.drawPath(android.graphics.Path().apply { moveTo(14.5f, 6f); lineTo(46f, 16f); lineTo(14.5f, 28f); close() }, white)
+    c.drawPath(android.graphics.Path().apply { moveTo(16f, 9.5f); lineTo(41f, 16f); lineTo(16f, 24.5f); close() }, green)
+    c.drawCircle(12.7f, h - 6f, 5f, white)                                 // точка у основания
+    c.drawCircle(12.7f, h - 6f, 3f, green)
+    return bmp
+}
+
 private fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
     val accent = android.graphics.Color.parseColor(if (boosted) "#C98A00" else "#0B6B3A")
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -2770,7 +2795,7 @@ private fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
 @Composable
 private fun YandexMapCard(
     modifier: Modifier = Modifier,
-    rides: List<Ride> = emptyList(),
+    activeTrip: Ride? = null,
     onRideTap: (Ride) -> Unit = {},
     showPrivacyNotice: Boolean = true
 ) {
@@ -2781,15 +2806,14 @@ private fun YandexMapCard(
         if (granted) LocationPrefs.sharingEnabled = true
     }
     val nightMap = isSystemInDarkTheme()   // тёмная тема → ночной стиль карты
-    // Свежие ссылки на rides/onRideTap, чтобы tap-listener не «застревал» на старых данных.
-    val currentRides by rememberUpdatedState(rides)
+    // Свежие ссылки на активную поездку/тап, чтобы tap-listener не «застревал» на старых данных.
+    val currentTrip by rememberUpdatedState(activeTrip)
     val currentOnTap by rememberUpdatedState(onRideTap)
-    // Один tap-listener на все маркеры; держим в remember (MapKit хранит listener слабо).
     val tapListener = remember {
         MapObjectTapListener { obj, _ ->
-            val ride = currentRides.firstOrNull { it.id == obj.userData as? String }
-            if (ride != null) currentOnTap(ride)
-            ride != null
+            val trip = currentTrip?.takeIf { it.id == obj.userData as? String }
+            if (trip != null) currentOnTap(trip)
+            trip != null
         }
     }
     val mapView = remember {
@@ -2869,38 +2893,50 @@ private fun YandexMapCard(
             placemark?.let { map.mapObjects.remove(it) }
         }
     }
-    // Маркеры поездок: известный город — мгновенно, прочий — геокодер (кэш по городу = экономия квоты).
-    val rideMarkerCache = remember { mutableMapOf<String, Point>() }
-    val placedRideIds = remember { mutableSetOf<String>() }
-    LaunchedEffect(rides) {
+    // Маршрут на карте — ТОЛЬКО для активной (подтверждённой) поездки, как в Яндекс Такси:
+    // линия from→to + ценник у отправления (под городом) + флажок назначения. Завершилась → всё исчезает.
+    val cityCache = remember { mutableMapOf<String, Point>() }
+    val tripScope = rememberCoroutineScope()
+    DisposableEffect(activeTrip) {
         val map = mapView.mapWindow.map
-        suspend fun resolve(city: String): Point? {
-            val k = city.trim()
-            cityPoint(k)?.let { return it }
-            rideMarkerCache[k]?.let { return it }
-            val hit = GeocoderClient.suggest(k).firstOrNull() ?: return null
-            return Point(hit.lat, hit.lon).also { rideMarkerCache[k] = it }
-        }
-        rides.forEach { ride ->
-            if (!placedRideIds.add(ride.id)) return@forEach
-            val fromPt = resolve(ride.from)
-            if (fromPt == null) { placedRideIds.remove(ride.id); return@forEach }
-            val toPt = resolve(ride.to)
-            // Зелёная линия маршрута from→to — по реальным городам заказа.
-            if (toPt != null) {
-                map.mapObjects.addPolyline(Polyline(listOf(fromPt, toPt))).apply {
-                    setStrokeColor(0xCC0B6B3A.toInt())
-                    strokeWidth = 3.2f
-                }
+        val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
+        val job = tripScope.launch {
+            val trip = activeTrip ?: return@launch
+            suspend fun resolve(city: String): Point? {
+                val k = city.trim()
+                cityPoint(k)?.let { return it }
+                cityCache[k]?.let { return it }
+                val hit = GeocoderClient.suggest(k).firstOrNull() ?: return null
+                return Point(hit.lat, hit.lon).also { cityCache[k] = it }
             }
-            // Ценник — у города отправления, ПОД его названием (якорь сверху).
-            map.mapObjects.addPlacemark().apply {
+            val fromPt = resolve(trip.from) ?: return@launch
+            val toPt = resolve(trip.to)
+            if (toPt != null) {
+                added += map.mapObjects.addPolyline(Polyline(listOf(fromPt, toPt))).apply {
+                    setStrokeColor(0xCC0B6B3A.toInt())
+                    strokeWidth = 4f
+                }
+                added += map.mapObjects.addPlacemark().apply {
+                    geometry = toPt
+                    setIcon(ImageProvider.fromBitmap(destFlagBitmap()))
+                    setIconStyle(IconStyle().setAnchor(PointF(0.24f, 0.9f)))
+                }
+                map.move(
+                    CameraPosition(Point((fromPt.latitude + toPt.latitude) / 2, (fromPt.longitude + toPt.longitude) / 2), 9.5f, 0f, 0f),
+                    Animation(Animation.Type.SMOOTH, 0.5f), null
+                )
+            }
+            added += map.mapObjects.addPlacemark().apply {
                 geometry = fromPt
-                setIcon(ImageProvider.fromBitmap(ridePinBitmap("${ride.price} ₽", ride.boosted)))
+                setIcon(ImageProvider.fromBitmap(ridePinBitmap("${trip.price} ₽", trip.boosted)))
                 setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0f)))
-                userData = ride.id
+                userData = trip.id
                 addTapListener(tapListener)
             }
+        }
+        onDispose {
+            job.cancel()
+            added.forEach { runCatching { map.mapObjects.remove(it) } }
         }
     }
     // Жизненный цикл карты привязан к появлению/скрытию экрана «Карта».
@@ -2919,7 +2955,6 @@ private fun YandexMapCard(
             .border(1.dp, Color(0x1A000000), RoundedCornerShape(24.dp))
     ) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
-        MapMarkerHitTargets(rides = rides, onRideTap = onRideTap)
         // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
         MapZoomControls(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 14.dp),
@@ -6299,6 +6334,7 @@ private fun ActiveTripScreen(
     contacts: List<TrustedContact>,
     bookingId: Int?,
     onBack: () -> Unit,
+    onTripEnd: () -> Unit,
     onSos: () -> Unit
 ) {
     val context = LocalContext.current
@@ -6345,7 +6381,7 @@ private fun ActiveTripScreen(
                         "done" to appText("Завершить", "Тамам")
                     ).forEach { (st, label) ->
                         FilledTonalButton(
-                            onClick = { status = st; bookingId?.let { ApiClient.fireSetTripStatus(it, st) } },
+                            onClick = { status = st; bookingId?.let { ApiClient.fireSetTripStatus(it, st) }; if (st == "done") onTripEnd() },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(16.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
