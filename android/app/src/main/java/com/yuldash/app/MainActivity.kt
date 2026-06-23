@@ -202,8 +202,10 @@ import com.yandex.mapkit.user_location.UserLocationLayer
 import com.yandex.mapkit.user_location.UserLocationObjectListener
 import com.yandex.mapkit.user_location.UserLocationView
 import com.yandex.mapkit.layers.ObjectEvent
+import com.yandex.mapkit.map.RotationType
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -247,6 +249,7 @@ private enum class Screen {
     Notifications,
     Safety,
     Settings,
+    Privacy,
     Help,
     PassengerCabinet,
     DriverCabinet,
@@ -1003,6 +1006,7 @@ private fun YuldashApp() {
                 },
                 onSafety = { screen = Screen.Safety },
                 onSettings = { screen = Screen.Settings },
+                onPrivacy = { screen = Screen.Privacy },
                 onHelp = { screen = Screen.Help },
                 onPassengerCabinet = { screen = Screen.PassengerCabinet },
                 onDriverCabinet = { screen = Screen.DriverCabinet },
@@ -1068,6 +1072,7 @@ private fun YuldashApp() {
                 onBack = { openHome(HomeTab.Chat) },
                 onSelectTab = { tab -> openHome(tab) }
             )
+            Screen.Privacy -> PrivacyScreen(onBack = { openHome(HomeTab.Profile) })
             Screen.Safety -> SafetyScreen(
                 onBack = { openHome(HomeTab.Profile) },
                 onSelectTab = { tab -> openHome(tab) },
@@ -2014,6 +2019,7 @@ private fun HomeScreen(
     onOpenChat: (Int, String, String) -> Unit,
     onSafety: () -> Unit,
     onSettings: () -> Unit,
+    onPrivacy: () -> Unit,
     onHelp: () -> Unit,
     onPassengerCabinet: () -> Unit,
     onDriverCabinet: () -> Unit,
@@ -2103,6 +2109,7 @@ private fun HomeScreen(
                     onVerifyDriver = onVerifyDriver,
                     onSafety = onSafety,
                     onSettings = onSettings,
+                    onPrivacy = onPrivacy,
                     onHelp = onHelp,
                     onPassengerCabinet = onPassengerCabinet,
                     onDriverCabinet = onDriverCabinet,
@@ -2604,6 +2611,11 @@ private fun SeniorAccessCard(onSimpleMode: () -> Unit) {
 // Координаты для карты (Башкортостан). Старт — Баймаҡ, финиш — Сибай.
 private val BaymakPoint = Point(52.5911, 58.3222)
 private val SibayPoint = Point(52.7236, 58.6651)
+// Согласие на показ геолокации — общий флаг (Профиль → Конфиденциальность ↔ карта).
+private object LocationPrefs {
+    var sharingEnabled by mutableStateOf(false)
+}
+
 private val MapMidPoint = Point(52.55, 58.49) // южнее центра маршрута → точки рисуются в верхней части, не под плашкой
 
 // Город → точка: частые города Башкортостана мгновенно; прочие догружает геокодер (см. YandexMapCard).
@@ -2627,6 +2639,27 @@ private fun cityPoint(city: String): Point? = when (city.trim().lowercase()) {
 
 // Маркер-«ценник» (стиль Яндекс/Airbnb): белая пилюля с ценой, цветная рамка, остриё вниз.
 // Boosted-поездка — золотой акцент, обычная — фирменный зелёный.
+// Стрелка «я еду»: бренд-навигатор, крутится по курсу (RotationType.ROTATE).
+private fun userArrowBitmap(): Bitmap {
+    val size = 60
+    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bmp)
+    val path = android.graphics.Path().apply {
+        moveTo(size / 2f, 8f)              // вершина (вперёд)
+        lineTo(size - 12f, size - 12f)     // правый низ
+        lineTo(size / 2f, size - 22f)      // выемка по центру
+        lineTo(12f, size - 12f)            // левый низ
+        close()
+    }
+    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 7f; strokeJoin = Paint.Join.ROUND
+    })
+    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.parseColor("#0B6B3A"); style = Paint.Style.FILL
+    })
+    return bmp
+}
+
 // Метка «моя геопозиция»: бренд-пак (белое кольцо + зелёная точка), как в топ-картах.
 private fun userPuckBitmap(): Bitmap {
     val size = 56
@@ -2701,10 +2734,10 @@ private fun YandexMapCard(
     showPrivacyNotice: Boolean = true
 ) {
     val context = LocalContext.current
-    // Геолокация по согласию: точка «я тут» только после тапа по плашке (приватность «между своими»).
-    var showMyLocation by remember { mutableStateOf(false) }
+    // Геолокация управляется из Профиль → Конфиденциальность (общий LocationPrefs); FAB «к себе» тоже включает.
+    var recenterTick by remember { mutableStateOf(0) }
     val locationPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) showMyLocation = true
+        if (granted) LocationPrefs.sharingEnabled = true
     }
     val nightMap = isSystemInDarkTheme()   // тёмная тема → ночной стиль карты
     // Свежие ссылки на rides/onRideTap, чтобы tap-listener не «застревал» на старых данных.
@@ -2774,9 +2807,9 @@ private fun YandexMapCard(
             // Своя метка как в Яндекс.Картах: бренд-пак вместо дефолтной точки.
             setObjectListener(object : UserLocationObjectListener {
                 override fun onObjectAdded(view: UserLocationView) {
-                    val puck = ImageProvider.fromBitmap(userPuckBitmap())
-                    view.pin.setIcon(puck)
-                    view.arrow.setIcon(puck)
+                    // Стоит на месте — точка; едет — стрелка, крутится по направлению движения.
+                    view.pin.setIcon(ImageProvider.fromBitmap(userPuckBitmap()))
+                    view.arrow.setIcon(ImageProvider.fromBitmap(userArrowBitmap()), IconStyle().setRotationType(RotationType.ROTATE))
                     view.accuracyCircle.fillColor = 0x220B6B3A
                 }
                 override fun onObjectRemoved(view: UserLocationView) {}
@@ -2784,9 +2817,9 @@ private fun YandexMapCard(
             })
         }
     }
-    LaunchedEffect(showMyLocation) {
-        userLocationLayer.setVisible(showMyLocation)
-        if (showMyLocation) {
+    LaunchedEffect(LocationPrefs.sharingEnabled, recenterTick) {
+        userLocationLayer.setVisible(LocationPrefs.sharingEnabled)
+        if (LocationPrefs.sharingEnabled) {
             // ждём GPS-фикс и центрируем карту на текущей позиции телефона
             repeat(20) {
                 val target = userLocationLayer.cameraPosition()?.target
@@ -2839,41 +2872,6 @@ private fun YandexMapCard(
         MapMarkerHitTargets(rides = rides, onRideTap = onRideTap)
         MapLabel("Баймаҡ", Modifier.align(Alignment.TopStart).padding(20.dp))
         MapLabel("Сибай", Modifier.align(Alignment.CenterEnd).padding(20.dp))
-        // Плашка-тумблер геолокации: тап → запрос разрешения → точка «я тут» (по согласию).
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(14.dp)
-                .widthIn(max = 234.dp)
-                .clickable {
-                    when {
-                        showMyLocation -> showMyLocation = false
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED -> showMyLocation = true
-                        else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                    }
-                },
-            color = Color.White.copy(alpha = 0.94f),
-            shape = RoundedCornerShape(999.dp),
-            shadowElevation = 3.dp
-        ) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (showMyLocation) Icons.Default.LocationOn else Icons.Default.Lock,
-                    contentDescription = if (showMyLocation) appText("Скрыть геопозицию", "Геопозицияны йәшереү") else appText("Показать геопозицию", "Геопозицияны күрһәтеү"),
-                    tint = CanonGreen2,
-                    modifier = Modifier.size(17.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    if (showMyLocation) appText("Геопозиция видна", "Геопозицияң күренә") else appText("Геолокация скрыта", "Геолокация йәшерелгән"),
-                    color = CanonText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
         // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
         MapZoomControls(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 14.dp),
@@ -2886,6 +2884,29 @@ private fun YandexMapCard(
                 mapView.mapWindow.map.move(CameraPosition(cam.target, (cam.zoom - 1f).coerceAtLeast(3f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
             }
         )
+        // Кнопка «к себе» (как в Яндекс.Картах): центр на моей позиции; если выключено — включает.
+        Surface(
+            onClick = {
+                when {
+                    LocationPrefs.sharingEnabled -> recenterTick++
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED -> LocationPrefs.sharingEnabled = true
+                    else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                }
+            },
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 152.dp, end = 14.dp).size(46.dp).zIndex(6f),
+            shape = CircleShape,
+            color = Color.White,
+            shadowElevation = 4.dp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.NearMe,
+                    contentDescription = appText("Где я", "Мин ҡайҙа"),
+                    tint = if (LocationPrefs.sharingEnabled) CanonGreen2 else CanonMuted,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
         Surface(
             modifier = Modifier.align(Alignment.TopEnd).padding(18.dp),
             color = Color.White.copy(alpha = 0.92f),
@@ -4839,6 +4860,50 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun PrivacyScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        LocationPrefs.sharingEnabled = granted
+    }
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Конфиденциальность", "Хосусилыҡ"), onBack) }) { padding ->
+        Column(
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp).fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Spacer(Modifier.height(6.dp))
+            Text(appText("Управляй тем, что видят другие", "Башҡалар нимә күрә — үҙең хәл ит"), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+            Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(appText("Моя геолокация", "Минең геолокация"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(appText("Показывать мою точку на карте", "Картала минең нөктәне күрһәтеү"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Switch(
+                        checked = LocationPrefs.sharingEnabled,
+                        onCheckedChange = { on ->
+                            when {
+                                !on -> LocationPrefs.sharingEnabled = false
+                                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED -> LocationPrefs.sharingEnabled = true
+                                else -> launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                            }
+                        }
+                    )
+                }
+            }
+            InfoCard(
+                title = appText("Геолокация скрыта по умолчанию", "Геолокация башта йәшерелгән"),
+                text = appText("Точка видна только когда ползунок включён. Точный адрес — лишь после подтверждения поездки.", "Нөктә ползунок ҡабул булғанда ғына күренә. Теүәл адрес — сәфәр раҫланғандан һуң ғына."),
+                icon = Icons.Default.Lock
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun ProfileScreen(
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
@@ -4846,6 +4911,7 @@ private fun ProfileScreen(
     onVerifyDriver: () -> Unit,
     onSafety: () -> Unit,
     onSettings: () -> Unit,
+    onPrivacy: () -> Unit,
     onHelp: () -> Unit,
     onPassengerCabinet: () -> Unit,
     onDriverCabinet: () -> Unit,
@@ -4933,6 +4999,7 @@ private fun ProfileScreen(
                 Text(appText("Настройки и помощь", "Көйләүҙәр һәм ярҙам"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
             }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Настройки", "Көйләүҙәр"), appText("Уведомления, карта, предпочтения", "Хәбәрҙәр, карта, өҫтөнлөктәр"), Icons.Default.Settings, onSettings) } }
+            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Конфиденциальность", "Хосусилыҡ"), appText("Геолокация и разрешения", "Геолокация һәм рөхсәттәр"), Icons.Default.Shield, onPrivacy) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Помощь", "Ярдам"), appText("Ответы на частые вопросы", "Йыш һорауҙарға яуаптар"), Icons.Default.Help, onHelp) } }
             item {
                 Text(appText("Партнёры Юлдаш", "Юлдаш партнёрҙары"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
