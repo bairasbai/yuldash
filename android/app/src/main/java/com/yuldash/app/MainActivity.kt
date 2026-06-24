@@ -521,10 +521,10 @@ private fun openDateTimePicker(context: android.content.Context, localeTag: Stri
     val ctx = android.view.ContextThemeWrapper(context, 0).apply { applyOverrideConfiguration(cfg) }
     val cal = java.util.Calendar.getInstance()
     android.app.DatePickerDialog(
-        ctx,
+        ctx, com.yuldash.app.R.style.Theme_Yuldash_DatePicker,
         { _, y, m, d ->
             android.app.TimePickerDialog(
-                ctx,
+                ctx, com.yuldash.app.R.style.Theme_Yuldash_DatePicker,
                 { _, h, min -> onPicked(String.format(java.util.Locale.getDefault(), "%02d.%02d.%d, %02d:%02d", d, m + 1, y, h, min)) },
                 cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), true
             ).show()
@@ -4999,8 +4999,7 @@ private fun CreatePassengerRequestScreen(
 ) {
     var from by remember { mutableStateOf("Баймаҡ") }
     var to by remember { mutableStateOf("Сибай") }
-    val defaultRequestTime = appText("сегодня после 17:00", "бөгөн 17:00-тан һуң")
-    var time by remember { mutableStateOf(defaultRequestTime) }
+    var time by remember { mutableStateOf("") }
     var seats by remember { mutableStateOf("1") }
     var category by remember { mutableStateOf("regular") }
     var price by remember { mutableStateOf("350") }
@@ -5048,6 +5047,7 @@ private fun CreatePassengerRequestScreen(
                         onValueChange = {},
                         readOnly = true,
                         label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
+                        placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
                         trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)
