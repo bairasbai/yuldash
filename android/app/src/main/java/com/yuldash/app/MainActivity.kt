@@ -514,13 +514,17 @@ private fun fireRequestFromRoute(route: String, comment: String = "") {
 }
 
 // Нативный календарь + часы → строка «ДД.ММ.ГГГГ, ЧЧ:ММ» в поле даты заявки/поездки.
-private fun openDateTimePicker(context: android.content.Context, onPicked: (String) -> Unit) {
+// localeTag — язык диалога (ru/ba), чтоб названия месяцев/кнопки были не на английском.
+private fun openDateTimePicker(context: android.content.Context, localeTag: String, onPicked: (String) -> Unit) {
+    // ContextThemeWrapper сохраняет привязку к Activity (window для диалога) + override локали.
+    val cfg = android.content.res.Configuration(context.resources.configuration).apply { setLocale(java.util.Locale(localeTag)) }
+    val ctx = android.view.ContextThemeWrapper(context, 0).apply { applyOverrideConfiguration(cfg) }
     val cal = java.util.Calendar.getInstance()
     android.app.DatePickerDialog(
-        context,
+        ctx,
         { _, y, m, d ->
             android.app.TimePickerDialog(
-                context,
+                ctx,
                 { _, h, min -> onPicked(String.format(java.util.Locale.getDefault(), "%02d.%02d.%d, %02d:%02d", d, m + 1, y, h, min)) },
                 cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), true
             ).show()
@@ -5036,6 +5040,8 @@ private fun CreatePassengerRequestScreen(
             item { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
             item {
                 val ctxDt = LocalContext.current
+                // Нативный календарь Android: башкирской локали (ba) в системе нет → русский для обоих языков (вместо англ.).
+                val dtLocale = "ru"
                 Box {
                     OutlinedTextField(
                         value = time,
@@ -5046,7 +5052,7 @@ private fun CreatePassengerRequestScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)
                     )
-                    Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt) { time = it } })
+                    Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt, dtLocale) { time = it } })
                 }
             }
             item {
