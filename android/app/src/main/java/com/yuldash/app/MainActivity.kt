@@ -504,6 +504,14 @@ private fun categoryToApi(ui: String): Pair<String, Boolean> = when (ui) {
     else -> "regular" to false
 }
 
+// Заявка из строки-маршрута «Откуда → Куда» (голосовая / за близкого) → реальная серверная заявка.
+private fun fireRequestFromRoute(route: String, comment: String = "") {
+    val parts = route.split("→", "->", "-").map { it.trim() }.filter { it.isNotEmpty() }
+    val from = parts.getOrElse(0) { route.trim() }
+    val to = parts.getOrElse(1) { "" }
+    if (from.isNotBlank()) ApiClient.fireCreateRequest(from, to, 1, "regular", false, comment, 0)
+}
+
 private fun apiCategoryToUiFor(language: AppLanguage, category: String, withKids: Boolean): String = when {
     category == "hospital" -> appTextFor(language, "В больницу", "Больницаға")
     category == "parcel" -> appTextFor(language, "Посылка", "Посылка")
@@ -4880,6 +4888,7 @@ private fun VoiceRequestScreen(
                 item {
                     Button(
                         onClick = {
+                            fireRequestFromRoute(text)
                             onCreateRequest(LocalRequest(title = vrTitle, route = text, time = vrNow, passenger = "Байрас", status = voiceRequestStatus, trustedContact = trusted?.name))
                         },
                         modifier = Modifier.fillMaxWidth().height(58.dp),
@@ -4899,6 +4908,7 @@ private fun VoiceRequestScreen(
                             scope.launch {
                                 val bytes = runCatching { File(path).readBytes() }.getOrNull()
                                 val url = if (bytes != null) ApiClient.uploadVoice(bytes).getOrNull() else null
+                                fireRequestFromRoute(vrRoute)
                                 onCreateRequest(
                                     LocalRequest(
                                         title = vrTitle,
@@ -5106,6 +5116,7 @@ private fun FamilyOrderScreen(
             item {
                 Button(
                     onClick = {
+                        fireRequestFromRoute("Баймаҡ → Сибай")
                         onCreateRequest(
                             LocalRequest(
                                 title = familyRequestTitle,
