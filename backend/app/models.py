@@ -160,3 +160,13 @@ class Block(SQLModel, table=True):
     user_id: int = Field(index=True)
     blocked_user_id: int
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Rating(SQLModel, table=True):
+    """Оценка после поездки: rater оценил ratee (1..5 звёзд). Одна на (booking, rater)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    booking_id: int = Field(index=True)
+    rater_id: int = Field(index=True)        # кто оценил
+    ratee_id: int = Field(index=True)        # кого оценили (водитель или пассажир)
+    stars: int = 5                           # 1..5
+    created_at: datetime = Field(default_factory=datetime.utcnow)

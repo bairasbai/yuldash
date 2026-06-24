@@ -386,6 +386,10 @@ object ApiClient {
     suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
 
+    /** Оценить вторую сторону поездки (1..5 звёзд). Пассажир → водитель, водитель → пассажир. */
+    suspend fun rateBooking(bookingId: Int, stars: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/rate", JSONObject().put("stars", stars), auth = true).map { }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(

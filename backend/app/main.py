@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 from .config import settings
 from .db import engine, get_session, init_db
 from .models import (
-    Block, Booking, BookingStatus, DriverProfile, Message, OtpCode, Report,
+    Block, Booking, BookingStatus, DriverProfile, Message, OtpCode, Rating, Report,
     Ride, RideCategory, RideRequest, RideStatus, SosEvent, TripShare,
     TrustedContact, User, UserRole,
 )
@@ -138,8 +138,9 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
 
 
 @app.get("/me")
-def me(user: User = Depends(current_user)):
-    return user
+def me(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    avg, cnt = _user_rating(session, user.id)
+    return {**user.model_dump(), "rating": round(avg, 1) if cnt > 0 else None, "rating_count": cnt}
 
 
 # ----------------------------- Поездки -----------------------------
@@ -172,16 +173,24 @@ class RideOut(BaseModel):
     driver_car: str
 
 
+def _user_rating(session: Session, user_id: int) -> tuple[float, int]:
+    """Средний рейтинг пользователя из реальных оценок (звёзды) + их число."""
+    rows = list(session.exec(select(Rating.stars).where(Rating.ratee_id == user_id)).all())
+    return (sum(rows) / len(rows), len(rows)) if rows else (0.0, 0)
+
+
 def _ride_out(ride: Ride, session: Session) -> RideOut:
     drv = session.get(User, ride.driver_id)
     prof = session.exec(
         select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)
     ).first()
     car = f"{prof.car_make} {prof.car_model}".strip() if prof else ""
+    avg, cnt = _user_rating(session, ride.driver_id)
+    rating = round(avg, 1) if cnt > 0 else (prof.rating if prof else 5.0)  # реальный рейтинг; до отзывов — сид
     return RideOut(
         **ride.model_dump(exclude={"created_at"}),
         driver_name=(drv.name if drv else "Водитель"),
-        driver_rating=(prof.rating if prof else 5.0),
+        driver_rating=rating,
         driver_verified=(drv.verified if drv else False),
         driver_car=car,
     )
@@ -615,6 +624,43 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         if c and c.phone:
             _send_text(c.phone, f"Юлдаш: {who} {status_text}.")
     return shares
+
+
+class RateIn(BaseModel):
+    stars: int
+
+
+@app.post("/bookings/{booking_id}/rate")
+def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Оценить вторую сторону поездки (1..5). Пассажир оценивает водителя, водитель — пассажира. Одна оценка на бронь от каждого."""
+    b = session.get(Booking, booking_id)
+    if not b:
+        raise HTTPException(status_code=404, detail="Бронь не найдена")
+    ride = session.get(Ride, b.ride_id)
+    if user.id == b.passenger_id and ride:
+        ratee_id = ride.driver_id          # пассажир → водитель
+    elif ride and user.id == ride.driver_id:
+        ratee_id = b.passenger_id          # водитель → пассажир
+    else:
+        raise HTTPException(status_code=403, detail="Нельзя оценить эту поездку")
+    stars = max(1, min(5, body.stars))
+    existing = session.exec(
+        select(Rating).where(Rating.booking_id == booking_id, Rating.rater_id == user.id)
+    ).first()
+    if existing:
+        existing.stars = stars
+        session.add(existing)
+    else:
+        session.add(Rating(booking_id=booking_id, rater_id=user.id, ratee_id=ratee_id, stars=stars))
+    session.commit()
+    avg, cnt = _user_rating(session, ratee_id)
+    # Оценили водителя → обновим витринный рейтинг в профиле.
+    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ratee_id)).first()
+    if prof and cnt > 0:
+        prof.rating = round(avg, 1)
+        session.add(prof)
+        session.commit()
+    return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 
 
 # ----------------------------- Безопасность -----------------------------

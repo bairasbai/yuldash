@@ -5337,6 +5337,11 @@ private fun ProfileScreen(
 ) {
     val isBashkir = LocalAppLanguage.current == AppLanguage.Ba
     val profileAd = ads.forPlacement(AdPlacement.Profile).firstOrNull { it.city == "Баймаҡ" }
+    // Свой рейтинг (как пассажира) — из реальных оценок водителей. null, пока никто не оценил.
+    var myRating by remember { mutableStateOf<Double?>(null) }
+    LaunchedEffect(Unit) {
+        ApiClient.me().onSuccess { o -> myRating = if (o.isNull("rating")) null else o.optDouble("rating") }
+    }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -5373,7 +5378,15 @@ private fun ProfileScreen(
                             Spacer(Modifier.width(14.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(ApiClient.cachedName() ?: "Байрас", color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
-                                Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                                    myRating?.let { r ->
+                                        Spacer(Modifier.width(8.dp))
+                                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD54A), modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(2.dp))
+                                        Text(r.toString(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                                 Text(appText("Телефон скрыт до подтверждения поездки", "Телефон сәфәр раҫланғанға тиклем йәшерелгән"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, lineHeight = 16.sp)
                             }
                         }
@@ -6723,6 +6736,37 @@ private fun ActiveTripScreen(
                                 contentColor = CanonText
                             )
                         ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
+                }
+            }
+            item {
+                var myStars by remember { mutableStateOf(0) }
+                val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
+                val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
+                Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(appText("Оцените водителя", "Водителде баһалағыҙ"), fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            (1..5).forEach { n ->
+                                Icon(
+                                    Icons.Default.Star,
+                                    contentDescription = "$n",
+                                    tint = if (n <= myStars) Color(0xFFE7A921) else CanonBorder,
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clickable {
+                                            myStars = n
+                                            bookingId?.let { id ->
+                                                voiceScope.launch {
+                                                    ApiClient.rateBooking(id, n)
+                                                        .onSuccess { Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show() }
+                                                        .onFailure { Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                                                }
+                                            }
+                                        }
+                                )
+                            }
+                        }
                     }
                 }
             }
