@@ -513,6 +513,22 @@ private fun fireRequestFromRoute(route: String, comment: String = "") {
     if (from.isNotBlank()) ApiClient.fireCreateRequest(from, to, 1, "regular", false, comment, 0)
 }
 
+// Нативный календарь + часы → строка «ДД.ММ.ГГГГ, ЧЧ:ММ» в поле даты заявки/поездки.
+private fun openDateTimePicker(context: android.content.Context, onPicked: (String) -> Unit) {
+    val cal = java.util.Calendar.getInstance()
+    android.app.DatePickerDialog(
+        context,
+        { _, y, m, d ->
+            android.app.TimePickerDialog(
+                context,
+                { _, h, min -> onPicked(String.format(java.util.Locale.getDefault(), "%02d.%02d.%d, %02d:%02d", d, m + 1, y, h, min)) },
+                cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), true
+            ).show()
+        },
+        cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH)
+    ).apply { datePicker.minDate = cal.timeInMillis }.show()
+}
+
 private fun apiCategoryToUiFor(language: AppLanguage, category: String, withKids: Boolean): String = when {
     category == "hospital" -> appTextFor(language, "В больницу", "Больницаға")
     category == "parcel" -> appTextFor(language, "Посылка", "Посылка")
@@ -5018,7 +5034,21 @@ private fun CreatePassengerRequestScreen(
             }
             item { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) }
             item { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
-            item { OutlinedTextField(value = time, onValueChange = { time = it }, label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item {
+                val ctxDt = LocalContext.current
+                Box {
+                    OutlinedTextField(
+                        value = time,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
+                        trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt) { time = it } })
+                }
+            }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
