@@ -4385,23 +4385,29 @@ private fun ChatScreen(
                 }
             }
         }
-        item {
-            ChatComposer(
-                draft = draft,
-                onDraftChange = { draft = it },
-                onSend = {
-                    val text = draft.trim()
-                    if (text.isNotEmpty()) {
-                        latestBookingId?.let { ApiClient.fireSendMessage(it, text) }
-                        onAddVoiceMessage(LocalVoiceMessage("Байрас", text, nowText))
-                        draft = ""
+        if (selected == "active") {
+            // Композер — только на «Активные» и шлёт по активной поездке (последняя бронь), с явной подписью.
+            latestBookingId?.let {
+                item { Text(appText("Сообщение по активной поездке", "Актив сәфәр буйынса хәбәр"), color = CanonMuted, fontSize = 12.sp) }
+            }
+            item {
+                ChatComposer(
+                    draft = draft,
+                    onDraftChange = { draft = it },
+                    onSend = {
+                        val text = draft.trim()
+                        if (text.isNotEmpty()) {
+                            latestBookingId?.let { ApiClient.fireSendMessage(it, text) }
+                            onAddVoiceMessage(LocalVoiceMessage("Байрас", text, nowText))
+                            draft = ""
+                        }
+                    },
+                    onVoiceRecorded = { path, dur ->
+                        onAddVoiceMessage(LocalVoiceMessage("Байрас", "", nowText, audioPath = path, durationSec = dur))
+                        voiceSent = true
                     }
-                },
-                onVoiceRecorded = { path, dur ->
-                    onAddVoiceMessage(LocalVoiceMessage("Байрас", "", nowText, audioPath = path, durationSec = dur))
-                    voiceSent = true
-                }
-            )
+                )
+            }
         }
         if (selected == "requests") {
             // Вкладка «Заявки» — реальные заявки пользователя (ждут отклика водителя).
