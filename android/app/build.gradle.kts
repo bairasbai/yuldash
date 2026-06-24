@@ -31,6 +31,14 @@ val releaseApiBaseUrl: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YULDASH_RELEASE_API_BASE_URL", "https://yulbash.ru")
 
+// Телефон поддержки/оператора (для звонка из приложения). Задать в local.properties:
+//   YULDASH_SUPPORT_PHONE=+79991234567
+// Пусто → кнопка звонка прячется, остаётся «попросить звонок».
+val supportPhone: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_SUPPORT_PHONE", "")
+
 // Подпись релиза: данные из keystore.properties (в .gitignore, в git не попадает).
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
@@ -58,6 +66,7 @@ android {
         // Пробрасываем ключ в BuildConfig (в коде не хардкодим).
         buildConfigField("String", "YANDEX_MAPKIT_KEY", "\"$mapkitKey\"")
         buildConfigField("String", "YANDEX_GEOCODER_KEY", "\"$geocoderKey\"")
+        buildConfigField("String", "YULDASH_SUPPORT_PHONE", "\"$supportPhone\"")
     }
 
     buildFeatures {

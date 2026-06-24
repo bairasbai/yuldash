@@ -5303,6 +5303,8 @@ private fun FrequentTripCard(trip: FrequentTrip, onClick: () -> Unit) {
 private fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest: () -> Unit) {
     val defaultReason = appText("Помогите создать заявку", "Заявка булдырырға ярҙам итегеҙ")
     var reason by remember { mutableStateOf(defaultReason) }
+    val context = LocalContext.current
+    val supportPhone = BuildConfig.YULDASH_SUPPORT_PHONE
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Помощь звонком", "Шылтыратыу ярҙамы"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -5328,11 +5330,24 @@ private fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest
             }
             item {
                 Button(
-                    onClick = onRequest,
+                    onClick = {
+                        if (supportPhone.isNotBlank()) {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:$supportPhone"))) }
+                        } else onRequest()
+                    },
                     modifier = Modifier.fillMaxWidth().height(58.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                ) { Text(appText("Попросить звонок", "Шылтыратыу һорау"), fontWeight = FontWeight.Black, fontSize = 17.sp) }
+                ) {
+                    if (supportPhone.isNotBlank()) {
+                        Icon(Icons.Default.HeadsetMic, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(
+                        if (supportPhone.isNotBlank()) appText("Позвонить в поддержку", "Ярҙамға шылтыратыу") else appText("Попросить звонок", "Шылтыратыу һорау"),
+                        fontWeight = FontWeight.Black, fontSize = 17.sp
+                    )
+                }
             }
         }
     }
