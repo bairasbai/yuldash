@@ -381,6 +381,22 @@ object ApiClient {
             )
         }
 
+    /** Брони на поездки водителя — чтобы оценить пассажиров. */
+    suspend fun getDriverBookings(): Result<List<DriverBookingDto>> =
+        call("GET", "/driver/bookings", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                DriverBookingDto(
+                    bookingId = o.optInt("booking_id"),
+                    passengerName = o.optString("passenger_name"),
+                    passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
+                    route = o.optString("route"),
+                    status = o.optString("status"),
+                )
+            }
+        }
+
     // Инбокс: брони с сообщениями (как пассажир и как водитель).
     suspend fun getConversations(): Result<List<ConversationDto>> =
         call("GET", "/conversations", null, auth = true).map { obj ->
@@ -540,6 +556,15 @@ data class DriverStatusDto(
     val seats: Int,
     val licenseUrl: String,
     val carPhotoUrl: String,
+)
+
+/** Бронь на поездку водителя — для оценки пассажира. */
+data class DriverBookingDto(
+    val bookingId: Int,
+    val passengerName: String,
+    val passengerRating: Double?,
+    val route: String,
+    val status: String,
 )
 
 /** Заявка пассажира с сервера. */

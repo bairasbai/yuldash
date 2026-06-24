@@ -480,6 +480,28 @@ def my_bookings(user: User = Depends(current_user), session: Session = Depends(g
     return session.exec(select(Booking).where(Booking.passenger_id == user.id)).all()
 
 
+@app.get("/driver/bookings")
+def driver_bookings(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Брони на поездки текущего водителя — чтобы оценить пассажиров после поездки."""
+    my_ride_ids = [r.id for r in session.exec(select(Ride).where(Ride.driver_id == user.id)).all()]
+    if not my_ride_ids:
+        return []
+    bookings = session.exec(select(Booking).where(Booking.ride_id.in_(my_ride_ids))).all()
+    out: list = []
+    for b in bookings:
+        ride = session.get(Ride, b.ride_id)
+        passenger = session.get(User, b.passenger_id)
+        avg, cnt = _user_rating(session, b.passenger_id)
+        out.append({
+            "booking_id": b.id,
+            "passenger_name": (passenger.name if passenger else "Пассажир"),
+            "passenger_rating": (round(avg, 1) if cnt > 0 else None),
+            "route": (f"{ride.from_city} → {ride.to_city}" if ride else ""),
+            "status": b.status,
+        })
+    return out
+
+
 # ----------------------------- Водитель -----------------------------
 class OnlineIn(BaseModel):
     online: bool

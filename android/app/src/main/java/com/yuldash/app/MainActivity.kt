@@ -5748,6 +5748,12 @@ private fun DriverCabinetScreen(
     onBoost: () -> Unit
 ) {
     val driverRides = rides.filter { it.driver == "Байрас" }
+    val ctx = LocalContext.current
+    val rateScope = rememberCoroutineScope()
+    var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
+    LaunchedEffect(Unit) { ApiClient.getDriverBookings().onSuccess { driverBookings = it } }
+    val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
+    val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет водителя", "Водитель кабинеты"), onBack) }
@@ -5790,6 +5796,50 @@ private fun DriverCabinetScreen(
                         onPrimary = onBoost,
                         onSecondary = onCreateRide
                     )
+                }
+            }
+            if (driverBookings.isNotEmpty()) {
+                item {
+                    Text(appText("Пассажиры — оцените после поездки", "Пассажирҙар — сәфәрҙән һуң баһалағыҙ"), fontWeight = FontWeight.Black, fontSize = 16.sp)
+                }
+                items(driverBookings) { b ->
+                    var stars by remember(b.bookingId) { mutableStateOf(0) }
+                    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+                                    Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(b.passengerName, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (b.route.isNotBlank()) Text(b.route, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                b.passengerRating?.let {
+                                    Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(3.dp))
+                                    Text(it.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                (1..5).forEach { n ->
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = "$n",
+                                        tint = if (n <= stars) Color(0xFFE7A921) else CanonBorder,
+                                        modifier = Modifier.size(34.dp).clickable {
+                                            stars = n
+                                            rateScope.launch {
+                                                ApiClient.rateBooking(b.bookingId, n)
+                                                    .onSuccess { Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show() }
+                                                    .onFailure { Toast.makeText(ctx, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
             item {
