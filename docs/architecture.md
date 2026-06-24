@@ -105,6 +105,12 @@
 ## Что РЕАЛЬНО на сервере (обновлено 2026-06-23)
 Подключено к бэкенду `https://yulbash.ru` через `data/ApiClient.kt`: **вход по SMS-коду** (JWT, автологин), **поездки** (список), **заявки** (создать+список), **публикация поездки**, **бронь**, **SOS**, **доверенные контакты**, **чат**, **экран активной поездки** (share/статус). Данные живут на сервере (PostgreSQL), не пропадают при перезапуске.
 
+## Бэкенд: премиум-поля и проверка водителя (2026-06-24, ✅ ЗАДЕПЛОЕНО на yulbash.ru)
+- `Ride` + `RideIn`/`RideOut`: новые булевы поля предпочтений — `pets_allowed` (животные), `child_seat` (детское кресло/бустер), `women_only` (только женщины), `smoking`, `baggage`, `air_conditioner`. `GET /rides` принимает их как фильтры. Дефолты `False` → обратносовместимо.
+- Проверка водителя (реальная, без платного KYC): `POST /upload/photo` (base64→`media/docs`), `POST /driver/profile` (реальное авто), `POST /driver/verify` (→`docs_status=pending` + `license_url`/`car_photo_url`), `GET /driver/status`, `POST /admin/drivers/{id}/moderate` (роль admin → `User.verified=True`). `DriverProfile` расширен (`license_url`, `car_photo_url`, `verify_submitted_at`, `docs_status` дефолт→`none`).
+- ✅ Задеплоено на `yulbash.ru` (`deploy-backend.bat` scp+ssh + `migrate_premium.sql` = 9× `ALTER TABLE`: 6 колонок `ride` + 3 `driverprofile`). Проверено server-side: `/driver/status`, `/upload/photo` → 401 (живы, нужен токен), `/rides/near` отдаёт `women_only`/`pets_allowed`. **Прод-API проверять server-side через ssh** (`curl localhost:8000/...`) — Windows-curl к домену = `000` (ТСПУ).
+- ✅ Android ИСПОЛЬЗУЕТ (сборка зелёная на ПК): чипы предпочтений `RidePrefChips`/`PrefChip` в `FullRideCard`, тумблеры `PrefToggleRow` в «Создать поездку», фильтр `NearbyFilterChip` над «Ближайшими», переписанный `VerifyDriverScreen` (загрузка фото прав/авто `UploadTile`→`/upload/photo`, `/driver/profile`, `/driver/verify`, статус-баннер `StatusBanner` из `/driver/status`). Работает по-настоящему (бэк живой). Осталось: водительский UI оценки пассажира, фильтр вкладок чата.
+
 ## Что ещё фейковое (только UI)
 Платежи (донат/Boost — мок), проверка водителя, реальное распознавание голоса (имитация), звонок оператору, «скрытый номер»/код посадки (UI). Реклама — локальные счётчики показов/кликов. **SMS** — код провайдера готов (`sms.ru`), но без ключа работает мок (код в логе сервера). Полные чат-треды списком диалогов — `ChatScreen` всё ещё показывает мок-карточки (реальный тред — в `ActiveTripScreen`).
 

@@ -2,6 +2,7 @@ package com.yuldash.app.data
 
 import android.content.Context
 import android.util.Base64
+import com.yuldash.app.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,10 +19,12 @@ import java.net.URL
  * Встроенный HttpURLConnection + org.json — БЕЗ внешних зависимостей.
  * Токен храним в SharedPreferences, чтобы вход не слетал между запусками.
  *
- * Базовый URL — домен yulbash.ru (HTTPS, Let's Encrypt).
+ * Базовый URL приходит из BuildConfig:
+ * debug по умолчанию ходит на локальный backend Android Emulator (http://10.0.2.2:8000),
+ * release — на публичный домен. Значения можно переопределить в local.properties.
  */
 object ApiClient {
-    private const val BASE = "https://yulbash.ru"
+    private val BASE = BuildConfig.YULDASH_API_BASE_URL.trimEnd('/')
 
     @Volatile private var token: String? = null
     @Volatile private var userName: String? = null
@@ -35,8 +38,12 @@ object ApiClient {
         bg.launch { createRequest(fromCity, toCity, seats, category, withKids, comment, maxPrice) }
     }
 
-    fun firePublishRide(fromCity: String, toCity: String, departAt: String, seats: Int, price: Int, comment: String) {
-        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment) }
+    fun firePublishRide(
+        fromCity: String, toCity: String, departAt: String, seats: Int, price: Int, comment: String,
+        petsAllowed: Boolean = false, childSeat: Boolean = false, womenOnly: Boolean = false,
+        smoking: Boolean = false, baggage: Boolean = false, airConditioner: Boolean = false,
+    ) {
+        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner) }
     }
 
     fun fireBook(rideId: Int, seats: Int) {
@@ -135,6 +142,12 @@ object ApiClient {
                     driverRating = o.optDouble("driver_rating", 5.0),
                     driverVerified = o.optBoolean("driver_verified"),
                     driverCar = o.optString("driver_car"),
+                    petsAllowed = o.optBoolean("pets_allowed"),
+                    childSeat = o.optBoolean("child_seat"),
+                    womenOnly = o.optBoolean("women_only"),
+                    smoking = o.optBoolean("smoking"),
+                    baggage = o.optBoolean("baggage"),
+                    airConditioner = o.optBoolean("air_conditioner"),
                 )
             }
         }
@@ -175,6 +188,12 @@ object ApiClient {
                     driverRating = o.optDouble("driver_rating", 5.0),
                     driverVerified = o.optBoolean("driver_verified"),
                     driverCar = o.optString("driver_car"),
+                    petsAllowed = o.optBoolean("pets_allowed"),
+                    childSeat = o.optBoolean("child_seat"),
+                    womenOnly = o.optBoolean("women_only"),
+                    smoking = o.optBoolean("smoking"),
+                    baggage = o.optBoolean("baggage"),
+                    airConditioner = o.optBoolean("air_conditioner"),
                     distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
                 )
             }
@@ -191,6 +210,12 @@ object ApiClient {
         seats: Int,
         price: Int,
         comment: String,
+        petsAllowed: Boolean = false,
+        childSeat: Boolean = false,
+        womenOnly: Boolean = false,
+        smoking: Boolean = false,
+        baggage: Boolean = false,
+        airConditioner: Boolean = false,
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -200,7 +225,13 @@ object ApiClient {
             .put("seats_total", seats)
             .put("price", price)
             .put("category", "regular")
-            .put("comment", comment),
+            .put("comment", comment)
+            .put("pets_allowed", petsAllowed)
+            .put("child_seat", childSeat)
+            .put("women_only", womenOnly)
+            .put("smoking", smoking)
+            .put("baggage", baggage)
+            .put("air_conditioner", airConditioner),
         auth = true,
     ).map { }
 
@@ -311,6 +342,44 @@ object ApiClient {
 
     suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true).map { }
+
+    // ---------- Проверка водителя ----------
+    /** Загрузить фото (документ/авто) base64 → публичный URL. */
+    suspend fun uploadPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =
+        call("POST", "/upload/photo", JSONObject().put("photo_b64", Base64.encodeToString(bytes, Base64.NO_WRAP)).put("ext", ext), auth = true)
+            .map { it.optString("url") }
+
+    /** Сохранить реальные данные авто водителя. */
+    suspend fun setDriverProfile(make: String, model: String, color: String, plate: String, seats: Int): Result<Unit> =
+        call(
+            "POST", "/driver/profile",
+            JSONObject().put("car_make", make).put("car_model", model).put("car_color", color).put("car_plate", plate).put("seats", seats),
+            auth = true,
+        ).map { }
+
+    /** Отправить документы на проверку (URL фото прав + авто) → статус pending. */
+    suspend fun submitDriverVerify(licenseUrl: String, carPhotoUrl: String): Result<Unit> =
+        call(
+            "POST", "/driver/verify",
+            JSONObject().put("license_url", licenseUrl).put("car_photo_url", carPhotoUrl),
+            auth = true,
+        ).map { }
+
+    /** Текущий статус проверки водителя. */
+    suspend fun getDriverStatus(): Result<DriverStatusDto> =
+        call("GET", "/driver/status", null, auth = true).map { o ->
+            DriverStatusDto(
+                docsStatus = o.optString("docs_status", "none"),
+                verified = o.optBoolean("verified"),
+                carMake = o.optString("car_make"),
+                carModel = o.optString("car_model"),
+                carColor = o.optString("car_color"),
+                carPlate = o.optString("car_plate"),
+                seats = o.optInt("seats", 4),
+                licenseUrl = o.optString("license_url"),
+                carPhotoUrl = o.optString("car_photo_url"),
+            )
+        }
 
     // Инбокс: брони с сообщениями (как пассажир и как водитель).
     suspend fun getConversations(): Result<List<ConversationDto>> =
@@ -451,7 +520,26 @@ data class RideDto(
     val driverRating: Double,
     val driverVerified: Boolean,
     val driverCar: String,
+    val petsAllowed: Boolean = false,
+    val childSeat: Boolean = false,
+    val womenOnly: Boolean = false,
+    val smoking: Boolean = false,
+    val baggage: Boolean = false,
+    val airConditioner: Boolean = false,
     val distanceKm: Double? = null,   // дистанция клиент→точка выезда (только из /rides/near с координатами)
+)
+
+/** Статус проверки водителя (с бэкенда /driver/status). */
+data class DriverStatusDto(
+    val docsStatus: String,
+    val verified: Boolean,
+    val carMake: String,
+    val carModel: String,
+    val carColor: String,
+    val carPlate: String,
+    val seats: Int,
+    val licenseUrl: String,
+    val carPhotoUrl: String,
 )
 
 /** Заявка пассажира с сервера. */

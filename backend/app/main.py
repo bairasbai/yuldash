@@ -28,22 +28,64 @@ from .security import current_user, gen_otp, make_token
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings.validate_production()
     init_db()
     with Session(engine) as session:
-        _seed_demo(session)
+        if settings.seed_demo:
+            _seed_demo(session)
     yield
 
 
 app = FastAPI(title="Yuldash API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Медиа (голосовые сообщения). Файлы в /opt/yuldash/media, отдаются по /media/...
 MEDIA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media")
 VOICE_DIR = os.path.join(MEDIA_DIR, "voice")
+DOC_DIR = os.path.join(MEDIA_DIR, "docs")
 os.makedirs(VOICE_DIR, exist_ok=True)
+os.makedirs(DOC_DIR, exist_ok=True)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+
+
+def _public_media_url(path: str) -> str:
+    return f"{settings.media_base_url.rstrip('/')}/media/{path.lstrip('/')}"
+
+
+def _decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: str) -> tuple[bytes, str]:
+    """Безопасная обработка base64 upload: whitelist расширений + лимит размера."""
+    ext = "".join(c for c in default_ext.lower() if c.isalnum()) or default_ext
+    if "," in raw and raw.strip().lower().startswith("data:"):
+        raw = raw.split(",", 1)[1]
+    try:
+        data = base64.b64decode(raw, validate=True)
+    except Exception:
+        raise HTTPException(400, f"Некорректный файл: {kind}")
+    if not data:
+        raise HTTPException(400, f"Пустой файл: {kind}")
+    if len(data) > settings.max_upload_bytes:
+        raise HTTPException(413, f"Файл слишком большой: максимум {settings.max_upload_mb} МБ")
+    if ext not in allowed_ext:
+        raise HTTPException(400, f"Недопустимый тип файла: .{ext}")
+    return data, ext
+
+
+def _booking_and_ride_for_user(session: Session, booking_id: int, user: User) -> tuple[Booking, Ride]:
+    """Вернуть бронь и поездку, если пользователь — пассажир или водитель этой брони."""
+    booking = session.get(Booking, booking_id)
+    if not booking:
+        raise HTTPException(404, "Бронь не найдена")
+    ride = session.get(Ride, booking.ride_id)
+    if not ride:
+        raise HTTPException(404, "Поездка не найдена")
+    if booking.passenger_id != user.id and ride.driver_id != user.id:
+        raise HTTPException(403, "Нет доступа к этой брони")
+    return booking, ride
 
 
 @app.get("/health")
@@ -74,11 +116,12 @@ def _send_text(phone: str, text: str) -> None:
             sms = (data.get("sms") or {}).get(phone, {})
             ok = sms.get("status_code") == 100
             print(f"[SMS] {phone}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
-            if not ok:
+            if not ok and not settings.is_prod:
                 print(f"[SMS-FALLBACK] {phone}: {text}")
         except Exception as e:  # noqa: BLE001
             print(f"[SMS] {phone}: smsru error {e}")
-            print(f"[SMS-FALLBACK] {phone}: {text}")
+            if not settings.is_prod:
+                print(f"[SMS-FALLBACK] {phone}: {text}")
     else:
         print(f"[SMS-MOCK] {phone}: {text}")
 
@@ -98,11 +141,17 @@ def _send_sms(phone: str, code: str) -> None:
             ok = sms.get("status_code") == 100
             print(f"[SMS] {phone}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
             if not ok:
+                if settings.is_prod:
+                    raise HTTPException(502, "SMS не отправлено")
                 print(f"[OTP] {phone} -> {code}")  # фоллбэк: SMS не ушла → код в лог
         except Exception as e:  # noqa: BLE001
             print(f"[SMS] {phone}: smsru error {e}")
+            if settings.is_prod:
+                raise HTTPException(502, "SMS не отправлено")
             print(f"[OTP] {phone} -> {code}")  # фоллбэк при ошибке сети
     else:
+        if settings.is_prod:
+            raise HTTPException(500, "SMS-провайдер не настроен")
         print(f"[OTP] {phone} -> {code}")  # мок/dev — код в логе
 
 
@@ -152,6 +201,12 @@ class RideIn(BaseModel):
     price: int = 0
     category: RideCategory = RideCategory.regular
     comment: str = ""
+    pets_allowed: bool = False
+    child_seat: bool = False
+    women_only: bool = False
+    smoking: bool = False
+    baggage: bool = False
+    air_conditioner: bool = False
 
 
 class RideOut(BaseModel):
@@ -166,6 +221,12 @@ class RideOut(BaseModel):
     price: int
     category: RideCategory
     comment: str
+    pets_allowed: bool = False
+    child_seat: bool = False
+    women_only: bool = False
+    smoking: bool = False
+    baggage: bool = False
+    air_conditioner: bool = False
     status: RideStatus
     driver_name: str
     driver_rating: float
@@ -261,6 +322,10 @@ def search_rides(
     from_city: Optional[str] = None,
     to_city: Optional[str] = None,
     category: Optional[RideCategory] = None,
+    pets_allowed: Optional[bool] = None,
+    child_seat: Optional[bool] = None,
+    women_only: Optional[bool] = None,
+    baggage: Optional[bool] = None,
     session: Session = Depends(get_session),
 ):
     q = select(Ride).where(Ride.status == RideStatus.active)
@@ -270,6 +335,14 @@ def search_rides(
         q = q.where(Ride.to_city.contains(to_city))
     if category:
         q = q.where(Ride.category == category)
+    if pets_allowed:
+        q = q.where(Ride.pets_allowed == True)  # noqa: E712
+    if child_seat:
+        q = q.where(Ride.child_seat == True)  # noqa: E712
+    if women_only:
+        q = q.where(Ride.women_only == True)  # noqa: E712
+    if baggage:
+        q = q.where(Ride.baggage == True)  # noqa: E712
     rides = session.exec(q.order_by(Ride.depart_at)).all()
     return [_ride_out(r, session) for r in rides]
 
@@ -345,10 +418,12 @@ def my_requests(user: User = Depends(current_user), session: Session = Depends(g
 
 # ----------------------------- Матчинг (см. backend.md §4) -----------------------------
 @app.get("/match/rides", response_model=List[Ride])
-def match_rides(request_id: int, session: Session = Depends(get_session)):
+def match_rides(request_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     req = session.get(RideRequest, request_id)
     if not req:
         raise HTTPException(404, "Заявка не найдена")
+    if req.passenger_id != user.id:
+        raise HTTPException(403, "Нет доступа к этой заявке")
     q = select(Ride).where(
         Ride.status == RideStatus.active,
         Ride.from_city.contains(req.from_city),
@@ -367,9 +442,13 @@ class BookIn(BaseModel):
 
 @app.post("/bookings", response_model=Booking)
 def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    if body.seats < 1:
+        raise HTTPException(400, "Количество мест должно быть больше 0")
     ride = session.get(Ride, body.ride_id)
     if not ride or ride.status != RideStatus.active:
         raise HTTPException(400, "Поездка недоступна")
+    if ride.driver_id == user.id:
+        raise HTTPException(400, "Нельзя бронировать собственную поездку")
     if ride.seats_left < body.seats:
         raise HTTPException(400, "Не хватает мест")
     booking = Booking(
@@ -386,9 +465,9 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
 
 @app.post("/bookings/{booking_id}/confirm", response_model=Booking)
 def confirm_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    booking = session.get(Booking, booking_id)
-    if not booking:
-        raise HTTPException(404, "Бронь не найдена")
+    booking, ride = _booking_and_ride_for_user(session, booking_id, user)
+    if ride.driver_id != user.id:
+        raise HTTPException(403, "Подтвердить бронь может только водитель")
     booking.status = BookingStatus.confirmed
     session.add(booking)
     session.commit()
@@ -419,6 +498,118 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     return dp
 
 
+# ----------------------------- Водитель: профиль авто и проверка -----------------------------
+class PhotoIn(BaseModel):
+    photo_b64: str
+    ext: str = "jpg"
+
+
+@app.post("/upload/photo")
+def upload_photo(body: PhotoIn, user: User = Depends(current_user)):
+    """Загрузка фото (base64, напр. документ/авто) → media/docs → публичный URL."""
+    ext = "".join(c for c in body.ext.lower() if c.isalnum()) or "jpg"
+    data, ext = _decode_upload_b64(body.photo_b64, settings.image_ext_set, ext, "фото")
+    name = f"{uuid.uuid4().hex}.{ext}"
+    with open(os.path.join(DOC_DIR, name), "wb") as f:
+        f.write(data)
+    return {"url": _public_media_url(f"docs/{name}")}
+
+
+class DriverProfileIn(BaseModel):
+    car_make: str = ""
+    car_model: str = ""
+    car_color: str = ""
+    car_plate: str = ""
+    seats: int = 4
+
+
+def _get_or_create_profile(session: Session, user_id: int) -> DriverProfile:
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user_id)).first()
+    if not dp:
+        dp = DriverProfile(user_id=user_id)
+        session.add(dp)
+        session.commit()
+        session.refresh(dp)
+    return dp
+
+
+@app.post("/driver/profile", response_model=DriverProfile)
+def set_driver_profile(body: DriverProfileIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель заполняет реальные данные авто (вместо захардкоженных)."""
+    dp = _get_or_create_profile(session, user.id)
+    dp.car_make = body.car_make
+    dp.car_model = body.car_model
+    dp.car_color = body.car_color
+    dp.car_plate = body.car_plate
+    dp.seats = body.seats
+    session.add(dp)
+    session.commit()
+    session.refresh(dp)
+    return dp
+
+
+class DriverVerifyIn(BaseModel):
+    license_url: str = ""
+    car_photo_url: str = ""
+
+
+@app.post("/driver/verify", response_model=DriverProfile)
+def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель отправляет документы на проверку → статус 'pending' (модерацию делает админ)."""
+    if not body.license_url or not body.car_photo_url:
+        raise HTTPException(400, "Нужны фото прав и фото автомобиля")
+    dp = _get_or_create_profile(session, user.id)
+    dp.license_url = body.license_url
+    dp.car_photo_url = body.car_photo_url
+    dp.docs_status = "pending"
+    dp.verify_submitted_at = datetime.utcnow()
+    session.add(dp)
+    session.commit()
+    session.refresh(dp)
+    return dp
+
+
+@app.get("/driver/status")
+def driver_status(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    return {
+        "docs_status": dp.docs_status if dp else "none",
+        "verified": user.verified,
+        "car_make": dp.car_make if dp else "",
+        "car_model": dp.car_model if dp else "",
+        "car_color": dp.car_color if dp else "",
+        "car_plate": dp.car_plate if dp else "",
+        "seats": dp.seats if dp else 4,
+        "license_url": dp.license_url if dp else "",
+        "car_photo_url": dp.car_photo_url if dp else "",
+    }
+
+
+class ModerateIn(BaseModel):
+    approve: bool = True
+
+
+@app.post("/admin/drivers/{user_id}/moderate")
+def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Модерация водителя админом: подтвердить (verified=True) или отклонить."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    dp = _get_or_create_profile(session, user_id)
+    if body.approve:
+        target.verified = True
+        dp.docs_status = "verified"
+    else:
+        target.verified = False
+        dp.docs_status = "rejected"
+    session.add(target)
+    session.add(dp)
+    session.commit()
+    return {"user_id": user_id, "verified": target.verified, "docs_status": dp.docs_status}
+
+
 # ----------------------------- Чат (сообщения по брони) -----------------------------
 class MessageIn(BaseModel):
     text: str = ""
@@ -428,8 +619,7 @@ class MessageIn(BaseModel):
 
 @app.post("/bookings/{booking_id}/messages", response_model=Message)
 def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    if not session.get(Booking, booking_id):
-        raise HTTPException(404, "Бронь не найдена")
+    _booking_and_ride_for_user(session, booking_id, user)
     msg = Message(booking_id=booking_id, sender_id=user.id, **body.model_dump())
     session.add(msg)
     session.commit()
@@ -439,6 +629,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
 
 @app.get("/bookings/{booking_id}/messages", response_model=List[Message])
 def list_messages(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    _booking_and_ride_for_user(session, booking_id, user)
     return session.exec(select(Message).where(Message.booking_id == booking_id).order_by(Message.id)).all()
 
 
@@ -540,7 +731,9 @@ def notifications(user: User = Depends(current_user), session: Session = Depends
 
 @app.get("/ads")
 def ads():
-    """Партнёрская реклама — сервер-управляемая (пока сид; заменяется реальными размещениями)."""
+    """Партнёрская реклама. В production без real ad-store не подмешиваем демо-креативы."""
+    if not settings.seed_demo:
+        return []
     return [
         {"id": "a_cafe", "title": "Кафе «Юлдаш»", "text": "Горячий чай и еда по дороге Баймаҡ → Сибай", "button": "Посмотреть", "erid": "2VtzqyYYYY", "placement": "route"},
         {"id": "a_sto", "title": "СТО «АвтоМастер»", "text": "Проверка перед дальней дорогой, скидка попутчикам", "button": "Узнать", "erid": "2VtzqyZZZZ", "placement": "ridesList"},
@@ -555,15 +748,12 @@ class VoiceIn(BaseModel):
 @app.post("/voice")
 def upload_voice(body: VoiceIn, user: User = Depends(current_user)):
     """Загрузка голосового (base64) → сохранение в media → публичный URL."""
-    try:
-        data = base64.b64decode(body.audio_b64)
-    except Exception:
-        raise HTTPException(400, "Некорректное аудио")
-    ext = "".join(c for c in body.ext if c.isalnum()) or "m4a"
+    ext = "".join(c for c in body.ext.lower() if c.isalnum()) or "m4a"
+    data, ext = _decode_upload_b64(body.audio_b64, settings.audio_ext_set, ext, "аудио")
     name = f"{uuid.uuid4().hex}.{ext}"
     with open(os.path.join(VOICE_DIR, name), "wb") as f:
         f.write(data)
-    return {"url": f"https://yulbash.ru/media/voice/{name}"}
+    return {"url": _public_media_url(f"voice/{name}")}
 
 
 # ----------------------------- Семейный контроль -----------------------------
@@ -594,8 +784,12 @@ class ShareIn(BaseModel):
 
 @app.post("/bookings/{booking_id}/share", response_model=TripShare)
 def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    if not session.get(Booking, booking_id):
-        raise HTTPException(404, "Бронь не найдена")
+    booking, _ = _booking_and_ride_for_user(session, booking_id, user)
+    if booking.passenger_id != user.id:
+        raise HTTPException(403, "Расшарить поездку может только пассажир")
+    contact = session.get(TrustedContact, body.contact_id)
+    if not contact or contact.user_id != user.id:
+        raise HTTPException(404, "Контакт не найден")
     share = TripShare(booking_id=booking_id, contact_id=body.contact_id)
     session.add(share)
     session.commit()
@@ -609,7 +803,15 @@ class TripStatusIn(BaseModel):
 
 @app.post("/bookings/{booking_id}/trip-status", response_model=List[TripShare])
 def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id)).all()
+    booking, _ = _booking_and_ride_for_user(session, booking_id, user)
+    if booking.passenger_id != user.id:
+        raise HTTPException(403, "Статус семейного контроля меняет только пассажир")
+    if body.status not in {"sat", "arrived", "done"}:
+        raise HTTPException(400, "Недопустимый статус поездки")
+    contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()]
+    if not contact_ids:
+        return []
+    shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id, TripShare.contact_id.in_(contact_ids))).all()
     for share in shares:
         share.last_status = body.status
         session.add(share)
@@ -672,6 +874,8 @@ class SosIn(BaseModel):
 
 @app.post("/sos", response_model=SosEvent)
 def sos(body: SosIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    if body.booking_id is not None:
+        _booking_and_ride_for_user(session, body.booking_id, user)
     event = SosEvent(user_id=user.id, **body.model_dump())
     session.add(event)
     session.commit()
@@ -695,6 +899,10 @@ class ReportIn(BaseModel):
 
 @app.post("/reports", response_model=Report)
 def create_report(body: ReportIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    if body.target_user_id == user.id:
+        raise HTTPException(400, "Нельзя пожаловаться на себя")
+    if not session.get(User, body.target_user_id):
+        raise HTTPException(404, "Пользователь не найден")
     report = Report(reporter_id=user.id, **body.model_dump())
     session.add(report)
     session.commit()
@@ -708,6 +916,15 @@ class BlockIn(BaseModel):
 
 @app.post("/blocks", response_model=Block)
 def create_block(body: BlockIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    if body.blocked_user_id == user.id:
+        raise HTTPException(400, "Нельзя заблокировать себя")
+    if not session.get(User, body.blocked_user_id):
+        raise HTTPException(404, "Пользователь не найден")
+    existing = session.exec(
+        select(Block).where(Block.user_id == user.id, Block.blocked_user_id == body.blocked_user_id)
+    ).first()
+    if existing:
+        return existing
     block = Block(user_id=user.id, **body.model_dump())
     session.add(block)
     session.commit()

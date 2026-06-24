@@ -59,6 +59,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.ChildCare
+import androidx.compose.material.icons.filled.Woman
+import androidx.compose.material.icons.filled.SmokingRooms
+import androidx.compose.material.icons.filled.Luggage
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Bolt
@@ -476,6 +484,12 @@ private fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     rating = driverRating,
     verified = driverVerified,
     boosted = false,
+    petsAllowed = petsAllowed,
+    childSeat = childSeat,
+    womenOnly = womenOnly,
+    smoking = smoking,
+    baggage = baggage,
+    airConditioner = airConditioner,
 )
 
 /** Километры коротко: «2.3 км» вблизи, «243 км» вдали. */
@@ -510,7 +524,13 @@ private data class Ride(
     val seats: Int,
     val rating: Double,
     val verified: Boolean,
-    val boosted: Boolean
+    val boosted: Boolean,
+    val petsAllowed: Boolean = false,
+    val childSeat: Boolean = false,
+    val womenOnly: Boolean = false,
+    val smoking: Boolean = false,
+    val baggage: Boolean = false,
+    val airConditioner: Boolean = false
 )
 
 private data class PopularRoute(
@@ -782,7 +802,9 @@ private val demoRides = listOf(
         seats = 2,
         rating = 4.8,
         verified = true,
-        boosted = true
+        boosted = true,
+        petsAllowed = true,
+        airConditioner = true
     ),
     Ride(
         id = "2",
@@ -797,7 +819,10 @@ private val demoRides = listOf(
         seats = 2,
         rating = 4.9,
         verified = true,
-        boosted = false
+        boosted = false,
+        womenOnly = true,
+        childSeat = true,
+        baggage = true
     ),
     Ride(
         id = "3",
@@ -812,7 +837,8 @@ private val demoRides = listOf(
         seats = 1,
         rating = 4.6,
         verified = false,
-        boosted = false
+        boosted = false,
+        baggage = true
     )
 )
 
@@ -978,8 +1004,25 @@ private fun YuldashApp() {
         val current = adStats[ad.id] ?: AdStats()
         adStats = adStats + (ad.id to current.copy(clicks = current.clicks + 1))
         val title = if (language == AppLanguage.Ba) ad.titleBa ?: ad.title else ad.title
-        val button = if (language == AppLanguage.Ba) ad.primaryButtonBa ?: ad.primaryButton else ad.primaryButton
-        Toast.makeText(context, "$title: $button", Toast.LENGTH_SHORT).show()
+        // Реальное действие по клику: телефон → звонилка; иначе координаты → карта; иначе подсказка.
+        val phoneDigits = ad.contact.filter { it.isDigit() || it == '+' }
+        val isPhone = phoneDigits.count { it.isDigit() } >= 10
+        val mapPt = ad.mapPoint.replace(" ", "")
+        try {
+            when {
+                isPhone -> context.startActivity(
+                    Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phoneDigits"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                mapPt.isNotBlank() -> context.startActivity(
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse("geo:$mapPt?q=$mapPt"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                else -> Toast.makeText(context, title, Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, title, Toast.LENGTH_SHORT).show()
+        }
     }
 
     // Поездки — с сервера. Стартуем с демо (мгновенно), при ответе заменяем на серверные.
@@ -2390,6 +2433,7 @@ private fun MapScreen(
     var nearby by remember { mutableStateOf<List<com.yuldash.app.data.RideDto>>(emptyList()) }
     var nearbyLoading by remember { mutableStateOf(true) }
     var nearbyReload by remember { mutableStateOf(0) }
+    var prefFilter by remember { mutableStateOf(setOf<String>()) }  // фильтр «Ближайших» по условиям поездки
     val focusFrom = activeTrip?.from
     val focusTo = activeTrip?.to
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
@@ -2401,6 +2445,13 @@ private fun MapScreen(
         ApiClient.getNearbyRides(focusFrom, focusTo, userLat, userLng, radius)
             .onSuccess { nearby = it }
         nearbyLoading = false
+    }
+    // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
+    val shownNearby = if (prefFilter.isEmpty()) nearby else nearby.filter { d ->
+        ("women" !in prefFilter || d.womenOnly) &&
+            ("child" !in prefFilter || d.childSeat) &&
+            ("pets" !in prefFilter || d.petsAllowed) &&
+            ("baggage" !in prefFilter || d.baggage)
     }
     Scaffold(containerColor = CanonBg) { padding ->
         Column(
@@ -2444,8 +2495,21 @@ private fun MapScreen(
                                 }
                             }
                             if (nearby.isNotEmpty()) {
-                                Text(appText("${nearby.size} рядом", "${nearby.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(appText("${shownNearby.size} рядом", "${shownNearby.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
+                        }
+                    }
+                }
+                item {
+                    if (nearby.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            NearbyFilterChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), "women" in prefFilter) { prefFilter = if ("women" in prefFilter) prefFilter - "women" else prefFilter + "women" }
+                            NearbyFilterChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), "child" in prefFilter) { prefFilter = if ("child" in prefFilter) prefFilter - "child" else prefFilter + "child" }
+                            NearbyFilterChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"), "pets" in prefFilter) { prefFilter = if ("pets" in prefFilter) prefFilter - "pets" else prefFilter + "pets" }
+                            NearbyFilterChip(Icons.Default.Luggage, appText("Багаж", "Багаж"), "baggage" in prefFilter) { prefFilter = if ("baggage" in prefFilter) prefFilter - "baggage" else prefFilter + "baggage" }
                         }
                     }
                 }
@@ -2456,8 +2520,12 @@ private fun MapScreen(
                                 NearbySkeletonCard(); NearbySkeletonCard()
                             }
                             nearby.isEmpty() -> NearbyEmptyCard(hasRoute = focusFrom != null, onRetry = { nearbyReload++ })
+                            shownNearby.isEmpty() -> Text(
+                                appText("Нет поездок с такими условиями. Снимите часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн алығыҙ."),
+                                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
+                            )
                             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                itemsIndexed(nearby) { i, dto ->
+                                itemsIndexed(shownNearby) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
                                 }
                             }
@@ -3878,6 +3946,66 @@ private fun BoostBadge() {
     }
 }
 
+// Чип-предпочтение поездки (иконка + подпись), стиль Canon.
+@Composable
+private fun PrefChip(icon: ImageVector, label: String) {
+    Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
+        Row(modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(label, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+        }
+    }
+}
+
+// Лента чипов с условиями поездки (показывается только если есть хоть одно).
+@Composable
+private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
+    if (!(ride.petsAllowed || ride.childSeat || ride.womenOnly || ride.smoking || ride.baggage || ride.airConditioner)) return
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (ride.womenOnly) PrefChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
+        if (ride.childSeat) PrefChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"))
+        if (ride.petsAllowed) PrefChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"))
+        if (ride.baggage) PrefChip(Icons.Default.Luggage, appText("Багаж", "Багаж"))
+        if (ride.airConditioner) PrefChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"))
+        if (ride.smoking) PrefChip(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"))
+    }
+}
+
+// Строка-тумблер условия поездки (для экрана «Создать поездку»).
+@Composable
+private fun PrefToggleRow(icon: ImageVector, label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+// Чип-фильтр «Ближайших» — переключаемый (зелёный = активен).
+@Composable
+private fun NearbyFilterChip(icon: ImageVector, label: String, active: Boolean, onToggle: () -> Unit) {
+    Surface(
+        modifier = Modifier.bounceClick(onToggle),
+        color = if (active) CanonGreen2 else CanonSurface,
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, if (active) Color.Transparent else CanonBorder)
+    ) {
+        Row(modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = if (active) Color.White else CanonGreen2, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(label, color = if (active) Color.White else CanonText, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}
+
 @Composable
 private fun Metric(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, modifier: Modifier = Modifier) {
     Surface(
@@ -4149,6 +4277,7 @@ private fun FullRideCard(
                     }
                 }
             }
+            RidePrefChips(ride)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -5184,6 +5313,12 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var seats by remember { mutableStateOf("2") }
     var price by remember { mutableStateOf("300") }
     var comment by remember { mutableStateOf("") }
+    var petsAllowed by remember { mutableStateOf(false) }
+    var childSeat by remember { mutableStateOf(false) }
+    var womenOnly by remember { mutableStateOf(false) }
+    var smoking by remember { mutableStateOf(false) }
+    var baggage by remember { mutableStateOf(false) }
+    var airConditioner by remember { mutableStateOf(false) }
     val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
     val defaultCar = appText("Моя машина", "Минең машина")
     Scaffold(
@@ -5221,6 +5356,19 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 )
             }
             item {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.padding(vertical = 6.dp)) {
+                        Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                        PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ өсөн"), womenOnly) { womenOnly = it }
+                        PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло / бустер", "Балалар ултырғысы / бустер"), childSeat) { childSeat = it }
+                        PrefToggleRow(Icons.Default.Pets, appText("Можно с животным", "Хайуан менән"), petsAllowed) { petsAllowed = it }
+                        PrefToggleRow(Icons.Default.Luggage, appText("Есть место под багаж", "Багаж урыны бар"), baggage) { baggage = it }
+                        PrefToggleRow(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), airConditioner) { airConditioner = it }
+                        PrefToggleRow(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"), smoking) { smoking = it }
+                    }
+                }
+            }
+            item {
                 InfoCard(
                     title = appText("Платное поднятие", "Түләүле күтәреү"),
                     text = appText("Можно добавить после публикации. Обычные поездки остаются бесплатными.", "Баҫтырғандан һуң өҫтәп була. Ғәҙәти сәфәрҙәр бушлай ҡала."),
@@ -5236,7 +5384,7 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         val seatsVal = seats.toIntOrNull() ?: 2
                         val departIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
                             .format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L))
-                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim())
+                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner)
                         onPublish(
                             Ride(
                                 id = "local-${System.currentTimeMillis()}",
@@ -5251,7 +5399,13 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                                 seats = seatsVal,
                                 rating = 5.0,
                                 verified = false,
-                                boosted = false
+                                boosted = false,
+                                petsAllowed = petsAllowed,
+                                childSeat = childSeat,
+                                womenOnly = womenOnly,
+                                smoking = smoking,
+                                baggage = baggage,
+                                airConditioner = airConditioner
                             )
                         )
                     },
@@ -7016,7 +7170,57 @@ private fun SosScreen(onBack: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit) {
-    var sent by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var make by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf("") }
+    var carColor by remember { mutableStateOf("") }
+    var plate by remember { mutableStateOf("") }
+    var seats by remember { mutableStateOf("4") }
+    var licenseUrl by remember { mutableStateOf<String?>(null) }
+    var carPhotoUrl by remember { mutableStateOf<String?>(null) }
+    var uploadingLicense by remember { mutableStateOf(false) }
+    var uploadingCar by remember { mutableStateOf(false) }
+    var docsStatus by remember { mutableStateOf("none") }
+    var verified by remember { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        ApiClient.getDriverStatus().onSuccess { s ->
+            docsStatus = s.docsStatus
+            verified = s.verified
+            if (s.carMake.isNotBlank()) make = s.carMake
+            if (s.carModel.isNotBlank()) model = s.carModel
+            if (s.carColor.isNotBlank()) carColor = s.carColor
+            if (s.carPlate.isNotBlank()) plate = s.carPlate
+            if (s.seats > 0) seats = s.seats.toString()
+            if (s.licenseUrl.isNotBlank()) licenseUrl = s.licenseUrl
+            if (s.carPhotoUrl.isNotBlank()) carPhotoUrl = s.carPhotoUrl
+        }
+    }
+    val pickLicense = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            uploadingLicense = true
+            scope.launch {
+                val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                val url = if (bytes != null) ApiClient.uploadPhoto(bytes).getOrNull() else null
+                if (url != null) licenseUrl = url
+                uploadingLicense = false
+            }
+        }
+    }
+    val pickCar = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            uploadingCar = true
+            scope.launch {
+                val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                val url = if (bytes != null) ApiClient.uploadPhoto(bytes).getOrNull() else null
+                if (url != null) carPhotoUrl = url
+                uploadingCar = false
+            }
+        }
+    }
+    val canSubmit = licenseUrl != null && carPhotoUrl != null && !submitting
 
     Scaffold(
         containerColor = CanonBg,
@@ -7029,68 +7233,102 @@ private fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Uni
         ) {
             item { Spacer(Modifier.height(10.dp)) }
             item {
-                Text(appText("Проверка водителя", "Водителде тикшереү"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-                Text(appText("Мы проверяем ваши данные, чтобы пассажиры могли вам доверять", "Пассажирҙар ышанһын өсөн мәғлүмәтте тикшерәбеҙ"), color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp)
+                Text(appText("Проверка водителя", "Водителде тикшереү"), color = CanonGreen, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black)
+                Text(appText("Пройдите проверку, чтобы пассажиры вам доверяли", "Пассажирҙар ышанһын өсөн тикшереүҙе үтегеҙ"), color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp)
             }
             item {
-                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, Color(0x2235A363))) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(color = CanonMint, shape = CircleShape) {
-                                Icon(Icons.Default.Shield, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(20.dp).size(36.dp))
-                            }
-                            Spacer(Modifier.width(16.dp))
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Text(appText("Статус: В процессе", "Статус: Бара"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
-                                Text(appText("Проверяем документы и информацию об автомобиле.", "Документтарҙы һәм машина мәғлүмәтен тикшерәбеҙ."), color = CanonMuted, lineHeight = 19.sp)
-                            }
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            StepDot(done = true)
-                            Box(Modifier.weight(1f).height(2.dp).background(CanonGreen2))
-                            StepDot(done = true)
-                            Box(Modifier.weight(1f).height(2.dp).background(CanonBorder))
-                            StepDot(done = false)
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(appText("Документы", "Документтар"), color = CanonMuted, fontSize = 12.sp)
-                            Text(appText("Автомобиль", "Автомобиль"), color = CanonMuted, fontSize = 12.sp)
-                            Text(appText("Готово", "Әҙер"), color = CanonMuted, fontSize = 12.sp)
-                        }
-                    }
+                when {
+                    verified -> StatusBanner(Icons.Default.Verified, appText("Профиль подтверждён", "Профиль раҫланды"), appText("Вам доверяют — значок «Проверен» виден пассажирам.", "Һеҙгә ышаналар — «Тикшерелгән» билдәһе күренә."), CanonMint, CanonGreen2)
+                    docsStatus == "pending" -> StatusBanner(Icons.Default.Schedule, appText("На проверке", "Тикшереүҙә"), appText("Обычно занимает немного времени. Сообщим о результате.", "Ғәҙәттә әҙ ваҡыт ала. Һөҙөмтә тураһында хәбәр итәбеҙ."), CanonMint, CanonGreen2)
+                    docsStatus == "rejected" -> StatusBanner(Icons.Default.Shield, appText("Отклонено", "Кире ҡағылды"), appText("Проверьте фото и отправьте снова.", "Фотоларҙы тикшереп, ҡабат ебәрегеҙ."), CanonDangerBg, CanonRed)
+                    else -> StatusBanner(Icons.Default.Shield, appText("Проверка не пройдена", "Тикшереү үтелмәгән"), appText("Заполните данные авто и загрузите фото.", "Машина мәғлүмәтен тултырып, фото йөкләгеҙ."), CanonMint, CanonGreen2)
                 }
             }
-            item { Text(appText("Документы и информация", "Документтар һәм мәғлүмәт"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+            item { Text(appText("Данные автомобиля", "Машина мәғлүмәте"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
             item {
-                SettingsGroup {
-                    DocumentRow(Icons.Default.Badge, appText("Права", "Права"), appText("Загружено", "Йөкләнде"), true)
-                    DocumentRow(Icons.Default.DirectionsCar, appText("Машина", "Машина"), appText("Загружено", "Йөкләнде"), true)
-                    DocumentRow(Icons.Default.PhotoCamera, appText("Фото авто", "Авто фотоһы"), appText("Требуется", "Кәрәк"), false)
-                    DocumentRow(Icons.Default.Description, appText("Госномер", "Дәүләт номеры"), appText("Требуется", "Кәрәк"), false)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(value = make, onValueChange = { make = it }, label = { Text(appText("Марка", "Марка")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
+                    OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text(appText("Модель", "Модель")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
                 }
             }
-            item { Text(appText("Информация об автомобиле", "Автомобиль тураһында"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
             item {
-                SettingsGroup {
-                    SettingsNavRow(Icons.Default.DirectionsCar, appText("Марка авто", "Машина маркаһы"), "Kia Rio")
-                    SettingsNavRow(Icons.Default.Tune, appText("Цвет", "Төҫ"), appText("Белый", "Аҡ"))
-                    SettingsNavRow(Icons.Default.Person, appText("Количество мест", "Урындар һаны"), "4")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(value = carColor, onValueChange = { carColor = it }, label = { Text(appText("Цвет", "Төҫ")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
+                    OutlinedTextField(value = plate, onValueChange = { plate = it }, label = { Text(appText("Госномер", "Дәүләт номеры")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
                 }
             }
-            if (sent) {
-                item { InfoCard(appText("Заявка отправлена", "Заявка ебәрелде"), appText("Мы покажем статус здесь после проверки.", "Тикшереүҙән һуң статус бында күрһәтелә."), Icons.Default.Verified) }
+            item {
+                OutlinedTextField(value = seats, onValueChange = { seats = it.filter(Char::isDigit) }, label = { Text(appText("Количество мест", "Урындар һаны")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), singleLine = true)
             }
+            item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+            item { UploadTile(appText("Фото водительских прав", "Водитель танытмаһы фотоһы"), licenseUrl != null, uploadingLicense) { pickLicense.launch("image/*") } }
+            item { UploadTile(appText("Фото автомобиля", "Машина фотоһы"), carPhotoUrl != null, uploadingCar) { pickCar.launch("image/*") } }
             item {
                 Button(
-                    onClick = { sent = true },
+                    onClick = {
+                        submitting = true
+                        scope.launch {
+                            ApiClient.setDriverProfile(make.trim(), model.trim(), carColor.trim(), plate.trim(), seats.toIntOrNull() ?: 4)
+                            val ok = ApiClient.submitDriverVerify(licenseUrl ?: "", carPhotoUrl ?: "").isSuccess
+                            if (ok) docsStatus = "pending"
+                            submitting = false
+                        }
+                    },
+                    enabled = canSubmit,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
                     Icon(Icons.Default.Verified, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(appText("Отправить на проверку", "Тикшереүгә ебәреү"), fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Text(if (submitting) appText("Отправка…", "Ебәрелә…") else appText("Отправить на проверку", "Тикшереүгә ебәреү"), fontWeight = FontWeight.Black, fontSize = 16.sp)
                 }
+            }
+            item {
+                Text(appText("Фото нужны только для проверки и не видны другим пользователям.", "Фотолар тик тикшереү өсөн, башҡаларға күренмәй."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusBanner(icon: ImageVector, title: String, sub: String, bg: Color, fg: Color) {
+    Surface(color = bg, shape = CanonItemShape) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                Text(sub, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UploadTile(title: String, done: Boolean, loading: Boolean, onClick: () -> Unit) {
+    Surface(
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, if (done) CanonGreen2 else CanonBorder),
+        modifier = Modifier.fillMaxWidth().bounceClick(onClick)
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                Icon(if (done) Icons.Default.CheckCircle else Icons.Default.PhotoCamera, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp).size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(
+                    if (loading) appText("Загрузка…", "Йөкләнә…") else if (done) appText("Загружено", "Йөкләнде") else appText("Нажмите, чтобы выбрать фото", "Фото һайлау өсөн баҫығыҙ"),
+                    color = if (done) CanonGreen2 else CanonMuted, fontSize = 13.sp
+                )
+            }
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonGreen2)
+            } else {
+                Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
             }
         }
     }

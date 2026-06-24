@@ -53,6 +53,8 @@
 - На сервере — простой SQL/гео-фильтр (радиус городов), позже — настоящий гео-поиск.
 
 ## 5. API (REST, по фазам)
+> ⚠️ Это блюпринт-имена. **Реально задеплоено (2026-06-24)** — слегка иначе, актуальный список в [server.md](server.md): водитель — `POST /driver/profile`, `POST /driver/verify`, `GET /driver/status` (+ `POST /upload/photo`); админ-модерация — `POST /admin/drivers/{id}/moderate`. Плюс реальные: `/rides/near`, `/feed`, `/bookings/{id}/rate`, премиум-фильтры в `GET /rides`.
+
 **Авторизация:** `POST /auth/request-code`, `POST /auth/verify`, `POST /auth/refresh`, `GET /me`.
 **Поездки:** `POST /rides`, `GET /rides?from&to&date&category`, `GET /rides/{id}`, `PATCH /rides/{id}` (статус/места).
 **Заявки:** `POST /requests`, `GET /requests/mine`, `GET /requests/feed` (для водителя по маршруту).

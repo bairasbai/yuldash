@@ -61,7 +61,10 @@ class DriverProfile(SQLModel, table=True):
     car_color: str = ""
     car_plate: str = ""
     seats: int = 4
-    docs_status: str = "pending"
+    docs_status: str = "none"         # none / pending / verified / rejected
+    license_url: str = ""             # фото водительского удостоверения
+    car_photo_url: str = ""           # фото автомобиля
+    verify_submitted_at: Optional[datetime] = None
 
 
 class Ride(SQLModel, table=True):
@@ -75,6 +78,13 @@ class Ride(SQLModel, table=True):
     price: int = 0
     category: RideCategory = RideCategory.regular
     comment: str = ""
+    # Премиум-предпочтения поездки (двусторонний фильтр водитель↔пассажир)
+    pets_allowed: bool = False        # можно с животными
+    child_seat: bool = False          # есть детское кресло/бустер
+    women_only: bool = False          # только женщины
+    smoking: bool = False             # курение разрешено
+    baggage: bool = False             # есть место под багаж
+    air_conditioner: bool = False     # кондиционер
     status: RideStatus = RideStatus.active
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

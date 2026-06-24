@@ -18,6 +18,19 @@ val geocoderKey: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YANDEX_GEOCODER_KEY", "")
 
+// URL backend API для debug/release. Можно переопределить в local.properties:
+// YULDASH_DEBUG_API_BASE_URL=http://10.0.2.2:8000
+// YULDASH_RELEASE_API_BASE_URL=https://yulbash.ru
+val debugApiBaseUrl: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_DEBUG_API_BASE_URL", "http://10.0.2.2:8000")
+
+val releaseApiBaseUrl: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_RELEASE_API_BASE_URL", "https://yulbash.ru")
+
 // Подпись релиза: данные из keystore.properties (в .gitignore, в git не попадает).
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
@@ -69,7 +82,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "YULDASH_API_BASE_URL", "\"$debugApiBaseUrl\"")
+        }
+
         release {
+            buildConfigField("String", "YULDASH_API_BASE_URL", "\"$releaseApiBaseUrl\"")
             isMinifyEnabled = false
             if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
         }

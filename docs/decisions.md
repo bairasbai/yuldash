@@ -6,6 +6,13 @@
 - **Stitch проект:** `Юлдаш — UI`, projectId `16399503343704919649`. Использовать его, не создавать новые.
 - **Stitch дизайн-система:** `assets/4395563391561812483` (зелёный #0B6B3A, Manrope+Inter, ROUND_TWELVE). Все экраны генерить с ней. Превью макетов — `docs/stitch/`.
 
+## 2026-06-24 (Cowork-сессия)
+- **Базовый URL API — из `BuildConfig`, не хардкод.** `build.gradle.kts` читает `local.properties` → `BuildConfig.YULDASH_API_BASE_URL`. Debug = `http://10.0.2.2:8000` (локальный бэк с эмулятора), release = `https://yulbash.ru`. Зачем: тестировать на локальном сервере без правки кода.
+- **Прод-конфиг с жёсткой проверкой.** `config.py.validate_production()` при `env=prod` падает, если небезопасно (dev `jwt_secret`/<16 симв., `sms=mock`, `cors=*`, не-HTTPS `media_base_url`). Зачем: не выкатить дырявую конфигурацию.
+- **Проверка водителя — без платного KYC.** Свои эндпоинты: загрузка фото прав/авто (`/upload/photo`) + ручная админ-модерация (`/admin/drivers/{id}/moderate` → `verified`). Зачем: дорогой KYC не нужен на MVP — доверие «между своими» + ручная проверка.
+- **Премиум-предпочтения поездки — двусторонний фильтр.** Булевы поля `pets_allowed/child_seat/women_only/smoking/baggage/air_conditioner` на `Ride`, дефолт `False` (обратносовместимо), `GET /rides` принимает как фильтры. Зачем: матчинг водитель↔пассажир по условиям.
+- **Миграция Postgres вручную.** `SQLModel.create_all` НЕ добавляет колонки в существующие таблицы → новые поля выкатываются `ALTER TABLE` (`backend/migrate_premium.sql`), не пересозданием БД.
+
 ## 2026-06-22
 - **Карта реализована (Этап 1).** Реальный `MapView` через `AndroidView` в `YandexMapCard` на вкладке «Карта». Старт/финиш Баймаҡ→Сибай, прямая зелёная линия маршрута, круги-зоны, накладки. Подробности — `architecture.md`.
   - **SDK берём из Maven Central** (не из старого репо Yandex `maven.appmetrica.yandex.com` — тот недоступен/устарел): `com.yandex.android:maps.mobile:4.39.0-lite`. `mavenCentral()` уже подключён, новых репозиториев не добавляли.
