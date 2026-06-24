@@ -2396,7 +2396,9 @@ private fun MapScreen(
     val userLng = LocationPrefs.lastLng
     LaunchedEffect(focusFrom, focusTo, userLat, userLng, nearbyReload) {
         nearbyLoading = true
-        ApiClient.getNearbyRides(focusFrom, focusTo, userLat, userLng)
+        // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
+        val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
+        ApiClient.getNearbyRides(focusFrom, focusTo, userLat, userLng, radius)
             .onSuccess { nearby = it }
         nearbyLoading = false
     }
@@ -2865,6 +2867,9 @@ private fun SeniorAccessCard(onSimpleMode: () -> Unit) {
 private val BaymakPoint = Point(52.5911, 58.3222)
 private val SibayPoint = Point(52.7236, 58.6651)
 // Согласие на показ геолокации — общий флаг (Профиль → Конфиденциальность ↔ карта).
+// Радиус «рядом»: поездки, чья точка выезда дальше — отсекаем (только когда знаем позицию клиента).
+private const val NEARBY_RADIUS_KM = 50.0
+
 private object LocationPrefs {
     var sharingEnabled by mutableStateOf(false)
     // Последняя позиция клиента (с карты) — для «сколько в N км от тебя» в «Ближайших поездках».
@@ -3639,7 +3644,10 @@ private fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean, 
                 dto.distanceKm?.let { km ->
                     Icon(Icons.Default.NearMe, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(3.dp))
-                    Text(appText("${fmtKm(km)} км", "${fmtKm(km)} км"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CanonText)
+                    Text(
+                        if (km < 1.0) appText("рядом", "янда") else appText("${fmtKm(km)} км", "${fmtKm(km)} км"),
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CanonText
+                    )
                     Spacer(Modifier.width(10.dp))
                 }
                 Text("${dto.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
