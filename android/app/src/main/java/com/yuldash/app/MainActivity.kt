@@ -2308,7 +2308,7 @@ private fun RowScope.YuldashBottomItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit
 ) {
-    val pillColor by animateColorAsState(if (selected) CanonYellow else Color.Transparent, tween(280), label = "navPill")
+    val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(280), label = "navPill")
     val iconTint by animateColorAsState(if (selected) CanonText else CanonMuted, tween(280), label = "navTint")
     val labelColor by animateColorAsState(if (selected) Color(0xFFD29400) else CanonMuted, tween(280), label = "navLabel")
     val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, tween(280), label = "navScale")
