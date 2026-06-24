@@ -3592,16 +3592,16 @@ private fun MyTripCard(
 private fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean, onOpen: () -> Unit) {
     Card(
         modifier = Modifier
-            .width(290.dp)
-            .height(190.dp)
+            .width(286.dp)
+            .height(152.dp)
             .clickable(onClick = onOpen),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -3630,8 +3630,8 @@ private fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean, 
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-                    Text(dto.driverName.take(1).uppercase(), fontWeight = FontWeight.Black, fontSize = 14.sp, color = CanonGreen2)
+                Box(modifier = Modifier.size(30.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+                    Text(dto.driverName.take(1).uppercase(), fontWeight = FontWeight.Black, fontSize = 13.sp, color = CanonGreen2)
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -3654,10 +3654,10 @@ private fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean, 
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = onOpen,
-                    modifier = Modifier.height(38.dp),
-                    shape = RoundedCornerShape(13.dp),
+                    modifier = Modifier.height(36.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
-                    contentPadding = PaddingValues(horizontal = 16.dp)
+                    contentPadding = PaddingValues(horizontal = 14.dp)
                 ) {
                     Text(appText("Поехать", "Барырға"), fontWeight = FontWeight.Black, fontSize = 13.sp)
                 }
@@ -3669,17 +3669,17 @@ private fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean, 
 @Composable
 private fun NearbySkeletonCard() {
     Card(
-        modifier = Modifier.width(290.dp).height(190.dp),
+        modifier = Modifier.width(286.dp).height(152.dp),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.fillMaxWidth(0.7f).height(16.dp).background(CanonMint, RoundedCornerShape(8.dp)))
             Box(Modifier.fillMaxWidth(0.4f).height(13.dp).background(CanonMint, RoundedCornerShape(7.dp)))
             Box(Modifier.fillMaxWidth(0.55f).height(13.dp).background(CanonMint, RoundedCornerShape(7.dp)))
             Spacer(Modifier.weight(1f))
-            Box(Modifier.fillMaxWidth(0.5f).height(34.dp).background(CanonMint, RoundedCornerShape(13.dp)))
+            Box(Modifier.fillMaxWidth(0.5f).height(34.dp).background(CanonMint, RoundedCornerShape(12.dp)))
         }
     }
 }
