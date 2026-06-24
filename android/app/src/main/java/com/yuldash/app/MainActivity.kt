@@ -3242,8 +3242,18 @@ private fun MapMarkerHitTargets(rides: List<Ride>, onRideTap: (Ride) -> Unit) {
     }
 }
 
+// Дистанция между городами по координатам (для превью маршрута). null — если город неизвестен.
+private fun cityDistanceText(from: String, to: String): String? {
+    val a = cityPoint(from) ?: return null
+    val b = cityPoint(to) ?: return null
+    val sLat = Math.sin(Math.toRadians(b.latitude - a.latitude) / 2)
+    val sLon = Math.sin(Math.toRadians(b.longitude - a.longitude) / 2)
+    val h = sLat * sLat + Math.cos(Math.toRadians(a.latitude)) * Math.cos(Math.toRadians(b.latitude)) * sLon * sLon
+    return "${Math.round(2 * 6371.0 * Math.asin(Math.sqrt(h)))} км"
+}
+
 @Composable
-private fun MapPreview(modifier: Modifier = Modifier) {
+private fun MapPreview(modifier: Modifier = Modifier, from: String = "Баймаҡ", to: String = "Сибай", distance: String? = "43 км") {
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -3279,17 +3289,19 @@ private fun MapPreview(modifier: Modifier = Modifier) {
             drawCircle(Color(0xFF0B6B3A), radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
             drawCircle(Color(0xFFE2A11B), radius = 15f, center = Offset(size.width * 0.84f, size.height * 0.68f))
         }
-        MapLabel("Баймаҡ", Modifier.align(Alignment.TopStart).padding(20.dp))
-        MapLabel("Сибай", Modifier.align(Alignment.CenterEnd).padding(20.dp))
-        Surface(
-            modifier = Modifier.align(Alignment.TopEnd).padding(18.dp),
-            color = Color.White.copy(alpha = 0.92f),
-            shape = RoundedCornerShape(999.dp)
-        ) {
-            Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(16.dp), tint = CanonGreen2)
-                Spacer(Modifier.width(5.dp))
-                Text("43 км", fontWeight = FontWeight.Bold)
+        MapLabel(from, Modifier.align(Alignment.TopStart).padding(20.dp))
+        MapLabel(to, Modifier.align(Alignment.CenterEnd).padding(20.dp))
+        distance?.let { dist ->
+            Surface(
+                modifier = Modifier.align(Alignment.TopEnd).padding(18.dp),
+                color = Color.White.copy(alpha = 0.92f),
+                shape = RoundedCornerShape(999.dp)
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(16.dp), tint = CanonGreen2)
+                    Spacer(Modifier.width(5.dp))
+                    Text(dist, fontWeight = FontWeight.Bold)
+                }
             }
         }
         Card(
@@ -6186,7 +6198,7 @@ private fun BookingScreen(
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(color = CanonMint, shape = CircleShape) {
-                                Text("Р", modifier = Modifier.padding(22.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                                Text(ride.driver.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(22.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 22.sp)
                             }
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -6205,7 +6217,7 @@ private fun BookingScreen(
                             }
                         }
                         TripInfoRow(Icons.Default.LocationOn, appText("Место встречи", "Осрашыу урыны"), appText("Автовокзал, вход 2", "Автовокзал, 2-се инеү"))
-                        MapPreview(Modifier.height(170.dp))
+                        MapPreview(Modifier.height(170.dp), from = ride.from, to = ride.to, distance = cityDistanceText(ride.from, ride.to))
                         routeAd?.let { ad ->
                             PartnerAdCard(
                                 ad = ad,
