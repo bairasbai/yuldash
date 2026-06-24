@@ -231,6 +231,7 @@ import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.ConversationDto
 import com.yuldash.app.data.PopularRouteDto
 import com.yuldash.app.data.FeedDto
+import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
 import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
@@ -4329,6 +4330,7 @@ private fun ChatScreen(
     var draft by remember { mutableStateOf("") }
     var latestBookingId by remember { mutableStateOf<Int?>(null) }
     var conversations by remember { mutableStateOf<List<ConversationDto>>(emptyList()) }
+    var myRequests by remember { mutableStateOf<List<RequestDto>>(emptyList()) }
     val chatTabs = listOf(
         "active" to LocalizedText("Активные", "Актив"),
         "requests" to LocalizedText("Заявки", "Заявкалар"),
@@ -4338,6 +4340,7 @@ private fun ChatScreen(
     LaunchedEffect(Unit) {
         ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
         ApiClient.getConversations().onSuccess { conversations = it }
+        ApiClient.getMyRequests().onSuccess { myRequests = it }
     }
     LazyColumn(
         modifier = Modifier
@@ -4400,29 +4403,59 @@ private fun ChatScreen(
                 }
             )
         }
-        items(voiceMessages) { message ->
-            VoiceMessageCard(message)
-        }
-        if (conversations.isNotEmpty()) {
-            itemsIndexed(conversations) { i, c ->
-                Box(Modifier.appearIn(i)) {
-                    ChatCard(
-                        initial = c.peerName.take(1).uppercase(),
-                        name = c.peerName,
-                        subtitle = c.route,
-                        message = c.lastMessage,
-                        time = "",
-                        unread = 0,
-                        verified = true,
-                        onClick = { onOpenChat(c.bookingId, c.peerName, c.route) }
-                    )
+        if (selected == "requests") {
+            // Вкладка «Заявки» — реальные заявки пользователя (ждут отклика водителя).
+            if (myRequests.isEmpty()) {
+                item {
+                    Box(Modifier.appearIn(0)) {
+                        InfoCard(
+                            title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
+                            text = appText("Создай заявку на вкладке «Заявка» — водители откликнутся", "«Заявка» бүлегендә заявка яһа — водителдәр яуап бирер"),
+                            icon = Icons.Default.ListAlt
+                        )
+                    }
+                }
+            } else {
+                itemsIndexed(myRequests) { i, r ->
+                    Box(Modifier.appearIn(i)) {
+                        ChatCard(
+                            initial = r.fromCity.firstOrNull()?.uppercase() ?: "З",
+                            name = "${r.fromCity} → ${r.toCity}",
+                            subtitle = appText("Заявка · ${r.seats} мест", "Заявка · ${r.seats} урын"),
+                            message = r.comment.ifBlank { appText("Ждём отклика водителя", "Водитель яуабын көтәбеҙ") },
+                            time = "",
+                            unread = 0,
+                            verified = false
+                        )
+                    }
                 }
             }
         } else {
-            // Демо-диалоги, пока нет реальных переписок (новый юзер / офлайн).
-            item { Box(Modifier.appearIn(0)) { ChatCard(initial = "Р", name = "Рамиль", subtitle = "Баймаҡ → Сибай", message = appText("Буду у вокзала в 17:20", "17:20-лә вокзалда булам"), time = "16:48", unread = 2, verified = true) } }
-            item { Box(Modifier.appearIn(1)) { ChatCard(initial = "Л", name = "Лилия", subtitle = appText("Заявка в больницу", "Больницаға заявка"), message = appText("Могу забрать после 18:00", "18:00-дән һуң алып китә алам"), time = "15:30", unread = 0, verified = false) } }
-            item { Box(Modifier.appearIn(2)) { ChatCard(initial = "Ю", name = appText("Поддержка Юлдаш", "Юлдаш ярҙамы"), subtitle = appText("Система", "Система"), message = appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды"), time = appText("Вчера", "Кисә"), unread = 0, verified = true, support = true) } }
+            // Вкладка «Активные» — чаты по поездкам + записанные голосовые.
+            items(voiceMessages) { message ->
+                VoiceMessageCard(message)
+            }
+            if (conversations.isNotEmpty()) {
+                itemsIndexed(conversations) { i, c ->
+                    Box(Modifier.appearIn(i)) {
+                        ChatCard(
+                            initial = c.peerName.take(1).uppercase(),
+                            name = c.peerName,
+                            subtitle = c.route,
+                            message = c.lastMessage,
+                            time = "",
+                            unread = 0,
+                            verified = true,
+                            onClick = { onOpenChat(c.bookingId, c.peerName, c.route) }
+                        )
+                    }
+                }
+            } else {
+                // Демо-диалоги, пока нет реальных переписок (новый юзер / офлайн).
+                item { Box(Modifier.appearIn(0)) { ChatCard(initial = "Р", name = "Рамиль", subtitle = "Баймаҡ → Сибай", message = appText("Буду у вокзала в 17:20", "17:20-лә вокзалда булам"), time = "16:48", unread = 2, verified = true) } }
+                item { Box(Modifier.appearIn(1)) { ChatCard(initial = "Л", name = "Лилия", subtitle = appText("Заявка в больницу", "Больницаға заявка"), message = appText("Могу забрать после 18:00", "18:00-дән һуң алып китә алам"), time = "15:30", unread = 0, verified = false) } }
+                item { Box(Modifier.appearIn(2)) { ChatCard(initial = "Ю", name = appText("Поддержка Юлдаш", "Юлдаш ярҙамы"), subtitle = appText("Система", "Система"), message = appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды"), time = appText("Вчера", "Кисә"), unread = 0, verified = true, support = true) } }
+            }
         }
         item {
             InfoCard(
