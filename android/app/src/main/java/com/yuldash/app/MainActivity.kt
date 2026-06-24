@@ -3011,6 +3011,7 @@ private fun YandexMapCard(
         }
     }
     val mapView = remember {
+        MapKitFactory.setLocale("ru_RU")   // карта на русском — без дублей англ./транслита
         MapKitFactory.initialize(context)
         MapView(context).also { view ->
             val map = view.mapWindow.map
