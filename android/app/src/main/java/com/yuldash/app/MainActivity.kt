@@ -5438,7 +5438,23 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             }
             item { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) }
             item { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
-            item { OutlinedTextField(value = dateTime, onValueChange = { dateTime = it }, label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) }, placeholder = { Text(defaultTime) }, leadingIcon = { Icon(Icons.Default.Schedule, null) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item {
+                val ctxDt = LocalContext.current
+                Box {
+                    OutlinedTextField(
+                        value = dateTime,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
+                        placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
+                        leadingIcon = { Icon(Icons.Default.Schedule, null) },
+                        trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt, "ru") { dateTime = it } })
+                }
+            }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(value = seats, onValueChange = { seats = it.filter(Char::isDigit) }, label = { Text(appText("Мест", "Урын")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
