@@ -17,6 +17,7 @@ class RideCategory(str, Enum):
     regular = "regular"
     hospital = "hospital"
     parcel = "parcel"
+    cargo = "cargo"          # грузовая (перевозка вещей/мебели, большой багажник/газель)
 
 
 class RideStatus(str, Enum):

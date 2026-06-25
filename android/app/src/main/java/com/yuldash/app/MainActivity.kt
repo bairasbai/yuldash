@@ -98,7 +98,9 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
@@ -504,6 +506,14 @@ private fun categoryToApi(ui: String): Pair<String, Boolean> = when (ui) {
     "Посылка" -> "parcel" to false
     "С детьми" -> "regular" to true
     else -> "regular" to false
+}
+
+// Тип поездки (попутки между своими, бесплатно): кого/что везём. Иконка + RU/BA подпись.
+private fun rideTypeMeta(key: String): Triple<androidx.compose.ui.graphics.vector.ImageVector, String, String> = when (key) {
+    "parcel" -> Triple(Icons.Default.Inventory2, "Посылка", "Посылка")
+    "cargo" -> Triple(Icons.Default.LocalShipping, "Груз", "Йөк")
+    "hospital" -> Triple(Icons.Default.LocalHospital, "В больницу", "Больницаға")
+    else -> Triple(Icons.Default.DirectionsCar, "Пассажиры", "Пассажирҙар")
 }
 
 // Заявка из строки-маршрута «Откуда → Куда» (голосовая / за близкого) → реальная серверная заявка.
@@ -3753,6 +3763,17 @@ private fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean, 
                     fontWeight = FontWeight.Black, fontSize = 16.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
+                if (dto.category.isNotBlank() && dto.category != "regular") {
+                    val (ic, ru, ba) = rideTypeMeta(dto.category)
+                    Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
+                        Row(Modifier.padding(horizontal = 7.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(ic, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(12.dp))
+                            Spacer(Modifier.width(3.dp))
+                            Text(appText(ru, ba), color = CanonGreen2, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                }
                 if (dto.driverVerified) {
                     Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
                 }
@@ -5041,6 +5062,7 @@ private fun CreatePassengerRequestScreen(
         "regular" to LocalizedText("Обычная", "Ғәҙәти"),
         "hospital" to LocalizedText("В больницу", "Больницаға"),
         "parcel" to LocalizedText("Посылка", "Посылка"),
+        "cargo" to LocalizedText("Груз", "Йөк"),
         "kids" to LocalizedText("С детьми", "Балалар менән")
     )
     val selectedCategoryText = categories.firstOrNull { it.first == category }?.second?.text() ?: categories.first().second.text()
@@ -5153,6 +5175,7 @@ private fun CreatePassengerRequestScreen(
                         val (apiCat, withKids) = when (category) {
                             "hospital" -> "hospital" to false
                             "parcel" -> "parcel" to false
+                            "cargo" -> "cargo" to false
                             "kids" -> "regular" to true
                             else -> "regular" to false
                         }
@@ -5454,6 +5477,7 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var baggage by remember { mutableStateOf(false) }
     var airConditioner by remember { mutableStateOf(false) }
     var recurrence by remember { mutableStateOf("none") }
+    var category by remember { mutableStateOf("regular") }
     val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
     val defaultCar = appText("Моя машина", "Минең машина")
     Scaffold(
@@ -5472,6 +5496,29 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             }
             item { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) }
             item { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(listOf("regular", "parcel", "cargo", "hospital")) { key ->
+                            val (icon, ru, ba) = rideTypeMeta(key)
+                            FilledTonalButton(
+                                onClick = { category = key },
+                                shape = RoundedCornerShape(14.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = if (category == key) CanonMint else CanonSurface,
+                                    contentColor = if (category == key) CanonGreen2 else CanonText
+                                )
+                            ) {
+                                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(appText(ru, ba), fontSize = 13.sp, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 val ctxDt = LocalContext.current
                 Box {
@@ -5516,8 +5563,11 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(value = seats, onValueChange = { seats = it.filter(Char::isDigit) }, label = { Text(appText("Мест", "Урын")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
-                    OutlinedTextField(value = price, onValueChange = { price = it.filter(Char::isDigit) }, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
+                    OutlinedTextField(value = price, onValueChange = { price = it.filter(Char::isDigit) }, label = { Text(appText("Бензин, ₽", "Бензин, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
                 }
+            }
+            item {
+                Text(appText("Бензин — по желанию, на топливо. Поездки между своими бесплатные.", "Бензин — теләк буйынса, яғыулыҡҡа. Үҙ кешеләр араһында сәфәрҙәр бушлай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
             }
             item {
                 OutlinedTextField(
@@ -5559,7 +5609,7 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         val seatsVal = seats.toIntOrNull() ?: 2
                         val departIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
                             .format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L))
-                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence)
+                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category)
                         onPublish(
                             Ride(
                                 id = "local-${System.currentTimeMillis()}",
