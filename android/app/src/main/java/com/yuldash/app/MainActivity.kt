@@ -3195,6 +3195,7 @@ private fun YandexMapCard(
     DisposableEffect(activeTrip) {
         val map = mapView.mapWindow.map
         val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
+        var roadSession: com.yandex.mapkit.directions.driving.DrivingSession? = null
         val job = tripScope.launch {
             val trip = activeTrip ?: return@launch
             suspend fun resolve(city: String): Point? {
@@ -3207,10 +3208,38 @@ private fun YandexMapCard(
             val fromPt = resolve(trip.from) ?: return@launch
             val toPt = resolve(trip.to)
             if (toPt != null) {
-                added += map.mapObjects.addPolyline(Polyline(listOf(fromPt, toPt))).apply {
+                val straightLine = map.mapObjects.addPolyline(Polyline(listOf(fromPt, toPt))).apply {
                     setStrokeColor(0xCC0B6B3A.toInt())
                     strokeWidth = 4f
                 }
+                added += straightLine
+                // Маршрут ПО ДОРОГАМ (full SDK + DrivingRouter). Ошибка/нет квоты роутинга → остаётся прямая линия (фоллбэк, без поломки карты).
+                roadSession = runCatching {
+                    val router = com.yandex.mapkit.directions.DirectionsFactory.getInstance()
+                        .createDrivingRouter(com.yandex.mapkit.directions.driving.DrivingRouterType.COMBINED)
+                    val reqPoints = listOf(
+                        com.yandex.mapkit.RequestPoint(fromPt, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
+                        com.yandex.mapkit.RequestPoint(toPt, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
+                    )
+                    router.requestRoutes(
+                        reqPoints,
+                        com.yandex.mapkit.directions.driving.DrivingOptions(),
+                        com.yandex.mapkit.directions.driving.VehicleOptions(),
+                        object : com.yandex.mapkit.directions.driving.DrivingSession.DrivingRouteListener {
+                            override fun onDrivingRoutes(routes: MutableList<com.yandex.mapkit.directions.driving.DrivingRoute>) {
+                                val r = routes.firstOrNull() ?: return
+                                runCatching {
+                                    map.mapObjects.remove(straightLine)
+                                    added.remove(straightLine)
+                                    added += map.mapObjects.addPolyline(r.geometry).apply {
+                                        setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
+                                    }
+                                }
+                            }
+                            override fun onDrivingRoutesError(error: com.yandex.runtime.Error) { /* фоллбэк: прямая остаётся */ }
+                        }
+                    )
+                }.getOrNull()
                 added += map.mapObjects.addPlacemark().apply {
                     geometry = toPt
                     setIcon(ImageProvider.fromBitmap(destFlagBitmap()))
@@ -3231,6 +3260,7 @@ private fun YandexMapCard(
         }
         onDispose {
             job.cancel()
+            runCatching { roadSession?.cancel() }
             added.forEach { runCatching { map.mapObjects.remove(it) } }
         }
     }

@@ -112,6 +112,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.foundation:foundation")
     // Яндекс MapKit Mobile SDK (lite: карта, маркеры, линия маршрута; роутинг/поиск — это -full).
-    implementation("com.yandex.android:maps.mobile:4.39.0-lite")
+    implementation("com.yandex.android:maps.mobile:4.39.0-full")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
