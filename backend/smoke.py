@@ -46,6 +46,17 @@ with TestClient(app) as c:
     print("match:", len(matched))
     assert len(matched) >= 1
 
+    # голосовая заявка: voice_url + transcript сохраняются и возвращаются
+    vreq = c.post("/requests", headers=ph, json={
+        "from_city": "Баймак", "to_city": "Сибай", "seats": 1, "category": "regular",
+        "voice_url": "/media/voice/test.m4a", "transcript": "Баймак Сибай одно место",
+    }).json()
+    assert vreq["voice_url"] == "/media/voice/test.m4a"
+    assert vreq["transcript"] == "Баймак Сибай одно место"
+    mine = c.get("/requests/mine", headers=ph).json()
+    assert any(r["id"] == vreq["id"] and r["transcript"] == "Баймак Сибай одно место" for r in mine)
+    print("voice request:", vreq["id"], "voice_url+transcript persisted")
+
     # пассажир бронирует, водитель подтверждает
     bk = c.post("/bookings", headers=ph, json={"ride_id": ride["id"], "seats": 1}).json()
     print("booking:", bk["id"], bk["status"], "boarding_code", bk["boarding_code"])

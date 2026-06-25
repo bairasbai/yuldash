@@ -400,6 +400,8 @@ class RequestIn(BaseModel):
     baggage: bool = False
     comment: str = ""
     for_relative_name: Optional[str] = None
+    voice_url: Optional[str] = None
+    transcript: Optional[str] = None
 
 
 @app.post("/requests", response_model=RideRequest)

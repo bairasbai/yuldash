@@ -102,6 +102,8 @@ class RideRequest(SQLModel, table=True):
     baggage: bool = False
     comment: str = ""
     for_relative_name: Optional[str] = None
+    voice_url: Optional[str] = None
+    transcript: Optional[str] = None        # расшифровка голосовой заявки
     status: str = "active"
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

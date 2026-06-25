@@ -506,11 +506,11 @@ private fun categoryToApi(ui: String): Pair<String, Boolean> = when (ui) {
 }
 
 // Заявка из строки-маршрута «Откуда → Куда» (голосовая / за близкого) → реальная серверная заявка.
-private fun fireRequestFromRoute(route: String, comment: String = "") {
+private fun fireRequestFromRoute(route: String, comment: String = "", voiceUrl: String? = null, transcript: String? = null) {
     val parts = route.split("→", "->", "-").map { it.trim() }.filter { it.isNotEmpty() }
     val from = parts.getOrElse(0) { route.trim() }
     val to = parts.getOrElse(1) { "" }
-    if (from.isNotBlank()) ApiClient.fireCreateRequest(from, to, 1, "regular", false, comment, 0)
+    if (from.isNotBlank()) ApiClient.fireCreateRequest(from, to, 1, "regular", false, comment, 0, voiceUrl, transcript)
 }
 
 // Нативный календарь + часы → строка «ДД.ММ.ГГГГ, ЧЧ:ММ» в поле даты заявки/поездки.
@@ -4947,7 +4947,7 @@ private fun VoiceRequestScreen(
                 item {
                     Button(
                         onClick = {
-                            fireRequestFromRoute(text)
+                            fireRequestFromRoute(text, transcript = text)
                             onCreateRequest(LocalRequest(title = vrTitle, route = text, time = vrNow, passenger = "Байрас", status = voiceRequestStatus, trustedContact = trusted?.name))
                         },
                         modifier = Modifier.fillMaxWidth().height(58.dp),
@@ -4967,7 +4967,7 @@ private fun VoiceRequestScreen(
                             scope.launch {
                                 val bytes = runCatching { File(path).readBytes() }.getOrNull()
                                 val url = if (bytes != null) ApiClient.uploadVoice(bytes).getOrNull() else null
-                                fireRequestFromRoute(vrRoute)
+                                fireRequestFromRoute(vrRoute, voiceUrl = url, transcript = recognizedText)
                                 onCreateRequest(
                                     LocalRequest(
                                         title = vrTitle,
