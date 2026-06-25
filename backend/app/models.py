@@ -18,6 +18,7 @@ class RideCategory(str, Enum):
     hospital = "hospital"
     parcel = "parcel"
     cargo = "cargo"          # грузовая (перевозка вещей/мебели, большой багажник/газель)
+    urgent = "urgent"        # срочно (нужна машина срочно — экстренно, опоздание, больница)
 
 
 class RideStatus(str, Enum):

@@ -502,17 +502,17 @@ private fun fmtKm(d: Double): String =
 
 /** Категория из UI → (enum бэкенда, признак «с детьми»). */
 private fun categoryToApi(ui: String): Pair<String, Boolean> = when (ui) {
-    "В больницу" -> "hospital" to false
+    "Срочно" -> "urgent" to false
     "Посылка" -> "parcel" to false
     "С детьми" -> "regular" to true
     else -> "regular" to false
 }
 
-// Тип поездки (попутки между своими, бесплатно): кого/что везём. Иконка + RU/BA подпись.
+// Тип поездки (попутки между своими): кого/что везём. Иконка + RU/BA подпись.
 private fun rideTypeMeta(key: String): Triple<androidx.compose.ui.graphics.vector.ImageVector, String, String> = when (key) {
     "parcel" -> Triple(Icons.Default.Inventory2, "Посылка", "Посылка")
     "cargo" -> Triple(Icons.Default.LocalShipping, "Груз", "Йөк")
-    "hospital" -> Triple(Icons.Default.LocalHospital, "В больницу", "Больницаға")
+    "urgent" -> Triple(Icons.Default.Bolt, "Срочно", "Ашығыс")
     else -> Triple(Icons.Default.DirectionsCar, "Пассажиры", "Пассажирҙар")
 }
 
@@ -545,7 +545,8 @@ private fun openDateTimePicker(context: android.content.Context, localeTag: Stri
 }
 
 private fun apiCategoryToUiFor(language: AppLanguage, category: String, withKids: Boolean): String = when {
-    category == "hospital" -> appTextFor(language, "В больницу", "Больницаға")
+    category == "urgent" -> appTextFor(language, "Срочно", "Ашығыс")
+    category == "cargo" -> appTextFor(language, "Груз", "Йөк")
     category == "parcel" -> appTextFor(language, "Посылка", "Посылка")
     withKids -> appTextFor(language, "С детьми", "Балалар менән")
     else -> appTextFor(language, "Обычная", "Ғәҙәти")
@@ -5060,7 +5061,7 @@ private fun CreatePassengerRequestScreen(
     var comment by remember { mutableStateOf("") }
     val categories = listOf(
         "regular" to LocalizedText("Обычная", "Ғәҙәти"),
-        "hospital" to LocalizedText("В больницу", "Больницаға"),
+        "urgent" to LocalizedText("Срочно", "Ашығыс"),
         "parcel" to LocalizedText("Посылка", "Посылка"),
         "cargo" to LocalizedText("Груз", "Йөк"),
         "kids" to LocalizedText("С детьми", "Балалар менән")
@@ -5173,7 +5174,7 @@ private fun CreatePassengerRequestScreen(
                 Button(
                     onClick = {
                         val (apiCat, withKids) = when (category) {
-                            "hospital" -> "hospital" to false
+                            "urgent" -> "urgent" to false
                             "parcel" -> "parcel" to false
                             "cargo" -> "cargo" to false
                             "kids" -> "regular" to true
@@ -5500,7 +5501,7 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(listOf("regular", "parcel", "cargo", "hospital")) { key ->
+                        items(listOf("regular", "parcel", "cargo", "urgent")) { key ->
                             val (icon, ru, ba) = rideTypeMeta(key)
                             FilledTonalButton(
                                 onClick = { category = key },
@@ -5563,11 +5564,11 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(value = seats, onValueChange = { seats = it.filter(Char::isDigit) }, label = { Text(appText("Мест", "Урын")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
-                    OutlinedTextField(value = price, onValueChange = { price = it.filter(Char::isDigit) }, label = { Text(appText("Бензин, ₽", "Бензин, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
+                    OutlinedTextField(value = price, onValueChange = { price = it.filter(Char::isDigit) }, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
                 }
             }
             item {
-                Text(appText("Бензин — по желанию, на топливо. Поездки между своими бесплатные.", "Бензин — теләк буйынса, яғыулыҡҡа. Үҙ кешеләр араһында сәфәрҙәр бушлай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
             }
             item {
                 OutlinedTextField(
