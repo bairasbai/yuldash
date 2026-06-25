@@ -1027,11 +1027,13 @@ private fun YuldashApp() {
     fun trackAdImpression(ad: PartnerAd) {
         val current = adStats[ad.id] ?: AdStats()
         adStats = adStats + (ad.id to current.copy(impressions = current.impressions + 1))
+        ApiClient.fireAdEvent(ad.id, "impression")   // реальный показ на сервер
     }
 
     fun trackAdClick(ad: PartnerAd) {
         val current = adStats[ad.id] ?: AdStats()
         adStats = adStats + (ad.id to current.copy(clicks = current.clicks + 1))
+        ApiClient.fireAdEvent(ad.id, "click")        // реальный клик на сервер
         val title = if (language == AppLanguage.Ba) ad.titleBa ?: ad.title else ad.title
         // Реальное действие по клику: телефон → звонилка; иначе координаты → карта; иначе подсказка.
         val phoneDigits = ad.contact.filter { it.isDigit() || it == '+' }
@@ -5936,6 +5938,12 @@ private fun AdsCabinetScreen(
     adStats: Map<String, AdStats>,
     onBack: () -> Unit
 ) {
+    // Реальная статистика с сервера (/ads/stats) перекрывает локальные счётчики сессии.
+    var serverStats by remember { mutableStateOf<Map<String, AdStats>>(emptyMap()) }
+    LaunchedEffect(Unit) {
+        ApiClient.getAdStats().onSuccess { s -> serverStats = s.mapValues { AdStats(it.value.impressions, it.value.clicks) } }
+    }
+    val stats = adStats + serverStats
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет рекламы", "Реклама кабинеты"), onBack) }
@@ -5962,7 +5970,7 @@ private fun AdsCabinetScreen(
                     lineHeight = 19.sp
                 )
             }
-            item { AdsAdminPreview(ads = ads, adStats = adStats) }
+            item { AdsAdminPreview(ads = ads, adStats = stats) }
         }
     }
 }

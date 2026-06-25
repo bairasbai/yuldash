@@ -469,6 +469,23 @@ object ApiClient {
             }
         }
 
+    /** Записать показ/клик по рекламе (реальная статистика). Fire-and-forget. */
+    fun fireAdEvent(adId: String, type: String) {
+        bg.launch { call("POST", "/ads/$adId/event", JSONObject().put("type", type), auth = false) }
+    }
+
+    /** Сводка показов/кликов по каждой рекламе (для кабинета). */
+    suspend fun getAdStats(): Result<Map<String, AdStatsDto>> =
+        call("GET", "/ads/stats", null, auth = false).map { o ->
+            val out = mutableMapOf<String, AdStatsDto>()
+            val keys = o.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                o.optJSONObject(k)?.let { s -> out[k] = AdStatsDto(s.optInt("impressions"), s.optInt("clicks")) }
+            }
+            out
+        }
+
     // ---------- Активная поездка: поделиться / статус ----------
 
     suspend fun shareTrip(bookingId: Int, contactId: Int): Result<Unit> =
@@ -619,3 +636,5 @@ data class FeedDto(
 )
 data class NotifDto(val title: String, val text: String)
 data class AdDto(val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String)
+/** Серверная статистика рекламы (показы/клики). */
+data class AdStatsDto(val impressions: Int, val clicks: Int)
