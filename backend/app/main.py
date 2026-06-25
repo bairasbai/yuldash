@@ -477,6 +477,20 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     return booking
 
 
+@app.post("/bookings/{booking_id}/cancel", response_model=Booking)
+def cancel_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отмена поездки пассажиром или водителем. Места возвращаются в поездку."""
+    booking, ride = _booking_and_ride_for_user(session, booking_id, user)
+    if booking.status not in (BookingStatus.cancelled, BookingStatus.done):
+        booking.status = BookingStatus.cancelled
+        ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
+        session.add(booking)
+        session.add(ride)
+        session.commit()
+        session.refresh(booking)
+    return booking
+
+
 @app.get("/bookings/mine", response_model=List[Booking])
 def my_bookings(user: User = Depends(current_user), session: Session = Depends(get_session)):
     return session.exec(select(Booking).where(Booking.passenger_id == user.id)).all()

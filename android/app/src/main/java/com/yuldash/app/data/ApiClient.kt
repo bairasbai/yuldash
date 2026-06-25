@@ -498,6 +498,10 @@ object ApiClient {
     suspend fun rateBooking(bookingId: Int, stars: Int): Result<Unit> =
         call("POST", "/bookings/$bookingId/rate", JSONObject().put("stars", stars), auth = true).map { }
 
+    /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку. */
+    suspend fun cancelBooking(bookingId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/cancel", null, auth = true).map { }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(

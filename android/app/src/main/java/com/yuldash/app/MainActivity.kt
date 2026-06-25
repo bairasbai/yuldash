@@ -129,6 +129,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -7146,6 +7147,44 @@ private fun ActiveTripScreen(
                         }
                         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
                     }
+                }
+            }
+            item {
+                var showCancel by remember { mutableStateOf(false) }
+                val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
+                val cancelFailMsg = appText("Не удалось отменить", "Кире алып булманы")
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = { showCancel = true },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, CanonRed)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed)
+                        Spacer(Modifier.width(8.dp))
+                        Text(appText("Отменить поездку", "Сәфәрҙе кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
+                    }
+                    Text(appText("Отмена бесплатна до начала поездки — место вернётся в поездку.", "Сәфәр башланғанға тиклем кире алыу бушлай — урын кире ҡайта."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                }
+                if (showCancel) {
+                    AlertDialog(
+                        onDismissRequest = { showCancel = false },
+                        title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")) },
+                        text = { Text(appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай.")) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showCancel = false
+                                bookingId?.let { id ->
+                                    voiceScope.launch {
+                                        ApiClient.cancelBooking(id)
+                                            .onSuccess { Toast.makeText(context, cancelOkMsg, Toast.LENGTH_SHORT).show(); onTripEnd() }
+                                            .onFailure { Toast.makeText(context, cancelFailMsg, Toast.LENGTH_SHORT).show() }
+                                    }
+                                } ?: onTripEnd()
+                            }) { Text(appText("Да, отменить", "Эйе, кире алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                        },
+                        dismissButton = { TextButton(onClick = { showCancel = false }) { Text(appText("Назад", "Кире")) } }
+                    )
                 }
             }
             item { Text(appText("Чат по поездке", "Сәфәр буйынса чат"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(4)) }
