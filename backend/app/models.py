@@ -78,6 +78,7 @@ class Ride(SQLModel, table=True):
     price: int = 0
     category: RideCategory = RideCategory.regular
     comment: str = ""
+    recurrence: str = "none"          # none / daily / weekdays / weekly — регулярная поездка
     # Премиум-предпочтения поездки (двусторонний фильтр водитель↔пассажир)
     pets_allowed: bool = False        # можно с животными
     child_seat: bool = False          # есть детское кресло/бустер

@@ -5453,6 +5453,7 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var smoking by remember { mutableStateOf(false) }
     var baggage by remember { mutableStateOf(false) }
     var airConditioner by remember { mutableStateOf(false) }
+    var recurrence by remember { mutableStateOf("none") }
     val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
     val defaultCar = appText("Моя машина", "Минең машина")
     Scaffold(
@@ -5486,6 +5487,30 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         shape = RoundedCornerShape(16.dp)
                     )
                     Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt, "ru") { dateTime = it } })
+                }
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(appText("Повтор", "Ҡабатлау"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    val recOpts = listOf(
+                        "none" to appText("Разово", "Бер тапҡыр"),
+                        "weekdays" to appText("По будням", "Эш көндәрендә"),
+                        "daily" to appText("Каждый день", "Һәр көн"),
+                        "weekly" to appText("Еженедельно", "Аҙна һайын"),
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(recOpts) { (key, label) ->
+                            FilledTonalButton(
+                                onClick = { recurrence = key },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = if (recurrence == key) CanonMint else CanonSurface,
+                                    contentColor = if (recurrence == key) CanonGreen2 else CanonText
+                                )
+                            ) { Text(label, fontSize = 13.sp, maxLines = 1) }
+                        }
+                    }
+                    if (recurrence != "none") Text(appText("Создадим ближайшие 4 рейса этой серии.", "Был серияның иң яҡын 4 рейсын булдырабыҙ."), color = CanonMuted, fontSize = 12.sp)
                 }
             }
             item {
@@ -5534,7 +5559,7 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         val seatsVal = seats.toIntOrNull() ?: 2
                         val departIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
                             .format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L))
-                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner)
+                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence)
                         onPublish(
                             Ride(
                                 id = "local-${System.currentTimeMillis()}",

@@ -42,8 +42,9 @@ object ApiClient {
         fromCity: String, toCity: String, departAt: String, seats: Int, price: Int, comment: String,
         petsAllowed: Boolean = false, childSeat: Boolean = false, womenOnly: Boolean = false,
         smoking: Boolean = false, baggage: Boolean = false, airConditioner: Boolean = false,
+        recurrence: String = "none",
     ) {
-        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner) }
+        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence) }
     }
 
     fun fireBook(rideId: Int, seats: Int) {
@@ -216,6 +217,7 @@ object ApiClient {
         smoking: Boolean = false,
         baggage: Boolean = false,
         airConditioner: Boolean = false,
+        recurrence: String = "none",
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -231,7 +233,8 @@ object ApiClient {
             .put("women_only", womenOnly)
             .put("smoking", smoking)
             .put("baggage", baggage)
-            .put("air_conditioner", airConditioner),
+            .put("air_conditioner", airConditioner)
+            .put("recurrence", recurrence),
         auth = true,
     ).map { }
 

@@ -207,6 +207,7 @@ class RideIn(BaseModel):
     smoking: bool = False
     baggage: bool = False
     air_conditioner: bool = False
+    recurrence: str = "none"          # none / daily / weekdays / weekly
 
 
 class RideOut(BaseModel):
@@ -312,6 +313,19 @@ def _seed_demo(session: Session) -> None:
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ride = Ride(driver_id=user.id, seats_left=body.seats_total, **body.model_dump())
     session.add(ride)
+    # Регулярная поездка: сразу создаём ближайшие 4 рейса серии (реальные, бронируемые).
+    if body.recurrence and body.recurrence != "none":
+        step = {"weekly": timedelta(weeks=1)}.get(body.recurrence, timedelta(days=1))
+        dt = body.depart_at
+        made = 0
+        guard = 0
+        while made < 4 and guard < 40:
+            guard += 1
+            dt = dt + step
+            if body.recurrence == "weekdays" and dt.weekday() >= 5:   # пропускаем сб/вс
+                continue
+            session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**body.model_dump(), "depart_at": dt}))
+            made += 1
     session.commit()
     session.refresh(ride)
     return ride
