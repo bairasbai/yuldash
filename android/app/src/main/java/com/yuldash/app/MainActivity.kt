@@ -5571,11 +5571,12 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
             }
             item {
+                val isCargo = category == "parcel" || category == "cargo"
                 OutlinedTextField(
                     value = comment,
                     onValueChange = { comment = it },
-                    label = { Text(appText("Комментарий", "Комментарий")) },
-                    placeholder = { Text(appText("Например: могу взять посылку, заеду через Темясово", "Мәҫәлән: посылка ала алам, Темясово аша инәм")) },
+                    label = { Text(if (isCargo) appText("Что везёте", "Нимә алып бараһығыҙ") else appText("Комментарий", "Комментарий")) },
+                    placeholder = { Text(if (isCargo) appText("Напр.: диван и 2 коробки, хрупкое", "Мәҫәлән: диван һәм 2 ҡумта, һынғыс") else appText("Например: могу взять посылку, заеду через Темясово", "Мәҫәлән: посылка ала алам, Темясово аша инәм")) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp)
