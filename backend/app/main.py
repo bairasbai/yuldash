@@ -10,7 +10,7 @@ import math
 import os
 import uuid
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -184,6 +184,17 @@ def _send_text(phone: str, text: str) -> None:
                 print(f"[SMS-FALLBACK] {mp}: {text}")
     else:
         print(f"[SMS-MOCK] {mp}: {text}")
+
+
+def _send_texts_bg(items: list) -> None:
+    """Фоновая рассылка SMS (SOS, статусы близким) ПОСЛЕ ответа клиенту.
+    items: список (phone, text). Каждая отправка блокирует до 10с (таймаут httpx) —
+    в обработчике это держало бы ответ; здесь крутится в BackgroundTasks, юзер не ждёт."""
+    for phone, text in items:
+        try:
+            _send_text(phone, text)
+        except Exception as e:  # noqa: BLE001 — фон не должен падать
+            print(f"[SMS-BG] {_mask_phone(phone)}: error {e}")
 
 
 def _send_sms(phone: str, code: str) -> None:
@@ -581,8 +592,14 @@ def search_rides(
     child_seat: Optional[bool] = None,
     women_only: Optional[bool] = None,
     baggage: Optional[bool] = None,
+    limit: int = 100,
+    offset: int = 0,
     session: Session = Depends(get_session),
 ):
+    # Пагинация (limit/offset) — чтобы не отдавать всю таблицу разом при росте числа поездок.
+    # Старый клиент без параметров получит первые 100 (как раньше «всё» при малом объёме).
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     q = select(Ride).where(Ride.status == RideStatus.active)
     if from_city:
         q = q.where(Ride.from_city.contains(from_city))
@@ -598,7 +615,7 @@ def search_rides(
         q = q.where(Ride.women_only == True)  # noqa: E712
     if baggage:
         q = q.where(Ride.baggage == True)  # noqa: E712
-    rides = session.exec(q.order_by(Ride.depart_at)).all()
+    rides = session.exec(q.order_by(Ride.depart_at).offset(offset).limit(limit)).all()
     return _rides_out(rides, session)
 
 
@@ -1055,9 +1072,23 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
 
 
 @app.get("/bookings/{booking_id}/messages", response_model=List[Message])
-def list_messages(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def list_messages(
+    booking_id: int,
+    before_id: Optional[int] = None,
+    limit: int = 200,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """Сообщения брони, по возрастанию id. Пагинация: отдаём последние `limit`;
+    `before_id` подгружает более старые (для «показать ещё» вверх чата).
+    Старый клиент без параметров получит последние 200 — при малом чате это «всё»."""
     _booking_and_ride_for_user(session, booking_id, user)
-    return session.exec(select(Message).where(Message.booking_id == booking_id).order_by(Message.id)).all()
+    limit = max(1, min(limit, 500))
+    q = select(Message).where(Message.booking_id == booking_id)
+    if before_id is not None:
+        q = q.where(Message.id < before_id)
+    rows = session.exec(q.order_by(Message.id.desc()).limit(limit)).all()
+    return list(reversed(rows))  # клиент рисует по возрастанию
 
 
 class ConversationOut(BaseModel):
@@ -1068,8 +1099,10 @@ class ConversationOut(BaseModel):
 
 
 @app.get("/conversations", response_model=List[ConversationOut])
-def conversations(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Инбокс: брони пользователя (как пассажир и как водитель), где есть сообщения."""
+def conversations(limit: int = 100, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Инбокс: брони пользователя (как пассажир и как водитель), где есть сообщения.
+    `limit` — защитный потолок (число диалогов = свои брони, естественно ограничено)."""
+    limit = max(1, min(limit, 200))
     out: list = []
     for b in _user_bookings(session, user):
         last = session.exec(
@@ -1085,6 +1118,8 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
             route=(f"{ride.from_city} → {ride.to_city}" if ride else ""),
             last_message=(last.text if last.text else "Голосовое"),
         ))
+        if len(out) >= limit:
+            break
     return out
 
 
@@ -1276,7 +1311,7 @@ class TripStatusIn(BaseModel):
 
 
 @app.post("/bookings/{booking_id}/trip-status", response_model=List[TripShare])
-def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def set_trip_status(booking_id: int, body: TripStatusIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking, _ = _booking_and_ride_for_user(session, booking_id, user)
     if booking.passenger_id != user.id:
         raise HTTPException(403, "Статус семейного контроля меняет только пассажир")
@@ -1292,13 +1327,15 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
     session.commit()
     for share in shares:
         session.refresh(share)  # после commit объекты «обнуляются» — перечитываем
-    # Реально уведомляем близких по SMS о статусе поездки.
+    # SMS близким — в фоне (ответ возвращается сразу, не ждём sms.ru по каждому контакту).
     status_text = {"sat": "сел в машину", "arrived": "доехал до места", "done": "завершил поездку"}.get(body.status, body.status)
     who = user.name or user.phone
+    items = []
     for share in shares:
         c = session.get(TrustedContact, share.contact_id)
         if c and c.phone:
-            _send_text(c.phone, f"Юлдаш: {who} {status_text}.")
+            items.append((c.phone, f"Юлдаш: {who} {status_text}."))
+    background.add_task(_send_texts_bg, items)
     return shares
 
 
@@ -1347,22 +1384,19 @@ class SosIn(BaseModel):
 
 
 @app.post("/sos", response_model=SosEvent)
-def sos(body: SosIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
     if body.booking_id is not None:
         _booking_and_ride_for_user(session, body.booking_id, user)
     event = SosEvent(user_id=user.id, **body.model_dump())
     session.add(event)
     session.commit()
     session.refresh(event)
-    # Реально уведомляем доверенные контакты по SMS.
+    # SMS близким — в фоне: SOS-ответ возвращается мгновенно, юзер не ждёт sms.ru (до 10с/контакт).
     contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
     who = user.name or user.phone
-    notified = 0
-    for c in contacts:
-        if c.phone:
-            _send_text(c.phone, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.")
-            notified += 1
-    print(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
+    items = [(c.phone, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.") for c in contacts if c.phone]
+    background.add_task(_send_texts_bg, items)
+    print(f"[SOS] user={user.id} category={body.category} contacts_queued={len(items)}")
     return event
 
 
