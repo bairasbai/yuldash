@@ -499,6 +499,11 @@ internal fun ActiveTripScreen(
 
     val myId = remember { ApiClient.myUserId() ?: -1 }
     var wsConnected by remember { mutableStateOf(false) }
+    // Оптимистичные (ещё не подтверждённые сервером) сообщения получают уникальный
+    // отрицательный id (-2, -3, …). failedIds — те, что не доставились (показываем «Повторить»).
+    var failedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
+    var tempSeq by remember(bookingId) { mutableStateOf(-2) }
+    val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
 
     // История — по REST (один раз).
     LaunchedEffect(bookingId) {
@@ -511,7 +516,8 @@ internal fun ActiveTripScreen(
             ChatSocket(
                 bookingId = id,
                 onMessage = { inc ->
-                    val optIdx = messages.indexOfFirst { it.id == 0 && it.senderId == myId && it.text == inc.text }
+                    // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
+                    val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
                     messages = when {
                         optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = MessageDto(inc.id, inc.text, inc.senderId) }
                         inc.id > 0 && messages.any { it.id == inc.id } -> messages   // дубль по id — пропустить
@@ -525,6 +531,37 @@ internal fun ActiveTripScreen(
     DisposableEffect(bookingId) {
         chatSocket?.connect()
         onDispose { chatSocket?.close() }
+    }
+
+    // Доставка одного сообщения. Сперва WS (если жив), иначе REST. Ошибку НЕ глотаем:
+    // при сбое сети помечаем сообщение «не доставлено» (кнопка повтора), чтобы оно не пропало молча.
+    fun deliver(tempId: Int, text: String) {
+        val bid = bookingId ?: return
+        val ws = chatSocket
+        val sentViaWs = wsConnected && ws != null && ws.send(text)   // send()=false → сокет мёртв → уходим в REST
+        if (sentViaWs) return   // эхо WS заменит оптимистичное сообщение настоящим
+        voiceScope.launch {
+            ApiClient.sendMessage(bid, text)
+                .onSuccess { ApiClient.getMessages(bid).onSuccess { messages = it } }   // забираем авторитетную историю
+                .onFailure {
+                    failedIds = failedIds + tempId
+                    Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
+
+    fun sendText(text: String) {
+        val t = text.trim()
+        if (t.isEmpty() || bookingId == null) return
+        val tempId = tempSeq
+        tempSeq -= 1
+        messages = messages + MessageDto(tempId, t, myId)   // показываем сразу (оптимистично)
+        deliver(tempId, t)
+    }
+
+    fun retry(tempId: Int, text: String) {
+        failedIds = failedIds - tempId
+        deliver(tempId, text)
     }
 
     Scaffold(
@@ -666,13 +703,7 @@ internal fun ActiveTripScreen(
                     onSend = {
                         val t = draft.trim()
                         if (t.isNotEmpty() && bookingId != null) {
-                            if (wsConnected && chatSocket != null) {
-                                messages = messages + MessageDto(0, t, myId)   // оптимистично; эхо WS заменит
-                                chatSocket.send(t)
-                            } else {
-                                ApiClient.fireSendMessage(bookingId, t)         // фоллбэк по REST
-                                messages = messages + MessageDto(0, t, -1)
-                            }
+                            sendText(t)   // единый надёжный путь: WS→REST, ошибка не теряется
                             draft = ""
                         }
                     },
@@ -688,7 +719,15 @@ internal fun ActiveTripScreen(
                     }
                 )
             }
-            items(messages) { m -> MessageBubble(m.text, m.voiceUrl, mine = m.senderId == myId || m.senderId == -1) }
+            items(messages, key = { it.id }) { m ->
+                MessageBubble(
+                    text = m.text,
+                    voiceUrl = m.voiceUrl,
+                    mine = m.senderId == myId,
+                    failed = m.id in failedIds,
+                    onRetry = { retry(m.id, m.text) },
+                )
+            }
             item {
                 Button(
                     onClick = onSos,
@@ -737,10 +776,11 @@ internal fun ActiveTripScreen(
 }
 
 @Composable
-private fun MessageBubble(text: String, voiceUrl: String?, mine: Boolean) {
+private fun MessageBubble(text: String, voiceUrl: String?, mine: Boolean, failed: Boolean = false, onRetry: () -> Unit = {}) {
     var playing by remember { mutableStateOf(false) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
     DisposableEffect(voiceUrl) { onDispose { runCatching { player.value?.release() }; player.value = null } }
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Surface(
             color = if (mine) CanonGreen2 else CanonSurface,
@@ -778,6 +818,16 @@ private fun MessageBubble(text: String, voiceUrl: String?, mine: Boolean) {
                     fontSize = 15.sp
                 )
             }
+        }
+    }
+        if (failed) {
+            Text(
+                appText("Не доставлено · Повторить", "Ебәрелмәне · Ҡабатларға"),
+                color = CanonRed,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 2.dp, end = 4.dp).bounceClick { onRetry() }
+            )
         }
     }
 }
