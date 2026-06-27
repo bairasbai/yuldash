@@ -19,6 +19,13 @@ def make_token(user_id: int) -> str:
     return jwt.encode({"sub": str(user_id), "exp": exp}, settings.jwt_secret, algorithm="HS256")
 
 
+def verify_token(token: str) -> int:
+    """Декодирует JWT, возвращает user_id. Бросает исключение при невалидном токене.
+    Используется WebSocket-чатом (там нет Depends/HTTPBearer)."""
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    return int(payload["sub"])
+
+
 def gen_otp() -> str:
     return "".join(random.choices(string.digits, k=4))
 

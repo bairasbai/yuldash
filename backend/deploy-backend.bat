@@ -9,13 +9,18 @@ set "OPT=-i %KEY% -o StrictHostKeyChecking=accept-new -o ConnectTimeout=25 -o Ba
 
 echo === YULDASH BACKEND DEPLOY ===
 echo.
-echo --- 1) Копирую код + миграцию ---
+echo --- 1) Копирую код + миграции ---
 scp %OPT% "%BK%\app\main.py"            %SRV%:/opt/yuldash/app/main.py            || goto :err
 scp %OPT% "%BK%\app\models.py"          %SRV%:/opt/yuldash/app/models.py          || goto :err
+scp %OPT% "%BK%\app\security.py"        %SRV%:/opt/yuldash/app/security.py        || goto :err
 scp %OPT% "%BK%\migrate_premium.sql"    %SRV%:/tmp/migrate_premium.sql            || goto :err
+scp %OPT% "%BK%\migrate_oauth.sql"      %SRV%:/tmp/migrate_oauth.sql              || goto :err
+scp %OPT% "%BK%\migrate_whatsapp.sql"   %SRV%:/tmp/migrate_whatsapp.sql           || goto :err
 
-echo --- 2) Миграция БД (ALTER TABLE, идемпотентно) ---
-ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_premium.sql" || goto :err
+echo --- 2) Миграции БД (ALTER TABLE, идемпотентно) ---
+ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_premium.sql"  || goto :err
+ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_oauth.sql"    || goto :err
+ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_whatsapp.sql" || goto :err
 
 echo --- 3) chown + рестарт сервиса ---
 ssh %OPT% %SRV% "chown -R yuldash:yuldash /opt/yuldash && systemctl restart yuldash-api && sleep 2 && systemctl is-active yuldash-api" || goto :err
