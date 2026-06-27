@@ -1,0 +1,44 @@
+package com.yuldash.app
+
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+// Дизайн-токены: адаптивная палитра Canon* (светлый/тёмный) + формы карточек.
+// Вынесено из MainActivity.kt (Фаза 0 разрезки). Тот же пакет com.yuldash.app → импортов не нужно.
+// Один и тот же CanonX отдаёт цвет по теме — меняется только определение, использования не трогаем.
+
+/** Тема приложения: null = как в системе, true = тёмная, false = светлая (тумблер день/ночь в шапке). */
+internal object ThemePrefs {
+    var darkOverride by mutableStateOf<Boolean?>(null)
+}
+
+@Composable
+internal fun appIsDark(): Boolean = ThemePrefs.darkOverride ?: isSystemInDarkTheme()
+
+internal val CanonGreen: Color @Composable get() = if (appIsDark()) Color(0xFF7FE3AB) else Color(0xFF073F25)
+internal val CanonGreen2: Color @Composable get() = if (appIsDark()) Color(0xFF2FB36E) else Color(0xFF0B6B3A)
+internal val CanonMint: Color @Composable get() = if (appIsDark()) Color(0xFF143024) else Color(0xFFE7F5EC)
+internal val CanonYellow: Color @Composable get() = if (appIsDark()) Color(0xFF4A3A14) else Color(0xFFFFE3A1)
+// Брендовое золото (как дорога на карте/лого) — заливка акцентной кнопки. Золотое в обеих темах → текст фиксированно тёмный.
+internal val CanonGold: Color @Composable get() = if (appIsDark()) Color(0xFFE8C36B) else Color(0xFFF5B301)
+internal val CanonGoldInk: Color = Color(0xFF0B3D20)
+internal val CanonBg: Color @Composable get() = if (appIsDark()) Color(0xFF0F1613) else Color(0xFFFAFAF6)
+internal val CanonText: Color @Composable get() = if (appIsDark()) Color(0xFFEAF2EC) else Color(0xFF0B1F14)
+internal val CanonMuted: Color @Composable get() = if (appIsDark()) Color(0xFF9BA49D) else Color(0xFF686F66)
+internal val CanonBorder: Color @Composable get() = if (appIsDark()) Color(0x24FFFFFF) else Color(0x1F000000)
+internal val CanonRed: Color @Composable get() = if (appIsDark()) Color(0xFFFF6B5E) else Color(0xFFD93025)
+// Поверхность карточек: была хардкод Color.White — теперь адаптивная.
+internal val CanonSurface: Color @Composable get() = if (appIsDark()) Color(0xFF192420) else Color(0xFFFFFFFF)
+// Подложка опасности/ошибки (SOS, ошибки) — адаптивная (светло-розовая / тёмно-красная).
+internal val CanonDangerBg: Color @Composable get() = if (appIsDark()) Color(0xFF3A1B18) else Color(0xFFFDECEA)
+// Предупреждение/в процессе (pending, черновик): подложка + текст — адаптивные.
+internal val CanonWarnBg: Color @Composable get() = if (appIsDark()) Color(0xFF3A2E12) else Color(0xFFFFF2D6)
+internal val CanonWarn: Color @Composable get() = if (appIsDark()) Color(0xFFE8B86A) else Color(0xFFB87400)
+internal val CanonCardShape = RoundedCornerShape(28.dp)
+internal val CanonItemShape = RoundedCornerShape(22.dp)
