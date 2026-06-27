@@ -28,6 +28,9 @@ Thumbs.db
 *.jks
 *.keystore
 keystore.properties
+# Firebase: конфиг приложения (ключ API) и сервисный ключ — не в git
+android/app/google-services.json
+**/firebase-service-account*.json
 
 # Backend (Python)
 **/.venv/
