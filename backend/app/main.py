@@ -458,13 +458,26 @@ def _user_rating(session: Session, user_id: int) -> tuple[float, int]:
     return (sum(rows) / len(rows), len(rows)) if rows else (0.0, 0)
 
 
-def _ride_out(ride: Ride, session: Session) -> RideOut:
-    drv = session.get(User, ride.driver_id)
-    prof = session.exec(
-        select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)
-    ).first()
+def _drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict]:
+    """Батч водителей/профилей/рейтингов для списка поездок — против N+1
+    (раньше _ride_out делал 3 запроса НА КАЖДУЮ поездку)."""
+    if not driver_ids:
+        return {}, {}, {}
+    users = {u.id: u for u in session.exec(select(User).where(User.id.in_(driver_ids))).all()}
+    profiles = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(driver_ids))).all()}
+    stars_by_driver: dict = {}
+    for ratee_id, stars in session.exec(select(Rating.ratee_id, Rating.stars).where(Rating.ratee_id.in_(driver_ids))).all():
+        stars_by_driver.setdefault(ratee_id, []).append(stars)
+    rating_agg = {rid: (sum(s) / len(s), len(s)) for rid, s in stars_by_driver.items()}
+    return users, profiles, rating_agg
+
+
+def _ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict) -> RideOut:
+    """RideOut из предзагруженных батчей (без запросов в БД)."""
+    drv = users.get(ride.driver_id)
+    prof = profiles.get(ride.driver_id)
     car = f"{prof.car_make} {prof.car_model}".strip() if prof else ""
-    avg, cnt = _user_rating(session, ride.driver_id)
+    avg, cnt = rating_agg.get(ride.driver_id, (0.0, 0))
     rating = round(avg, 1) if cnt > 0 else (prof.rating if prof else 5.0)  # реальный рейтинг; до отзывов — сид
     return RideOut(
         **ride.model_dump(exclude={"created_at"}),
@@ -473,6 +486,17 @@ def _ride_out(ride: Ride, session: Session) -> RideOut:
         driver_verified=(drv.verified if drv else False),
         driver_car=car,
     )
+
+
+def _rides_out(rides: list, session: Session) -> list:
+    """Список поездок → list[RideOut] одним батчем (3 запроса вместо 3×N)."""
+    users, profiles, rating_agg = _drivers_bundle(session, {r.driver_id for r in rides})
+    return [_ride_out_with(r, users, profiles, rating_agg) for r in rides]
+
+
+def _ride_out(ride: Ride, session: Session) -> RideOut:
+    """Одна поездка → RideOut (обёртка над батчем для единичных вызовов)."""
+    return _rides_out([ride], session)[0]
 
 
 # Координаты городов Башкортостана (approx) — для гео-дистанции «сколько в N км от тебя».
@@ -575,7 +599,7 @@ def search_rides(
     if baggage:
         q = q.where(Ride.baggage == True)  # noqa: E712
     rides = session.exec(q.order_by(Ride.depart_at)).all()
-    return [_ride_out(r, session) for r in rides]
+    return _rides_out(rides, session)
 
 
 @app.get("/rides/price_hint")
@@ -614,6 +638,7 @@ def rides_near(
     if to_city:
         q = q.where(Ride.to_city.contains(to_city))
     rides = session.exec(q.order_by(Ride.depart_at)).all()  # по времени выезда ↑
+    users, profiles, rating_agg = _drivers_bundle(session, {r.driver_id for r in rides})
     items: list = []
     for r in rides:
         dist = None
@@ -623,7 +648,7 @@ def rides_near(
                 dist = round(_haversine_km(lat, lng, c[0], c[1]), 1)
         if radius_km is not None and dist is not None and dist > radius_km:
             continue
-        out = _ride_out(r, session).model_dump()
+        out = _ride_out_with(r, users, profiles, rating_agg).model_dump()
         out["distance_km"] = dist
         items.append(out)
     return {"count": len(items), "items": items}
