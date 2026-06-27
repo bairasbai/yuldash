@@ -243,9 +243,15 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** Холдер DeepLink авторизации (yuldash://auth/...). Пишет Activity, читает YuldashApp. */
+private object PendingAuth {
+    val deepLink = mutableStateOf<Uri?>(null)
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleAuthDeepLink(intent)   // холодный старт по ссылке из соцсети
         // Восстановить выбор темы день/ночь (если пользователь переключал тумблером в шапке).
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
@@ -253,6 +259,20 @@ class MainActivity : ComponentActivity() {
             YuldashTheme(darkTheme = appIsDark()) {
                 YuldashApp()
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthDeepLink(intent)   // приложение уже открыто → вернулись из браузера/Telegram
+    }
+
+    /** yuldash://auth/<provider>?... → кладём в холдер, YuldashApp залогинит. */
+    private fun handleAuthDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "yuldash" && data.host == "auth") {
+            PendingAuth.deepLink.value = data
         }
     }
 }
@@ -1042,6 +1062,31 @@ private fun YuldashApp() {
     fun openHome(tab: HomeTab = HomeTab.Map) {
         startHomeTab = tab
         screen = Screen.Home
+    }
+
+    // OAuth-возврат: соцсеть вернула yuldash://auth/<provider>?... → верифицируем на сервере и логиним.
+    val authLink = PendingAuth.deepLink.value
+    LaunchedEffect(authLink) {
+        if (authLink == null) return@LaunchedEffect
+        val provider = authLink.lastPathSegment
+        val ok = when (provider) {
+            "telegram" -> authLink.getQueryParameter("user_id")?.takeIf { it.isNotBlank() }?.let { uid ->
+                ApiClient.telegramCallback(
+                    uid,
+                    authLink.getQueryParameter("username").orEmpty(),
+                    authLink.getQueryParameter("first_name").orEmpty(),
+                ).isSuccess
+            } ?: false
+            "vk" -> authLink.getQueryParameter("user_id")?.takeIf { it.isNotBlank() }?.let { uid ->
+                ApiClient.vkCallback(authLink.getQueryParameter("access_token").orEmpty(), uid).isSuccess
+            } ?: false
+            "whatsapp" -> authLink.getQueryParameter("phone")?.takeIf { it.isNotBlank() }?.let { ph ->
+                ApiClient.whatsappCallback(ph, true).isSuccess
+            } ?: false
+            else -> false
+        }
+        PendingAuth.deepLink.value = null
+        if (ok) openHome()
     }
 
     fun trackAdImpression(ad: PartnerAd) {
@@ -8085,17 +8130,22 @@ private fun BoostPlan(title: String, text: String, price: String, onClick: () ->
  * Bot передаёт userData обратно в приложение через DeepLink.
  */
 fun openTelegramLogin(context: android.content.Context) {
+    val bot = BuildConfig.TELEGRAM_BOT
+    if (bot.isBlank()) {
+        // Бот ещё не зарегистрирован (нет YULDASH_TELEGRAM_BOT в local.properties).
+        Toast.makeText(context, "Вход через Telegram скоро · Telegram аша инеү тиҙҙән", Toast.LENGTH_SHORT).show()
+        return
+    }
     try {
-        val botUsername = "yuldash_bot"
-        val deepLink = "yuldash://auth/telegram"
-        val telegramUrl = "https://t.me/$botUsername?start=${Uri.encode(deepLink)}"
+        // Бот по start=auth присылает обратно yuldash://auth/telegram?user_id=...&username=...&first_name=...
+        val telegramUrl = "https://t.me/$bot?start=auth"
         val intent = Intent(Intent.ACTION_VIEW).apply {
             data = Uri.parse(telegramUrl)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         context.startActivity(intent)
     } catch (e: Exception) {
-        Toast.makeText(context, "Telegram не установлен. Установите приложение.", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Не удалось открыть Telegram · Telegram асып булманы", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -8105,8 +8155,14 @@ fun openTelegramLogin(context: android.content.Context) {
  * Редирект: https://yulbash.ru/auth/vk/callback
  */
 fun openVKLogin(context: android.content.Context) {
+    val vkAppId = BuildConfig.VK_APP_ID
+    if (vkAppId.isBlank()) {
+        // VK-приложение ещё не заведено (нет YULDASH_VK_APP_ID в local.properties).
+        Toast.makeText(context, "Вход через VK скоро · VK аша инеү тиҙҙән", Toast.LENGTH_SHORT).show()
+        return
+    }
     try {
-        val vkAppId = "12345" // TODO: взять из BuildConfig.VK_APP_ID
+        // Сервер на /auth/vk/callback меняет code→token и редиректит в yuldash://auth/vk?access_token=...&user_id=...
         val redirectUri = "https://yulbash.ru/auth/vk/callback"
         val scope = "email,phone"
         val vkUrl = "https://oauth.vk.com/authorize?" +
@@ -8121,40 +8177,17 @@ fun openVKLogin(context: android.content.Context) {
         }
         context.startActivity(intent)
     } catch (e: Exception) {
-        Toast.makeText(context, "Не удалось открыть VK", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Не удалось открыть VK · VK асып булманы", Toast.LENGTH_SHORT).show()
     }
 }
 
 /**
- * WhatsApp через QR код / Deep Link.
- * Посылает SMS на телефон номер с ссылкой для подтверждения.
+ * WhatsApp-вход. Пока заглушка «скоро» — настоящий вход требует WhatsApp Business API.
  */
 fun openWhatsAppLogin(context: android.content.Context) {
-    try {
-        val phoneNumber = "+7xxxxxxxxxx" // TODO: получить из интерфейса (поле телефона)
-        val message = "Юлдаш: подтвердите вход"
-        val whatsappUrl = "https://wa.me/$phoneNumber?text=${Uri.encode(message)}"
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse(whatsappUrl)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-    } catch (e: Exception) {
-        Toast.makeText(context, "WhatsApp не установлен", Toast.LENGTH_SHORT).show()
-    }
+    // Честно: вход «через WhatsApp» нельзя сделать ссылкой wa.me — она открывает чат,
+    // но не возвращает подтверждённую личность в приложение. Настоящий вход требует
+    // WhatsApp Business API (код на номер, как SMS). До подключения — заглушка «скоро».
+    // Приёмник yuldash://auth/whatsapp в YuldashApp готов, если такой бэкенд появится.
+    Toast.makeText(context, "Вход через WhatsApp скоро · WhatsApp аша инеү тиҙҙән", Toast.LENGTH_SHORT).show()
 }
-
-// ==================== ИМПОРТ ====================
-// Требует добавления в AndroidManifest.xml:
-/*
-    Требует добавления в AndroidManifest.xml:
-    <intent-filter>
-        <action android:name="android.intent.action.VIEW" />
-        <category android:name="android.intent.category.DEFAULT" />
-        <category android:name="android.intent.category.BROWSABLE" />
-        <data
-            android:scheme="yuldash"
-            android:host="auth"
-            android:pathPrefix="/telegram" />
-    </intent-filter>
-*/

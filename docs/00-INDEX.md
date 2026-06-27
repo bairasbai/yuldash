@@ -42,22 +42,22 @@
 - ✅ Boost UI (платежи на Q4)
 - ✅ Сборка `gradlew assembleDebug` зелёная (компиляция)
 
-**Скелет, НЕ работает end-to-end (нашли при перепроверке):**
-- ⚠️ **Telegram/VK/WhatsApp вход** — кнопки + бэкенд-эндпоинты есть, но: нет обработчика возврата DeepLink (`onNewIntent`), нет методов callback в `ApiClient`, заглушки (`vkAppId=12345`, `phone=+7xxxx`, бот не зарегистрирован). Жмёшь → уходишь в Telegram → возвращаешься → **не залогинен**. Петля разомкнута.
-- ⚠️ **WebSocket-чат** — эндпоинт `/ws/bookings/{id}` есть, `verify_token` починен (был баг: функции не было → сокет всегда отбивал). Но Android-клиент ещё на REST-поллинге, к WS не подключён.
+**OAuth — петля замкнута на клиенте, задеплоено, ждёт внешних кред:**
+- ✅ Бэкенд `/auth/*-callback` задеплоен на yulbash.ru, отдаёт токен (curl-проверено), колонки в БД есть.
+- ✅ Android: DeepLink `yuldash://auth/<provider>` ловится (`onNewIntent`+`PendingAuth`), `ApiClient` шлёт callback, логинит. `BuildConfig.TELEGRAM_BOT`/`VK_APP_ID` из `local.properties`.
+- ⛔ **Чтобы вход реально замкнулся — нужны действия Александра** (см. `tasks.md` → «Блокеры OAuth»): зарегать Telegram-бота + серверный бот-ответчик; VK-приложение + серверный `/auth/vk/callback`. WhatsApp — только через WA Business API (пока кнопка «скоро»).
+- ✅ Сборка `assembleDebug` зелёная (1m14s).
 
-**Починено в этой проверке (Opus, не задеплоено):**
-- `verify_token` добавлен в `security.py` (WS-чат больше не отбивает все токены).
-- `migrate_oauth.sql`/`migrate_whatsapp.sql` — `"user"` в кавычках + `IF NOT EXISTS` (был синтакс-баг PG).
-- Новые миграции + `security.py` добавлены в `deploy-backend.bat`.
+**WebSocket-чат:**
+- ✅ эндпоинт `/ws/bookings/{id}` + `verify_token` (был баг — функции не было, сокет всегда отбивал; починено Opus, задеплоено).
+- ⏳ Android-клиент ещё на REST-поллинге, к WS не подключён (нужен OkHttp).
 
 **Что дальше (приоритет):**
-1. Решить судьбу OAuth: доделать петлю (DeepLink-хендлер + callback в ApiClient + реальный бот/VK app) ИЛИ отложить, оставить SMS-вход.
-2. SMS-отправитель sms.ru (модерация) — оживит реальный вход.
-3. Задеплоить бэкенд (`deploy-backend.bat`) — миграции + verify_token.
-4. Бета в Баймаке на текущем SMS-входе.
+1. OAuth-блокеры: зарегать Telegram-бота/VK-приложение (Александр) → вход замкнётся.
+2. SMS-отправитель sms.ru (модерация) — оживит SMS-вход.
+3. Бета в Баймаке на текущем SMS-входе.
 
-**Коммиты сессии:** `9936c5d` OAuth · `97bc7a2` WebSocket · `93b6efd` WhatsApp · (+ фиксы Opus).
+**Коммиты сессии:** `9936c5d` OAuth · `97bc7a2` WebSocket · `93b6efd` WhatsApp · `ef568b0` фиксы Opus · (+ клиент-петля).
 
 ## Проект в двух словах
 

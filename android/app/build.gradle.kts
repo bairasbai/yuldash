@@ -39,6 +39,20 @@ val supportPhone: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YULDASH_SUPPORT_PHONE", "")
 
+// OAuth-вход: имя Telegram-бота и VK app_id. Реальные значения — в local.properties (НЕ в git):
+//   YULDASH_TELEGRAM_BOT=yuldash_bot
+//   YULDASH_VK_APP_ID=51234567
+// Пусто → кнопка показывает «скоро», ломаный поток не открываем.
+val telegramBot: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_TELEGRAM_BOT", "")
+
+val vkAppId: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_VK_APP_ID", "")
+
 // Подпись релиза: данные из keystore.properties (в .gitignore, в git не попадает).
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
@@ -67,6 +81,8 @@ android {
         buildConfigField("String", "YANDEX_MAPKIT_KEY", "\"$mapkitKey\"")
         buildConfigField("String", "YANDEX_GEOCODER_KEY", "\"$geocoderKey\"")
         buildConfigField("String", "YULDASH_SUPPORT_PHONE", "\"$supportPhone\"")
+        buildConfigField("String", "TELEGRAM_BOT", "\"$telegramBot\"")
+        buildConfigField("String", "VK_APP_ID", "\"$vkAppId\"")
     }
 
     buildFeatures {

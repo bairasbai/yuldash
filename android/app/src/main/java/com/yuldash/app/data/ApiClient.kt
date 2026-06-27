@@ -119,6 +119,39 @@ object ApiClient {
             saveName(obj.optString("name").ifBlank { name })
         }
 
+    // ---------- OAuth: Telegram / VK / WhatsApp ----------
+    // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
+
+    private fun JSONObject.applyAuth(): JSONObject = apply {
+        optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
+        optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }?.let(::saveName)
+    }
+
+    /** Коллбэк Telegram: бот вернул user_id/username/first_name через DeepLink. */
+    suspend fun telegramCallback(telegramUserId: String, username: String, firstName: String): Result<JSONObject> =
+        call(
+            "POST", "/auth/telegram-callback",
+            JSONObject().put("request_id", "app").put("telegram_user_id", telegramUserId)
+                .put("telegram_username", username).put("first_name", firstName),
+            auth = false,
+        ).onSuccess { it.applyAuth() }
+
+    /** Коллбэк VK: сервер обменял code→token и вернул access_token+user_id в DeepLink. */
+    suspend fun vkCallback(vkAccessToken: String, vkUserId: String): Result<JSONObject> =
+        call(
+            "POST", "/auth/vk-callback",
+            JSONObject().put("vk_access_token", vkAccessToken).put("vk_user_id", vkUserId),
+            auth = false,
+        ).onSuccess { it.applyAuth() }
+
+    /** Коллбэк WhatsApp: номер подтверждён. */
+    suspend fun whatsappCallback(phone: String, verified: Boolean): Result<JSONObject> =
+        call(
+            "POST", "/auth/whatsapp-callback",
+            JSONObject().put("phone", phone).put("whatsapp_verified", verified),
+            auth = false,
+        ).onSuccess { it.applyAuth() }
+
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = call("GET", "/me", null, auth = true)
         .onSuccess { o -> o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName) }
