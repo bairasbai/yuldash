@@ -1,0 +1,65 @@
+package com.yuldash.app.data
+
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+
+/**
+ * Realtime-чат по WebSocket (wss://yulbash.ru/ws/bookings/{id}?token=JWT).
+ * Сервер сохраняет сообщение и рассылает всем подключённым (включая отправителя).
+ * REST остаётся для истории; WS — для живой доставки.
+ */
+class ChatSocket(
+    private val bookingId: Int,
+    private val onMessage: (Incoming) -> Unit,
+    private val onConnected: (Boolean) -> Unit = {},
+) {
+    data class Incoming(val id: Int, val senderId: Int, val text: String, val timestamp: String)
+
+    private val client = OkHttpClient.Builder()
+        .pingInterval(20, TimeUnit.SECONDS)   // keep-alive, чтобы соединение не засыпало
+        .build()
+    private var ws: WebSocket? = null
+
+    fun connect() {
+        val token = ApiClient.currentToken() ?: return
+        val url = "${ApiClient.wsBase()}/ws/bookings/$bookingId?token=$token"
+        ws = client.newWebSocket(
+            Request.Builder().url(url).build(),
+            object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) = onConnected(true)
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    runCatching {
+                        val o = JSONObject(text)
+                        if (o.optString("type") == "message") {
+                            onMessage(
+                                Incoming(
+                                    id = o.optInt("id"),
+                                    senderId = o.optInt("sender_id"),
+                                    text = o.optString("text"),
+                                    timestamp = o.optString("timestamp"),
+                                )
+                            )
+                        }
+                    }
+                }
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = onConnected(false)
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = onConnected(false)
+            },
+        )
+    }
+
+    /** Отправить текст. Сервер сохранит и разошлёт (вернётся и нам). true — ушло. */
+    fun send(text: String): Boolean =
+        ws?.send(JSONObject().put("type", "message").put("text", text).toString()) ?: false
+
+    fun close() {
+        ws?.close(1000, null)
+        ws = null
+        client.dispatcher.executorService.shutdown()
+    }
+}

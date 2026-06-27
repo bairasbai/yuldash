@@ -235,6 +235,7 @@ import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
+import com.yuldash.app.data.ChatSocket
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.ConversationDto
@@ -496,8 +497,34 @@ internal fun ActiveTripScreen(
     val shareSheet = rememberModalBottomSheetState()
     val tripSharedPrefix = appText("Поездка отправлена", "Сәфәр ебәрелде")
 
+    val myId = remember { ApiClient.myUserId() ?: -1 }
+    var wsConnected by remember { mutableStateOf(false) }
+
+    // История — по REST (один раз).
     LaunchedEffect(bookingId) {
         bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { messages = it } }
+    }
+
+    // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
+    val chatSocket = remember(bookingId) {
+        bookingId?.let { id ->
+            ChatSocket(
+                bookingId = id,
+                onMessage = { inc ->
+                    val optIdx = messages.indexOfFirst { it.id == 0 && it.senderId == myId && it.text == inc.text }
+                    messages = when {
+                        optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = MessageDto(inc.id, inc.text, inc.senderId) }
+                        inc.id > 0 && messages.any { it.id == inc.id } -> messages   // дубль по id — пропустить
+                        else -> messages + MessageDto(inc.id, inc.text, inc.senderId)
+                    }
+                },
+                onConnected = { wsConnected = it },
+            )
+        }
+    }
+    DisposableEffect(bookingId) {
+        chatSocket?.connect()
+        onDispose { chatSocket?.close() }
     }
 
     Scaffold(
@@ -639,8 +666,13 @@ internal fun ActiveTripScreen(
                     onSend = {
                         val t = draft.trim()
                         if (t.isNotEmpty() && bookingId != null) {
-                            ApiClient.fireSendMessage(bookingId, t)
-                            messages = messages + MessageDto(0, t, -1)
+                            if (wsConnected && chatSocket != null) {
+                                messages = messages + MessageDto(0, t, myId)   // оптимистично; эхо WS заменит
+                                chatSocket.send(t)
+                            } else {
+                                ApiClient.fireSendMessage(bookingId, t)         // фоллбэк по REST
+                                messages = messages + MessageDto(0, t, -1)
+                            }
                             draft = ""
                         }
                     },
@@ -656,7 +688,7 @@ internal fun ActiveTripScreen(
                     }
                 )
             }
-            items(messages) { m -> MessageBubble(m.text, m.voiceUrl, mine = m.senderId == -1) }
+            items(messages) { m -> MessageBubble(m.text, m.voiceUrl, mine = m.senderId == myId || m.senderId == -1) }
             item {
                 Button(
                     onClick = onSos,

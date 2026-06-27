@@ -82,6 +82,21 @@ object ApiClient {
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
 
+    /** Токен (тот же JWT) для WebSocket-чата. */
+    internal fun currentToken(): String? = token
+
+    /** База для WebSocket: https→wss, http→ws. */
+    internal fun wsBase(): String = BASE.replace("https://", "wss://").replace("http://", "ws://")
+
+    /** Мой user_id из JWT (поле sub) — чтобы отличать свои сообщения. */
+    internal fun myUserId(): Int? = token?.let { t ->
+        runCatching {
+            val payload = t.split(".")[1]
+            val json = String(android.util.Base64.decode(payload, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP))
+            JSONObject(json).optString("sub").toIntOrNull()
+        }.getOrNull()
+    }
+
     /** Имя вошедшего клиента (для приветствия и профиля). null → не вошёл (демо). */
     fun cachedName(): String? = userName?.takeIf { it.isNotBlank() }
 

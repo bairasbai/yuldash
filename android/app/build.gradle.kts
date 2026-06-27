@@ -138,5 +138,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     // Яндекс MapKit Mobile SDK (lite: карта, маркеры, линия маршрута; роутинг/поиск — это -full).
     implementation("com.yandex.android:maps.mobile:4.39.0-full")
+    // OkHttp — только ради WebSocket-клиента (realtime-чат). REST остаётся на HttpURLConnection.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
