@@ -354,6 +354,8 @@ internal data class OnboardingItem(
 // СБП-перевод по номеру телефона (донат/boost) — P2P, без мерчант-аккаунта. Позже вынести в конфиг/бэкенд.
 private const val SBP_PHONE_DISPLAY = "+7 (999) 134-82-75"
 private const val SBP_PHONE_DIGITS = "+79991348275"
+private const val SBP_NAME = "Байрас"
+private const val SBP_BANK = "Сбербанк"
 
 // Стартовый сплэш: лого появляется с масштабом+прозрачностью, текст — следом. ~1.6с → следующий экран.
 @Composable
@@ -635,13 +637,13 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(appText("Получатель · СБП", "Алыусы · СБП"), color = CanonMuted, fontSize = 13.sp)
                     Text(SBP_PHONE_DISPLAY, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                    Text(appText("Байрас · Юлдаш", "Байрас · Юлдаш"), color = CanonMuted, fontSize = 13.sp)
+                    Text("$SBP_NAME · $SBP_BANK", color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
             Text(
                 appText(
-                    "Откройте банк → Переводы → По номеру телефона (СБП) → вставьте номер и сумму $amountRub ₽.",
-                    "Банк ҡушымтаһын асығыҙ → Күсереүҙәр → Телефон номеры буйынса (СБП) → номерҙы һәм $amountRub ₽ сумманы ҡуйығыҙ."
+                    "Откройте банк → Переводы → По номеру телефона (СБП) → банк получателя $SBP_BANK → вставьте номер и сумму $amountRub ₽.",
+                    "Банк ҡушымтаһын асығыҙ → Күсереүҙәр → Телефон номеры буйынса (СБП) → алыусы банкы $SBP_BANK → номерҙы һәм $amountRub ₽ сумманы ҡуйығыҙ."
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
             )
