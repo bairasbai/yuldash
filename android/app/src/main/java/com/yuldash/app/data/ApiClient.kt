@@ -203,6 +203,16 @@ object ApiClient {
         }
     }
 
+    /** Ориентир цены по маршруту (среднее прошлых поездок). count=0 → данных нет. */
+    suspend fun getPriceHint(fromCity: String, toCity: String): Result<PriceHintDto> {
+        val params = buildList {
+            fromCity.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
+            toCity.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
+        }
+        val path = "/rides/price_hint" + if (params.isEmpty()) "" else "?" + params.joinToString("&")
+        return call("GET", path, null, auth = false).map { PriceHintDto(it.optInt("avg"), it.optInt("count")) }
+    }
+
     private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
 
     /** Опубликовать поездку (текущий пользователь = водитель). depart_at — ISO-строка. */
@@ -558,6 +568,8 @@ object ApiClient {
 class ApiException(val status: Int, message: String) : Exception(message)
 
 /** Поездка с витрины сервера (бэкенд RideOut: поездка + данные водителя). */
+data class PriceHintDto(val avg: Int, val count: Int)
+
 data class RideDto(
     val id: Int,
     val fromCity: String,

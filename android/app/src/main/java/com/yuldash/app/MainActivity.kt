@@ -5483,6 +5483,13 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
     var pickup by remember { mutableStateOf("") }
+    var priceHint by remember { mutableStateOf(0) }
+    LaunchedEffect(from, to) {
+        priceHint = if (from.isNotBlank() && to.isNotBlank()) {
+            delay(450)
+            ApiClient.getPriceHint(from.trim(), to.trim()).getOrNull()?.takeIf { it.count > 0 }?.avg ?: 0
+        } else 0
+    }
     val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
     val defaultCar = appText("Моя машина", "Минең машина")
     Scaffold(
@@ -5572,7 +5579,21 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 }
             }
             item {
-                Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (priceHint > 0) {
+                        Surface(
+                            color = CanonMint, shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.clickable { price = priceHint.toString() }
+                        ) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(appText("Обычно по маршруту ~$priceHint ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$priceHint ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp)
+                            }
+                        }
+                    }
+                    Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                }
             }
             item {
                 OutlinedTextField(

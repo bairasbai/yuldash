@@ -363,6 +363,24 @@ def search_rides(
     return [_ride_out(r, session) for r in rides]
 
 
+@app.get("/rides/price_hint")
+def price_hint(
+    from_city: Optional[str] = None,
+    to_city: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    """Ориентир цены по маршруту: средняя цена поездок (price>0). Подсказка водителю, не навязываем."""
+    q = select(Ride.price).where(Ride.price > 0)
+    if from_city:
+        q = q.where(Ride.from_city.contains(from_city))
+    if to_city:
+        q = q.where(Ride.to_city.contains(to_city))
+    prices = [p for p in session.exec(q).all() if p and p > 0]
+    if not prices:
+        return {"avg": 0, "count": 0}
+    return {"avg": round(sum(prices) / len(prices)), "count": len(prices)}
+
+
 @app.get("/rides/near")
 def rides_near(
     from_city: Optional[str] = None,
