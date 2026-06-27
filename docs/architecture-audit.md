@@ -262,10 +262,11 @@ suspend fun sos(...): Result<Unit> { ... }  // экран показывает l
 - Зависимость `androidx.security:security-crypto:1.1.0-alpha06`.
 - Проверка: `gradlew :app:assembleDebug` → **BUILD SUCCESSFUL** (APK собран).
 
-**⛔ Нужно от Александра, чтобы заработало на проде:**
-1. Задеплоить бэкенд: scp `app/` (вкл. `config.py`) + `alembic/` → на сервере `alembic upgrade head` (применит миграцию OTP-колонок, как делали для FK).
-2. Вписать `YANDEX_GEOCODER_KEY` в серверный `.env` (иначе подсказки адресов будут пустыми, но приложение работает).
-3. Собрать/выложить новый клиент (WS-токен и геокодер согласованы с новым бэком — деплоить вместе).
+**✅ ЗАДЕПЛОЕНО НА ПРОД (2026-06-27, агентом по SSH):**
+1. ✅ Бэкенд: scp `app/{main,config,models,security}.py` + alembic-миграция → `alembic upgrade head` (`c5bb69cf495d → d1e2f3a4b5c6`). Колонки `otpcode.attempts/created_at` на проде. Бэкап старых файлов в `/opt/yuldash/backups/predeploy-geocoder`.
+2. ✅ `YANDEX_GEOCODER_KEY` в серверном `.env`. Проверено: `/geocode?q=Уфа` → реальные адреса Яндекса. Ключ на сервере, НЕ в APK.
+3. ✅ Сервис `yuldash-api` рестартован, `active`, health `{"status":"ok","env":"prod"}`, `/rides` отдаёт данные. FCM сессии сохранён.
+   - ⏳ Осталось от Александра: **раздать новый клиент** (release APK, собран). Бэкенд обратносовместим — старые клиенты продолжают работать (WS принимает и query-токен, и first-message).
 
 **Отложено (нужны UI-файлы — зона параллельной сессии):**
 - SOS/бронь `fireXxx` → показывать loading/ошибку/«Повторить» (правки экранов).
