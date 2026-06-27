@@ -77,10 +77,11 @@
 - [x] Launcher-иконка качественно выглядит в ресурсах Android и подключена в манифесте.
 
 ## Сделано
-- [x] 2026-06-27 **Push-уведомления (FCM) — код готов целиком, ждёт 2 файла от Александра.**
-  - [x] Android: google-services плагин (условно, при наличии файла), firebase-messaging, `FcmService` (приём+уведомление), регистрация токена (после входа+старт), `POST_NOTIFICATIONS`. Сборка зелёная БЕЗ файла (push инертен).
-  - [x] Бэкенд: `DeviceToken` таблица, `POST /push/register`, `_send_push` (firebase-admin лениво). Хуки: новое сообщение (REST+WS)→другой стороне, новая бронь→водителю. Задеплоено (firebase-admin установлен, /push/register=401 без токена).
-  - [ ] ⛔ **Активация — Александр:** создал проект Firebase «Yuldash» ✅. Осталось: добавить Android-приложение (пакет `com.yuldash.app`) → `google-services.json`; «Сервисные аккаунты» → ключ JSON. Скинуть оба → инструкция [fcm-setup.md](fcm-setup.md). Я кладу файлы + активирую + тестирую.
+- [x] 2026-06-27 **Push-уведомления (FCM) — ВКЛЮЧЕНЫ end-to-end.** Проект `yuldash-9586e`.
+  - [x] Android: firebase-messaging, `FcmService` (приём+уведомление), регистрация токена (после входа+старт), `POST_NOTIFICATIONS`. `google-services.json` в `android/app/` (gitignored), плагин активен. Релизный APK пересобран (49 МБ, с Firebase).
+  - [x] Бэкенд: `DeviceToken`, `POST /push/register`, `_send_push` (firebase-admin). Хуки: новое сообщение (REST+WS)→другой стороне, новая бронь→водителю. Сервисный ключ на сервере (`/opt/yuldash/firebase-service-account.json`, gitignored, `.env FIREBASE_CREDENTIALS`).
+  - [x] Проверено на проде: firebase-admin init OK (project yuldash-9586e), send-конвейер рабочий (фейк-токен→InvalidArgument = дошло до FCM, авторизация ок).
+  - [ ] ⏳ Финальный тест на телефоне: поставить новый APK → войти (токен зарегается) → пусть друг напишет/забронирует → придёт пуш.
 - [x] 2026-06-27 **Вход упрощён: только Telegram + SMS(выкл).** VK и WhatsApp убраны — оба требуют юр.лицо/бизнес (VK просит ИНН, WhatsApp — Business API), физлицу недоступны, как и SMS. Кнопки VK/WhatsApp удалены с экрана входа, мёртвый код вычищен (`openVKLogin`/`openWhatsAppLogin` + параметры). Бэкенд `/auth/vk-callback`/`/auth/whatsapp-callback` остаются 501 (не зовутся). Telegram-вход (код) — основной и единственный рабочий. Сборка зелёная.
 - [x] 2026-06-27 **Релизный билд готов к бете + ужат.** `app-release.apk` **49 МБ** (arm64-фильтр в release, было 145), подписан `CN=Yuldash` V2 — раздавать друзьям напрямую. `app-release.aab` — в Google Play. Содержит все фиксы после аудита (дата, публикация, инбокс, профиль, имена). Debug остаётся универсальным (эмулятор x86_64).
 - [x] 2026-06-27 **Realtime-чат по WebSocket (ActiveTripScreen).**
