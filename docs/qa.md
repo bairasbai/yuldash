@@ -3,6 +3,13 @@
 > Команды для сборки, запуска на эмуляторе и проверки. PowerShell.
 > Перенесено из старого `CONTINUE_FOR_AI.md`.
 
+## 🧪 Автотесты бэкенда (pytest, 2026-06-27)
+- Файлы: `backend/tests/` (`conftest.py` — изолированная SQLite, прод не трогает; `test_api.py` — 9 тестов).
+- Покрывают: вход/доступ, поездки, овербукинг, доступ к чату (посторонний→403), блокировки, `/secure/docs`, `/push/register`, WS отклоняет не-участника.
+- На сервере: `ssh root@85.239.52.55 "cd /opt/yuldash && ./.venv/bin/python -m pytest tests/ -q"` (последний прогон: 9 passed).
+- CI: `.github/workflows/ci.yml` — авто-прогон при push (заработает, когда проект будет на GitHub).
+- ⚠️ Локально без deps не запустятся (нет fastapi/jose в системном python) — гонять на сервере или `pip install -r backend/requirements-dev.txt`.
+
 ## Сборка (JBR из Android Studio)
 
 ```powershell
