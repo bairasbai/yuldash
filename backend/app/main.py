@@ -854,6 +854,14 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
         await websocket.close(code=1008, reason="Invalid token")
         return
 
+    # Доступ: к чату брони подключается ТОЛЬКО её пассажир или водитель (как в HTTP /messages).
+    with Session(engine) as s:
+        booking = s.get(Booking, booking_id)
+        ride = s.get(Ride, booking.ride_id) if booking else None
+        if not booking or not ride or (booking.passenger_id != user_id and ride.driver_id != user_id):
+            await websocket.close(code=1008, reason="Forbidden")
+            return
+
     await manager.connect(booking_id, websocket)
     try:
         while True:

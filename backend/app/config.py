@@ -59,6 +59,9 @@ class Settings(BaseSettings):
         # SMS заморожен (sms_provider=mock) — это допустимо в проде. Оживить: SMS_PROVIDER=smsru + ключ.
         if self.sms_provider == "smsru" and not self.sms_ru_api_id:
             problems.append("SMS_RU_API_ID обязателен при SMS_PROVIDER=smsru")
+        # Telegram-бот включён, но вебхук без секрета → любой шлёт фейковые апдейты и выпускает себе код входа.
+        if self.telegram_bot_token and not self.telegram_webhook_secret:
+            problems.append("TELEGRAM_WEBHOOK_SECRET обязателен при заданном TELEGRAM_BOT_TOKEN")
         if self.cors_origins.strip() == "*":
             problems.append("CORS_ORIGINS не должен быть '*' в проде")
         if self.database_url.startswith("sqlite"):
