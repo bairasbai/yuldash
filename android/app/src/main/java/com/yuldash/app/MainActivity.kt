@@ -295,11 +295,6 @@ private enum class HomeTab {
     Profile
 }
 
-private enum class AppLanguage {
-    Ru,
-    Ba
-}
-
 private data class LocalizedText(
     val ru: String,
     val ba: String
@@ -354,8 +349,6 @@ private data class OnboardingItem(
     val bodyRu: String,
     val bodyBa: String
 )
-
-private val LocalAppLanguage = staticCompositionLocalOf { AppLanguage.Ru }
 
 // Адаптивная палитра: один и тот же `CanonX` отдаёт светлый/тёмный цвет по системной теме.
 // 410 использований не трогаем — меняется только определение (@Composable-геттер).
@@ -431,15 +424,6 @@ private fun SplashScreen() {
             )
         }
     }
-}
-
-@Composable
-private fun appText(ru: String, ba: String): String {
-    return if (LocalAppLanguage.current == AppLanguage.Ba) ba else ru
-}
-
-private fun appTextFor(language: AppLanguage, ru: String, ba: String): String {
-    return if (language == AppLanguage.Ba) ba else ru
 }
 
 @Composable
