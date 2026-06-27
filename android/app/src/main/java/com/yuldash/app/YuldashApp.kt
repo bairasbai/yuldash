@@ -165,6 +165,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -270,9 +271,9 @@ internal fun YuldashApp() {
         }
     }
     var screen by remember { mutableStateOf(Screen.Splash) }
-    var language by remember { mutableStateOf(AppLanguage.Ru) }
+    var language by rememberSaveable { mutableStateOf(AppLanguage.Ru) }   // переживает поворот экрана
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
-    var startHomeTab by remember { mutableStateOf(HomeTab.Map) }
+    var startHomeTab by rememberSaveable { mutableStateOf(HomeTab.Map) }
     var callbackRequested by remember { mutableStateOf(false) }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by remember { mutableStateOf(demoPartnerAds) }
@@ -1085,7 +1086,7 @@ internal fun HomeScreen(
     onAdsCabinet: () -> Unit,
     onToggleLanguage: () -> Unit
 ) {
-    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
+    var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
     var ridesPresetTo by remember { mutableStateOf("") }
     var ridesPresetToday by remember { mutableStateOf(false) }
 
