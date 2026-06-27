@@ -1178,6 +1178,7 @@ internal fun ChatScreen(
         "system" to LocalizedText("Система", "Система")
     )
     val nowText = appText("сейчас", "хәҙер")
+    val chatScope = rememberCoroutineScope()
     LaunchedEffect(convReload) {
         ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
         convLoading = true
@@ -1250,6 +1251,13 @@ internal fun ChatScreen(
                     onVoiceRecorded = { path, dur ->
                         onAddVoiceMessage(LocalVoiceMessage(ApiClient.cachedName() ?: "Я", "", nowText, audioPath = path, durationSec = dur))
                         voiceSent = true
+                        // Реально шлём голос на сервер по активной брони (раньше оставался только локально).
+                        latestBookingId?.let { bid ->
+                            chatScope.launch {
+                                val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull()
+                                if (bytes != null) ApiClient.uploadVoice(bytes).onSuccess { url -> ApiClient.sendVoiceMessage(bid, url) }
+                            }
+                        }
                     }
                 )
             }
