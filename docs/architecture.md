@@ -21,9 +21,9 @@
 
 ## Сервер / интеграция (слой `data/`) — добавлено 2026-06-23
 - API: **`https://yulbash.ru`** (FastAPI на сервере, см. [server.md](server.md)). Клиент: **`data/ApiClient.kt`** (object, встроенный `HttpURLConnection`, БЕЗ внешних зависимостей).
-- Токен JWT в `SharedPreferences("yuldash")`, автологин. `ApiClient.init(context)` зовётся в `YuldashApplication.onCreate`.
+- Токен JWT в **`EncryptedSharedPreferences`** (`yuldash_secure`, с миграцией старого plaintext-токена; фоллбэк на обычные prefs если шифрование недоступно), автологин. `ApiClient.init(context)` зовётся в `YuldashApplication.onCreate`.
 - Методы: `requestCode`/`verifyCode` (вход), `getRides`, `createRequest`/`getMyRequests`, `publishRide`, `book`(→ booking id), `sos`, `addContact`/`getContacts`, `sendMessage`/`getMessages`, `shareTrip`/`setTripStatus`, `getConversations`/`getNotifications`/`getPopularRoutes`/`getMyRoutes`/`getAds` (списки сервер→экран, везде демо-фоллбэк), `uploadVoice`/`sendVoiceMessage`. Все POST'ы — через `fireXxx` (fire-and-forget на долгоживущем scope `ApiClient.bg`, переживают навигацию; иначе scope экрана отменял запрос).
-- DTO: `RideDto`, `RequestDto`, `ContactDto`, `MessageDto`. Старый `MockRepository`/`YuldashRepository` в `data/` — не используются экранами (исторический шов).
+- DTO: `RideDto`, `RequestDto`, `ContactDto`, `MessageDto` (маппинг `RideDto` — один шов `JSONObject.toRideDto()`). Геокодер адресов — через бэкенд `/geocode` (`GeocoderClient`), ключ на сервере. Мёртвый слой `Models.kt`/`Repository.kt`/`MockRepository.kt` **УДАЛЁН** 2026-06-27 (0 ссылок).
 - Загрузка с сервера: поездки и заявки — `LaunchedEffect` в `YuldashApp`; контакты — там же; сообщения — в `ActiveTripScreen`.
 - **`ActiveTripScreen`** (`Screen.ActiveTrip`) — экран «Моя поездка» после брони: чат по `booking_id`, поделиться с контактом, статус поездки, SOS.
 
