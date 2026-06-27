@@ -155,7 +155,8 @@ def _send_sms(phone: str, code: str) -> None:
             print(f"[OTP] {phone} -> {code}")  # фоллбэк при ошибке сети
     else:
         if settings.is_prod:
-            raise HTTPException(500, "SMS-провайдер не настроен")
+            # SMS заморожен в проде — основной вход через мессенджеры. Понятный ответ вместо 500.
+            raise HTTPException(503, "SMS-вход временно недоступен. Войдите через мессенджер.")
         print(f"[OTP] {phone} -> {code}")  # мок/dev — код в логе
 
 

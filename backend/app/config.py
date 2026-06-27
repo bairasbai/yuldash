@@ -55,8 +55,8 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if self.jwt_secret == DEFAULT_JWT_SECRET or len(self.jwt_secret) < 16:
             problems.append("JWT_SECRET должен быть задан и быть длинным (>=16 символов)")
-        if self.sms_provider == "mock":
-            problems.append("SMS_PROVIDER не должен быть 'mock' в проде (нужен smsru)")
+        # SMS — НЕобязателен: основной вход через мессенджеры (Telegram и т.п.).
+        # SMS заморожен (sms_provider=mock) — это допустимо в проде. Оживить: SMS_PROVIDER=smsru + ключ.
         if self.sms_provider == "smsru" and not self.sms_ru_api_id:
             problems.append("SMS_RU_API_ID обязателен при SMS_PROVIDER=smsru")
         if self.cors_origins.strip() == "*":

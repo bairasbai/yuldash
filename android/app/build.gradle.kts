@@ -53,6 +53,14 @@ val vkAppId: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YULDASH_VK_APP_ID", "")
 
+// SMS-вход ЗАМОРОЖЕН (нет юр.лица/ИП для договора с sms.ru). Код входа цел — оживляется флагом.
+// Оживить: YULDASH_SMS_LOGIN=true в local.properties + на сервере SMS_PROVIDER=smsru с ключом.
+// По умолчанию выключен → основной вход через мессенджеры.
+val smsLoginEnabled: Boolean = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_SMS_LOGIN", "false").trim().lowercase() == "true"
+
 // Подпись релиза: данные из keystore.properties (в .gitignore, в git не попадает).
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
@@ -83,6 +91,7 @@ android {
         buildConfigField("String", "YULDASH_SUPPORT_PHONE", "\"$supportPhone\"")
         buildConfigField("String", "TELEGRAM_BOT", "\"$telegramBot\"")
         buildConfigField("String", "VK_APP_ID", "\"$vkAppId\"")
+        buildConfigField("boolean", "SMS_LOGIN_ENABLED", "$smsLoginEnabled")
     }
 
     buildFeatures {

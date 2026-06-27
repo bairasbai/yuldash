@@ -1902,6 +1902,7 @@ private fun LoginFormCard(
     var code by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showPhone by remember { mutableStateOf(false) }   // SMS-форма (заморожена) раскрывается по тапу
 
     Card(
         modifier = modifier,
@@ -1914,12 +1915,51 @@ private fun LoginFormCard(
             verticalArrangement = Arrangement.spacedBy(13.dp)
         ) {
             Text(
-                text = appTextFor(currentLanguage, "Войти по телефону", "Телефон аша инеү"),
+                text = appTextFor(currentLanguage, "Войти в Юлдаш", "Юлдашҡа инеү"),
                 color = CanonText,
                 fontSize = 24.sp,
                 lineHeight = 28.sp,
                 fontWeight = FontWeight.Black
             )
+            Text(
+                text = appTextFor(currentLanguage, "Быстрый вход — выбери мессенджер", "Тиҙ инеү — мессенджер һайла"),
+                color = CanonMuted,
+                fontSize = 16.sp,
+                lineHeight = 22.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            // Основной вход — мессенджеры. Каждая кнопка активна после настройки (иначе тост «скоро»).
+            Button(
+                onClick = onTelegramLogin,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0088CC))
+            ) {
+                Text(appTextFor(currentLanguage, "Вход через Telegram", "Telegram аша инеү"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = onVKLogin,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
+            ) {
+                Text(appTextFor(currentLanguage, "Вход через VK", "VK аша инеү"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = onWhatsAppLogin,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+            ) {
+                Text(appTextFor(currentLanguage, "Вход через WhatsApp", "WhatsApp аша инеү"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+            // SMS-вход ЗАМОРОЖЕН (нет юр.лица для sms.ru). Форма цела — видна только при SMS_LOGIN_ENABLED.
+            if (BuildConfig.SMS_LOGIN_ENABLED) {
+            Spacer(modifier = Modifier.height(6.dp))
+            TextButton(onClick = { showPhone = !showPhone }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(appTextFor(currentLanguage, "Войти по номеру телефона", "Телефон номеры аша инеү"), color = CanonGreen2, fontSize = 14.sp)
+            }
+            if (showPhone) {
             Text(
                 text = if (step == 0) appTextFor(currentLanguage, "Номер будет скрыт до подтверждения брони.", "Телефон номеры бронь раҫланғанға тиклем йәшерелә.")
                 else appTextFor(currentLanguage, "Код отправлен на $phone", "Код $phone номерыңа ебәрелде"),
@@ -2021,47 +2061,8 @@ private fun LoginFormCard(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = appTextFor(currentLanguage, "Или", "Йәки"),
-                color = CanonText.copy(alpha = 0.6f),
-                fontSize = 12.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            // Telegram вход
-            Button(
-                onClick = onTelegramLogin,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0088CC))
-            ) {
-                Text(appTextFor(currentLanguage, "Вход по Telegram", "Telegram аша инеү"), color = Color.White, fontSize = 14.sp)
-            }
-            // VK вход
-            Button(
-                onClick = onVKLogin,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
-            ) {
-                Text(appTextFor(currentLanguage, "Вход по VK", "VK аша инеү"), color = Color.White, fontSize = 14.sp)
-            }
-            // WhatsApp вход
-            Button(
-                onClick = onWhatsAppLogin,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
-            ) {
-                Text(appTextFor(currentLanguage, "Вход по WhatsApp", "WhatsApp аша инеү"), color = Color.White, fontSize = 14.sp)
-            }
+            }   // конец if (showPhone)
+            }   // конец if (BuildConfig.SMS_LOGIN_ENABLED) — SMS-вход заморожен
         }
     }
 }
