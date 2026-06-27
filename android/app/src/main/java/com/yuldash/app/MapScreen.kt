@@ -365,7 +365,7 @@ internal fun MapScreen(
                                 color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
                             )
                             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                itemsIndexed(shownNearby) { i, dto ->
+                                itemsIndexed(shownNearby, key = { _, dto -> dto.id }) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
                                 }
                             }

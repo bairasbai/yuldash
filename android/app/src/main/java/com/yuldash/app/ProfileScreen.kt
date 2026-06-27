@@ -519,7 +519,7 @@ internal fun DriverCabinetScreen(
                     )
                 }
             } else {
-                items(driverRides) { ride ->
+                items(driverRides, key = { it.id }) { ride ->
                     MyTripCard(
                         ride = ride,
                         status = appText("Опубликована", "Баҫтырылды"),
@@ -536,7 +536,7 @@ internal fun DriverCabinetScreen(
                 item {
                     Text(appText("Пассажиры — оцените после поездки", "Пассажирҙар — сәфәрҙән һуң баһалағыҙ"), fontWeight = FontWeight.Black, fontSize = 16.sp)
                 }
-                items(driverBookings) { b ->
+                items(driverBookings, key = { it.bookingId }) { b ->
                     var stars by remember(b.bookingId) { mutableStateOf(0) }
                     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

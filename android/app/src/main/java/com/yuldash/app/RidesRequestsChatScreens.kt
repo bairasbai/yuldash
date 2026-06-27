@@ -1275,7 +1275,7 @@ internal fun ChatScreen(
                     }
                 }
             } else {
-                itemsIndexed(myRequests) { i, r ->
+                itemsIndexed(myRequests, key = { _, r -> r.id }) { i, r ->
                     Box(Modifier.appearIn(i)) {
                         ChatCard(
                             initial = r.fromCity.firstOrNull()?.uppercase() ?: "З",
@@ -1295,7 +1295,7 @@ internal fun ChatScreen(
                 VoiceMessageCard(message)
             }
             if (conversations.isNotEmpty()) {
-                itemsIndexed(conversations) { i, c ->
+                itemsIndexed(conversations, key = { _, c -> c.bookingId }) { i, c ->
                     Box(Modifier.appearIn(i)) {
                         ChatCard(
                             initial = c.peerName.take(1).uppercase(),
