@@ -6,7 +6,12 @@
 
 ## Главное
 
-- **Весь UI в одном файле:** `android/app/src/main/java/com/yuldash/app/MainActivity.kt`
+- **UI режется на модули (Фаза 1, 2026-06-27).** Раньше весь UI был в `MainActivity.kt`; идёт разрезка на файлы (см. план в [tasks.md](tasks.md) → «Резать MainActivity.kt»). Уже вынесены (тот же пакет `com.yuldash.app`, видимость `internal`):
+  - `AppText.kt` — двуязычие (`appText`/`appTextFor`/`AppLanguage`/`LocalAppLanguage`).
+  - `CanonTokens.kt` — палитра `Canon*` + формы + `ThemePrefs`/`appIsDark`.
+  - `Domain.kt` — доменные модели (`Ride`, `PopularRoute`, `TrustedContact`, …).
+  - `LoginScreen.kt`, `SupportBoostScreen.kt`, `SecondaryScreens.kt` — экраны.
+  - Остальные экраны + навигация (`YuldashApp`/`enum Screen`) пока в `MainActivity.kt` (7094 строки, было 8184).
 - Тема: `android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt`
 - **Application:** `android/app/src/main/java/com/yuldash/app/YuldashApplication.kt` — отдаёт ключ Яндекс MapKit (`MapKitFactory.setApiKey`) при старте. Прописан в манифесте как `android:name=".YuldashApplication"`.
 - **Ключ карты:** `local.properties` → `YANDEX_MAPKIT_KEY` (в `.gitignore`) → пробрасывается в `BuildConfig.YANDEX_MAPKIT_KEY` через `app/build.gradle.kts` (`buildConfig = true`). В коде ключ не хардкодим.

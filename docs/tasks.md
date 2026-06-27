@@ -29,15 +29,19 @@
 
 > Цель: разные экраны → разные файлы → разные агенты без конфликтов. **Правила:** один экран за шаг; `private`→`internal` при выносе; сборка зелёная и коммит после КАЖДОГО шага; поведение не меняется (чистый перенос). Пакет `com.yuldash.app`, файлы в одном модуле → импорты почти не нужны.
 
-**Фаза 0 — фундамент (то, от чего зависят все экраны). Делать первым:**
-- [ ] `i18n/AppText.kt` ← `appText`, `appTextFor`, `enum AppLanguage`, `LocalAppLanguage` (сделать `internal`).
-- [ ] `ui/theme/CanonTokens.kt` ← цвета `Canon*` (@Composable-геттеры) + формы `CanonCardShape/CanonItemShape`.
-- [ ] `model/Domain.kt` ← data-классы `Ride`, `PartnerAd`, `AdPlacement`, `AdStatus`, `AdStats`, `TrustedContact`, `FrequentTrip`, `LocalRequest`, `LocalVoiceMessage` + моки `demoRides`/`demoPartnerAds`/`demoFrequentTrips`.
-- [ ] `ui/components/Common.kt` ← `bounceClick`, `appearIn`, `EmptyStateCard`, `InfoCard`, `DetailMeta`, `PartnerAdCard`, `SettingsGroup/NavRow/SwitchRow`.
+> ✅ **Прогресс 2026-06-27 (Opus):** вынесено 6 файлов, `MainActivity.kt` 8184→7094 строк (−1090). Каждый шаг — сборка зелёная + коммит. Подход: новый файл = `package` + полный блок импортов (лишние = варнинги) + код; входной composable `internal`, хелперы `private`; общие хелперы открыты `internal` на месте.
 
-**Фаза 1 — экраны-листья (мало зависимостей), по одному за шаг:**
-- [ ] `ui/screens/`: `LoginScreen` (свежий, начнём с него) → `SupportScreen` → `BoostScreen` → `HelpScreen` → `SafetyScreen` → `SettingsScreen` → `NotificationsScreen` → `SosScreen`.
-- [ ] Доступность: `SimpleModeScreen`, `VoiceRequestScreen`, `FamilyOrderScreen`, `TrustedContactsScreen`, `RepeatTripScreen`, `CallbackHelpScreen`.
+**Фаза 0 — фундамент. ✅ СДЕЛАНО:**
+- [x] `AppText.kt` ← `appText`/`appTextFor`/`AppLanguage`/`LocalAppLanguage` (internal).
+- [x] `CanonTokens.kt` ← `Canon*` + формы + `ThemePrefs`/`appIsDark` (internal).
+- [x] `Domain.kt` ← `Ride`/`PopularRoute`/`TrustedContact`/`FrequentTrip`/`LocalRequest`/`LocalVoiceMessage` (internal). (Ads-модели `PartnerAd`/`AdStats`/`AdPlacement`/`AdStatus` открыты `internal` на месте; моки `demoRides`/`demoPartnerAds` пока в MainActivity — переедут с картой/нав.)
+- [~] Общие компоненты (`EmptyStateCard`/`InfoCard`/`PartnerAdCard`/`DetailMeta`/`SettingsGroup`/`bounceClick`/`appearIn`/`ScreenTopBar`/`YuldashBottomBar`/`SegmentedTabs`) — открыты `internal` на месте (в отдельный `Common.kt` вынести позже, не обязательно для параллелизма).
+
+**Фаза 1 — экраны-листья:**
+- [x] `LoginScreen.kt` (LoginScreen+BrandHero/TrustCard/LoginFormCard/SafetyFooter).
+- [x] `SupportBoostScreen.kt` (SupportScreen+BoostScreen+BoostPlan; `SbpTransferSheet`→internal).
+- [x] `SecondaryScreens.kt` (NotificationsScreen+SafetyScreen+SettingsScreen+HelpScreen).
+- [ ] Осталось: `SosScreen`, доступность (`SimpleModeScreen`, `VoiceRequestScreen`, `FamilyOrderScreen`, `TrustedContactsScreen`, `RepeatTripScreen`, `CallbackHelpScreen`).
 
 **Фаза 2 — крупные экраны (больше связей):**
 - [ ] `CreateRideScreen`, `BookingScreen`, `VerifyDriverScreen`, `AdsCabinetScreen`, `ProfileScreen`, `ChatScreen`, `MyRequestsScreen`, `RidesScreen`.
