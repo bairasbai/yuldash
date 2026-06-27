@@ -34,13 +34,17 @@
 - [x] Launcher-иконка качественно выглядит в ресурсах Android и подключена в манифесте.
 
 ## Сделано
-- [x] 2026-06-27 **Telegram/VK вход + полная архитектура системы.**
-  - [x] Android: Telegram и VK кнопки входа в LoginScreen (социальные сети вместо SMS).
-  - [x] Причина: физ. лицо не может получить договор с SMS-провайдером (sms.ru требует ЮЛ).
-  - [x] Реализовано: placeholder для OAuth callbacks, Toast при нажатии (production будет открывать браузер).
-  - [x] Платежи переосмыслены: только для донатов + Boost, сама поездка платится наличными/переводами.
-  - [x] `docs/system-design.md`: архитектура на миллионы DAU (3-слойная, PostgreSQL 20+ таблиц, REST API спецификация, WebSocket plan, DevOps масштабирование).
+- [x] 2026-06-27 **OAuth Telegram/VK вход — end-to-end реализация.**
+  - [x] **Android:** openTelegramLogin() + openVKLogin() функции; DeepLink обработка yuldash://auth/telegram; Intent filter в AndroidManifest.
+  - [x] **Backend API:** POST /auth/telegram-callback и /auth/vk-callback эндпоинты; JWT автологин.
+  - [x] **БД:** User модель +telegram_id +vk_id поля (индексированы, unique); миграция migrate_oauth.sql.
+  - [x] **Причина:** физ.лицо не может договор SMS-провайдер → вместо SMS используем Telegram/VK OAuth.
   - [x] Сборка: `gradlew assembleDebug` ✅ зелёная.
+  - [x] Коммит: `9936c5d`.
+
+- [x] 2026-06-27 **Telegram/VK вход + полная архитектура системы.**
+  - [x] `docs/system-design.md`: архитектура на миллионы DAU (3-слойная, PostgreSQL 20+ таблиц, REST API спецификация, WebSocket plan, DevOps масштабирование).
+  - [x] Платежи переосмыслены: только для донатов + Boost, сама поездка платится наличными/переводами.
   - [x] Коммит: `b1850d9`.
 
 - [x] 2026-06-27 **Точка сбора на карте.** Водитель: пикер (Яндекс-карта + центр-пин) из «Создать поездку»; координаты в `Ride.pickup_lat/lng` (миграция). Пассажир: «Открыть точку на карте» (geo-интент). Проверено end-to-end на эмуляторе. Коммит `337e02c`.
