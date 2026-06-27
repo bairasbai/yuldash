@@ -34,6 +34,13 @@
 - [x] Launcher-иконка качественно выглядит в ресурсах Android и подключена в манифесте.
 
 ## Сделано
+- [x] 2026-06-27 **Telegram-вход ВКЛЮЧЁН end-to-end (Opus).** Бот `@yuldash_sms_bot`.
+  - [x] Токен бота в `/opt/yuldash/.env` (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_WEBHOOK_SECRET`, chmod 600, НЕ в git). Александр ротирует токен позже сам.
+  - [x] Вебхук зарегистрирован: `https://yulbash.ru/telegram/webhook` (`getWebhookInfo` ok, ошибок нет).
+  - [x] Вебхук отвечает методом прямо в HTTP-ответе (`sendMessage` с кнопкой) — без отдельного исходящего вызова. Проверено: исходящий доступ к api.telegram.org с сервера есть, `getMe` ok.
+  - [x] `YULDASH_TELEGRAM_BOT=yuldash_sms_bot` в `local.properties` (gitignored) → `BuildConfig.TELEGRAM_BOT`. Кнопка открывает реального бота.
+  - [x] **E2E на проде:** вебхук без секрета→403; /start→подписанная кнопка; return-страница→deeplink; callback с подписью→200+JWT; подделка→401; тест-юзер удалён. Всё зелёное.
+  - [x] Android собран, `BuildConfig.TELEGRAM_BOT=yuldash_sms_bot`. Осталось Александру: проверить на телефоне (открыть бота, Старт → вернуться в приложение вошедшим).
 - [x] 2026-06-27 **SMS заморожен, вход через мессенджеры — основной (Opus).**
   - [x] Причина: sms.ru заключает договор только с юр.лицом/ИП → у Александра нет → SMS отпадает.
   - [x] **Заморозка, код цел и оживляется одним флагом:** `BuildConfig.SMS_LOGIN_ENABLED` (из `YULDASH_SMS_LOGIN` в local.properties, по умолч. **false**). При false — SMS-форма скрыта, вход только мессенджеры. Оживить позже: `YULDASH_SMS_LOGIN=true` + на сервере `SMS_PROVIDER=smsru` + ключ. Логика входа по SMS не удалена.

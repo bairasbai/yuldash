@@ -236,7 +236,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     text = msg.get("text") or ""
     frm = msg.get("from") or {}
     chat = msg.get("chat") or {}
-    if text.startswith("/start") and frm.get("id") and settings.telegram_bot_token:
+    if text.startswith("/start") and frm.get("id"):
         uid = str(frm["id"])
         auth_date = int(time.time())
         params = urlencode({
@@ -247,19 +247,14 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             "sig": sign_telegram(uid, auth_date),
         })
         return_url = f"{settings.media_base_url}/auth/telegram/return?{params}"
-        try:
-            import httpx
-            httpx.post(
-                f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-                json={
-                    "chat_id": chat.get("id"),
-                    "text": "Жми кнопку — вернёшься в Юлдаш и войдёшь 👇",
-                    "reply_markup": {"inline_keyboard": [[{"text": "Открыть Юлдаш", "url": return_url}]]},
-                },
-                timeout=10,
-            )
-        except Exception as e:  # noqa: BLE001
-            print(f"[TG] sendMessage error {e}")
+        # Ответ методом прямо в HTTP-ответе вебхука — Telegram сам выполнит sendMessage.
+        # Не нужен отдельный исходящий вызов к api.telegram.org (надёжнее).
+        return {
+            "method": "sendMessage",
+            "chat_id": chat.get("id"),
+            "text": "Жми кнопку — вернёшься в Юлдаш и войдёшь 👇",
+            "reply_markup": {"inline_keyboard": [[{"text": "Открыть Юлдаш", "url": return_url}]]},
+        }
     return {"ok": True}
 
 
