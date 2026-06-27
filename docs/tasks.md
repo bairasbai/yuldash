@@ -77,6 +77,7 @@
 - [x] Launcher-иконка качественно выглядит в ресурсах Android и подключена в манифесте.
 
 ## Сделано
+- [x] 2026-06-27 **Релизный билд готов к бете.** `app-release.apk` (145 МБ, подписан `CN=Yuldash` V2) — ставится напрямую на телефон друзьям; `app-release.aab` (71 МБ) — в Google Play. Сборка `assembleRelease`+`bundleRelease` зелёная. ⏳ APK тяжёлый (MapKit нативные либы, minify off) — позже ABI-split (только arm64) ужмёт до ~50 МБ.
 - [x] 2026-06-27 **Realtime-чат по WebSocket (ActiveTripScreen).**
   - [x] Сервер проверен end-to-end через `wss://yulbash.ru/ws/bookings/{id}?token=JWT` (подключение+broadcast+persist). nginx настроен на WS upgrade (`map $http_upgrade` + заголовки + `proxy_read_timeout 3600s`). uvicorn с `websockets 16.0`.
   - [x] Android: OkHttp 4.12.0 (только для WS), `data/ChatSocket.kt` (connect/send/close, ping 20с), `ApiClient.currentToken/wsBase/myUserId`. ActiveTripScreen: история REST + живой приём/отправка WS, оптимистичная отправка с заменой по эхо, фоллбэк REST.
