@@ -5,10 +5,17 @@ SMS пока мок: код пишется в лог и (в dev) возвращ�
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import List, Optional
+import asyncio
 import base64
 import math
 import os
+import threading
 import uuid
+
+try:
+    import redis.asyncio as aioredis   # WS pub/sub между воркерами (опционально)
+except Exception:  # noqa: BLE001 — библиотеки может не быть в dev
+    aioredis = None
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,7 +44,30 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         if settings.seed_demo:
             _seed_demo(session)
+    # Redis pub/sub для WS-чата между воркерами (если настроен и библиотека есть).
+    global _redis_pub
+    sub_client = None
+    sub_task = None
+    if settings.redis_url and aioredis is not None:
+        try:
+            _redis_pub = aioredis.from_url(settings.redis_url, decode_responses=True)
+            await _redis_pub.ping()
+            sub_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+            sub_task = asyncio.create_task(_chat_subscribe_loop(sub_client))
+            print("[REDIS] WS pub/sub активен")
+        except Exception as e:  # noqa: BLE001 — Redis недоступен → локальный режим, не падаем
+            print(f"[REDIS] недоступен ({e}) → WS локальный режим")
+            _redis_pub = None
     yield
+    # Закрытие
+    if sub_task is not None:
+        sub_task.cancel()
+    for c in (sub_client, _redis_pub):
+        if c is not None:
+            try:
+                await c.aclose()
+            except Exception:
+                pass
 
 
 app = FastAPI(title="Yuldash API", version="0.1.0", lifespan=lifespan)
@@ -976,8 +1006,16 @@ class MessageIn(BaseModel):
 
 
 # ==================== WebSocket для чата ====================
+# При НЕСКОЛЬКИХ воркерах участники одной брони могут попасть на разные процессы.
+# WS-объекты живут в одном процессе → прямой broadcast их не достаёт. Решение: Redis
+# pub/sub. Сообщение публикуется в канал "chat", КАЖДЫЙ воркер слушает канал и
+# доставляет своим локальным соединениям. Без Redis (один воркер/dev) — локальный режим.
+_CHAT_CHANNEL = "chat"
+_redis_pub = None   # клиент для publish (заполняется в lifespan, если есть Redis)
+
+
 class ConnectionManager:
-    """Управление WebSocket соединениями для чата в реальном времени."""
+    """WebSocket-соединения чата. Локальные коннекты в этом процессе + раздача через Redis."""
     def __init__(self):
         self.active_connections: dict = {}
 
@@ -987,18 +1025,49 @@ class ConnectionManager:
 
     def disconnect(self, booking_id: int, websocket: WebSocket):
         if booking_id in self.active_connections:
-            self.active_connections[booking_id].remove(websocket)
+            try:
+                self.active_connections[booking_id].remove(websocket)
+            except ValueError:
+                pass
+            if not self.active_connections[booking_id]:
+                self.active_connections.pop(booking_id, None)
+
+    async def local_broadcast(self, booking_id: int, data: dict):
+        """Доставить локальным соединениям этого процесса."""
+        for connection in list(self.active_connections.get(booking_id, [])):
+            try:
+                await connection.send_json(data)
+            except Exception:
+                pass
 
     async def broadcast(self, booking_id: int, data: dict):
-        if booking_id in self.active_connections:
-            for connection in self.active_connections[booking_id]:
-                try:
-                    await connection.send_json(data)
-                except Exception:
-                    pass
+        """Раздать сообщение всем участникам брони на ЛЮБОМ воркере.
+        Есть Redis → publish (подписчик доставит на всех, включая этот воркер).
+        Нет Redis → доставляем только локально (режим одного воркера)."""
+        if _redis_pub is not None:
+            try:
+                await _redis_pub.publish(_CHAT_CHANNEL, json.dumps({"booking_id": booking_id, "data": data}))
+                return
+            except Exception:
+                pass  # Redis отвалился → мягко падаем на локальную доставку
+        await self.local_broadcast(booking_id, data)
 
 
 manager = ConnectionManager()
+
+
+async def _chat_subscribe_loop(redis_client):
+    """Слушает Redis-канал и доставляет сообщения локальным WS-соединениям воркера."""
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(_CHAT_CHANNEL)
+    async for msg in pubsub.listen():
+        if msg.get("type") != "message":
+            continue
+        try:
+            obj = json.loads(msg["data"])
+            await manager.local_broadcast(int(obj["booking_id"]), obj["data"])
+        except Exception:
+            pass
 
 
 @app.websocket("/ws/bookings/{booking_id}")
@@ -1123,33 +1192,59 @@ def conversations(limit: int = 100, user: User = Depends(current_user), session:
     return out
 
 
+# ----- Лёгкий TTL-кеш для глобальных лент (одинаковы для всех юзеров) -----
+# /feed и /popular-routes опрашивает КАЖДЫЙ клиент раз в 45-60с. Данные общие → без
+# кеша это N× одинаковых полных сканов Ride/Booking в секунду при запуске с наплывом.
+# Кешируем результат на TTL: при тысячах юзеров БД дёргается ~раз в TTL, а не на каждый запрос.
+_cache_lock = threading.Lock()
+_cache: dict = {}
+
+
+def _cached(key: str, ttl: float, producer):
+    """Вернуть закешированное значение или пересчитать через producer(). Потокобезопасно.
+    Producer зовётся вне лока (там работа с БД) — при гонке возможен двойной пересчёт, это
+    безопасно и дёшево. Свежесть данных в пределах TTL достаточна (клиент и так поллит реже)."""
+    hit = _cache.get(key)
+    if hit is not None and time.monotonic() - hit[0] < ttl:
+        return hit[1]
+    value = producer()
+    with _cache_lock:
+        _cache[key] = (time.monotonic(), value)
+    return value
+
+
 @app.get("/popular-routes")
 def popular_routes(session: Session = Depends(get_session)):
-    """Топ направлений — считаем из реальных поездок."""
-    from collections import Counter
-    rides = session.exec(select(Ride)).all()
-    cnt = Counter((r.from_city, r.to_city) for r in rides if r.from_city and r.to_city)
-    return [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
+    """Топ направлений — считаем из реальных поездок. Кеш 60с (общий для всех)."""
+    def build():
+        from collections import Counter
+        rides = session.exec(select(Ride)).all()
+        cnt = Counter((r.from_city, r.to_city) for r in rides if r.from_city and r.to_city)
+        return [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
+    return _cached("popular_routes", 60.0, build)
 
 
 @app.get("/feed")
 def feed(session: Session = Depends(get_session)):
-    """Живая лента карты: счётчики поездок за период (день/неделя/месяц/год) + топ-маршрут недели. Из реальных данных."""
-    from collections import Counter
-    now = datetime.utcnow()
-    bookings = session.exec(select(Booking)).all()
-    def since(days: int) -> int:
-        edge = now - timedelta(days=days)
-        return sum(1 for b in bookings if b.created_at and b.created_at >= edge)
-    rides = session.exec(select(Ride)).all()
-    week_rides = [r for r in rides if r.created_at and r.created_at >= now - timedelta(days=7) and r.from_city and r.to_city]
-    top = Counter((r.from_city, r.to_city) for r in week_rides).most_common(1)
-    top_route = ({"from_city": top[0][0][0], "to_city": top[0][0][1], "count": top[0][1]} if top else None)
-    return {
-        "today": since(1), "week": since(7), "month": since(30), "year": since(365),
-        "drivers": len({r.driver_id for r in rides}),
-        "top_route": top_route,
-    }
+    """Живая лента карты: счётчики поездок за период (день/неделя/месяц/год) + топ-маршрут недели.
+    Из реальных данных. Кеш 30с (общий для всех) — снимает основную read-нагрузку при наплыве."""
+    def build():
+        from collections import Counter
+        now = datetime.utcnow()
+        bookings = session.exec(select(Booking)).all()
+        def since(days: int) -> int:
+            edge = now - timedelta(days=days)
+            return sum(1 for b in bookings if b.created_at and b.created_at >= edge)
+        rides = session.exec(select(Ride)).all()
+        week_rides = [r for r in rides if r.created_at and r.created_at >= now - timedelta(days=7) and r.from_city and r.to_city]
+        top = Counter((r.from_city, r.to_city) for r in week_rides).most_common(1)
+        top_route = ({"from_city": top[0][0][0], "to_city": top[0][0][1], "count": top[0][1]} if top else None)
+        return {
+            "today": since(1), "week": since(7), "month": since(30), "year": since(365),
+            "drivers": len({r.driver_id for r in rides}),
+            "top_route": top_route,
+        }
+    return _cached("feed", 30.0, build)
 
 
 @app.get("/my-routes")

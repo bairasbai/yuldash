@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     # --- Push (FCM) ---
     firebase_credentials: str = ""      # путь к JSON сервисного аккаунта Firebase (для отправки пушей). Пусто → push выключен.
 
+    # --- Redis (масштаб) ---
+    # Нужен при НЕСКОЛЬКИХ воркерах: WS-чат раздаёт сообщения между процессами через pub/sub.
+    # Пусто → WS работает локально (один воркер). Пример: redis://127.0.0.1:6379/0
+    redis_url: str = ""
+
     # --- Прод-параметры ---
     media_base_url: str = "https://yulbash.ru"   # база для публичных URL медиа (фото/голос)
     cors_origins: str = "*"                       # список origin через запятую; в проде сузить
