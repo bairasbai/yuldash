@@ -29,7 +29,7 @@
 | [backend.md](backend.md) | Архитектура настоящего бэкенда: роли, SMS-вход, БД, API, матчинг, порядок миграции |
 | [server.md](server.md) | 🖥 Сервер и деплой: URL API, SSH-доступ по ключу, firewall, HTTPS, как подключиться/управлять. Ключ — на ноуте Александра → подключиться может только агент, работающий локально (облачный — нет) |
 | [monetization.md](monetization.md) | Бизнес-модель: донаты + платное поднятие |
-| [telegram-setup.md](telegram-setup.md) | 🤖 Вход через Telegram: 3 шага для Александра (бот @BotFather + .env + вебхук). |
+| [telegram-setup.md](telegram-setup.md) | 🤖 Вход через Telegram (УЖЕ настроено: бот `@yuldash_sms_bot` + .env + вебхук). Инструкция — для ротации токена. |
 
 ## 🎯 Текущий статус (2026-06-27)
 
@@ -43,16 +43,15 @@
 - ✅ Boost UI (платежи на Q4)
 - ✅ Сборка `gradlew assembleDebug` зелёная (компиляция)
 
-**Telegram-вход — ГОТОВ и задеплоен (с подписью), ждёт регистрации бота:**
-- ✅ Серверный бот-flow: `/telegram/webhook` (бот) → подпись HMAC → `/auth/telegram/return` → app → `/auth/telegram-callback` проверяет подпись → JWT. Войти за чужого нельзя.
-- ✅ Android: DeepLink `yuldash://auth/telegram` ловится, `ApiClient` шлёт `auth_date`+`sig`, логинит.
-- ⛔ **Чтобы включить — Александр:** зарегать бота у @BotFather + 3 шага → **[telegram-setup.md](telegram-setup.md)**.
-- 🔒 **Закрыты дыры:** `/auth/whatsapp-callback` (был угон аккаунта по чужому номеру) и `/auth/vk-callback` → 501 (задеплоено). VK/WhatsApp как вход — позже.
-- ✅ Сборка `assembleDebug` зелёная.
+**Telegram-вход — ВКЛЮЧЁН end-to-end (бот `@yuldash_sms_bot` зарегистрирован, токен в `.env` прода):**
+- ✅ Поток по 4-значному коду (как SMS): app `/auth/tg/start` → открывает бота → юзер жмёт Старт → бот шлёт код в чат → app `/auth/tg/verify` → JWT. Проверено на проде (start→код→verify→JWT, неверный→400, защита от перебора).
+- ✅ Единственный рабочий вход. VK/WhatsApp **убраны** (требуют ИНН/бизнес). SMS заморожен (нет юр.лица).
+- ✅ Сборка зелёная.
 
-**WebSocket-чат:**
-- ✅ эндпоинт `/ws/bookings/{id}` + `verify_token` (был баг — функции не было, сокет всегда отбивал; починено Opus, задеплоено).
-- ⏳ Android-клиент ещё на REST-поллинге, к WS не подключён (нужен OkHttp).
+**WebSocket-чат — РАБОТАЕТ:**
+- ✅ `/ws/bookings/{id}` через nginx (wss), uvicorn+websockets, проверено end-to-end на проде.
+- ✅ Проверка участника брони (только пассажир/водитель — закрыта дыра утечки чужих чатов, аудит 2026-06-27).
+- ✅ Android: OkHttp + `ChatSocket.kt`, ActiveTripScreen — живой приём/отправка. Двусторонний тест 2 телефонов — на бете.
 
 **Что дальше (приоритет):**
 1. OAuth-блокеры: зарегать Telegram-бота/VK-приложение (Александр) → вход замкнётся.
