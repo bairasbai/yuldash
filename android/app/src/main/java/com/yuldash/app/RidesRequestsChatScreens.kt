@@ -1168,6 +1168,9 @@ internal fun ChatScreen(
     var draft by remember { mutableStateOf("") }
     var latestBookingId by remember { mutableStateOf<Int?>(null) }
     var conversations by remember { mutableStateOf<List<ConversationDto>>(emptyList()) }
+    var convLoading by remember { mutableStateOf(true) }
+    var convError by remember { mutableStateOf(false) }
+    var convReload by remember { mutableStateOf(0) }
     var myRequests by remember { mutableStateOf<List<RequestDto>>(emptyList()) }
     val chatTabs = listOf(
         "active" to LocalizedText("Активные", "Актив"),
@@ -1175,9 +1178,13 @@ internal fun ChatScreen(
         "system" to LocalizedText("Система", "Система")
     )
     val nowText = appText("сейчас", "хәҙер")
-    LaunchedEffect(Unit) {
+    LaunchedEffect(convReload) {
         ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
-        ApiClient.getConversations().onSuccess { conversations = it }
+        convLoading = true
+        ApiClient.getConversations()
+            .onSuccess { conversations = it; convError = false }
+            .onFailure { convError = true }
+        convLoading = false
         ApiClient.getMyRequests().onSuccess { myRequests = it }
     }
     LazyColumn(
@@ -1295,10 +1302,28 @@ internal fun ChatScreen(
                     }
                 }
             } else {
-                // Демо-диалоги, пока нет реальных переписок (новый юзер / офлайн).
-                item { Box(Modifier.appearIn(0)) { ChatCard(initial = "Р", name = "Рамиль", subtitle = "Баймаҡ → Сибай", message = appText("Буду у вокзала в 17:20", "17:20-лә вокзалда булам"), time = "16:48", unread = 2, verified = true) } }
-                item { Box(Modifier.appearIn(1)) { ChatCard(initial = "Л", name = "Лилия", subtitle = appText("Заявка в больницу", "Больницаға заявка"), message = appText("Могу забрать после 18:00", "18:00-дән һуң алып китә алам"), time = "15:30", unread = 0, verified = false) } }
-                item { Box(Modifier.appearIn(2)) { ChatCard(initial = "Ю", name = appText("Поддержка Юлдаш", "Юлдаш ярҙамы"), subtitle = appText("Система", "Система"), message = appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды"), time = appText("Вчера", "Кисә"), unread = 0, verified = true, support = true) } }
+                // Честные состояния вместо фейковых демо-диалогов: загрузка / ошибка / пусто.
+                item {
+                    Box(Modifier.appearIn(0)) {
+                        when {
+                            convLoading -> Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(modifier = Modifier.size(28.dp), color = CanonGreen2, strokeWidth = 2.dp)
+                            }
+                            convError -> EmptyStateCard(
+                                title = appText("Не удалось загрузить диалоги", "Диалогтарҙы йөкләп булманы"),
+                                text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
+                                icon = Icons.Default.Refresh,
+                                action = appText("Повторить", "Ҡабатлау"),
+                                onAction = { convReload++ },
+                            )
+                            else -> EmptyStateCard(
+                                title = appText("Пока нет диалогов", "Әлегә диалогтар юҡ"),
+                                text = appText("Чат появится после брони поездки", "Чат сәфәр бронынан һуң күренә"),
+                                icon = Icons.Default.ChatBubbleOutline,
+                            )
+                        }
+                    }
+                }
             }
         }
         item {
