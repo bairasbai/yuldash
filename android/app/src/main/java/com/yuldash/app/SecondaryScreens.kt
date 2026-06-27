@@ -1,0 +1,566 @@
+package com.yuldash.app
+
+// Вторичные экраны: Уведомления, Безопасность, Настройки, Помощь. Вынесено из MainActivity (Фаза 1).
+// Импорты скопированы целиком — лишние = варнинги.
+
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.ChildCare
+import androidx.compose.material.icons.filled.Woman
+import androidx.compose.material.icons.filled.SmokingRooms
+import androidx.compose.material.icons.filled.Luggage
+import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.icons.filled.AddBox
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.AddRoad
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.EventSeat
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.HeadsetMic
+import androidx.compose.material.icons.filled.Help
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhoneLocked
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Pin
+import androidx.compose.material.icons.filled.QuestionMark
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Sos
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import android.Manifest
+import android.app.Activity
+import android.speech.RecognizerIntent
+import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.media.MediaRecorder
+import android.os.Build
+import android.os.SystemClock
+import java.io.File
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import android.content.Context
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.alpha
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PointF
+import android.graphics.Typeface
+import android.view.MotionEvent
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.viewinterop.AndroidView
+import com.yandex.mapkit.MapKitFactory
+import com.yandex.mapkit.geometry.Circle
+import com.yandex.mapkit.geometry.Point
+import com.yandex.mapkit.geometry.Polyline
+import com.yandex.mapkit.map.CameraPosition
+import com.yandex.mapkit.Animation
+import com.yandex.mapkit.map.CameraListener
+import com.yandex.mapkit.map.CameraUpdateReason
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.NearMe
+import com.yandex.mapkit.map.IconStyle
+import com.yandex.mapkit.map.MapObjectTapListener
+import com.yandex.mapkit.mapview.MapView
+import com.yandex.runtime.image.ImageProvider
+import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.MessageDto
+import com.yuldash.app.data.GeocoderClient
+import com.yuldash.app.data.GeoHit
+import com.yuldash.app.data.ConversationDto
+import com.yuldash.app.data.PopularRouteDto
+import com.yuldash.app.data.FeedDto
+import com.yuldash.app.data.RequestDto
+import com.yuldash.app.data.NotifDto
+import com.yuldash.app.data.AdDto
+import com.yuldash.app.ui.theme.YuldashTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit) {
+    var selected by remember { mutableStateOf("all") }
+    var cleared by remember { mutableStateOf(false) }
+    val allLabel = appText("Все", "Бөтәһе")
+    val ridesLabel = appText("Поездки", "Сәфәрҙәр")
+    val chatLabel = appText("Чат", "Чат")
+    val systemLabel = appText("Система", "Система")
+    val selectedLabel = when (selected) {
+        "rides" -> ridesLabel
+        "chat" -> chatLabel
+        "system" -> systemLabel
+        else -> allLabel
+    }
+    var serverNotifs by remember { mutableStateOf<List<NotifDto>>(emptyList()) }
+    LaunchedEffect(Unit) { ApiClient.getNotifications().onSuccess { serverNotifs = it } }
+    val demoNotifs = listOf(
+        Triple(Icons.Default.DirectionsCar, appText("Водитель откликнулся на заявку", "Водитель заявкаға яуап бирҙе"), appText("Рамиль едет к вам", "Рамиль һеҙгә килә")),
+        Triple(Icons.Default.CheckCircle, appText("Поездка подтверждена", "Сәфәр раҫланды"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30")),
+        Triple(Icons.Default.ChatBubble, appText("Новое сообщение в чате", "Чатта яңы хәбәр"), appText("Рамиль: «Буду у вокзала в 17:20»", "Рамиль: «17:20-лә вокзалда булам»")),
+        Triple(Icons.Default.Shield, appText("Профиль успешно проверен", "Профиль уңышлы тикшерелде"), appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды")),
+        Triple(Icons.Default.Schedule, appText("Поездка начнётся через 30 минут", "Сәфәр 30 минуттан башлана"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30"))
+    )
+    // Реальные события с сервера; демо — пока их нет (новый юзер).
+    val notifications = if (serverNotifs.isNotEmpty()) serverNotifs.map { Triple(Icons.Default.ChatBubble, it.title, it.text) } else demoNotifs
+    Scaffold(
+        containerColor = CanonBg,
+        bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Chat, onSelect = onSelectTab) }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(bottom = 18.dp)
+        ) {
+            item { Spacer(Modifier.height(10.dp)) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(appText("Уведомления", "Хәбәрҙәр"), modifier = Modifier.weight(1f), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                    TextButton(
+                        enabled = !cleared,
+                        onClick = { cleared = true }
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = CanonGreen2)
+                        Spacer(Modifier.width(6.dp))
+                        Text(appText("Очистить всё", "Барыһын таҙартыу"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            item {
+                SegmentedTabs(
+                    listOf(allLabel, ridesLabel, chatLabel, systemLabel),
+                    selectedLabel,
+                    onSelect = {
+                        selected = when (it) {
+                            ridesLabel -> "rides"
+                            chatLabel -> "chat"
+                            systemLabel -> "system"
+                            else -> "all"
+                        }
+                    }
+                )
+            }
+            if (cleared) {
+                item {
+                    InfoCard(
+                        title = appText("Уведомлений нет", "Хәбәрҙәр юҡ"),
+                        text = appText("Новые события по поездкам, чату и профилю появятся здесь.", "Сәфәр, чат һәм профиль буйынса яңы ваҡиғалар бында күренә."),
+                        icon = Icons.Default.Notifications
+                    )
+                }
+            } else {
+                val visibleNotifications = notifications.filter { (icon, _, _) ->
+                    selected == "all" ||
+                        (selected == "rides" && icon != Icons.Default.ChatBubble && icon != Icons.Default.Shield) ||
+                        (selected == "chat" && icon == Icons.Default.ChatBubble) ||
+                        (selected == "system" && icon == Icons.Default.Shield)
+                }
+                items(visibleNotifications) { (icon, title, subtitle) ->
+                    NotificationRow(
+                        icon = icon,
+                        title = title,
+                        subtitle = subtitle,
+                        time = when (icon) {
+                            Icons.Default.DirectionsCar -> "09:30"
+                            Icons.Default.CheckCircle -> "09:28"
+                            Icons.Default.ChatBubble -> "09:15"
+                            Icons.Default.Shield -> appText("Вчера, 16:45", "Кисә, 16:45")
+                            else -> appText("Вчера, 16:20", "Кисә, 16:20")
+                        },
+                        unread = icon != Icons.Default.Shield && icon != Icons.Default.Schedule
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, time: String, unread: Boolean) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = CanonMint, shape = CircleShape) {
+                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, lineHeight = 21.sp)
+                Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                Text(time, color = CanonMuted, fontSize = 13.sp)
+                if (unread) Box(Modifier.size(8.dp).background(CanonGreen2, CircleShape))
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SafetyScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, onSos: () -> Unit) {
+    var hidePhone by remember { mutableStateOf(true) }
+    var verifiedOnly by remember { mutableStateOf(true) }
+    Scaffold(
+        containerColor = CanonBg,
+        bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(bottom = 18.dp)
+        ) {
+            item { Spacer(Modifier.height(10.dp)) }
+            item {
+                Text(appText("Безопасность", "Хәүефһеҙлек"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                Text(appText("Ваши данные и поездки под защитой", "Һеҙҙең мәғлүмәт һәм сәфәрҙәр һаҡланған"), color = CanonMuted, fontSize = 15.sp)
+            }
+            item {
+                Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, Color(0x33D93025))) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = CanonDangerBg, shape = RoundedCornerShape(18.dp)) {
+                            Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.Sos, contentDescription = null, tint = CanonRed, modifier = Modifier.size(34.dp))
+                                Text("SOS", color = CanonRed, fontWeight = FontWeight.Black)
+                            }
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(appText("Нужна помощь?", "Ярҙәм кәрәкме?"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            Text(appText("Свяжитесь с экстренными службами и поддержкой Юлдаш.", "Ашығыс хеҙмәттәр һәм Юлдаш ярҙамы менән бәйләнегеҙ."), color = CanonMuted, lineHeight = 19.sp)
+                        }
+                        Button(onClick = onSos, colors = ButtonDefaults.buttonColors(containerColor = CanonRed), shape = RoundedCornerShape(16.dp)) {
+                            Text("SOS", fontWeight = FontWeight.Black)
+                        }
+                    }
+                }
+            }
+            item {
+                SettingsGroup {
+                    SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it }
+                    SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it }
+                    SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."))
+                    SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите совершать поездки.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."))
+                    SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщите о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр итегеҙ."))
+                    SettingsNavRow(Icons.Default.Description, appText("Правила поездок", "Сәфәр ҡағиҙәләре"), appText("Ознакомьтесь с правилами сервиса Юлдаш.", "Юлдаш ҡағиҙәләре менән танышығыҙ."))
+                }
+            }
+            item {
+                InfoCard(appText("Мы заботимся о вашей безопасности", "Беҙ хәүефһеҙлек тураһында ҡайғыртабыҙ"), appText("Проверяем участников, скрываем телефон и даём быстрый SOS.", "Ҡатнашыусыларҙы тикшерәбеҙ, телефонды йәшерәбеҙ һәм тиҙ SOS бирәбеҙ."), Icons.Default.Shield)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SettingsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, onToggleLanguage: () -> Unit) {
+    var notifications by remember { mutableStateOf(true) }
+    var sounds by remember { mutableStateOf(true) }
+    val isBashkir = LocalAppLanguage.current == AppLanguage.Ba
+    Scaffold(
+        containerColor = CanonBg,
+        bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(bottom = 18.dp)
+        ) {
+            item { Spacer(Modifier.height(10.dp)) }
+            item {
+                Text(appText("Настройки", "Көйләүҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                Text(appText("Настройте приложение под себя", "Ҡушымтаны үҙегеҙгә көйләгеҙ"), color = CanonMuted, fontSize = 15.sp)
+            }
+            item { CompactProfileBanner() }
+            item {
+                SettingsGroup {
+                    SettingSwitchRow(Icons.Default.Notifications, appText("Уведомления", "Хәбәрҙәр"), appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу"), notifications) { notifications = it }
+                    SettingsNavRow(Icons.Default.Language, appText("Язык", "Тел"), if (isBashkir) "Башҡортса" else "Русский", onClick = onToggleLanguage)
+                    SettingsNavRow(Icons.Default.Map, appText("Тема карты", "Карта темаһы"), appText("Светлая", "Яҡты"))
+                }
+            }
+            item {
+                SettingsGroup {
+                    SettingsNavRow(Icons.Default.Shield, appText("Приватность", "Махсуслыҡ"), appText("Управление безопасностью и данными", "Хәүефһеҙлек һәм мәғлүмәт"))
+                    SettingSwitchRow(Icons.Default.VolumeUp, appText("Звуки", "Тауыштар"), appText("Звуковые уведомления и эффекты", "Тауышлы хәбәрҙәр"), sounds) { sounds = it }
+                }
+            }
+            item {
+                SettingsGroup {
+                    SettingsNavRow(Icons.Default.Tune, appText("Фильтры по умолчанию", "Ғәҙәти фильтрҙар"), appText("Настройте фильтры для поиска поездок", "Сәфәр эҙләү фильтрҙары"))
+                    SettingsNavRow(Icons.Default.CreditCard, appText("Способы оплаты", "Түләү ысулдары"), appText("Управление картами и платежами", "Карталар һәм түләүҙәр"))
+                }
+            }
+            item {
+                SettingsGroup {
+                    SettingsNavRow(Icons.Default.Info, appText("О приложении", "Ҡушымта тураһында"), "Версия 1.0.0 (100)")
+                }
+            }
+            item {
+                Text("Юлдаш © 2026", modifier = Modifier.fillMaxWidth(), color = CanonMuted, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun HelpScreen(
+    ads: List<PartnerAd>,
+    adStats: Map<String, AdStats>,
+    onBack: () -> Unit,
+    onSelectTab: (HomeTab) -> Unit,
+    onAdImpression: (PartnerAd) -> Unit,
+    onAdClick: (PartnerAd) -> Unit
+) {
+    val usefulAd = ads.forPlacement(AdPlacement.Help).firstOrNull { it.category == "В больницу" }
+        ?: ads.forPlacement(AdPlacement.Help).firstOrNull { it.city == "Баймаҡ" }
+    var helpQuery by remember { mutableStateOf("") }
+    Scaffold(
+        containerColor = CanonBg,
+        bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(bottom = 18.dp)
+        ) {
+            item { Spacer(Modifier.height(10.dp)) }
+            item {
+                Text(appText("Помощь", "Ярдам"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                Text(appText("Ответы на частые вопросы и поддержка", "Йыш һорауҙарға яуаптар һәм ярҙам"), color = CanonMuted, fontSize = 15.sp)
+            }
+            item {
+                OutlinedTextField(
+                    value = helpQuery,
+                    onValueChange = { helpQuery = it },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = CanonGreen2) },
+                    placeholder = { Text(appText("Поиск по вопросам", "Һорауҙар буйынса эҙләү")) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(999.dp)
+                )
+            }
+            if (helpQuery.isNotBlank()) {
+                item {
+                    InfoCard(
+                        appText("Найдено по запросу: $helpQuery", "$helpQuery буйынса табылды"),
+                        appText("Откройте подходящий вопрос ниже или напишите в поддержку.", "Түбәндәге һорауҙы асығыҙ йәки ярҙамға яҙығыҙ."),
+                        Icons.Default.Search
+                    )
+                }
+            }
+            item { Text(appText("Популярные вопросы", "Популяр һорауҙар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+            item { HelpRow(Icons.Default.Search, appText("Как найти поездку?", "Сәфәрҙе нисек табырға?"), appText("Поиск и фильтры, выбор водителя", "Эҙләү, фильтрҙар, водитель һайлау")) }
+            item { HelpRow(Icons.Default.AddRoad, appText("Как создать заявку?", "Заявканы нисек булдырырға?"), appText("Пошаговая инструкция", "Аҙымлап аңлатма")) }
+            item { HelpRow(Icons.Default.Shield, appText("Как проходит проверка водителя?", "Водитель нисек тикшерелә?"), appText("Безопасность и подтверждение", "Хәүефһеҙлек һәм раҫлау")) }
+            item { HelpRow(Icons.Default.Notifications, appText("Что делать в экстренной ситуации?", "Ашығыс хәлдә нимә эшләргә?"), appText("SOS, отмена поездки, поддержка", "SOS, сәфәрҙе туҡтатыу, ярҙам")) }
+            item { Text(appText("Связаться с поддержкой", "Ярдам менән бәйләнеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+            item {
+                SettingsGroup {
+                    SettingsNavRow(Icons.Default.ChatBubble, appText("Связаться с поддержкой", "Ярдамға яҙыу"), appText("Мы поможем решить ваш вопрос", "Һорауығыҙҙы хәл итергә ярҙам итәбеҙ"))
+                    SettingsNavRow(Icons.Default.HeadsetMic, appText("Написать в чат поддержки", "Ярдам чатына яҙыу"), appText("Онлайн-ответ в чате приложения", "Ҡушымта чатында онлайн яуап"))
+                }
+            }
+            item {
+                InfoCard(appText("Мы отвечаем ежедневно с 9:00 до 21:00", "Беҙ көн һайын 9:00-21:00 яуап бирәбеҙ"), "", Icons.Default.Info)
+            }
+            usefulAd?.let { ad ->
+                item {
+                    PartnerAdCard(
+                        ad = ad,
+                        stats = adStats[ad.id] ?: AdStats(),
+                        compact = true,
+                        label = appText("Полезный партнёр", "Файҙалы партнёр"),
+                        onImpression = onAdImpression,
+                        onClick = onAdClick
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HelpRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(13.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                Text(subtitle, color = CanonMuted, fontSize = 14.sp)
+            }
+            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
+        }
+    }
+}
+

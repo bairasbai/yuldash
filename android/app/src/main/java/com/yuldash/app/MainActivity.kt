@@ -287,7 +287,7 @@ private enum class Screen {
     CallbackHelp
 }
 
-private enum class HomeTab {
+internal enum class HomeTab {
     Map,
     Rides,
     Request,
@@ -1820,7 +1820,7 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun YuldashBottomBar(
+internal fun YuldashBottomBar(
     selectedTab: HomeTab,
     onSelect: (HomeTab) -> Unit
 ) {
@@ -3178,7 +3178,7 @@ private fun RidesScreen(
 }
 
 @Composable
-private fun SegmentedTabs(
+internal fun SegmentedTabs(
     tabs: List<String>,
     selected: String,
     onSelect: (String) -> Unit
@@ -6077,19 +6077,19 @@ private fun PartnerAd.eridText(): String = appText(
 
 private fun List<PartnerAd>.activeAds(): List<PartnerAd> = filter { it.status == AdStatus.Active }
 
-private fun List<PartnerAd>.forPlacement(placement: AdPlacement): List<PartnerAd> {
+internal fun List<PartnerAd>.forPlacement(placement: AdPlacement): List<PartnerAd> {
     return activeAds().filter { placement in it.placements }
 }
 
-private fun List<PartnerAd>.forRoute(from: String, to: String): List<PartnerAd> {
+internal fun List<PartnerAd>.forRoute(from: String, to: String): List<PartnerAd> {
     return activeAds().filter { it.matchesRoute(from, to) }
 }
 
-private fun List<PartnerAd>.forCity(city: String): List<PartnerAd> {
+internal fun List<PartnerAd>.forCity(city: String): List<PartnerAd> {
     return activeAds().filter { it.city == city }
 }
 
-private fun List<PartnerAd>.forCategory(category: String): List<PartnerAd> {
+internal fun List<PartnerAd>.forCategory(category: String): List<PartnerAd> {
     return activeAds().filter { it.category == category }
 }
 
@@ -6342,323 +6342,6 @@ private fun BookingScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit) {
-    var selected by remember { mutableStateOf("all") }
-    var cleared by remember { mutableStateOf(false) }
-    val allLabel = appText("Все", "Бөтәһе")
-    val ridesLabel = appText("Поездки", "Сәфәрҙәр")
-    val chatLabel = appText("Чат", "Чат")
-    val systemLabel = appText("Система", "Система")
-    val selectedLabel = when (selected) {
-        "rides" -> ridesLabel
-        "chat" -> chatLabel
-        "system" -> systemLabel
-        else -> allLabel
-    }
-    var serverNotifs by remember { mutableStateOf<List<NotifDto>>(emptyList()) }
-    LaunchedEffect(Unit) { ApiClient.getNotifications().onSuccess { serverNotifs = it } }
-    val demoNotifs = listOf(
-        Triple(Icons.Default.DirectionsCar, appText("Водитель откликнулся на заявку", "Водитель заявкаға яуап бирҙе"), appText("Рамиль едет к вам", "Рамиль һеҙгә килә")),
-        Triple(Icons.Default.CheckCircle, appText("Поездка подтверждена", "Сәфәр раҫланды"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30")),
-        Triple(Icons.Default.ChatBubble, appText("Новое сообщение в чате", "Чатта яңы хәбәр"), appText("Рамиль: «Буду у вокзала в 17:20»", "Рамиль: «17:20-лә вокзалда булам»")),
-        Triple(Icons.Default.Shield, appText("Профиль успешно проверен", "Профиль уңышлы тикшерелде"), appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды")),
-        Triple(Icons.Default.Schedule, appText("Поездка начнётся через 30 минут", "Сәфәр 30 минуттан башлана"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30"))
-    )
-    // Реальные события с сервера; демо — пока их нет (новый юзер).
-    val notifications = if (serverNotifs.isNotEmpty()) serverNotifs.map { Triple(Icons.Default.ChatBubble, it.title, it.text) } else demoNotifs
-    Scaffold(
-        containerColor = CanonBg,
-        bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Chat, onSelect = onSelectTab) }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 18.dp)
-        ) {
-            item { Spacer(Modifier.height(10.dp)) }
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(appText("Уведомления", "Хәбәрҙәр"), modifier = Modifier.weight(1f), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-                    TextButton(
-                        enabled = !cleared,
-                        onClick = { cleared = true }
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, tint = CanonGreen2)
-                        Spacer(Modifier.width(6.dp))
-                        Text(appText("Очистить всё", "Барыһын таҙартыу"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            item {
-                SegmentedTabs(
-                    listOf(allLabel, ridesLabel, chatLabel, systemLabel),
-                    selectedLabel,
-                    onSelect = {
-                        selected = when (it) {
-                            ridesLabel -> "rides"
-                            chatLabel -> "chat"
-                            systemLabel -> "system"
-                            else -> "all"
-                        }
-                    }
-                )
-            }
-            if (cleared) {
-                item {
-                    InfoCard(
-                        title = appText("Уведомлений нет", "Хәбәрҙәр юҡ"),
-                        text = appText("Новые события по поездкам, чату и профилю появятся здесь.", "Сәфәр, чат һәм профиль буйынса яңы ваҡиғалар бында күренә."),
-                        icon = Icons.Default.Notifications
-                    )
-                }
-            } else {
-                val visibleNotifications = notifications.filter { (icon, _, _) ->
-                    selected == "all" ||
-                        (selected == "rides" && icon != Icons.Default.ChatBubble && icon != Icons.Default.Shield) ||
-                        (selected == "chat" && icon == Icons.Default.ChatBubble) ||
-                        (selected == "system" && icon == Icons.Default.Shield)
-                }
-                items(visibleNotifications) { (icon, title, subtitle) ->
-                    NotificationRow(
-                        icon = icon,
-                        title = title,
-                        subtitle = subtitle,
-                        time = when (icon) {
-                            Icons.Default.DirectionsCar -> "09:30"
-                            Icons.Default.CheckCircle -> "09:28"
-                            Icons.Default.ChatBubble -> "09:15"
-                            Icons.Default.Shield -> appText("Вчера, 16:45", "Кисә, 16:45")
-                            else -> appText("Вчера, 16:20", "Кисә, 16:20")
-                        },
-                        unread = icon != Icons.Default.Shield && icon != Icons.Default.Schedule
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, time: String, unread: Boolean) {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = CircleShape) {
-                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, lineHeight = 21.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Text(time, color = CanonMuted, fontSize = 13.sp)
-                if (unread) Box(Modifier.size(8.dp).background(CanonGreen2, CircleShape))
-            }
-        }
-    }
-}
-
-@Composable
-private fun SafetyScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, onSos: () -> Unit) {
-    var hidePhone by remember { mutableStateOf(true) }
-    var verifiedOnly by remember { mutableStateOf(true) }
-    Scaffold(
-        containerColor = CanonBg,
-        bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 18.dp)
-        ) {
-            item { Spacer(Modifier.height(10.dp)) }
-            item {
-                Text(appText("Безопасность", "Хәүефһеҙлек"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-                Text(appText("Ваши данные и поездки под защитой", "Һеҙҙең мәғлүмәт һәм сәфәрҙәр һаҡланған"), color = CanonMuted, fontSize = 15.sp)
-            }
-            item {
-                Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, Color(0x33D93025))) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = CanonDangerBg, shape = RoundedCornerShape(18.dp)) {
-                            Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.Sos, contentDescription = null, tint = CanonRed, modifier = Modifier.size(34.dp))
-                                Text("SOS", color = CanonRed, fontWeight = FontWeight.Black)
-                            }
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Text(appText("Нужна помощь?", "Ярҙәм кәрәкме?"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
-                            Text(appText("Свяжитесь с экстренными службами и поддержкой Юлдаш.", "Ашығыс хеҙмәттәр һәм Юлдаш ярҙамы менән бәйләнегеҙ."), color = CanonMuted, lineHeight = 19.sp)
-                        }
-                        Button(onClick = onSos, colors = ButtonDefaults.buttonColors(containerColor = CanonRed), shape = RoundedCornerShape(16.dp)) {
-                            Text("SOS", fontWeight = FontWeight.Black)
-                        }
-                    }
-                }
-            }
-            item {
-                SettingsGroup {
-                    SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it }
-                    SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it }
-                    SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."))
-                    SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите совершать поездки.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."))
-                    SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщите о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр итегеҙ."))
-                    SettingsNavRow(Icons.Default.Description, appText("Правила поездок", "Сәфәр ҡағиҙәләре"), appText("Ознакомьтесь с правилами сервиса Юлдаш.", "Юлдаш ҡағиҙәләре менән танышығыҙ."))
-                }
-            }
-            item {
-                InfoCard(appText("Мы заботимся о вашей безопасности", "Беҙ хәүефһеҙлек тураһында ҡайғыртабыҙ"), appText("Проверяем участников, скрываем телефон и даём быстрый SOS.", "Ҡатнашыусыларҙы тикшерәбеҙ, телефонды йәшерәбеҙ һәм тиҙ SOS бирәбеҙ."), Icons.Default.Shield)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, onToggleLanguage: () -> Unit) {
-    var notifications by remember { mutableStateOf(true) }
-    var sounds by remember { mutableStateOf(true) }
-    val isBashkir = LocalAppLanguage.current == AppLanguage.Ba
-    Scaffold(
-        containerColor = CanonBg,
-        bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 18.dp)
-        ) {
-            item { Spacer(Modifier.height(10.dp)) }
-            item {
-                Text(appText("Настройки", "Көйләүҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-                Text(appText("Настройте приложение под себя", "Ҡушымтаны үҙегеҙгә көйләгеҙ"), color = CanonMuted, fontSize = 15.sp)
-            }
-            item { CompactProfileBanner() }
-            item {
-                SettingsGroup {
-                    SettingSwitchRow(Icons.Default.Notifications, appText("Уведомления", "Хәбәрҙәр"), appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу"), notifications) { notifications = it }
-                    SettingsNavRow(Icons.Default.Language, appText("Язык", "Тел"), if (isBashkir) "Башҡортса" else "Русский", onClick = onToggleLanguage)
-                    SettingsNavRow(Icons.Default.Map, appText("Тема карты", "Карта темаһы"), appText("Светлая", "Яҡты"))
-                }
-            }
-            item {
-                SettingsGroup {
-                    SettingsNavRow(Icons.Default.Shield, appText("Приватность", "Махсуслыҡ"), appText("Управление безопасностью и данными", "Хәүефһеҙлек һәм мәғлүмәт"))
-                    SettingSwitchRow(Icons.Default.VolumeUp, appText("Звуки", "Тауыштар"), appText("Звуковые уведомления и эффекты", "Тауышлы хәбәрҙәр"), sounds) { sounds = it }
-                }
-            }
-            item {
-                SettingsGroup {
-                    SettingsNavRow(Icons.Default.Tune, appText("Фильтры по умолчанию", "Ғәҙәти фильтрҙар"), appText("Настройте фильтры для поиска поездок", "Сәфәр эҙләү фильтрҙары"))
-                    SettingsNavRow(Icons.Default.CreditCard, appText("Способы оплаты", "Түләү ысулдары"), appText("Управление картами и платежами", "Карталар һәм түләүҙәр"))
-                }
-            }
-            item {
-                SettingsGroup {
-                    SettingsNavRow(Icons.Default.Info, appText("О приложении", "Ҡушымта тураһында"), "Версия 1.0.0 (100)")
-                }
-            }
-            item {
-                Text("Юлдаш © 2026", modifier = Modifier.fillMaxWidth(), color = CanonMuted, fontSize = 13.sp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun HelpScreen(
-    ads: List<PartnerAd>,
-    adStats: Map<String, AdStats>,
-    onBack: () -> Unit,
-    onSelectTab: (HomeTab) -> Unit,
-    onAdImpression: (PartnerAd) -> Unit,
-    onAdClick: (PartnerAd) -> Unit
-) {
-    val usefulAd = ads.forPlacement(AdPlacement.Help).firstOrNull { it.category == "В больницу" }
-        ?: ads.forPlacement(AdPlacement.Help).firstOrNull { it.city == "Баймаҡ" }
-    var helpQuery by remember { mutableStateOf("") }
-    Scaffold(
-        containerColor = CanonBg,
-        bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 18.dp)
-        ) {
-            item { Spacer(Modifier.height(10.dp)) }
-            item {
-                Text(appText("Помощь", "Ярдам"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-                Text(appText("Ответы на частые вопросы и поддержка", "Йыш һорауҙарға яуаптар һәм ярҙам"), color = CanonMuted, fontSize = 15.sp)
-            }
-            item {
-                OutlinedTextField(
-                    value = helpQuery,
-                    onValueChange = { helpQuery = it },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = CanonGreen2) },
-                    placeholder = { Text(appText("Поиск по вопросам", "Һорауҙар буйынса эҙләү")) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(999.dp)
-                )
-            }
-            if (helpQuery.isNotBlank()) {
-                item {
-                    InfoCard(
-                        appText("Найдено по запросу: $helpQuery", "$helpQuery буйынса табылды"),
-                        appText("Откройте подходящий вопрос ниже или напишите в поддержку.", "Түбәндәге һорауҙы асығыҙ йәки ярҙамға яҙығыҙ."),
-                        Icons.Default.Search
-                    )
-                }
-            }
-            item { Text(appText("Популярные вопросы", "Популяр һорауҙар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
-            item { HelpRow(Icons.Default.Search, appText("Как найти поездку?", "Сәфәрҙе нисек табырға?"), appText("Поиск и фильтры, выбор водителя", "Эҙләү, фильтрҙар, водитель һайлау")) }
-            item { HelpRow(Icons.Default.AddRoad, appText("Как создать заявку?", "Заявканы нисек булдырырға?"), appText("Пошаговая инструкция", "Аҙымлап аңлатма")) }
-            item { HelpRow(Icons.Default.Shield, appText("Как проходит проверка водителя?", "Водитель нисек тикшерелә?"), appText("Безопасность и подтверждение", "Хәүефһеҙлек һәм раҫлау")) }
-            item { HelpRow(Icons.Default.Notifications, appText("Что делать в экстренной ситуации?", "Ашығыс хәлдә нимә эшләргә?"), appText("SOS, отмена поездки, поддержка", "SOS, сәфәрҙе туҡтатыу, ярҙам")) }
-            item { Text(appText("Связаться с поддержкой", "Ярдам менән бәйләнеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
-            item {
-                SettingsGroup {
-                    SettingsNavRow(Icons.Default.ChatBubble, appText("Связаться с поддержкой", "Ярдамға яҙыу"), appText("Мы поможем решить ваш вопрос", "Һорауығыҙҙы хәл итергә ярҙам итәбеҙ"))
-                    SettingsNavRow(Icons.Default.HeadsetMic, appText("Написать в чат поддержки", "Ярдам чатына яҙыу"), appText("Онлайн-ответ в чате приложения", "Ҡушымта чатында онлайн яуап"))
-                }
-            }
-            item {
-                InfoCard(appText("Мы отвечаем ежедневно с 9:00 до 21:00", "Беҙ көн һайын 9:00-21:00 яуап бирәбеҙ"), "", Icons.Default.Info)
-            }
-            usefulAd?.let { ad ->
-                item {
-                    PartnerAdCard(
-                        ad = ad,
-                        stats = adStats[ad.id] ?: AdStats(),
-                        compact = true,
-                        label = appText("Полезный партнёр", "Файҙалы партнёр"),
-                        onImpression = onAdImpression,
-                        onClick = onAdClick
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HelpRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(13.dp))
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 14.sp)
-            }
-            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
-        }
-    }
-}
-
 @Composable
 internal fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
@@ -6711,7 +6394,7 @@ internal fun SettingSwitchRow(
 }
 
 @Composable
-private fun CompactProfileBanner() {
+internal fun CompactProfileBanner() {
     Card(colors = CardDefaults.cardColors(containerColor = Color.Transparent), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Row(
             modifier = Modifier
