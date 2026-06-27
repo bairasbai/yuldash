@@ -59,7 +59,7 @@ class OtpCode(SQLModel, table=True):
 class DeviceToken(SQLModel, table=True):
     """FCM-токен устройства пользователя (для push). Один пользователь — несколько устройств."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
     token: str = Field(index=True, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -80,7 +80,7 @@ class TgAuth(SQLModel, table=True):
 
 class DriverProfile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True, unique=True)
+    user_id: int = Field(index=True, unique=True, foreign_key="user.id")
     online: bool = False
     rating: float = 5.0
     trips_count: int = 0
@@ -97,7 +97,7 @@ class DriverProfile(SQLModel, table=True):
 
 class Ride(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    driver_id: int = Field(index=True)
+    driver_id: int = Field(index=True, foreign_key="user.id")
     from_city: str = Field(index=True)
     to_city: str = Field(index=True)
     depart_at: datetime
@@ -123,7 +123,7 @@ class Ride(SQLModel, table=True):
 
 class RideRequest(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    passenger_id: int = Field(index=True)
+    passenger_id: int = Field(index=True, foreign_key="user.id")
     from_city: str = Field(index=True)
     to_city: str = Field(index=True)
     desired_at: Optional[datetime] = None
@@ -142,8 +142,8 @@ class RideRequest(SQLModel, table=True):
 
 class Booking(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    ride_id: int = Field(index=True)
-    passenger_id: int = Field(index=True)
+    ride_id: int = Field(index=True, foreign_key="ride.id")
+    passenger_id: int = Field(index=True, foreign_key="user.id")
     seats: int = 1
     price: int = 0
     status: BookingStatus = BookingStatus.pending
@@ -155,8 +155,8 @@ class Booking(SQLModel, table=True):
 
 class Message(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    booking_id: int = Field(index=True)
-    sender_id: int
+    booking_id: int = Field(index=True, foreign_key="booking.id")
+    sender_id: int = Field(foreign_key="user.id")
     text: str = ""
     voice_url: Optional[str] = None
     transcript: Optional[str] = None        # расшифровка голосового
@@ -165,7 +165,7 @@ class Message(SQLModel, table=True):
 
 class TrustedContact(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
     name: str
     relation: str = ""
     phone: str = ""
@@ -175,16 +175,16 @@ class TrustedContact(SQLModel, table=True):
 class TripShare(SQLModel, table=True):
     """Поездка, расшаренная близкому (семейный контроль)."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    booking_id: int = Field(index=True)
-    contact_id: int
+    booking_id: int = Field(index=True, foreign_key="booking.id")
+    contact_id: int = Field(foreign_key="trustedcontact.id")
     last_status: str = "shared"             # shared / sat / arrived / done
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class SosEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
-    booking_id: Optional[int] = None
+    user_id: int = Field(index=True, foreign_key="user.id")
+    booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")
     category: str = "other"                 # medical / breakdown / other
     note: str = ""
     status: str = "open"                    # open / handled
@@ -193,25 +193,25 @@ class SosEvent(SQLModel, table=True):
 
 class Report(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    reporter_id: int = Field(index=True)
-    target_user_id: int
+    reporter_id: int = Field(index=True, foreign_key="user.id")
+    target_user_id: int = Field(foreign_key="user.id")
     reason: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Block(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
-    blocked_user_id: int
+    user_id: int = Field(index=True, foreign_key="user.id")
+    blocked_user_id: int = Field(foreign_key="user.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Rating(SQLModel, table=True):
     """Оценка после поездки: rater оценил ratee (1..5 звёзд). Одна на (booking, rater)."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    booking_id: int = Field(index=True)
-    rater_id: int = Field(index=True)        # кто оценил
-    ratee_id: int = Field(index=True)        # кого оценили (водитель или пассажир)
+    booking_id: int = Field(index=True, foreign_key="booking.id")
+    rater_id: int = Field(index=True, foreign_key="user.id")        # кто оценил
+    ratee_id: int = Field(index=True, foreign_key="user.id")        # кого оценили (водитель или пассажир)
     stars: int = 5                           # 1..5
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
