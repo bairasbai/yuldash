@@ -312,7 +312,7 @@ private enum class OnboardingHero {
     Start
 }
 
-private enum class AdPlacement {
+internal enum class AdPlacement {
     Nearby,
     Route,
     RidesList,
@@ -321,7 +321,7 @@ private enum class AdPlacement {
     Help
 }
 
-private enum class AdStatus {
+internal enum class AdStatus {
     Draft,
     Moderation,
     Active,
@@ -551,7 +551,7 @@ private val demoFrequentTrips = listOf(
     FrequentTrip("На рынок", "Баҙарға", "Баймаҡ", "Сибай", "сегодня после 15:00", "бөгөн 15:00-тан һуң", "regular")
 )
 
-private data class PartnerAd(
+internal data class PartnerAd(
     val id: String,
     val title: String,
     val titleBa: String? = null,
@@ -585,7 +585,7 @@ private data class PartnerAd(
     val icon: ImageVector
 )
 
-private data class AdStats(
+internal data class AdStats(
     val impressions: Int = 0,
     val clicks: Int = 0
 ) {
@@ -1666,7 +1666,7 @@ private fun onboardingSlides() = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ScreenTopBar(title: String, onBack: () -> Unit) {
+internal fun ScreenTopBar(title: String, onBack: () -> Unit) {
     TopAppBar(
         title = { Text(title, fontWeight = FontWeight.Black) },
         navigationIcon = {
@@ -1916,7 +1916,7 @@ private fun RowScope.YuldashBottomItem(
 }
 
 @Composable
-private fun Modifier.bounceClick(onClick: () -> Unit): Modifier {
+internal fun Modifier.bounceClick(onClick: () -> Unit): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(120), label = "bounce")
@@ -1927,7 +1927,7 @@ private fun Modifier.bounceClick(onClick: () -> Unit): Modifier {
 
 /** Карточка мягко всплывает снизу при появлении. index = задержка для каскада. */
 @Composable
-private fun Modifier.appearIn(index: Int = 0): Modifier {
+internal fun Modifier.appearIn(index: Int = 0): Modifier {
     var shown by remember { mutableStateOf(false) }
     val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(380, delayMillis = index * 55), label = "appearAlpha")
     val ty by animateFloatAsState(if (shown) 0f else 40f, tween(380, delayMillis = index * 55), label = "appearY")
@@ -5804,7 +5804,7 @@ private fun AdPackageRow(title: String, subtitle: String, price: String) {
 }
 
 @Composable
-private fun InfoCard(
+internal fun InfoCard(
     title: String,
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -5834,7 +5834,7 @@ private fun InfoCard(
 }
 
 @Composable
-private fun EmptyStateCard(
+internal fun EmptyStateCard(
     title: String,
     text: String,
     icon: ImageVector,
@@ -5923,7 +5923,7 @@ private fun InlinePartnerAdCard(
 }
 
 @Composable
-private fun PartnerAdCard(
+internal fun PartnerAdCard(
     ad: PartnerAd,
     stats: AdStats,
     modifier: Modifier = Modifier,
@@ -6139,7 +6139,7 @@ private fun AdPlacement.labelForLanguage(isBashkir: Boolean): String {
 }
 
 @Composable
-private fun DetailMeta(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, modifier: Modifier = Modifier) {
+internal fun DetailMeta(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(17.dp))
         Spacer(Modifier.width(6.dp))
@@ -6660,14 +6660,14 @@ private fun HelpRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title
 }
 
 @Composable
-private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(vertical = 8.dp), content = content)
     }
 }
 
 @Composable
-private fun SettingsNavRow(
+internal fun SettingsNavRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
@@ -6690,7 +6690,7 @@ private fun SettingsNavRow(
 }
 
 @Composable
-private fun SettingSwitchRow(
+internal fun SettingSwitchRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
