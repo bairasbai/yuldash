@@ -1243,12 +1243,12 @@ internal fun ChatScreen(
                         val text = draft.trim()
                         if (text.isNotEmpty()) {
                             latestBookingId?.let { ApiClient.fireSendMessage(it, text) }
-                            onAddVoiceMessage(LocalVoiceMessage("Байрас", text, nowText))
+                            onAddVoiceMessage(LocalVoiceMessage(ApiClient.cachedName() ?: "Я", text, nowText))
                             draft = ""
                         }
                     },
                     onVoiceRecorded = { path, dur ->
-                        onAddVoiceMessage(LocalVoiceMessage("Байрас", "", nowText, audioPath = path, durationSec = dur))
+                        onAddVoiceMessage(LocalVoiceMessage(ApiClient.cachedName() ?: "Я", "", nowText, audioPath = path, durationSec = dur))
                         voiceSent = true
                     }
                 )

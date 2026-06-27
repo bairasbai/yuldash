@@ -536,7 +536,7 @@ internal fun VoiceRequestScreen(
                     Button(
                         onClick = {
                             fireRequestFromRoute(text, transcript = text)
-                            onCreateRequest(LocalRequest(title = vrTitle, route = text, time = vrNow, passenger = "Байрас", status = voiceRequestStatus, trustedContact = trusted?.name))
+                            onCreateRequest(LocalRequest(title = vrTitle, route = text, time = vrNow, passenger = (ApiClient.cachedName() ?: "Я"), status = voiceRequestStatus, trustedContact = trusted?.name))
                         },
                         modifier = Modifier.fillMaxWidth().height(58.dp),
                         shape = RoundedCornerShape(18.dp),
@@ -561,7 +561,7 @@ internal fun VoiceRequestScreen(
                                         title = vrTitle,
                                         route = vrRoute,
                                         time = vrNow,
-                                        passenger = "Байрас",
+                                        passenger = (ApiClient.cachedName() ?: "Я"),
                                         status = voiceRequestStatus,
                                         trustedContact = trusted?.name,
                                         voiceUrl = url ?: path
@@ -724,7 +724,7 @@ internal fun CreatePassengerRequestScreen(
                                 title = selectedCategoryText,
                                 route = "$from → $to",
                                 time = time,
-                                passenger = "Байрас",
+                                passenger = (ApiClient.cachedName() ?: "Я"),
                                 status = waitingStatus,
                                 price = priceVal,
                                 trustedContact = comment.ifBlank { null }
@@ -895,7 +895,7 @@ internal fun RepeatTripScreen(
                             title = repeatTitle,
                             route = "${trip.from} → ${trip.to}",
                             time = repeatTime,
-                            passenger = "Байрас",
+                            passenger = (ApiClient.cachedName() ?: "Я"),
                             status = repeatStatus,
                             trustedContact = trusted?.name
                         )

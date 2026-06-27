@@ -545,7 +545,7 @@ private fun HomeHeader(onSos: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(timeGreeting(ApiClient.cachedName() ?: "Байрас"), color = CanonMuted, fontSize = 14.sp)
+            Text(timeGreeting(ApiClient.cachedName() ?: "друг"), color = CanonMuted, fontSize = 14.sp)
             Text(
                 appText("Куда поедем?", "Ҡайҙа барабыҙ?"),
                 color = CanonGreen,

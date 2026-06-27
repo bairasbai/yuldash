@@ -369,7 +369,7 @@ internal fun YuldashApp() {
                             title = apiCategoryToUiFor(language, r.category, r.withKids),
                             route = "${r.fromCity} → ${r.toCity}",
                             time = reqByAgreement,
-                            passenger = r.forRelativeName ?: "Байрас",
+                            passenger = r.forRelativeName ?: ApiClient.cachedName() ?: "Я",
                             status = reqWaitingStatus,
                             price = r.maxPrice,
                             trustedContact = r.comment.ifBlank { null },
