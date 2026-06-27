@@ -285,7 +285,20 @@ suspend fun sos(...): Result<Unit> { ... }  // экран показывает l
 - **Овербукинг `FOR UPDATE`** — тоже дубль, код идентичен → один.
 - **FCM (их) + безопасность (моя)** уживаются: `config.py` (firebase + geocoder ключи), `models.py` (DeviceToken + OtpCode.attempts), `main.py` (`_send_push` + `_user_bookings`), `ApiClient.kt` (push-register + шифрование/дедуп), `build.gradle.kts` (firebase + security-crypto).
 - Проверено после слияния: `SMOKE OK` · `SECURITY SMOKE OK` · `assembleDebug` BUILD SUCCESSFUL.
-- Ветка `claude/pedantic-kare-ef1707` = `main` + 1 коммит, готова к fast-forward merge.
+- Ветка `claude/pedantic-kare-ef1707` отребейзена на `main`.
+
+### ✅ Пост-сессионный раунд UI (2026-06-27, после ухода соседней сессии)
+> Сосед закрыл часть Фазы 1 backend: **Alembic**, **ForeignKey**, **pytest+CI**, cron-чистка. Моё не дублировал — мой `migrate_security.sql` переведён в Alembic-миграцию.
+- **Перепроверка находок аудита на живом коде (важно — не чинить вслепую):**
+  - «Stale-closure в чате» — **ложная** (делегат `mutableStateOf` в `remember`-лямбде читается живьём; WS одним потоком). Не тронул.
+  - «Бронь fire-and-forget» — **уже починена** (сосед: `book().onSuccess/onFailure` + Toast). Не дублировал.
+- **Сделано (всё верифицировано):**
+  - `perf(ui)`: `key` в 5 LazyList с server-DTO (shownNearby/myRequests/conversations/driverRides/driverBookings). Пропущены `messages` (optimistic id=0 → коллизия), статичные/локальные. Сборка зелёная.
+  - `fix(ui)`: `rememberSaveable` для вкладки/языка → переживают поворот. **Проверено на эмуляторе** (поворот на «Профиль» → остаётся «Профиль»). `screen` намеренно не saveable (подэкраны зависят от не-saveable данных → полная защита = ViewModel позже).
+  - `fix(sos)`: SOS ждёт ответ сервера, не лжёт об успехе при сбое. **Проверено на эмуляторе** (офлайн → «SOS не отправлен» + повтор, вместо ложного «вызвано»).
+  - `fix`: `rides.first()` → `firstOrNull() ?: demoRides.first()` (латентный краш на пустом списке).
+- **Осознанно НЕ делал вслепую (нужна полноценная QA-сессия с эмулятором):** полный переход на Navigation-Compose + ViewModel (переписать ядро навигации 26 экранов — `assembleDebug` не ловит runtime-баги нав); дедуп карточек (`RideCard`/`Full`/`Nearby` — визуальный рефактор, риск регрессии вёрстки). Для беты не критично.
+- Ветка = `main` + ~5 коммитов (безопасность · perf-keys · rotation · SOS · crash-fix), всё зелёное (smoke/pytest/alembic/assembleDebug + эмулятор-проверки), готова к fast-forward merge.
 
 ---
 

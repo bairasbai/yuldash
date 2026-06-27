@@ -505,7 +505,7 @@ internal fun YuldashApp() {
             Screen.Support -> SupportScreen(onBack = { openHome(HomeTab.Profile) })
             Screen.Boost -> BoostScreen(onBack = { openHome(HomeTab.Rides) })
             Screen.Booking -> BookingScreen(
-                ride = selectedRide ?: rides.first(),
+                ride = selectedRide ?: rides.firstOrNull() ?: demoRides.first(),   // фоллбэк вместо краша на пустом списке
                 ads = partnerAds,
                 adStats = adStats,
                 onBack = { openHome(HomeTab.Rides) },
