@@ -29,7 +29,7 @@
 
 > Цель: разные экраны → разные файлы → разные агенты без конфликтов. **Правила:** один экран за шаг; `private`→`internal` при выносе; сборка зелёная и коммит после КАЖДОГО шага; поведение не меняется (чистый перенос). Пакет `com.yuldash.app`, файлы в одном модуле → импорты почти не нужны.
 
-> ✅ **Прогресс 2026-06-27 (Opus):** вынесено 6 файлов, `MainActivity.kt` 8184→7094 строк (−1090). Каждый шаг — сборка зелёная + коммит. Подход: новый файл = `package` + полный блок импортов (лишние = варнинги) + код; входной composable `internal`, хелперы `private`; общие хелперы открыты `internal` на месте.
+> ✅ **Прогресс 2026-06-27 (Opus):** вынесено **9 файлов**, `MainActivity.kt` **8184→5761 строк (−2423, −30%)**. Каждый шаг — сборка зелёная + коммит (10+ коммитов). Подход: новый файл = `package` + полный блок импортов (лишние = варнинги) + код; входной composable `internal`, хелперы `private`; общие хелперы открыты `internal` на месте. Урок: **граница блока = закрывающая `}`, НЕ следующая `@Composable`/`@OptIn`** (один раз срезал аннотацию → откат+редо).
 
 **Фаза 0 — фундамент. ✅ СДЕЛАНО:**
 - [x] `AppText.kt` ← `appText`/`appTextFor`/`AppLanguage`/`LocalAppLanguage` (internal).
@@ -41,7 +41,12 @@
 - [x] `LoginScreen.kt` (LoginScreen+BrandHero/TrustCard/LoginFormCard/SafetyFooter).
 - [x] `SupportBoostScreen.kt` (SupportScreen+BoostScreen+BoostPlan; `SbpTransferSheet`→internal).
 - [x] `SecondaryScreens.kt` (NotificationsScreen+SafetyScreen+SettingsScreen+HelpScreen).
-- [ ] Осталось: `SosScreen`, доступность (`SimpleModeScreen`, `VoiceRequestScreen`, `FamilyOrderScreen`, `TrustedContactsScreen`, `RepeatTripScreen`, `CallbackHelpScreen`).
+- [x] `AccessibilityScreens.kt` (SimpleMode/VoiceRequest/CreatePassengerRequest/FamilyOrder/TrustedContacts/RepeatTrip/CallbackHelp).
+- [x] `SosVerifyScreens.kt` (SosScreen + VerifyDriverScreen). **Фаза 1 закрыта.**
+
+**Фаза 2 — крупные экраны (идёт):**
+- [x] `CreateRideScreen.kt` (+PrivacyScreen).
+- [ ] Осталось: `ProfileScreen`, `AdsCabinetScreen`, `BookingScreen`, `RidesScreen`, `MyRequestsScreen`, `ChatScreen`, `ActiveTripScreen`.
 
 **Фаза 2 — крупные экраны (больше связей):**
 - [ ] `CreateRideScreen`, `BookingScreen`, `VerifyDriverScreen`, `AdsCabinetScreen`, `ProfileScreen`, `ChatScreen`, `MyRequestsScreen`, `RidesScreen`.
