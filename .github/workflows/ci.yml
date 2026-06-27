@@ -1,0 +1,24 @@
+name: CI
+
+# Запускается при push/PR — ловит регрессии (бэкенд-тесты) автоматически.
+# Готов к работе, как только проект окажется на GitHub (git remote + push).
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest tests/ -q
+        # Тесты на изолированной SQLite (conftest), прод-БД не нужна.

@@ -1,0 +1,85 @@
+"""Тесты API Юлдаша: ядро + закрытые дыры безопасности (регрессии не пройдут)."""
+from app.models import UserRole
+
+
+def _ride(client, drv, seats=3):
+    r = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай",
+        "depart_at": "2030-01-01T10:00:00", "seats_total": seats, "price": 300,
+    })
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def test_health(client):
+    assert client.get("/health").json()["status"] == "ok"
+
+
+def test_me_requires_auth(client):
+    assert client.get("/me").status_code in (401, 403)
+
+
+def test_publish_and_list_rides(client, user_factory):
+    drv = user_factory("Driver", role=UserRole.driver)
+    _ride(client, drv)
+    data = client.get("/rides").json()
+    items = data if isinstance(data, list) else data.get("items", [])
+    assert any(x["from_city"] == "Баймак" for x in items)
+
+
+def test_overbooking_blocked(client, user_factory):
+    drv = user_factory("Drv", role=UserRole.driver)
+    rid = _ride(client, drv, seats=1)
+    pax = user_factory("Pax")
+    # больше мест, чем есть → отказ
+    assert client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 2}).status_code == 400
+    # ровно 1 место → ок
+    assert client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).status_code == 200
+    # мест больше нет → отказ
+    pax2 = user_factory("Pax2")
+    assert client.post("/bookings", headers=pax2["auth"], json={"ride_id": rid, "seats": 1}).status_code == 400
+
+
+def test_message_access_control(client, user_factory):
+    drv = user_factory("D", role=UserRole.driver)
+    rid = _ride(client, drv)
+    pax = user_factory("P")
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
+    # участник — может
+    assert client.get(f"/bookings/{bid}/messages", headers=pax["auth"]).status_code == 200
+    # посторонний — нельзя (та же защита, что в WS)
+    outsider = user_factory("Out")
+    assert client.get(f"/bookings/{bid}/messages", headers=outsider["auth"]).status_code == 403
+
+
+def test_block_prevents_booking(client, user_factory):
+    drv = user_factory("BlkDrv", role=UserRole.driver)
+    rid = _ride(client, drv)
+    pax = user_factory("BlkPax")
+    # водитель блокирует пассажира
+    assert client.post("/blocks", headers=drv["auth"], json={"blocked_user_id": pax["id"]}).status_code in (200, 201)
+    # пассажир не может забронировать
+    assert client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).status_code == 403
+
+
+def test_secure_docs_requires_auth(client):
+    assert client.get("/secure/docs/anything.jpg").status_code in (401, 403)
+
+
+def test_push_register(client, user_factory):
+    u = user_factory("Push")
+    assert client.post("/push/register", headers=u["auth"], json={"token": "fake-token-123"}).status_code == 200
+
+
+def test_ws_rejects_non_participant(client, user_factory):
+    drv = user_factory("WsDrv", role=UserRole.driver)
+    rid = _ride(client, drv)
+    pax = user_factory("WsPax")
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
+    outsider = user_factory("WsOut")
+    # посторонний к чужому чату по WS → соединение отклоняется
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+    with pytest.raises((WebSocketDisconnect, Exception)):
+        with client.websocket_connect(f"/ws/bookings/{bid}?token={outsider['token']}") as ws:
+            ws.receive_text()

@@ -1,0 +1,3 @@
+# Зависимости для тестов (не нужны в проде). Запуск: pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.0
