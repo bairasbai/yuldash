@@ -12,7 +12,7 @@ import uuid
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -48,10 +48,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Медиа (голосовые сообщения). Файлы в /opt/yuldash/media, отдаются по /media/...
+# Медиа. Голосовые — публично (/media). Документы водителя (права/авто) — ПРИВАТНО (вне /media),
+# отдаются только админу/владельцу через /secure/docs/{name} (152-ФЗ — персональные документы).
 MEDIA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media")
 VOICE_DIR = os.path.join(MEDIA_DIR, "voice")
-DOC_DIR = os.path.join(MEDIA_DIR, "docs")
+PRIVATE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "private")
+DOC_DIR = os.path.join(PRIVATE_DIR, "docs")
 os.makedirs(VOICE_DIR, exist_ok=True)
 os.makedirs(DOC_DIR, exist_ok=True)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
@@ -59,6 +61,10 @@ app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 def _public_media_url(path: str) -> str:
     return f"{settings.media_base_url.rstrip('/')}/media/{path.lstrip('/')}"
+
+
+def _secure_docs_url(name: str) -> str:
+    return f"{settings.media_base_url.rstrip('/')}/secure/docs/{name}"
 
 
 def _decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: str) -> tuple[bytes, str]:
@@ -645,15 +651,27 @@ class BookIn(BaseModel):
     seats: int = 1
 
 
+def _is_blocked(session: Session, a: int, b: int) -> bool:
+    """Есть ли блокировка между a и b в любую сторону."""
+    rows = session.exec(select(Block).where(Block.user_id.in_([a, b]))).all()
+    return any(
+        (r.user_id == a and r.blocked_user_id == b) or (r.user_id == b and r.blocked_user_id == a)
+        for r in rows
+    )
+
+
 @app.post("/bookings", response_model=Booking)
 def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     if body.seats < 1:
         raise HTTPException(400, "Количество мест должно быть больше 0")
-    ride = session.get(Ride, body.ride_id)
+    # FOR UPDATE: блокируем строку поездки на время транзакции → нет овербукинга при гонке.
+    ride = session.exec(select(Ride).where(Ride.id == body.ride_id).with_for_update()).first()
     if not ride or ride.status != RideStatus.active:
         raise HTTPException(400, "Поездка недоступна")
     if ride.driver_id == user.id:
         raise HTTPException(400, "Нельзя бронировать собственную поездку")
+    if _is_blocked(session, user.id, ride.driver_id):
+        raise HTTPException(403, "Бронь недоступна")
     if ride.seats_left < body.seats:
         raise HTTPException(400, "Не хватает мест")
     booking = Booking(
@@ -749,13 +767,28 @@ class PhotoIn(BaseModel):
 
 @app.post("/upload/photo")
 def upload_photo(body: PhotoIn, user: User = Depends(current_user)):
-    """Загрузка фото (base64, напр. документ/авто) → media/docs → публичный URL."""
+    """Загрузка фото документа/авто → приватная папка → защищённый URL (только админ/владелец)."""
     ext = "".join(c for c in body.ext.lower() if c.isalnum()) or "jpg"
     data, ext = _decode_upload_b64(body.photo_b64, settings.image_ext_set, ext, "фото")
     name = f"{uuid.uuid4().hex}.{ext}"
     with open(os.path.join(DOC_DIR, name), "wb") as f:
         f.write(data)
-    return {"url": _public_media_url(f"docs/{name}")}
+    return {"url": _secure_docs_url(name)}
+
+
+@app.get("/secure/docs/{name}")
+def secure_doc(name: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отдать фото документа водителя. Доступ: админ ИЛИ владелец этого документа."""
+    safe = os.path.basename(name)   # защита от path traversal
+    if user.role != UserRole.admin:
+        prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+        owns = prof is not None and (safe in (prof.license_url or "") or safe in (prof.car_photo_url or ""))
+        if not owns:
+            raise HTTPException(403, "Нет доступа к документу")
+    path = os.path.join(DOC_DIR, safe)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Файл не найден")
+    return FileResponse(path)
 
 
 class DriverProfileIn(BaseModel):
@@ -939,6 +972,9 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
 @app.post("/bookings/{booking_id}/messages", response_model=Message)
 def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking, ride = _booking_and_ride_for_user(session, booking_id, user)
+    other_party = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
+    if _is_blocked(session, user.id, other_party):
+        raise HTTPException(403, "Переписка недоступна")
     msg = Message(booking_id=booking_id, sender_id=user.id, **body.model_dump())
     session.add(msg)
     session.commit()
