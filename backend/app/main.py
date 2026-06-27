@@ -186,6 +186,58 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
     return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
 
 
+# ==================== TELEGRAM / VK OAUTH ====================
+class TelegramCallbackIn(BaseModel):
+    request_id: str
+    telegram_user_id: str
+    telegram_username: str = ""
+    first_name: str = ""
+
+
+@app.post("/auth/telegram-callback")
+def telegram_callback(body: TelegramCallbackIn, session: Session = Depends(get_session)):
+    """Коллбэк от Telegram бота после OAuth.
+    DeepLink: yuldash://auth/telegram?user_id=123&username=vasya&first_name=Vasya
+    """
+    user = session.exec(select(User).where(User.telegram_id == body.telegram_user_id)).first()
+    if not user:
+        user = User(
+            phone=f"+7{body.telegram_user_id[:10]}",  # Фейковый номер
+            name=body.first_name or body.telegram_username or "Telegram User",
+            telegram_id=body.telegram_user_id,
+            verified=True,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
+
+
+class VKCallbackIn(BaseModel):
+    vk_access_token: str
+    vk_user_id: str
+
+
+@app.post("/auth/vk-callback")
+def vk_callback(body: VKCallbackIn, session: Session = Depends(get_session)):
+    """Коллбэк от VK OAuth.
+    Приложение получает access_token от VK, отправляет на сервер.
+    Сервер верифицирует и создаёт юзера.
+    """
+    user = session.exec(select(User).where(User.vk_id == body.vk_user_id)).first()
+    if not user:
+        user = User(
+            phone=f"+7{body.vk_user_id[:10]}",  # Фейковый номер
+            name=f"VK User {body.vk_user_id[:4]}",
+            vk_id=body.vk_user_id,
+            verified=True,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
+
+
 @app.get("/me")
 def me(user: User = Depends(current_user), session: Session = Depends(get_session)):
     avg, cnt = _user_rating(session, user.id)

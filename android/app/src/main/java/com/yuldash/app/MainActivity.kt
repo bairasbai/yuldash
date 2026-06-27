@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -1153,21 +1154,18 @@ private fun YuldashApp() {
                 LaunchedEffect(Unit) { delay(1300); screen = splashTarget }
             }
             Screen.Onboarding -> OnboardingScreen(onFinish = ::finishOnboarding)
-            Screen.Login -> LoginScreen(
-                currentLanguage = language,
-                onToggleLanguage = {
-                    language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
-                },
-                onContinue = { openHome() },
-                onTelegramLogin = {
-                    Toast.makeText(context, "Telegram вход: перенаправляем на t.me/yuldash_bot", Toast.LENGTH_SHORT).show()
-                    // В боевом варианте откроем браузер с URL из сервера
-                },
-                onVKLogin = {
-                    Toast.makeText(context, "VK вход: перенаправляем на VK.com", Toast.LENGTH_SHORT).show()
-                    // В боевом варианте откроем браузер с URL VK OAuth
-                }
-            )
+            Screen.Login -> {
+                val context = LocalContext.current
+                LoginScreen(
+                    currentLanguage = language,
+                    onToggleLanguage = {
+                        language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
+                    },
+                    onContinue = { openHome() },
+                    onTelegramLogin = { openTelegramLogin(context) },
+                    onVKLogin = { openVKLogin(context) }
+                )
+            }
             Screen.Home -> HomeScreen(
                 rides = rides,
                 activeTrip = activeTrip,
@@ -8063,3 +8061,66 @@ private fun BoostPlan(title: String, text: String, price: String, onClick: () ->
         }
     }
 }
+
+// ==================== OAUTH / СОЦИАЛЬНЫЕ ВХОДЫ ====================
+
+/**
+ * Открывает Telegram бота для входа через OAuth.
+ * Бот: t.me/yuldash_bot
+ * Bot передаёт userData обратно в приложение через DeepLink.
+ */
+fun openTelegramLogin(context: android.content.Context) {
+    try {
+        val botUsername = "yuldash_bot"
+        val deepLink = "yuldash://auth/telegram"
+        val telegramUrl = "https://t.me/$botUsername?start=${Uri.encode(deepLink)}"
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse(telegramUrl)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Toast.makeText(context, "Telegram не установлен. Установите приложение.", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/**
+ * VK OAuth через браузер.
+ * Клиент: BuildConfig.VK_APP_ID (из local.properties)
+ * Редирект: https://yulbash.ru/auth/vk/callback
+ */
+fun openVKLogin(context: android.content.Context) {
+    try {
+        val vkAppId = "12345" // TODO: взять из BuildConfig.VK_APP_ID
+        val redirectUri = "https://yulbash.ru/auth/vk/callback"
+        val scope = "email,phone"
+        val vkUrl = "https://oauth.vk.com/authorize?" +
+            "client_id=$vkAppId&" +
+            "redirect_uri=${Uri.encode(redirectUri)}&" +
+            "scope=$scope&" +
+            "response_type=code&" +
+            "v=5.131"
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse(vkUrl)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Toast.makeText(context, "Не удалось открыть VK", Toast.LENGTH_SHORT).show()
+    }
+}
+
+// ==================== ИМПОРТ ====================
+// Требует добавления в AndroidManifest.xml:
+/*
+    Требует добавления в AndroidManifest.xml:
+    <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data
+            android:scheme="yuldash"
+            android:host="auth"
+            android:pathPrefix="/telegram" />
+    </intent-filter>
+*/

@@ -42,6 +42,9 @@ class User(SQLModel, table=True):
     role: UserRole = UserRole.passenger
     language: str = "ru"
     verified: bool = False
+    # OAuth / Социальные сети
+    telegram_id: Optional[str] = Field(default=None, index=True, unique=True)
+    vk_id: Optional[str] = Field(default=None, index=True, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
