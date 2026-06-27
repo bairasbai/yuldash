@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)
     telegram_webhook_secret: str = ""   # секрет: аутентификация Telegram→сервер (заголовок X-Telegram-Bot-Api-Secret-Token)
 
+    # --- Push (FCM) ---
+    firebase_credentials: str = ""      # путь к JSON сервисного аккаунта Firebase (для отправки пушей). Пусто → push выключен.
+
     # --- Прод-параметры ---
     media_base_url: str = "https://yulbash.ru"   # база для публичных URL медиа (фото/голос)
     cors_origins: str = "*"                       # список origin через запятую; в проде сузить

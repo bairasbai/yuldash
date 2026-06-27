@@ -56,6 +56,14 @@ class OtpCode(SQLModel, table=True):
     expires_at: datetime
 
 
+class DeviceToken(SQLModel, table=True):
+    """FCM-токен устройства пользователя (для push). Один пользователь — несколько устройств."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    token: str = Field(index=True, unique=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class TgAuth(SQLModel, table=True):
     """Сессия входа через Telegram-бота: request_id ↔ telegram_id ↔ 4-значный код."""
     id: Optional[int] = Field(default=None, primary_key=True)

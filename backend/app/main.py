@@ -23,7 +23,7 @@ from urllib.parse import urlencode
 from .config import settings
 from .db import engine, get_session, init_db
 from .models import (
-    AdEvent, Block, Booking, BookingStatus, DriverProfile, Message, OtpCode, Rating, Report,
+    AdEvent, Block, Booking, BookingStatus, DeviceToken, DriverProfile, Message, OtpCode, Rating, Report,
     Ride, RideCategory, RideRequest, RideStatus, SosEvent, TgAuth, TripShare,
     TrustedContact, User, UserRole,
 )
@@ -90,6 +90,33 @@ def _booking_and_ride_for_user(session: Session, booking_id: int, user: User) ->
     if booking.passenger_id != user.id and ride.driver_id != user.id:
         raise HTTPException(403, "Нет доступа к этой брони")
     return booking, ride
+
+
+# ---- Push (FCM) ----
+_fcm_app = None
+
+
+def _send_push(session: Session, user_id: int, title: str, body: str) -> None:
+    """Push на все устройства пользователя. Тихо ничего, если Firebase не настроен (нет ключа)."""
+    if not settings.firebase_credentials:
+        return
+    try:
+        global _fcm_app
+        import firebase_admin
+        from firebase_admin import credentials, messaging
+        if _fcm_app is None:
+            _fcm_app = firebase_admin.initialize_app(credentials.Certificate(settings.firebase_credentials))
+        tokens = [d.token for d in session.exec(select(DeviceToken).where(DeviceToken.user_id == user_id)).all()]
+        for t in tokens:
+            try:
+                messaging.send(messaging.Message(
+                    notification=messaging.Notification(title=title, body=body),
+                    token=t,
+                ))
+            except Exception as e:  # noqa: BLE001
+                print(f"[FCM] send error: {e}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[FCM] init error: {e}")
 
 
 @app.get("/health")
@@ -309,6 +336,25 @@ def whatsapp_callback():
 def me(user: User = Depends(current_user), session: Session = Depends(get_session)):
     avg, cnt = _user_rating(session, user.id)
     return {**user.model_dump(), "rating": round(avg, 1) if cnt > 0 else None, "rating_count": cnt}
+
+
+class PushTokenIn(BaseModel):
+    token: str
+
+
+@app.post("/push/register")
+def push_register(body: PushTokenIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Регистрация/перепривязка FCM-токена устройства к текущему пользователю."""
+    if not body.token.strip():
+        raise HTTPException(400, "Пустой токен")
+    existing = session.exec(select(DeviceToken).where(DeviceToken.token == body.token)).first()
+    if existing:
+        existing.user_id = user.id
+        session.add(existing)
+    else:
+        session.add(DeviceToken(user_id=user.id, token=body.token))
+    session.commit()
+    return {"ok": True}
 
 
 # ----------------------------- Поездки -----------------------------
@@ -619,6 +665,8 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     session.add(ride)
     session.commit()
     session.refresh(booking)
+    # Push водителю о новой брони.
+    _send_push(session, ride.driver_id, "Новая бронь", f"{user.name or 'Пассажир'}: {ride.from_city} → {ride.to_city}, мест {body.seats}")
     return booking
 
 
@@ -880,17 +928,24 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                     "text": msg.text,
                     "timestamp": msg.created_at.isoformat()
                 })
+                # Push другой стороне (она может быть офлайн / не в чате).
+                other_id = ride.driver_id if user_id == booking.passenger_id else booking.passenger_id
+                sender = session.get(User, user_id)
+                _send_push(session, other_id, (sender.name if sender else None) or "Новое сообщение", (msg.text or "Сообщение")[:120])
     except WebSocketDisconnect:
         manager.disconnect(booking_id, websocket)
 
 
 @app.post("/bookings/{booking_id}/messages", response_model=Message)
 def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    _booking_and_ride_for_user(session, booking_id, user)
+    booking, ride = _booking_and_ride_for_user(session, booking_id, user)
     msg = Message(booking_id=booking_id, sender_id=user.id, **body.model_dump())
     session.add(msg)
     session.commit()
     session.refresh(msg)
+    # Push другой стороне брони (кто не отправитель).
+    other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
+    _send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120])
     return msg
 
 
