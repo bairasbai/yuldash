@@ -77,6 +77,7 @@
 - [x] Launcher-иконка качественно выглядит в ресурсах Android и подключена в манифесте.
 
 ## Сделано
+- [x] 2026-06-27 **Вход упрощён: только Telegram + SMS(выкл).** VK и WhatsApp убраны — оба требуют юр.лицо/бизнес (VK просит ИНН, WhatsApp — Business API), физлицу недоступны, как и SMS. Кнопки VK/WhatsApp удалены с экрана входа, мёртвый код вычищен (`openVKLogin`/`openWhatsAppLogin` + параметры). Бэкенд `/auth/vk-callback`/`/auth/whatsapp-callback` остаются 501 (не зовутся). Telegram-вход (код) — основной и единственный рабочий. Сборка зелёная.
 - [x] 2026-06-27 **Релизный билд готов к бете.** `app-release.apk` (145 МБ, подписан `CN=Yuldash` V2) — ставится напрямую на телефон друзьям; `app-release.aab` (71 МБ) — в Google Play. Сборка `assembleRelease`+`bundleRelease` зелёная. ⏳ APK тяжёлый (MapKit нативные либы, minify off) — позже ABI-split (только arm64) ужмёт до ~50 МБ.
 - [x] 2026-06-27 **Realtime-чат по WebSocket (ActiveTripScreen).**
   - [x] Сервер проверен end-to-end через `wss://yulbash.ru/ws/bookings/{id}?token=JWT` (подключение+broadcast+persist). nginx настроен на WS upgrade (`map $http_upgrade` + заголовки + `proxy_read_timeout 3600s`). uvicorn с `websockets 16.0`.
@@ -126,10 +127,11 @@
   - [x] Android: требует OkHttp для WebSocket (позже).
   - [x] Коммит: `97bc7a2`.
 
-### ⛔ Блокеры OAuth (внешние действия Александра)
-- **Telegram:** ✅ серверный бот-flow ГОТОВ и задеплоен (с подписью). Осталось только Александру: зарегать бота у @BotFather + 3 шага → **[telegram-setup.md](telegram-setup.md)**. После этого вход работает целиком.
-- **VK:** эндпоинт отключён (501). Для настоящего входа нужно: VK-приложение (`YULDASH_VK_APP_ID`) + серверный `GET /auth/vk/callback` (обмен `code`→`token` на стороне VK, затем подписанный редирект в app — как у Telegram). Пока не делаем.
-- **WhatsApp:** как вход невозможен без WhatsApp Business API (платно/модерация). Эндпоинт отключён (501), кнопка «скоро».
+### Авторизация — итог (2026-06-27)
+- **Telegram:** ✅ ВКЛЮЧЁН, end-to-end на проде (бот `@yuldash_sms_bot`, 4-значный код). Единственный рабочий вход.
+- **SMS:** заморожен (нет юр.лица для sms.ru). Код цел, оживить: `YULDASH_SMS_LOGIN=true` + `SMS_PROVIDER=smsru` + ключ.
+- **VK:** ❌ убран. Требует ИНН (бизнес-аккаунт) + только VK ID с PKCE (сложно). Физлицу недоступен. Эндпоинт 501.
+- **WhatsApp:** ❌ убран. Требует WhatsApp Business API (платно/бизнес). Эндпоинт 501.
 
 - [x] 2026-06-27 **OAuth вход: Telegram/VK/WhatsApp — полный выбор.**
   - [x] **Android:** 3 кнопки входа (голубая Telegram, синяя VK, зелёная WhatsApp); openTelegramLogin() + openVKLogin() + openWhatsAppLogin().
