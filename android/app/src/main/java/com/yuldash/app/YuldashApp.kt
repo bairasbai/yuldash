@@ -285,8 +285,12 @@ internal fun YuldashApp() {
             }
         }
     }
-    var adStats by remember {
-        mutableStateOf(demoPartnerAds.associate { it.id to AdStats() })
+    // SnapshotStateMap: при показе/клике мутируем ТОЛЬКО одну запись вместо копии всей карты
+    // на каждый импрешн (adStats + (..) аллоцировал новый Map при каждом событии рекламы).
+    val adStats = remember {
+        androidx.compose.runtime.mutableStateMapOf<String, AdStats>().apply {
+            putAll(demoPartnerAds.associate { it.id to AdStats() })
+        }
     }
 
     // После kill/restore: screen сохранён, но транзитные selectedRide/activeBookingId — нет.
@@ -309,13 +313,13 @@ internal fun YuldashApp() {
 
     fun trackAdImpression(ad: PartnerAd) {
         val current = adStats[ad.id] ?: AdStats()
-        adStats = adStats + (ad.id to current.copy(impressions = current.impressions + 1))
+        adStats[ad.id] = current.copy(impressions = current.impressions + 1)
         ApiClient.fireAdEvent(ad.id, "impression")   // реальный показ на сервер
     }
 
     fun trackAdClick(ad: PartnerAd) {
         val current = adStats[ad.id] ?: AdStats()
-        adStats = adStats + (ad.id to current.copy(clicks = current.clicks + 1))
+        adStats[ad.id] = current.copy(clicks = current.clicks + 1)
         ApiClient.fireAdEvent(ad.id, "click")        // реальный клик на сервер
         val title = if (language == AppLanguage.Ba) ad.titleBa ?: ad.title else ad.title
         // Реальное действие по клику: телефон → звонилка; иначе координаты → карта; иначе подсказка.
@@ -712,7 +716,7 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
                             )
                         }
                     } else {
-                        items(slide.items) { item ->
+                        items(slide.items, key = { it.titleRu }) { item ->
                             OnboardingFeatureCard(item)
                         }
                     }

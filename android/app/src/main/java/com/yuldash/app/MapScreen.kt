@@ -287,11 +287,14 @@ internal fun MapScreen(
         nearbyLoading = false
     }
     // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
-    val shownNearby = if (prefFilter.isEmpty()) nearby else nearby.filter { d ->
-        ("women" !in prefFilter || d.womenOnly) &&
-            ("child" !in prefFilter || d.childSeat) &&
-            ("pets" !in prefFilter || d.petsAllowed) &&
-            ("baggage" !in prefFilter || d.baggage)
+    // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
+    val shownNearby = remember(nearby, prefFilter) {
+        if (prefFilter.isEmpty()) nearby else nearby.filter { d ->
+            ("women" !in prefFilter || d.womenOnly) &&
+                ("child" !in prefFilter || d.childSeat) &&
+                ("pets" !in prefFilter || d.petsAllowed) &&
+                ("baggage" !in prefFilter || d.baggage)
+        }
     }
     Scaffold(containerColor = CanonBg) { padding ->
         Column(
@@ -809,7 +812,11 @@ private fun cityPoint(city: String): Point? = when (city.trim().lowercase()) {
 // Маркер-«ценник» (стиль Яндекс/Airbnb): белая пилюля с ценой, цветная рамка, остриё вниз.
 // Boosted-поездка — золотой акцент, обычная — фирменный зелёный.
 // Метка «моя геопозиция»: круглая точка (тень + белое кольцо + зелёный центр).
+// Метка геопозиции постоянна → рисуем один раз и переиспользуем (GPS шлёт апдейты ~раз в 2с,
+// без кеша это была новая Bitmap+Canvas+3 Paint на каждый апдейт → лишний GC и аллокации).
+private var userPuckCache: Bitmap? = null
 private fun userPuckBitmap(): Bitmap {
+    userPuckCache?.let { return it }
     val size = 64
     val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
@@ -818,11 +825,14 @@ private fun userPuckBitmap(): Bitmap {
     c.drawCircle(cx, cy, 19f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#22000000") })
     c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
     c.drawCircle(cx, cy, 11f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
-    return bmp
+    return bmp.also { userPuckCache = it }
 }
 
 // Флажок пункта назначения (точка Б) — зелёный вымпел на флагштоке. Якорь у основания.
+// Тоже постоянный → кешируем.
+private var destFlagCache: Bitmap? = null
 private fun destFlagBitmap(): Bitmap {
+    destFlagCache?.let { return it }
     val w = 50
     val h = 62
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -837,10 +847,15 @@ private fun destFlagBitmap(): Bitmap {
     c.drawPath(android.graphics.Path().apply { moveTo(16f, 9.5f); lineTo(41f, 16f); lineTo(16f, 24.5f); close() }, green)
     c.drawCircle(12.7f, h - 6f, 5f, white)                                 // точка у основания
     c.drawCircle(12.7f, h - 6f, 3f, green)
-    return bmp
+    return bmp.also { destFlagCache = it }
 }
 
+// Ценник-маркер зависит только от (цена, boosted) → кешируем по ключу,
+// чтобы при перерисовке/смене поездки не лепить заново Bitmap+Paint каждый раз.
+private val ridePinCache = HashMap<String, Bitmap>()
 private fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
+    val cacheKey = "$price|$boosted"
+    ridePinCache[cacheKey]?.let { return it }
     val accent = android.graphics.Color.parseColor(if (boosted) "#C98A00" else "#0B6B3A")
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = accent
@@ -883,7 +898,7 @@ private fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
     val fm = textPaint.fontMetrics
     val ty = pillTop + pillH / 2 - (fm.ascent + fm.descent) / 2
     c.drawText(price, left + padX, ty, textPaint)
-    return bmp
+    return bmp.also { ridePinCache[cacheKey] = it }
 }
 
 /**
@@ -1162,7 +1177,7 @@ private fun YandexMapCard(
 @Composable
 private fun MapMarkerHitTargets(rides: List<Ride>, onRideTap: (Ride) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize().zIndex(5f)) {
-        val byCity = rides.groupBy { it.from }
+        val byCity = remember(rides) { rides.groupBy { it.from } }
         byCity["Баймаҡ"]?.firstOrNull()?.let { ride ->
             Box(
                 Modifier

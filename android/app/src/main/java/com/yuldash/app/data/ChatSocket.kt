@@ -21,10 +21,18 @@ class ChatSocket(
 ) {
     data class Incoming(val id: Int, val senderId: Int, val text: String, val timestamp: String)
 
-    private val client = OkHttpClient.Builder()
-        .pingInterval(20, TimeUnit.SECONDS)   // keep-alive, чтобы соединение не засыпало
-        .build()
     private var ws: WebSocket? = null
+
+    companion object {
+        // ОДИН клиент на всё приложение: пул соединений и пул потоков переиспользуются.
+        // Раньше каждый чат создавал свой OkHttpClient (новый thread-pool + сокеты) и при
+        // close() глушил его executor — лишние аллокации и утечка потоков на каждый чат.
+        private val client: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .pingInterval(20, TimeUnit.SECONDS)   // keep-alive, чтобы соединение не засыпало
+                .build()
+        }
+    }
 
     fun connect() {
         val token = ApiClient.currentToken() ?: return
@@ -64,6 +72,6 @@ class ChatSocket(
     fun close() {
         ws?.close(1000, null)
         ws = null
-        client.dispatcher.executorService.shutdown()
+        // НЕ глушим executor общего клиента — он живёт на весь процесс и нужен другим чатам.
     }
 }

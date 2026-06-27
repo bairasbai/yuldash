@@ -477,7 +477,7 @@ internal fun DriverCabinetScreen(
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit
 ) {
-    val driverRides = rides.filter { it.driver == (ApiClient.cachedName() ?: "Я") }
+    val driverRides = remember(rides) { rides.filter { it.driver == (ApiClient.cachedName() ?: "Я") } }
     val ctx = LocalContext.current
     val rateScope = rememberCoroutineScope()
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
@@ -685,7 +685,8 @@ private fun AdsAdminPreview(ads: List<PartnerAd>, adStats: Map<String, AdStats>)
             Text(appText("Запуск рекламы", "Рекламаны башлау"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
             AdsLaunchChecklist()
             Text(appText("Объявления", "Иғландар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-            ads.take(4).forEach { ad ->
+            val topAds = remember(ads) { ads.take(4) }
+            topAds.forEach { ad ->
                 val stats = adStats[ad.id] ?: AdStats()
                 Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

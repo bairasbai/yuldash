@@ -301,8 +301,9 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    val rideTypeKeys = remember { listOf("regular", "parcel", "cargo", "urgent") }
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(listOf("regular", "parcel", "cargo", "urgent")) { key ->
+                        items(rideTypeKeys, key = { it }) { key ->
                             val (icon, ru, ba) = rideTypeMeta(key)
                             FilledTonalButton(
                                 onClick = { category = key },
@@ -348,7 +349,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         "weekly" to appText("Еженедельно", "Аҙна һайын"),
                     )
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(recOpts) { (key, label) ->
+                        items(recOpts, key = { it.first }) { (key, label) ->
                             FilledTonalButton(
                                 onClick = { recurrence = key },
                                 shape = RoundedCornerShape(14.dp),

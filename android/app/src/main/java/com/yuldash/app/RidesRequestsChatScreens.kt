@@ -401,7 +401,7 @@ internal fun SegmentedTabs(
     onSelect: (String) -> Unit
 ) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(tabs) { tab ->
+        items(tabs, key = { it }) { tab ->
             Surface(
                 modifier = Modifier.bounceClick { onSelect(tab) },
                 color = if (selected == tab) CanonGreen2 else CanonSurface,
@@ -918,7 +918,7 @@ internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> U
                     }
                 }
             } else {
-                items(requests) { req ->
+                items(requests, key = { it.route + it.time + it.title }) { req ->
                     Box(Modifier.appearIn(0)) {
                         RequestSummaryCard(
                             icon = if (req.title.contains("больниц", ignoreCase = true)) Icons.Default.LocalHospital else Icons.Default.DirectionsCar,
@@ -1291,7 +1291,7 @@ internal fun ChatScreen(
             }
         } else {
             // Вкладка «Активные» — чаты по поездкам + записанные голосовые.
-            items(voiceMessages) { message ->
+            items(voiceMessages, key = { it.audioPath ?: (it.author + it.time + it.transcript) }) { message ->
                 VoiceMessageCard(message)
             }
             if (conversations.isNotEmpty()) {

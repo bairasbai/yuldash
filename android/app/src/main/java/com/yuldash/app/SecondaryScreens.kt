@@ -325,7 +325,7 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
                         (selected == "chat" && icon == Icons.Default.ChatBubble) ||
                         (selected == "system" && icon == Icons.Default.Shield)
                 }
-                items(visibleNotifications) { (icon, title, subtitle) ->
+                items(visibleNotifications, key = { it.second }) { (icon, title, subtitle) ->
                     NotificationRow(
                         icon = icon,
                         title = title,

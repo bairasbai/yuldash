@@ -260,6 +260,7 @@ internal fun SimpleModeScreen(
     onSos: () -> Unit,
     onChat: () -> Unit
 ) {
+    val latest3 = remember(latestRequests) { latestRequests.take(3) }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Простой режим", "Ябай режим"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -288,7 +289,7 @@ internal fun SimpleModeScreen(
             }
             if (latestRequests.isNotEmpty()) {
                 item { Text(appText("Последние заявки", "Һуңғы заявкалар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp) }
-                items(latestRequests.take(3)) { request ->
+                items(latest3, key = { it.route + it.time + it.passenger }) { request ->
                     LocalRequestCard(request)
                 }
             }
@@ -666,7 +667,7 @@ internal fun CreatePassengerRequestScreen(
             }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(categories) { (key, label) ->
+                    items(categories, key = { it.first }) { (key, label) ->
                         val labelText = label.text()
                         if (category == key) {
                             Button(
@@ -822,7 +823,7 @@ internal fun TrustedContactsScreen(
                     icon = Icons.Default.Shield
                 )
             }
-            itemsIndexed(contacts) { index, contact ->
+            itemsIndexed(contacts, key = { _, c -> c.phone }) { index, contact ->
                 Box(Modifier.appearIn(index)) { TrustedContactCard(contact) }
             }
             item {
@@ -884,7 +885,7 @@ internal fun RepeatTripScreen(
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item { Text(appText("Частые поездки", "Йыш сәфәрҙәр"), color = CanonGreen, fontSize = 28.sp, fontWeight = FontWeight.Black) }
-            itemsIndexed(frequent) { index, trip ->
+            itemsIndexed(frequent, key = { _, t -> t.from + "→" + t.to }) { index, trip ->
                 val repeatTitle = appText("Повтор: ${trip.title}", "Ҡабатлау: ${trip.titleBa}")
                 val repeatStatus = appText("создана", "булдырылды")
                 val repeatTime = trip.timeHintText()

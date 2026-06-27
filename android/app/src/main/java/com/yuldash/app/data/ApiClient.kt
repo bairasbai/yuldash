@@ -117,13 +117,23 @@ object ApiClient {
     /** База REST API (для geocoder-прокси и т.п.). */
     internal fun apiBase(): String = BASE
 
+    // Кеш разобранного JWT: myUserId() зовётся на КАЖДОЕ сообщение в чате (senderId == myUserId()).
+    // Без кеша это Base64-декод + JSON-парс на каждый рендер строки. Сбрасывается сменой токена.
+    private var cachedUserId: Int? = null
+    private var cachedUserIdForToken: String? = null
+
     /** Мой user_id из JWT (поле sub) — чтобы отличать свои сообщения. */
-    internal fun myUserId(): Int? = token?.let { t ->
-        runCatching {
+    internal fun myUserId(): Int? {
+        val t = token ?: return null
+        if (t == cachedUserIdForToken) return cachedUserId
+        val id = runCatching {
             val payload = t.split(".")[1]
             val json = String(android.util.Base64.decode(payload, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP))
             JSONObject(json).optString("sub").toIntOrNull()
         }.getOrNull()
+        cachedUserId = id
+        cachedUserIdForToken = t
+        return id
     }
 
     /** Имя вошедшего клиента (для приветствия и профиля). null → не вошёл (демо). */
