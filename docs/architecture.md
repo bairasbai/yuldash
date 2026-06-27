@@ -142,3 +142,20 @@ $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 - `isMinifyEnabled=false` (надёжность > размер). Уменьшение (R8/ABI-split/strip) — позже; сейчас APK ~117 МБ из-за нативных либ MapKit (`libmaps-mobile.so`).
 
 ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подробности запуска/эмулятора/smoke-теста — в `../CONTINUE_FOR_AI.md`.
+
+---
+
+## 🏗️ ДЛЯ ОБЗОРА: System Design
+
+Полная архитектура Юлдаша (для инвесторов, новых разработчиков, planning scale-up) лежит в **[system-design.md](system-design.md)**.
+
+Там: 
+- Макро-архитектура (3-слойная: Presentation / Data / Service)
+- Схема БД (20+ таблиц PostgreSQL, индексы, партиционирование)
+- REST API полная спецификация (JSON примеры для всех эндпоинтов)
+- WebSocket для реал-тайм чата
+- Безопасность & 152-ФЗ compliance
+- DevOps: текущий стек → масштабирование до 1М DAU
+- Дорожная карта (Q3 2026 — Q2 2027+)
+
+Это — ваш blueprint. MainActivity.kt детали → в [architecture.md](architecture.md), стратегия → в [system-design.md](system-design.md).

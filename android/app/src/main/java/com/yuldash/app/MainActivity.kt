@@ -1158,7 +1158,15 @@ private fun YuldashApp() {
                 onToggleLanguage = {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                 },
-                onContinue = { openHome() }
+                onContinue = { openHome() },
+                onTelegramLogin = {
+                    Toast.makeText(context, "Telegram вход: перенаправляем на t.me/yuldash_bot", Toast.LENGTH_SHORT).show()
+                    // В боевом варианте откроем браузер с URL из сервера
+                },
+                onVKLogin = {
+                    Toast.makeText(context, "VK вход: перенаправляем на VK.com", Toast.LENGTH_SHORT).show()
+                    // В боевом варианте откроем браузер с URL VK OAuth
+                }
             )
             Screen.Home -> HomeScreen(
                 rides = rides,
@@ -1777,7 +1785,9 @@ private fun onboardingSlides() = listOf(
 private fun LoginScreen(
     currentLanguage: AppLanguage,
     onToggleLanguage: () -> Unit,
-    onContinue: () -> Unit
+    onContinue: () -> Unit,
+    onTelegramLogin: () -> Unit = {},
+    onVKLogin: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -1800,6 +1810,8 @@ private fun LoginScreen(
                     LoginFormCard(
                         currentLanguage = currentLanguage,
                         onContinue = onContinue,
+                        onTelegramLogin = onTelegramLogin,
+                        onVKLogin = onVKLogin,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 24.dp)
@@ -1831,6 +1843,8 @@ private fun LoginScreen(
 private fun LoginFormCard(
     currentLanguage: AppLanguage,
     onContinue: () -> Unit,
+    onTelegramLogin: () -> Unit = {},
+    onVKLogin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -1957,6 +1971,36 @@ private fun LoginFormCard(
                         fontSize = 16.sp
                     )
                 }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = appTextFor(currentLanguage, "Или", "Йәки"),
+                color = CanonText.copy(alpha = 0.6f),
+                fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            // Telegram вход
+            Button(
+                onClick = onTelegramLogin,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0088CC))
+            ) {
+                Text(appTextFor(currentLanguage, "Вход по Telegram", "Telegram аша инеү"), color = Color.White, fontSize = 14.sp)
+            }
+            // VK вход
+            Button(
+                onClick = onVKLogin,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
+            ) {
+                Text(appTextFor(currentLanguage, "Вход по VK", "VK аша инеү"), color = Color.White, fontSize = 14.sp)
             }
         }
     }
