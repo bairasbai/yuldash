@@ -511,79 +511,8 @@ private fun apiCategoryToUiFor(language: AppLanguage, category: String, withKids
     else -> appTextFor(language, "Обычная", "Ғәҙәти")
 }
 
-private data class Ride(
-    val id: String,
-    val from: String,
-    val to: String,
-    val time: String,
-    val timeBa: String? = null,
-    val driver: String,
-    val car: String,
-    val carBa: String? = null,
-    val price: Int,
-    val seats: Int,
-    val rating: Double,
-    val verified: Boolean,
-    val boosted: Boolean,
-    val petsAllowed: Boolean = false,
-    val childSeat: Boolean = false,
-    val womenOnly: Boolean = false,
-    val smoking: Boolean = false,
-    val baggage: Boolean = false,
-    val airConditioner: Boolean = false,
-    val pickup: String = "",
-    val pickupLat: Double? = null,
-    val pickupLng: Double? = null
-)
-
-private data class PopularRoute(
-    val from: String,
-    val to: String,
-    val minutes: String,
-    val minutesBa: String? = null,
-    val distance: String,
-    val nearbyCount: Int,
-    val label: String,
-    val labelBa: String? = null
-)
-
-private data class TrustedContact(
-    val name: String,
-    val relation: String,
-    val phone: String,
-    val notifyByDefault: Boolean,
-    val id: Int = 0,
-    val relationBa: String? = null
-)
-
-private data class FrequentTrip(
-    val title: String,
-    val titleBa: String,
-    val from: String,
-    val to: String,
-    val timeHint: String,
-    val timeHintBa: String,
-    val categoryKey: String
-)
-
-private data class LocalRequest(
-    val title: String,
-    val route: String,
-    val time: String,
-    val passenger: String,
-    val status: String,
-    val price: Int = 0,
-    val trustedContact: String? = null,
-    val voiceUrl: String? = null
-)
-
-private data class LocalVoiceMessage(
-    val author: String,
-    val transcript: String,
-    val time: String,
-    val audioPath: String? = null,
-    val durationSec: Int = 0
-)
+// Доменные UI-модели (Ride, PopularRoute, TrustedContact, FrequentTrip, LocalRequest,
+// LocalVoiceMessage) вынесены в Domain.kt (Фаза 0).
 
 // Запись голоса с микрофона: MediaRecorder → m4a в кэше приложения.
 private class VoiceRecorder(private val context: Context) {
