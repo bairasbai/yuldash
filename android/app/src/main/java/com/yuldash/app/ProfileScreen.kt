@@ -306,11 +306,11 @@ internal fun ProfileScreen(
                                     .background(Color.White.copy(alpha = 0.18f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text((ApiClient.cachedName() ?: "Байрас").take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
+                                Text((ApiClient.cachedName() ?: "Я").take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
                             }
                             Spacer(Modifier.width(14.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(ApiClient.cachedName() ?: "Байрас", color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                                Text(ApiClient.cachedName() ?: "Я", color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                                     myRating?.let { r ->
@@ -422,6 +422,8 @@ internal fun PassengerCabinetScreen(
     onSafety: () -> Unit
 ) {
     val activeRide = rides.firstOrNull()
+    var myRating by remember { mutableStateOf<Double?>(null) }
+    LaunchedEffect(Unit) { ApiClient.me().onSuccess { o -> myRating = if (o.isNull("rating")) null else o.optDouble("rating") } }
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет пассажира", "Пассажир кабинеты"), onBack) }
@@ -439,7 +441,7 @@ internal fun PassengerCabinetScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     CabinetMetric(appText("Активные", "Актив"), rides.size.toString(), Modifier.weight(1f))
                     CabinetMetric(appText("Заявки", "Заявкалар"), requests.size.toString(), Modifier.weight(1f))
-                    CabinetMetric(appText("Рейтинг", "Рейтинг"), "5.0", Modifier.weight(1f))
+                    CabinetMetric(appText("Рейтинг", "Рейтинг"), myRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—", Modifier.weight(1f))
                 }
             }
             activeRide?.let { ride ->
@@ -475,11 +477,15 @@ internal fun DriverCabinetScreen(
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit
 ) {
-    val driverRides = rides.filter { it.driver == "Байрас" }
+    val driverRides = rides.filter { it.driver == (ApiClient.cachedName() ?: "Я") }
     val ctx = LocalContext.current
     val rateScope = rememberCoroutineScope()
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
-    LaunchedEffect(Unit) { ApiClient.getDriverBookings().onSuccess { driverBookings = it } }
+    var driverRating by remember { mutableStateOf<Double?>(null) }
+    LaunchedEffect(Unit) {
+        ApiClient.getDriverBookings().onSuccess { driverBookings = it }
+        ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
+    }
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
     Scaffold(
@@ -499,7 +505,7 @@ internal fun DriverCabinetScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     CabinetMetric(appText("Мои маршруты", "Минең маршруттар"), driverRides.size.toString(), Modifier.weight(1f))
                     CabinetMetric(appText("Свободно", "Буш"), driverRides.sumOf { it.seats }.toString(), Modifier.weight(1f))
-                    CabinetMetric(appText("Рейтинг", "Рейтинг"), "5.0", Modifier.weight(1f))
+                    CabinetMetric(appText("Рейтинг", "Рейтинг"), driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—", Modifier.weight(1f))
                 }
             }
             if (driverRides.isEmpty()) {
