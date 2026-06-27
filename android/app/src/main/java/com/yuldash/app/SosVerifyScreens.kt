@@ -257,6 +257,9 @@ internal fun SosScreen(onBack: () -> Unit) {
     var selected by remember { mutableStateOf(categories.first().first) }
     var description by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }
+    var sending by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val selectedLabel = categories.firstOrNull { it.first == selected }?.second?.text() ?: categories.first().second.text()
 
     Scaffold(
@@ -290,7 +293,7 @@ internal fun SosScreen(onBack: () -> Unit) {
                     categories.forEach { (key, label) ->
                         val labelText = label.text()
                         FilledTonalButton(
-                            onClick = { selected = key; sent = false },
+                            onClick = { selected = key; sent = false; failed = false },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(18.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
@@ -328,23 +331,39 @@ internal fun SosScreen(onBack: () -> Unit) {
                     )
                 }
             }
+            if (failed) {
+                item {
+                    InfoCard(
+                        title = appText("SOS не отправлен", "SOS ебәрелмәне"),
+                        text = appText("Похоже, нет сети. Проверь связь и нажми «Отправить SOS» ещё раз.", "Бәйләнеш юҡ кеүек. Тикшереп, «SOS ебәреү»гә тағы баҫ."),
+                        icon = Icons.Default.Sos
+                    )
+                }
+            }
             item {
                 Button(
                     onClick = {
-                        sent = true
-                        ApiClient.fireSos(
-                            when (selected) {
-                                "medical" -> "medical"
-                                "breakdown" -> "breakdown"
-                                else -> "other"
-                            },
-                            description.trim()
-                        )
+                        if (sending) return@Button
+                        failed = false
+                        sent = false
+                        sending = true
+                        val cat = when (selected) {
+                            "medical" -> "medical"
+                            "breakdown" -> "breakdown"
+                            else -> "other"
+                        }
+                        val note = description.trim()
+                        scope.launch {
+                            val r = ApiClient.sos(cat, note)   // ждём сервер, НЕ fire-and-forget (кнопка безопасности)
+                            sending = false
+                            if (r.isSuccess) sent = true else failed = true
+                        }
                     },
+                    enabled = !sending,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
-                ) { Text(appText("Отправить SOS", "SOS ебәреү")) }
+                ) { Text(if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить SOS", "SOS ебәреү")) }
             }
             item { TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text(appText("Назад", "Кире")) } }
         }
