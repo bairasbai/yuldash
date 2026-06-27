@@ -80,6 +80,7 @@ class Ride(SQLModel, table=True):
     price: int = 0
     category: RideCategory = RideCategory.regular
     comment: str = ""
+    pickup: str = ""                  # где водитель забирает (точка сбора, текст)
     recurrence: str = "none"          # none / daily / weekdays / weekly — регулярная поездка
     # Премиум-предпочтения поездки (двусторонний фильтр водитель↔пассажир)
     pets_allowed: bool = False        # можно с животными

@@ -201,6 +201,7 @@ class RideIn(BaseModel):
     price: int = 0
     category: RideCategory = RideCategory.regular
     comment: str = ""
+    pickup: str = ""
     pets_allowed: bool = False
     child_seat: bool = False
     women_only: bool = False
@@ -222,6 +223,7 @@ class RideOut(BaseModel):
     price: int
     category: RideCategory
     comment: str
+    pickup: str = ""
     pets_allowed: bool = False
     child_seat: bool = False
     women_only: bool = False

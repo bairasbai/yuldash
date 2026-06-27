@@ -494,6 +494,7 @@ private fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     smoking = smoking,
     baggage = baggage,
     airConditioner = airConditioner,
+    pickup = pickup,
 )
 
 /** Километры коротко: «2.3 км» вблизи, «243 км» вдали. */
@@ -571,7 +572,8 @@ private data class Ride(
     val womenOnly: Boolean = false,
     val smoking: Boolean = false,
     val baggage: Boolean = false,
-    val airConditioner: Boolean = false
+    val airConditioner: Boolean = false,
+    val pickup: String = ""
 )
 
 private data class PopularRoute(
@@ -5479,6 +5481,7 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var airConditioner by remember { mutableStateOf(false) }
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
+    var pickup by remember { mutableStateOf("") }
     val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
     val defaultCar = appText("Моя машина", "Минең машина")
     Scaffold(
@@ -5571,6 +5574,18 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
             }
             item {
+                OutlinedTextField(
+                    value = pickup,
+                    onValueChange = { pickup = it },
+                    label = { Text(appText("Где встречаемся", "Ҡайҙа осрашабыҙ")) },
+                    placeholder = { Text(appText("Напр.: у автовокзала, АЗС на выезде", "Мәҫәлән: автовокзал янында, сығыштағы АЗС")) },
+                    leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
+            item {
                 val isCargo = category == "parcel" || category == "cargo"
                 OutlinedTextField(
                     value = comment,
@@ -5611,7 +5626,7 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         val seatsVal = seats.toIntOrNull() ?: 2
                         val departIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
                             .format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L))
-                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category)
+                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim())
                         onPublish(
                             Ride(
                                 id = "local-${System.currentTimeMillis()}",
@@ -6667,7 +6682,7 @@ private fun BookingScreen(
                                 Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
                             }
                         }
-                        TripInfoRow(Icons.Default.LocationOn, appText("Место встречи", "Осрашыу урыны"), appText("Автовокзал, вход 2", "Автовокзал, 2-се инеү"))
+                        TripInfoRow(Icons.Default.LocationOn, appText("Место встречи", "Осрашыу урыны"), ride.pickup.ifBlank { appText("Уточнить у водителя", "Водителдән асыҡларға") })
                         MapPreview(Modifier.height(170.dp), from = ride.from, to = ride.to, distance = cityDistanceText(ride.from, ride.to))
                         routeAd?.let { ad ->
                             PartnerAdCard(

@@ -42,9 +42,9 @@ object ApiClient {
         fromCity: String, toCity: String, departAt: String, seats: Int, price: Int, comment: String,
         petsAllowed: Boolean = false, childSeat: Boolean = false, womenOnly: Boolean = false,
         smoking: Boolean = false, baggage: Boolean = false, airConditioner: Boolean = false,
-        recurrence: String = "none", category: String = "regular",
+        recurrence: String = "none", category: String = "regular", pickup: String = "",
     ) {
-        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category) }
+        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup) }
     }
 
     fun fireBook(rideId: Int, seats: Int) {
@@ -149,6 +149,7 @@ object ApiClient {
                     smoking = o.optBoolean("smoking"),
                     baggage = o.optBoolean("baggage"),
                     airConditioner = o.optBoolean("air_conditioner"),
+                    pickup = o.optString("pickup"),
                 )
             }
         }
@@ -195,6 +196,7 @@ object ApiClient {
                     smoking = o.optBoolean("smoking"),
                     baggage = o.optBoolean("baggage"),
                     airConditioner = o.optBoolean("air_conditioner"),
+                    pickup = o.optString("pickup"),
                     distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
                 )
             }
@@ -219,6 +221,7 @@ object ApiClient {
         airConditioner: Boolean = false,
         recurrence: String = "none",
         category: String = "regular",
+        pickup: String = "",
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -235,7 +238,8 @@ object ApiClient {
             .put("smoking", smoking)
             .put("baggage", baggage)
             .put("air_conditioner", airConditioner)
-            .put("recurrence", recurrence),
+            .put("recurrence", recurrence)
+            .put("pickup", pickup),
         auth = true,
     ).map { }
 
@@ -573,6 +577,7 @@ data class RideDto(
     val smoking: Boolean = false,
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
+    val pickup: String = "",          // где водитель забирает (точка сбора)
     val distanceKm: Double? = null,   // дистанция клиент→точка выезда (только из /rides/near с координатами)
 )
 
