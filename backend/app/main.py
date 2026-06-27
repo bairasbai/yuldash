@@ -239,6 +239,31 @@ def vk_callback(body: VKCallbackIn, session: Session = Depends(get_session)):
     return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
 
 
+class WhatsAppCallbackIn(BaseModel):
+    phone: str
+    whatsapp_verified: bool = False
+
+
+@app.post("/auth/whatsapp-callback")
+def whatsapp_callback(body: WhatsAppCallbackIn, session: Session = Depends(get_session)):
+    """Коллбэк от WhatsApp.
+    Пользователь подтверждает номер в WhatsApp (обычно SMS на номер).
+    Создаёт юзера если не существует.
+    """
+    user = session.exec(select(User).where(User.phone == body.phone)).first()
+    if not user:
+        user = User(
+            phone=body.phone,
+            name=f"WhatsApp {body.phone[-3:]}",
+            whatsapp_verified=body.whatsapp_verified,
+            verified=body.whatsapp_verified,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
+
+
 @app.get("/me")
 def me(user: User = Depends(current_user), session: Session = Depends(get_session)):
     avg, cnt = _user_rating(session, user.id)

@@ -45,6 +45,7 @@ class User(SQLModel, table=True):
     # OAuth / Социальные сети
     telegram_id: Optional[str] = Field(default=None, index=True, unique=True)
     vk_id: Optional[str] = Field(default=None, index=True, unique=True)
+    whatsapp_verified: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

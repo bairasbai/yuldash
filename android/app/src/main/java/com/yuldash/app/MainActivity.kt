@@ -1163,7 +1163,8 @@ private fun YuldashApp() {
                     },
                     onContinue = { openHome() },
                     onTelegramLogin = { openTelegramLogin(context) },
-                    onVKLogin = { openVKLogin(context) }
+                    onVKLogin = { openVKLogin(context) },
+                    onWhatsAppLogin = { openWhatsAppLogin(context) }
                 )
             }
             Screen.Home -> HomeScreen(
@@ -1785,7 +1786,8 @@ private fun LoginScreen(
     onToggleLanguage: () -> Unit,
     onContinue: () -> Unit,
     onTelegramLogin: () -> Unit = {},
-    onVKLogin: () -> Unit = {}
+    onVKLogin: () -> Unit = {},
+    onWhatsAppLogin: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -1810,6 +1812,7 @@ private fun LoginScreen(
                         onContinue = onContinue,
                         onTelegramLogin = onTelegramLogin,
                         onVKLogin = onVKLogin,
+                        onWhatsAppLogin = onWhatsAppLogin,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 24.dp)
@@ -1843,6 +1846,7 @@ private fun LoginFormCard(
     onContinue: () -> Unit,
     onTelegramLogin: () -> Unit = {},
     onVKLogin: () -> Unit = {},
+    onWhatsAppLogin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -1999,6 +2003,17 @@ private fun LoginFormCard(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
             ) {
                 Text(appTextFor(currentLanguage, "Вход по VK", "VK аша инеү"), color = Color.White, fontSize = 14.sp)
+            }
+            // WhatsApp вход
+            Button(
+                onClick = onWhatsAppLogin,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+            ) {
+                Text(appTextFor(currentLanguage, "Вход по WhatsApp", "WhatsApp аша инеү"), color = Color.White, fontSize = 14.sp)
             }
         }
     }
@@ -8107,6 +8122,25 @@ fun openVKLogin(context: android.content.Context) {
         context.startActivity(intent)
     } catch (e: Exception) {
         Toast.makeText(context, "Не удалось открыть VK", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/**
+ * WhatsApp через QR код / Deep Link.
+ * Посылает SMS на телефон номер с ссылкой для подтверждения.
+ */
+fun openWhatsAppLogin(context: android.content.Context) {
+    try {
+        val phoneNumber = "+7xxxxxxxxxx" // TODO: получить из интерфейса (поле телефона)
+        val message = "Юлдаш: подтвердите вход"
+        val whatsappUrl = "https://wa.me/$phoneNumber?text=${Uri.encode(message)}"
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse(whatsappUrl)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Toast.makeText(context, "WhatsApp не установлен", Toast.LENGTH_SHORT).show()
     }
 }
 
