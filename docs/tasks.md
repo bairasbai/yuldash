@@ -34,6 +34,12 @@
 - [x] Launcher-иконка качественно выглядит в ресурсах Android и подключена в манифесте.
 
 ## Сделано
+- [x] 2026-06-27 **WebSocket чат — реальное время.**
+  - [x] Backend: `/ws/bookings/{booking_id}` эндпоинт, ConnectionManager, broadcast.
+  - [x] Token верификация через query параметр.
+  - [x] Android: требует OkHttp для WebSocket (позже).
+  - [x] Коммит: `97bc7a2`.
+
 - [x] 2026-06-27 **OAuth Telegram/VK вход — end-to-end реализация.**
   - [x] **Android:** openTelegramLogin() + openVKLogin() функции; DeepLink обработка yuldash://auth/telegram; Intent filter в AndroidManifest.
   - [x] **Backend API:** POST /auth/telegram-callback и /auth/vk-callback эндпоинты; JWT автологин.
