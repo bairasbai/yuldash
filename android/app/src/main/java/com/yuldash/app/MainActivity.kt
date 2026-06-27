@@ -496,6 +496,8 @@ private fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     baggage = baggage,
     airConditioner = airConditioner,
     pickup = pickup,
+    pickupLat = pickupLat,
+    pickupLng = pickupLng,
 )
 
 /** Километры коротко: «2.3 км» вблизи, «243 км» вдали. */
@@ -574,7 +576,9 @@ private data class Ride(
     val smoking: Boolean = false,
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
-    val pickup: String = ""
+    val pickup: String = "",
+    val pickupLat: Double? = null,
+    val pickupLng: Double? = null
 )
 
 private data class PopularRoute(
@@ -3397,6 +3401,59 @@ private fun cityDistanceText(from: String, to: String): String? {
     return "${Math.round(2 * 6371.0 * Math.asin(Math.sqrt(h)))} км"
 }
 
+// Пикер точки сбора: полноэкранная карта + фикс-пин в центре. Двигаешь карту — пин на месте встречи.
+@Composable
+private fun PickupPickerOverlay(
+    initial: Point?,
+    onConfirm: (Double, Double) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val ctx = LocalContext.current
+    val mapView = remember {
+        runCatching { MapKitFactory.initialize(ctx) }   // локаль уже задана при первой карте; повторный setLocale кинул бы исключение
+        MapView(ctx).also { v ->
+            v.mapWindow.map.move(CameraPosition(initial ?: MapMidPoint, if (initial != null) 15f else 11f, 0f, 0f))
+        }
+    }
+    DisposableEffect(Unit) {
+        MapKitFactory.getInstance().onStart(); mapView.onStart()
+        onDispose { mapView.onStop(); MapKitFactory.getInstance().onStop() }
+    }
+    Box(Modifier.fillMaxSize().background(CanonBg)) {
+        AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+        // фикс-пин в центре (кончик смотрит на центр карты)
+        Icon(
+            Icons.Default.LocationOn, contentDescription = null, tint = CanonRed,
+            modifier = Modifier.align(Alignment.Center).size(48.dp).offset(y = (-24).dp)
+        )
+        Row(
+            Modifier.align(Alignment.TopStart).fillMaxWidth().statusBarsPadding().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(onClick = onDismiss, shape = CircleShape, color = CanonSurface, shadowElevation = 3.dp) {
+                Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"), tint = CanonText, modifier = Modifier.padding(12.dp).size(18.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Surface(shape = RoundedCornerShape(14.dp), color = CanonSurface, shadowElevation = 3.dp) {
+                Text(appText("Двигай карту — пин на месте встречи", "Картаны күсер — пин осрашыу урынында"), Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = CanonText, fontSize = 13.sp)
+            }
+        }
+        Button(
+            onClick = {
+                val t = mapView.mapWindow.map.cameraPosition.target
+                onConfirm(t.latitude, t.longitude)
+            },
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp).height(54.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+        ) {
+            Icon(Icons.Default.LocationOn, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(appText("Готово — точка здесь", "Әҙер — нөктә бында"), fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
 @Composable
 private fun MapPreview(modifier: Modifier = Modifier, from: String = "Баймаҡ", to: String = "Сибай", distance: String? = "43 км") {
     Box(
@@ -5483,6 +5540,9 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
     var pickup by remember { mutableStateOf("") }
+    var pickupLat by remember { mutableStateOf<Double?>(null) }
+    var pickupLng by remember { mutableStateOf<Double?>(null) }
+    var showPicker by remember { mutableStateOf(false) }
     var priceHint by remember { mutableStateOf(0) }
     LaunchedEffect(from, to) {
         priceHint = if (from.isNotBlank() && to.isNotBlank()) {
@@ -5492,6 +5552,8 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     }
     val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
     val defaultCar = appText("Моя машина", "Минең машина")
+    val dropPinLabel = appText("Точка на карте", "Картала нөктә")
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { ScreenTopBar(appText("Создать поездку", "Сәфәр булдырыу"), onBack) }
@@ -5596,16 +5658,29 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 }
             }
             item {
-                OutlinedTextField(
-                    value = pickup,
-                    onValueChange = { pickup = it },
-                    label = { Text(appText("Где встречаемся", "Ҡайҙа осрашабыҙ")) },
-                    placeholder = { Text(appText("Напр.: у автовокзала, АЗС на выезде", "Мәҫәлән: автовокзал янында, сығыштағы АЗС")) },
-                    leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = pickup,
+                        onValueChange = { pickup = it },
+                        label = { Text(appText("Где встречаемся", "Ҡайҙа осрашабыҙ")) },
+                        placeholder = { Text(appText("Напр.: у автовокзала, АЗС на выезде", "Мәҫәлән: автовокзал янында, сығыштағы АЗС")) },
+                        leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    val pinned = pickupLat != null
+                    OutlinedButton(
+                        onClick = { showPicker = true },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, if (pinned) CanonGreen2 else CanonBorder)
+                    ) {
+                        Icon(if (pinned) Icons.Default.CheckCircle else Icons.Default.Map, contentDescription = null, tint = if (pinned) CanonGreen2 else CanonText, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (pinned) appText("Точка на карте отмечена · изменить", "Картала билдәләнде · үҙгәртергә") else appText("Отметить на карте", "Картала билдәләргә"), color = if (pinned) CanonGreen2 else CanonText)
+                    }
+                }
             }
             item {
                 val isCargo = category == "parcel" || category == "cargo"
@@ -5648,7 +5723,7 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         val seatsVal = seats.toIntOrNull() ?: 2
                         val departIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
                             .format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L))
-                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim())
+                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng)
                         onPublish(
                             Ride(
                                 id = "local-${System.currentTimeMillis()}",
@@ -5684,6 +5759,14 @@ private fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                     Text(appText("Отмена", "Кире алыу"))
                 }
             }
+        }
+    }
+        if (showPicker) {
+            PickupPickerOverlay(
+                initial = pickupLat?.let { la -> pickupLng?.let { ln -> Point(la, ln) } },
+                onConfirm = { la, ln -> pickupLat = la; pickupLng = ln; if (pickup.isBlank()) pickup = dropPinLabel; showPicker = false },
+                onDismiss = { showPicker = false }
+            )
         }
     }
 }
@@ -6714,6 +6797,23 @@ private fun BookingScreen(
                             }
                         }
                         TripInfoRow(Icons.Default.LocationOn, appText("Место встречи", "Осрашыу урыны"), ride.pickup.ifBlank { appText("Уточнить у водителя", "Водителдән асыҡларға") })
+                        ride.pickupLat?.let { la ->
+                            val ln = ride.pickupLng ?: 0.0
+                            val meet = appText("Место встречи", "Осрашыу урыны")
+                            OutlinedButton(
+                                onClick = {
+                                    val uri = android.net.Uri.parse("geo:$la,$ln?q=$la,$ln(" + android.net.Uri.encode(meet) + ")")
+                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(46.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, CanonGreen2)
+                            ) {
+                                Icon(Icons.Default.Map, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(appText("Открыть точку на карте", "Нөктәне картала асырға"), color = CanonGreen2)
+                            }
+                        }
                         MapPreview(Modifier.height(170.dp), from = ride.from, to = ride.to, distance = cityDistanceText(ride.from, ride.to))
                         routeAd?.let { ad ->
                             PartnerAdCard(

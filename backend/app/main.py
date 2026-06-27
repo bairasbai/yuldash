@@ -202,6 +202,8 @@ class RideIn(BaseModel):
     category: RideCategory = RideCategory.regular
     comment: str = ""
     pickup: str = ""
+    pickup_lat: Optional[float] = None
+    pickup_lng: Optional[float] = None
     pets_allowed: bool = False
     child_seat: bool = False
     women_only: bool = False
@@ -224,6 +226,8 @@ class RideOut(BaseModel):
     category: RideCategory
     comment: str
     pickup: str = ""
+    pickup_lat: Optional[float] = None
+    pickup_lng: Optional[float] = None
     pets_allowed: bool = False
     child_seat: bool = False
     women_only: bool = False

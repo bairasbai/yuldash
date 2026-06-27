@@ -43,8 +43,9 @@ object ApiClient {
         petsAllowed: Boolean = false, childSeat: Boolean = false, womenOnly: Boolean = false,
         smoking: Boolean = false, baggage: Boolean = false, airConditioner: Boolean = false,
         recurrence: String = "none", category: String = "regular", pickup: String = "",
+        pickupLat: Double? = null, pickupLng: Double? = null,
     ) {
-        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup) }
+        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup, pickupLat, pickupLng) }
     }
 
     fun fireBook(rideId: Int, seats: Int) {
@@ -150,6 +151,8 @@ object ApiClient {
                     baggage = o.optBoolean("baggage"),
                     airConditioner = o.optBoolean("air_conditioner"),
                     pickup = o.optString("pickup"),
+                    pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
+                    pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
                 )
             }
         }
@@ -197,6 +200,8 @@ object ApiClient {
                     baggage = o.optBoolean("baggage"),
                     airConditioner = o.optBoolean("air_conditioner"),
                     pickup = o.optString("pickup"),
+                    pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
+                    pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
                     distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
                 )
             }
@@ -232,6 +237,8 @@ object ApiClient {
         recurrence: String = "none",
         category: String = "regular",
         pickup: String = "",
+        pickupLat: Double? = null,
+        pickupLng: Double? = null,
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -249,7 +256,9 @@ object ApiClient {
             .put("baggage", baggage)
             .put("air_conditioner", airConditioner)
             .put("recurrence", recurrence)
-            .put("pickup", pickup),
+            .put("pickup", pickup)
+            .put("pickup_lat", pickupLat ?: JSONObject.NULL)
+            .put("pickup_lng", pickupLng ?: JSONObject.NULL),
         auth = true,
     ).map { }
 
@@ -590,6 +599,8 @@ data class RideDto(
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
     val pickup: String = "",          // где водитель забирает (точка сбора)
+    val pickupLat: Double? = null,    // координаты точки сбора (пин на карте)
+    val pickupLng: Double? = null,
     val distanceKm: Double? = null,   // дистанция клиент→точка выезда (только из /rides/near с координатами)
 )
 
