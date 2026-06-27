@@ -6,6 +6,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// FCM (push): google-services применяем ТОЛЬКО когда есть app/google-services.json.
+// Без файла сборка не падает (push просто неактивен). Александр кладёт файл из Firebase → push оживает.
+if (rootProject.file("app/google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Ключ Яндекс MapKit читаем из local.properties (он в .gitignore, в git не попадает).
 val mapkitKey: String = Properties().apply {
     val f = rootProject.file("local.properties")
@@ -144,5 +150,8 @@ dependencies {
     implementation("com.yandex.android:maps.mobile:4.39.0-full")
     // OkHttp — только ради WebSocket-клиента (realtime-чат). REST остаётся на HttpURLConnection.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // FCM (push-уведомления): новое сообщение/бронь/SOS. Активен при наличии google-services.json.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging-ktx")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

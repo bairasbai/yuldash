@@ -16,6 +16,7 @@ class YuldashApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ApiClient.init(this)              // загрузить сохранённый токен сессии
+        ApiClient.registerCurrentPushToken()   // если уже вошли — зарегистрировать устройство для push
         if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
             MapKitFactory.setApiKey(BuildConfig.YANDEX_MAPKIT_KEY)
         }

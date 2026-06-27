@@ -117,6 +117,25 @@ object ApiClient {
         prefs?.edit()?.remove("token")?.remove("user_name")?.apply()
     }
 
+    // ---------- Push (FCM) ----------
+    /** Зарегистрировать FCM-токен устройства на сервере (если вошли). Сохраняем, чтобы дослать после логина. */
+    fun fireRegisterPushToken(token: String) {
+        if (token.isBlank()) return
+        prefs?.edit()?.putString("push_token", token)?.apply()
+        if (!isLoggedIn()) return
+        bg.launch { call("POST", "/push/register", JSONObject().put("token", token), auth = true) }
+    }
+
+    /** После логина/старта: взять текущий FCM-токен и зарегистрировать. Без Firebase (нет файла) — тихо ничего. */
+    fun registerCurrentPushToken() {
+        if (!isLoggedIn()) return
+        prefs?.getString("push_token", null)?.let { fireRegisterPushToken(it) }   // дослать сохранённый
+        runCatching {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { t -> fireRegisterPushToken(t) }
+        }
+    }
+
     // ---------- Авторизация по SMS-коду ----------
 
     /** Запросить код на телефон. Пока SMS — мок: код пишется в лог сервера. */
@@ -140,6 +159,7 @@ object ApiClient {
     private fun JSONObject.applyAuth(): JSONObject = apply {
         optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
         optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }?.let(::saveName)
+        registerCurrentPushToken()   // после входа — зарегистрировать устройство для push
     }
 
     /** Старт входа через Telegram. Возвращает request_id — app по нему строит ссылку t.me/<bot>?start=request_id. */
