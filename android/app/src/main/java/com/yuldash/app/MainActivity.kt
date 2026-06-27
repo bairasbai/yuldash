@@ -101,6 +101,7 @@ import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
@@ -6619,6 +6620,7 @@ private fun BookingScreen(
     onConfirmRide: () -> Unit
 ) {
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
+    val context = LocalContext.current
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Rides, onSelect = onSelectTab) }
@@ -6636,9 +6638,17 @@ private fun BookingScreen(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
-            Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"), tint = CanonText)
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = appText("Назад", "Кире"), tint = CanonText)
                     }
-                    Text(appText("Детали поездки", "Сәфәр тураһында"), color = CanonGreen, fontSize = 26.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
+                    Text(appText("Детали поездки", "Сәфәр тураһында"), modifier = Modifier.weight(1f), color = CanonGreen, fontSize = 26.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
+                    val shareTitle = appText("Позвать соседа", "Күршене саҡырырға")
+                    val shareText = appText(
+                        "Еду ${ride.from} → ${ride.to}, ${ride.timeText()}. ${ride.price} ₽. Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
+                        "${ride.from} → ${ride.to}, ${ride.timeText()}. ${ride.price} ₽. Әйҙә бергә — Юлдашта 👇\nhttps://yulbash.ru"
+                    )
+                    IconButton(onClick = { shareRide(context, shareText, shareTitle) }) {
+                        Icon(Icons.Default.Share, contentDescription = shareTitle, tint = CanonGreen2)
+                    }
                 }
             }
             item {
