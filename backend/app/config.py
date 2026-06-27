@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     sms_ru_api_id: str = ""             # api_id из кабинета sms.ru (нужен для sms_provider=smsru)
     sms_from: str = ""                  # буквенный отправитель sms.ru после модерации (напр. Yuldash)
 
+    # --- Telegram-вход (бот) ---
+    telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)
+    telegram_webhook_secret: str = ""   # секрет: аутентификация Telegram→сервер (заголовок X-Telegram-Bot-Api-Secret-Token)
+
     # --- Прод-параметры ---
     media_base_url: str = "https://yulbash.ru"   # база для публичных URL медиа (фото/голос)
     cors_origins: str = "*"                       # список origin через запятую; в проде сузить

@@ -34,6 +34,15 @@
 - [x] Launcher-иконка качественно выглядит в ресурсах Android и подключена в манифесте.
 
 ## Сделано
+- [x] 2026-06-27 **Telegram-вход безопасно + закрыты дыры авторизации (Opus).**
+  - [x] **Security-фикс (критично):** `/auth/whatsapp-callback` отдавал токен по чужому номеру → **угон аккаунта**. Отключён (501). `/auth/vk-callback` тоже отключён (501) до настоящего OAuth. Задеплоено — проверено curl.
+  - [x] **Telegram-вход через бота, с подписью:** бот-вебхук `/telegram/webhook` берёт подтверждённый Telegram'ом `from.id`, подписывает HMAC (`sign_telegram`), отдаёт кнопку-возврат через `/auth/telegram/return` → app шлёт на `/auth/telegram-callback`, сервер **проверяет подпись** (`verify_telegram`) → JWT. Войти за чужой telegram_id нельзя. Юнит-проверка подписи: валид принят, подделка/протухание/пусто отбиты.
+  - [x] Конфиг `TELEGRAM_BOT_TOKEN`/`TELEGRAM_WEBHOOK_SECRET` (`.env`, не в git), `.env.example` обновлён.
+  - [x] Android: `telegramCallback` шлёт `auth_date`+`sig`; приёмник прокидывает их из DeepLink.
+  - [x] Задеплоено: telegram-callback без подписи → 401, whatsapp/vk → 501, health ok.
+  - [x] Инструкция для Александра: **[telegram-setup.md](telegram-setup.md)** (3 шага, ~10 мин).
+  - [x] Сборка `assembleDebug` → BUILD SUCCESSFUL.
+  - [ ] ⏳ **Чтобы включить:** Александр регистрирует бота у @BotFather + 3 шага из telegram-setup.md.
 - [x] 2026-06-27 **Перепроверка (Opus) + фиксы OAuth/WebSocket + клиент-петля.**
   - [x] **Нашли при ревью:** `verify_token` не было в `security.py` (WS-чат всегда отбивал токен); миграции `ALTER TABLE user` без кавычек (синтакс-баг PG); мои deploy-инструкции с выдуманными кредами `yuldash_app/yuldash_prod`.
   - [x] **Починили:** `verify_token` добавлен; `"user"`+`IF NOT EXISTS` в миграциях; миграции вшиты в `deploy-backend.bat`; удалён кривой дубль.
@@ -49,10 +58,10 @@
   - [x] Android: требует OkHttp для WebSocket (позже).
   - [x] Коммит: `97bc7a2`.
 
-### ⛔ Блокеры OAuth (внешние действия Александра — без них вход не замкнётся)
-- **Telegram:** зарегистрировать бота у @BotFather → положить имя в `local.properties` (`YULDASH_TELEGRAM_BOT=...`). Серверный бот по `?start=auth` должен ответить пользователю ссылкой `yuldash://auth/telegram?user_id=...&username=...&first_name=...`. (Серверная часть бота — отдельная задача.)
-- **VK:** создать VK-приложение → `YULDASH_VK_APP_ID=...` в `local.properties`. Сервер должен поднять `GET /auth/vk/callback` (обмен `code`→`token`, затем редирект в `yuldash://auth/vk?access_token=...&user_id=...`).
-- **WhatsApp:** как настоящий вход — только через WhatsApp Business API (платно/модерация). Пока кнопка показывает «скоро».
+### ⛔ Блокеры OAuth (внешние действия Александра)
+- **Telegram:** ✅ серверный бот-flow ГОТОВ и задеплоен (с подписью). Осталось только Александру: зарегать бота у @BotFather + 3 шага → **[telegram-setup.md](telegram-setup.md)**. После этого вход работает целиком.
+- **VK:** эндпоинт отключён (501). Для настоящего входа нужно: VK-приложение (`YULDASH_VK_APP_ID`) + серверный `GET /auth/vk/callback` (обмен `code`→`token` на стороне VK, затем подписанный редирект в app — как у Telegram). Пока не делаем.
+- **WhatsApp:** как вход невозможен без WhatsApp Business API (платно/модерация). Эндпоинт отключён (501), кнопка «скоро».
 
 - [x] 2026-06-27 **OAuth вход: Telegram/VK/WhatsApp — полный выбор.**
   - [x] **Android:** 3 кнопки входа (голубая Telegram, синяя VK, зелёная WhatsApp); openTelegramLogin() + openVKLogin() + openWhatsAppLogin().

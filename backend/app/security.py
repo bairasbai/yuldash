@@ -1,5 +1,8 @@
+import hashlib
+import hmac
 import random
 import string
+import time
 from datetime import datetime, timedelta
 
 from fastapi import Depends, HTTPException, status
@@ -28,6 +31,23 @@ def verify_token(token: str) -> int:
 
 def gen_otp() -> str:
     return "".join(random.choices(string.digits, k=4))
+
+
+# ---- Подпись Telegram-данных (бот-вебхук подписывает, callback проверяет) ----
+# Защита от подделки: только сервер знает jwt_secret, значит только сервер (наш бот)
+# может выпустить валидную подпись для пары (telegram_id, время). Клиент подделать не может.
+
+def sign_telegram(uid: str, auth_date: int) -> str:
+    msg = f"{uid}:{auth_date}".encode()
+    return hmac.new(settings.jwt_secret.encode(), msg, hashlib.sha256).hexdigest()
+
+
+def verify_telegram(uid: str, auth_date: int, sig: str, max_age_sec: int = 300) -> bool:
+    if not uid or not sig or not auth_date:
+        return False
+    if not hmac.compare_digest(sign_telegram(uid, auth_date), sig):
+        return False
+    return abs(int(time.time()) - int(auth_date)) <= max_age_sec
 
 
 def current_user(

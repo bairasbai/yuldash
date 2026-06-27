@@ -10,12 +10,15 @@ import math
 import os
 import uuid
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import Session, select
 import json
+import time
+from urllib.parse import urlencode
 
 from .config import settings
 from .db import engine, get_session, init_db
@@ -24,7 +27,7 @@ from .models import (
     Ride, RideCategory, RideRequest, RideStatus, SosEvent, TripShare,
     TrustedContact, User, UserRole,
 )
-from .security import current_user, gen_otp, make_token
+from .security import current_user, gen_otp, make_token, sign_telegram, verify_telegram
 
 
 @asynccontextmanager
@@ -187,24 +190,31 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
     return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
 
 
-# ==================== TELEGRAM / VK OAUTH ====================
+# ==================== TELEGRAM-ВХОД (бот) ====================
+# Поток: app открывает t.me/<bot>?start=auth → юзер жмёт Start → Telegram шлёт update
+# на /telegram/webhook → сервер берёт ПОДТВЕРЖДЁННЫЙ Telegram'ом from.id, ПОДПИСЫВАЕТ его
+# и отдаёт кнопку-ссылку на /auth/telegram/return → та открывает yuldash://auth/telegram?...&sig=...
+# → app шлёт на /auth/telegram-callback → сервер ПРОВЕРЯЕТ подпись → выдаёт JWT.
+# Без подписи токен не выдаётся — нельзя войти за чужой telegram_id.
+
 class TelegramCallbackIn(BaseModel):
-    request_id: str
     telegram_user_id: str
     telegram_username: str = ""
     first_name: str = ""
+    auth_date: int = 0
+    sig: str = ""
 
 
 @app.post("/auth/telegram-callback")
 def telegram_callback(body: TelegramCallbackIn, session: Session = Depends(get_session)):
-    """Коллбэк от Telegram бота после OAuth.
-    DeepLink: yuldash://auth/telegram?user_id=123&username=vasya&first_name=Vasya
-    """
+    """Вход по Telegram. Данные подписаны сервером (бот-вебхук). Без валидной подписи — отказ."""
+    if not verify_telegram(body.telegram_user_id, body.auth_date, body.sig):
+        raise HTTPException(401, "Неверная или просроченная подпись Telegram")
     user = session.exec(select(User).where(User.telegram_id == body.telegram_user_id)).first()
     if not user:
         user = User(
-            phone=f"+7{body.telegram_user_id[:10]}",  # Фейковый номер
-            name=body.first_name or body.telegram_username or "Telegram User",
+            phone=f"tg{body.telegram_user_id}",   # плейсхолдер (не настоящий номер), уникален по telegram_id
+            name=body.first_name or body.telegram_username or "Telegram",
             telegram_id=body.telegram_user_id,
             verified=True,
         )
@@ -214,54 +224,80 @@ def telegram_callback(body: TelegramCallbackIn, session: Session = Depends(get_s
     return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
 
 
-class VKCallbackIn(BaseModel):
-    vk_access_token: str
-    vk_user_id: str
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(default="")):
+    """Telegram шлёт сюда апдейты. На /start отвечаем кнопкой-возвратом в приложение."""
+    # Аутентификация Telegram→сервер: секрет из setWebhook.
+    if settings.telegram_webhook_secret and x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
+        raise HTTPException(403, "bad secret")
+    update = await request.json()
+    msg = update.get("message") or {}
+    text = msg.get("text") or ""
+    frm = msg.get("from") or {}
+    chat = msg.get("chat") or {}
+    if text.startswith("/start") and frm.get("id") and settings.telegram_bot_token:
+        uid = str(frm["id"])
+        auth_date = int(time.time())
+        params = urlencode({
+            "user_id": uid,
+            "username": frm.get("username", "") or "",
+            "first_name": frm.get("first_name", "") or "",
+            "auth_date": auth_date,
+            "sig": sign_telegram(uid, auth_date),
+        })
+        return_url = f"{settings.media_base_url}/auth/telegram/return?{params}"
+        try:
+            import httpx
+            httpx.post(
+                f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+                json={
+                    "chat_id": chat.get("id"),
+                    "text": "Жми кнопку — вернёшься в Юлдаш и войдёшь 👇",
+                    "reply_markup": {"inline_keyboard": [[{"text": "Открыть Юлдаш", "url": return_url}]]},
+                },
+                timeout=10,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[TG] sendMessage error {e}")
+    return {"ok": True}
 
 
+@app.get("/auth/telegram/return", response_class=HTMLResponse)
+def telegram_return(user_id: str = "", username: str = "", first_name: str = "", auth_date: int = 0, sig: str = ""):
+    """Открывается из Telegram-кнопки. Перебрасывает в приложение по deep link с подписью."""
+    deeplink = "yuldash://auth/telegram?" + urlencode({
+        "user_id": user_id, "username": username, "first_name": first_name,
+        "auth_date": auth_date, "sig": sig,
+    })
+    html = (
+        "<!doctype html><html lang=ru><head><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<title>Юлдаш — вход</title><style>"
+        "body{font-family:-apple-system,Roboto,Segoe UI,sans-serif;background:#0f1f17;color:#fff;"
+        "display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;text-align:center}"
+        "a.btn{background:#2e7d32;color:#fff;padding:16px 28px;border-radius:14px;text-decoration:none;"
+        "font-size:18px;display:inline-block;margin-top:18px}</style></head><body><div>"
+        "<div style='font-size:46px'>🚗</div><h2>Возвращаемся в Юлдаш…</h2>"
+        "<p>Если приложение не открылось само —</p>"
+        f"<a class=btn href=\"{deeplink}\">Открыть Юлдаш</a></div>"
+        f"<script>location.href=\"{deeplink}\";</script></body></html>"
+    )
+    return HTMLResponse(html)
+
+
+# VK / WhatsApp вход — ОТКЛЮЧЕНО до безопасной реализации.
+# Прежние версии выдавали токен по непроверенному vk_id/телефону (whatsapp-callback —
+# угон аккаунта: любой с чужим номером получал токен). Включим, когда будет:
+#   VK  — серверный OAuth code-exchange (/auth/vk/callback) с проверкой на стороне VK;
+#   WA  — WhatsApp Business API с подтверждением номера.
 @app.post("/auth/vk-callback")
-def vk_callback(body: VKCallbackIn, session: Session = Depends(get_session)):
-    """Коллбэк от VK OAuth.
-    Приложение получает access_token от VK, отправляет на сервер.
-    Сервер верифицирует и создаёт юзера.
-    """
-    user = session.exec(select(User).where(User.vk_id == body.vk_user_id)).first()
-    if not user:
-        user = User(
-            phone=f"+7{body.vk_user_id[:10]}",  # Фейковый номер
-            name=f"VK User {body.vk_user_id[:4]}",
-            vk_id=body.vk_user_id,
-            verified=True,
-        )
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-    return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
-
-
-class WhatsAppCallbackIn(BaseModel):
-    phone: str
-    whatsapp_verified: bool = False
+def vk_callback():
+    raise HTTPException(501, "VK-вход ещё не подключён")
 
 
 @app.post("/auth/whatsapp-callback")
-def whatsapp_callback(body: WhatsAppCallbackIn, session: Session = Depends(get_session)):
-    """Коллбэк от WhatsApp.
-    Пользователь подтверждает номер в WhatsApp (обычно SMS на номер).
-    Создаёт юзера если не существует.
-    """
-    user = session.exec(select(User).where(User.phone == body.phone)).first()
-    if not user:
-        user = User(
-            phone=body.phone,
-            name=f"WhatsApp {body.phone[-3:]}",
-            whatsapp_verified=body.whatsapp_verified,
-            verified=body.whatsapp_verified,
-        )
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-    return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
+def whatsapp_callback():
+    raise HTTPException(501, "WhatsApp-вход ещё не подключён")
 
 
 @app.get("/me")

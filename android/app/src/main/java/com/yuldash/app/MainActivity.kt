@@ -1075,6 +1075,8 @@ private fun YuldashApp() {
                     uid,
                     authLink.getQueryParameter("username").orEmpty(),
                     authLink.getQueryParameter("first_name").orEmpty(),
+                    authLink.getQueryParameter("auth_date").orEmpty(),
+                    authLink.getQueryParameter("sig").orEmpty(),
                 ).isSuccess
             } ?: false
             "vk" -> authLink.getQueryParameter("user_id")?.takeIf { it.isNotBlank() }?.let { uid ->

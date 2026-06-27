@@ -29,6 +29,7 @@
 | [backend.md](backend.md) | Архитектура настоящего бэкенда: роли, SMS-вход, БД, API, матчинг, порядок миграции |
 | [server.md](server.md) | 🖥 Сервер и деплой: URL API, SSH-доступ по ключу, firewall, HTTPS, как подключиться/управлять. Ключ — на ноуте Александра → подключиться может только агент, работающий локально (облачный — нет) |
 | [monetization.md](monetization.md) | Бизнес-модель: донаты + платное поднятие |
+| [telegram-setup.md](telegram-setup.md) | 🤖 Вход через Telegram: 3 шага для Александра (бот @BotFather + .env + вебхук). |
 
 ## 🎯 Текущий статус (2026-06-27)
 
@@ -42,11 +43,12 @@
 - ✅ Boost UI (платежи на Q4)
 - ✅ Сборка `gradlew assembleDebug` зелёная (компиляция)
 
-**OAuth — петля замкнута на клиенте, задеплоено, ждёт внешних кред:**
-- ✅ Бэкенд `/auth/*-callback` задеплоен на yulbash.ru, отдаёт токен (curl-проверено), колонки в БД есть.
-- ✅ Android: DeepLink `yuldash://auth/<provider>` ловится (`onNewIntent`+`PendingAuth`), `ApiClient` шлёт callback, логинит. `BuildConfig.TELEGRAM_BOT`/`VK_APP_ID` из `local.properties`.
-- ⛔ **Чтобы вход реально замкнулся — нужны действия Александра** (см. `tasks.md` → «Блокеры OAuth»): зарегать Telegram-бота + серверный бот-ответчик; VK-приложение + серверный `/auth/vk/callback`. WhatsApp — только через WA Business API (пока кнопка «скоро»).
-- ✅ Сборка `assembleDebug` зелёная (1m14s).
+**Telegram-вход — ГОТОВ и задеплоен (с подписью), ждёт регистрации бота:**
+- ✅ Серверный бот-flow: `/telegram/webhook` (бот) → подпись HMAC → `/auth/telegram/return` → app → `/auth/telegram-callback` проверяет подпись → JWT. Войти за чужого нельзя.
+- ✅ Android: DeepLink `yuldash://auth/telegram` ловится, `ApiClient` шлёт `auth_date`+`sig`, логинит.
+- ⛔ **Чтобы включить — Александр:** зарегать бота у @BotFather + 3 шага → **[telegram-setup.md](telegram-setup.md)**.
+- 🔒 **Закрыты дыры:** `/auth/whatsapp-callback` (был угон аккаунта по чужому номеру) и `/auth/vk-callback` → 501 (задеплоено). VK/WhatsApp как вход — позже.
+- ✅ Сборка `assembleDebug` зелёная.
 
 **WebSocket-чат:**
 - ✅ эндпоинт `/ws/bookings/{id}` + `verify_token` (был баг — функции не было, сокет всегда отбивал; починено Opus, задеплоено).
