@@ -270,7 +270,7 @@ internal fun YuldashApp() {
             else -> Screen.Login
         }
     }
-    var screen by remember { mutableStateOf(Screen.Splash) }
+    var screen by rememberSaveable { mutableStateOf(Screen.Splash) }   // переживает поворот И kill процесса
     var language by rememberSaveable { mutableStateOf(AppLanguage.Ru) }   // переживает поворот экрана
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
     var startHomeTab by rememberSaveable { mutableStateOf(HomeTab.Map) }
@@ -287,6 +287,14 @@ internal fun YuldashApp() {
     }
     var adStats by remember {
         mutableStateOf(demoPartnerAds.associate { it.id to AdStats() })
+    }
+
+    // После kill/restore: screen сохранён, но транзитные selectedRide/activeBookingId — нет.
+    // Если восстановились на экране брони/активной поездки без данных → на Home (без краша/пустоты).
+    LaunchedEffect(Unit) {
+        if ((screen == Screen.Booking || screen == Screen.ActiveTrip) && selectedRide == null && activeBookingId == null) {
+            screen = Screen.Home
+        }
     }
 
     fun finishOnboarding() {
