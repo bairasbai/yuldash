@@ -77,6 +77,10 @@
 - [x] Launcher-иконка качественно выглядит в ресурсах Android и подключена в манифесте.
 
 ## Сделано
+- [x] 2026-06-27 **Realtime-чат по WebSocket (ActiveTripScreen).**
+  - [x] Сервер проверен end-to-end через `wss://yulbash.ru/ws/bookings/{id}?token=JWT` (подключение+broadcast+persist). nginx настроен на WS upgrade (`map $http_upgrade` + заголовки + `proxy_read_timeout 3600s`). uvicorn с `websockets 16.0`.
+  - [x] Android: OkHttp 4.12.0 (только для WS), `data/ChatSocket.kt` (connect/send/close, ping 20с), `ApiClient.currentToken/wsBase/myUserId`. ActiveTripScreen: история REST + живой приём/отправка WS, оптимистичная отправка с заменой по эхо, фоллбэк REST.
+  - [x] Сборка зелёная. ⏳ Полный двусторонний тест (2 телефона) — на бете.
 - [x] 2026-06-27 **Telegram-вход переведён на 4-значный КОД (как SMS) — по просьбе Александра.**
   - [x] Поток: app `POST /auth/tg/start`→request_id → открывает `t.me/yuldash_sms_bot?start=<request_id>` → юзер жмёт Старт → бот шлёт **4-значный код** в чат → юзер вводит → `POST /auth/tg/verify` → JWT.
   - [x] Новая таблица `TgAuth` (request_id↔telegram_id↔код, создалась авто через create_all). Код 4 цифры, TTL 5 мин, ≤5 попыток (защита от перебора). request_id — UUID.
