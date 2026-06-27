@@ -270,6 +270,7 @@ internal fun MapScreen(
     // Ближайшие поездки: маршрут клиента (активная поездка → её маршрут) + сортировка по времени выезда + гео-дистанция.
     var nearby by remember { mutableStateOf<List<com.yuldash.app.data.RideDto>>(emptyList()) }
     var nearbyLoading by remember { mutableStateOf(true) }
+    var nearbyError by remember { mutableStateOf(false) }   // отличаем «нет сети» от «нет поездок»
     var nearbyReload by remember { mutableStateOf(0) }
     var prefFilter by remember { mutableStateOf(setOf<String>()) }  // фильтр «Ближайших» по условиям поездки
     val focusFrom = activeTrip?.from
@@ -281,7 +282,8 @@ internal fun MapScreen(
         // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
         ApiClient.getNearbyRides(focusFrom, focusTo, userLat, userLng, radius)
-            .onSuccess { nearby = it }
+            .onSuccess { nearby = it; nearbyError = false }
+            .onFailure { nearbyError = true }
         nearbyLoading = false
     }
     // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
@@ -357,7 +359,7 @@ internal fun MapScreen(
                             nearbyLoading && nearby.isEmpty() -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 NearbySkeletonCard(); NearbySkeletonCard()
                             }
-                            nearby.isEmpty() -> NearbyEmptyCard(hasRoute = focusFrom != null, onRetry = { nearbyReload++ })
+                            nearby.isEmpty() -> NearbyEmptyCard(hasRoute = focusFrom != null, onRetry = { nearbyReload++ }, error = nearbyError)
                             shownNearby.isEmpty() -> Text(
                                 appText("Нет поездок с такими условиями. Снимите часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн алығыҙ."),
                                 color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp

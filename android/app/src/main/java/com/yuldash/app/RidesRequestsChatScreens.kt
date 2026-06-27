@@ -603,7 +603,7 @@ internal fun NearbySkeletonCard() {
 }
 
 @Composable
-internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit) {
+internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Boolean = false) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -615,15 +615,25 @@ internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
+            Icon(
+                if (error) Icons.Default.Refresh else Icons.Default.DirectionsCar,
+                contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp)
+            )
             Text(
-                if (hasRoute) appText("На этом маршруте пока нет машин", "Был маршрутта әлегә машина юҡ")
-                else appText("Поездок рядом пока нет", "Яҡында сәфәрҙәр әлегә юҡ"),
+                when {
+                    error -> appText("Не удалось загрузить", "Йөкләп булманы")
+                    hasRoute -> appText("На этом маршруте пока нет машин", "Был маршрутта әлегә машина юҡ")
+                    else -> appText("Поездок рядом пока нет", "Яҡында сәфәрҙәр әлегә юҡ")
+                },
                 fontWeight = FontWeight.Bold, fontSize = 15.sp
             )
-            Text(appText("Появятся — покажем здесь", "Барлыҡҡа килһә — бында күрһәтәбеҙ"), color = CanonMuted, fontSize = 13.sp)
+            Text(
+                if (error) appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла")
+                else appText("Появятся — покажем здесь", "Барлыҡҡа килһә — бында күрһәтәбеҙ"),
+                color = CanonMuted, fontSize = 13.sp
+            )
             TextButton(onClick = onRetry) {
-                Text(appText("Обновить", "Яңыртыу"), color = CanonGreen2, fontWeight = FontWeight.Black)
+                Text(if (error) appText("Повторить", "Ҡабатлау") else appText("Обновить", "Яңыртыу"), color = CanonGreen2, fontWeight = FontWeight.Black)
             }
         }
     }
