@@ -446,8 +446,12 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         val toVal = to.ifBlank { "Сибай" }
                         val priceVal = price.toIntOrNull() ?: 300
                         val seatsVal = seats.toIntOrNull() ?: 2
-                        val departIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-                            .format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L))
+                        // Берём выбранную дату из пикера ("dd.MM.yyyy, HH:mm"); если пусто/не распарсилось — now+3ч.
+                        val isoFmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                        val departIso = runCatching {
+                            val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(dateTime)
+                            isoFmt.format(picked!!)
+                        }.getOrElse { isoFmt.format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L)) }
                         ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng)
                         onPublish(
                             Ride(
@@ -456,7 +460,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                                 to = toVal,
                                 time = dateTime.ifBlank { defaultTime },
                                 timeBa = dateTime.ifBlank { defaultTime },
-                                driver = "Байрас",
+                                driver = ApiClient.cachedName() ?: "Я",
                                 car = comment.ifBlank { defaultCar },
                                 carBa = comment.ifBlank { defaultCar },
                                 price = priceVal,
