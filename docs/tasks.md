@@ -40,13 +40,13 @@
   - [x] Android: требует OkHttp для WebSocket (позже).
   - [x] Коммит: `97bc7a2`.
 
-- [x] 2026-06-27 **OAuth Telegram/VK вход — end-to-end реализация.**
-  - [x] **Android:** openTelegramLogin() + openVKLogin() функции; DeepLink обработка yuldash://auth/telegram; Intent filter в AndroidManifest.
-  - [x] **Backend API:** POST /auth/telegram-callback и /auth/vk-callback эндпоинты; JWT автологин.
-  - [x] **БД:** User модель +telegram_id +vk_id поля (индексированы, unique); миграция migrate_oauth.sql.
-  - [x] **Причина:** физ.лицо не может договор SMS-провайдер → вместо SMS используем Telegram/VK OAuth.
+- [x] 2026-06-27 **OAuth вход: Telegram/VK/WhatsApp — полный выбор.**
+  - [x] **Android:** 3 кнопки входа (голубая Telegram, синяя VK, зелёная WhatsApp); openTelegramLogin() + openVKLogin() + openWhatsAppLogin().
+  - [x] **Backend API:** /auth/telegram-callback, /auth/vk-callback, /auth/whatsapp-callback; JWT автологин.
+  - [x] **БД:** User модель +telegram_id +vk_id +whatsapp_verified поля; миграции migrate_oauth.sql + migrate_whatsapp.sql.
+  - [x] **Причина:** физ.лицо не может договор с SMS → социальные сети; WhatsApp у большинства.
   - [x] Сборка: `gradlew assembleDebug` ✅ зелёная.
-  - [x] Коммит: `9936c5d`.
+  - [x] Коммиты: `9936c5d` + `93b6efd`.
 
 - [x] 2026-06-27 **Telegram/VK вход + полная архитектура системы.**
   - [x] `docs/system-design.md`: архитектура на миллионы DAU (3-слойная, PostgreSQL 20+ таблиц, REST API спецификация, WebSocket plan, DevOps масштабирование).
