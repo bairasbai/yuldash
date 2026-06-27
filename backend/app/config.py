@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     sms_provider: str = "mock"          # mock | smsru
     sms_ru_api_id: str = ""             # api_id из кабинета sms.ru (нужен для sms_provider=smsru)
     sms_from: str = ""                  # буквенный отправитель sms.ru после модерации (напр. Yuldash)
+    yandex_geocoder_key: str = ""       # ключ Яндекс.Геокодера НА СЕРВЕРЕ (клиент ходит на /geocode, ключ не в APK)
 
     # --- Telegram-вход (бот) ---
     telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)

@@ -2,6 +2,8 @@ package com.yuldash.app.data
 
 import android.content.Context
 import android.util.Base64
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.yuldash.app.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -74,7 +76,31 @@ object ApiClient {
 
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) {
-        val p = context.applicationContext.getSharedPreferences("yuldash", Context.MODE_PRIVATE)
+        val app = context.applicationContext
+        // Шифрованное хранилище токена (через Android Keystore). Если на устройстве недоступно —
+        // не ломаем вход, мягко падаем на обычные prefs.
+        val secure = runCatching {
+            val masterKey = MasterKey.Builder(app)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                app,
+                "yuldash_secure",
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }.getOrNull()
+        val plain = app.getSharedPreferences("yuldash", Context.MODE_PRIVATE)
+        // Миграция со старого незашифрованного хранилища (один раз): переносим токен в secure.
+        if (secure != null && plain.contains("token")) {
+            secure.edit()
+                .putString("token", plain.getString("token", null))
+                .putString("user_name", plain.getString("user_name", null))
+                .apply()
+            plain.edit().remove("token").remove("user_name").apply()
+        }
+        val p = secure ?: plain
         prefs = p
         token = p.getString("token", null)
         userName = p.getString("user_name", null)
@@ -87,6 +113,9 @@ object ApiClient {
 
     /** База для WebSocket: https→wss, http→ws. */
     internal fun wsBase(): String = BASE.replace("https://", "wss://").replace("http://", "ws://")
+
+    /** База REST API (для geocoder-прокси и т.п.). */
+    internal fun apiBase(): String = BASE
 
     /** Мой user_id из JWT (поле sub) — чтобы отличать свои сообщения. */
     internal fun myUserId(): Int? = token?.let { t ->
@@ -175,22 +204,6 @@ object ApiClient {
             auth = false,
         ).onSuccess { it.applyAuth() }
 
-    /** Коллбэк VK: сервер обменял code→token и вернул access_token+user_id в DeepLink. */
-    suspend fun vkCallback(vkAccessToken: String, vkUserId: String): Result<JSONObject> =
-        call(
-            "POST", "/auth/vk-callback",
-            JSONObject().put("vk_access_token", vkAccessToken).put("vk_user_id", vkUserId),
-            auth = false,
-        ).onSuccess { it.applyAuth() }
-
-    /** Коллбэк WhatsApp: номер подтверждён. */
-    suspend fun whatsappCallback(phone: String, verified: Boolean): Result<JSONObject> =
-        call(
-            "POST", "/auth/whatsapp-callback",
-            JSONObject().put("phone", phone).put("whatsapp_verified", verified),
-            auth = false,
-        ).onSuccess { it.applyAuth() }
-
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = call("GET", "/me", null, auth = true)
         .onSuccess { o -> o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName) }
@@ -201,32 +214,7 @@ object ApiClient {
     suspend fun getRides(): Result<List<RideDto>> =
         call("GET", "/rides", null, auth = false).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                RideDto(
-                    id = o.optInt("id"),
-                    fromCity = o.optString("from_city"),
-                    toCity = o.optString("to_city"),
-                    departAt = o.optString("depart_at"),
-                    seatsTotal = o.optInt("seats_total"),
-                    seatsLeft = o.optInt("seats_left"),
-                    price = o.optInt("price"),
-                    category = o.optString("category"),
-                    driverName = o.optString("driver_name"),
-                    driverRating = o.optDouble("driver_rating", 5.0),
-                    driverVerified = o.optBoolean("driver_verified"),
-                    driverCar = o.optString("driver_car"),
-                    petsAllowed = o.optBoolean("pets_allowed"),
-                    childSeat = o.optBoolean("child_seat"),
-                    womenOnly = o.optBoolean("women_only"),
-                    smoking = o.optBoolean("smoking"),
-                    baggage = o.optBoolean("baggage"),
-                    airConditioner = o.optBoolean("air_conditioner"),
-                    pickup = o.optString("pickup"),
-                    pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
-                    pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
-                )
-            }
+            (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
         }
 
     /**
@@ -250,33 +238,7 @@ object ApiClient {
         val path = "/rides/near" + if (params.isEmpty()) "" else "?" + params.joinToString("&")
         return call("GET", path, null, auth = false).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                RideDto(
-                    id = o.optInt("id"),
-                    fromCity = o.optString("from_city"),
-                    toCity = o.optString("to_city"),
-                    departAt = o.optString("depart_at"),
-                    seatsTotal = o.optInt("seats_total"),
-                    seatsLeft = o.optInt("seats_left"),
-                    price = o.optInt("price"),
-                    category = o.optString("category"),
-                    driverName = o.optString("driver_name"),
-                    driverRating = o.optDouble("driver_rating", 5.0),
-                    driverVerified = o.optBoolean("driver_verified"),
-                    driverCar = o.optString("driver_car"),
-                    petsAllowed = o.optBoolean("pets_allowed"),
-                    childSeat = o.optBoolean("child_seat"),
-                    womenOnly = o.optBoolean("women_only"),
-                    smoking = o.optBoolean("smoking"),
-                    baggage = o.optBoolean("baggage"),
-                    airConditioner = o.optBoolean("air_conditioner"),
-                    pickup = o.optString("pickup"),
-                    pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
-                    pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
-                    distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
-                )
-            }
+            (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
         }
     }
 
@@ -650,6 +612,33 @@ class ApiException(val status: Int, message: String) : Exception(message)
 
 /** Поездка с витрины сервера (бэкенд RideOut: поездка + данные водителя). */
 data class PriceHintDto(val avg: Int, val count: Int)
+
+/** JSON поездки с сервера → RideDto. Один шов вместо копипасты в getRides/getNearbyRides.
+ *  distance_km нет в /rides → isNull(...) = null; есть в /rides/near → читаем. */
+private fun JSONObject.toRideDto() = RideDto(
+    id = optInt("id"),
+    fromCity = optString("from_city"),
+    toCity = optString("to_city"),
+    departAt = optString("depart_at"),
+    seatsTotal = optInt("seats_total"),
+    seatsLeft = optInt("seats_left"),
+    price = optInt("price"),
+    category = optString("category"),
+    driverName = optString("driver_name"),
+    driverRating = optDouble("driver_rating", 5.0),
+    driverVerified = optBoolean("driver_verified"),
+    driverCar = optString("driver_car"),
+    petsAllowed = optBoolean("pets_allowed"),
+    childSeat = optBoolean("child_seat"),
+    womenOnly = optBoolean("women_only"),
+    smoking = optBoolean("smoking"),
+    baggage = optBoolean("baggage"),
+    airConditioner = optBoolean("air_conditioner"),
+    pickup = optString("pickup"),
+    pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
+    pickupLng = if (isNull("pickup_lng")) null else optDouble("pickup_lng"),
+    distanceKm = if (isNull("distance_km")) null else optDouble("distance_km"),
+)
 
 data class RideDto(
     val id: Int,

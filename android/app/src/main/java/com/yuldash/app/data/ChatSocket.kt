@@ -9,7 +9,8 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Realtime-чат по WebSocket (wss://yulbash.ru/ws/bookings/{id}?token=JWT).
+ * Realtime-чат по WebSocket (wss://yulbash.ru/ws/bookings/{id}).
+ * Токен шлём ПЕРВЫМ сообщением {type:auth,token}, НЕ в URL (query-string утекает в логи прокси).
  * Сервер сохраняет сообщение и рассылает всем подключённым (включая отправителя).
  * REST остаётся для истории; WS — для живой доставки.
  */
@@ -27,11 +28,14 @@ class ChatSocket(
 
     fun connect() {
         val token = ApiClient.currentToken() ?: return
-        val url = "${ApiClient.wsBase()}/ws/bookings/$bookingId?token=$token"
+        val url = "${ApiClient.wsBase()}/ws/bookings/$bookingId"   // токен НЕ в URL — шлём первым сообщением
         ws = client.newWebSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {
-                override fun onOpen(webSocket: WebSocket, response: Response) = onConnected(true)
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
+                    onConnected(true)
+                }
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     runCatching {
                         val o = JSONObject(text)

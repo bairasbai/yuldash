@@ -53,6 +53,8 @@ class OtpCode(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     phone: str = Field(index=True)
     code: str
+    attempts: int = 0                                              # попыток ввода (защита от перебора)
+    created_at: datetime = Field(default_factory=datetime.utcnow)  # для throttle запросов кода
     expires_at: datetime
 
 

@@ -153,5 +153,7 @@ dependencies {
     // FCM (push-уведомления): новое сообщение/бронь/SOS. Активен при наличии google-services.json.
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")
+    // Шифрованное хранилище JWT (вместо открытого SharedPreferences).
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

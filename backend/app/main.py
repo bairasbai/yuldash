@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 import json
 import time
@@ -27,7 +27,7 @@ from .models import (
     Ride, RideCategory, RideRequest, RideStatus, SosEvent, TgAuth, TripShare,
     TrustedContact, User, UserRole,
 )
-from .security import current_user, gen_otp, make_token, sign_telegram, verify_telegram
+from .security import current_user, gen_otp, make_token
 
 
 @asynccontextmanager
@@ -44,8 +44,8 @@ app = FastAPI(title="Yuldash API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],   # API использует только их
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Медиа. Голосовые — публично (/media). Документы водителя (права/авто) — ПРИВАТНО (вне /media),
@@ -125,6 +125,22 @@ def _send_push(session: Session, user_id: int, title: str, body: str) -> None:
         print(f"[FCM] init error: {e}")
 
 
+def _user_bookings(session: Session, user: User) -> list:
+    """Все брони пользователя — как пассажир И как водитель (по его поездкам), без дублей."""
+    bookings = list(session.exec(select(Booking).where(Booking.passenger_id == user.id)).all())
+    my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user.id)).all())
+    if my_ride_ids:
+        bookings += session.exec(select(Booking).where(Booking.ride_id.in_(my_ride_ids))).all()
+    seen: set = set()
+    out: list = []
+    for b in bookings:
+        if b.id in seen:
+            continue
+        seen.add(b.id)
+        out.append(b)
+    return out
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "env": settings.env}
@@ -138,11 +154,18 @@ class PhoneIn(BaseModel):
 class VerifyIn(BaseModel):
     phone: str
     code: str
-    name: str = ""
+    name: str = Field("", max_length=120)
+
+
+def _mask_phone(phone: str) -> str:
+    """Маска телефона для логов (152-ФЗ): +7****1234. Полный номер в лог не пишем."""
+    d = "".join(c for c in (phone or "") if c.isdigit())
+    return f"+{d[0]}****{d[-4:]}" if len(d) >= 5 else "+****"
 
 
 def _send_text(phone: str, text: str) -> None:
     """Отправка произвольного SMS (SOS, статусы близким). smsru → реально; иначе/фоллбэк — в лог."""
+    mp = _mask_phone(phone)
     if settings.sms_provider == "smsru" and settings.sms_ru_api_id:
         try:
             import httpx
@@ -152,21 +175,22 @@ def _send_text(phone: str, text: str) -> None:
             data = httpx.get("https://sms.ru/sms/send", params=params, timeout=10).json()
             sms = (data.get("sms") or {}).get(phone, {})
             ok = sms.get("status_code") == 100
-            print(f"[SMS] {phone}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
+            print(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
             if not ok and not settings.is_prod:
-                print(f"[SMS-FALLBACK] {phone}: {text}")
+                print(f"[SMS-FALLBACK] {mp}: {text}")
         except Exception as e:  # noqa: BLE001
-            print(f"[SMS] {phone}: smsru error {e}")
+            print(f"[SMS] {mp}: smsru error {e}")
             if not settings.is_prod:
-                print(f"[SMS-FALLBACK] {phone}: {text}")
+                print(f"[SMS-FALLBACK] {mp}: {text}")
     else:
-        print(f"[SMS-MOCK] {phone}: {text}")
+        print(f"[SMS-MOCK] {mp}: {text}")
 
 
 def _send_sms(phone: str, code: str) -> None:
     """Отправка OTP. `smsru` — реально через sms.ru; иначе мок (код в лог).
     Если sms.ru НЕ отправил (напр. нет одобренного отправителя) — код падает в лог,
     чтобы вход работал на период настройки отправителя."""
+    mp = _mask_phone(phone)
     if settings.sms_provider == "smsru" and settings.sms_ru_api_id:
         try:
             import httpx
@@ -176,25 +200,34 @@ def _send_sms(phone: str, code: str) -> None:
             data = httpx.get("https://sms.ru/sms/send", params=params, timeout=10).json()
             sms = (data.get("sms") or {}).get(phone, {})
             ok = sms.get("status_code") == 100
-            print(f"[SMS] {phone}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
+            print(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
             if not ok:
                 if settings.is_prod:
                     raise HTTPException(502, "SMS не отправлено")
-                print(f"[OTP] {phone} -> {code}")  # фоллбэк: SMS не ушла → код в лог
+                print(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except Exception as e:  # noqa: BLE001
-            print(f"[SMS] {phone}: smsru error {e}")
+            print(f"[SMS] {mp}: smsru error {e}")
             if settings.is_prod:
                 raise HTTPException(502, "SMS не отправлено")
-            print(f"[OTP] {phone} -> {code}")  # фоллбэк при ошибке сети
+            print(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
     else:
         if settings.is_prod:
             # SMS заморожен в проде — основной вход через мессенджеры. Понятный ответ вместо 500.
             raise HTTPException(503, "SMS-вход временно недоступен. Войдите через мессенджер.")
-        print(f"[OTP] {phone} -> {code}")  # мок/dev — код в логе
+        print(f"[OTP] {mp} -> {code}")  # мок/dev — код в логе
 
 
 @app.post("/auth/request-code")
 def request_code(body: PhoneIn, session: Session = Depends(get_session)):
+    # Throttle: ≤3 кода в минуту на номер (анти-флуд: расходы на SMS + защита от забивания OtpCode).
+    recent = session.exec(
+        select(OtpCode).where(
+            OtpCode.phone == body.phone,
+            OtpCode.created_at > datetime.utcnow() - timedelta(seconds=60),
+        )
+    ).all()
+    if len(recent) >= 3:
+        raise HTTPException(429, "Слишком часто. Подожди минуту и попробуй снова.")
     code = gen_otp()
     session.add(OtpCode(
         phone=body.phone, code=code,
@@ -213,7 +246,14 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
     otp = session.exec(
         select(OtpCode).where(OtpCode.phone == body.phone).order_by(OtpCode.id.desc())
     ).first()
-    if not otp or otp.code != body.code or otp.expires_at < datetime.utcnow():
+    if not otp or otp.expires_at < datetime.utcnow():
+        raise HTTPException(400, "Неверный или просроченный код")
+    if otp.attempts >= 5:                       # защита от перебора 4-значного кода
+        raise HTTPException(429, "Слишком много попыток. Запроси новый код.")
+    if otp.code != body.code:
+        otp.attempts += 1
+        session.add(otp)
+        session.commit()
         raise HTTPException(400, "Неверный или просроченный код")
     user = session.exec(select(User).where(User.phone == body.phone)).first()
     if not user:
@@ -371,8 +411,8 @@ class RideIn(BaseModel):
     seats_total: int = 3
     price: int = 0
     category: RideCategory = RideCategory.regular
-    comment: str = ""
-    pickup: str = ""
+    comment: str = Field("", max_length=2000)
+    pickup: str = Field("", max_length=500)
     pickup_lat: Optional[float] = None
     pickup_lng: Optional[float] = None
     pets_allowed: bool = False
@@ -607,10 +647,10 @@ class RequestIn(BaseModel):
     category: RideCategory = RideCategory.regular
     with_kids: bool = False
     baggage: bool = False
-    comment: str = ""
-    for_relative_name: Optional[str] = None
+    comment: str = Field("", max_length=2000)
+    for_relative_name: Optional[str] = Field(None, max_length=120)
     voice_url: Optional[str] = None
-    transcript: Optional[str] = None
+    transcript: Optional[str] = Field(None, max_length=4000)
 
 
 @app.post("/requests", response_model=RideRequest)
@@ -888,9 +928,9 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
 
 # ----------------------------- Чат (сообщения по брони) -----------------------------
 class MessageIn(BaseModel):
-    text: str = ""
+    text: str = Field("", max_length=4000)
     voice_url: Optional[str] = None
-    transcript: Optional[str] = None
+    transcript: Optional[str] = Field(None, max_length=4000)
 
 
 # ==================== WebSocket для чата ====================
@@ -899,11 +939,9 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: dict = {}
 
-    async def connect(self, booking_id: int, websocket: WebSocket):
-        await websocket.accept()
-        if booking_id not in self.active_connections:
-            self.active_connections[booking_id] = []
-        self.active_connections[booking_id].append(websocket)
+    def register(self, booking_id: int, websocket: WebSocket):
+        """Зарегистрировать УЖЕ принятое (accept) и авторизованное соединение."""
+        self.active_connections.setdefault(booking_id, []).append(websocket)
 
     def disconnect(self, booking_id: int, websocket: WebSocket):
         if booking_id in self.active_connections:
@@ -923,19 +961,25 @@ manager = ConnectionManager()
 
 @app.websocket("/ws/bookings/{booking_id}")
 async def websocket_endpoint(websocket: WebSocket, booking_id: int):
-    """WebSocket чат. Подключение: ws://yulbash.ru/ws/bookings/123?token=JWT"""
+    """WebSocket чат брони. Токен — первым сообщением {"type":"auth","token":...}
+    (в URL не передаём: query-string утекает в логи nginx/прокси). Для совместимости
+    принимаем и ?token=. Доступ — ТОЛЬКО участнику брони (пассажир или водитель)."""
+    await websocket.accept()
     token = websocket.query_params.get("token")
     if not token:
-        await websocket.close(code=1008, reason="No token")
-        return
+        try:
+            first = json.loads(await websocket.receive_text())
+            if first.get("type") == "auth":
+                token = first.get("token")
+        except Exception:
+            token = None
     try:
         from .security import verify_token
-        user_id = verify_token(token)
+        user_id = verify_token(token or "")
     except Exception:
         await websocket.close(code=1008, reason="Invalid token")
         return
-
-    # Доступ: к чату брони подключается ТОЛЬКО её пассажир или водитель (как в HTTP /messages).
+    # Авторизация на ресурс (закрывает IDOR): юзер должен быть участником ИМЕННО этой брони.
     with Session(engine) as s:
         booking = s.get(Booking, booking_id)
         ride = s.get(Ride, booking.ride_id) if booking else None
@@ -943,14 +987,14 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
             await websocket.close(code=1008, reason="Forbidden")
             return
 
-    await manager.connect(booking_id, websocket)
+    manager.register(booking_id, websocket)
     try:
         while True:
             data = await websocket.receive_text()
             payload = json.loads(data)
             if payload.get("type") == "message":
                 session = next(get_session())
-                msg = Message(booking_id=booking_id, sender_id=user_id, text=payload.get("text", ""))
+                msg = Message(booking_id=booking_id, sender_id=user_id, text=(payload.get("text") or "")[:4000])
                 session.add(msg)
                 session.commit()
                 session.refresh(msg)
@@ -1001,16 +1045,8 @@ class ConversationOut(BaseModel):
 @app.get("/conversations", response_model=List[ConversationOut])
 def conversations(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Инбокс: брони пользователя (как пассажир и как водитель), где есть сообщения."""
-    bookings = list(session.exec(select(Booking).where(Booking.passenger_id == user.id)).all())
-    my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user.id)).all())
-    if my_ride_ids:
-        bookings += session.exec(select(Booking).where(Booking.ride_id.in_(my_ride_ids))).all()
-    seen: set = set()
     out: list = []
-    for b in bookings:
-        if b.id in seen:
-            continue
-        seen.add(b.id)
+    for b in _user_bookings(session, user):
         last = session.exec(
             select(Message).where(Message.booking_id == b.id).order_by(Message.id.desc())
         ).first()
@@ -1073,10 +1109,7 @@ def my_routes(user: User = Depends(current_user), session: Session = Depends(get
 @app.get("/notifications")
 def notifications(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Лента событий: входящие сообщения по броням пользователя (как пассажир и водитель)."""
-    booking_ids = [b.id for b in session.exec(select(Booking).where(Booking.passenger_id == user.id)).all()]
-    my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user.id)).all())
-    if my_ride_ids:
-        booking_ids += [b.id for b in session.exec(select(Booking).where(Booking.ride_id.in_(my_ride_ids))).all()]
+    booking_ids = [b.id for b in _user_bookings(session, user)]
     out: list = []
     if booking_ids:
         msgs = session.exec(
@@ -1123,6 +1156,39 @@ def ad_stats(session: Session = Depends(get_session)):
     return {aid: {"impressions": imp[aid], "clicks": clk[aid]} for aid in (set(imp) | set(clk))}
 
 
+@app.get("/geocode")
+def geocode(q: str = ""):
+    """Прокси Яндекс.Геокодера: ключ живёт на сервере, не в APK (раньше клиент слал ключ в URL).
+    Отдаём упрощённый список адресов для подсказок «Откуда/Куда»."""
+    key = settings.yandex_geocoder_key
+    query = (q or "").strip()
+    if not key or len(query) < 2:
+        return {"items": []}
+    try:
+        import httpx
+        r = httpx.get("https://geocode-maps.yandex.ru/1.x/", params={
+            "apikey": key, "geocode": query, "format": "json", "results": 5, "lang": "ru_RU",
+        }, timeout=8)
+        members = r.json()["response"]["GeoObjectCollection"]["featureMember"]
+    except Exception:  # noqa: BLE001
+        return {"items": []}
+    items: list = []
+    for m in members:
+        go = m.get("GeoObject", {})
+        pos = (go.get("Point", {}).get("pos", "") or "").split(" ")  # "lon lat"
+        if len(pos) < 2:
+            continue
+        try:
+            lon, lat = float(pos[0]), float(pos[1])
+        except ValueError:
+            continue
+        name, desc = go.get("name", ""), go.get("description", "")
+        title = f"{name}, {desc}" if desc else name
+        if title:
+            items.append({"title": title, "lat": lat, "lon": lon})
+    return {"items": items}
+
+
 class VoiceIn(BaseModel):
     audio_b64: str
     ext: str = "m4a"
@@ -1141,9 +1207,9 @@ def upload_voice(body: VoiceIn, user: User = Depends(current_user)):
 
 # ----------------------------- Семейный контроль -----------------------------
 class ContactIn(BaseModel):
-    name: str
-    relation: str = ""
-    phone: str = ""
+    name: str = Field(..., max_length=120)
+    relation: str = Field("", max_length=120)
+    phone: str = Field("", max_length=32)
     notify_by_default: bool = True
 
 
@@ -1252,7 +1318,7 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
 class SosIn(BaseModel):
     category: str = "other"      # medical / breakdown / other
     booking_id: Optional[int] = None
-    note: str = ""
+    note: str = Field("", max_length=2000)
 
 
 @app.post("/sos", response_model=SosEvent)
