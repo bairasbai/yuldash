@@ -409,16 +409,12 @@ internal fun YuldashApp() {
             }
             Screen.Onboarding -> OnboardingScreen(onFinish = ::finishOnboarding)
             Screen.Login -> {
-                val context = LocalContext.current
                 LoginScreen(
                     currentLanguage = language,
                     onToggleLanguage = {
                         language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                     },
                     onContinue = { openHome() },
-                    onTelegramLogin = { openTelegramLogin(context) },
-                    onVKLogin = { openVKLogin(context) },
-                    onWhatsAppLogin = { openWhatsAppLogin(context) }
                 )
             }
             Screen.Home -> HomeScreen(

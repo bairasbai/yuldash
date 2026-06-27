@@ -252,9 +252,6 @@ internal fun LoginScreen(
     currentLanguage: AppLanguage,
     onToggleLanguage: () -> Unit,
     onContinue: () -> Unit,
-    onTelegramLogin: () -> Unit = {},
-    onVKLogin: () -> Unit = {},
-    onWhatsAppLogin: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -277,9 +274,6 @@ internal fun LoginScreen(
                     LoginFormCard(
                         currentLanguage = currentLanguage,
                         onContinue = onContinue,
-                        onTelegramLogin = onTelegramLogin,
-                        onVKLogin = onVKLogin,
-                        onWhatsAppLogin = onWhatsAppLogin,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 24.dp)
@@ -311,9 +305,6 @@ internal fun LoginScreen(
 private fun LoginFormCard(
     currentLanguage: AppLanguage,
     onContinue: () -> Unit,
-    onTelegramLogin: () -> Unit = {},
-    onVKLogin: () -> Unit = {},
-    onWhatsAppLogin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -403,7 +394,7 @@ private fun LoginFormCard(
                 }
             } else {
             Text(
-                text = appTextFor(currentLanguage, "Быстрый вход — выбери мессенджер", "Тиҙ инеү — мессенджер һайла"),
+                text = appTextFor(currentLanguage, "Быстрый вход через Telegram", "Telegram аша тиҙ инеү"),
                 color = CanonMuted,
                 fontSize = 16.sp,
                 lineHeight = 22.sp
@@ -437,22 +428,7 @@ private fun LoginFormCard(
             ) {
                 Text(appTextFor(currentLanguage, "Вход через Telegram", "Telegram аша инеү"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
-            Button(
-                onClick = onVKLogin,
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
-            ) {
-                Text(appTextFor(currentLanguage, "Вход через VK", "VK аша инеү"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            }
-            Button(
-                onClick = onWhatsAppLogin,
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
-            ) {
-                Text(appTextFor(currentLanguage, "Вход через WhatsApp", "WhatsApp аша инеү"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            }
+            // VK и WhatsApp убраны: VK требует ИНН (бизнес), WhatsApp — WhatsApp Business API. Оба недоступны физлицу.
             // SMS-вход ЗАМОРОЖЕН (нет юр.лица для sms.ru). Форма цела — видна только при SMS_LOGIN_ENABLED.
             if (BuildConfig.SMS_LOGIN_ENABLED) {
             Spacer(modifier = Modifier.height(6.dp))
