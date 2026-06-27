@@ -25,6 +25,33 @@
 - [x] **Бэкенд-интеграция (2026-06-23): СДЕЛАНО.** Сервер FastAPI на `https://yulbash.ru` (PostgreSQL, HTTPS, свой домен). Приложение подключено через `data/ApiClient.kt`: вход по SMS-коду (JWT, автологин), поездки, заявки, публикация поездки, бронь, SOS, доверенные контакты, чат, экран активной поездки (`ActiveTripScreen`: share/статус). Все эндпоинты проверены (curl/эмулятор), сборка зелёная. Детали — [server.md](server.md).
   - Осталось: реальная доставка SMS (ждёт одобрения отправителя на sms.ru — действие Александра). ✓ Инбокс диалогов сделан (`/conversations`, 2026-06-23).
 
+## 🔪 План: резать MainActivity.kt на модули (разблокировать параллелизм)
+
+> Цель: разные экраны → разные файлы → разные агенты без конфликтов. **Правила:** один экран за шаг; `private`→`internal` при выносе; сборка зелёная и коммит после КАЖДОГО шага; поведение не меняется (чистый перенос). Пакет `com.yuldash.app`, файлы в одном модуле → импорты почти не нужны.
+
+**Фаза 0 — фундамент (то, от чего зависят все экраны). Делать первым:**
+- [ ] `i18n/AppText.kt` ← `appText`, `appTextFor`, `enum AppLanguage`, `LocalAppLanguage` (сделать `internal`).
+- [ ] `ui/theme/CanonTokens.kt` ← цвета `Canon*` (@Composable-геттеры) + формы `CanonCardShape/CanonItemShape`.
+- [ ] `model/Domain.kt` ← data-классы `Ride`, `PartnerAd`, `AdPlacement`, `AdStatus`, `AdStats`, `TrustedContact`, `FrequentTrip`, `LocalRequest`, `LocalVoiceMessage` + моки `demoRides`/`demoPartnerAds`/`demoFrequentTrips`.
+- [ ] `ui/components/Common.kt` ← `bounceClick`, `appearIn`, `EmptyStateCard`, `InfoCard`, `DetailMeta`, `PartnerAdCard`, `SettingsGroup/NavRow/SwitchRow`.
+
+**Фаза 1 — экраны-листья (мало зависимостей), по одному за шаг:**
+- [ ] `ui/screens/`: `LoginScreen` (свежий, начнём с него) → `SupportScreen` → `BoostScreen` → `HelpScreen` → `SafetyScreen` → `SettingsScreen` → `NotificationsScreen` → `SosScreen`.
+- [ ] Доступность: `SimpleModeScreen`, `VoiceRequestScreen`, `FamilyOrderScreen`, `TrustedContactsScreen`, `RepeatTripScreen`, `CallbackHelpScreen`.
+
+**Фаза 2 — крупные экраны (больше связей):**
+- [ ] `CreateRideScreen`, `BookingScreen`, `VerifyDriverScreen`, `AdsCabinetScreen`, `ProfileScreen`, `ChatScreen`, `MyRequestsScreen`, `RidesScreen`.
+
+**Фаза 3 — карта и навигация (самые связные, в конце):**
+- [ ] `ui/screens/MapScreen.kt` + `ui/map/` (`YandexMapCard`, `MapHero`, `cityPoint`, `ridePinBitmap`, `userPuckBitmap`, контролы).
+- [ ] `ui/YuldashApp.kt` ← корень навигации (`YuldashApp`, `enum Screen`, `HomeTab`, `HomeScreen`, `YuldashBottomBar`). `MainActivity.kt` остаётся тонким (только `onCreate`).
+
+**Риски/подводные камни:**
+- `@Composable`-геттеры `Canon*` нельзя звать в не-composable (Canvas/DrawScope) — уже учтено в коде, при переносе сохранить.
+- Видимость: `private`→`internal` (модуль), не `public`. Без `internal` другой файл не увидит.
+- Новый экран = `enum Screen` + ветка `when` в `YuldashApp` (§6) — при выносе не потерять ветку.
+- Параллелить выносы между собой НЕЛЬЗЯ, пока всё в одном файле (см. §12 золотое правило). Параллелизм включается ПОСЛЕ разрезки.
+
 ## QA — ручная проверка (чеклист)
 > Команды — в [qa.md](qa.md).
 - [x] Полный uiautomator QA подэкранов приложения на эмуляторе.
