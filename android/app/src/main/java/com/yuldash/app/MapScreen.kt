@@ -894,6 +894,16 @@ private fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
  * Приватность: точную точку не показываем — рисуем приблизительные зоны (круги ~600 м)
  * у старта (зелёный) и финиша (золотой), как обещает плашка.
  */
+// MapKit init: setLocale ДО initialize и ТОЛЬКО один раз на процесс.
+// Повторный setLocale после initialize → AssertionError (краш при возврате на карту с подэкрана).
+private var mapKitReady = false
+private fun ensureMapKit(context: Context) {
+    if (mapKitReady) return
+    mapKitReady = true
+    runCatching { MapKitFactory.setLocale("ru_RU") }   // если уже инициализирован — пропускаем, не крашим
+    MapKitFactory.initialize(context)
+}
+
 @Composable
 private fun YandexMapCard(
     modifier: Modifier = Modifier,
@@ -919,8 +929,7 @@ private fun YandexMapCard(
         }
     }
     val mapView = remember {
-        MapKitFactory.setLocale("ru_RU")   // карта на русском — без дублей англ./транслита
-        MapKitFactory.initialize(context)
+        ensureMapKit(context)   // setLocale+initialize ОДИН раз на процесс (повторный setLocale крашит)
         MapView(context).also { view ->
             val map = view.mapWindow.map
             map.isNightModeEnabled = nightMap
