@@ -269,6 +269,9 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var pickupLng by remember { mutableStateOf<Double?>(null) }
     var showPicker by remember { mutableStateOf(false) }
     var priceHint by remember { mutableStateOf(0) }
+    var publishing by remember { mutableStateOf(false) }   // ждём ответ сервера, блок двойного нажатия
+    var publishError by remember { mutableStateOf<String?>(null) }
+    val publishScope = rememberCoroutineScope()
     LaunchedEffect(from, to) {
         priceHint = if (from.isNotBlank() && to.isNotBlank()) {
             delay(450)
@@ -440,8 +443,13 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 )
             }
             item {
+                val errPublish = appText("Не удалось опубликовать. Проверь сеть и повтори.", "Баҫтырып булманы. Селтәрҙе тикшереп ҡабатла.")
+                publishError?.let {
+                    Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(bottom = 8.dp))
+                }
                 Button(
                     onClick = {
+                        if (publishing) return@Button
                         val fromVal = from.ifBlank { "Баймаҡ" }
                         val toVal = to.ifBlank { "Сибай" }
                         val priceVal = price.toIntOrNull() ?: 300
@@ -452,35 +460,31 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                             val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(dateTime)
                             isoFmt.format(picked!!)
                         }.getOrElse { isoFmt.format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L)) }
-                        ApiClient.firePublishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng)
-                        onPublish(
-                            Ride(
-                                id = "local-${System.currentTimeMillis()}",
-                                from = fromVal,
-                                to = toVal,
-                                time = dateTime.ifBlank { defaultTime },
-                                timeBa = dateTime.ifBlank { defaultTime },
-                                driver = ApiClient.cachedName() ?: "Я",
-                                car = comment.ifBlank { defaultCar },
-                                carBa = comment.ifBlank { defaultCar },
-                                price = priceVal,
-                                seats = seatsVal,
-                                rating = 5.0,
-                                verified = false,
-                                boosted = false,
-                                petsAllowed = petsAllowed,
-                                childSeat = childSeat,
-                                womenOnly = womenOnly,
-                                smoking = smoking,
-                                baggage = baggage,
-                                airConditioner = airConditioner
-                            )
+                        val ride = Ride(
+                            id = "local-${System.currentTimeMillis()}",
+                            from = fromVal, to = toVal,
+                            time = dateTime.ifBlank { defaultTime }, timeBa = dateTime.ifBlank { defaultTime },
+                            driver = ApiClient.cachedName() ?: "Я",
+                            car = comment.ifBlank { defaultCar }, carBa = comment.ifBlank { defaultCar },
+                            price = priceVal, seats = seatsVal, rating = 5.0, verified = false, boosted = false,
+                            petsAllowed = petsAllowed, childSeat = childSeat, womenOnly = womenOnly,
+                            smoking = smoking, baggage = baggage, airConditioner = airConditioner,
                         )
+                        publishError = null
+                        publishing = true
+                        // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
+                        publishScope.launch {
+                            ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng)
+                                .onSuccess { publishing = false; onPublish(ride) }
+                                .onFailure { publishing = false; publishError = errPublish }
+                        }
                     },
+                    enabled = !publishing,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text(appText("Опубликовать", "Баҫтырыу"))
+                    if (publishing) CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Text(appText("Опубликовать", "Баҫтырыу"))
                 }
             }
             item {
