@@ -6,12 +6,12 @@
 
 ## Главное
 
-- **UI режется на модули (Фаза 1, 2026-06-27).** Раньше весь UI был в `MainActivity.kt`; идёт разрезка на файлы (см. план в [tasks.md](tasks.md) → «Резать MainActivity.kt»). Уже вынесены (тот же пакет `com.yuldash.app`, видимость `internal`):
-  - `AppText.kt` — двуязычие (`appText`/`appTextFor`/`AppLanguage`/`LocalAppLanguage`).
-  - `CanonTokens.kt` — палитра `Canon*` + формы + `ThemePrefs`/`appIsDark`.
-  - `Domain.kt` — доменные модели (`Ride`, `PopularRoute`, `TrustedContact`, …).
-  - `LoginScreen.kt`, `SupportBoostScreen.kt`, `SecondaryScreens.kt` — экраны.
-  - Остальные экраны + навигация (`YuldashApp`/`enum Screen`) пока в `MainActivity.kt` (7094 строки, было 8184).
+- **UI разрезан на модули (2026-06-27, Opus). `MainActivity.kt` 8184→1008 строк.** Раньше весь UI был в одном файле — теперь по файлам (тот же пакет `com.yuldash.app`, общие символы `internal`). Каждый экран = свой файл → разные агенты пилят разные экраны параллельно. Карта файлов:
+  - **Фундамент:** `AppText.kt` (двуязычие), `CanonTokens.kt` (палитра/формы/тема), `Domain.kt` (модели).
+  - **Экраны:** `LoginScreen.kt`, `SupportBoostScreen.kt`, `SecondaryScreens.kt` (Уведомл/Безоп/Настр/Помощь), `AccessibilityScreens.kt` (доступность/семья), `SosVerifyScreens.kt` (SOS+проверка водителя), `CreateRideScreen.kt`, `ProfileScreen.kt` (+кабинеты), `BookingActiveTripScreen.kt`, `RidesRequestsChatScreens.kt` (Поездки+Заявки+Чат), `MapScreen.kt` (Яндекс MapKit).
+  - **Навигация:** `YuldashApp.kt` — корень (`when(screen)`) + `HomeScreen` + нижнее меню.
+  - **`MainActivity.kt` (1008 строк)** — тонкий общий слой: класс `MainActivity`, `enum Screen`, сплэш/онбординг, общие модели/моки (`demoRides`/`demoPartnerAds`), OAuth-хелперы (`openTelegramLogin`…).
+  - ⚠️ **Параллелим аккуратно (§12 CLAUDE.md):** разные файлы-экраны — можно разом; но `MainActivity.kt` (общий слой) — один писатель.
 - Тема: `android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt`
 - **Application:** `android/app/src/main/java/com/yuldash/app/YuldashApplication.kt` — отдаёт ключ Яндекс MapKit (`MapKitFactory.setApiKey`) при старте. Прописан в манифесте как `android:name=".YuldashApplication"`.
 - **Ключ карты:** `local.properties` → `YANDEX_MAPKIT_KEY` (в `.gitignore`) → пробрасывается в `BuildConfig.YANDEX_MAPKIT_KEY` через `app/build.gradle.kts` (`buildConfig = true`). В коде ключ не хардкодим.
