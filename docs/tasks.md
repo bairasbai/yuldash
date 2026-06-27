@@ -29,7 +29,7 @@
 
 > Цель: разные экраны → разные файлы → разные агенты без конфликтов. **Правила:** один экран за шаг; `private`→`internal` при выносе; сборка зелёная и коммит после КАЖДОГО шага; поведение не меняется (чистый перенос). Пакет `com.yuldash.app`, файлы в одном модуле → импорты почти не нужны.
 
-> ✅ **Прогресс 2026-06-27 (Opus):** вынесено **9 файлов**, `MainActivity.kt` **8184→5761 строк (−2423, −30%)**. Каждый шаг — сборка зелёная + коммит (10+ коммитов). Подход: новый файл = `package` + полный блок импортов (лишние = варнинги) + код; входной composable `internal`, хелперы `private`; общие хелперы открыты `internal` на месте. Урок: **граница блока = закрывающая `}`, НЕ следующая `@Composable`/`@OptIn`** (один раз срезал аннотацию → откат+редо).
+> ✅ **Прогресс 2026-06-27 (Opus):** вынесено **12 файлов**, `MainActivity.kt` **8184→3143 строк (−5041, −62%)**. Фазы 0,1,2 — готовы. Каждый шаг — сборка зелёная + коммит (16+ коммитов). Подход: новый файл = `package` + полный блок импортов (лишние = варнинги) + код; входной composable `internal`, хелперы `private`; общие хелперы открыты `internal` на месте. Урок: **граница блока = закрывающая `}`, НЕ следующая `@Composable`/`@OptIn`** (один раз срезал аннотацию → откат+редо). В `MainActivity.kt` осталась навигация (`YuldashApp`), `HomeScreen`, `MapScreen` + карта-инфра + общие модели/моки — это Фаза 3.
 
 **Фаза 0 — фундамент. ✅ СДЕЛАНО:**
 - [x] `AppText.kt` ← `appText`/`appTextFor`/`AppLanguage`/`LocalAppLanguage` (internal).
@@ -44,9 +44,16 @@
 - [x] `AccessibilityScreens.kt` (SimpleMode/VoiceRequest/CreatePassengerRequest/FamilyOrder/TrustedContacts/RepeatTrip/CallbackHelp).
 - [x] `SosVerifyScreens.kt` (SosScreen + VerifyDriverScreen). **Фаза 1 закрыта.**
 
-**Фаза 2 — крупные экраны (идёт):**
+**Фаза 2 — крупные экраны. ✅ СДЕЛАНО:**
 - [x] `CreateRideScreen.kt` (+PrivacyScreen).
-- [ ] Осталось: `ProfileScreen`, `AdsCabinetScreen`, `BookingScreen`, `RidesScreen`, `MyRequestsScreen`, `ChatScreen`, `ActiveTripScreen`.
+- [x] `ProfileScreen.kt` (Профиль + кабинет рекламы + кабинеты пассажира/водителя).
+- [x] `BookingActiveTripScreen.kt` (BookingScreen + ActiveTripScreen + MessageBubble).
+- [x] `RidesRequestsChatScreens.kt` (RidesScreen + MyRequestsScreen + ChatScreen + карточки).
+
+**Фаза 3 — карта и навигация (осталось, самое связное):**
+- [ ] `MapScreen` + карта-инфра (`YandexMapCard`, `MapHero`, `cityPoint`, `ridePinBitmap`, `userPuckBitmap`, контролы) → `MapScreen.kt`/`ui/map/`.
+- [ ] `YuldashApp` (нав-корень, `enum Screen`, `HomeScreen`, `YuldashBottomBar`) → `YuldashApp.kt`; `MainActivity.kt` оставить тонким.
+- [ ] (Опц.) общие модели/моки/хелперы → `Domain.kt`/`Common.kt` (косметика).
 
 **Фаза 2 — крупные экраны (больше связей):**
 - [ ] `CreateRideScreen`, `BookingScreen`, `VerifyDriverScreen`, `AdsCabinetScreen`, `ProfileScreen`, `ChatScreen`, `MyRequestsScreen`, `RidesScreen`.
