@@ -24,7 +24,7 @@ from .config import settings
 from .db import engine, get_session, init_db
 from .models import (
     AdEvent, Block, Booking, BookingStatus, DriverProfile, Message, OtpCode, Rating, Report,
-    Ride, RideCategory, RideRequest, RideStatus, SosEvent, TripShare,
+    Ride, RideCategory, RideRequest, RideStatus, SosEvent, TgAuth, TripShare,
     TrustedContact, User, UserRole,
 )
 from .security import current_user, gen_otp, make_token, sign_telegram, verify_telegram
@@ -191,44 +191,38 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
     return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
 
 
-# ==================== TELEGRAM-ВХОД (бот) ====================
-# Поток: app открывает t.me/<bot>?start=auth → юзер жмёт Start → Telegram шлёт update
-# на /telegram/webhook → сервер берёт ПОДТВЕРЖДЁННЫЙ Telegram'ом from.id, ПОДПИСЫВАЕТ его
-# и отдаёт кнопку-ссылку на /auth/telegram/return → та открывает yuldash://auth/telegram?...&sig=...
-# → app шлёт на /auth/telegram-callback → сервер ПРОВЕРЯЕТ подпись → выдаёт JWT.
-# Без подписи токен не выдаётся — нельзя войти за чужой telegram_id.
+# ==================== TELEGRAM-ВХОД (бот, код подтверждения) ====================
+# Поток как у SMS, но 4-значный код шлёт Telegram-бот:
+# 1) app: POST /auth/tg/start → request_id; app открывает t.me/<bot>?start=<request_id>
+# 2) юзер жмёт Старт → Telegram шлёт /start <request_id> на вебхук
+# 3) вебхук привязывает ПОДТВЕРЖДЁННЫЙ Telegram'ом from.id к request_id, генерит 4-значный
+#    код и присылает его юзеру в чат бота
+# 4) app: POST /auth/tg/verify {request_id, code} → сервер сверяет код → JWT
+# Безопасность: request_id — случайный UUID (не угадать); код 4 цифры, живёт 5 мин,
+# ≤5 попыток; telegram_id подтверждён Telegram'ом. За чужого войти нельзя.
 
-class TelegramCallbackIn(BaseModel):
-    telegram_user_id: str
-    telegram_username: str = ""
-    first_name: str = ""
-    auth_date: int = 0
-    sig: str = ""
+TG_CODE_TTL_SEC = 300
+TG_MAX_ATTEMPTS = 5
 
 
-@app.post("/auth/telegram-callback")
-def telegram_callback(body: TelegramCallbackIn, session: Session = Depends(get_session)):
-    """Вход по Telegram. Данные подписаны сервером (бот-вебхук). Без валидной подписи — отказ."""
-    if not verify_telegram(body.telegram_user_id, body.auth_date, body.sig):
-        raise HTTPException(401, "Неверная или просроченная подпись Telegram")
-    user = session.exec(select(User).where(User.telegram_id == body.telegram_user_id)).first()
-    if not user:
-        user = User(
-            phone=f"tg{body.telegram_user_id}",   # плейсхолдер (не настоящий номер), уникален по telegram_id
-            name=body.first_name or body.telegram_username or "Telegram",
-            telegram_id=body.telegram_user_id,
-            verified=True,
-        )
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-    return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
+class TgStartOut(BaseModel):
+    request_id: str
+
+
+@app.post("/auth/tg/start", response_model=TgStartOut)
+def tg_start(session: Session = Depends(get_session)):
+    req = uuid.uuid4().hex
+    session.add(TgAuth(
+        request_id=req, status="waiting",
+        expires_at=datetime.utcnow() + timedelta(seconds=TG_CODE_TTL_SEC),
+    ))
+    session.commit()
+    return TgStartOut(request_id=req)
 
 
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(default="")):
-    """Telegram шлёт сюда апдейты. На /start отвечаем кнопкой-возвратом в приложение."""
-    # Аутентификация Telegram→сервер: секрет из setWebhook.
+    """Telegram шлёт сюда апдейты. На /start <request_id> привязываем юзера и шлём код."""
     if settings.telegram_webhook_secret and x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
         raise HTTPException(403, "bad secret")
     update = await request.json()
@@ -236,49 +230,62 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     text = msg.get("text") or ""
     frm = msg.get("from") or {}
     chat = msg.get("chat") or {}
+    reply = None
     if text.startswith("/start") and frm.get("id"):
-        uid = str(frm["id"])
-        auth_date = int(time.time())
-        params = urlencode({
-            "user_id": uid,
-            "username": frm.get("username", "") or "",
-            "first_name": frm.get("first_name", "") or "",
-            "auth_date": auth_date,
-            "sig": sign_telegram(uid, auth_date),
-        })
-        return_url = f"{settings.media_base_url}/auth/telegram/return?{params}"
-        # Ответ методом прямо в HTTP-ответе вебхука — Telegram сам выполнит sendMessage.
-        # Не нужен отдельный исходящий вызов к api.telegram.org (надёжнее).
-        return {
-            "method": "sendMessage",
-            "chat_id": chat.get("id"),
-            "text": "Жми кнопку — вернёшься в Юлдаш и войдёшь 👇",
-            "reply_markup": {"inline_keyboard": [[{"text": "Открыть Юлдаш", "url": return_url}]]},
-        }
+        parts = text.split(maxsplit=1)
+        req = parts[1].strip() if len(parts) > 1 else ""
+        with Session(engine) as s:
+            row = s.exec(select(TgAuth).where(TgAuth.request_id == req)).first() if req else None
+            if row and row.status in ("waiting", "sent") and row.expires_at > datetime.utcnow():
+                code = gen_otp()
+                row.telegram_id = str(frm["id"])
+                row.username = frm.get("username", "") or ""
+                row.first_name = frm.get("first_name", "") or ""
+                row.code = code
+                row.status = "sent"
+                s.add(row)
+                s.commit()
+                reply = f"Твой код для входа в Юлдаш: {code}\nВведи его в приложении. Код живёт 5 минут."
+            else:
+                reply = "Открой приложение Юлдаш и нажми «Вход через Telegram» — я пришлю код."
+    if reply is not None:
+        return {"method": "sendMessage", "chat_id": chat.get("id"), "text": reply}
     return {"ok": True}
 
 
-@app.get("/auth/telegram/return", response_class=HTMLResponse)
-def telegram_return(user_id: str = "", username: str = "", first_name: str = "", auth_date: int = 0, sig: str = ""):
-    """Открывается из Telegram-кнопки. Перебрасывает в приложение по deep link с подписью."""
-    deeplink = "yuldash://auth/telegram?" + urlencode({
-        "user_id": user_id, "username": username, "first_name": first_name,
-        "auth_date": auth_date, "sig": sig,
-    })
-    html = (
-        "<!doctype html><html lang=ru><head><meta charset=utf-8>"
-        "<meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>Юлдаш — вход</title><style>"
-        "body{font-family:-apple-system,Roboto,Segoe UI,sans-serif;background:#0f1f17;color:#fff;"
-        "display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;text-align:center}"
-        "a.btn{background:#2e7d32;color:#fff;padding:16px 28px;border-radius:14px;text-decoration:none;"
-        "font-size:18px;display:inline-block;margin-top:18px}</style></head><body><div>"
-        "<div style='font-size:46px'>🚗</div><h2>Возвращаемся в Юлдаш…</h2>"
-        "<p>Если приложение не открылось само —</p>"
-        f"<a class=btn href=\"{deeplink}\">Открыть Юлдаш</a></div>"
-        f"<script>location.href=\"{deeplink}\";</script></body></html>"
-    )
-    return HTMLResponse(html)
+class TgVerifyIn(BaseModel):
+    request_id: str
+    code: str
+
+
+@app.post("/auth/tg/verify")
+def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
+    row = session.exec(select(TgAuth).where(TgAuth.request_id == body.request_id)).first()
+    if not row or row.status != "sent" or not row.telegram_id or not row.code:
+        raise HTTPException(400, "Сначала получи код в Telegram")
+    if row.expires_at < datetime.utcnow():
+        raise HTTPException(400, "Код истёк. Получи новый.")
+    if row.attempts >= TG_MAX_ATTEMPTS:
+        raise HTTPException(429, "Слишком много попыток. Получи новый код.")
+    if body.code.strip() != row.code:
+        row.attempts += 1
+        session.add(row)
+        session.commit()
+        raise HTTPException(400, "Неверный код")
+    row.status = "used"
+    session.add(row)
+    user = session.exec(select(User).where(User.telegram_id == row.telegram_id)).first()
+    if not user:
+        user = User(
+            phone=f"tg{row.telegram_id}",   # плейсхолдер (не настоящий номер), уникален по telegram_id
+            name=row.first_name or row.username or "Telegram",
+            telegram_id=row.telegram_id,
+            verified=True,
+        )
+        session.add(user)
+    session.commit()
+    session.refresh(user)
+    return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
 
 
 # VK / WhatsApp вход — ОТКЛЮЧЕНО до безопасной реализации.

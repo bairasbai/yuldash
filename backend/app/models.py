@@ -56,6 +56,20 @@ class OtpCode(SQLModel, table=True):
     expires_at: datetime
 
 
+class TgAuth(SQLModel, table=True):
+    """Сессия входа через Telegram-бота: request_id ↔ telegram_id ↔ 4-значный код."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    request_id: str = Field(index=True, unique=True)
+    telegram_id: Optional[str] = None
+    username: str = ""
+    first_name: str = ""
+    code: Optional[str] = None
+    status: str = "waiting"          # waiting (ждём Старт) / sent (код отправлен) / used
+    attempts: int = 0                # попыток ввода кода (защита от перебора)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: datetime
+
+
 class DriverProfile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, unique=True)

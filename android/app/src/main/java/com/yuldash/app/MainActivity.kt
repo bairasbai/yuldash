@@ -243,15 +243,9 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Холдер DeepLink авторизации (yuldash://auth/...). Пишет Activity, читает YuldashApp. */
-private object PendingAuth {
-    val deepLink = mutableStateOf<Uri?>(null)
-}
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleAuthDeepLink(intent)   // холодный старт по ссылке из соцсети
         // Восстановить выбор темы день/ночь (если пользователь переключал тумблером в шапке).
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
@@ -259,20 +253,6 @@ class MainActivity : ComponentActivity() {
             YuldashTheme(darkTheme = appIsDark()) {
                 YuldashApp()
             }
-        }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleAuthDeepLink(intent)   // приложение уже открыто → вернулись из браузера/Telegram
-    }
-
-    /** yuldash://auth/<provider>?... → кладём в холдер, YuldashApp залогинит. */
-    private fun handleAuthDeepLink(intent: Intent?) {
-        val data = intent?.data ?: return
-        if (data.scheme == "yuldash" && data.host == "auth") {
-            PendingAuth.deepLink.value = data
         }
     }
 }
@@ -1062,33 +1042,6 @@ private fun YuldashApp() {
     fun openHome(tab: HomeTab = HomeTab.Map) {
         startHomeTab = tab
         screen = Screen.Home
-    }
-
-    // OAuth-возврат: соцсеть вернула yuldash://auth/<provider>?... → верифицируем на сервере и логиним.
-    val authLink = PendingAuth.deepLink.value
-    LaunchedEffect(authLink) {
-        if (authLink == null) return@LaunchedEffect
-        val provider = authLink.lastPathSegment
-        val ok = when (provider) {
-            "telegram" -> authLink.getQueryParameter("user_id")?.takeIf { it.isNotBlank() }?.let { uid ->
-                ApiClient.telegramCallback(
-                    uid,
-                    authLink.getQueryParameter("username").orEmpty(),
-                    authLink.getQueryParameter("first_name").orEmpty(),
-                    authLink.getQueryParameter("auth_date").orEmpty(),
-                    authLink.getQueryParameter("sig").orEmpty(),
-                ).isSuccess
-            } ?: false
-            "vk" -> authLink.getQueryParameter("user_id")?.takeIf { it.isNotBlank() }?.let { uid ->
-                ApiClient.vkCallback(authLink.getQueryParameter("access_token").orEmpty(), uid).isSuccess
-            } ?: false
-            "whatsapp" -> authLink.getQueryParameter("phone")?.takeIf { it.isNotBlank() }?.let { ph ->
-                ApiClient.whatsappCallback(ph, true).isSuccess
-            } ?: false
-            else -> false
-        }
-        PendingAuth.deepLink.value = null
-        if (ok) openHome()
     }
 
     fun trackAdImpression(ad: PartnerAd) {
@@ -1903,6 +1856,9 @@ private fun LoginFormCard(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showPhone by remember { mutableStateOf(false) }   // SMS-форма (заморожена) раскрывается по тапу
+    var tgMode by remember { mutableStateOf(false) }      // true — ждём ввод кода из Telegram
+    var tgRequestId by remember { mutableStateOf("") }
+    val context = LocalContext.current
 
     Card(
         modifier = modifier,
@@ -1921,6 +1877,55 @@ private fun LoginFormCard(
                 lineHeight = 28.sp,
                 fontWeight = FontWeight.Black
             )
+            if (tgMode) {
+                // --- Ввод 4-значного кода, который бот прислал в Telegram ---
+                val errEnterTgCode = appTextFor(currentLanguage, "Введите код из Telegram", "Telegram кодын индерегеҙ")
+                val errBadTgCode = appTextFor(currentLanguage, "Неверный код", "Код дөрөҫ түгел")
+                Text(
+                    text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот код ебәрер. Шуны индер."),
+                    color = CanonMuted, fontSize = 16.sp, lineHeight = 22.sp
+                )
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it.filter { c -> c.isDigit() }.take(4); error = null },
+                    placeholder = { Text(appTextFor(currentLanguage, "Код из Telegram", "Telegram коды"), fontSize = 16.sp) },
+                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+                error?.let { Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp) }
+                Button(
+                    onClick = {
+                        if (loading) return@Button
+                        if (code.length < 4) { error = errEnterTgCode; return@Button }
+                        loading = true; error = null
+                        scope.launch {
+                            ApiClient.tgVerify(tgRequestId, code.trim())
+                                .onSuccess { loading = false; onContinue() }
+                                .onFailure { loading = false; error = errBadTgCode }
+                        }
+                    },
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                ) {
+                    if (loading) CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Text(appTextFor(currentLanguage, "Войти", "Инеү"), fontWeight = FontWeight.Black, fontSize = 16.sp)
+                }
+                TextButton(onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$tgRequestId")).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+                    }
+                }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text(appTextFor(currentLanguage, "Открыть Telegram ещё раз", "Telegram'ды тағы асырға"), color = CanonGreen2, fontSize = 14.sp)
+                }
+                TextButton(onClick = { tgMode = false; code = ""; error = null }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text(appTextFor(currentLanguage, "Назад", "Кире"), color = CanonMuted, fontSize = 14.sp)
+                }
+            } else {
             Text(
                 text = appTextFor(currentLanguage, "Быстрый вход — выбери мессенджер", "Тиҙ инеү — мессенджер һайла"),
                 color = CanonMuted,
@@ -1928,9 +1933,28 @@ private fun LoginFormCard(
                 lineHeight = 22.sp
             )
             Spacer(modifier = Modifier.height(4.dp))
-            // Основной вход — мессенджеры. Каждая кнопка активна после настройки (иначе тост «скоро»).
+            // Telegram — рабочий вход (бот шлёт 4-значный код). VK/WhatsApp — «скоро».
+            val errTgStart = appTextFor(currentLanguage, "Не удалось начать вход. Повтори.", "Инеүҙе башлап булманы. Ҡабатла.")
+            val tgSoon = appTextFor(currentLanguage, "Вход через Telegram скоро", "Telegram аша инеү тиҙҙән")
             Button(
-                onClick = onTelegramLogin,
+                onClick = {
+                    if (loading) return@Button
+                    if (BuildConfig.TELEGRAM_BOT.isBlank()) { error = tgSoon; return@Button }
+                    loading = true; error = null
+                    scope.launch {
+                        ApiClient.tgStart()
+                            .onSuccess { req ->
+                                loading = false
+                                tgRequestId = req
+                                code = ""
+                                tgMode = true
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$req")).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+                                }
+                            }
+                            .onFailure { loading = false; error = errTgStart }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0088CC))
@@ -2063,6 +2087,7 @@ private fun LoginFormCard(
             }
             }   // конец if (showPhone)
             }   // конец if (BuildConfig.SMS_LOGIN_ENABLED) — SMS-вход заморожен
+            }   // конец else (tgMode == false) — экран выбора входа
         }
     }
 }

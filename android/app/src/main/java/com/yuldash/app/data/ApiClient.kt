@@ -127,13 +127,16 @@ object ApiClient {
         optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }?.let(::saveName)
     }
 
-    /** Коллбэк Telegram: бот вернул подписанные данные через DeepLink. Подпись (sig) проверяет сервер. */
-    suspend fun telegramCallback(telegramUserId: String, username: String, firstName: String, authDate: String, sig: String): Result<JSONObject> =
+    /** Старт входа через Telegram. Возвращает request_id — app по нему строит ссылку t.me/<bot>?start=request_id. */
+    suspend fun tgStart(): Result<String> =
+        call("POST", "/auth/tg/start", JSONObject(), auth = false)
+            .map { it.optString("request_id") }
+
+    /** Проверка 4-значного кода, который бот прислал в Telegram. При успехе — токен+имя. */
+    suspend fun tgVerify(requestId: String, code: String): Result<JSONObject> =
         call(
-            "POST", "/auth/telegram-callback",
-            JSONObject().put("telegram_user_id", telegramUserId)
-                .put("telegram_username", username).put("first_name", firstName)
-                .put("auth_date", authDate.toIntOrNull() ?: 0).put("sig", sig),
+            "POST", "/auth/tg/verify",
+            JSONObject().put("request_id", requestId).put("code", code),
             auth = false,
         ).onSuccess { it.applyAuth() }
 
