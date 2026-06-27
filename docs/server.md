@@ -22,6 +22,13 @@
 - **API публично (HTTPS): `https://yulbash.ru`** (HTTP → 301 на HTTPS). Проверка: `curl https://yulbash.ru/health` → `{"status":"ok","env":"prod"}`.
 - Домен: **`yulbash.ru`** (A-запись → `85.239.52.55`, регистратор Timeweb). SSL: Let's Encrypt (`certbot`, плагин nginx) для `yulbash.ru` + `www.yulbash.ru`. Авто-обновление: `certbot.timer`. Cert: `/etc/letsencrypt/live/yulbash.ru/`. (Старый `sslip.io`-cert тоже остался, не мешает.)
 
+## 💾 Бэкапы БД (2026-06-27)
+- Скрипт `/opt/yuldash/backup-db.sh` (исходник в git: `backend/backup-db.sh`): `pg_dump yuldash | gzip` → `/opt/yuldash/backups/`, хранит последние 14.
+- Cron: **ежедневно 4:00**, лог `/opt/yuldash/backups/backup.log`.
+- Ручной бэкап: `ssh root@85.239.52.55 "/opt/yuldash/backup-db.sh"`.
+- Восстановить: `gunzip -c backups/yuldash-ДАТА.sql.gz | sudo -u postgres psql yuldash`.
+- ⚠️ Бэкапы на том же сервере → при потере сервера потеряются. Позже: копировать в облако/другой хост.
+
 ## 🚪 Как подключиться и управлять (шпаргалка для Александра)
 
 > Всё — с ноутбука. Открыть **PowerShell** (Пуск → набрать `PowerShell` → Enter).
