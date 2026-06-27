@@ -230,6 +230,7 @@ import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
@@ -1880,7 +1881,9 @@ private fun LoginFormCard(
             if (tgMode) {
                 // --- Ввод 4-значного кода, который бот прислал в Telegram ---
                 val errEnterTgCode = appTextFor(currentLanguage, "Введите код из Telegram", "Telegram кодын индерегеҙ")
-                val errBadTgCode = appTextFor(currentLanguage, "Неверный код", "Код дөрөҫ түгел")
+                val errBadTgCode = appTextFor(currentLanguage, "Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп, ҡабат индер.")
+                val errExpiredCode = appTextFor(currentLanguage, "Код истёк. Получи новый — открой Telegram ещё раз.", "Код ваҡыты бөттө. Яңыһын ал — Telegram'ды тағы ас.")
+                val errTooManyCode = appTextFor(currentLanguage, "Слишком много попыток. Получи новый код.", "Бик күп омтылыш. Яңы код ал.")
                 Text(
                     text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот код ебәрер. Шуны индер."),
                     color = CanonMuted, fontSize = 16.sp, lineHeight = 22.sp
@@ -1904,7 +1907,14 @@ private fun LoginFormCard(
                         scope.launch {
                             ApiClient.tgVerify(tgRequestId, code.trim())
                                 .onSuccess { loading = false; onContinue() }
-                                .onFailure { loading = false; error = errBadTgCode }
+                                .onFailure { e ->
+                                    loading = false
+                                    error = when ((e as? ApiException)?.status) {
+                                        410 -> errExpiredCode          // код истёк
+                                        429 -> errTooManyCode          // много попыток
+                                        else -> errBadTgCode           // неверный код
+                                    }
+                                }
                         }
                     },
                     enabled = !loading,

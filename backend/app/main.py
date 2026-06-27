@@ -260,11 +260,13 @@ class TgVerifyIn(BaseModel):
 
 @app.post("/auth/tg/verify")
 def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
+    # Статусы различимы клиентом для разных сообщений: 409 ещё не получен, 410 истёк,
+    # 429 много попыток, 400 неверный код.
     row = session.exec(select(TgAuth).where(TgAuth.request_id == body.request_id)).first()
     if not row or row.status != "sent" or not row.telegram_id or not row.code:
-        raise HTTPException(400, "Сначала получи код в Telegram")
+        raise HTTPException(409, "Сначала получи код в Telegram")
     if row.expires_at < datetime.utcnow():
-        raise HTTPException(400, "Код истёк. Получи новый.")
+        raise HTTPException(410, "Код истёк. Получи новый.")
     if row.attempts >= TG_MAX_ATTEMPTS:
         raise HTTPException(429, "Слишком много попыток. Получи новый код.")
     if body.code.strip() != row.code:
