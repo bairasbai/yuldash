@@ -10,11 +10,12 @@ import math
 import os
 import uuid
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import Session, select
+import json
 
 from .config import settings
 from .db import engine, get_session, init_db
@@ -743,6 +744,70 @@ class MessageIn(BaseModel):
     text: str = ""
     voice_url: Optional[str] = None
     transcript: Optional[str] = None
+
+
+# ==================== WebSocket для чата ====================
+class ConnectionManager:
+    """Управление WebSocket соединениями для чата в реальном времени."""
+    def __init__(self):
+        self.active_connections: dict = {}
+
+    async def connect(self, booking_id: int, websocket: WebSocket):
+        await websocket.accept()
+        if booking_id not in self.active_connections:
+            self.active_connections[booking_id] = []
+        self.active_connections[booking_id].append(websocket)
+
+    def disconnect(self, booking_id: int, websocket: WebSocket):
+        if booking_id in self.active_connections:
+            self.active_connections[booking_id].remove(websocket)
+
+    async def broadcast(self, booking_id: int, data: dict):
+        if booking_id in self.active_connections:
+            for connection in self.active_connections[booking_id]:
+                try:
+                    await connection.send_json(data)
+                except Exception:
+                    pass
+
+
+manager = ConnectionManager()
+
+
+@app.websocket("/ws/bookings/{booking_id}")
+async def websocket_endpoint(websocket: WebSocket, booking_id: int):
+    """WebSocket чат. Подключение: ws://yulbash.ru/ws/bookings/123?token=JWT"""
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008, reason="No token")
+        return
+    try:
+        from .security import verify_token
+        user_id = verify_token(token)
+    except Exception:
+        await websocket.close(code=1008, reason="Invalid token")
+        return
+
+    await manager.connect(booking_id, websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            payload = json.loads(data)
+            if payload.get("type") == "message":
+                session = next(get_session())
+                msg = Message(booking_id=booking_id, sender_id=user_id, text=payload.get("text", ""))
+                session.add(msg)
+                session.commit()
+                session.refresh(msg)
+                await manager.broadcast(booking_id, {
+                    "type": "message",
+                    "id": msg.id,
+                    "sender_id": msg.sender_id,
+                    "text": msg.text,
+                    "timestamp": msg.created_at.isoformat()
+                })
+    except WebSocketDisconnect:
+        manager.disconnect(booking_id, websocket)
 
 
 @app.post("/bookings/{booking_id}/messages", response_model=Message)
