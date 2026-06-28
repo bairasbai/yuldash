@@ -91,6 +91,7 @@ import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.HeadsetMic
@@ -272,8 +273,35 @@ internal fun ProfileScreen(
     val profileAd = ads.forPlacement(AdPlacement.Profile).firstOrNull { it.city == "Баймаҡ" }
     // Свой рейтинг (как пассажира) — из реальных оценок водителей. null, пока никто не оценил.
     var myRating by remember { mutableStateOf<Double?>(null) }
+    var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: "Я") }
     LaunchedEffect(Unit) {
-        ApiClient.me().onSuccess { o -> myRating = if (o.isNull("rating")) null else o.optDouble("rating") }
+        ApiClient.me().onSuccess { o ->
+            myRating = if (o.isNull("rating")) null else o.optDouble("rating")
+            o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
+        }
+    }
+    val editCtx = LocalContext.current
+    val editScope = rememberCoroutineScope()
+    var showEditName by remember { mutableStateOf(false) }
+    var nameDraft by remember { mutableStateOf(displayName) }
+    val nameSavedMsg = appText("Имя обновлено", "Исем яңыртылды")
+    if (showEditName) {
+        AlertDialog(
+            onDismissRequest = { showEditName = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Ваше имя", "Исемегеҙ"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = { OutlinedTextField(nameDraft, { nameDraft = it.take(120) }, singleLine = true, modifier = Modifier.fillMaxWidth(), placeholder = { Text(appText("Как вас зовут?", "Исемегеҙ нисек?")) }, shape = RoundedCornerShape(14.dp)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val n = nameDraft.trim()
+                    if (n.isNotBlank()) {
+                        editScope.launch { ApiClient.updateName(n).onSuccess { displayName = n; Toast.makeText(editCtx, nameSavedMsg, Toast.LENGTH_SHORT).show() } }
+                        showEditName = false
+                    }
+                }) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { showEditName = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
     }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         LazyColumn(
@@ -306,11 +334,15 @@ internal fun ProfileScreen(
                                     .background(Color.White.copy(alpha = 0.18f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text((ApiClient.cachedName() ?: "Я").take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
+                                Text(displayName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
                             }
                             Spacer(Modifier.width(14.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(ApiClient.cachedName() ?: "Я", color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(displayName, color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp).bounceClick { nameDraft = displayName; showEditName = true })
+                                }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                                     myRating?.let { r ->

@@ -294,6 +294,23 @@ def me(user: User = Depends(current_user), session: Session = Depends(get_sessio
     return {**user.model_dump(), "rating": round(avg, 1) if cnt > 0 else None, "rating_count": cnt}
 
 
+class MeUpdateIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+
+
+@router.post("/me/update")
+def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Редактирование профиля: имя для показа (после Telegram-входа имя было авто). Телефон не меняем."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Имя не может быть пустым")
+    user.name = name[:120]
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return {"ok": True, "name": user.name}
+
+
 @router.post("/auth/logout")
 def logout(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Выход со всех устройств: гасим access (метка tokens_valid_from) и все refresh-токены."""

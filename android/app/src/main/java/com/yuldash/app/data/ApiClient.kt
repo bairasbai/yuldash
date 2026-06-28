@@ -229,6 +229,10 @@ object ApiClient {
             Analytics.log("login", mapOf("method" to "sms"))
         }
 
+    /** Редактирование профиля: имя для показа. При успехе обновляем кеш имени. */
+    suspend fun updateName(name: String): Result<Unit> =
+        call("POST", "/me/update", JSONObject().put("name", name), auth = true).onSuccess { saveName(name) }.map { }
+
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
     // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
 
