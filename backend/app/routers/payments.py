@@ -74,7 +74,8 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
     session.commit()
     session.refresh(payment)
 
-    res = create_payment(amount_kop, f"Юлдаш · {title}", {"payment_id": str(payment.id)})
+    # user.phone — реальный (current_user не пускает плейсхолдер): на него ЮKassa шлёт чек.
+    res = create_payment(amount_kop, f"Юлдаш · {title}", {"payment_id": str(payment.id)}, customer_phone=user.phone)
     payment.provider_id = res["provider_id"]
     session.add(payment)
     session.commit()

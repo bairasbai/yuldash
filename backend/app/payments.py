@@ -31,11 +31,31 @@ def _rub(amount_kop: int) -> str:
     return f"{amount_kop // 100}.{amount_kop % 100:02d}"
 
 
-def create_payment(amount_kop: int, description: str, metadata: dict) -> dict:
+def _receipt(amount_kop: int, description: str, customer_phone: str) -> dict | None:
+    """Чек для самозанятого (54-ФЗ): ЮKassa передаёт его в «Мой налог» автоматически.
+    Без контакта покупателя чек не сформировать → возвращаем None (платёж без авто-чека)."""
+    digits = "".join(c for c in (customer_phone or "") if c.isdigit())
+    if not digits:
+        return None
+    return {
+        "customer": {"phone": digits},          # ЮKassa отправит чек на этот номер
+        "items": [{
+            "description": description[:128],
+            "quantity": "1.00",
+            "amount": {"value": _rub(amount_kop), "currency": "RUB"},
+            "vat_code": 1,                       # 1 = без НДС (самозанятый/НПД)
+            "payment_subject": "service",        # услуга
+            "payment_mode": "full_payment",      # полная предоплата
+        }],
+    }
+
+
+def create_payment(amount_kop: int, description: str, metadata: dict, customer_phone: str = "") -> dict:
     """Создать платёж. Возврат: {provider_id, confirmation_url, status, mock}.
 
     mock-режим (нет провайдера/ключей): возвращает фиктивный платёж со status='succeeded'
-    (в проде эндпоинт это не вызовет — там 503). yookassa: реальный POST с redirect-URL."""
+    (в проде эндпоинт это не вызовет — там 503). yookassa: реальный POST с redirect-URL
+    и чеком для самозанятого (авто-фискализация через «Мой налог»)."""
     if settings.payments_provider != "yookassa" or not (settings.yookassa_shop_id and settings.yookassa_secret_key):
         return {"provider_id": f"mock_{uuid.uuid4().hex}", "confirmation_url": "", "status": "succeeded", "mock": True}
     import httpx
@@ -46,6 +66,9 @@ def create_payment(amount_kop: int, description: str, metadata: dict) -> dict:
         "description": description[:128],
         "metadata": metadata,
     }
+    receipt = _receipt(amount_kop, description, customer_phone)
+    if receipt:
+        body["receipt"] = receipt
     r = httpx.post(
         YOOKASSA_API, json=body,
         auth=(settings.yookassa_shop_id, settings.yookassa_secret_key),
