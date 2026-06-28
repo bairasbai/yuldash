@@ -493,7 +493,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"))
+                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"))
             }
         }
 
@@ -505,7 +505,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                ResponseDto(o.optInt("id"), o.optInt("driver_id"), o.optString("driver_name"), if (o.isNull("driver_rating")) null else o.optDouble("driver_rating"), o.optInt("price"), o.optString("comment"), o.optString("status"))
+                ResponseDto(o.optInt("id"), o.optInt("driver_id"), o.optString("driver_name"), if (o.isNull("driver_rating")) null else o.optDouble("driver_rating"), o.optInt("price"), o.optString("comment"), o.optString("status"), o.optString("driver_avatar"))
             }
         }
 
@@ -953,8 +953,8 @@ data class BlockDto(val blockedUserId: Int, val name: String)
 data class ReportableUserDto(val id: Int, val name: String)
 data class PendingDriverDto(val userId: Int, val name: String, val phone: String, val car: String, val licenseUrl: String, val carPhotoUrl: String)
 data class AdminReportDto(val id: Int, val reporterName: String, val targetName: String, val targetPhone: String, val reason: String, val createdAt: String)
-data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean)
-data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String)
+data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "")
+data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String, val driverAvatar: String = "")
 
 data class ContactDto(
     val id: Int,

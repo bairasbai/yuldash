@@ -878,6 +878,8 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            SmallAvatar(r.driverAvatar, r.driverName, 42)
+                            Spacer(Modifier.width(10.dp))
                             Text(r.driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
                             r.driverRating?.let { Spacer(Modifier.width(6.dp)); Text("★ $it", color = CanonMuted, fontSize = 13.sp) }
                             Spacer(Modifier.weight(1f))

@@ -1439,7 +1439,11 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${r.from} → ${r.to}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                            Text("${r.passengerName} · " + appText("${r.seats} мест", "${r.seats} урын"), color = CanonMuted, fontSize = 13.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                SmallAvatar(r.passengerAvatar, r.passengerName, 34)
+                                Spacer(Modifier.width(8.dp))
+                                Text("${r.passengerName} · " + appText("${r.seats} мест", "${r.seats} урын"), color = CanonMuted, fontSize = 13.sp)
+                            }
                             if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
                             if (r.responded) Text(appText("Вы откликнулись", "Яуап бирҙегеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             else Button(onClick = { target = r; price = ""; comment = "" }, modifier = Modifier.align(Alignment.End), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), fontWeight = FontWeight.Bold) }
@@ -1474,6 +1478,8 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                SmallAvatar(r.driverAvatar, r.driverName, 42)
+                                Spacer(Modifier.width(10.dp))
                                 Text(r.driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
                                 r.driverRating?.let { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(14.dp)); Text(" $it", color = CanonMuted, fontSize = 13.sp) }
                                 Spacer(Modifier.weight(1f))
@@ -1498,6 +1504,18 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
                     }
                 }
             }
+        }
+    }
+}
+
+/** Кружок-аватар: фото (Coil) или буква имени. Для карточек выбора попутчика. */
+@Composable
+internal fun SmallAvatar(url: String, initial: String, size: Int = 44) {
+    Box(Modifier.size(size.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+        if (url.isBlank()) {
+            Text(initial.take(1).uppercase().ifBlank { "?" }, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = (size / 2.6f).sp)
+        } else {
+            coil.compose.AsyncImage(model = url, contentDescription = null, modifier = Modifier.size(size.dp).clip(CircleShape), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
         }
     }
 }

@@ -104,6 +104,7 @@ def my_requests(
 class RequestFeedOut(BaseModel):
     id: int
     passenger_name: str
+    passenger_avatar: str = ""
     from_city: str
     to_city: str
     desired_at: Optional[datetime]
@@ -136,6 +137,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
         p = pax.get(r.passenger_id)
         out.append(RequestFeedOut(
             id=r.id, passenger_name=(p.name if p and p.name else "Пассажир"),
+            passenger_avatar=(p.avatar_url if p else ""),
             from_city=r.from_city, to_city=r.to_city, desired_at=r.desired_at,
             seats=r.seats, comment=r.comment, responded=(r.id in mine),
         ))
@@ -183,6 +185,7 @@ class ResponseOut(BaseModel):
     id: int
     driver_id: int
     driver_name: str
+    driver_avatar: str = ""
     driver_rating: Optional[float]
     price: int
     comment: str
@@ -207,6 +210,7 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
         avg, cnt = user_rating(session, r.driver_id)
         out.append(ResponseOut(
             id=r.id, driver_id=r.driver_id, driver_name=(d.name if d and d.name else "Водитель"),
+            driver_avatar=(d.avatar_url if d else ""),
             driver_rating=(round(avg, 1) if cnt > 0 else None), price=r.price, comment=r.comment, status=r.status,
         ))
     return out
