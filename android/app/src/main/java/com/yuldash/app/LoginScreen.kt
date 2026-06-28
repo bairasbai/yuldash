@@ -341,6 +341,9 @@ private fun LoginFormCard(
                 val errBadTgCode = appTextFor(currentLanguage, "Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп, ҡабат индер.")
                 val errExpiredCode = appTextFor(currentLanguage, "Код истёк. Получи новый — открой Telegram ещё раз.", "Код ваҡыты бөттө. Яңыһын ал — Telegram'ды тағы ас.")
                 val errTooManyCode = appTextFor(currentLanguage, "Слишком много попыток. Получи новый код.", "Бик күп омтылыш. Яңы код ал.")
+                // Под наплывом (запуск) Telegram шлёт коды с задержкой (~30/сек на бота) → сервер
+                // отвечает 409 «код ещё не пришёл». Честное сообщение, чтобы юзер не думал, что ошибся.
+                val errCodeNotYet = appTextFor(currentLanguage, "Код ещё идёт от Telegram — подожди пару секунд и нажми «Войти» снова.", "Код Telegram'дан килә — бер-ике секунд көт тә «Инеү» баҫ.")
                 Text(
                     text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот код ебәрер. Шуны индер."),
                     color = CanonMuted, fontSize = 16.sp, lineHeight = 22.sp
@@ -367,6 +370,7 @@ private fun LoginFormCard(
                                 .onFailure { e ->
                                     loading = false
                                     error = when ((e as? ApiException)?.status) {
+                                        409 -> errCodeNotYet           // код ещё не дошёл (Telegram задерживает под нагрузкой)
                                         410 -> errExpiredCode          // код истёк
                                         429 -> errTooManyCode          // много попыток
                                         else -> errBadTgCode           // неверный код
