@@ -300,11 +300,12 @@ internal fun SupportScreen(onBack: () -> Unit) {
                 }
             }
             item {
-                Button(onClick = { showSbp = true }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp)) {
-                    Icon(Icons.Default.Payments, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(appText("Поддержать на $selectedAmount ₽", "$selectedAmount ₽ менән ярҙам итеү"))
-                }
+                AppButton(
+                    text = appText("Поддержать на $selectedAmount ₽", "$selectedAmount ₽ менән ярҙам итеү"),
+                    onClick = { showSbp = true },
+                    style = AppButtonStyle.Accent,
+                    icon = Icons.Default.Payments,
+                )
             }
             if (completed) {
                 item {

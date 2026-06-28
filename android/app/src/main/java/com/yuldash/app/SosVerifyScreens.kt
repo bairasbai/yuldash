@@ -341,9 +341,10 @@ internal fun SosScreen(onBack: () -> Unit) {
                 }
             }
             item {
-                Button(
+                AppButton(
+                    text = if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить SOS", "SOS ебәреү"),
                     onClick = {
-                        if (sending) return@Button
+                        if (sending) return@AppButton
                         failed = false
                         sent = false
                         sending = true
@@ -359,11 +360,9 @@ internal fun SosScreen(onBack: () -> Unit) {
                             if (r.isSuccess) sent = true else failed = true
                         }
                     },
-                    enabled = !sending,
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
-                ) { Text(if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить SOS", "SOS ебәреү")) }
+                    style = AppButtonStyle.Danger,
+                    loading = sending
+                )
             }
             item { TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text(appText("Назад", "Кире")) } }
         }

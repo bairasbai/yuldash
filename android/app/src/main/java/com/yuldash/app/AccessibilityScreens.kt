@@ -534,15 +534,13 @@ internal fun VoiceRequestScreen(
             recognizedText?.let { text ->
                 item { VoiceParsedCard(title = appText("Распознано", "Танылды"), lines = listOf(text)) }
                 item {
-                    Button(
+                    AppButton(
+                        text = appText("Создать заявку", "Заявка булдырыу"),
                         onClick = {
                             fireRequestFromRoute(text, transcript = text)
                             onCreateRequest(LocalRequest(title = vrTitle, route = text, time = vrNow, passenger = (ApiClient.cachedName() ?: "Я"), status = voiceRequestStatus, trustedContact = trusted?.name))
-                        },
-                        modifier = Modifier.fillMaxWidth().height(58.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                    ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Black, fontSize = 17.sp) }
+                        }
+                    )
                 }
             }
             recordedPath?.let { path ->
@@ -550,7 +548,8 @@ internal fun VoiceRequestScreen(
                     VoiceMessageCard(LocalVoiceMessage(appText("Вы", "Һеҙ"), "", appText("сейчас", "хәҙер"), audioPath = path, durationSec = recordedDur))
                 }
                 item {
-                    Button(
+                    AppButton(
+                        text = if (uploading) appText("Отправка…", "Ебәрелә…") else appText("Создать голосовую заявку", "Тауыш заявкаһын булдырыу"),
                         onClick = {
                             uploading = true
                             scope.launch {
@@ -570,11 +569,8 @@ internal fun VoiceRequestScreen(
                                 )
                             }
                         },
-                        enabled = !uploading,
-                        modifier = Modifier.fillMaxWidth().height(58.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                    ) { Text(if (uploading) appText("Отправка…", "Ебәрелә…") else appText("Создать голосовую заявку", "Тауыш заявкаһын булдырыу"), fontWeight = FontWeight.Black, fontSize = 17.sp) }
+                        loading = uploading
+                    )
                 }
             }
         }
@@ -705,7 +701,8 @@ internal fun CreatePassengerRequestScreen(
                 )
             }
             item {
-                Button(
+                AppButton(
+                    text = appText("Создать заявку", "Заявка булдырыу"),
                     onClick = {
                         val (apiCat, withKids) = when (category) {
                             "urgent" -> "urgent" to false
@@ -732,11 +729,8 @@ internal fun CreatePassengerRequestScreen(
                             )
                         )
                     },
-                    enabled = from.isNotBlank() && to.isNotBlank() && time.isNotBlank() && price.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Black, fontSize = 17.sp) }
+                    enabled = from.isNotBlank() && to.isNotBlank() && time.isNotBlank() && price.isNotBlank()
+                )
             }
         }
     }
@@ -780,7 +774,8 @@ internal fun FamilyOrderScreen(
                 )
             }
             item {
-                Button(
+                AppButton(
+                    text = appText("Создать заявку", "Заявка булдырыу"),
                     onClick = {
                         fireRequestFromRoute("Баймаҡ → Сибай")
                         onCreateRequest(
@@ -793,11 +788,8 @@ internal fun FamilyOrderScreen(
                                 trustedContact = if (notifyContact) trusted?.name else null
                             )
                         )
-                    },
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Black, fontSize = 17.sp) }
+                    }
+                )
             }
         }
     }
@@ -827,19 +819,16 @@ internal fun TrustedContactsScreen(
                 Box(Modifier.appearIn(index)) { TrustedContactCard(contact) }
             }
             item {
-                Button(
+                AppButton(
+                    text = if (added) appText("Контакт добавлен", "Контакт өҫтәлде") else appText("Добавить сестру", "Һеңлене өҫтәү"),
                     onClick = {
                         if (!added) {
                             onAddContact(TrustedContact("Гульназ", "Сестра", "+7 927 777-88-99", true, relationBa = "Һеңле"))
                             added = true
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                ) {
-                    Text(if (added) appText("Контакт добавлен", "Контакт өҫтәлде") else appText("Добавить сестру", "Һеңлене өҫтәү"), fontWeight = FontWeight.Black)
-                }
+                    enabled = !added
+                )
             }
         }
     }

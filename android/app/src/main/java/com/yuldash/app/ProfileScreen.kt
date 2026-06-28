@@ -820,14 +820,11 @@ internal fun EmptyStateCard(
             Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, textAlign = TextAlign.Center)
             Text(text, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
             if (action != null && onAction != null) {
-                Button(
+                AppButton(
+                    text = action,
                     onClick = onAction,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                ) {
-                    Text(action, fontWeight = FontWeight.Black)
-                }
+                    style = AppButtonStyle.Primary
+                )
             }
         }
     }
