@@ -65,6 +65,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -1369,11 +1370,7 @@ internal fun ChatScreen(
                                 action = appText("Повторить", "Ҡабатлау"),
                                 onAction = { convReload++ },
                             )
-                            else -> EmptyStateCard(
-                                title = appText("Пока нет диалогов", "Әлегә диалогтар юҡ"),
-                                text = appText("Чат появится после брони поездки", "Чат сәфәр бронынан һуң күренә"),
-                                icon = Icons.Default.ChatBubbleOutline,
-                            )
+                            else -> ChatEmptyState()
                         }
                     }
                 }
@@ -1470,7 +1467,12 @@ internal fun ChatComposer(
         else permLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
     var showAttach by remember { mutableStateOf(false) }
+    var showEmoji by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    AnimatedVisibility(visible = showEmoji && !recording) {
+        EmojiPicker(onPick = { e -> onDraftChange(draft + e) })
+    }
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(26.dp),
@@ -1516,8 +1518,8 @@ internal fun ChatComposer(
                         .padding(horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { focus.requestFocus() }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.EmojiEmotions, contentDescription = appText("Эмодзи", "Эмодзи"), tint = CanonMuted, modifier = Modifier.size(22.dp))
+                    IconButton(onClick = { showEmoji = !showEmoji }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.EmojiEmotions, contentDescription = appText("Эмодзи", "Эмодзи"), tint = if (showEmoji) CanonGreen2 else CanonMuted, modifier = Modifier.size(22.dp))
                     }
                     Box(modifier = Modifier.weight(1f).padding(horizontal = 4.dp, vertical = 12.dp)) {
                         if (draft.isBlank()) Text(appText("Сообщение", "Хәбәр"), color = CanonMuted, fontSize = 15.sp)
@@ -1550,6 +1552,98 @@ internal fun ChatComposer(
                     contentDescription = if (recording) appText("Отправить запись", "Яҙманы ебәреү") else if (draft.isBlank()) appText("Записать голос", "Тауыш яҙҙырыу") else appText("Отправить", "Ебәреү"),
                     tint = Color.White
                 )
+            }
+        }
+    }
+    }
+}
+
+// Дружелюбная заглушка «нет диалогов» — полноценная, сбалансированная (не «половина пустая»).
+@Composable
+private fun ChatEmptyState() {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, CanonBorder)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 30.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Surface(color = CanonMint, shape = CircleShape) {
+                Icon(
+                    Icons.Default.ChatBubbleOutline,
+                    contentDescription = null,
+                    tint = CanonGreen2,
+                    modifier = Modifier.padding(22.dp).size(38.dp)
+                )
+            }
+            Text(
+                appText("Здесь будут ваши чаты", "Бында чаттарығыҙ булыр"),
+                color = CanonText, fontWeight = FontWeight.Black, fontSize = 19.sp, textAlign = TextAlign.Center
+            )
+            Text(
+                appText(
+                    "Найдите поездку и забронируйте место — после брони откроется чат с водителем или пассажиром.",
+                    "Сәфәр табып, урын бронла — бронынан һуң водитель йәки пассажир менән чат асыла."
+                ),
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center
+            )
+            Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("💬", fontSize = 18.sp)
+                    Text(
+                        appText("Например: «Я на остановке у рынка»", "Мәҫәлән: «Мин баҙар туҡталышында»"),
+                        color = CanonGreen, fontSize = 13.sp, fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+}
+
+// Популярные эмодзи для чата (как в мессенджерах). Системный шрифт их рисует.
+private val CHAT_EMOJIS = listOf(
+    "😀","😁","😂","🤣","😊","😍","😘","😎","🤔","🙂","🙃","😉","😇","🥰","😋","😜",
+    "🤩","🥳","😴","😢","😭","😡","😱","🤗","🤝","👍","👎","👏","🙏","💪","🔥","✨",
+    "❤️","🧡","💛","💚","💙","💜","🤍","💯","🎉","⭐","✅","❌","⚠️","👋","🚗","🚕",
+    "🛣️","📍","🕐","⏰","💬","📞","🏠","🌧️","☀️","❄️","☕","🍔","💰","🎵","😅","🤙"
+)
+
+@Composable
+private fun EmojiPicker(onPick: (String) -> Unit) {
+    Surface(
+        color = CanonSurface,
+        shape = RoundedCornerShape(20.dp),
+        shadowElevation = 1.dp,
+        border = BorderStroke(1.dp, CanonBorder)
+    ) {
+        Column(
+            modifier = Modifier
+                .heightIn(max = 220.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            CHAT_EMOJIS.chunked(8).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    row.forEach { e ->
+                        Text(
+                            e,
+                            fontSize = 26.sp,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable { onPick(e) }
+                                .padding(6.dp)
+                        )
+                    }
+                }
             }
         }
     }
