@@ -1638,20 +1638,21 @@ private fun EmojiPicker(onPick: (String) -> Unit) {
             modifier = Modifier
                 .heightIn(max = 220.dp)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             CHAT_EMOJIS.chunked(8).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     row.forEach { e ->
-                        Text(
-                            e,
-                            fontSize = 26.sp,
+                        Box(
                             modifier = Modifier
+                                .size(40.dp)
                                 .clip(CircleShape)
-                                .clickable { onPick(e) }
-                                .padding(6.dp)
-                        )
+                                .clickable { onPick(e) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(e, fontSize = 23.sp)
+                        }
                     }
                 }
             }
