@@ -31,8 +31,10 @@
 - **Рендер OK:** карта (тайлы Башкортостана, маркеры), лента, чат-композер (правка onSend), карточки поездок + рекламная карточка `erid` (PERF3 `remember(ads)`). Скриншоты в scratchpad.
 - НЕ проверено визуально (нужен admin-вход + офлайн): `ListedError` на админ-экранах, тост «не отправлено» в чате — но компилируются и логика прямая.
 
-### Тест гонки брони — локальный прогон пропущен (решение Александра, 2026-06-29)
-- `test_overbooking_concurrent` требует Postgres (на SQLite FOR UPDATE = no-op). **Docker Desktop на машине сломан** (краш «initializing Inference manager … dockerInference: file cannot be accessed» — не daemon-проблема, сам Docker падает), локального Postgres нет, psycopg2 в venv не импортится. Ставить Postgres ради одного теста уже-корректного прод-кода — не стали. Тест **написан, `skipif` не-Postgres, гоняется в CI/на Postgres**. Прод `book()` уже держит `select(Ride).with_for_update()`.
+### ✅ Тест гонки брони — ПРОГНАН на Postgres и зелёный (2026-06-29)
+- Изначально Docker Desktop крашился (Inference manager), но daemon всё же поднялся → поднял `postgres:16-alpine` (порт 5433), переустановил `psycopg2-binary` (2.9.12), `conftest` уважает внешний `DATABASE_URL`.
+- **Весь suite на Postgres: `66 passed`** (на SQLite было 65 passed + 1 skipped). Разница = разблокированный `test_overbooking_concurrent` → **прошёл** (чистый «66 passed», без error/skip). Доказано: `book()` с `select(Ride).with_for_update()` держит гонку — 8 параллельных броней на 1 место → ровно 1 успех, остальные 400.
+- Docker после прогона снова стал нестабилен (контейнер исчез), переподтверждение не делал — но первый прогон валиден. Контейнер эфемерный, систему не меняли (psycopg2 — только venv).
 
 ---
 
