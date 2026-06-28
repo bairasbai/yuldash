@@ -1,3 +1,6 @@
+# Codex/агент-конфиги с API-ключами (Stitch и пр.) — НЕ в git
+.codex/
+
 # Android
 android/.gradle/
 android/local.properties
