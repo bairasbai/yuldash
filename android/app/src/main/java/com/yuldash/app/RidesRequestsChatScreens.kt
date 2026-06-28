@@ -238,6 +238,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import com.yandex.mapkit.map.IconStyle
@@ -1469,6 +1471,7 @@ internal fun ChatComposer(
     var showAttach by remember { mutableStateOf(false) }
     var showEmoji by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     AnimatedVisibility(visible = showEmoji && !recording) {
         EmojiPicker(onPick = { e -> onDraftChange(draft + e) })
@@ -1518,7 +1521,13 @@ internal fun ChatComposer(
                         .padding(horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { showEmoji = !showEmoji }, modifier = Modifier.size(36.dp)) {
+                    IconButton(
+                        onClick = {
+                            showEmoji = !showEmoji
+                            if (showEmoji) focusManager.clearFocus()   // прячем системную клавиатуру → видна наша панель
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
                         Icon(Icons.Default.EmojiEmotions, contentDescription = appText("Эмодзи", "Эмодзи"), tint = if (showEmoji) CanonGreen2 else CanonMuted, modifier = Modifier.size(22.dp))
                     }
                     Box(modifier = Modifier.weight(1f).padding(horizontal = 4.dp, vertical = 12.dp)) {
@@ -1526,7 +1535,8 @@ internal fun ChatComposer(
                         BasicTextField(
                             value = draft,
                             onValueChange = onDraftChange,
-                            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                            modifier = Modifier.fillMaxWidth().focusRequester(focus)
+                                .onFocusChanged { if (it.isFocused) showEmoji = false },
                             textStyle = TextStyle(color = CanonText, fontSize = 15.sp),
                             cursorBrush = SolidColor(CanonGreen2),
                             maxLines = 4
