@@ -159,6 +159,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -430,24 +433,31 @@ private fun MapHero(
     onDriver: () -> Unit
 ) {
     // Популярные маршруты — порядок с сервера (из реальных поездок); демо для богатого вида.
+    // Поллинг ставится на паузу, когда приложение уходит в фон (repeatOnLifecycle RESUMED):
+    // не дёргаем сервер, пока экран не виден — экономия трафика/батареи на масштабе.
+    val lifecycleOwner = LocalLifecycleOwner.current
     var popular by remember { mutableStateOf(demoPopularRoutes) }
     LaunchedEffect(Unit) {
-        while (true) {
-            ApiClient.getPopularRoutes().onSuccess { srv ->
-                if (srv.isNotEmpty()) popular = srv.map { s ->
-                    demoPopularRoutes.firstOrNull { it.from == s.from && it.to == s.to }
-                        ?: PopularRoute(from = s.from, to = s.to, minutes = "—", minutesBa = "—", distance = "", nearbyCount = s.count, label = "Поездки", labelBa = "Сәфәрҙәр")
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                ApiClient.getPopularRoutes().onSuccess { srv ->
+                    if (srv.isNotEmpty()) popular = srv.map { s ->
+                        demoPopularRoutes.firstOrNull { it.from == s.from && it.to == s.to }
+                            ?: PopularRoute(from = s.from, to = s.to, minutes = "—", minutesBa = "—", distance = "", nearbyCount = s.count, label = "Поездки", labelBa = "Сәфәрҙәр")
+                    }
                 }
+                delay(45_000)   // обновляем карусель под актуальные поездки
             }
-            delay(45_000)   // обновляем карусель под актуальные поездки
         }
     }
     // Живые цифры ленты (поездок за день/неделю/месяц/год + топ-маршрут) — с сервера.
     var liveFeed by remember { mutableStateOf<FeedDto?>(null) }
     LaunchedEffect(Unit) {
-        while (true) {
-            ApiClient.getFeed().onSuccess { liveFeed = it }
-            delay(60_000)
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                ApiClient.getFeed().onSuccess { liveFeed = it }
+                delay(60_000)
+            }
         }
     }
     var cardCollapsed by remember { mutableStateOf(false) }

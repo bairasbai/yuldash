@@ -121,7 +121,7 @@ class Ride(SQLModel, table=True):
     driver_id: int = Field(index=True, foreign_key="user.id")
     from_city: str = Field(index=True)
     to_city: str = Field(index=True)
-    depart_at: datetime
+    depart_at: datetime = Field(index=True)   # сортировка выдачи /rides по времени выезда
     seats_total: int = 3
     seats_left: int = 3
     price: int = 0
@@ -144,7 +144,7 @@ class Ride(SQLModel, table=True):
     smoking: bool = False             # курение разрешено
     baggage: bool = False             # есть место под багаж
     air_conditioner: bool = False     # кондиционер
-    status: RideStatus = RideStatus.active
+    status: RideStatus = Field(default=RideStatus.active, index=True)   # /rides и /rides/near фильтруют active
     created_at: datetime = Field(default_factory=utcnow)
 
 

@@ -28,6 +28,10 @@ Thumbs.db
 *.jks
 *.keystore
 keystore.properties
+# Собранные APK (тяжёлые бинарники ~50 МБ) — не в git, раздаём отдельно
+*.apk
+# Локальные приватные заметки агентов
+backend/private/
 # Firebase: конфиг приложения (ключ API) и сервисный ключ — не в git
 android/app/google-services.json
 **/firebase-service-account*.json
