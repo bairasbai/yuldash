@@ -12,6 +12,9 @@ os.environ["ENV"] = "dev"
 os.environ["DATABASE_URL"] = f"sqlite:///{_DB.as_posix()}"
 os.environ["SEED_DEMO"] = "false"
 os.environ["JWT_SECRET"] = "test-secret-key-1234567890"
+# Лимитер выключен для тестов: все /auth-хиты сессии делят один IP 'testclient'
+# и иначе упёрлись бы в строгий бюджет. Тест лимита включает его локально.
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlmodel import Session  # noqa: E402

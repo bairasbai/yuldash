@@ -4,6 +4,8 @@ from typing import Optional
 
 from sqlmodel import SQLModel, Field
 
+from .timeutil import utcnow
+
 # Соответствует docs/backend.md §3. Фаза 1: только ядро.
 
 
@@ -46,7 +48,10 @@ class User(SQLModel, table=True):
     telegram_id: Optional[str] = Field(default=None, index=True, unique=True)
     vk_id: Optional[str] = Field(default=None, index=True, unique=True)
     whatsapp_verified: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    # Выход/ревокация: токены, выпущенные ДО этого момента, считаются недействительными
+    # (logout «со всех устройств», смена/угон телефона). Сравнивается с `iat` токена.
+    tokens_valid_from: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class OtpCode(SQLModel, table=True):
@@ -54,7 +59,7 @@ class OtpCode(SQLModel, table=True):
     phone: str = Field(index=True)
     code: str
     attempts: int = 0                                              # попыток ввода (защита от перебора)
-    created_at: datetime = Field(default_factory=datetime.utcnow)  # для throttle запросов кода
+    created_at: datetime = Field(default_factory=utcnow)  # для throttle запросов кода
     expires_at: datetime
 
 
@@ -63,7 +68,7 @@ class DeviceToken(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     token: str = Field(index=True, unique=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class TgAuth(SQLModel, table=True):
@@ -76,7 +81,7 @@ class TgAuth(SQLModel, table=True):
     code: Optional[str] = None
     status: str = "waiting"          # waiting (ждём Старт) / sent (код отправлен) / used
     attempts: int = 0                # попыток ввода кода (защита от перебора)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
     expires_at: datetime
 
 
@@ -120,7 +125,7 @@ class Ride(SQLModel, table=True):
     baggage: bool = False             # есть место под багаж
     air_conditioner: bool = False     # кондиционер
     status: RideStatus = RideStatus.active
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class RideRequest(SQLModel, table=True):
@@ -139,7 +144,7 @@ class RideRequest(SQLModel, table=True):
     voice_url: Optional[str] = None
     transcript: Optional[str] = None        # расшифровка голосовой заявки
     status: str = "active"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class Booking(SQLModel, table=True):
@@ -150,7 +155,7 @@ class Booking(SQLModel, table=True):
     price: int = 0
     status: BookingStatus = BookingStatus.pending
     boarding_code: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 # ---- Фаза 2: чат, семья, безопасность ----
@@ -162,7 +167,7 @@ class Message(SQLModel, table=True):
     text: str = ""
     voice_url: Optional[str] = None
     transcript: Optional[str] = None        # расшифровка голосового
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class TrustedContact(SQLModel, table=True):
@@ -180,7 +185,7 @@ class TripShare(SQLModel, table=True):
     booking_id: int = Field(index=True, foreign_key="booking.id")
     contact_id: int = Field(foreign_key="trustedcontact.id")
     last_status: str = "shared"             # shared / sat / arrived / done
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class SosEvent(SQLModel, table=True):
@@ -190,7 +195,7 @@ class SosEvent(SQLModel, table=True):
     category: str = "other"                 # medical / breakdown / other
     note: str = ""
     status: str = "open"                    # open / handled
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class Report(SQLModel, table=True):
@@ -198,14 +203,14 @@ class Report(SQLModel, table=True):
     reporter_id: int = Field(index=True, foreign_key="user.id")
     target_user_id: int = Field(foreign_key="user.id")
     reason: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class Block(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     blocked_user_id: int = Field(foreign_key="user.id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class Rating(SQLModel, table=True):
@@ -215,7 +220,7 @@ class Rating(SQLModel, table=True):
     rater_id: int = Field(index=True, foreign_key="user.id")        # кто оценил
     ratee_id: int = Field(index=True, foreign_key="user.id")        # кого оценили (водитель или пассажир)
     stars: int = 5                           # 1..5
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class AdEvent(SQLModel, table=True):
@@ -223,4 +228,4 @@ class AdEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ad_id: str = Field(index=True)
     event_type: str = Field(index=True)      # impression / click
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)

@@ -4,7 +4,7 @@
 
 > **Статус:** ✅ Ядро working (вход через **Telegram**, поездки, заявки, бронь, чат+WebSocket, карта, проверка водителя). Приложение живёт на `yulbash.ru` (FastAPI + PostgreSQL). Android подключён.
 
-> ⚠️ **ВАЖНО (честно, аудит 2026-06-27):** ниже описана **ЦЕЛЕВАЯ** архитектура (как масштабировать), а НЕ текущая. **Текущий бэкенд — плоский монолит:** `app/main.py` (~1200 строк, все ~50 роутов в одном файле) + `models.py`/`db.py`/`config.py`/`security.py`. Структуры `api/`/`services/`/`middleware/`, Alembic-миграций (только ручные `migrate_*.sql`), Dockerfile, тестов, PostGIS и 20+ нормализованных таблиц **пока НЕТ**. API без префикса `/api/v1`. Вход — Telegram (не SMS/VK/WhatsApp). Читать как roadmap, не как «как есть».
+> ⚠️ **ВАЖНО (честно, обновлено 2026-06-28):** ниже описана **ЦЕЛЕВАЯ** архитектура (как масштабировать). **Сделан большой шаг к ней — бэкенд разрезан (2026-06-28, Opus):** монолит `app/main.py` (~1400 строк) → тонкая фабрика `create_app()` + домены в `app/routers/*` (health, auth, rides, requests, bookings, drivers, chat, discovery, family, safety) + общий `app/services.py` + схемы `app/schemas.py`. **Появилось:** версионирование API — каждый роут доступен и на корне (живой клиент), и под `/api/v1` (алиас); `Dockerfile` + `docker-compose.yml` (опц., прод пока systemd); pytest (`tests/test_api.py`, 11 тестов) + Alembic (`alembic/versions/`). **Поведение 1:1** (pytest 11/11, smoke OK, security OK, паритет роутов root↔/api/v1 проверен). **Ещё целевое, НЕ сделано:** PostGIS, 20+ нормализованных таблиц, middleware-слой (rate-limit), Redis-кеш, реальная контейнеризация прода. Вход — Telegram (не SMS/VK/WhatsApp). Читать структуру `api/services/...` ниже как ориентир — фактические имена: `routers/`, `services.py`, `schemas.py`.
 
 ---
 

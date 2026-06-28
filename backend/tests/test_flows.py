@@ -1,0 +1,297 @@
+"""Регресс-тесты пользовательских сценариев Юлдаша по доменам.
+
+Тонкий smoke проверял «что-то работает». Эти тесты фиксируют КОНТРАКТЫ
+(формы ответов, права доступа, бизнес-правила), чтобы рефакторинги их не сломали.
+Лимитер в тестах выключен (conftest).
+"""
+import base64
+
+from app.models import UserRole
+
+
+# ----------------------------- helpers -----------------------------
+def _publish(client, drv, frm="Баймак", to="Сибай", seats=3, price=300, **extra):
+    body = {"from_city": frm, "to_city": to, "depart_at": "2030-01-01T10:00:00",
+            "seats_total": seats, "price": price, **extra}
+    r = client.post("/rides", headers=drv["auth"], json=body)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _book(client, pax, ride_id, seats=1):
+    r = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride_id, "seats": seats})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _trip(client, user_factory):
+    """Готовая поездка: водитель, поездка, пассажир, бронь. Возвращает (drv, pax, ride, booking)."""
+    drv = user_factory("Drv", role=UserRole.driver)
+    pax = user_factory("Pax")
+    ride = _publish(client, drv)
+    booking = _book(client, pax, ride["id"])
+    return drv, pax, ride, booking
+
+
+# ----------------------------- поездки -----------------------------
+def test_ride_out_shape(client, user_factory):
+    drv = user_factory("RideDrv", role=UserRole.driver)
+    _publish(client, drv, frm="Темясово", to="Уфа", price=1400)
+    rides = client.get("/rides", params={"from_city": "Темясово"}).json()
+    assert rides and {"from_city", "driver_name", "driver_rating", "driver_verified", "seats_left"} <= set(rides[0])
+
+
+def test_ride_filters(client, user_factory):
+    drv = user_factory("FiltDrv", role=UserRole.driver)
+    _publish(client, drv, frm="Акъяр", to="Сибай", women_only=True)
+    assert all(r["women_only"] for r in client.get("/rides", params={"from_city": "Акъяр", "women_only": True}).json())
+
+
+def test_price_hint(client, user_factory):
+    drv = user_factory("PHDrv", role=UserRole.driver)
+    _publish(client, drv, frm="Зилаир", to="Уфа", price=900)
+    body = client.get("/rides/price_hint", params={"from_city": "Зилаир", "to_city": "Уфа"}).json()
+    assert body["count"] >= 1 and body["avg"] > 0
+
+
+def test_rides_near_distance(client, user_factory):
+    drv = user_factory("NearDrv", role=UserRole.driver)
+    _publish(client, drv, frm="Сибай", to="Уфа")
+    # координаты Уфы — дистанция до Сибая должна посчитаться
+    body = client.get("/rides/near", params={"from_city": "Сибай", "lat": 54.735, "lng": 55.958}).json()
+    assert body["count"] >= 1
+    assert any(it.get("distance_km") is not None for it in body["items"])
+
+
+def test_get_ride_404(client):
+    assert client.get("/rides/99999999").status_code == 404
+
+
+def test_rides_pagination(client, user_factory):
+    drv = user_factory("PgDrv", role=UserRole.driver)
+    city = "ПагинГрад"
+    for _ in range(5):
+        _publish(client, drv, frm=city, to="Сибай")
+    all_rides = client.get("/rides", params={"from_city": city}).json()
+    assert len(all_rides) == 5                       # дефолт (без limit) — все, как было
+    page = client.get("/rides", params={"from_city": city, "limit": 2, "offset": 0}).json()
+    assert len(page) == 2
+    page2 = client.get("/rides", params={"from_city": city, "limit": 2, "offset": 4}).json()
+    assert len(page2) == 1                            # хвост страницы
+
+
+# ----------------------------- заявки + матчинг -----------------------------
+def test_request_create_and_match(client, user_factory):
+    drv = user_factory("MDrv", role=UserRole.driver)
+    ride = _publish(client, drv, frm="Учалы", to="Магнитогорск")
+    pax = user_factory("MPax")
+    req = client.post("/requests", headers=pax["auth"], json={
+        "from_city": "Учалы", "to_city": "Магнитогорск", "seats": 1}).json()
+    assert req["status"] == "active"
+    mine = client.get("/requests/mine", headers=pax["auth"]).json()
+    assert any(x["id"] == req["id"] for x in mine)
+    matches = client.get("/match/rides", headers=pax["auth"], params={"request_id": req["id"]}).json()
+    assert any(m["id"] == ride["id"] for m in matches)
+
+
+def test_match_other_user_forbidden(client, user_factory):
+    pax = user_factory("OwnPax")
+    req = client.post("/requests", headers=pax["auth"], json={"from_city": "Сибай", "to_city": "Уфа"}).json()
+    outsider = user_factory("Nosy")
+    assert client.get("/match/rides", headers=outsider["auth"], params={"request_id": req["id"]}).status_code == 403
+
+
+# ----------------------------- брони -----------------------------
+def test_cannot_book_own_ride(client, user_factory):
+    drv = user_factory("SelfDrv", role=UserRole.driver)
+    ride = _publish(client, drv)
+    assert client.post("/bookings", headers=drv["auth"], json={"ride_id": ride["id"], "seats": 1}).status_code == 400
+
+
+def test_confirm_only_by_driver(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    # пассажир не может подтвердить
+    assert client.post(f"/bookings/{booking['id']}/confirm", headers=pax["auth"]).status_code == 403
+    # водитель — может
+    r = client.post(f"/bookings/{booking['id']}/confirm", headers=drv["auth"])
+    assert r.status_code == 200 and r.json()["status"] == "confirmed"
+
+
+def test_cancel_returns_seats(client, user_factory):
+    drv = user_factory("CancDrv", role=UserRole.driver)
+    ride = _publish(client, drv, seats=2)
+    pax = user_factory("CancPax")
+    b = _book(client, pax, ride["id"], seats=2)
+    assert client.get(f"/rides/{ride['id']}").json()["seats_left"] == 0
+    r = client.post(f"/bookings/{b['id']}/cancel", headers=pax["auth"])
+    assert r.status_code == 200 and r.json()["status"] == "cancelled"
+    assert client.get(f"/rides/{ride['id']}").json()["seats_left"] == 2
+
+
+def test_booking_lists(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    assert any(b["id"] == booking["id"] for b in client.get("/bookings/mine", headers=pax["auth"]).json())
+    assert any(b["booking_id"] == booking["id"] for b in client.get("/driver/bookings", headers=drv["auth"]).json())
+
+
+# ----------------------------- чат + инбокс -----------------------------
+def test_chat_conversations_notifications(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    bid = booking["id"]
+    assert client.post(f"/bookings/{bid}/messages", headers=pax["auth"], json={"text": "Я на месте"}).status_code == 200
+    msgs = client.get(f"/bookings/{bid}/messages", headers=drv["auth"]).json()
+    assert msgs[-1]["text"] == "Я на месте"
+    convs = client.get("/conversations", headers=drv["auth"]).json()
+    assert any(c["booking_id"] == bid for c in convs)
+    notes = client.get("/notifications", headers=drv["auth"]).json()
+    assert any(n["type"] == "message" for n in notes)
+
+
+# ----------------------------- рейтинги -----------------------------
+def test_two_way_rating(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    bid = booking["id"]
+    r = client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 5})
+    assert r.status_code == 200 and r.json()["ratee_id"] == drv["id"] and r.json()["rating"] == 5.0
+    # рейтинг водителя виден в /me
+    assert client.get("/me", headers=drv["auth"]).json()["rating"] == 5.0
+    # водитель оценивает пассажира
+    r2 = client.post(f"/bookings/{bid}/rate", headers=drv["auth"], json={"stars": 4})
+    assert r2.json()["ratee_id"] == pax["id"]
+
+
+def test_rate_outsider_forbidden(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    outsider = user_factory("RateOut")
+    assert client.post(f"/bookings/{booking['id']}/rate", headers=outsider["auth"], json={"stars": 5}).status_code == 403
+
+
+# ----------------------------- семейный контроль -----------------------------
+def test_trusted_contacts_and_share(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    c = client.post("/trusted-contacts", headers=pax["auth"], json={"name": "Мама", "phone": "+79990001122"})
+    assert c.status_code == 200
+    cid = c.json()["id"]
+    assert any(x["id"] == cid for x in client.get("/trusted-contacts", headers=pax["auth"]).json())
+    sh = client.post(f"/bookings/{booking['id']}/share", headers=pax["auth"], json={"contact_id": cid})
+    assert sh.status_code == 200
+    st = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "sat"})
+    assert st.status_code == 200 and st.json()[0]["last_status"] == "sat"
+
+
+def test_share_only_passenger(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    c = client.post("/trusted-contacts", headers=drv["auth"], json={"name": "X"}).json()
+    # водитель не может расшарить чужую (пассажирскую) поездку
+    assert client.post(f"/bookings/{booking['id']}/share", headers=drv["auth"], json={"contact_id": c["id"]}).status_code == 403
+
+
+def test_trip_status_bad_value(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    assert client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "wat"}).status_code == 400
+
+
+# ----------------------------- безопасность -----------------------------
+def test_sos_creates_event(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    r = client.post("/sos", headers=pax["auth"], json={"category": "medical", "booking_id": booking["id"]})
+    assert r.status_code == 200 and r.json()["category"] == "medical"
+
+
+def test_report_rules(client, user_factory):
+    a = user_factory("RepA")
+    b = user_factory("RepB")
+    assert client.post("/reports", headers=a["auth"], json={"target_user_id": a["id"]}).status_code == 400  # на себя
+    assert client.post("/reports", headers=a["auth"], json={"target_user_id": 99999999}).status_code == 404  # нет такого
+    assert client.post("/reports", headers=a["auth"], json={"target_user_id": b["id"], "reason": "rude"}).status_code == 200
+
+
+def test_block_self_forbidden(client, user_factory):
+    a = user_factory("BlkSelf")
+    assert client.post("/blocks", headers=a["auth"], json={"blocked_user_id": a["id"]}).status_code == 400
+
+
+# ----------------------------- водитель: профиль/проверка/модерация -----------------------------
+def test_driver_profile_verify_moderate(client, user_factory):
+    drv = user_factory("VerDrv", role=UserRole.driver)
+    client.post("/driver/profile", headers=drv["auth"], json={"car_make": "Lada", "car_model": "Vesta", "seats": 4})
+    # неполная заявка → 400
+    assert client.post("/driver/verify", headers=drv["auth"], json={"license_url": "a"}).status_code == 400
+    ok = client.post("/driver/verify", headers=drv["auth"], json={"license_url": "l.jpg", "car_photo_url": "c.jpg"})
+    assert ok.status_code == 200 and ok.json()["docs_status"] == "pending"
+    assert client.get("/driver/status", headers=drv["auth"]).json()["docs_status"] == "pending"
+    # модерация: обычный юзер не может
+    assert client.post(f"/admin/drivers/{drv['id']}/moderate", headers=drv["auth"], json={"approve": True}).status_code == 403
+    admin = user_factory("Admin", role=UserRole.admin)
+    m = client.post(f"/admin/drivers/{drv['id']}/moderate", headers=admin["auth"], json={"approve": True})
+    assert m.status_code == 200 and m.json()["verified"] is True and m.json()["docs_status"] == "verified"
+
+
+# ----------------------------- загрузки -----------------------------
+def test_upload_photo_and_bad_b64(client, user_factory):
+    u = user_factory("UpUser")
+    good = base64.b64encode(b"fake-image-bytes").decode()
+    r = client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "jpg"})
+    assert r.status_code == 200 and "/secure/docs/" in r.json()["url"]
+    assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": "!!!notb64!!!", "ext": "jpg"}).status_code == 400
+    # запрещённое расширение
+    assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "exe"}).status_code == 400
+
+
+def test_upload_voice(client, user_factory):
+    u = user_factory("VoiceUser")
+    data = base64.b64encode(b"audio").decode()
+    r = client.post("/voice", headers=u["auth"], json={"audio_b64": data, "ext": "m4a"})
+    assert r.status_code == 200 and "/media/voice/" in r.json()["url"]
+
+
+# ----------------------------- витрина / лента -----------------------------
+def test_feed_and_routes_shapes(client, user_factory):
+    feed = client.get("/feed").json()
+    assert {"today", "week", "month", "year", "drivers"} <= set(feed)
+    assert isinstance(client.get("/popular-routes").json(), list)
+
+
+def test_geocode_empty_without_key(client):
+    # ключ геокодера в тестах не задан → пустой список, не падаем
+    assert client.get("/geocode", params={"q": "Сибай"}).json() == {"items": []}
+
+
+def test_ads_empty_without_seed(client):
+    # SEED_DEMO=false в тестах → демо-креативы не подмешиваем
+    assert client.get("/ads").json() == []
+
+
+# ----------------------------- авторизация: полный OTP-цикл -----------------------------
+def test_otp_login_flow(client):
+    phone = "+79991234567"
+    sent = client.post("/auth/request-code", json={"phone": phone}).json()
+    assert sent["sent"] is True and "dev_code" in sent   # dev отдаёт код
+    v = client.post("/auth/verify", json={"phone": phone, "code": sent["dev_code"], "name": "Тест"})
+    assert v.status_code == 200
+    token = v.json()["access_token"]
+    me = client.get("/me", headers={"Authorization": f"Bearer {token}"}).json()
+    assert me["phone"] == phone and me["name"] == "Тест"
+
+
+def test_verify_wrong_code(client):
+    phone = "+79997654321"
+    client.post("/auth/request-code", json={"phone": phone})
+    assert client.post("/auth/verify", json={"phone": phone, "code": "0000", "name": "X"}).status_code in (400, 429)
+
+
+def _login(client, phone, name="U"):
+    code = client.post("/auth/request-code", json={"phone": phone}).json()["dev_code"]
+    return client.post("/auth/verify", json={"phone": phone, "code": code, "name": name}).json()["access_token"]
+
+
+def test_logout_revokes_token(client):
+    phone = "+79990008811"
+    tok = _login(client, phone, "LogoutUser")
+    h = {"Authorization": f"Bearer {tok}"}
+    assert client.get("/me", headers=h).status_code == 200          # токен работает
+    assert client.post("/auth/logout", headers=h).status_code == 200
+    assert client.get("/me", headers=h).status_code == 401          # тот же токен после logout — недействителен
+    # повторный вход выдаёт новый рабочий токен
+    tok2 = _login(client, phone, "LogoutUser")
+    assert client.get("/me", headers={"Authorization": f"Bearer {tok2}"}).status_code == 200

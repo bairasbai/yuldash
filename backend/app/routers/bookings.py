@@ -1,0 +1,108 @@
+"""Брони: бронирование (с защитой от овербукинга и блокировок), подтверждение,
+отмена, список своих, список броней водителя для оценки пассажиров."""
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlmodel import Session, select
+
+from ..db import get_session
+from ..models import Booking, BookingStatus, Ride, RideStatus, User
+from ..security import current_user, gen_otp
+from ..services import booking_and_ride_for_user, is_blocked, send_push, user_rating
+
+router = APIRouter(tags=["bookings"])
+
+
+class BookIn(BaseModel):
+    ride_id: int
+    seats: int = 1
+
+
+@router.post("/bookings", response_model=Booking)
+def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    if body.seats < 1:
+        raise HTTPException(400, "Количество мест должно быть больше 0")
+    # FOR UPDATE: блокируем строку поездки на время транзакции → нет овербукинга при гонке.
+    ride = session.exec(select(Ride).where(Ride.id == body.ride_id).with_for_update()).first()
+    if not ride or ride.status != RideStatus.active:
+        raise HTTPException(400, "Поездка недоступна")
+    if ride.driver_id == user.id:
+        raise HTTPException(400, "Нельзя бронировать собственную поездку")
+    if is_blocked(session, user.id, ride.driver_id):
+        raise HTTPException(403, "Бронь недоступна")
+    if ride.seats_left < body.seats:
+        raise HTTPException(400, "Не хватает мест")
+    booking = Booking(
+        ride_id=ride.id, passenger_id=user.id, seats=body.seats,
+        price=ride.price * body.seats, boarding_code=gen_otp(),
+    )
+    ride.seats_left -= body.seats
+    session.add(booking)
+    session.add(ride)
+    session.commit()
+    session.refresh(booking)
+    # Push водителю о новой брони.
+    send_push(session, ride.driver_id, "Новая бронь", f"{user.name or 'Пассажир'}: {ride.from_city} → {ride.to_city}, мест {body.seats}")
+    return booking
+
+
+@router.post("/bookings/{booking_id}/confirm", response_model=Booking)
+def confirm_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    if ride.driver_id != user.id:
+        raise HTTPException(403, "Подтвердить бронь может только водитель")
+    booking.status = BookingStatus.confirmed
+    session.add(booking)
+    session.commit()
+    session.refresh(booking)
+    return booking
+
+
+@router.post("/bookings/{booking_id}/cancel", response_model=Booking)
+def cancel_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отмена поездки пассажиром или водителем. Места возвращаются в поездку."""
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    if booking.status not in (BookingStatus.cancelled, BookingStatus.done):
+        booking.status = BookingStatus.cancelled
+        ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
+        session.add(booking)
+        session.add(ride)
+        session.commit()
+        session.refresh(booking)
+    return booking
+
+
+@router.get("/bookings/mine", response_model=List[Booking])
+def my_bookings(
+    limit: Optional[int] = None,        # пагинация (опц., None = все — обратносовместимо)
+    offset: int = 0,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    q = select(Booking).where(Booking.passenger_id == user.id)
+    if limit is not None:   # порядок добавляем только при пагинации (дефолт — как было)
+        q = q.order_by(Booking.id.desc()).offset(max(0, offset)).limit(max(1, min(limit, 200)))
+    return session.exec(q).all()
+
+
+@router.get("/driver/bookings")
+def driver_bookings(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Брони на поездки текущего водителя — чтобы оценить пассажиров после поездки."""
+    my_ride_ids = [r.id for r in session.exec(select(Ride).where(Ride.driver_id == user.id)).all()]
+    if not my_ride_ids:
+        return []
+    bookings = session.exec(select(Booking).where(Booking.ride_id.in_(my_ride_ids))).all()
+    out: list = []
+    for b in bookings:
+        ride = session.get(Ride, b.ride_id)
+        passenger = session.get(User, b.passenger_id)
+        avg, cnt = user_rating(session, b.passenger_id)
+        out.append({
+            "booking_id": b.id,
+            "passenger_name": (passenger.name if passenger else "Пассажир"),
+            "passenger_rating": (round(avg, 1) if cnt > 0 else None),
+            "route": (f"{ride.from_city} → {ride.to_city}" if ride else ""),
+            "status": b.status,
+        })
+    return out

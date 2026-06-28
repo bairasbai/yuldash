@@ -15,6 +15,47 @@ def test_health(client):
     assert client.get("/health").json()["status"] == "ok"
 
 
+def test_version(client):
+    body = client.get("/version").json()
+    assert "version" in body and "env" in body
+
+
+def test_health_reports_db(client):
+    body = client.get("/health").json()
+    assert body["status"] == "ok" and body["db"] == "ok"
+
+
+def test_security_headers(client):
+    h = client.get("/health").headers
+    assert h.get("X-Content-Type-Options") == "nosniff"
+    assert h.get("X-Frame-Options") == "DENY"
+
+
+def test_strict_rate_limit_on_auth(client):
+    """Строгий лимит на /auth/* отсекает перебор (анти-абуз перед запуском).
+    Лимитер для тестов выключен глобально (conftest) — включаем локально."""
+    from app.config import settings
+    saved_en, saved_lim = settings.rate_limit_enabled, settings.rate_limit_auth_per_min
+    settings.rate_limit_enabled = True
+    settings.rate_limit_auth_per_min = 3
+    try:
+        codes = [client.post("/auth/vk-callback").status_code for _ in range(6)]
+        assert 429 in codes, codes          # после 3 запросов — отбой
+        assert codes[0] != 429               # первые проходят (до лимита)
+    finally:
+        settings.rate_limit_enabled = saved_en
+        settings.rate_limit_auth_per_min = saved_lim
+
+
+def test_api_v1_alias(client):
+    """После разрезки монолита каждый роут доступен и на корне (живой клиент),
+    и под /api/v1 (версионирование). Зеркало не должно разойтись."""
+    assert client.get("/api/v1/health").json()["status"] == "ok"
+    assert client.get("/api/v1/rides").status_code == 200
+    # защищённый роут под префиксом так же требует токен (а не «не найдено»)
+    assert client.get("/api/v1/me").status_code in (401, 403)
+
+
 def test_me_requires_auth(client):
     assert client.get("/me").status_code in (401, 403)
 

@@ -1,5 +1,39 @@
 # 🏗️ Архитектурный аудит Юлдаша (senior-разбор)
 
+## 📓 Журнал: рефакторинг бэкенда (2026-06-28, Opus, worktree)
+
+**Что:** разрезал монолит `backend/app/main.py` (~1400 строк, ~50 роутов в одном файле) на модули — самый частый «плохой запах», мешавший поддержке и параллелизму.
+
+**Как (поведение 1:1, без переписывания на живой бете):**
+- `app/main.py` → тонкая фабрика `create_app()`: CORS, монтаж `/media`, lifespan (validate_production → init_db → seed), подключение роутеров. На уровне модуля по-прежнему есть `app` → энтрипоинт `app.main:app` (systemd) не тронут.
+- 10 доменных роутеров `app/routers/`: `health` (+ новый `/version`), `auth` (OTP+Telegram+VK/WA-заглушки+`/me`+push), `rides`, `requests` (+match), `bookings` (+driver bookings), `drivers` (профиль/проверка/upload/secure-docs/модерация), `chat` (REST+WebSocket+conversations+notifications), `discovery` (popular/feed/my-routes/geocode/ads/voice), `family` (контакты/share/trip-status/rate), `safety` (sos/reports/blocks).
+- Общая логика → `app/services.py`: `send_push`/`send_sms`/`send_text`, `booking_and_ride_for_user`, `drivers_bundle`+`ride_out*` (анти-N+1), `user_rating`, `is_blocked`, `seed_demo`, гео (`CITY_COORDS`/`haversine_km`), `decode_upload_b64`, медиа-URL, `ConnectionManager`/`manager`. Схемы `RideIn`/`RideOut` → `app/schemas.py` (разрыв цикла services↔rides).
+- **Версионирование API без риска:** `for r in all_routers: include_router(r); include_router(r, prefix="/api/v1")`. Старые URL (живой клиент) + `/api/v1/*` (будущее) одновременно.
+- **Прод-артефакты:** `Dockerfile` (3.12-slim, non-root, healthcheck), `docker-compose.yml` (api+postgres), `.dockerignore`. Прод пока systemd — это опция/Фаза 2.
+- **Deploy:** `deploy-backend.bat` переключён с 3 поимённых `scp` на `scp -r app\` (файлов стало много).
+
+**Проверка (всё зелёное):** pytest **11/11** (+`test_version`, `test_api_v1_alias`); `smoke.py` → `SMOKE OK`; `smoke_security.py` → `SECURITY SMOKE OK` (IDOR REST+WS, перебор OTP, throttle); паритет root↔`/api/v1` через TestClient (14 проверок: 200/401/501 совпадают).
+
+**Прод-харднинг (добавлено в той же сессии, раз пользователей нет — ломать нечего, делаем до релиза):**
+- `app/middleware.py`: **rate-limit** на IP (скользящее окно 60с, два бюджета — общий `RATE_LIMIT_PER_MIN=300` и строгий `RATE_LIMIT_AUTH_PER_MIN=20` на `/auth/*`+`/sos`, против перебора кодов/спама SOS); **security-заголовки** (`X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`); **access-лог** (метод/путь/статус/мс, без тел и query → токены/телефоны не текут); **единый обработчик** необработанных ошибок (500 без утечки стека наружу, стек в лог). Подключено в `create_app` (порядок: rate-limit внешний → отсекает раньше всего).
+- `/health` теперь пингует БД (`SELECT 1`) → поле `db: ok/down`, статус `ok`/`degraded` (всегда 200, чтобы деплой-проба отвечала).
+- Конфиг: `rate_limit_*` в `config.py` + `.env.example`. Формат ответов НЕ изменён (ошибки остаются `{"detail": ...}`).
+- Тесты харднинга: `test_health_reports_db`, `test_security_headers`, `test_strict_rate_limit_on_auth`.
+
+**Расширение тестового сейфти-нета (та же сессия):** новый `tests/test_flows.py` — контрактные регресс-тесты по всем доменам (поездки: форма RideOut/фильтры/price_hint/near/404; заявки+матчинг+права; брони: своя поездка/подтверждение водителем/возврат мест/списки; чат+инбокс+уведомления; двусторонний рейтинг+отражение в /me+посторонний 403; семья: контакты/share только пассажир/trip-status; безопасность: SOS/жалобы-правила/блок себя; водитель: профиль→verify→модерация админом+права; загрузки: фото/голос/битый b64/запрещённое расширение; лента/геокодер-без-ключа/ads-без-сида; полный OTP-цикл). Лимитер в тестах выключен через conftest (все /auth-хиты сессии делят IP `testclient`), тест лимита включает его локально. Итого **pytest 42/42** (было 14), smoke OK, security OK.
+- **Долг `datetime.utcnow()` ЗАКРЫТ безопасно.** Было ~24 вызова deprecated `datetime.utcnow()` (157 warnings). Вместо рискованного перехода на timezone-aware (ломает сравнения с наивными датами в БД → `TypeError`) завёл `app/timeutil.py::utcnow()` = `datetime.now(timezone.utc).replace(tzinfo=None)` — наивный UTC, поведение 1:1, без deprecation. Заменил во всех файлах (models/security/services/auth/drivers/discovery). Warnings **157→1** (остался чужой httpx/starlette). Полный переход на aware — отдельная миграция код+данные, когда понадобится.
+- **README бэкенда переписан** под новую структуру (роутеры/сервисы/middleware, версионирование, Docker, 42 теста, Telegram-вход, прод-безопасность).
+**Добивка «до конца» (закрыты 3 отложенных пункта):**
+- **Logout / ревокация токенов (backend+Android, end-to-end).** `User.tokens_valid_from`, `make_token` кладёт дробный `iat`, `current_user` отбивает токены с `iat < tokens_valid_from` (`security._token_revoked`); `POST /auth/logout` = «выход со всех устройств / при потере телефона». Старые токены без `iat` валидны (обратная совместимость). Дробный `iat` убирает гонку login→logout→login в пределах секунды. Миграция `migrate_logout.sql` (+ в `deploy-backend.bat`); sqlite-dev добавляет колонку сам. Android: `ApiClient.logout()` шлёт `POST /auth/logout` (токен в local val — без гонки), чистит локально + сбрасывает кеш userId. Тест `test_logout_revokes_token`. **Android собран: BUILD SUCCESSFUL.**
+- **Пагинация (backend, обратносовместимо).** Опциональные `limit`/`offset` на `/rides`, `/bookings/mine`, `/requests/mine`. Дефолт (`limit=None`) = всё как было; `order_by` для брони/заявок добавляется ТОЛЬКО при пагинации (порядок дефолта не меняется); потолок 200/страница. Android отдаёт массивы как раньше → не тронут (load-more UI — на потом, YAGNI на текущем объёме). Тест `test_rides_pagination`.
+- **Alembic починен.** 3 прежних миграции падали на sqlite (ALTER CONSTRAINT) и на проде никогда не запускались → заменены ОДНИМ baseline `0001_baseline_schema.py` (`SQLModel.metadata.create_all/drop_all`): работает на sqlite И postgres, всегда == модели. Проверено: `alembic upgrade head` на чистой sqlite → **FULL MATCH**, `current=0001_baseline (head)`. Прод-катовер (разово, таблицы уже есть): `alembic stamp head`. Рантайм не меняли (`init_db` = `create_all`).
+- **Честно про refresh-токены:** сделан LOGOUT+ревокация (реальный пробел), НЕ ротация refresh-токенов. 30-дневный access + серверная ревокация — достаточно для попутки «между своими»; полная ротация = больший передел auth, не нужен сейчас.
+- **Итог: pytest 44/44**, smoke OK, security OK, Android BUILD SUCCESSFUL, alembic head==models.
+
+**Не сделано (целевое, отложено, не блокирует запуск):** PostGIS, нормализация в 20+ таблиц, Redis (rate-limit пока in-memory, на 1-2 воркера ок), load-more UI в Android (бэкенд готов), refresh-токен-ротация, контейнеризация прода. **⏳ Не задеплоено** — worktree; выкатить после мёржа (`deploy-backend.bat`).
+
+---
+
 > Дата: 2026-06-27. Метод: 4 параллельных read-only аудита (UI-ядро, крупные экраны, слой данных, бэкенд).
 > Цель: понять архитектуру, найти плохие решения / дубли / узкие места / риски роста / проблемы поддержки.
 > ⚠️ **Поведение приложения НЕ менялось.** Это разбор + план, код не тронут. Аудит делался в worktree `pedantic-kare-ef1707`, параллельно шла другая сессия (отдельный worktree) — конфликтов нет.

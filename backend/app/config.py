@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     media_base_url: str = "https://yulbash.ru"   # база для публичных URL медиа (фото/голос)
     cors_origins: str = "*"                       # список origin через запятую; в проде сузить
     seed_demo: bool = True                        # демо-поездки в пустой БД (в проде выкл.)
+
+    # --- Анти-абуз / защита (важно перед публичным запуском) ---
+    rate_limit_enabled: bool = True               # глобальный лимит запросов на IP
+    rate_limit_per_min: int = 300                 # запросов/мин с одного IP (обычный клиент << этого)
+    rate_limit_auth_per_min: int = 20             # отдельный, строгий лимит на /auth/* и /sos (анти-перебор/спам)
     max_upload_mb: int = 10                        # лимит размера загрузки (фото/аудио)
     allowed_image_ext: str = "jpg,jpeg,png,webp"  # разрешённые расширения фото
     allowed_audio_ext: str = "m4a,mp3,ogg,wav,aac"  # разрешённые расширения аудио

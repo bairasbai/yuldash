@@ -151,8 +151,28 @@ object ApiClient {
     }
 
     fun logout() {
+        // Серверный выход: помечаем токен недействительным на сервере (logout со всех устройств,
+        // ревокация при потере телефона). Токен захватываем в local val — иначе гонка с очисткой ниже.
+        val t = token
+        if (!t.isNullOrBlank()) {
+            bg.launch {
+                runCatching {
+                    val conn = (URL("$BASE/auth/logout").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        connectTimeout = 15000
+                        readTimeout = 15000
+                        setRequestProperty("Authorization", "Bearer $t")
+                    }
+                    conn.responseCode
+                    conn.disconnect()
+                }
+            }
+        }
+        // Локальная очистка — синхронно, чтобы UI сразу видел «вышел».
         token = null
         userName = null
+        cachedUserId = null
+        cachedUserIdForToken = null
         prefs?.edit()?.remove("token")?.remove("user_name")?.apply()
     }
 

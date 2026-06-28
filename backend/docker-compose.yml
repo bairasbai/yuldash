@@ -1,0 +1,37 @@
+# Локальный/стейджинг стек Юлдаша: API + PostgreSQL.
+# Прод сейчас — systemd + системный postgres. Это для воспроизводимого окружения
+# (разработка, стейджинг, будущая контейнеризация). Секреты — через .env, не в git.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: yuldash
+      POSTGRES_USER: yuldash
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-yuldash}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yuldash"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENV: ${ENV:-dev}
+      DATABASE_URL: postgresql://yuldash:${POSTGRES_PASSWORD:-yuldash}@db:5432/yuldash
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-please-1234}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      SEED_DEMO: ${SEED_DEMO:-true}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./media:/app/media
+      - ./private:/app/private
+
+volumes:
+  pgdata:

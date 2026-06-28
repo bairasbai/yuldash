@@ -1,9 +1,12 @@
 .venv/
 __pycache__/
 *.pyc
-.env
 *.db
 *.db-journal
 media/
 private/
+.env
 firebase-service-account.json
+tests/
+smoke*.py
+ws_scale_test.py
