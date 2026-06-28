@@ -558,6 +558,7 @@ internal fun YuldashApp() {
             Screen.PaymentInfo -> PaymentInfoScreen(onBack = { screen = Screen.Settings })
             Screen.Blocklist -> BlocklistScreen(onBack = { screen = Screen.Safety })
             Screen.Report -> ReportScreen(onBack = { screen = Screen.Safety })
+            Screen.Filters -> FiltersScreen(onBack = { screen = Screen.Settings })
             Screen.Safety -> SafetyScreen(
                 onBack = { openHome(HomeTab.Profile) },
                 onSelectTab = { tab -> openHome(tab) },
@@ -574,7 +575,8 @@ internal fun YuldashApp() {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                 },
                 onPrivacy = { screen = Screen.Privacy },
-                onPayments = { screen = Screen.PaymentInfo }
+                onPayments = { screen = Screen.PaymentInfo },
+                onFilters = { screen = Screen.Filters }
             )
             Screen.Help -> HelpScreen(
                 ads = partnerAds,

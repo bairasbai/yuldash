@@ -277,7 +277,8 @@ internal fun MapScreen(
     var nearbyReload by remember { mutableStateOf(0) }
     var nearbyTotal by remember { mutableStateOf(0) }       // всего на маршруте (для «Показать ещё»)
     var nearbyLimit by remember { mutableStateOf(NEARBY_PAGE) }  // сколько показываем сейчас
-    var prefFilter by remember { mutableStateOf(setOf<String>()) }  // фильтр «Ближайших» по условиям поездки
+    val filterCtx = LocalContext.current
+    var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
     val focusFrom = activeTrip?.from
     val focusTo = activeTrip?.to
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции

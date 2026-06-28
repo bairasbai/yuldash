@@ -279,6 +279,7 @@ internal enum class Screen {
     PaymentInfo,
     Blocklist,
     Report,
+    Filters,
     Help,
     PassengerCabinet,
     DriverCabinet,
