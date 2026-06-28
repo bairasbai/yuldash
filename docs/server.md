@@ -27,14 +27,7 @@
 - Cron: **ежедневно 4:00**, лог `/opt/yuldash/backups/backup.log`.
 - Ручной бэкап: `ssh root@85.239.52.55 "/opt/yuldash/backup-db.sh"`.
 - Восстановить: `gunzip -c backups/yuldash-ДАТА.sql.gz | sudo -u postgres psql yuldash`.
-- **Офсайт-копия в S3 (2026-06-28, infra готова, aws-cli v2 стоит).** Скрипт после локального дампа грузит копию в S3-совместимый бакет — страховка на случай гибели сервера. **Включается одним файлом `/opt/yuldash/.backup-s3.env` (НЕ в git):**
-  ```
-  S3_ENDPOINT=https://s3.twcstorage.ru   # эндпоинт твоего бакета (Timeweb/Selectel/Backblaze)
-  S3_BUCKET=yuldash-backups
-  AWS_ACCESS_KEY_ID=...
-  AWS_SECRET_ACCESS_KEY=...
-  ```
-  Без файла блок тихо пропускается (локальный бэкап цел). Ретеншн в облаке настраивается lifecycle-правилом бакета. ⚠️ Действие Александра: создать бакет + ключи, положить файл.
+- ✅ **Офсайт-копия в S3 — АКТИВНА (2026-06-28).** Бакет **Timeweb `yuldash-backups`** (приватный, регион `ru-1`, endpoint `https://s3.twcstorage.ru`). Скрипт после локального дампа грузит копию в бакет (aws-cli v2). Проверено: `backup-db.sh` → `s3 upload ok`, объект виден в бакете. Cron 4:00 шлёт копию ежедневно. Ключи — в `/opt/yuldash/.backup-s3.env` (права 600, **НЕ в git**). Восстановить из облака: `aws --endpoint-url https://s3.twcstorage.ru s3 cp s3://yuldash-backups/ФАЙЛ .` → `gunzip -c ФАЙЛ | sudo -u postgres psql yuldash`. ⚠️ Ретеншн в облаке безлимитный (объекты ~8 КБ/день — годами до 10 ГБ); при желании — lifecycle-правило бакета. Перевыпуск ключей — в панели Timeweb → Хранилище S3.
 
 ## 🔔 Мониторинг (2026-06-28)
 - Скрипт `/opt/yuldash/monitor.sh` (git: `backend/monitor.sh`): пинг `http://127.0.0.1:8000/health` **раз в минуту** (cron), лог `/opt/yuldash/monitor.log`.
