@@ -497,6 +497,10 @@ object ApiClient {
     suspend fun deleteMessage(bookingId: Int, messageId: Int, scope: String): Result<Unit> =
         call("DELETE", "/bookings/$bookingId/messages/$messageId?scope=$scope", null, auth = true).map { }
 
+    /** Код посадки брони (виден только участникам) — пассажир называет, водитель сверяет. */
+    suspend fun getBoardingCode(bookingId: Int): Result<String> =
+        call("GET", "/bookings/$bookingId/boarding-code", null, auth = true).map { it.optString("code") }
+
     suspend fun getMessages(bookingId: Int): Result<List<MessageDto>> =
         call("GET", "/bookings/$bookingId/messages", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()

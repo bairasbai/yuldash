@@ -47,6 +47,14 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     return booking
 
 
+@router.get("/bookings/{booking_id}/boarding-code")
+def boarding_code(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Код посадки брони — виден ТОЛЬКО участникам (пассажир/водитель). Пассажир называет код,
+    водитель сверяет → подтверждение «та самая машина/человек» (доверие «между своими»)."""
+    booking, _ride = booking_and_ride_for_user(session, booking_id, user)
+    return {"code": booking.boarding_code or ""}
+
+
 @router.post("/bookings/{booking_id}/confirm", response_model=Booking)
 def confirm_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking, ride = booking_and_ride_for_user(session, booking_id, user)

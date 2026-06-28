@@ -513,11 +513,15 @@ internal fun ActiveTripScreen(
     // отрицательный id (-2, -3, …). failedIds — те, что не доставились (показываем «Повторить»).
     var failedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
     var tempSeq by remember(bookingId) { mutableStateOf(-2) }
+    var boardingCode by remember(bookingId) { mutableStateOf("") }
     val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
 
-    // История — по REST (один раз).
+    // История — по REST (один раз). + код посадки брони.
     LaunchedEffect(bookingId) {
-        bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { messages = it } }
+        bookingId?.let { id ->
+            ApiClient.getMessages(id).onSuccess { messages = it }
+            ApiClient.getBoardingCode(id).onSuccess { boardingCode = it }
+        }
     }
 
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
@@ -596,7 +600,23 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
-            item { Text(appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(1)) }
+            if (boardingCode.isNotBlank()) {
+                item {
+                    Surface(modifier = Modifier.appearIn(1), color = CanonMint, shape = CanonCardShape) {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Pin, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(28.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                                Text(appText("Назовите водителю — он сверит. Это та самая машина.", "Водителгә әйтегеҙ — ул тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Text(boardingCode, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 30.sp, letterSpacing = 4.sp)
+                        }
+                    }
+                }
+            }
+            item { Text(appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(2)) }
             item {
                 Row(modifier = Modifier.appearIn(2), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(
