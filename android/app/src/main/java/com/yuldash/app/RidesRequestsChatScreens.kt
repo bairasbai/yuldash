@@ -1468,7 +1468,6 @@ internal fun ChatComposer(
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) begin()
         else permLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
-    var showAttach by remember { mutableStateOf(false) }
     var showEmoji by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -1495,23 +1494,9 @@ internal fun ChatComposer(
                     color = CanonText, fontSize = 14.sp
                 )
             } else {
-                // «+» — вложение (меню реальных действий, расширяется)
-                Box {
-                    IconButton(onClick = { showAttach = true }, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.Add, contentDescription = appText("Прикрепить", "Беркетеү"), tint = CanonGreen2)
-                    }
-                    DropdownMenu(expanded = showAttach, onDismissRequest = { showAttach = false }) {
-                        DropdownMenuItem(
-                            text = { Text(appText("Голосовое сообщение", "Тауыш хәбәре")) },
-                            leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, tint = CanonGreen2) },
-                            onClick = { showAttach = false; requestVoice() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(appText("Фото", "Фото")) },
-                            leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, tint = CanonGreen2) },
-                            onClick = { showAttach = false; photoPicker.launch("image/*") }
-                        )
-                    }
+                // «+» — прикрепить фото (голос — отдельной кнопкой-микрофоном справа)
+                IconButton(onClick = { photoPicker.launch("image/*") }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = appText("Прикрепить фото", "Фото беркетеү"), tint = CanonGreen2)
                 }
                 // Пилюля: эмодзи + поле ввода
                 Row(
