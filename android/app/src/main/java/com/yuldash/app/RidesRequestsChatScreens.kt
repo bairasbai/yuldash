@@ -592,7 +592,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                 Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (dto.driverOnline) { Spacer(Modifier.width(6.dp)); OnlineBadge() }
                 Spacer(Modifier.weight(1f))
-                Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(15.dp))
+                Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(3.dp))
                 Text(dto.driverRating.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
@@ -745,7 +745,7 @@ internal fun RideCard(
                     }
                     Text(ride.carText(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(18.dp))
                 Text(ride.rating.toString())
             }
             if (compact) {
@@ -767,7 +767,7 @@ internal fun RideCard(
                         onClick = onBook,
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0B6B3A))
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                     ) {
                         Text(appText("Поехать", "Барырға"), fontWeight = FontWeight.Black)
                     }
@@ -1553,7 +1553,7 @@ private fun ChatCard(initial: String, name: String, subtitle: String, message: S
             Box(
                 modifier = Modifier
                     .size(58.dp)
-                    .background(if (support) Color(0xFF0B6B3A) else MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                    .background(if (support) CanonGreen2 else MaterialTheme.colorScheme.primaryContainer, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 if (avatarUrl.isBlank()) {

@@ -344,6 +344,9 @@ private fun LoginFormCard(
                 val errExpiredCode = appTextFor(currentLanguage, "Код истёк. Получи новый — открой Telegram ещё раз.", "Код ваҡыты бөттө. Яңыһын ал — Telegram'ды тағы ас.")
                 val errTooManyCode = appTextFor(currentLanguage, "Слишком много попыток. Получи новый код.", "Бик күп омтылыш. Яңы код ал.")
                 val errPhoneRequired = appTextFor(currentLanguage, "Для безопасности нужен номер. В Telegram нажми «📱 Поделиться номером», потом вернись и нажми «Войти».", "Хәүефһеҙлек өсөн номер кәрәк. Telegram'да «📱 Номер менән бүлешергә» баҫ, аҙаҡ кире ҡайтып «Инеү» баҫ.")
+                // Под наплывом (запуск) Telegram шлёт коды с задержкой (~30/сек на бота) → сервер
+                // отвечает 409 «код ещё не пришёл». Честное сообщение, чтобы юзер не думал, что ошибся.
+                val errCodeNotYet = appTextFor(currentLanguage, "Код ещё идёт от Telegram — подожди пару секунд и нажми «Войти» снова.", "Код Telegram'дан килә — бер-ике секунд көт тә «Инеү» баҫ.")
                 Text(
                     text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот код ебәрер. Шуны индер."),
                     color = CanonMuted, fontSize = 16.sp, lineHeight = 22.sp
@@ -394,6 +397,7 @@ private fun LoginFormCard(
                                     loading = false
                                     when ((e as? ApiException)?.status) {
                                         403 -> { needPhone = true; error = errPhoneRequired }   // нужен номер
+                                        409 -> { needPhone = false; error = errCodeNotYet }    // код ещё идёт от Telegram под нагрузкой
                                         410 -> { needPhone = false; error = errExpiredCode }   // код истёк
                                         429 -> { needPhone = false; error = errTooManyCode }   // много попыток
                                         else -> { needPhone = false; error = errBadTgCode }    // неверный код
@@ -591,7 +595,7 @@ private fun BrandHero(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp))
-            .background(Color(0xFF0B6B3A))
+            .background(CanonGreen2)
     ) {
         Image(
             painter = painterResource(R.drawable.login_car_hero_square),

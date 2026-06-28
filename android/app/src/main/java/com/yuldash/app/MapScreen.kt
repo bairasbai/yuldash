@@ -755,7 +755,7 @@ internal fun SeniorAccessCard(onSimpleMode: () -> Unit) {
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, Color(0x1A0B6B3A))
+        border = BorderStroke(1.dp, CanonHairlineGreen)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),

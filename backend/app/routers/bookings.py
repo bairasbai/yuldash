@@ -97,14 +97,20 @@ def my_bookings(
 @router.get("/driver/bookings")
 def driver_bookings(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Брони на поездки текущего водителя — чтобы оценить пассажиров после поездки."""
-    my_ride_ids = [r.id for r in session.exec(select(Ride).where(Ride.driver_id == user.id)).all()]
-    if not my_ride_ids:
+    my_rides = session.exec(select(Ride).where(Ride.driver_id == user.id)).all()
+    if not my_rides:
         return []
-    bookings = session.exec(select(Booking).where(Booking.ride_id.in_(my_ride_ids))).all()
+    rides_by_id = {r.id: r for r in my_rides}
+    bookings = session.exec(select(Booking).where(Booking.ride_id.in_(list(rides_by_id)))).all()
+    # Пассажиры — одним запросом пачкой (анти-N+1), вместо session.get в цикле.
+    passenger_ids = {b.passenger_id for b in bookings}
+    passengers_by_id = {
+        u.id: u for u in session.exec(select(User).where(User.id.in_(passenger_ids))).all()
+    } if passenger_ids else {}
     out: list = []
     for b in bookings:
-        ride = session.get(Ride, b.ride_id)
-        passenger = session.get(User, b.passenger_id)
+        ride = rides_by_id.get(b.ride_id)
+        passenger = passengers_by_id.get(b.passenger_id)
         avg, cnt = user_rating(session, b.passenger_id)
         out.append({
             "booking_id": b.id,

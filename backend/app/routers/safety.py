@@ -1,5 +1,5 @@
 """Безопасность: SOS (с SMS доверенным контактам), жалобы, блокировки."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -10,8 +10,13 @@ from ..db import get_session
 from ..models import Block, Booking, Report, Ride, SosEvent, TrustedContact, User, UserRole
 from ..security import current_user
 from ..services import booking_and_ride_for_user, notify_admin_telegram, send_text
+from ..timeutil import utcnow
 
 router = APIRouter(tags=["safety"])
+
+# Анти-спам SMS: SOS-событие пишем ВСЕГДА (жизнь дороже), но рассылку доверенным контактам
+# глушим, если за последний час их уже оповещали > N раз — иначе мэш-кнопка = поток SMS и расходы.
+SOS_SMS_PER_HOUR = 6
 
 
 class SosIn(BaseModel):
@@ -24,18 +29,27 @@ class SosIn(BaseModel):
 def sos(body: SosIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     if body.booking_id is not None:
         booking_and_ride_for_user(session, body.booking_id, user)
+    # Сколько SOS уже было за последний час (ДО записи нового) — для кепа SMS.
+    recent = session.exec(
+        select(SosEvent).where(
+            SosEvent.user_id == user.id, SosEvent.created_at >= utcnow() - timedelta(hours=1)
+        )
+    ).all()
     event = SosEvent(user_id=user.id, **body.model_dump())
     session.add(event)
     session.commit()
     session.refresh(event)
-    # Реально уведомляем доверенные контакты по SMS.
-    contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
-    who = user.name or user.phone
+    # Реально уведомляем доверенные контакты по SMS — но только пока не превышен почасовой кеп.
     notified = 0
-    for c in contacts:
-        if c.phone:
-            send_text(c.phone, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.")
-            notified += 1
+    if len(recent) < SOS_SMS_PER_HOUR:
+        contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+        who = user.name or user.phone
+        for c in contacts:
+            if c.phone:
+                send_text(c.phone, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.")
+                notified += 1
+    else:
+        print(f"[SOS] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
     print(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
     return event
 

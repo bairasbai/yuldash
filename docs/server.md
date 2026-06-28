@@ -58,12 +58,17 @@
 - Поток: приложение `POST /reviews` → скрыто (published=false) → админ одобряет (экран «Модерация отзывов» в приложении ИЛИ `POST /admin/reviews/{id}/publish`) → лендинг `GET /reviews/public` показывает.
 - Лендинг тянет `TESTIMONIALS_API="/reviews/public"` клиентски; пусто → честная заглушка.
 
-## 💾 Бэкапы БД (2026-06-27)
+## 💾 Бэкапы БД (2026-06-27, + офсайт-S3 2026-06-28)
 - Скрипт `/opt/yuldash/backup-db.sh` (исходник в git: `backend/backup-db.sh`): `pg_dump yuldash | gzip` → `/opt/yuldash/backups/`, хранит последние 14.
 - Cron: **ежедневно 4:00**, лог `/opt/yuldash/backups/backup.log`.
 - Ручной бэкап: `ssh root@85.239.52.55 "/opt/yuldash/backup-db.sh"`.
 - Восстановить: `gunzip -c backups/yuldash-ДАТА.sql.gz | sudo -u postgres psql yuldash`.
-- ⚠️ Бэкапы на том же сервере → при потере сервера потеряются. Позже: копировать в облако/другой хост.
+- ✅ **Офсайт-копия в S3 — АКТИВНА (2026-06-28).** Бакет **Timeweb `yuldash-backups`** (приватный, регион `ru-1`, endpoint `https://s3.twcstorage.ru`). Скрипт после локального дампа грузит копию в бакет (aws-cli v2). Проверено: `backup-db.sh` → `s3 upload ok`, объект виден в бакете. Cron 4:00 шлёт копию ежедневно. Ключи — в `/opt/yuldash/.backup-s3.env` (права 600, **НЕ в git**). Восстановить из облака: `aws --endpoint-url https://s3.twcstorage.ru s3 cp s3://yuldash-backups/ФАЙЛ .` → `gunzip -c ФАЙЛ | sudo -u postgres psql yuldash`. ⚠️ Ретеншн в облаке безлимитный (объекты ~8 КБ/день — годами до 10 ГБ); при желании — lifecycle-правило бакета. Перевыпуск ключей — в панели Timeweb → Хранилище S3.
+
+## 🔔 Мониторинг (2026-06-28)
+- Скрипт `/opt/yuldash/monitor.sh` (git: `backend/monitor.sh`): пинг `http://127.0.0.1:8000/health` **раз в минуту** (cron), лог `/opt/yuldash/monitor.log`.
+- При падении (`/health` не `ok`/`db:ok`) шлёт алерт в **Telegram** через бот `@yuldash_sms_bot`. Сообщение — ТОЛЬКО на смене состояния (упал/восстановился), без спама.
+- **Включается файлом `/opt/yuldash/.monitor.env` (НЕ в git):** `ALERT_CHAT_ID=<твой chat_id>`. Узнать chat_id: напиши боту любое сообщение → `curl -s "https://api.telegram.org/bot$TOKEN/getUpdates"` (TOKEN из `.env`) → поле `"id"`. Без chat_id скрипт работает, но молчит.
 
 ## 🚪 Как подключиться и управлять (шпаргалка для Александра)
 
@@ -103,7 +108,10 @@ ssh root@85.239.52.55 "systemctl restart yuldash-api"
 ## Не сделано (следующие шаги)
 - [x] **HTTPS/SSL** — включён бесплатно через `sslip.io` + Let's Encrypt (без покупки домена). Захочешь красивый адрес — купить домен, привязать A-запись на `85.239.52.55`, `certbot --nginx -d домен` (1 команда), сменить базовый URL в приложении.
 - [x] **Подключить Android к API (CRUD-ядро)**: ✅ вход (SMS→JWT→автологин), ✅ поездки с сервера (`GET /rides`, карточки с водителем), ✅ заявки (`POST /requests` + `GET /requests/mine` — видны на вкладке «Заявка»), ✅ публикация поездки (`POST /rides` — проверено: БД 5→6), ✅ бронь (`POST /bookings` — проверено curl: booking id1, тот же fire-and-forget механизм). Клиент `data/ApiClient.kt` (HttpURLConnection, без зависимостей). **Важный фикс:** POST'ы — на долгоживущем scope `ApiClient` (fire-and-forget), иначе scope экрана отменялся при навигации и обрывал запрос. Бэкенд `/rides` дополнен `RideOut`+сид демо-поездок. ✅ **SOS** (`POST /sos` — проверено: БД 1→2), ✅ **доверенные контакты** (`POST`/`GET /trusted-contacts` — curl id1, загрузка в экран). ✅ **чат — минимальный шов**: composer с реальным вводом → `POST /bookings/{id}/messages` в последнюю бронь юзера (бэкенд проверен curl: message id1). Осталось: реальный SMS-провайдер (одобрение отправителя sms.ru — действие Александра). ✓ **Сделано 2026-06-23:** список диалогов (`/conversations`), уведомления (`/notifications`), популярные (`/popular-routes`), частые (`/my-routes`), реклама (`/ads`), share/trip-status — все сервер-управляемые с демо-фоллбэком. Базовый URL: `https://yulbash.ru`.
-- [~] **SMS-провайдер (`sms.ru`)** — ключ валиден (баланс 10 ₽, `sms_provider=smsru`, ключ в `.env`, **НЕ в git**), код шлёт реальную SMS. **НО** sms.ru требует **буквенного отправителя** (ошибка 221) → пока не доставляет. ⚠️ **Действие Александра:** sms.ru → «Отправители» (https://sms.ru/?panel=senders) → создать отправителя (бренд, напр. `Yulbash`/`Yuldash`) → модерация (часы). После одобрения: `sms_from=ИМЯ` в `/opt/yuldash/.env` → `systemctl restart yuldash-api` → реальные SMS пойдут. **Вход НЕ сломан:** при ошибке отправки код падает в лог (фоллбэк) — `journalctl -u yuldash-api | grep OTP`.
+- [~] **SMS-вход — ВЫКЛЮЧЕН ПО УМОЛЧАНИЮ (политика Александра 2026-06-28: основной вход — Telegram).** Состояние:
+  - **Прод:** `sms_provider=mock` → SMS инертен, `/auth/request-code` отдаёт **graceful 503** «войдите через мессенджер» (не 502, не падает). `sms_ru_api_id` уже сохранён в `/opt/yuldash/.env` (**НЕ в git**), отправитель `Yuldash` на модерации sms.ru (`sms_from` пуст).
+  - **Android:** `BuildConfig.SMS_LOGIN_ENABLED=false` по умолчанию (`YULDASH_SMS_LOGIN` не задан в `local.properties`) → форма SMS скрыта, в APK SMS-вход не виден.
+  - **Активация позже (когда отправитель `Yuldash` пройдёт модерацию), 2 шага:** ① прод `.env`: `sms_provider=smsru` + `sms_from=Yuldash` → `systemctl restart yuldash-api`; ② Android: `YULDASH_SMS_LOGIN=true` в `local.properties` → пересобрать релиз. До тех пор SMS чисто выключен, Telegram — единственный вход.
 - [x] **БД: PostgreSQL** — переключено с SQLite (`DATABASE_URL=postgresql+psycopg2://yuldash@localhost:5432/yuldash`). PG слушает только localhost + firewall закрывает 5432 снаружи. Схема+сид пересозданы (реальных данных не было). Драйвер `psycopg2-binary` в requirements.
 - [x] **Регулярные поездки** (2026-06-26): `Ride.recurrence`+`RideIn.recurrence` (none/weekdays/daily/weekly); `POST /rides` при повторе создаёт ближайшие 4 рейса серии. Миграция `migrate_recurrence.sql` (ADD COLUMN IF NOT EXISTS). Android: чипы «Повтор» в CreateRide. Развёрнут.
 - [x] **`/bookings/{id}/cancel` — отмена поездки** (2026-06-26): пассажир/водитель отменяет → status=cancelled + `ride.seats_left += seats` (место возвращается). Android: `cancelBooking` + кнопка/правило/диалог в ActiveTrip. Развёрнут.

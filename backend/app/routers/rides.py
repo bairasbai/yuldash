@@ -12,7 +12,7 @@ from ..models import Ride, RideCategory, RideStatus, User
 from ..schemas import RideIn, RideOut
 from ..security import current_user
 from ..services import (
-    CITY_COORDS, boost_then_depart_order, drivers_bundle, geocode_city,
+    CITY_COORDS, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle, geocode_city,
     haversine_km, ride_out_with, rides_out,
 )
 
@@ -58,6 +58,17 @@ def search_rides(
     offset: int = 0,
     session: Session = Depends(get_session),
 ):
+    # Горячий путь: дефолтный вызов без фильтров (его шлют ВСЕ на карте/вкладке поездок).
+    # Кешируем в Redis на 20с → снимаем нагрузку с БД при наплыве. Фильтрованные запросы (реже) — мимо кеша.
+    no_filter = (
+        not any([from_city, to_city, category, pets_allowed, child_seat, women_only, baggage])
+        and limit is None
+    )
+    if no_filter:
+        cached = cache_get_json("rides:active:v1")
+        if cached is not None:
+            return cached
+
     q = select(Ride).where(Ride.status == RideStatus.active)
     if from_city:
         q = q.where(Ride.from_city.contains(from_city))
@@ -77,7 +88,10 @@ def search_rides(
     if limit is not None:
         q = q.offset(max(0, offset)).limit(max(1, min(limit, 200)))   # потолок 200/страница
     rides = session.exec(q).all()
-    return rides_out(rides, session)
+    out = rides_out(rides, session)
+    if no_filter:
+        cache_set_json("rides:active:v1", [r.model_dump(mode="json") for r in out], 20)
+    return out
 
 
 @router.get("/rides/price_hint")
