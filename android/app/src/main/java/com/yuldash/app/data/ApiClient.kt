@@ -66,6 +66,10 @@ object ApiClient {
         bg.launch { sos(category, note) }
     }
 
+    fun fireRequestCallback(note: String) {
+        bg.launch { requestCallback(note) }
+    }
+
     fun fireSendMessage(bookingId: Int, text: String) {
         bg.launch { sendMessage(bookingId, text) }
     }
@@ -447,6 +451,10 @@ object ApiClient {
 
     suspend fun sos(category: String, note: String): Result<Unit> =
         call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }
+
+    /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
+    suspend fun requestCallback(note: String): Result<Unit> =
+        call("POST", "/callback", JSONObject().put("note", note), auth = true).map { }
 
     // ---------- Жалобы и чёрный список ----------
     suspend fun reportUser(targetUserId: Int, reason: String): Result<Unit> =

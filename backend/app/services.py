@@ -193,6 +193,23 @@ def _smsdar_send(phone: str, text: str) -> tuple[bool, str]:
     return ok, f"{r.status_code} {str(r.text)[:80]}"
 
 
+def notify_admin_telegram(text: str) -> None:
+    """Уведомление администратору (Александру) в Telegram через бот: запрос звонка и пр.
+    Тихо ничего не делает, если бот/chat_id не настроены."""
+    if not settings.telegram_bot_token or not settings.admin_telegram_chat_id:
+        print("[ADMIN_TG] не настроено (нет токена/chat_id) — пропуск")
+        return
+    try:
+        import httpx
+        httpx.get(
+            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+            params={"chat_id": settings.admin_telegram_chat_id, "text": text},
+            timeout=8,
+        )
+    except Exception as e:  # noqa: BLE001 — уведомление не должно ронять запрос
+        print(f"[ADMIN_TG] error {e}")
+
+
 def send_text(phone: str, text: str) -> None:
     """Отправка произвольного SMS (SOS, статусы близким). smsru → реально; иначе/фоллбэк — в лог."""
     mp = mask_phone(phone)

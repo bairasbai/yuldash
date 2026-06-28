@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # --- Telegram-вход (бот) ---
     telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)
     telegram_webhook_secret: str = ""   # секрет: аутентификация Telegram→сервер (заголовок X-Telegram-Bot-Api-Secret-Token)
+    admin_telegram_chat_id: str = ""    # chat_id админа (Александр) для уведомлений: запрос звонка и пр.
 
     # --- Push (FCM) ---
     firebase_credentials: str = ""      # путь к JSON сервисного аккаунта Firebase (для отправки пушей). Пусто → push выключен.

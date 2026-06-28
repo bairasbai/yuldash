@@ -656,8 +656,9 @@ internal fun YuldashApp() {
             Screen.CallbackHelp -> CallbackHelpScreen(
                 requested = callbackRequested,
                 onBack = { screen = Screen.SimpleMode },
-                onRequest = {
+                onRequest = { note ->
                     callbackRequested = true
+                    ApiClient.fireRequestCallback(note)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Шылтыратыу заявкаһы булдырылды" else "Заявка на звонок создана", Toast.LENGTH_SHORT).show()
                 }
             )

@@ -7,7 +7,7 @@ from typing import List, Optional
 from ..db import get_session
 from ..models import Block, Booking, Report, Ride, SosEvent, TrustedContact, User
 from ..security import current_user
-from ..services import booking_and_ride_for_user, send_text
+from ..services import booking_and_ride_for_user, notify_admin_telegram, send_text
 
 router = APIRouter(tags=["safety"])
 
@@ -36,6 +36,23 @@ def sos(body: SosIn, user: User = Depends(current_user), session: Session = Depe
             notified += 1
     print(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
     return event
+
+
+class CallbackIn(BaseModel):
+    note: str = Field("", max_length=500)
+
+
+@router.post("/callback")
+def request_callback(body: CallbackIn, user: User = Depends(current_user)):
+    """Запрос «перезвоните мне» (помощь пожилым/без интернета). Уведомляет админа в Telegram
+    с телефоном пользователя, чтобы реально перезвонили. Запись не храним — это поддержка."""
+    notify_admin_telegram(
+        f"📞 Запрос звонка (Юлдаш)\n"
+        f"От: {user.name or '—'}\n"
+        f"Тел: {user.phone}\n"
+        f"Сообщение: {body.note or '—'}"
+    )
+    return {"ok": True}
 
 
 class ReportIn(BaseModel):

@@ -916,7 +916,7 @@ private fun FrequentTripCard(trip: FrequentTrip, onClick: () -> Unit) {
 }
 
 @Composable
-internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest: () -> Unit) {
+internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest: (String) -> Unit) {
     val defaultReason = appText("Помогите создать заявку", "Заявка булдырырға ярҙам итегеҙ")
     var reason by remember { mutableStateOf(defaultReason) }
     val context = LocalContext.current
@@ -939,7 +939,7 @@ internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onReques
                 item {
                     InfoCard(
                         title = appText("Звонок запрошен", "Шылтыратыу һоралды"),
-                        text = appText("В прототипе заявка сохранена локально. В реальном приложении уйдёт оператору.", "Прототипта заявка локаль һаҡланды. Реаль ҡушымтала операторға китә."),
+                        text = appText("Заявка ушла помощнику Юлдаш. Мы перезвоним — обычно в течение дня.", "Заявка Юлдаш ярҙамсыһына китте. Беҙ шылтыратырбыҙ — ғәҙәттә көн эсендә."),
                         icon = Icons.Default.CheckCircle
                     )
                 }
@@ -949,7 +949,7 @@ internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onReques
                     onClick = {
                         if (supportPhone.isNotBlank()) {
                             runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:$supportPhone"))) }
-                        } else onRequest()
+                        } else onRequest(reason)
                     },
                     modifier = Modifier.fillMaxWidth().height(58.dp),
                     shape = RoundedCornerShape(18.dp),
