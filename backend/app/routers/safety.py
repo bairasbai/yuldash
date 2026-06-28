@@ -2,10 +2,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
-from typing import Optional
+from typing import List, Optional
 
 from ..db import get_session
-from ..models import Block, Report, SosEvent, TrustedContact, User
+from ..models import Block, Booking, Report, Ride, SosEvent, TrustedContact, User
 from ..security import current_user
 from ..services import booking_and_ride_for_user, send_text
 
@@ -76,3 +76,64 @@ def create_block(body: BlockIn, user: User = Depends(current_user), session: Ses
     session.commit()
     session.refresh(block)
     return block
+
+
+class BlockOut(BaseModel):
+    blocked_user_id: int
+    name: str
+
+
+@router.get("/blocks", response_model=List[BlockOut])
+def list_blocks(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Чёрный список текущего пользователя — кого он заблокировал (с именами)."""
+    blocks = session.exec(select(Block).where(Block.user_id == user.id)).all()
+    ids = {b.blocked_user_id for b in blocks}
+    users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()} if ids else {}
+    return [
+        BlockOut(
+            blocked_user_id=b.blocked_user_id,
+            name=(users[b.blocked_user_id].name if users.get(b.blocked_user_id) and users[b.blocked_user_id].name else "Пользователь"),
+        )
+        for b in blocks
+    ]
+
+
+@router.delete("/blocks/{blocked_user_id}")
+def unblock(blocked_user_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Убрать пользователя из чёрного списка."""
+    rows = session.exec(
+        select(Block).where(Block.user_id == user.id, Block.blocked_user_id == blocked_user_id)
+    ).all()
+    for r in rows:
+        session.delete(r)
+    session.commit()
+    return {"ok": True}
+
+
+class ReportableUser(BaseModel):
+    id: int
+    name: str
+
+
+@router.get("/reportable-users", response_model=List[ReportableUser])
+def reportable_users(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Попутчики, на которых можно пожаловаться/заблокировать — с кем была поездка
+    (как пассажир → водители; как водитель → пассажиры). Без глобального списка всех юзеров."""
+    ids: set = set()
+    # как пассажир → водители моих броней
+    my_bookings = session.exec(select(Booking).where(Booking.passenger_id == user.id)).all()
+    ride_ids = {b.ride_id for b in my_bookings}
+    if ride_ids:
+        for r in session.exec(select(Ride).where(Ride.id.in_(ride_ids))).all():
+            if r.driver_id != user.id:
+                ids.add(r.driver_id)
+    # как водитель → пассажиры моих поездок
+    my_ride_ids = {r.id for r in session.exec(select(Ride).where(Ride.driver_id == user.id)).all()}
+    if my_ride_ids:
+        for b in session.exec(select(Booking).where(Booking.ride_id.in_(my_ride_ids))).all():
+            if b.passenger_id != user.id:
+                ids.add(b.passenger_id)
+    if not ids:
+        return []
+    users = session.exec(select(User).where(User.id.in_(ids))).all()
+    return [ReportableUser(id=u.id, name=(u.name or "Пользователь")) for u in users]

@@ -372,6 +372,8 @@ internal fun SafetyScreen(
     onSos: () -> Unit,
     onShareTrip: () -> Unit = {},
     onRules: () -> Unit = {},
+    onBlocklist: () -> Unit = {},
+    onReport: () -> Unit = {},
 ) {
     var hidePhone by remember { mutableStateOf(true) }
     var verifiedOnly by remember { mutableStateOf(true) }
@@ -414,6 +416,8 @@ internal fun SafetyScreen(
                     SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it }
                     SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it }
                     SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
+                    SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
+                    SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщите о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр итегеҙ."), onClick = onReport)
                     SettingsNavRow(Icons.Default.Description, appText("Правила поездок", "Сәфәр ҡағиҙәләре"), appText("Ознакомьтесь с правилами сервиса Юлдаш.", "Юлдаш ҡағиҙәләре менән танышығыҙ."), onClick = onRules)
                 }
             }
@@ -605,6 +609,142 @@ private fun PaymentStepRow(n: String, text: String) {
         }
         Spacer(Modifier.width(12.dp))
         Text(text, color = CanonText, fontSize = 15.sp)
+    }
+}
+
+@Composable
+private fun PersonRow(name: String, actionLabel: String, danger: Boolean, onAction: () -> Unit) {
+    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = onAction) { Text(actionLabel, color = if (danger) CanonRed else CanonGreen2, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+/** Чёрный список: кого заблокировал (разблокировать) + попутчики, кого можно заблокировать. */
+@Composable
+internal fun BlocklistScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var blocks by remember { mutableStateOf<List<com.yuldash.app.data.BlockDto>>(emptyList()) }
+    var partners by remember { mutableStateOf<List<com.yuldash.app.data.ReportableUserDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    val blockedMsg = appText("Добавлен в чёрный список", "Ҡара исемлеккә өҫтәлде")
+    fun reload() {
+        scope.launch {
+            ApiClient.getBlocks().onSuccess { blocks = it }
+            ApiClient.getReportableUsers().onSuccess { partners = it }
+            loading = false
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
+    val blockedIds = blocks.map { it.blockedUserId }.toSet()
+    val addable = partners.filter { it.id !in blockedIds }
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Чёрный список", "Ҡара исемлек"), onBack) }) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item { Text(appText("Заблокированные не видят ваши поездки и не могут писать.", "Блоктағылар сәфәрегеҙҙе күрмәй һәм яҙа алмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            if (loading) {
+                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else {
+                if (blocks.isEmpty()) {
+                    item {
+                        Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                            Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Block, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
+                                Text(appText("Чёрный список пуст", "Ҡара исемлек буш"), color = CanonText, fontWeight = FontWeight.Black)
+                            }
+                        }
+                    }
+                } else {
+                    items(blocks.size) { i ->
+                        val b = blocks[i]
+                        PersonRow(b.name, appText("Разблокировать", "Блокты алыу"), danger = false) {
+                            scope.launch { ApiClient.unblockUser(b.blockedUserId).onSuccess { reload() } }
+                        }
+                    }
+                }
+                if (addable.isNotEmpty()) {
+                    item { Text(appText("Ваши попутчики", "Юлдаштарығыҙ"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp)) }
+                    items(addable.size) { i ->
+                        val p = addable[i]
+                        PersonRow(p.name, appText("Заблокировать", "Блоклау"), danger = true) {
+                            scope.launch { ApiClient.blockUser(p.id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Пожаловаться на попутчика (с кем была поездка) → POST /reports. */
+@Composable
+internal fun ReportScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var partners by remember { mutableStateOf<List<com.yuldash.app.data.ReportableUserDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var target by remember { mutableStateOf<com.yuldash.app.data.ReportableUserDto?>(null) }
+    var reason by remember { mutableStateOf("") }
+    val sentMsg = appText("Жалоба отправлена. Спасибо.", "Ялыу ебәрелде. Рәхмәт.")
+    LaunchedEffect(Unit) { ApiClient.getReportableUsers().onSuccess { partners = it }; loading = false }
+    target?.let { t ->
+        AlertDialog(
+            onDismissRequest = { target = null },
+            containerColor = CanonSurface,
+            title = { Text(appText("Жалоба на", "Ялыу:") + " ${t.name}", color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                OutlinedTextField(
+                    value = reason, onValueChange = { reason = it },
+                    placeholder = { Text(appText("Что случилось?", "Ни булды?")) },
+                    modifier = Modifier.fillMaxWidth(), minLines = 2
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val r = reason.trim(); val id = t.id
+                    scope.launch { ApiClient.reportUser(id, r); Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
+                    target = null; reason = ""
+                }) { Text(appText("Отправить", "Ебәреү"), color = CanonRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { target = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Пожаловаться", "Ялыу"), onBack) }) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item { Text(appText("Выберите, на кого пожаловаться. Видят только модераторы Юлдаша.", "Кемгә ялыу икәнен һайлағыҙ. Тик Юлдаш модераторҙары күрә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            if (loading) {
+                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (partners.isEmpty()) {
+                item {
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.Report, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
+                            Text(appText("Пока не на кого жаловаться", "Әлегә ялыу итергә кеше юҡ"), color = CanonText, fontWeight = FontWeight.Black)
+                            Text(appText("Здесь появятся попутчики после поездок.", "Бында сәфәрҙән һуң юлдаштар күренер."), color = CanonMuted, fontSize = 13.sp)
+                        }
+                    }
+                }
+            } else {
+                items(partners.size) { i ->
+                    val p = partners[i]
+                    PersonRow(p.name, appText("Пожаловаться", "Ялыу"), danger = true) { target = p; reason = "" }
+                }
+            }
+        }
     }
 }
 

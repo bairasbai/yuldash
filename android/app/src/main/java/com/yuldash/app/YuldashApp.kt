@@ -556,12 +556,16 @@ internal fun YuldashApp() {
             Screen.Privacy -> PrivacyScreen(onBack = { openHome(HomeTab.Profile) })
             Screen.Rules -> RulesScreen(onBack = { screen = Screen.Safety })
             Screen.PaymentInfo -> PaymentInfoScreen(onBack = { screen = Screen.Settings })
+            Screen.Blocklist -> BlocklistScreen(onBack = { screen = Screen.Safety })
+            Screen.Report -> ReportScreen(onBack = { screen = Screen.Safety })
             Screen.Safety -> SafetyScreen(
                 onBack = { openHome(HomeTab.Profile) },
                 onSelectTab = { tab -> openHome(tab) },
                 onSos = { screen = Screen.Sos },
                 onShareTrip = { screen = Screen.TrustedContacts },
-                onRules = { screen = Screen.Rules }
+                onRules = { screen = Screen.Rules },
+                onBlocklist = { screen = Screen.Blocklist },
+                onReport = { screen = Screen.Report }
             )
             Screen.Settings -> SettingsScreen(
                 onBack = { openHome(HomeTab.Profile) },

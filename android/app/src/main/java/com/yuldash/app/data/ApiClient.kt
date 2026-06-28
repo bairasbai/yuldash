@@ -448,6 +448,28 @@ object ApiClient {
     suspend fun sos(category: String, note: String): Result<Unit> =
         call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }
 
+    // ---------- Жалобы и чёрный список ----------
+    suspend fun reportUser(targetUserId: Int, reason: String): Result<Unit> =
+        call("POST", "/reports", JSONObject().put("target_user_id", targetUserId).put("reason", reason), auth = true).map { }
+
+    suspend fun blockUser(userId: Int): Result<Unit> =
+        call("POST", "/blocks", JSONObject().put("blocked_user_id", userId), auth = true).map { }
+
+    suspend fun unblockUser(userId: Int): Result<Unit> =
+        call("DELETE", "/blocks/$userId", null, auth = true).map { }
+
+    suspend fun getBlocks(): Result<List<BlockDto>> =
+        call("GET", "/blocks", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> val o = arr.getJSONObject(i); BlockDto(o.optInt("blocked_user_id"), o.optString("name")) }
+        }
+
+    suspend fun getReportableUsers(): Result<List<ReportableUserDto>> =
+        call("GET", "/reportable-users", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> val o = arr.getJSONObject(i); ReportableUserDto(o.optInt("id"), o.optString("name")) }
+        }
+
     // ---------- Чат (сообщения по брони) ----------
 
     /** Id моих броней (чату нужен booking_id). */
@@ -846,6 +868,9 @@ data class RequestDto(
 )
 
 /** Доверенный контакт с сервера. */
+data class BlockDto(val blockedUserId: Int, val name: String)
+data class ReportableUserDto(val id: Int, val name: String)
+
 data class ContactDto(
     val id: Int,
     val name: String,
