@@ -70,6 +70,10 @@ object ApiClient {
         bg.launch { requestCallback(note) }
     }
 
+    fun fireUpdateName(name: String) {
+        bg.launch { updateName(name) }
+    }
+
     fun fireSendMessage(bookingId: Int, text: String) {
         bg.launch { sendMessage(bookingId, text) }
     }

@@ -316,6 +316,7 @@ private fun LoginFormCard(
     var showPhone by remember { mutableStateOf(false) }   // SMS-форма (заморожена) раскрывается по тапу
     var tgMode by remember { mutableStateOf(false) }      // true — ждём ввод кода из Telegram
     var tgRequestId by remember { mutableStateOf("") }
+    var nameInput by remember { mutableStateOf("") }       // имя при регистрации (необязательно)
     var needPhone by remember { mutableStateOf(false) }   // сервер требует номер (403 phone_required)
     val context = LocalContext.current
 
@@ -356,6 +357,15 @@ private fun LoginFormCard(
                     }
                 }
                 OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it.take(120) },
+                    placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = 16.sp) },
+                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted) },
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+                OutlinedTextField(
                     value = code,
                     onValueChange = { code = it.filter { c -> c.isDigit() }.take(6); error = null },
                     placeholder = { Text(appTextFor(currentLanguage, "Код из Telegram", "Telegram коды"), fontSize = 16.sp) },
@@ -375,7 +385,11 @@ private fun LoginFormCard(
                         loading = true; error = null
                         scope.launch {
                             ApiClient.tgVerify(tgRequestId, code.trim())
-                                .onSuccess { loading = false; onContinue() }
+                                .onSuccess {
+                                    loading = false
+                                    nameInput.trim().takeIf { it.isNotBlank() }?.let { ApiClient.fireUpdateName(it) }
+                                    onContinue()
+                                }
                                 .onFailure { e ->
                                     loading = false
                                     when ((e as? ApiException)?.status) {
@@ -475,6 +489,15 @@ private fun LoginFormCard(
                 )
             } else {
                 OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it.take(120) },
+                    placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = 16.sp) },
+                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted) },
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+                OutlinedTextField(
                     value = code,
                     onValueChange = { code = it.filter { c -> c.isDigit() }.take(6); error = null },
                     placeholder = { Text(appTextFor(currentLanguage, "Код из SMS", "SMS коды"), fontSize = 16.sp) },
@@ -526,7 +549,7 @@ private fun LoginFormCard(
                         }
                         loading = true
                         scope.launch {
-                            ApiClient.verifyCode(phone.trim(), code.trim(), "")
+                            ApiClient.verifyCode(phone.trim(), code.trim(), nameInput.trim())
                                 .onSuccess { loading = false; onContinue() }
                                 .onFailure {
                                     loading = false
