@@ -9,6 +9,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -29,7 +31,9 @@ object ApiClient {
     private val BASE = BuildConfig.YULDASH_API_BASE_URL.trimEnd('/')
 
     @Volatile private var token: String? = null
+    @Volatile private var refreshToken: String? = null
     @Volatile private var userName: String? = null
+    private val refreshMutex = Mutex()   // не даём нескольким 401 рефрешить одновременно
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
     // Долгоживущий scope для POST'ов «отправил и забыл». НЕ привязан к экрану —
@@ -103,6 +107,7 @@ object ApiClient {
         val p = secure ?: plain
         prefs = p
         token = p.getString("token", null)
+        refreshToken = p.getString("refresh_token", null)
         userName = p.getString("user_name", null)
     }
 
@@ -150,6 +155,11 @@ object ApiClient {
         prefs?.edit()?.putString("token", t)?.apply()
     }
 
+    private fun saveRefresh(t: String) {
+        refreshToken = t
+        prefs?.edit()?.putString("refresh_token", t)?.apply()
+    }
+
     fun logout() {
         // Серверный выход: помечаем токен недействительным на сервере (logout со всех устройств,
         // ревокация при потере телефона). Токен захватываем в local val — иначе гонка с очисткой ниже.
@@ -170,10 +180,11 @@ object ApiClient {
         }
         // Локальная очистка — синхронно, чтобы UI сразу видел «вышел».
         token = null
+        refreshToken = null
         userName = null
         cachedUserId = null
         cachedUserIdForToken = null
-        prefs?.edit()?.remove("token")?.remove("user_name")?.apply()
+        prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.apply()
     }
 
     // ---------- Push (FCM) ----------
@@ -209,6 +220,7 @@ object ApiClient {
             auth = false,
         ).onSuccess { obj ->
             obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
+            obj.optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
             saveName(obj.optString("name").ifBlank { name })
         }
 
@@ -217,6 +229,7 @@ object ApiClient {
 
     private fun JSONObject.applyAuth(): JSONObject = apply {
         optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
+        optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
         optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }?.let(::saveName)
         registerCurrentPushToken()   // после входа — зарегистрировать устройство для push
     }
@@ -269,6 +282,30 @@ object ApiClient {
         return call("GET", path, null, auth = false).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
+        }
+    }
+
+    /** Ближайшие поездки с пагинацией («показать ещё»). total — сколько всего на маршруте. */
+    suspend fun getNearbyRidesPaged(
+        fromCity: String?,
+        toCity: String?,
+        lat: Double? = null,
+        lng: Double? = null,
+        radiusKm: Double? = null,
+        limit: Int,
+    ): Result<NearbyPage> {
+        val params = buildList {
+            fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
+            toCity?.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
+            lat?.let { add("lat=$it") }
+            lng?.let { add("lng=$it") }
+            radiusKm?.let { add("radius_km=$it") }
+            add("limit=$limit")
+        }
+        val path = "/rides/near?" + params.joinToString("&")
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            NearbyPage((0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }, obj.optInt("count"))
         }
     }
 
@@ -600,7 +637,9 @@ object ApiClient {
         path: String,
         body: JSONObject?,
         auth: Boolean,
+        isRetry: Boolean = false,        // повтор после обновления access-токена (чтобы не зациклиться)
     ): Result<JSONObject> = withContext(Dispatchers.IO) {
+        val usedToken = if (auth) token else null
         var conn: HttpURLConnection? = null
         try {
             conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
@@ -608,7 +647,7 @@ object ApiClient {
                 connectTimeout = 15000
                 readTimeout = 15000
                 setRequestProperty("Accept", "application/json")
-                if (auth) token?.let { setRequestProperty("Authorization", "Bearer $it") }
+                if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
                 if (body != null) {
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json")
@@ -625,6 +664,11 @@ object ApiClient {
                     else -> JSONObject(text)
                 }
                 Result.success(obj)
+            } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
+                // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
+                conn.disconnect(); conn = null
+                if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
+                else Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
             } else {
                 val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
                 Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)"))
@@ -635,6 +679,19 @@ object ApiClient {
             conn?.disconnect()
         }
     }
+
+    /** Обновить пару токенов по refresh. Mutex: при пачке 401 рефреш идёт один раз.
+     *  `staleToken` — access, с которым словили 401; если он уже сменился — другой поток обновил. */
+    private suspend fun tryRefresh(staleToken: String?): Boolean = refreshMutex.withLock {
+        if (token != null && token != staleToken) return@withLock true   // уже обновил другой запрос
+        val rt = refreshToken ?: return@withLock false
+        call("POST", "/auth/refresh", JSONObject().put("refresh_token", rt), auth = false, isRetry = true)
+            .map { obj ->
+                obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
+                obj.optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
+            }
+            .isSuccess
+    }
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
@@ -642,6 +699,9 @@ class ApiException(val status: Int, message: String) : Exception(message)
 
 /** Поездка с витрины сервера (бэкенд RideOut: поездка + данные водителя). */
 data class PriceHintDto(val avg: Int, val count: Int)
+
+/** Страница «Ближайших»: показанные + всего на маршруте (для кнопки «Показать ещё»). */
+data class NearbyPage(val items: List<RideDto>, val total: Int)
 
 /** JSON поездки с сервера → RideDto. Один шов вместо копипасты в getRides/getNearbyRides.
  *  distance_km нет в /rides → isNull(...) = null; есть в /rides/near → читаем. */

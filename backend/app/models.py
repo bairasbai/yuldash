@@ -54,6 +54,17 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class RefreshToken(SQLModel, table=True):
+    """Refresh-токен (ротируемый). Храним ХЕШ (sha256), не сам токен. При каждом
+    /auth/refresh старый помечается revoked и выдаётся новый. logout ревокует все."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    token_hash: str = Field(index=True, unique=True)
+    revoked: bool = False
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class OtpCode(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     phone: str = Field(index=True)
@@ -116,6 +127,12 @@ class Ride(SQLModel, table=True):
     pickup: str = ""                  # где водитель забирает (точка сбора, текст)
     pickup_lat: Optional[float] = None  # координаты точки сбора (пин на карте)
     pickup_lng: Optional[float] = None
+    # Гео-координаты концов маршрута (геокодятся из from_city/to_city при публикации).
+    # Нужны для радиус-поиска: PostGIS на проде, haversine-фолбэк на sqlite/без координат.
+    from_lat: Optional[float] = None
+    from_lng: Optional[float] = None
+    to_lat: Optional[float] = None
+    to_lng: Optional[float] = None
     recurrence: str = "none"          # none / daily / weekdays / weekly — регулярная поездка
     # Премиум-предпочтения поездки (двусторонний фильтр водитель↔пассажир)
     pets_allowed: bool = False        # можно с животными

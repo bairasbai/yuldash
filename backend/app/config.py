@@ -8,7 +8,9 @@ class Settings(BaseSettings):
     env: str = "dev"
     database_url: str = "sqlite:///./yuldash.db"
     jwt_secret: str = DEFAULT_JWT_SECRET
-    jwt_expire_min: int = 60 * 24 * 30  # 30 дней
+    jwt_expire_min: int = 60 * 24 * 30  # 30 дней (legacy-дефолт; access ниже короче)
+    access_expire_min: int = 60 * 24 * 7   # access-токен живёт 7 дней (refresh обновляет)
+    refresh_expire_days: int = 90          # refresh-токен живёт 90 дней (ротируется при каждом refresh)
     otp_ttl_sec: int = 300              # код жив 5 минут
     sms_provider: str = "mock"          # mock | smsru
     sms_ru_api_id: str = ""             # api_id из кабинета sms.ru (нужен для sms_provider=smsru)
@@ -31,6 +33,7 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True               # глобальный лимит запросов на IP
     rate_limit_per_min: int = 300                 # запросов/мин с одного IP (обычный клиент << этого)
     rate_limit_auth_per_min: int = 20             # отдельный, строгий лимит на /auth/* и /sos (анти-перебор/спам)
+    redis_url: str = ""                           # redis://host:port/db — общий лимит на все воркеры; пусто → in-memory (на воркер)
     max_upload_mb: int = 10                        # лимит размера загрузки (фото/аудио)
     allowed_image_ext: str = "jpg,jpeg,png,webp"  # разрешённые расширения фото
     allowed_audio_ext: str = "m4a,mp3,ogg,wav,aac"  # разрешённые расширения аудио

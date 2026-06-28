@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import engine, get_session
 from ..models import DeviceToken, OtpCode, TgAuth, User
-from ..security import current_user, gen_otp, make_token
+from ..security import current_user, gen_otp, issue_tokens, revoke_all_refresh, rotate_refresh
 from ..services import send_sms, user_rating
 from ..timeutil import utcnow
 
@@ -72,7 +72,9 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
         session.add(user)
         session.commit()
         session.refresh(user)
-    return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
+    tokens = issue_tokens(session, user.id)   # commit внутри → user протухает
+    session.refresh(user)                     # перечитываем, чтобы сериализовать в ответ
+    return {**tokens, "user": user}
 
 
 # ==================== TELEGRAM-ВХОД (бот, код подтверждения) ====================
@@ -171,7 +173,21 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
         session.add(user)
     session.commit()
     session.refresh(user)
-    return {"access_token": make_token(user.id), "token_type": "bearer", "user": user}
+    tokens = issue_tokens(session, user.id)   # commit внутри → user протухает
+    session.refresh(user)
+    return {**tokens, "user": user}
+
+
+class RefreshIn(BaseModel):
+    refresh_token: str
+
+
+@router.post("/auth/refresh")
+def refresh(body: RefreshIn, session: Session = Depends(get_session)):
+    """Обновить пару токенов по refresh-токену (ротация: старый refresh гасится)."""
+    if not body.refresh_token.strip():
+        raise HTTPException(400, "Нужен refresh_token")
+    return rotate_refresh(session, body.refresh_token.strip())
 
 
 # VK / WhatsApp вход — ОТКЛЮЧЕНО до безопасной реализации.
@@ -197,11 +213,11 @@ def me(user: User = Depends(current_user), session: Session = Depends(get_sessio
 
 @router.post("/auth/logout")
 def logout(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Выход со всех устройств: помечаем момент — все ранее выпущенные токены становятся
-    недействительными (см. security._token_revoked). Клиент дополнительно удаляет токен у себя."""
+    """Выход со всех устройств: гасим access (метка tokens_valid_from) и все refresh-токены."""
     user.tokens_valid_from = utcnow()
     session.add(user)
     session.commit()
+    revoke_all_refresh(session, user.id)
     return {"ok": True}
 
 

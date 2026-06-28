@@ -4,20 +4,25 @@ from datetime import timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import Ride, RideCategory, RideStatus, User
 from ..schemas import RideIn, RideOut
 from ..security import current_user
-from ..services import CITY_COORDS, drivers_bundle, haversine_km, ride_out_with, rides_out
+from ..services import CITY_COORDS, drivers_bundle, geocode_city, haversine_km, ride_out_with, rides_out
 
 router = APIRouter(tags=["rides"])
 
 
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    ride = Ride(driver_id=user.id, seats_left=body.seats_total, **body.model_dump())
+    # Геокодим концы маршрута (для радиус-поиска: PostGIS на проде / haversine иначе).
+    frm = geocode_city(body.from_city) or (None, None)
+    to = geocode_city(body.to_city) or (None, None)
+    geo = {"from_lat": frm[0], "from_lng": frm[1], "to_lat": to[0], "to_lng": to[1]}
+    ride = Ride(driver_id=user.id, seats_left=body.seats_total, **body.model_dump(), **geo)
     session.add(ride)
     # Регулярная поездка: сразу создаём ближайшие 4 рейса серии (реальные, бронируемые).
     if body.recurrence and body.recurrence != "none":
@@ -30,7 +35,7 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
             dt = dt + step
             if body.recurrence == "weekdays" and dt.weekday() >= 5:   # пропускаем сб/вс
                 continue
-            session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**body.model_dump(), "depart_at": dt}))
+            session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**body.model_dump(), "depart_at": dt}, **geo))
             made += 1
     session.commit()
     session.refresh(ride)
@@ -97,6 +102,8 @@ def rides_near(
     lat: Optional[float] = None,
     lng: Optional[float] = None,
     radius_km: Optional[float] = None,
+    limit: Optional[int] = None,        # пагинация «показать ещё» (опц., None = все)
+    offset: int = 0,
     session: Session = Depends(get_session),
 ):
     """Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).
@@ -107,13 +114,26 @@ def rides_near(
         q = q.where(Ride.from_city.contains(from_city))
     if to_city:
         q = q.where(Ride.to_city.contains(to_city))
+    # PostGIS-префильтр по радиусу (только postgres + есть координаты): индекс GiST → быстро на больших
+    # объёмах. Фолбэк (sqlite/без PostGIS/ошибка) — Python-haversine ниже даёт тот же результат.
+    if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
+        try:
+            ids = [row[0] for row in session.execute(text(
+                "SELECT id FROM ride WHERE from_lat IS NOT NULL AND "
+                "ST_DWithin(ST_MakePoint(from_lng, from_lat)::geography, "
+                "ST_MakePoint(:lng, :lat)::geography, :r)"
+            ), {"lng": lng, "lat": lat, "r": radius_km * 1000.0}).all()]
+            q = q.where(Ride.id.in_(ids)) if ids else q.where(Ride.id.is_(None))
+        except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк
+            print(f"[GEO] PostGIS prefilter skipped: {e}")
     rides = session.exec(q.order_by(Ride.depart_at)).all()  # по времени выезда ↑
     users, profiles, rating_agg = drivers_bundle(session, {r.driver_id for r in rides})
     items: list = []
     for r in rides:
         dist = None
         if lat is not None and lng is not None:
-            c = CITY_COORDS.get(r.from_city)
+            # реальные геокодированные координаты концов → иначе известный город → иначе нет дистанции
+            c = (r.from_lat, r.from_lng) if r.from_lat is not None and r.from_lng is not None else CITY_COORDS.get(r.from_city)
             if c:
                 dist = round(haversine_km(lat, lng, c[0], c[1]), 1)
         if radius_km is not None and dist is not None and dist > radius_km:
@@ -121,7 +141,10 @@ def rides_near(
         out = ride_out_with(r, users, profiles, rating_agg).model_dump()
         out["distance_km"] = dist
         items.append(out)
-    return {"count": len(items), "items": items}
+    total = len(items)
+    if limit is not None:
+        items = items[max(0, offset):max(0, offset) + max(1, min(limit, 200))]
+    return {"count": total, "items": items}   # count = всего (чтобы клиент знал, есть ли «ещё»)
 
 
 @router.get("/rides/{ride_id}", response_model=Ride)

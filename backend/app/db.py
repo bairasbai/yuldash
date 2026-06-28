@@ -1,4 +1,5 @@
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import ProgrammingError
 from sqlmodel import SQLModel, Session, create_engine
 
 from .config import settings
@@ -61,7 +62,13 @@ def _migrate_sqlite_add_columns() -> None:
 def init_db() -> None:
     # импорт моделей регистрирует таблицы в metadata
     from . import models  # noqa: F401
-    SQLModel.metadata.create_all(engine)
+    # checkfirst НЕ потокобезопасен: при нескольких воркерах gunicorn два процесса
+    # одновременно видят «таблицы нет» и делают CREATE → второй падает DuplicateTable.
+    # Глотаем эту гонку (таблицу создал другой воркер) — идемпотентно.
+    try:
+        SQLModel.metadata.create_all(engine)
+    except ProgrammingError as e:  # psycopg2 DuplicateTable и т.п. при гонке воркеров
+        print(f"[INIT_DB] create_all race ignored: {e}")
     _migrate_sqlite_add_columns()
 
 

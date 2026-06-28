@@ -272,17 +272,21 @@ internal fun MapScreen(
     var nearbyLoading by remember { mutableStateOf(true) }
     var nearbyError by remember { mutableStateOf(false) }   // отличаем «нет сети» от «нет поездок»
     var nearbyReload by remember { mutableStateOf(0) }
+    var nearbyTotal by remember { mutableStateOf(0) }       // всего на маршруте (для «Показать ещё»)
+    var nearbyLimit by remember { mutableStateOf(NEARBY_PAGE) }  // сколько показываем сейчас
     var prefFilter by remember { mutableStateOf(setOf<String>()) }  // фильтр «Ближайших» по условиям поездки
     val focusFrom = activeTrip?.from
     val focusTo = activeTrip?.to
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
     val userLng = LocationPrefs.lastLng
-    LaunchedEffect(focusFrom, focusTo, userLat, userLng, nearbyReload) {
+    // Сбрасываем страницу при смене маршрута/позиции (новый контекст → снова с начала).
+    LaunchedEffect(focusFrom, focusTo, userLat, userLng) { nearbyLimit = NEARBY_PAGE }
+    LaunchedEffect(focusFrom, focusTo, userLat, userLng, nearbyReload, nearbyLimit) {
         nearbyLoading = true
         // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
-        ApiClient.getNearbyRides(focusFrom, focusTo, userLat, userLng, radius)
-            .onSuccess { nearby = it; nearbyError = false }
+        ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit)
+            .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false }
             .onFailure { nearbyError = true }
         nearbyLoading = false
     }
@@ -370,6 +374,12 @@ internal fun MapScreen(
                             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 itemsIndexed(shownNearby, key = { _, dto -> dto.id }) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
+                                }
+                                // «Показать ещё» — когда сервер сообщил, что есть ещё (и фильтр не активен).
+                                if (prefFilter.isEmpty() && nearby.size < nearbyTotal) {
+                                    item(key = "nearby_more") {
+                                        NearbyMoreCard(loading = nearbyLoading) { nearbyLimit += NEARBY_PAGE }
+                                    }
                                 }
                             }
                         }
@@ -780,6 +790,7 @@ private val SibayPoint = Point(52.7236, 58.6651)
 // Согласие на показ геолокации — общий флаг (Профиль → Конфиденциальность ↔ карта).
 // Радиус «рядом»: поездки, чья точка выезда дальше — отсекаем (только когда знаем позицию клиента).
 private const val NEARBY_RADIUS_KM = 50.0
+private const val NEARBY_PAGE = 5            // «Ближайших» на страницу; «Показать ещё» добавляет столько же
 
 internal object LocationPrefs {
     var sharingEnabled by mutableStateOf(false)

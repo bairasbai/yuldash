@@ -285,6 +285,37 @@ def _login(client, phone, name="U"):
     return client.post("/auth/verify", json={"phone": phone, "code": code, "name": name}).json()["access_token"]
 
 
+def test_refresh_rotation(client):
+    phone = "+79990007722"
+    code = client.post("/auth/request-code", json={"phone": phone}).json()["dev_code"]
+    login = client.post("/auth/verify", json={"phone": phone, "code": code, "name": "RefUser"}).json()
+    assert login["access_token"] and login["refresh_token"]      # выдаётся пара
+    r = client.post("/auth/refresh", json={"refresh_token": login["refresh_token"]})
+    assert r.status_code == 200
+    new = r.json()
+    assert new["access_token"] and new["refresh_token"] != login["refresh_token"]   # ротация
+    # старый refresh после ротации — недействителен
+    assert client.post("/auth/refresh", json={"refresh_token": login["refresh_token"]}).status_code == 401
+    # новый access работает
+    assert client.get("/me", headers={"Authorization": f"Bearer {new['access_token']}"}).status_code == 200
+
+
+def test_logout_revokes_refresh(client):
+    phone = "+79990007733"
+    code = client.post("/auth/request-code", json={"phone": phone}).json()["dev_code"]
+    login = client.post("/auth/verify", json={"phone": phone, "code": code, "name": "RfLogout"}).json()
+    h = {"Authorization": f"Bearer {login['access_token']}"}
+    assert client.post("/auth/logout", headers=h).status_code == 200
+    # после logout refresh тоже погашен
+    assert client.post("/auth/refresh", json={"refresh_token": login["refresh_token"]}).status_code == 401
+
+
+def test_ride_geocoded_on_create(client, user_factory):
+    drv = user_factory("GeoDrv", role=UserRole.driver)
+    ride = _publish(client, drv, frm="Сибай", to="Уфа")   # оба в CITY_COORDS
+    assert ride["from_lat"] is not None and ride["to_lat"] is not None   # концы геокодированы
+
+
 def test_logout_revokes_token(client):
     phone = "+79990008811"
     tok = _login(client, phone, "LogoutUser")

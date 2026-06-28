@@ -17,12 +17,16 @@ scp %OPT% "%BK%\migrate_premium.sql"    %SRV%:/tmp/migrate_premium.sql          
 scp %OPT% "%BK%\migrate_oauth.sql"      %SRV%:/tmp/migrate_oauth.sql              || goto :err
 scp %OPT% "%BK%\migrate_whatsapp.sql"   %SRV%:/tmp/migrate_whatsapp.sql           || goto :err
 scp %OPT% "%BK%\migrate_logout.sql"     %SRV%:/tmp/migrate_logout.sql             || goto :err
+scp %OPT% "%BK%\migrate_geo.sql"        %SRV%:/tmp/migrate_geo.sql                || goto :err
 
 echo --- 2) Миграции БД (ALTER TABLE, идемпотентно) ---
 ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_premium.sql"  || goto :err
 ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_oauth.sql"    || goto :err
 ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_whatsapp.sql" || goto :err
 ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_logout.sql"   || goto :err
+ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_geo.sql"      || goto :err
+REM PostGIS (best-effort: если не установлен — работает Python-фолбэк радиуса). Разово, не валит деплой.
+ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -c \"CREATE EXTENSION IF NOT EXISTS postgis;\" & sudo -u postgres psql -d yuldash -c \"CREATE INDEX IF NOT EXISTS idx_ride_from_geog ON ride USING GIST ((ST_MakePoint(from_lng, from_lat)::geography)) WHERE from_lat IS NOT NULL;\""
 
 echo --- 3) chown + рестарт сервиса ---
 ssh %OPT% %SRV% "chown -R yuldash:yuldash /opt/yuldash && systemctl restart yuldash-api && sleep 2 && systemctl is-active yuldash-api" || goto :err

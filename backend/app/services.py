@@ -251,6 +251,29 @@ CITY_COORDS = {
 }
 
 
+def geocode_city(name: str) -> tuple[float, float] | None:
+    """Координаты города: сначала известные города БашРТ (бесплатно, без API),
+    иначе Яндекс.Геокодер (если задан ключ). Нужно для радиус-поиска поездок."""
+    if not name:
+        return None
+    c = CITY_COORDS.get(name.strip())
+    if c:
+        return c
+    key = settings.yandex_geocoder_key
+    if not key:
+        return None
+    try:
+        import httpx
+        r = httpx.get("https://geocode-maps.yandex.ru/1.x/", params={
+            "apikey": key, "geocode": name, "format": "json", "results": 1, "lang": "ru_RU",
+        }, timeout=8)
+        members = r.json()["response"]["GeoObjectCollection"]["featureMember"]
+        pos = members[0]["GeoObject"]["Point"]["pos"].split(" ")  # "lon lat"
+        return (float(pos[1]), float(pos[0]))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     p1, p2 = math.radians(lat1), math.radians(lat2)

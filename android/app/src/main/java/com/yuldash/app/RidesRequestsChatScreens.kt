@@ -496,6 +496,31 @@ internal fun MyTripCard(
 // Карточка «ближайшей поездки» — строго 1-в-1 (фикс. размер), сортировка по времени выезда.
 // Первая (самая ранняя) помечается «ближайшая». Показывает дистанцию до точки выезда (если есть гео).
 @Composable
+internal fun NearbyMoreCard(loading: Boolean, onMore: () -> Unit) {
+    // «Показать ещё» — карточка в конце ленты «Ближайших» (серверная пагинация limit/offset).
+    Card(
+        modifier = Modifier
+            .width(132.dp)
+            .height(152.dp)
+            .clickable(enabled = !loading, onClick = onMore),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                if (loading) appText("Загрузка…", "Йөкләнә…") else appText("Показать\nещё", "Тағы\nкүрһәтеү"),
+                color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 15.sp, lineHeight = 19.sp
+            )
+        }
+    }
+}
+
+@Composable
 internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean, onOpen: () -> Unit) {
     Card(
         modifier = Modifier

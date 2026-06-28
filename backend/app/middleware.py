@@ -27,14 +27,33 @@ def _client_ip(request: Request) -> str:
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Скользящее окно 60с на IP. Два бюджета: общий и строгий (auth/sos)."""
+    """Лимит запросов на IP, окно 60с. Два бюджета: общий и строгий (auth/sos).
+
+    Если задан `REDIS_URL` — счётчики в Redis (общие на все воркеры/серверы).
+    Иначе/при сбое Redis — in-memory скользящее окно (на воркер). Сбой Redis НЕ
+    роняет запрос: тихо падаем в in-memory."""
 
     def __init__(self, app):
         super().__init__(app)
         self._hits: dict[str, deque] = defaultdict(deque)
         self._hits_strict: dict[str, deque] = defaultdict(deque)
+        self._redis = None
+        self._redis_tried = False
 
-    def _over(self, store: dict[str, deque], key: str, limit: int, now: float) -> bool:
+    def _get_redis(self):
+        if self._redis_tried:
+            return self._redis
+        self._redis_tried = True
+        if settings.redis_url:
+            try:
+                import redis.asyncio as aioredis
+                self._redis = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"[RATELIMIT] redis init failed, fallback in-memory: {e}")
+                self._redis = None
+        return self._redis
+
+    def _over_mem(self, store: dict[str, deque], key: str, limit: int, now: float) -> bool:
         dq = store[key]
         edge = now - 60.0
         while dq and dq[0] < edge:
@@ -44,16 +63,38 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         dq.append(now)
         return False
 
+    async def _over_redis(self, client, key: str, limit: int) -> bool:
+        """Фиксированное окно 60с в Redis: INCR + EXPIRE на первом хите."""
+        n = await client.incr(key)
+        if n == 1:
+            await client.expire(key, 60)
+        return n > limit
+
     async def dispatch(self, request: Request, call_next):
         if not settings.rate_limit_enabled:
             return await call_next(request)
         ip = _client_ip(request)
-        now = time.monotonic()
         path = request.url.path
         strict = path.startswith(_STRICT_PREFIXES)
-        if strict and self._over(self._hits_strict, ip, settings.rate_limit_auth_per_min, now):
-            return JSONResponse({"detail": "Слишком много запросов. Подожди немного."}, status_code=429)
-        if self._over(self._hits, ip, settings.rate_limit_per_min, now):
+        client = self._get_redis()
+        over = False
+        if client is not None:
+            try:
+                if strict:
+                    over = await self._over_redis(client, f"rl:s:{ip}", settings.rate_limit_auth_per_min)
+                if not over:
+                    over = await self._over_redis(client, f"rl:g:{ip}", settings.rate_limit_per_min)
+            except Exception as e:  # noqa: BLE001 — Redis недоступен → in-memory
+                print(f"[RATELIMIT] redis error, fallback in-memory: {e}")
+                self._redis = None
+                client = None
+        if client is None:
+            now = time.monotonic()
+            if strict and self._over_mem(self._hits_strict, ip, settings.rate_limit_auth_per_min, now):
+                over = True
+            elif self._over_mem(self._hits, ip, settings.rate_limit_per_min, now):
+                over = True
+        if over:
             return JSONResponse({"detail": "Слишком много запросов. Подожди немного."}, status_code=429)
         return await call_next(request)
 
