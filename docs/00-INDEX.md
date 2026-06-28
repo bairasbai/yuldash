@@ -32,6 +32,30 @@
 | [telegram-setup.md](telegram-setup.md) | 🤖 Вход через Telegram (УЖЕ настроено: бот `@yuldash_sms_bot` + .env + вебхук). Инструкция — для ротации токена. |
 | **[architecture-audit.md](architecture-audit.md)** | 🏗️ **Senior-аудит (2026-06-27):** разбор архитектуры + поток данных, критичные места, стратегии рефакторинга, журнал всех фиксов/деплоя сессии (безопасность Фаза 0, краш карты, N+1, защита состояния). |
 
+## 🎯 Текущий статус (2026-06-28) — продукт-полнота (большая сессия, Opus)
+
+> 🚀 **Огромная сессия: продукт доведён до полноты для беты. Всё на проде `yulbash.ru`, всё зелёное (pytest 61/61, Android BUILD SUCCESSFUL), `.aab` пересобран.**
+>
+> **🔁 Главное — замкнут поток заявок (был «в никуда»):** заявка пассажира → водитель видит в ленте `GET /requests/feed` → откликается `POST /requests/{id}/respond` (push пассажиру; нет устройства → Telegram админу) → пассажир видит отклики `GET /requests/{id}/responses` → принимает `POST /responses/{id}/accept` → создаётся **Ride+Booking** (поездка с чатом и кодом посадки). Таблица `RequestResponse`. Экраны: `RequestsFeedScreen` (водитель), `ResponsesScreen` (пассажир). E2E на проде.
+>
+> **🛠 Кабинет админа (Настройки → «Кабинет админа», только admin, без дублей):** заявка за пользователя (`POST /admin/request-for-phone` — создаёт юзера по телефону + заявку), отклики по заявке (`AdminResponsesScreen`, принять ЗА юзера без интернета), **модерация водителей** (`GET /admin/drivers/pending` + фото прав/авто через Coil+Bearer + одобрить/отклонить), **жалобы** (`GET /admin/reports`), реклама. **Автоадмин:** вход через Telegram-id владельца (`ADMIN_TELEGRAM_CHAT_ID`) ИЛИ телефон (`ADMIN_PHONES`) → роль admin сама.
+>
+> **👤 Профиль:** редактирование имени (`POST /me/update`, карандаш в шапке + поле при входе, оба входа), **аватар** (`User.avatar_url`, миграция `migrate_avatar.sql`, пикер→`uploadChatPhoto`→Coil). Аватар ВЕЗДЕ: профиль, инбокс чата, отклики, лента заявок, карточки поездок. **Онлайн-статус водителя** (тумблер «Я на линии» в кабинете → `POST /driver/online`, бейдж «● на линии» в карточках, `RideOut.driver_online`).
+>
+> **📞 Фичи-заглушки закрыты:** звонок оператору (`POST /callback` → Telegram админу), код посадки (`GET /bookings/{id}/boarding-code`, виден участникам, карточка в активной поездке). STT-голос — оказался уже реальным (`RecognizerIntent`).
+>
+> **🔘 8 мёртвых кнопок Safety/Settings оживлены** (Поделиться/Чёрный список/Пожаловаться/Правила/Тема/Приватность/Фильтры/Оплата). Чёрный список + жалобы — рабочие (`/blocks` GET/DELETE, `/reportable-users`, `/reports`).
+>
+> **📊 Аналитика:** Firebase Analytics (проект `yuldash-9586e`) — DAU/удержание/сессии авто + события воронки (login/create_request/publish_ride/booking/respond_request/accept_response/sos/callback_request). **⚠️ Главная метрика беты:** возвращается ли ≥30% через неделю → решает, масштабировать или чинить.
+>
+> **🏗 Инфра (выжали из 2-ядерного сервера, БЕЗ апгрейда до 5к подписчиков):** воркеры `gunicorn 2→5`+`--preload`, кеш `/rides`+`/geocode` в Redis, `pool_pre_ping`. Нагрузочный тест: лёгкие чтения ~594 зап/с, микс ~290 зап/с. **Потолок: ~1500–2300 одновременно активных; база ~10–20к при размазанном входе.** Узкое место запуска = вход через Telegram (~30/с), не лента.
+>
+> **🔔 Мониторинг + бэкап:** `monitor.sh` (пинг `/health` 1/мин, cron → алерт в Telegram при падении), офсайт-S3-бэкап (`backup-db.sh` → Timeweb `yuldash-backups`, ежедневно, aws-cli).
+>
+> **Состояние входа:** SMS выключен по умолчанию (`sms_provider=mock`, api_id сохранён), вход через Telegram основной. FCM-push активен (Firebase `yuldash-9586e`).
+>
+> **🎯 Следующий шаг (рекомендация техлида): ЗАПУСК.** Залить `.aab` в Google Play (Internal testing) → 10–20 живых юзеров в Баймаке → смотреть аналитику неделю → дальше пилить по данным, не вслепую. Детали — [decisions.md](decisions.md), [architecture.md](architecture.md), [backend.md](backend.md).
+
 ## 🎯 Текущий статус (2026-06-28) — scale-tier
 
 > 🚀 **Масштабные фичи сделаны end-to-end и ЗАДЕПЛОЕНЫ на прод (2026-06-28, Opus).** ① **Refresh-токены**: короткий access + ротируемый refresh (хеш в БД) + `/auth/refresh` + logout-ревокация; Android авто-refresh на 401 (Mutex). ② **Redis rate-limit**: общий на воркеры, фолбэк in-memory (на проде Redis уже стоял от соседней сессии — код подхватил, ключи `rl:*` живые). ③ **PostGIS**: геокод концов маршрута при публикации (`from_lat/lng,to_lat/lng`) + `ST_DWithin`/GiST-префильтр с haversine-фолбэком; extension+индекс на проде. ④ **load-more**: `limit/offset` на списках + Android `NearbyMoreCard` в «Ближайших». **Прод здоров:** workers стартуют, health `db:ok`, refreshtoken-таблица + 4 geo-колонки + postgis + GiST-индекс + redis-ключи — всё проверено server-side. **Поймал+починил баг:** гонка 2 воркеров gunicorn на `create_all` (`DuplicateTable`) → `init_db` теперь идемпотентен. Backend pytest **47/47**, Android BUILD SUCCESSFUL. Детали — [decisions.md](decisions.md), [lessons.md](lessons.md), [architecture-audit.md](architecture-audit.md).

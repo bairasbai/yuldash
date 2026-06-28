@@ -13,6 +13,24 @@
   - **`MainActivity.kt` (1008 строк)** — тонкий общий слой: класс `MainActivity`, `enum Screen`, сплэш/онбординг, общие модели/моки (`demoRides`/`demoPartnerAds`), OAuth-хелперы (`openTelegramLogin`…).
   - ⚠️ **Параллелим аккуратно (§12 CLAUDE.md):** разные файлы-экраны — можно разом; но `MainActivity.kt` (общий слой) — один писатель.
 - Тема: `android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt`
+
+### 🆕 Новые экраны и поток заявок (2026-06-28, большая сессия)
+> Номера строк по файлам устарели после рефактора — ориентируйся по именам функций (грепай), не по строкам.
+
+**Поток заявок «заявка → водитель → отклик → поездка»** (замкнут, был «в никуда»):
+- `RequestsFeedScreen` (`RidesRequestsChatScreens.kt`) — водитель видит заявки пассажиров (`getRequestsFeed`), откликается (`respondToRequest`). Вход: Кабинет водителя → «Заявки пассажиров».
+- `ResponsesScreen` (там же) — пассажир видит отклики на свою заявку (`getRequestResponses`), принимает (`acceptResponse` → booking_id → активная поездка). Вход: Чат → вкладка «Заявки» → тап по заявке.
+- Бэкенд: таблица `RequestResponse`; `GET /requests/feed`, `POST /requests/{id}/respond`, `GET /requests/{id}/responses`, `POST /responses/{id}/accept` (создаёт Ride+Booking с чатом/кодом посадки).
+
+**Кабинет админа** (`SecondaryScreens.kt`, вход: Настройки → «Кабинет админа», только `isAdmin` из `/me`):
+- `AdminCabinetScreen` — хаб; `AdminRequestScreen` (заявка за юзера по телефону, `/admin/request-for-phone`); `AdminResponsesScreen` (принять отклик ЗА юзера без интернета); `AdminDriversScreen` (модерация: фото прав/авто через Coil+Bearer к `/secure/docs`, одобрить/отклонить); `AdminReportsScreen` (жалобы `/admin/reports`).
+- **Автоадмин:** вход через Telegram-id (`ADMIN_TELEGRAM_CHAT_ID`) ИЛИ телефон (`ADMIN_PHONES`) → роль admin сама (`_maybe_promote_admin` в auth.py).
+
+**Профиль/доверие** (`ProfileScreen.kt`): имя редактируется (карандаш, `updateName`→`/me/update`); аватар (пикер→`uploadChatPhoto`→`updateAvatar`, Coil) — везде через `SmallAvatar`; онлайн-водитель — тумблер в `DriverCabinetScreen` (`setOnline`→`/driver/online`), бейдж `OnlineBadge`, `RideOut.driver_online`.
+
+**Прочие новые** (`SecondaryScreens.kt`): `RulesScreen`, `PaymentInfoScreen` (СБП), `BlocklistScreen` (`/blocks`), `ReportScreen`, `FiltersScreen` (`FilterPrefs` в SharedPreferences), `ThemePickerDialog`. Код посадки — карточка в `BookingActiveTripScreen` (`getBoardingCode`). Аналитика — `data/Analytics.kt` (Firebase).
+
+**enum `Screen`** пополнен: Rules, PaymentInfo, Blocklist, Report, Filters, AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, RequestsFeed, RequestResponses — каждый ветка в `when(screen)` (`YuldashApp.kt`).
 - **Application:** `android/app/src/main/java/com/yuldash/app/YuldashApplication.kt` — отдаёт ключ Яндекс MapKit (`MapKitFactory.setApiKey`) при старте. Прописан в манифесте как `android:name=".YuldashApplication"`.
 - **Ключ карты:** `local.properties` → `YANDEX_MAPKIT_KEY` (в `.gitignore`) → пробрасывается в `BuildConfig.YANDEX_MAPKIT_KEY` через `app/build.gradle.kts` (`buildConfig = true`). В коде ключ не хардкодим.
 - Тексты-ресурсы: `android/app/src/main/res/values/strings.xml` (RU) + `values-ba/strings.xml` (BA).

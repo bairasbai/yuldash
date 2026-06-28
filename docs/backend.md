@@ -66,6 +66,18 @@
 **Админ:** `GET /admin/drivers?status`, `POST /admin/drivers/{id}/approve`, `GET /admin/reports`, `GET /admin/ads`...
 **Платежи:** `POST /payments`, `GET /payments/mine`.
 
+## 5.1 🆕 Эндпоинты (2026-06-28, большая сессия — всё на проде)
+- **Поток заявок (замкнут):** `GET /requests/feed` (водитель видит заявки), `POST /requests/{id}/respond` (отклик + push пассажиру; нет устройства → Telegram админу), `GET /requests/{id}/responses`, `POST /responses/{id}/accept` (создаёт Ride+Booking). Таблица `RequestResponse`. `/responses` и `/accept` пускают admin (принять ЗА юзера).
+- **Профиль:** `POST /me/update` (имя и/или `avatar_url`, оба опц.). `User.avatar_url` (миграция `migrate_avatar.sql`). `conversations`/`RideOut`/отклики отдают аватары.
+- **Админ:** `POST /admin/request-for-phone` (создать юзера+заявку по телефону), `GET /admin/drivers/pending` (модерация), `GET /admin/reports` (жалобы). Все `role==admin`.
+- **Чёрный список/жалобы:** `GET /blocks`, `DELETE /blocks/{id}`, `GET /reportable-users` (попутчики из поездок).
+- **Прочее:** `POST /callback` (звонок оператору → Telegram админу), `GET /bookings/{id}/boarding-code` (код посадки участникам), `POST /driver/online` + `online` в `/driver/status` + `RideOut.driver_online`.
+- **Автоадмин (auth.py `_maybe_promote_admin`):** роль admin при входе если совпал `telegram_id`==`ADMIN_TELEGRAM_CHAT_ID` ИЛИ `phone` в `ADMIN_PHONES`.
+- **Уведомления админу (`services.notify_admin_telegram`):** запрос звонка, отклик на админ-заявку, срочная/«помощь»-заявка (`POST /requests` с `assisted=true` или category urgent) — в Telegram владельцу.
+
+### Новые .env (прод, НЕ в git)
+`ADMIN_TELEGRAM_CHAT_ID=5141534025` (автоадмин+уведомления), `ADMIN_PHONES=+79991348275` (автоадмин по номеру), `FIREBASE_CREDENTIALS=/opt/yuldash/firebase-service-account.json` (FCM). S3-бэкап: `/opt/yuldash/.backup-s3.env`. Мониторинг: `/opt/yuldash/.monitor.env` (`ALERT_CHAT_ID`).
+
 ## 6. Безопасность уровня продукта
 Проверка документов водителя (модерация в админке) · фото машины + госномер · код посадки · скрытый номер · SOS · доверенные контакты · жалобы/блокировки · аудит-лог. Чувствительное (точные координаты, телефон) — не логировать, отдавать только по праву.
 
