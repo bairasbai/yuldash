@@ -12,7 +12,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import Payment, Ride, RideStatus, User
+from ..models import Payment, Ride, RideStatus, User, UserRole
 from ..payments import BOOST_PLANS, create_payment, fetch_payment
 from ..security import current_user
 from ..timeutil import utcnow
@@ -64,8 +64,8 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
         raise HTTPException(403, "Поднять можно только свою поездку")
     if ride.status != RideStatus.active:
         raise HTTPException(400, "Поездка неактивна")
-    # В проде без настроенного провайдера не выдаём «бесплатный» boost через mock.
-    if settings.is_prod and settings.payments_provider != "yookassa":
+    # В проде mock = «оплата» без денег → не выдаём бесплатный boost.
+    if settings.is_prod and settings.payments_provider == "mock":
         raise HTTPException(503, "Оплата скоро будет доступна")
 
     title, amount_kop, _hours = plan
@@ -74,7 +74,15 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
     session.commit()
     session.refresh(payment)
 
-    # user.phone — реальный (current_user не пускает плейсхолдер): на него ЮKassa шлёт чек.
+    # СБП-перевод по номеру: платёж висит pending, активирует админ после получения денег.
+    if settings.payments_provider == "sbp_manual":
+        return {
+            "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
+            "amount": amount_kop // 100,
+            "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
+        }
+
+    # mock/yookassa. user.phone реальный (current_user не пускает плейсхолдер) → на него ЮKassa шлёт чек.
     res = create_payment(amount_kop, f"Юлдаш · {title}", {"payment_id": str(payment.id)}, customer_phone=user.phone)
     payment.provider_id = res["provider_id"]
     session.add(payment)
@@ -83,8 +91,58 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
     if res["status"] == "succeeded":          # mock/dev — оплачено сразу
         _activate_boost(session, payment)
         session.refresh(ride)
-        return {"status": "succeeded", "payment_id": payment.id, "boosted_until": ride.boosted_until}
-    return {"status": "pending", "payment_id": payment.id, "confirmation_url": res["confirmation_url"]}
+        return {"status": "succeeded", "method": "yookassa", "payment_id": payment.id, "boosted_until": ride.boosted_until}
+    return {"status": "pending", "method": "yookassa", "payment_id": payment.id, "confirmation_url": res["confirmation_url"]}
+
+
+# ----------------------------- Админ: подтверждение СБП-переводов -----------------------------
+def _require_admin(user: User) -> None:
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+
+
+@router.get("/admin/payments/pending")
+def admin_pending_payments(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Список ожидающих подтверждения платежей (СБП). Для админа."""
+    _require_admin(user)
+    rows = session.exec(select(Payment).where(Payment.status == "pending").order_by(Payment.id.desc())).all()
+    out = []
+    for p in rows:
+        payer = session.get(User, p.user_id)
+        out.append({
+            "payment_id": p.id, "purpose": p.purpose, "tier": p.tier,
+            "amount": p.amount_kop // 100, "ride_id": p.ride_id,
+            "payer_name": (payer.name if payer else ""), "payer_phone": (payer.phone if payer else ""),
+            "created_at": p.created_at,
+        })
+    return out
+
+
+@router.post("/admin/payments/{payment_id}/confirm")
+def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Подтвердить получение СБП-перевода → активировать (boost). Для админа."""
+    _require_admin(user)
+    payment = session.get(Payment, payment_id)
+    if not payment:
+        raise HTTPException(404, "Платёж не найден")
+    if payment.status == "succeeded":
+        return {"payment_id": payment.id, "status": "succeeded"}
+    _activate_boost(session, payment)
+    return {"payment_id": payment.id, "status": "succeeded"}
+
+
+@router.post("/admin/payments/{payment_id}/reject")
+def admin_reject_payment(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отклонить платёж (деньги не пришли). Для админа."""
+    _require_admin(user)
+    payment = session.get(Payment, payment_id)
+    if not payment:
+        raise HTTPException(404, "Платёж не найден")
+    if payment.status == "pending":
+        payment.status = "canceled"
+        session.add(payment)
+        session.commit()
+    return {"payment_id": payment.id, "status": payment.status}
 
 
 @router.post("/payments/yookassa/webhook")

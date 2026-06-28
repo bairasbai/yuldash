@@ -483,3 +483,33 @@ def test_boost_only_own_ride(client, user_factory):
     other = user_factory("BoostOther", role=UserRole.driver)
     assert client.post("/boost/create", headers=other["auth"], json={"ride_id": ride["id"], "tier": "quick"}).status_code == 403
     assert client.post("/boost/create", headers=drv["auth"], json={"ride_id": ride["id"], "tier": "nope"}).status_code == 400
+
+
+# ----------------------------- СБП-перевод (интерим) + админ-подтверждение -----------------------------
+def test_boost_sbp_manual_flow(client, user_factory):
+    from app.config import settings
+    drv = user_factory("SbpDrv", role=UserRole.driver)
+    city = "СбпГрад"
+    a = _publish(client, drv, frm=city, to="Сибай", depart_at="2030-01-01T08:00:00")
+    b = _publish(client, drv, frm=city, to="Сибай", depart_at="2030-01-01T12:00:00")
+    op, ph = settings.payments_provider, settings.sbp_phone
+    settings.payments_provider, settings.sbp_phone, settings.sbp_bank = "sbp_manual", "+79990000000", "Сбербанк"
+    try:
+        r = client.post("/boost/create", headers=drv["auth"], json={"ride_id": b["id"], "tier": "day"})
+        assert r.status_code == 200
+        js = r.json()
+        assert js["status"] == "pending" and js["method"] == "sbp_manual"
+        assert js["payee"]["phone"] == "+79990000000" and js["amount"] == 50
+        pid = js["payment_id"]
+        # пока НЕ подтверждён — поездка не поднята
+        assert client.get("/rides", params={"from_city": city}).json()[0]["id"] == a["id"]
+        # обычный юзер не может подтвердить
+        assert client.post(f"/admin/payments/{pid}/confirm", headers=drv["auth"]).status_code == 403
+        admin = user_factory("SbpAdmin", role=UserRole.admin)
+        assert client.get("/admin/payments/pending", headers=admin["auth"]).json()  # в очереди
+        assert client.post(f"/admin/payments/{pid}/confirm", headers=admin["auth"]).status_code == 200
+        # после подтверждения — B поднят
+        out = client.get("/rides", params={"from_city": city}).json()
+        assert out[0]["id"] == b["id"] and out[0]["boosted"] is True
+    finally:
+        settings.payments_provider, settings.sbp_phone = op, ph

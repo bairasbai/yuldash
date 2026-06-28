@@ -28,11 +28,18 @@ class Settings(BaseSettings):
     # --- Push (FCM) ---
     firebase_credentials: str = ""      # путь к JSON сервисного аккаунта Firebase (для отправки пушей). Пусто → push выключен.
 
-    # --- Платежи (ЮKassa, самозанятый: монетизация СВОИХ услуг — Boost/реклама) ---
-    payments_provider: str = "mock"     # mock | yookassa. mock — платёж сразу «оплачен» (только dev).
+    # --- Платежи (самозанятый: монетизация СВОИХ услуг — Boost/реклама) ---
+    # mock — платёж сразу «оплачен» (только dev).
+    # sbp_manual — перевод по СБП на номер, активирует админ вручную (интерим до ЮKassa).
+    # yookassa — авто-приём + авто-чек (нужны ключи).
+    payments_provider: str = "mock"
     yookassa_shop_id: str = ""          # shopId из кабинета ЮKassa (для самозанятых). НЕ в git — в .env.
     yookassa_secret_key: str = ""       # секретный ключ ЮKassa (Basic-auth). НЕ в git — в .env.
     payment_return_url: str = "https://yulbash.ru/pay/done"  # куда ЮKassa вернёт пользователя после оплаты
+    # --- СБП-перевод по номеру (интерим, payments_provider=sbp_manual). Перс.данные — НЕ в git, в .env. ---
+    sbp_phone: str = ""                 # номер для перевода по СБП (получатель). Напр. +79991234567
+    sbp_bank: str = ""                  # банк получателя (напр. Сбербанк)
+    sbp_name: str = ""                  # имя получателя как в СБП (напр. Александр А.)
 
     # --- Redis (масштаб) ---
     # Один URL на всё: общий rate-limit между воркерами + WS-чат pub/sub между процессами.
@@ -93,9 +100,11 @@ class Settings(BaseSettings):
             problems.append("TELEGRAM_WEBHOOK_SECRET обязателен при заданном TELEGRAM_BOT_TOKEN")
         if self.cors_origins.strip() == "*":
             problems.append("CORS_ORIGINS не должен быть '*' в проде")
-        # mock-платежи в проде = «оплата» без денег. Включён реальный приём → ключи обязательны.
+        # mock-платежи в проде = «оплата» без денег. Включён реальный приём → ключи/реквизиты обязательны.
         if self.payments_provider == "yookassa" and not (self.yookassa_shop_id and self.yookassa_secret_key):
             problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")
+        if self.payments_provider == "sbp_manual" and not self.sbp_phone:
+            problems.append("SBP_PHONE обязателен при PAYMENTS_PROVIDER=sbp_manual")
         if self.database_url.startswith("sqlite"):
             problems.append("DATABASE_URL не должен быть sqlite в проде")
         media_base = self.media_base_url.lower()
