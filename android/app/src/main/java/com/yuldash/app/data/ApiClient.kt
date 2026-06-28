@@ -472,6 +472,32 @@ object ApiClient {
             (0 until arr.length()).map { i -> val o = arr.getJSONObject(i); BlockDto(o.optInt("blocked_user_id"), o.optString("name")) }
         }
 
+    // ---------- Заявки ↔ водители: лента, отклики, принятие ----------
+    suspend fun getRequestsFeed(): Result<List<RequestFeedDto>> =
+        call("GET", "/requests/feed", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"))
+            }
+        }
+
+    suspend fun respondToRequest(requestId: Int, price: Int, comment: String): Result<Unit> =
+        call("POST", "/requests/$requestId/respond", JSONObject().put("price", price).put("comment", comment), auth = true).map { }
+
+    suspend fun getRequestResponses(requestId: Int): Result<List<ResponseDto>> =
+        call("GET", "/requests/$requestId/responses", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                ResponseDto(o.optInt("id"), o.optInt("driver_id"), o.optString("driver_name"), if (o.isNull("driver_rating")) null else o.optDouble("driver_rating"), o.optInt("price"), o.optString("comment"), o.optString("status"))
+            }
+        }
+
+    /** Пассажир принимает отклик → возвращает booking_id (переход в активную поездку). */
+    suspend fun acceptResponse(responseId: Int): Result<Int> =
+        call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }
+
     /** Админ создаёт заявку ЗА пользователя по телефону (после звонка «перезвоните мне»). */
     suspend fun adminRequestForPhone(phone: String, name: String, fromCity: String, toCity: String, seats: Int, comment: String): Result<Unit> =
         call("POST", "/admin/request-for-phone", JSONObject()
@@ -888,6 +914,8 @@ data class RequestDto(
 /** Доверенный контакт с сервера. */
 data class BlockDto(val blockedUserId: Int, val name: String)
 data class ReportableUserDto(val id: Int, val name: String)
+data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean)
+data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String)
 
 data class ContactDto(
     val id: Int,

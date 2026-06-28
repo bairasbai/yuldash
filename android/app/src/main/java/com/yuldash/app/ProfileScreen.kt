@@ -475,7 +475,8 @@ internal fun DriverCabinetScreen(
     onBack: () -> Unit,
     onCreateRide: () -> Unit,
     onVerifyDriver: () -> Unit,
-    onBoost: () -> Unit
+    onBoost: () -> Unit,
+    onRequestsFeed: () -> Unit = {}
 ) {
     val driverRides = remember(rides) { rides.filter { it.driver == (ApiClient.cachedName() ?: "Я") } }
     val ctx = LocalContext.current
@@ -578,6 +579,7 @@ internal fun DriverCabinetScreen(
             }
             item {
                 SettingsGroup {
+                    SettingsNavRow(Icons.Default.ListAlt, appText("Заявки пассажиров", "Пассажир заявкалары"), appText("Откликнуться и предложить поездку", "Яуап биреп сәфәр тәҡдим итеү"), onClick = onRequestsFeed)
                     SettingsNavRow(Icons.Default.AddRoad, appText("Создать поездку", "Сәфәр булдырыу"), appText("Маршрут, места, цена и время", "Маршрут, урын, хаҡ һәм ваҡыт"), onClick = onCreateRide)
                     SettingsNavRow(Icons.Default.Verified, appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото и госномер", "Права, машина, фото һәм номер"), onClick = onVerifyDriver)
                     SettingsNavRow(Icons.Default.TrendingUp, appText("Поднять маршрут", "Маршрутты күтәреү"), appText("Показать выше в списке поездок", "Сәфәрҙәр исемлегендә өҫтәрәк күрһәтеү"), onClick = onBoost)

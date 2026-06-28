@@ -104,6 +104,10 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.LocalPolice
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
@@ -151,6 +155,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
@@ -247,20 +252,64 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+// Описание одной экстренной службы для ползунков.
+private data class SosService(
+    val key: String,
+    val number: String,        // прямой номер для звонка с мобильного
+    val label: LocalizedText,
+    val icon: ImageVector,
+    val sosCategory: String     // что шлём «своим» в наш бэкенд
+)
+
 @Composable
 internal fun SosScreen(onBack: () -> Unit) {
-    val categories = listOf(
-        "medical" to LocalizedText("Медицина", "Медицина"),
-        "breakdown" to LocalizedText("Поломка авто", "Машина боҙолдо"),
-        "other" to LocalizedText("Другое", "Башҡа")
-    )
-    var selected by remember { mutableStateOf(categories.first().first) }
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+
+    // Россия, звонок с мобильного: 102 полиция · 101 пожарные · 103 скорая. 112 — единый (по умолчанию / когда выбрано несколько).
+    val services = remember {
+        listOf(
+            SosService("police", "102", LocalizedText("Полиция", "Полиция"), Icons.Default.LocalPolice, "other"),
+            SosService("fire", "101", LocalizedText("Пожарные", "Янғын һүндереүселәр"), Icons.Default.LocalFireDepartment, "breakdown"),
+            SosService("ambulance", "103", LocalizedText("Скорая", "Тиҙ ярҙам"), Icons.Default.LocalHospital, "medical")
+        )
+    }
+    val on = remember { mutableStateListOf(false, false, false) }
     var description by remember { mutableStateOf("") }
+
+    // Строки для Toast (вне Composable-контекста лямбд) — считаем заранее.
+    val tCopied = appText("Скопировано", "Күсерелде")
+    val tCallFail = appText("Не удалось открыть звонок", "Шылтырауҙы аса алманыҡ")
+
+    // Состояния второго канала — сигнал «своим» водителям через бэкенд.
     var sent by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val selectedLabel = categories.firstOrNull { it.first == selected }?.second?.text() ?: categories.first().second.text()
+
+    // Какой номер набрать: ничего/несколько → 112 (единый), ровно один → прямой номер службы.
+    val selectedIdx = on.indexOfFirst { it }.takeIf { on.count { v -> v } == 1 }
+    val dialNumber = if (selectedIdx != null) services[selectedIdx].number else "112"
+
+    // Координаты — берём уже кешированную геопозицию (если включена), показываем для диктовки оператору.
+    val lat = LocationPrefs.lastLat
+    val lng = LocationPrefs.lastLng
+    val coordsText = if (lat != null && lng != null) String.format("%.5f, %.5f", lat, lng) else null
+
+    fun dictText(): String = buildString {
+        if (description.isNotBlank()) append(description.trim())
+        if (coordsText != null) {
+            if (isNotEmpty()) append("\n")
+            append("Координаты: $coordsText")
+        }
+    }
+
+    fun dial(number: String) {
+        // ACTION_DIAL — открывает звонилку с набранным номером. Человек сам жмёт вызов (безопасно, без разрешения CALL_PHONE).
+        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(intent) }
+            .onFailure { Toast.makeText(context, tCallFail, Toast.LENGTH_SHORT).show() }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -283,35 +332,23 @@ internal fun SosScreen(onBack: () -> Unit) {
                         Spacer(Modifier.width(14.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(appText("Срочный вызов", "Ашығыс саҡырыу"), fontSize = 24.sp, fontWeight = FontWeight.Black)
-                            Text(appText("Сигнал ближайшим водителям в радиусе 15 км.", "15 км радиустағы яҡын водителдәргә сигнал."), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(appText("Выбери службу — откроется звонок с твоего номера.", "Хеҙмәтте һайла — үҙ номерыңдан шылтырау асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    categories.forEach { (key, label) ->
-                        val labelText = label.text()
-                        FilledTonalButton(
-                            onClick = { selected = key; sent = false; failed = false },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(18.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (selected == key) CanonDangerBg else CanonSurface
-                            ),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                labelText,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
+
+            // Ползунки служб.
+            itemsIndexed(services) { i, svc ->
+                SosServiceToggle(
+                    title = svc.label.text(),
+                    number = svc.number,
+                    icon = svc.icon,
+                    checked = on[i],
+                    onCheckedChange = { on[i] = it }
+                )
             }
+
             item {
                 OutlinedTextField(
                     value = description,
@@ -322,11 +359,61 @@ internal fun SosScreen(onBack: () -> Unit) {
                     shape = RoundedCornerShape(16.dp)
                 )
             }
+
+            // Что продиктовать оператору: текст + координаты (в звонок их вложить нельзя — даём скопировать/прочитать).
+            if (description.isNotBlank() || coordsText != null) {
+                item {
+                    Surface(color = CanonMint, shape = CanonItemShape) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(appText("Продиктуй оператору", "Операторға әйт"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            if (description.isNotBlank()) Text(description.trim(), color = CanonText, fontSize = 15.sp, lineHeight = 20.sp)
+                            if (coordsText != null) Text(appText("Координаты: ", "Координаталар: ") + coordsText, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            OutlinedButton(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(dictText()))
+                                    Toast.makeText(context, tCopied, Toast.LENGTH_SHORT).show()
+                                },
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(appText("Скопировать", "Күсереү"))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 🟥 Главная кнопка — звонок в госслужбу.
+            item {
+                Button(
+                    onClick = { dial(dialNumber) },
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
+                ) {
+                    Icon(Icons.Default.Call, contentDescription = null, tint = Color.White)
+                    Spacer(Modifier.width(10.dp))
+                    Text(appText("Позвонить $dialNumber", "$dialNumber — шылтыратыу"), color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                }
+            }
+            item {
+                Text(
+                    appText("Звонок идёт с твоего номера. 112 — единый номер всех служб.", "Шылтырау үҙ номерыңдан бара. 112 — бөтә хеҙмәттәрҙең уртаҡ номеры."),
+                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
+                )
+            }
+
+            // 🟧 Второй канал — сигнал «своим» водителям рядом (наш бэкенд).
+            item { Spacer(Modifier.height(4.dp)) }
+            item {
+                Text(appText("Или сигнал своим", "Йәки үҙебеҙҙекеләргә сигнал"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+            }
             if (sent) {
                 item {
                     InfoCard(
-                        title = appText("SOS отправлен", "SOS ебәрелде"),
-                        text = appText("Категория: $selectedLabel. Статус: ожидание отклика.", "Категория: $selectedLabel. Статус: яуап көтөү."),
+                        title = appText("Сигнал отправлен", "Сигнал ебәрелде"),
+                        text = appText("Ближайшие водители увидят твой SOS. Статус: ожидание отклика.", "Яҡындағы водителдәр SOS-ыңды күрер. Статус: яуап көтөү."),
                         icon = Icons.Default.Sos
                     )
                 }
@@ -334,26 +421,27 @@ internal fun SosScreen(onBack: () -> Unit) {
             if (failed) {
                 item {
                     InfoCard(
-                        title = appText("SOS не отправлен", "SOS ебәрелмәне"),
-                        text = appText("Похоже, нет сети. Проверь связь и нажми «Отправить SOS» ещё раз.", "Бәйләнеш юҡ кеүек. Тикшереп, «SOS ебәреү»гә тағы баҫ."),
+                        title = appText("Сигнал не отправлен", "Сигнал ебәрелмәне"),
+                        text = appText("Похоже, нет сети. Проверь связь и нажми ещё раз.", "Бәйләнеш юҡ кеүек. Тикшереп, тағы баҫ."),
                         icon = Icons.Default.Sos
                     )
                 }
             }
             item {
                 AppButton(
-                    text = if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить SOS", "SOS ебәреү"),
+                    text = if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Сигнал водителям рядом", "Яҡындағы водителдәргә сигнал"),
                     onClick = {
                         if (sending) return@AppButton
                         failed = false
                         sent = false
                         sending = true
-                        val cat = when (selected) {
-                            "medical" -> "medical"
-                            "breakdown" -> "breakdown"
-                            else -> "other"
-                        }
-                        val note = description.trim()
+                        // Категория «своим»: берём выбранную службу (если одна), иначе общий note со всеми выбранными.
+                        val chosen = services.filterIndexed { i, _ -> on[i] }
+                        val cat = chosen.singleOrNull()?.sosCategory ?: "other"
+                        val note = buildString {
+                            if (chosen.isNotEmpty()) append("Службы: " + chosen.joinToString(", ") { it.label.ru } + ". ")
+                            if (description.isNotBlank()) append(description.trim())
+                        }.ifBlank { "SOS" }
                         scope.launch {
                             val r = ApiClient.sos(cat, note)   // ждём сервер, НЕ fire-and-forget (кнопка безопасности)
                             sending = false
@@ -364,7 +452,45 @@ internal fun SosScreen(onBack: () -> Unit) {
                     loading = sending
                 )
             }
+
+            item {
+                Text(
+                    appText("Ложный вызов экстренных служб наказуем по закону.", "Ялған ашығыс саҡырыу закон буйынса язаға тарттырыла."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
+                )
+            }
             item { TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text(appText("Назад", "Кире")) } }
+        }
+    }
+}
+
+@Composable
+private fun SosServiceToggle(
+    title: String,
+    number: String,
+    icon: ImageVector,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val borderColor by animateColorAsState(if (checked) CanonRed else CanonBorder, label = "sosToggleBorder")
+    Surface(
+        color = if (checked) CanonDangerBg else CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth().clickable { onCheckedChange(!checked) }
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = if (checked) CanonRed else CanonMuted, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(number, color = CanonMuted, fontSize = 13.sp)
+            }
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(checkedTrackColor = CanonRed, checkedThumbColor = Color.White)
+            )
         }
     }
 }

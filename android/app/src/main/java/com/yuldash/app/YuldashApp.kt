@@ -275,6 +275,7 @@ internal fun YuldashApp() {
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
     var startHomeTab by rememberSaveable { mutableStateOf(HomeTab.Map) }
     var callbackRequested by remember { mutableStateOf(false) }
+    var responsesRequestId by remember { mutableStateOf(0) }   // какую заявку открыть в «Откликах»
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" } }
@@ -487,6 +488,7 @@ internal fun YuldashApp() {
                     activeBookingId = bid
                     screen = Screen.ActiveTrip
                 },
+                onOpenResponses = { id -> responsesRequestId = id; screen = Screen.RequestResponses },
                 onSafety = { screen = Screen.Safety },
                 onSettings = { screen = Screen.Settings },
                 onPrivacy = { screen = Screen.Privacy },
@@ -605,7 +607,14 @@ internal fun YuldashApp() {
                 onBack = { openHome(HomeTab.Profile) },
                 onCreateRide = { screen = Screen.CreateRide },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
-                onBoost = { screen = Screen.Boost }
+                onBoost = { screen = Screen.Boost },
+                onRequestsFeed = { screen = Screen.RequestsFeed }
+            )
+            Screen.RequestsFeed -> RequestsFeedScreen(onBack = { screen = Screen.DriverCabinet })
+            Screen.RequestResponses -> ResponsesScreen(
+                requestId = responsesRequestId,
+                onBack = { openHome(HomeTab.Chat) },
+                onAccepted = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip }
             )
             Screen.AdsCabinet -> AdsCabinetScreen(
                 ads = partnerAds,
@@ -1109,6 +1118,7 @@ internal fun HomeScreen(
     onVerifyDriver: () -> Unit,
     onNotifications: () -> Unit,
     onOpenChat: (Int, String, String) -> Unit,
+    onOpenResponses: (Int) -> Unit = {},
     onSafety: () -> Unit,
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
@@ -1194,7 +1204,8 @@ internal fun HomeScreen(
                     voiceMessages = voiceMessages,
                     onAddVoiceMessage = onAddVoiceMessage,
                     onNotifications = onNotifications,
-                    onOpenChat = onOpenChat
+                    onOpenChat = onOpenChat,
+                    onOpenResponses = onOpenResponses
                 )
                 HomeTab.Profile -> ProfileScreen(
                     ads = ads,

@@ -1200,7 +1200,8 @@ internal fun ChatScreen(
     voiceMessages: List<LocalVoiceMessage>,
     onAddVoiceMessage: (LocalVoiceMessage) -> Unit,
     onNotifications: () -> Unit,
-    onOpenChat: (Int, String, String) -> Unit
+    onOpenChat: (Int, String, String) -> Unit,
+    onOpenResponses: (Int) -> Unit = {}
 ) {
     var selected by remember { mutableStateOf("active") }
     var voiceSent by remember { mutableStateOf(false) }
@@ -1329,10 +1330,11 @@ internal fun ChatScreen(
                             initial = r.fromCity.firstOrNull()?.uppercase() ?: "З",
                             name = "${r.fromCity} → ${r.toCity}",
                             subtitle = appText("Заявка · ${r.seats} мест", "Заявка · ${r.seats} урын"),
-                            message = r.comment.ifBlank { appText("Ждём отклика водителя", "Водитель яуабын көтәбеҙ") },
+                            message = appText("Смотреть отклики водителей", "Водитель яуаптарын ҡарау"),
                             time = "",
                             unread = 0,
-                            verified = false
+                            verified = false,
+                            onClick = { onOpenResponses(r.id) }
                         )
                     }
                 }
@@ -1386,6 +1388,127 @@ internal fun ChatScreen(
             )
         }
         item { Spacer(Modifier.height(92.dp)) }
+    }
+}
+
+/** Лента заявок пассажиров — водитель откликается (цена/коммент). */
+@Composable
+internal fun RequestsFeedScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var feed by remember { mutableStateOf<List<com.yuldash.app.data.RequestFeedDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var target by remember { mutableStateOf<com.yuldash.app.data.RequestFeedDto?>(null) }
+    var price by remember { mutableStateOf("") }
+    var comment by remember { mutableStateOf("") }
+    val sentMsg = appText("Отклик отправлен", "Яуап ебәрелде")
+    fun reload() { scope.launch { ApiClient.getRequestsFeed().onSuccess { feed = it }; loading = false } }
+    LaunchedEffect(Unit) { reload() }
+    target?.let { t ->
+        AlertDialog(
+            onDismissRequest = { target = null },
+            containerColor = CanonSurface,
+            title = { Text("${t.from} → ${t.to}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(price, { price = it.filter { c -> c.isDigit() }.take(6) }, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(comment, { comment = it }, label = { Text(appText("Когда едете / детали", "Ҡасан / детальдәр")) }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val rid = t.id; val p = price.toIntOrNull() ?: 0; val c = comment.trim()
+                    scope.launch { ApiClient.respondToRequest(rid, p, c).onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show(); reload() } }
+                    target = null; price = ""; comment = ""
+                }) { Text(appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { target = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заявки пассажиров", "Пассажир заявкалары"), onBack) }) { padding ->
+        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+            item { Text(appText("Пассажиры ищут поездку. Откликнись — предложи цену и время.", "Пассажирҙар сәфәр эҙләй. Яуап бир — хаҡ һәм ваҡыт тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            if (loading) {
+                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (feed.isEmpty()) {
+                item { ListedEmpty(appText("Заявок пока нет", "Әлегә заявкалар юҡ"), appText("Здесь появятся заявки пассажиров.", "Бында пассажир заявкалары күренер")) }
+            } else {
+                items(feed.size) { i ->
+                    val r = feed[i]
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${r.from} → ${r.to}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                            Text("${r.passengerName} · " + appText("${r.seats} мест", "${r.seats} урын"), color = CanonMuted, fontSize = 13.sp)
+                            if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
+                            if (r.responded) Text(appText("Вы откликнулись", "Яуап бирҙегеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            else Button(onClick = { target = r; price = ""; comment = "" }, modifier = Modifier.align(Alignment.End), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Отклики водителей на МОЮ заявку — пассажир выбирает → поездка+чат. */
+@Composable
+internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (Int) -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var resps by remember { mutableStateOf<List<com.yuldash.app.data.ResponseDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var accepting by remember { mutableStateOf(false) }
+    val failMsg = appText("Не получилось принять", "Ҡабул итеп булманы")
+    LaunchedEffect(requestId) { ApiClient.getRequestResponses(requestId).onSuccess { resps = it }; loading = false }
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики водителей", "Водитель яуаптары"), onBack) }) { padding ->
+        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+            item { Text(appText("Выберите водителя — поездка начнётся, откроется чат.", "Водитель һайла — сәфәр башлана, чат асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            if (loading) {
+                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (resps.isEmpty()) {
+                item { ListedEmpty(appText("Откликов пока нет", "Әлегә яуап юҡ"), appText("Водители ещё не откликнулись. Загляни позже.", "Водителдәр яуап бирмәгән. Һуңыраҡ кер.")) }
+            } else {
+                items(resps.size) { i ->
+                    val r = resps[i]
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(r.driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                r.driverRating?.let { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(14.dp)); Text(" $it", color = CanonMuted, fontSize = 13.sp) }
+                                Spacer(Modifier.weight(1f))
+                                if (r.price > 0) Text("${r.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            }
+                            if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
+                            Button(
+                                onClick = {
+                                    if (accepting) return@Button
+                                    accepting = true; val id = r.id
+                                    scope.launch {
+                                        ApiClient.acceptResponse(id)
+                                            .onSuccess { bid -> onAccepted(bid) }
+                                            .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show(); accepting = false }
+                                    }
+                                },
+                                enabled = !accepting,
+                                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                            ) { Text(appText("Поехать с этим водителем", "Был водитель менән барырға"), fontWeight = FontWeight.Black) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ListedEmpty(title: String, subtitle: String) {
+    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(Icons.Default.ListAlt, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
+            Text(title, color = CanonText, fontWeight = FontWeight.Black)
+            Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+        }
     }
 }
 

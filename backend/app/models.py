@@ -249,6 +249,18 @@ class Rating(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class RequestResponse(SQLModel, table=True):
+    """Отклик водителя на заявку пассажира: предлагает поездку (цена/коммент).
+    Пассажир принимает → создаётся Ride+Booking (обычная поездка с чатом)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    request_id: int = Field(index=True, foreign_key="riderequest.id")
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    price: int = 0
+    comment: str = ""
+    status: str = "offered"                  # offered / accepted / declined
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class AdEvent(SQLModel, table=True):
     """Событие по рекламе: показ или клик (для реальной статистики кабинета)."""
     id: Optional[int] = Field(default=None, primary_key=True)
