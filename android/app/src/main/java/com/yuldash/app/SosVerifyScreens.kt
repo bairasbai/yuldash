@@ -289,15 +289,37 @@ internal fun SosScreen(onBack: () -> Unit) {
     // Живая геолокация для ЧП — запрашиваем прямо здесь (а не ждём кеш с карты). Главное в SOS.
     var sosLat by remember { mutableStateOf(LocationPrefs.lastLat) }
     var sosLng by remember { mutableStateOf(LocationPrefs.lastLng) }
+    var locating by remember { mutableStateOf(false) }
+    fun applyLoc(loc: android.location.Location) {
+        sosLat = loc.latitude; sosLng = loc.longitude
+        LocationPrefs.lastLat = loc.latitude; LocationPrefs.lastLng = loc.longitude
+    }
     fun fetchLoc() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
-        val loc = try {
-            lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+        // 1) Мгновенно показать последнее известное (чтобы не было пусто).
+        try {
+            (lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
                 ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-                ?: lm.getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER)
-        } catch (e: SecurityException) { null }
-        if (loc != null) { sosLat = loc.latitude; sosLng = loc.longitude; LocationPrefs.lastLat = loc.latitude; LocationPrefs.lastLng = loc.longitude }
+                ?: lm.getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER))?.let { applyLoc(it) }
+        } catch (e: SecurityException) {}
+        // 2) Запросить СВЕЖИЙ одноразовый фикс — это и есть реальное «Обновить» (last-known может быть устаревшим).
+        val provider = when {
+            lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) -> android.location.LocationManager.GPS_PROVIDER
+            lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) -> android.location.LocationManager.NETWORK_PROVIDER
+            else -> null
+        }
+        if (provider != null) {
+            locating = true
+            try {
+                lm.requestSingleUpdate(provider, object : android.location.LocationListener {
+                    override fun onLocationChanged(loc: android.location.Location) { applyLoc(loc); locating = false }
+                    override fun onStatusChanged(p: String?, s: Int, e: android.os.Bundle?) {}
+                    override fun onProviderEnabled(p: String) {}
+                    override fun onProviderDisabled(p: String) {}
+                }, android.os.Looper.getMainLooper())
+            } catch (e: SecurityException) { locating = false } catch (e: Exception) { locating = false }
+        }
     }
     val locPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) fetchLoc()
@@ -367,13 +389,15 @@ internal fun SosScreen(onBack: () -> Unit) {
             item {
                 Text(
                     appText("Звонок идёт с твоего номера. 112 — единый номер всех служб.", "Шылтырау үҙ номерыңдан бара. 112 — бөтә хеҙмәттәрҙең уртаҡ номеры."),
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
                     color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
                 )
             }
 
             // Прямой вызов конкретной службы — быстрее 112 (без оператора-маршрутизатора). Тап = сразу звонок.
             item {
-                Text(appText("Прямой вызов службы", "Хеҙмәткә туранан-тура"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Text(appText("Прямой вызов службы", "Хеҙмәткә туранан-тура"), modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -424,7 +448,7 @@ internal fun SosScreen(onBack: () -> Unit) {
                             ) {
                                 Icon(Icons.Default.NearMe, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(if (coordsText != null) appText("Обновить", "Яңыртыу") else appText("Включить гео", "Геоны ҡабыҙыу"))
+                                Text(if (locating) appText("Обновляю…", "Яңыртам…") else if (coordsText != null) appText("Обновить", "Яңыртыу") else appText("Включить гео", "Геоны ҡабыҙыу"))
                             }
                             if (description.isNotBlank() || coordsText != null) {
                                 OutlinedButton(
@@ -447,9 +471,13 @@ internal fun SosScreen(onBack: () -> Unit) {
             // 🟧 Второй канал — уведомление доверенным контактам (SMS) + поддержке (Telegram админу). Реальный бэкенд.
             item { Spacer(Modifier.height(4.dp)) }
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                    Text(appText("SMS твоим доверенным контактам + сигнал поддержке Юлдаш с твоими координатами.", "Ышаныслы контакттарыңа SMS + Юлдаш ярҙамына координаталарың менән сигнал."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, textAlign = TextAlign.Center)
+                    Text(appText("SMS твоим доверенным контактам + сигнал поддержке Юлдаш с твоими координатами.", "Ышаныслы контакттарыңа SMS + Юлдаш ярҙамына координаталарың менән сигнал."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
                 }
             }
             if (sent) {
@@ -497,6 +525,8 @@ internal fun SosScreen(onBack: () -> Unit) {
             item {
                 Text(
                     appText("Ложный вызов экстренных служб наказуем по закону.", "Ялған ашығыс саҡырыу закон буйынса язаға тарттырыла."),
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
                     color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
                 )
             }
