@@ -147,3 +147,55 @@ def test_app_review_submit_moderation_and_public(client, user_factory):
     assert len(pub) == 1 and pub[0]["name"] == "Гульназ" and pub[0]["city"] == "Сибай" and pub[0]["stars"] == 5
     # доступно и под версионным префиксом
     assert client.get("/api/v1/reviews/public").status_code == 200
+
+
+def test_ads_lifecycle_founder_cap_and_public(client, user_factory):
+    admin = user_factory("Админ", role=UserRole.admin)
+    pax = user_factory("Юзер")
+    # обычный юзер не в админ-рекламу
+    assert client.get("/admin/ads", headers=pax["auth"]).status_code == 403
+    # создать standard → draft, публично не видно
+    r = client.post("/admin/ads", headers=admin["auth"], json={
+        "partner_name": "Кафе", "title": "Чай", "text": "Горячий чай по дороге", "plan": "standard", "placements": "route", "erid": "X1"})
+    assert r.status_code == 200, r.text
+    aid = r.json()["id"]
+    assert client.get("/ads").json() == []
+    # опубликовать → видно с маркировкой
+    assert client.post(f"/admin/ads/{aid}/status", headers=admin["auth"], json={"status": "active"}).status_code == 200
+    pub = client.get("/ads").json()
+    assert len(pub) == 1 and pub[0]["partner"] == "Кафе" and "route" in pub[0]["placements"]
+    # фильтр по месту
+    assert client.get("/ads?placement=profile").json() == []
+    assert len(client.get("/ads?placement=route").json()) == 1
+    # пауза → скрыт
+    client.post(f"/admin/ads/{aid}/status", headers=admin["auth"], json={"status": "paused"})
+    assert client.get("/ads").json() == []
+    # событие + статистика
+    client.post(f"/ads/{aid}/event", json={"type": "impression"})
+    client.post(f"/ads/{aid}/event", json={"type": "click"})
+    st = client.get("/ads/stats").json()
+    assert st[str(aid)]["impressions"] == 1 and st[str(aid)]["clicks"] == 1
+    # founder лимит 10
+    last_founder = None
+    for i in range(10):
+        rr = client.post("/admin/ads", headers=admin["auth"], json={"partner_name": f"F{i}", "title": "t", "text": "founder partner", "plan": "founder", "erid": "e"})
+        assert rr.status_code == 200, rr.text
+        last_founder = rr.json()["id"]
+    # 11-й founder → 400
+    assert client.post("/admin/ads", headers=admin["auth"], json={"partner_name": "F11", "title": "t", "text": "founder partner", "plan": "founder", "erid": "e"}).status_code == 400
+    # founder бессрочный (ends_at=null)
+    assert client.get(f"/admin/ads", headers=admin["auth"]).json()["founder_used"] == 10
+    # удалить (архив) один founder → слот освобождается → 11-й проходит
+    client.delete(f"/admin/ads/{last_founder}", headers=admin["auth"])
+    assert client.post("/admin/ads", headers=admin["auth"], json={"partner_name": "F11", "title": "t", "text": "founder partner", "plan": "founder", "erid": "e"}).status_code == 200
+
+
+def test_ads_expiry_hidden(client, user_factory):
+    admin = user_factory("Админ2", role=UserRole.admin)
+    r = client.post("/admin/ads", headers=admin["auth"], json={
+        "partner_name": "СТО", "title": "т", "text": "проверка авто", "plan": "standard", "placements": "ridesList", "erid": "Z",
+        "ends_at": "2020-01-01T00:00:00"})
+    aid = r.json()["id"]
+    client.post(f"/admin/ads/{aid}/status", headers=admin["auth"], json={"status": "active"})
+    # active, но срок истёк → в публичной выдаче нет
+    assert all(a["id"] != str(aid) for a in client.get("/ads").json())

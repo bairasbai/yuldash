@@ -71,39 +71,7 @@ def my_routes(user: User = Depends(current_user), session: Session = Depends(get
     return [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
 
 
-@router.get("/ads")
-def ads():
-    """Партнёрская реклама. В production без real ad-store не подмешиваем демо-креативы."""
-    if not settings.seed_demo:
-        return []
-    return [
-        {"id": "a_cafe", "title": "Кафе «Юлдаш»", "text": "Горячий чай и еда по дороге Баймаҡ → Сибай", "button": "Посмотреть", "erid": "2VtzqyYYYY", "placement": "route"},
-        {"id": "a_sto", "title": "СТО «АвтоМастер»", "text": "Проверка перед дальней дорогой, скидка попутчикам", "button": "Узнать", "erid": "2VtzqyZZZZ", "placement": "ridesList"},
-    ]
-
-
-class AdEventIn(BaseModel):
-    type: str
-
-
-@router.post("/ads/{ad_id}/event")
-def ad_event(ad_id: str, body: AdEventIn, session: Session = Depends(get_session)):
-    """Записать показ/клик по рекламе (реальная статистика кабинета)."""
-    t = "click" if body.type == "click" else "impression"
-    session.add(AdEvent(ad_id=ad_id, event_type=t))
-    session.commit()
-    return {"ok": True}
-
-
-@router.get("/ads/stats")
-def ad_stats(session: Session = Depends(get_session)):
-    """Сводка показов/кликов по каждой рекламе (для кабинета)."""
-    rows = session.exec(select(AdEvent)).all()
-    imp: Counter = Counter()
-    clk: Counter = Counter()
-    for r in rows:
-        (clk if r.event_type == "click" else imp)[r.ad_id] += 1
-    return {aid: {"impressions": imp[aid], "clicks": clk[aid]} for aid in (set(imp) | set(clk))}
+# Реклама (/ads, /ads/event, /ads/stats) вынесена в routers/ads.py — теперь из БД с админ-управлением.
 
 
 @router.get("/geocode")
