@@ -349,3 +349,4 @@
 **Действие Александра:** ЮKassa для самозанятых → shop_id + secret_key → `.env` на проде. Без них — mock (boost в dev).
 
 **Фаза 2 — Android (следующий релиз APK):** заменить `SbpTransferSheet` в `BoostScreen` на реальный редирект ЮKassa (`POST /boost/create`→открыть `confirmation_url`→вернуться→poll статус). Аналогично для платной рекламы.
+- 2026-06-28 Boost Фаза 1 ЗАДЕПЛОЕНО: миграция `migrate_boost.sql` (ALTER ride + индекс) прошла, `payment` создана `create_all`, сервис active, `/boost/plans` отдаёт 3 тарифа на проде, health ok. Прод-провайдер=mock → `/boost/create` отдаёт 503 (бесплатных бустов нет). 58 тестов зелёные. Ждёт: ключи ЮKassa от Александра + Android Фаза 2 (реальный редирект вместо фейкового СБП).
