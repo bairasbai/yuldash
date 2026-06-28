@@ -360,3 +360,8 @@
   * Android: `BoostScreen` переписан — фейковый `SbpTransferSheet` убран. Загрузка тарифов (`/boost/plans`) + своих поездок (`/driver/rides`), выбор поездки+тарифа → `/boost/create`. sbp_manual → карточка реквизитов СБП (номер/банк/имя + копировать) + pending; yookassa → редирект; succeeded → «поднято». Все состояния (загрузка/ошибка/пусто/результат), 2 языка, Canon, анимации выбора. `ApiClient`: getBoostPlans/getDriverRides/createBoost + DTO; RideDto.boosted.
   * Верификация: assembleDebug BUILD SUCCESSFUL; новый экран отрендерился на эмуляторе (состояние ошибки против реального бэкенда — экран+сеть+стейт-машина работают, без краша). Полный визуальный happy-path не снят: гостевой режим приложения сделал авто-логин на эмуляторе непрактичным → покрыто тестами. Личный СБП-номер в dev-`.env` НЕ коммитился (gitignored, удалён).
   Осталось: на проде флипнуть `PAYMENTS_PROVIDER=sbp_manual`+`SBP_PHONE` когда пойдём в стор; RuStore-публикация (разблокирует анкету ЮKassa).
+- 2026-06-28 R1+R4 ИСПРАВЛЕНО (server+client, приложение не в сторе → синхронно):
+  * R1 — 6-значный OTP: `gen_otp` k=4→6 (SMS/Telegram/посадочный код). Клиент: tg-инпут `.take(4)`→`.take(6)` + гейты `<4`→`<6` (SMS-инпут уже был 6). На проде: `gen_otp k=6` подтверждён.
+  * R4 — `?token=` в WS убран: токен только первым сообщением `{type:auth,token}`. Клиент (ChatSocket) уже так делал. На проде: `query_params` в chat.py = 0.
+  * Тесты обновлены на message-auth + извлечение tg-кода через `\d{6}`. 61 зелёный. assembleDebug BUILD SUCCESSFUL.
+  * ⚠️ Старый APK (`.take(4)`): Telegram-вход требует обновления APK; SMS-вход работает. Свежий APK: `yookassa-anketa/yuldash-debug-latest.apk`.
