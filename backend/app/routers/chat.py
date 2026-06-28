@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 
 from ..db import engine, get_session
 from ..models import Booking, Message, Ride, User
-from ..security import current_user, verify_token
+from ..security import authenticate_ws, current_user
 from ..services import booking_and_ride_for_user, is_blocked, manager, send_push, user_bookings
 
 router = APIRouter(tags=["chat"])
@@ -35,41 +35,50 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                 token = first.get("token")
         except Exception:
             token = None
-    try:
-        user_id = verify_token(token or "")
-    except Exception:
-        await websocket.close(code=1008, reason="Invalid token")
-        return
-    # Авторизация на ресурс (закрывает IDOR): юзер должен быть участником ИМЕННО этой брони.
+    # Аутентификация: декод JWT + проверка существования юзера и ревокации (logout).
+    # authenticate_ws (в отличие от простого декода) honors `tokens_valid_from`, иначе
+    # отозванный logout'ом токен открывал бы чат до истечения JWT.
+    # Авторизация на ресурс (закрывает IDOR): юзер — участник ИМЕННО этой брони.
+    # passenger_id/driver_id фиксируем как int → используем после закрытия сессии.
     with Session(engine) as s:
+        try:
+            user_id = authenticate_ws(token or "", s).id
+        except Exception:
+            await websocket.close(code=1008, reason="Invalid token")
+            return
         booking = s.get(Booking, booking_id)
         ride = s.get(Ride, booking.ride_id) if booking else None
         if not booking or not ride or (booking.passenger_id != user_id and ride.driver_id != user_id):
             await websocket.close(code=1008, reason="Forbidden")
             return
+        passenger_id, driver_id = booking.passenger_id, ride.driver_id
 
+    other_id = driver_id if user_id == passenger_id else passenger_id
     manager.register(booking_id, websocket)
     try:
         while True:
             data = await websocket.receive_text()
             payload = json.loads(data)
             if payload.get("type") == "message":
-                session = next(get_session())
-                msg = Message(booking_id=booking_id, sender_id=user_id, text=(payload.get("text") or "")[:4000])
-                session.add(msg)
-                session.commit()
-                session.refresh(msg)
-                await manager.broadcast(booking_id, {
-                    "type": "message",
-                    "id": msg.id,
-                    "sender_id": msg.sender_id,
-                    "text": msg.text,
-                    "timestamp": msg.created_at.isoformat()
-                })
-                # Push другой стороне (она может быть офлайн / не в чате).
-                other_id = ride.driver_id if user_id == booking.passenger_id else booking.passenger_id
-                sender = session.get(User, user_id)
-                send_push(session, other_id, (sender.name if sender else None) or "Новое сообщение", (msg.text or "Сообщение")[:120])
+                # `with` → коннект возвращается в пул сразу (без утечки сессий на каждое сообщение).
+                with Session(engine) as session:
+                    # Блокировка (как в REST send_message): заблокированный не пишет — тихо игнор.
+                    if is_blocked(session, user_id, other_id):
+                        continue
+                    msg = Message(booking_id=booking_id, sender_id=user_id, text=(payload.get("text") or "")[:4000])
+                    session.add(msg)
+                    session.commit()
+                    session.refresh(msg)
+                    await manager.broadcast(booking_id, {
+                        "type": "message",
+                        "id": msg.id,
+                        "sender_id": msg.sender_id,
+                        "text": msg.text,
+                        "timestamp": msg.created_at.isoformat()
+                    })
+                    # Push другой стороне (она может быть офлайн / не в чате).
+                    sender = session.get(User, user_id)
+                    send_push(session, other_id, (sender.name if sender else None) or "Новое сообщение", (msg.text or "Сообщение")[:120])
     except WebSocketDisconnect:
         manager.disconnect(booking_id, websocket)
 

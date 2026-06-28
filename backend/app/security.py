@@ -77,9 +77,22 @@ def revoke_all_refresh(session: Session, user_id: int) -> None:
 
 def verify_token(token: str) -> int:
     """Декодирует JWT, возвращает user_id. Бросает исключение при невалидном токене.
-    Используется WebSocket-чатом (там нет Depends/HTTPBearer)."""
+    ВНИМАНИЕ: не проверяет ревокацию/существование юзера — для авторизации соединений
+    используй `authenticate_ws` (ниже)."""
     payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     return int(payload["sub"])
+
+
+def authenticate_ws(token: str, session: Session) -> User:
+    """Аутентификация для WebSocket (там нет Depends/HTTPBearer).
+    В отличие от `verify_token`, ПРОВЕРЯЕТ существование юзера и ревокацию сессии
+    (`tokens_valid_from`/logout) — той же логикой, что REST `current_user`. Иначе токен,
+    отозванный через logout, продолжал бы открывать чат до самого истечения JWT."""
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    user = session.get(User, int(payload["sub"]))
+    if not user or _token_revoked(payload, user):
+        raise JWTError("token revoked or user missing")
+    return user
 
 
 def _token_revoked(payload: dict, user: User) -> bool:

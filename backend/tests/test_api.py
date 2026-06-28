@@ -126,6 +126,21 @@ def test_ws_rejects_non_participant(client, user_factory):
             ws.receive_text()
 
 
+def test_ws_rejects_token_revoked_by_logout(client, user_factory):
+    """Регресс V1: после logout старый токен НЕ открывает WS-чат (ревокация honored)."""
+    drv = user_factory("WsRevDrv", role=UserRole.driver)
+    rid = _ride(client, drv)
+    pax = user_factory("WsRevPax")
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
+    # участник выходит со всех устройств → его access-токен отозван
+    assert client.post("/auth/logout", headers=pax["auth"]).status_code == 200
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+    with pytest.raises((WebSocketDisconnect, Exception)):
+        with client.websocket_connect(f"/ws/bookings/{bid}?token={pax['token']}") as ws:
+            ws.receive_text()
+
+
 def test_app_review_submit_moderation_and_public(client, user_factory):
     u = user_factory("Гульназ")
     # слишком короткий — 400
