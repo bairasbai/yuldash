@@ -93,7 +93,71 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
 @router.get("/bookings/{booking_id}/messages", response_model=List[Message])
 def list_messages(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking_and_ride_for_user(session, booking_id, user)
-    return session.exec(select(Message).where(Message.booking_id == booking_id).order_by(Message.id)).all()
+    rows = session.exec(select(Message).where(Message.booking_id == booking_id).order_by(Message.id)).all()
+    # Скрытые «у себя» этим юзером не показываем (на сервере остаются — для спора/SOS).
+    return [m for m in rows if user.id not in _hidden_ids(m)]
+
+
+def _hidden_ids(m: Message) -> set:
+    return {int(x) for x in (m.hidden_user_ids or "").split(",") if x.strip().isdigit()}
+
+
+def _msg_in_booking(session: Session, booking_id: int, message_id: int) -> Message:
+    msg = session.get(Message, message_id)
+    if not msg or msg.booking_id != booking_id:
+        raise HTTPException(404, "Сообщение не найдено")
+    return msg
+
+
+class MessageEditIn(BaseModel):
+    text: str = Field(..., max_length=4000)
+
+
+@router.post("/bookings/{booking_id}/messages/{message_id}/edit", response_model=Message)
+def edit_message(booking_id: int, message_id: int, body: MessageEditIn,
+                 user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Редактировать СВОЁ текстовое сообщение → пометка edited."""
+    booking_and_ride_for_user(session, booking_id, user)
+    msg = _msg_in_booking(session, booking_id, message_id)
+    if msg.sender_id != user.id:
+        raise HTTPException(403, "Редактировать можно только своё сообщение")
+    if msg.deleted:
+        raise HTTPException(400, "Сообщение удалено")
+    if msg.voice_url:
+        raise HTTPException(400, "Голосовое нельзя редактировать")
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "Пустое сообщение")
+    msg.text = text
+    msg.edited = True
+    session.add(msg)
+    session.commit()
+    session.refresh(msg)
+    return msg
+
+
+@router.delete("/bookings/{booking_id}/messages/{message_id}", response_model=Message)
+def delete_message(booking_id: int, message_id: int, scope: str = "all",
+                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """scope=all — удалить у всех (только своё; текст очищается, видна пометка).
+    scope=me — скрыть только у себя (на сервере остаётся)."""
+    booking_and_ride_for_user(session, booking_id, user)
+    msg = _msg_in_booking(session, booking_id, message_id)
+    if scope == "me":
+        ids = _hidden_ids(msg)
+        ids.add(user.id)
+        msg.hidden_user_ids = ",".join(str(i) for i in sorted(ids))
+    else:  # all
+        if msg.sender_id != user.id:
+            raise HTTPException(403, "Удалить у всех можно только своё сообщение")
+        msg.deleted = True
+        msg.text = ""
+        msg.voice_url = None
+        msg.transcript = None
+    session.add(msg)
+    session.commit()
+    session.refresh(msg)
+    return msg
 
 
 class ConversationOut(BaseModel):

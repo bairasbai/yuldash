@@ -407,3 +407,27 @@ def test_upload_chat_photo_public(client, user_factory):
     assert client.post("/upload/chat-photo", headers=u["auth"], json={"photo_b64": "!!!", "ext": "jpg"}).status_code == 400
     # без токена → 401
     assert client.post("/upload/chat-photo", json={"photo_b64": img, "ext": "jpg"}).status_code == 401
+
+
+def test_message_edit_and_delete(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    bid = booking["id"]
+    # пассажир пишет
+    m = client.post(f"/bookings/{bid}/messages", headers=pax["auth"], json={"text": "Виду у рынка"}).json()
+    mid = m["id"]
+    # чужой не может править
+    assert client.post(f"/bookings/{bid}/messages/{mid}/edit", headers=drv["auth"], json={"text": "хак"}).status_code == 403
+    # автор правит → edited
+    e = client.post(f"/bookings/{bid}/messages/{mid}/edit", headers=pax["auth"], json={"text": "Жду у рынка"})
+    assert e.status_code == 200 and e.json()["text"] == "Жду у рынка" and e.json()["edited"] is True
+    # «удалить у себя» (водитель скрывает у себя) — у него пропадает, у пассажира остаётся
+    assert client.delete(f"/bookings/{bid}/messages/{mid}?scope=me", headers=drv["auth"]).status_code == 200
+    assert all(x["id"] != mid for x in client.get(f"/bookings/{bid}/messages", headers=drv["auth"]).json())
+    assert any(x["id"] == mid for x in client.get(f"/bookings/{bid}/messages", headers=pax["auth"]).json())
+    # «удалить у всех» — только автор
+    assert client.delete(f"/bookings/{bid}/messages/{mid}?scope=all", headers=drv["auth"]).status_code == 403
+    d = client.delete(f"/bookings/{bid}/messages/{mid}?scope=all", headers=pax["auth"])
+    assert d.status_code == 200 and d.json()["deleted"] is True and d.json()["text"] == ""
+    # после удаления у всех — пометка видна обоим (сообщение остаётся в списке как deleted)
+    msgs = client.get(f"/bookings/{bid}/messages", headers=pax["auth"]).json()
+    assert any(x["id"] == mid and x["deleted"] for x in msgs)

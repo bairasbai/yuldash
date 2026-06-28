@@ -90,6 +90,13 @@ import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.EventSeat
@@ -494,6 +501,7 @@ internal fun ActiveTripScreen(
     var messages by remember { mutableStateOf<List<MessageDto>>(emptyList()) }
     val voiceScope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
+    var editingId by remember { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
     var status by remember { mutableStateOf<String?>(null) }
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
@@ -699,13 +707,38 @@ internal fun ActiveTripScreen(
             item { Text(appText("Чат по поездке", "Сәфәр буйынса чат"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(4)) }
             item {
                 val voiceSoon = appText("Голос записан", "Тауыш яҙылды")
+                if (editingId != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                            .background(CanonWarnBg, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(appText("Редактирование сообщения", "Хәбәрҙе үҙгәртеү"), color = CanonWarn, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text(
+                            appText("Отмена", "Кире алыу"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.bounceClick { editingId = null; draft = "" }
+                        )
+                    }
+                }
                 ChatComposer(
                     draft = draft,
                     onDraftChange = { draft = it },
                     onSend = {
                         val t = draft.trim()
                         if (t.isNotEmpty() && bookingId != null) {
-                            sendText(t)   // единый надёжный путь: WS→REST, ошибка не теряется
+                            val eid = editingId
+                            if (eid != null) {
+                                voiceScope.launch {
+                                    ApiClient.editMessage(bookingId, eid, t).onSuccess {
+                                        ApiClient.getMessages(bookingId).onSuccess { messages = it }
+                                    }
+                                }
+                                editingId = null
+                            } else {
+                                sendText(t)   // единый надёжный путь: WS→REST, ошибка не теряется
+                            }
                             draft = ""
                         }
                     },
@@ -730,12 +763,26 @@ internal fun ActiveTripScreen(
                 )
             }
             items(messages, key = { it.id }) { m ->
+                val saved = m.id > 0   // оптимистичные (id<0) ещё не на сервере — без меню
                 MessageBubble(
                     text = m.text,
                     voiceUrl = m.voiceUrl,
                     mine = m.senderId == myId,
                     failed = m.id in failedIds,
+                    deleted = m.deleted,
+                    edited = m.edited,
+                    canEdit = saved && m.senderId == myId && m.voiceUrl == null && !m.deleted,
+                    canDeleteAll = saved && m.senderId == myId && !m.deleted,
+                    canDeleteMine = saved && !m.deleted,
                     onRetry = { retry(m.id, m.text) },
+                    onEdit = { editingId = m.id; draft = m.text },
+                    onDelete = { scope ->
+                        if (bookingId != null) voiceScope.launch {
+                            ApiClient.deleteMessage(bookingId, m.id, scope).onSuccess {
+                                ApiClient.getMessages(bookingId).onSuccess { messages = it }
+                            }
+                        }
+                    },
                 )
             }
             item {
@@ -785,19 +832,44 @@ internal fun ActiveTripScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(text: String, voiceUrl: String?, mine: Boolean, failed: Boolean = false, onRetry: () -> Unit = {}) {
+private fun MessageBubble(
+    text: String,
+    voiceUrl: String?,
+    mine: Boolean,
+    failed: Boolean = false,
+    deleted: Boolean = false,
+    edited: Boolean = false,
+    canEdit: Boolean = false,
+    canDeleteAll: Boolean = false,
+    canDeleteMine: Boolean = false,
+    onRetry: () -> Unit = {},
+    onEdit: () -> Unit = {},
+    onDelete: (String) -> Unit = {},
+) {
     var playing by remember { mutableStateOf(false) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
     DisposableEffect(voiceUrl) { onDispose { runCatching { player.value?.release() }; player.value = null } }
+    var menu by remember { mutableStateOf(false) }
+    val showMenu = !deleted && (canEdit || canDeleteAll || canDeleteMine)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+        Box {
         Surface(
-            color = if (mine) CanonGreen2 else CanonSurface,
+            color = if (deleted) CanonSurface else if (mine) CanonGreen2 else CanonSurface,
             shape = RoundedCornerShape(18.dp),
-            shadowElevation = 1.dp
+            shadowElevation = 1.dp,
+            border = if (deleted) BorderStroke(1.dp, CanonBorder) else null,
+            modifier = if (showMenu) Modifier.combinedClickable(onClick = {}, onLongClick = { menu = true }) else Modifier
         ) {
-            if (voiceUrl != null) {
+            if (deleted) {
+                Text(
+                    appText("Сообщение удалено", "Хәбәр юйылды"),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = CanonMuted, fontSize = 14.sp, fontStyle = FontStyle.Italic
+                )
+            } else if (voiceUrl != null) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = {
@@ -839,7 +911,32 @@ private fun MessageBubble(text: String, voiceUrl: String?, mine: Boolean, failed
                 )
             }
         }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (canEdit) DropdownMenuItem(
+                    text = { Text(appText("Редактировать", "Үҙгәртеү")) },
+                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = CanonGreen2) },
+                    onClick = { menu = false; onEdit() }
+                )
+                if (canDeleteMine) DropdownMenuItem(
+                    text = { Text(appText("Удалить у себя", "Үҙемдә юйыу")) },
+                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = CanonMuted) },
+                    onClick = { menu = false; onDelete("me") }
+                )
+                if (canDeleteAll) DropdownMenuItem(
+                    text = { Text(appText("Удалить у всех", "Барыһында юйыу"), color = CanonRed) },
+                    leadingIcon = { Icon(Icons.Default.DeleteForever, contentDescription = null, tint = CanonRed) },
+                    onClick = { menu = false; onDelete("all") }
+                )
+            }
+        }
     }
+        if (edited && !deleted) {
+            Text(
+                appText("изменено", "үҙгәртелде"),
+                color = CanonMuted, fontSize = 11.sp,
+                modifier = Modifier.padding(top = 2.dp, end = 4.dp)
+            )
+        }
         if (failed) {
             Text(
                 appText("Не доставлено · Повторить", "Ебәрелмәне · Ҡабатларға"),

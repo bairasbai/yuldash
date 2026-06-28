@@ -460,12 +460,19 @@ object ApiClient {
     suspend fun sendMessage(bookingId: Int, text: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true).map { }
 
+    suspend fun editMessage(bookingId: Int, messageId: Int, text: String): Result<Unit> =
+        call("POST", "/bookings/$bookingId/messages/$messageId/edit", JSONObject().put("text", text), auth = true).map { }
+
+    /** scope: "all" — удалить у всех (только своё), "me" — скрыть у себя. */
+    suspend fun deleteMessage(bookingId: Int, messageId: Int, scope: String): Result<Unit> =
+        call("DELETE", "/bookings/$bookingId/messages/$messageId?scope=$scope", null, auth = true).map { }
+
     suspend fun getMessages(bookingId: Int): Result<List<MessageDto>> =
         call("GET", "/bookings/$bookingId/messages", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                MessageDto(o.optInt("id"), o.optString("text"), o.optInt("sender_id"), o.optString("voice_url").ifBlank { null })
+                MessageDto(o.optInt("id"), o.optString("text"), o.optInt("sender_id"), o.optString("voice_url").ifBlank { null }, o.optBoolean("deleted"), o.optBoolean("edited"))
             }
         }
 
@@ -816,6 +823,8 @@ data class MessageDto(
     val text: String,
     val senderId: Int,
     val voiceUrl: String? = null,
+    val deleted: Boolean = false,
+    val edited: Boolean = false,
 )
 
 data class ConversationDto(

@@ -1,0 +1,4 @@
+-- Удаление/редактирование сообщений чата. Идемпотентно (IF NOT EXISTS).
+ALTER TABLE message ADD COLUMN IF NOT EXISTS deleted BOOLEAN DEFAULT FALSE;
+ALTER TABLE message ADD COLUMN IF NOT EXISTS edited BOOLEAN DEFAULT FALSE;
+ALTER TABLE message ADD COLUMN IF NOT EXISTS hidden_user_ids VARCHAR DEFAULT '';

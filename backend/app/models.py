@@ -187,6 +187,9 @@ class Message(SQLModel, table=True):
     text: str = ""
     voice_url: Optional[str] = None
     transcript: Optional[str] = None        # расшифровка голосового
+    deleted: bool = False                   # «удалено у всех» (текст очищен, видна пометка)
+    edited: bool = False                    # отредактировано (пометка «изменено»)
+    hidden_user_ids: str = ""               # CSV id юзеров, кто скрыл «у себя» (тред хранится на сервере)
     created_at: datetime = Field(default_factory=utcnow)
 
 
