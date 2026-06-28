@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Ride, RideCategory, RideRequest, RideStatus, User
+from ..models import Ride, RideCategory, RideRequest, RideStatus, User, UserRole
 from ..security import current_user
 
 router = APIRouter(tags=["requests"])
@@ -31,6 +31,42 @@ class RequestIn(BaseModel):
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     req = RideRequest(passenger_id=user.id, **body.model_dump())
+    session.add(req)
+    session.commit()
+    session.refresh(req)
+    return req
+
+
+class AdminRequestIn(BaseModel):
+    phone: str
+    name: str = Field("", max_length=120)
+    from_city: str
+    to_city: str
+    desired_at: Optional[datetime] = None
+    seats: int = 1
+    comment: str = Field("", max_length=2000)
+
+
+@router.post("/admin/request-for-phone", response_model=RideRequest)
+def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Админ создаёт заявку ЗА пользователя по телефону (после звонка «перезвоните мне»).
+    Находит/создаёт юзера по номеру → заводит заявку → водители видят её как обычную."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для администратора")
+    phone = body.phone.strip()
+    if not phone:
+        raise HTTPException(400, "Нужен телефон")
+    target = session.exec(select(User).where(User.phone == phone)).first()
+    if not target:
+        target = User(phone=phone, name=body.name or "Пользователь", verified=False)
+        session.add(target)
+        session.commit()
+        session.refresh(target)
+    req = RideRequest(
+        passenger_id=target.id, from_city=body.from_city, to_city=body.to_city,
+        desired_at=body.desired_at, seats=body.seats, comment=body.comment,
+        for_relative_name=(body.name or None),
+    )
     session.add(req)
     session.commit()
     session.refresh(req)

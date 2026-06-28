@@ -280,6 +280,7 @@ internal enum class Screen {
     Blocklist,
     Report,
     Filters,
+    AdminRequest,
     Help,
     PassengerCabinet,
     DriverCabinet,

@@ -436,6 +436,8 @@ internal fun SettingsScreen(
     onPrivacy: () -> Unit = {},
     onPayments: () -> Unit = {},
     onFilters: () -> Unit = {},
+    isAdmin: Boolean = false,
+    onAdminRequest: () -> Unit = {},
 ) {
     var notifications by remember { mutableStateOf(true) }
     var sounds by remember { mutableStateOf(true) }
@@ -482,6 +484,13 @@ internal fun SettingsScreen(
                 SettingsGroup {
                     SettingsNavRow(Icons.Default.Tune, appText("Фильтры по умолчанию", "Ғәҙәти фильтрҙар"), appText("Условия поиска поездок", "Сәфәр эҙләү шарттары"), onClick = onFilters)
                     SettingsNavRow(Icons.Default.CreditCard, appText("Оплата поездок", "Сәфәр түләүе"), appText("Как оплачивать поездки в Юлдаш", "Юлдашта сәфәр өсөн нисек түләргә"), onClick = onPayments)
+                }
+            }
+            if (isAdmin) {
+                item {
+                    SettingsGroup {
+                        SettingsNavRow(Icons.Default.HeadsetMic, appText("Заявка за пользователя", "Ҡулланыусы өсөн заявка"), appText("Создать заявку после звонка «перезвоните мне»", "«Шылтыратығыҙ» һуңында заявка булдырыу"), onClick = onAdminRequest)
+                    }
                 }
             }
             item {
@@ -663,6 +672,59 @@ private fun PersonRow(name: String, actionLabel: String, danger: Boolean, onActi
             Spacer(Modifier.width(12.dp))
             Text(name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
             TextButton(onClick = onAction) { Text(actionLabel, color = if (danger) CanonRed else CanonGreen2, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+/** Админ: создать заявку ЗА пользователя по телефону (после звонка «перезвоните мне»). */
+@Composable
+internal fun AdminRequestScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var phone by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
+    var from by remember { mutableStateOf("") }
+    var to by remember { mutableStateOf("") }
+    var seats by remember { mutableStateOf("1") }
+    var comment by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    val okMsg = appText("Заявка создана для пользователя", "Ҡулланыусы өсөн заявка булдырылды")
+    val errMsg = appText("Не удалось. Проверь данные.", "Булманы. Мәғлүмәтте тикшер.")
+    val needMsg = appText("Заполни телефон, откуда и куда", "Телефон, ҡайҙан, ҡайҙа тултыр")
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заявка за пользователя", "Ҡулланыусы өсөн заявка"), onBack) }) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item { Text(appText("После звонка «перезвоните мне» заполни заявку за человека — водители увидят её как обычную.", "«Шылтыратығыҙ» һуңында кеше өсөн заявка тултыр — водителдәр уны ғәҙәти күрер."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            item { OutlinedTextField(phone, { phone = it }, label = { Text(appText("Телефон пользователя", "Ҡулланыусы телефоны")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
+            item { OutlinedTextField(name, { name = it }, label = { Text(appText("Имя (необязательно)", "Исем (мотлаҡ түгел)")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
+            item { OutlinedTextField(from, { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
+            item { OutlinedTextField(to, { to = it }, label = { Text(appText("Куда", "Ҡайҙа")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
+            item { OutlinedTextField(seats, { seats = it.filter { c -> c.isDigit() }.take(1) }, label = { Text(appText("Мест", "Урын")) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)) }
+            item { OutlinedTextField(comment, { comment = it }, label = { Text(appText("Комментарий", "Аңлатма")) }, modifier = Modifier.fillMaxWidth(), minLines = 2, shape = RoundedCornerShape(14.dp)) }
+            item {
+                Button(
+                    onClick = {
+                        if (sending) return@Button
+                        if (phone.isBlank() || from.isBlank() || to.isBlank()) {
+                            Toast.makeText(ctx, needMsg, Toast.LENGTH_SHORT).show(); return@Button
+                        }
+                        sending = true
+                        val s = seats.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                        scope.launch {
+                            ApiClient.adminRequestForPhone(phone.trim(), name.trim(), from.trim(), to.trim(), s, comment.trim())
+                                .onSuccess { Toast.makeText(ctx, okMsg, Toast.LENGTH_SHORT).show(); onBack() }
+                                .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show(); sending = false }
+                        }
+                    },
+                    enabled = !sending,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Black) }
+            }
         }
     }
 }

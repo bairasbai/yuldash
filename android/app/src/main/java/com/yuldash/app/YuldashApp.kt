@@ -275,6 +275,9 @@ internal fun YuldashApp() {
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
     var startHomeTab by rememberSaveable { mutableStateOf(HomeTab.Map) }
     var callbackRequested by remember { mutableStateOf(false) }
+    // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
+    var isAdmin by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" } }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by remember { mutableStateOf(demoPartnerAds) }
     LaunchedEffect(Unit) {
@@ -576,8 +579,11 @@ internal fun YuldashApp() {
                 },
                 onPrivacy = { screen = Screen.Privacy },
                 onPayments = { screen = Screen.PaymentInfo },
-                onFilters = { screen = Screen.Filters }
+                onFilters = { screen = Screen.Filters },
+                isAdmin = isAdmin,
+                onAdminRequest = { screen = Screen.AdminRequest }
             )
+            Screen.AdminRequest -> AdminRequestScreen(onBack = { screen = Screen.Settings })
             Screen.Help -> HelpScreen(
                 ads = partnerAds,
                 adStats = adStats,

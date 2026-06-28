@@ -472,6 +472,12 @@ object ApiClient {
             (0 until arr.length()).map { i -> val o = arr.getJSONObject(i); BlockDto(o.optInt("blocked_user_id"), o.optString("name")) }
         }
 
+    /** Админ создаёт заявку ЗА пользователя по телефону (после звонка «перезвоните мне»). */
+    suspend fun adminRequestForPhone(phone: String, name: String, fromCity: String, toCity: String, seats: Int, comment: String): Result<Unit> =
+        call("POST", "/admin/request-for-phone", JSONObject()
+            .put("phone", phone).put("name", name).put("from_city", fromCity).put("to_city", toCity)
+            .put("seats", seats).put("comment", comment), auth = true).map { }
+
     suspend fun getReportableUsers(): Result<List<ReportableUserDto>> =
         call("GET", "/reportable-users", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
