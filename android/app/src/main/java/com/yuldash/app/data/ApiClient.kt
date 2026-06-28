@@ -500,6 +500,28 @@ object ApiClient {
     suspend fun acceptResponse(responseId: Int): Result<Int> =
         call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }
 
+    // ---------- Админ: модерация водителей + жалобы ----------
+    suspend fun getPendingDrivers(): Result<List<PendingDriverDto>> =
+        call("GET", "/admin/drivers/pending", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                PendingDriverDto(o.optInt("user_id"), o.optString("name"), o.optString("phone"), o.optString("car"), o.optString("license_url"), o.optString("car_photo_url"))
+            }
+        }
+
+    suspend fun moderateDriver(userId: Int, approve: Boolean): Result<Unit> =
+        call("POST", "/admin/drivers/$userId/moderate", JSONObject().put("approve", approve), auth = true).map { }
+
+    suspend fun getAdminReports(): Result<List<AdminReportDto>> =
+        call("GET", "/admin/reports", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                AdminReportDto(o.optInt("id"), o.optString("reporter_name"), o.optString("target_name"), o.optString("target_phone"), o.optString("reason"), o.optString("created_at"))
+            }
+        }
+
     /** Админ создаёт заявку ЗА пользователя по телефону (после звонка «перезвоните мне»). */
     suspend fun adminRequestForPhone(phone: String, name: String, fromCity: String, toCity: String, seats: Int, comment: String): Result<Unit> =
         call("POST", "/admin/request-for-phone", JSONObject()
@@ -916,6 +938,8 @@ data class RequestDto(
 /** Доверенный контакт с сервера. */
 data class BlockDto(val blockedUserId: Int, val name: String)
 data class ReportableUserDto(val id: Int, val name: String)
+data class PendingDriverDto(val userId: Int, val name: String, val phone: String, val car: String, val licenseUrl: String, val carPhotoUrl: String)
+data class AdminReportDto(val id: Int, val reporterName: String, val targetName: String, val targetPhone: String, val reason: String, val createdAt: String)
 data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean)
 data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String)
 

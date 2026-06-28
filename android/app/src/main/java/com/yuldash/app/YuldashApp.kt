@@ -589,8 +589,12 @@ internal fun YuldashApp() {
                 onBack = { screen = Screen.Settings },
                 onAdminRequest = { screen = Screen.AdminRequest },
                 onAdminResponses = { screen = Screen.AdminResponses },
-                onAds = { screen = Screen.AdsCabinet }
+                onAds = { screen = Screen.AdsCabinet },
+                onDrivers = { screen = Screen.AdminDrivers },
+                onReports = { screen = Screen.AdminReports }
             )
+            Screen.AdminDrivers -> AdminDriversScreen(onBack = { screen = Screen.AdminCabinet })
+            Screen.AdminReports -> AdminReportsScreen(onBack = { screen = Screen.AdminCabinet })
             Screen.AdminRequest -> AdminRequestScreen(onBack = { screen = Screen.AdminCabinet })
             Screen.AdminResponses -> AdminResponsesScreen(onBack = { screen = Screen.AdminCabinet })
             Screen.Help -> HelpScreen(

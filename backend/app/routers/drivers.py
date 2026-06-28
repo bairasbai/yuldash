@@ -2,6 +2,7 @@
 отправка на проверку, статус проверки, выдача защищённых документов, модерация админом."""
 import os
 import uuid
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -135,6 +136,36 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "license_url": dp.license_url if dp else "",
         "car_photo_url": dp.car_photo_url if dp else "",
     }
+
+
+class PendingDriverOut(BaseModel):
+    user_id: int
+    name: str
+    phone: str
+    car: str
+    license_url: str
+    car_photo_url: str
+
+
+@router.get("/admin/drivers/pending", response_model=List[PendingDriverOut])
+def pending_drivers(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водители, ждущие проверки (docs_status=pending) — для модерации админом."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    profs = session.exec(select(DriverProfile).where(DriverProfile.docs_status == "pending")).all()
+    if not profs:
+        return []
+    users = {u.id: u for u in session.exec(select(User).where(User.id.in_({p.user_id for p in profs}))).all()}
+    out: list = []
+    for p in profs:
+        u = users.get(p.user_id)
+        car = " ".join(x for x in [p.car_make, p.car_model, p.car_color, p.car_plate] if x).strip()
+        out.append(PendingDriverOut(
+            user_id=p.user_id, name=(u.name if u and u.name else "Водитель"),
+            phone=(u.phone if u else ""), car=car,
+            license_url=p.license_url, car_photo_url=p.car_photo_url,
+        ))
+    return out
 
 
 class ModerateIn(BaseModel):

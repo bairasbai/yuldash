@@ -283,6 +283,8 @@ internal enum class Screen {
     AdminCabinet,
     AdminRequest,
     AdminResponses,
+    AdminDrivers,
+    AdminReports,
     RequestsFeed,
     RequestResponses,
     Help,

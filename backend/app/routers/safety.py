@@ -1,11 +1,13 @@
 """Безопасность: SOS (с SMS доверенным контактам), жалобы, блокировки."""
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from typing import List, Optional
 
 from ..db import get_session
-from ..models import Block, Booking, Report, Ride, SosEvent, TrustedContact, User
+from ..models import Block, Booking, Report, Ride, SosEvent, TrustedContact, User, UserRole
 from ..security import current_user
 from ..services import booking_and_ride_for_user, notify_admin_telegram, send_text
 
@@ -58,6 +60,42 @@ def request_callback(body: CallbackIn, user: User = Depends(current_user)):
 class ReportIn(BaseModel):
     target_user_id: int
     reason: str = ""
+
+
+class ReportOut(BaseModel):
+    id: int
+    reporter_name: str
+    target_name: str
+    target_phone: str
+    reason: str
+    created_at: datetime
+
+
+@router.get("/admin/reports", response_model=List[ReportOut])
+def admin_reports(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Все жалобы — для разбора админом (кто на кого, причина, когда)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    reports = session.exec(select(Report).order_by(Report.id.desc()).limit(200)).all()
+    if not reports:
+        return []
+    ids: set = set()
+    for r in reports:
+        ids.add(r.reporter_id)
+        ids.add(r.target_user_id)
+    users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()}
+    out: list = []
+    for r in reports:
+        rep = users.get(r.reporter_id)
+        tgt = users.get(r.target_user_id)
+        out.append(ReportOut(
+            id=r.id,
+            reporter_name=(rep.name if rep and rep.name else "—"),
+            target_name=(tgt.name if tgt and tgt.name else "—"),
+            target_phone=(tgt.phone if tgt else ""),
+            reason=r.reason, created_at=r.created_at,
+        ))
+    return out
 
 
 @router.post("/reports", response_model=Report)

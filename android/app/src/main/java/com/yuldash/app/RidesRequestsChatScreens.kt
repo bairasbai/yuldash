@@ -1502,7 +1502,7 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
 }
 
 @Composable
-private fun ListedEmpty(title: String, subtitle: String) {
+internal fun ListedEmpty(title: String, subtitle: String) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(Icons.Default.ListAlt, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
