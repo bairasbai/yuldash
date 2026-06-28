@@ -87,8 +87,10 @@ def ad_event(ad_id: int, body: AdEventIn, session: Session = Depends(get_session
 
 
 @router.get("/ads/stats")
-def ad_stats(session: Session = Depends(get_session)):
-    """Сводка показов/кликов по каждому объявлению."""
+def ad_stats(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Сводка показов/кликов по каждому объявлению (кабинет — только админ)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
     rows = session.exec(select(AdEvent)).all()
     imp: Counter = Counter()
     clk: Counter = Counter()

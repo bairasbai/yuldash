@@ -525,6 +525,16 @@ internal fun SosScreen(onBack: () -> Unit) {
             item {
                 Text(
                     appText("Ложный вызов экстренных служб наказуем по закону.", "Ялған ашығыс саҡырыу закон буйынса язаға тарттырыла."),
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
+                )
+            }
+            item { TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text(appText("Назад", "Кире")) } }
+        }
+    }
+}
+
 // Кнопка прямого вызова службы: тап = сразу звонок на её номер (без вкл/выкл). 3 в ряд.
 @Composable
 private fun RowScope.SosDirectCallChip(

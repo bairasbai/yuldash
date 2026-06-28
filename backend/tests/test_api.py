@@ -193,7 +193,7 @@ def test_ads_lifecycle_founder_cap_and_public(client, user_factory):
     # событие + статистика
     client.post(f"/ads/{aid}/event", json={"type": "impression"})
     client.post(f"/ads/{aid}/event", json={"type": "click"})
-    st = client.get("/ads/stats").json()
+    st = client.get("/ads/stats", headers=admin["auth"]).json()
     assert st[str(aid)]["impressions"] == 1 and st[str(aid)]["clicks"] == 1
     # founder лимит 10
     last_founder = None
