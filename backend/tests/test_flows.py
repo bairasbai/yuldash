@@ -342,7 +342,7 @@ def test_tg_share_contact_sets_real_phone(client):
                     "chat": {"id": int(tid)}}
     }).json()
     assert r["method"] == "sendMessage"
-    code = "".join(c for c in r["text"].split("Юлдаш:")[1][:6] if c.isdigit())
+    code = __import__("re").search(r"\d{6}", r["text"]).group()
     # юзер делится своим номером (contact.user_id == отправитель)
     client.post("/telegram/webhook", json={
         "message": {"from": {"id": int(tid)}, "chat": {"id": int(tid)},
@@ -362,7 +362,7 @@ def test_tg_rejects_foreign_contact(client):
         "message": {"text": f"/start {req}", "from": {"id": int(tid), "first_name": "Тимур"},
                     "chat": {"id": int(tid)}}
     }).json()
-    code = "".join(c for c in r["text"].split("Юлдаш:")[1][:6] if c.isdigit())
+    code = __import__("re").search(r"\d{6}", r["text"]).group()
     client.post("/telegram/webhook", json={  # чужой номер
         "message": {"from": {"id": int(tid)}, "chat": {"id": int(tid)},
                     "contact": {"phone_number": "+79990000000", "user_id": 555}}
@@ -380,7 +380,7 @@ def test_tg_phone_required_then_share_unlocks(client):
         "message": {"text": f"/start {req}", "from": {"id": int(tid), "first_name": "Гузель"},
                     "chat": {"id": int(tid)}}
     }).json()
-    code = "".join(c for c in r["text"].split("Юлдаш:")[1][:6] if c.isdigit())
+    code = __import__("re").search(r"\d{6}", r["text"]).group()
     # ввод кода без номера → 403, код остаётся валидным
     assert client.post("/auth/tg/verify", json={"request_id": req, "code": code}).status_code == 403
     # юзер делится своим номером

@@ -337,7 +337,7 @@ private fun LoginFormCard(
                 fontWeight = FontWeight.Black
             )
             if (tgMode) {
-                // --- Ввод 4-значного кода, который бот прислал в Telegram ---
+                // --- Ввод 6-значного кода, который бот прислал в Telegram ---
                 val errEnterTgCode = appTextFor(currentLanguage, "Введите код из Telegram", "Telegram кодын индерегеҙ")
                 val errBadTgCode = appTextFor(currentLanguage, "Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп, ҡабат индер.")
                 val errExpiredCode = appTextFor(currentLanguage, "Код истёк. Получи новый — открой Telegram ещё раз.", "Код ваҡыты бөттө. Яңыһын ал — Telegram'ды тағы ас.")
@@ -357,7 +357,7 @@ private fun LoginFormCard(
                 }
                 OutlinedTextField(
                     value = code,
-                    onValueChange = { code = it.filter { c -> c.isDigit() }.take(4); error = null },
+                    onValueChange = { code = it.filter { c -> c.isDigit() }.take(6); error = null },
                     placeholder = { Text(appTextFor(currentLanguage, "Код из Telegram", "Telegram коды"), fontSize = 16.sp) },
                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -371,7 +371,7 @@ private fun LoginFormCard(
                     loading = loading,
                     onClick = {
                         if (loading) return@AppButton
-                        if (code.length < 4) { error = errEnterTgCode; return@AppButton }
+                        if (code.length < 6) { error = errEnterTgCode; return@AppButton }
                         loading = true; error = null
                         scope.launch {
                             ApiClient.tgVerify(tgRequestId, code.trim())
@@ -415,7 +415,7 @@ private fun LoginFormCard(
                 lineHeight = 22.sp
             )
             Spacer(modifier = Modifier.height(4.dp))
-            // Telegram — рабочий вход (бот шлёт 4-значный код). VK/WhatsApp — «скоро».
+            // Telegram — рабочий вход (бот шлёт 6-значный код). VK/WhatsApp — «скоро».
             val errTgStart = appTextFor(currentLanguage, "Не удалось начать вход. Повтори.", "Инеүҙе башлап булманы. Ҡабатла.")
             val tgSoon = appTextFor(currentLanguage, "Вход через Telegram скоро", "Telegram аша инеү тиҙҙән")
             Button(
@@ -520,7 +520,7 @@ private fun LoginFormCard(
                                 }
                         }
                     } else {
-                        if (code.length < 4) {
+                        if (code.length < 6) {
                             error = errEnterCode
                             return@Button
                         }

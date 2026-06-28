@@ -23,18 +23,17 @@ class MessageIn(BaseModel):
 
 @router.websocket("/ws/bookings/{booking_id}")
 async def websocket_endpoint(websocket: WebSocket, booking_id: int):
-    """WebSocket чат брони. Токен — первым сообщением {"type":"auth","token":...}
-    (в URL не передаём: query-string утекает в логи nginx/прокси). Для совместимости
-    принимаем и ?token=. Доступ — ТОЛЬКО участнику брони (пассажир или водитель)."""
+    """WebSocket чат брони. Токен — ТОЛЬКО первым сообщением {"type":"auth","token":...}.
+    Через query-string не принимаем: query-string утекает в логи nginx/прокси, а токен =
+    доступ к чату. Доступ — ТОЛЬКО участнику брони (пассажир или водитель)."""
     await websocket.accept()
-    token = websocket.query_params.get("token")
-    if not token:
-        try:
-            first = json.loads(await websocket.receive_text())
-            if first.get("type") == "auth":
-                token = first.get("token")
-        except Exception:
-            token = None
+    token = None
+    try:
+        first = json.loads(await websocket.receive_text())
+        if first.get("type") == "auth":
+            token = first.get("token")
+    except Exception:
+        token = None
     # Аутентификация: декод JWT + проверка существования юзера и ревокации (logout).
     # authenticate_ws (в отличие от простого декода) honors `tokens_valid_from`, иначе
     # отозванный logout'ом токен открывал бы чат до истечения JWT.

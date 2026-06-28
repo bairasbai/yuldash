@@ -107,7 +107,9 @@ def _token_revoked(payload: dict, user: User) -> bool:
 
 
 def gen_otp() -> str:
-    return "".join(random.choices(string.digits, k=4))
+    """6-значный код (SMS/Telegram-вход, посадочный код брони). 6 цифр — стандарт,
+    10^6 комбинаций против 10^4 → перебор на порядки дороже."""
+    return "".join(random.choices(string.digits, k=6))
 
 
 def current_user(

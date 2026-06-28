@@ -119,10 +119,13 @@ def test_ws_rejects_non_participant(client, user_factory):
     bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
     outsider = user_factory("WsOut")
     # посторонний к чужому чату по WS → соединение отклоняется
+    import json
     import pytest
     from starlette.websockets import WebSocketDisconnect
+    # Токен — первым сообщением (R4: ?token= в URL больше не принимаем).
     with pytest.raises((WebSocketDisconnect, Exception)):
-        with client.websocket_connect(f"/ws/bookings/{bid}?token={outsider['token']}") as ws:
+        with client.websocket_connect(f"/ws/bookings/{bid}") as ws:
+            ws.send_text(json.dumps({"type": "auth", "token": outsider["token"]}))
             ws.receive_text()
 
 
@@ -134,10 +137,12 @@ def test_ws_rejects_token_revoked_by_logout(client, user_factory):
     bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
     # участник выходит со всех устройств → его access-токен отозван
     assert client.post("/auth/logout", headers=pax["auth"]).status_code == 200
+    import json
     import pytest
     from starlette.websockets import WebSocketDisconnect
     with pytest.raises((WebSocketDisconnect, Exception)):
-        with client.websocket_connect(f"/ws/bookings/{bid}?token={pax['token']}") as ws:
+        with client.websocket_connect(f"/ws/bookings/{bid}") as ws:
+            ws.send_text(json.dumps({"type": "auth", "token": pax["token"]}))
             ws.receive_text()
 
 

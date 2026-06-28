@@ -78,7 +78,7 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
     ).first()
     if not otp or otp.expires_at < utcnow():
         raise HTTPException(400, "Неверный или просроченный код")
-    if otp.attempts >= 5:                       # защита от перебора 4-значного кода
+    if otp.attempts >= 5:                       # защита от перебора 6-значного кода
         raise HTTPException(429, "Слишком много попыток. Запроси новый код.")
     if otp.code != body.code:
         otp.attempts += 1
@@ -97,13 +97,13 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
 
 
 # ==================== TELEGRAM-ВХОД (бот, код подтверждения) ====================
-# Поток как у SMS, но 4-значный код шлёт Telegram-бот:
+# Поток как у SMS, но 6-значный код шлёт Telegram-бот:
 # 1) app: POST /auth/tg/start → request_id; app открывает t.me/<bot>?start=<request_id>
 # 2) юзер жмёт Старт → Telegram шлёт /start <request_id> на вебхук
-# 3) вебхук привязывает ПОДТВЕРЖДЁННЫЙ Telegram'ом from.id к request_id, генерит 4-значный
+# 3) вебхук привязывает ПОДТВЕРЖДЁННЫЙ Telegram'ом from.id к request_id, генерит 6-значный
 #    код и присылает его юзеру в чат бота
 # 4) app: POST /auth/tg/verify {request_id, code} → сервер сверяет код → JWT
-# Безопасность: request_id — случайный UUID (не угадать); код 4 цифры, живёт 5 мин,
+# Безопасность: request_id — случайный UUID (не угадать); код 6 цифр, живёт 5 мин,
 # ≤5 попыток; telegram_id подтверждён Telegram'ом. За чужого войти нельзя.
 
 TG_CODE_TTL_SEC = 300

@@ -239,7 +239,7 @@ object ApiClient {
         call("POST", "/auth/tg/start", JSONObject(), auth = false)
             .map { it.optString("request_id") }
 
-    /** Проверка 4-значного кода, который бот прислал в Telegram. При успехе — токен+имя. */
+    /** Проверка 6-значного кода, который бот прислал в Telegram. При успехе — токен+имя. */
     suspend fun tgVerify(requestId: String, code: String): Result<JSONObject> =
         call(
             "POST", "/auth/tg/verify",
