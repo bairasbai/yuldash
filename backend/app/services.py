@@ -7,6 +7,7 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 `main.py` разрезан без дублирования логики (поведение 1:1).
 """
 from datetime import timedelta
+import asyncio
 import base64
 import json
 import math
@@ -358,25 +359,91 @@ def cache_set_json(key: str, value, ttl_sec: int) -> None:
 
 # ----------------------------- WebSocket -----------------------------
 class ConnectionManager:
-    """Управление WebSocket соединениями для чата в реальном времени."""
+    """WebSocket-чат в реальном времени, масштабируемый на несколько воркеров.
+
+    Проблема: при нескольких воркерах gunicorn собеседники одной брони могут
+    попасть на РАЗНЫЕ воркеры → in-memory broadcast не доходит (живой чат рвётся).
+    Решение: Redis pub/sub. Сообщение → PUBLISH в канал `chat:{booking_id}`; каждый
+    воркер, где есть локальные сокеты этой брони, ПОДПИСАН на канал и раздаёт их.
+    Без Redis (или сбой) — тихий фолбэк на локальную доставку (как было)."""
     def __init__(self):
         self.active_connections: dict = {}
+        self._redis = None
+        self._redis_tried = False
+        self._pubsub_tasks: dict = {}     # booking_id -> asyncio.Task слушателя канала
 
-    def register(self, booking_id: int, websocket):
-        """Зарегистрировать УЖЕ принятое (accept) и авторизованное соединение."""
+    def _get_redis(self):
+        if self._redis_tried:
+            return self._redis
+        self._redis_tried = True
+        if settings.redis_url:
+            try:
+                import redis.asyncio as aioredis
+                self._redis = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"[WS] redis init failed, local-only: {e}")
+                self._redis = None
+        return self._redis
+
+    async def register(self, booking_id: int, websocket):
+        """Зарегистрировать УЖЕ принятое (accept) и авторизованное соединение.
+        Если это первый локальный сокет брони — поднимаем подписку на канал Redis."""
         self.active_connections.setdefault(booking_id, []).append(websocket)
+        r = self._get_redis()
+        if r is not None and booking_id not in self._pubsub_tasks:
+            self._pubsub_tasks[booking_id] = asyncio.create_task(self._subscribe(booking_id, r))
+
+    async def _subscribe(self, booking_id: int, r):
+        ps = r.pubsub()
+        await ps.subscribe(f"chat:{booking_id}")
+        try:
+            async for msg in ps.listen():
+                if msg.get("type") != "message":
+                    continue
+                try:
+                    data = json.loads(msg["data"])
+                except Exception:  # noqa: BLE001
+                    continue
+                await self._local_send(booking_id, data)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:  # noqa: BLE001 — подписка не должна валить процесс
+            print(f"[WS] subscribe error booking={booking_id}: {e}")
+        finally:
+            try:
+                await ps.unsubscribe(f"chat:{booking_id}")
+                await ps.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def _local_send(self, booking_id: int, data: dict):
+        for connection in list(self.active_connections.get(booking_id, [])):
+            try:
+                await connection.send_json(data)
+            except Exception:  # noqa: BLE001
+                pass
 
     def disconnect(self, booking_id: int, websocket):
-        if booking_id in self.active_connections:
-            self.active_connections[booking_id].remove(websocket)
+        conns = self.active_connections.get(booking_id)
+        if conns and websocket in conns:
+            conns.remove(websocket)
+        if conns is not None and not conns:     # последний сокет ушёл → гасим подписку
+            self.active_connections.pop(booking_id, None)
+            task = self._pubsub_tasks.pop(booking_id, None)
+            if task:
+                task.cancel()
 
     async def broadcast(self, booking_id: int, data: dict):
-        if booking_id in self.active_connections:
-            for connection in self.active_connections[booking_id]:
-                try:
-                    await connection.send_json(data)
-                except Exception:
-                    pass
+        """С Redis: публикуем — доставку сделают подписчики ВСЕХ воркеров (вкл. наш),
+        единый путь. Без Redis: шлём напрямую локальным сокетам."""
+        r = self._get_redis()
+        if r is not None:
+            try:
+                await r.publish(f"chat:{booking_id}", json.dumps(data, ensure_ascii=False))
+                return
+            except Exception as e:  # noqa: BLE001 — Redis недоступен → локальная доставка
+                print(f"[WS] publish failed, local-only: {e}")
+        await self._local_send(booking_id, data)
 
 
 manager = ConnectionManager()

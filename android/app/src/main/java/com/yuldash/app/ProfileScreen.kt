@@ -550,7 +550,7 @@ internal fun DriverCabinetScreen(
                                     if (b.route.isNotBlank()) Text(b.route, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 b.passengerRating?.let {
-                                    Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(15.dp))
+                                    Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
                                     Spacer(Modifier.width(3.dp))
                                     Text(it.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }
@@ -560,7 +560,7 @@ internal fun DriverCabinetScreen(
                                     Icon(
                                         Icons.Default.Star,
                                         contentDescription = "$n",
-                                        tint = if (n <= stars) Color(0xFFE7A921) else CanonBorder,
+                                        tint = if (n <= stars) CanonStar else CanonBorder,
                                         modifier = Modifier.size(34.dp).clickable {
                                             stars = n
                                             rateScope.launch {
@@ -650,7 +650,7 @@ private fun AdsAdminPreview(ads: List<PartnerAd>, adStats: Map<String, AdStats>)
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, Color(0x1A0B6B3A))
+        border = BorderStroke(1.dp, CanonHairlineGreen)
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -905,7 +905,7 @@ internal fun PartnerAdCard(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, Color(0x1A0B6B3A))
+        border = BorderStroke(1.dp, CanonHairlineGreen)
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

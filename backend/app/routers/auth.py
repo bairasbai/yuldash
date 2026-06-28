@@ -5,6 +5,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import delete
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -134,6 +135,12 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                 reply = f"Твой код для входа в Юлдаш: {code}\nВведи его в приложении. Код живёт 5 минут."
             else:
                 reply = "Открой приложение Юлдаш и нажми «Вход через Telegram» — я пришлю код."
+            # Гигиена: чистим просроченные строки входа (TgAuth/OtpCode растут на каждую попытку).
+            # Делаем здесь — частоту вебхука Telegram сам ограничивает (~30/с), клиентский спайк не грузим.
+            now = utcnow()
+            s.execute(delete(TgAuth).where(TgAuth.expires_at < now))
+            s.execute(delete(OtpCode).where(OtpCode.expires_at < now))
+            s.commit()
     if reply is not None:
         return {"method": "sendMessage", "chat_id": chat.get("id"), "text": reply}
     return {"ok": True}

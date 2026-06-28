@@ -553,7 +553,7 @@ private fun BrandHero(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp))
-            .background(Color(0xFF0B6B3A))
+            .background(CanonGreen2)
     ) {
         Image(
             painter = painterResource(R.drawable.login_car_hero_square),

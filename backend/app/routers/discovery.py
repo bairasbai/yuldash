@@ -18,6 +18,10 @@ from ..timeutil import utcnow
 
 router = APIRouter(tags=["discovery"])
 
+# Анти-OOM: на miss кеша не тащим всю таблицу в память, а только последние N строк.
+# При текущем размере БД N покрывает всё → результат идентичен; при росте — ограничивает память.
+SCAN_LIMIT = 20000
+
 
 @router.get("/popular-routes")
 def popular_routes(session: Session = Depends(get_session)):
@@ -25,7 +29,7 @@ def popular_routes(session: Session = Depends(get_session)):
     cached = cache_get_json("popular_routes:v1")
     if cached is not None:
         return cached
-    rides = session.exec(select(Ride)).all()
+    rides = session.exec(select(Ride).order_by(Ride.id.desc()).limit(SCAN_LIMIT)).all()
     cnt = Counter((r.from_city, r.to_city) for r in rides if r.from_city and r.to_city)
     result = [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
     cache_set_json("popular_routes:v1", result, 120)
@@ -39,13 +43,13 @@ def feed(session: Session = Depends(get_session)):
     if cached is not None:
         return cached
     now = utcnow()
-    bookings = session.exec(select(Booking)).all()
+    bookings = session.exec(select(Booking).order_by(Booking.id.desc()).limit(SCAN_LIMIT)).all()
 
     def since(days: int) -> int:
         edge = now - timedelta(days=days)
         return sum(1 for b in bookings if b.created_at and b.created_at >= edge)
 
-    rides = session.exec(select(Ride)).all()
+    rides = session.exec(select(Ride).order_by(Ride.id.desc()).limit(SCAN_LIMIT)).all()
     week_rides = [r for r in rides if r.created_at and r.created_at >= now - timedelta(days=7) and r.from_city and r.to_city]
     top = Counter((r.from_city, r.to_city) for r in week_rides).most_common(1)
     top_route = ({"from_city": top[0][0][0], "to_city": top[0][0][1], "count": top[0][1]} if top else None)
@@ -61,10 +65,15 @@ def feed(session: Session = Depends(get_session)):
 @router.get("/my-routes")
 def my_routes(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Частые поездки пользователя — из его истории броней."""
-    bookings = session.exec(select(Booking).where(Booking.passenger_id == user.id)).all()
+    bookings = session.exec(
+        select(Booking).where(Booking.passenger_id == user.id).order_by(Booking.id.desc()).limit(SCAN_LIMIT)
+    ).all()
+    ride_ids = {b.ride_id for b in bookings}
+    rides = session.exec(select(Ride).where(Ride.id.in_(ride_ids))).all() if ride_ids else []  # 1 запрос вместо N
+    by_id = {r.id: r for r in rides}
     pairs = []
     for b in bookings:
-        r = session.get(Ride, b.ride_id)
+        r = by_id.get(b.ride_id)
         if r and r.from_city and r.to_city:
             pairs.append((r.from_city, r.to_city))
     cnt = Counter(pairs)

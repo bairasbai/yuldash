@@ -1,5 +1,40 @@
 # 🏗️ Архитектурный аудит Юлдаша (senior-разбор)
 
+## 📓 Журнал: тех-лид аудит всего кода + команда /techlead (2026-06-28, Opus, worktree)
+
+**Что:** адаптировал вирусный промт «act as senior tech lead» под Юлдаш → команда/скилл `.claude/commands/techlead.md` (режим «думай как техлид, а не генератор кода»: уточни → оспорь → найди риски роста → tradeoffs → план → готовый прод-код). Отличие от `/architect`: тот **проектирует** систему, `/techlead` — **линза решений/ревью** под любую задачу. Затем прогнал режим end-to-end: 2 параллельных read-only субагента (`Explore`) по backend `app/` и Android `app/`.
+
+**Главный вывод — честно: топ-«блокеры» субагентов оказались ложными / уже закрытыми** (поэтому НЕ трогал рабочий код):
+- ❌ «ChatSocket течёт при убийстве процесса» → уже закрыт: `DisposableEffect(bookingId){ onDispose{ chatSocket?.close() } }` (`BookingActiveTripScreen.kt:531`).
+- ❌ «logout не закрывает соединение / call() течёт сокетами» → уже есть `conn.disconnect()` (`ApiClient.kt:177`) и `finally{ conn?.disconnect() }` (`:678`).
+- ❌ «revoke_all_refresh = N коммитов» → commit ОДИН, вне цикла (`security.py:65`).
+- ❌ feed/popular/geocode «без кеша» → кеш уже есть (Redis на проде + LRU геокодера, см. прежние журналы).
+
+**Реальный остаточный долг (всё — НЕ блокеры до пользователей, осознанно отложено):**
+| Где | Риск | Серьёзность |
+|---|---|---|
+| `chat.py:106-124` conversations | N+1 (3N на инбокс), но ограничен бронями одного юзера | средняя |
+| `bookings.py:89-108` driver_bookings | N+1 (`session.get` в цикле) vs `drivers_bundle` рядом | средняя |
+| `discovery.py` feed/popular | `.all()` без `.limit()` на miss кеша — OOM-риск при росте таблиц | средняя |
+| `safety.py` SOS | нет per-user rate-limit → спам SMS/расходы (но трогать SOS на живой бете — осторожно, через `/architect`) | средняя |
+| `models.py` `telegram_id/vk_id` unique+NULL | в PG NULL≠NULL → дубли юзеров с NULL | низкая |
+| Android UI | хардкод `Color(0x…)` ~40 мест → токены; нет Empty/Error на части списков; состояние в @Composable (ViewModel — позже) | низкая/средняя |
+
+**Реализовано (по запросу Александра «по порядку, реализуй все», поведение 1:1):**
+- **Backend scale-фиксы:**
+  - `.limit(SCAN_LIMIT=20000)` на miss-кеша выборках `discovery.py` (popular-routes/feed/my-routes) — анти-OOM при росте таблиц; при текущем размере результат идентичен (`order_by(id.desc()).limit`).
+  - N+1 → батч-загрузка: `chat.py:conversations` (3N → 3 запроса: сообщения/поездки/собеседники пачкой по id), `bookings.py:driver_bookings` (`session.get` в цикле → пассажиры одним `in_`), `discovery.py:my_routes` (поездки одним `in_`).
+  - **SOS rate-limit без блокировки SOS:** событие пишется ВСЕГДА (жизнь дороже), но SMS доверенным контактам глушатся, если за час их уже оповещали > `SOS_SMS_PER_HOUR=6` раз — анти-спам/расходы. Не блокирует реальный повторный вызов помощи.
+  - Проверка: **pytest 48/48**, `smoke.py` OK, `smoke_security.py` OK (Unicode в выводе — только консоль cp1251, не логика; запуск с `PYTHONUTF8=1`).
+  - ✅ **ЗАДЕПЛОЕНО на прод `yulbash.ru` (2026-06-28):** бэкап БД (`yuldash-20260628-1107.sql.gz`) → `scp -r app/` **из worktree** (не из `deploy-backend.bat` — тот берёт код из основного чекаута, а правки в worktree; миграций нет, схема не менялась → SQL-шаги пропущены) → chown+restart `yuldash-api` (active). Server-side проверено: `/health`→`db:ok`, `/feed` и `/popular-routes` отдают данные (новый `.limit`-код), `/sos`+`/conversations`→401 (авторизация цела), ноль трейсбеков. SOS rate-limit считает по БД (`SosEvent`) → общий на все воркеры gunicorn (per-worker память не задевает).
+- **Android UI-долг:** 11 хардкод-цветов → токены. Новые в `CanonTokens.kt`: `CanonStar` (золото звёзд рейтинга, plain val — работает и в Canvas), `CanonHairlineGreen` (зелёная разделит. линия). Raw `0xFF0B6B3A` в composable-заливках → `CanonGreen2` (адаптивно по теме). **Цвета рисованной карты (`MapScreen` DrawScope `drawCircle/drawPath`) и арт-градиенты осознанно оставлены raw** — `Canon*` это `@Composable`-геттеры, в DrawScope их нельзя (lessons.md). **Android BUILD SUCCESSFUL.**
+
+**Не делал (осознанно отложено):** полный error-state-слой на всех списках (empty-состояния уже есть: `EmptyStateCard`/`NearbyEmptyCard`; error через данные = отдельная задача, риск на живой бете); `telegram_id/vk_id` unique+NULL (миграция, низкий приоритет); WS-состояние в Redis (когда >1 сервера).
+
+**Артефакт:** `.claude/commands/techlead.md` (доступен как `/techlead`).
+
+---
+
 ## 📓 Журнал: рефакторинг бэкенда (2026-06-28, Opus, worktree)
 
 **Что:** разрезал монолит `backend/app/main.py` (~1400 строк, ~50 роутов в одном файле) на модули — самый частый «плохой запах», мешавший поддержке и параллелизму.

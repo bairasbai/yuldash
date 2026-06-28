@@ -5,8 +5,13 @@ from sqlmodel import SQLModel, Session, create_engine
 from .config import settings
 
 # Для SQLite нужен check_same_thread=False (FastAPI ходит из разных потоков).
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, echo=False, connect_args=connect_args)
+_is_sqlite = settings.database_url.startswith("sqlite")
+connect_args = {"check_same_thread": False} if _is_sqlite else {}
+# pool_pre_ping: перед выдачей соединения из пула пингуем его — PostgreSQL роняет
+# простаивающие коннекты, без пинга воркер получит «мёртвый» и отдаст 500 под нагрузкой.
+# pool_recycle: пересоздаём соединение раз в 30 мин (не упираемся в server-side таймауты).
+_engine_kwargs = {} if _is_sqlite else {"pool_pre_ping": True, "pool_recycle": 1800}
+engine = create_engine(settings.database_url, echo=False, connect_args=connect_args, **_engine_kwargs)
 
 
 # Тип колонки SQLModel/SQLAlchemy → DDL-тип SQLite (для ALTER TABLE ADD COLUMN).

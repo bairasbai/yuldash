@@ -40,5 +40,9 @@ internal val CanonDangerBg: Color @Composable get() = if (appIsDark()) Color(0xF
 // Предупреждение/в процессе (pending, черновик): подложка + текст — адаптивные.
 internal val CanonWarnBg: Color @Composable get() = if (appIsDark()) Color(0xFF3A2E12) else Color(0xFFFFF2D6)
 internal val CanonWarn: Color @Composable get() = if (appIsDark()) Color(0xFFE8B86A) else Color(0xFFB87400)
+// Золото рейтинга (звёзды). Plain val — читается и из @Composable, и из не-composable (Canvas). Золото видно в обеих темах.
+internal val CanonStar: Color = Color(0xFFE7A921)
+// Тонкая зелёная разделительная линия (border карточек) — была хардкод 0x1A0B6B3A в нескольких экранах.
+internal val CanonHairlineGreen: Color = Color(0x1A0B6B3A)
 internal val CanonCardShape = RoundedCornerShape(28.dp)
 internal val CanonItemShape = RoundedCornerShape(22.dp)

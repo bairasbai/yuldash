@@ -48,7 +48,7 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
             await websocket.close(code=1008, reason="Forbidden")
             return
 
-    manager.register(booking_id, websocket)
+    await manager.register(booking_id, websocket)
     try:
         while True:
             data = await websocket.receive_text()
@@ -105,16 +105,34 @@ class ConversationOut(BaseModel):
 
 @router.get("/conversations", response_model=List[ConversationOut])
 def conversations(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Инбокс: брони пользователя (как пассажир и как водитель), где есть сообщения."""
+    """Инбокс: брони пользователя (как пассажир и как водитель), где есть сообщения.
+    Батч-загрузка (3 запроса вместо 3N): сообщения, поездки и собеседники — пачкой по id."""
+    bookings = user_bookings(session, user)
+    booking_ids = [b.id for b in bookings]
+    if not booking_ids:
+        return []
+    # Последнее сообщение каждой брони: одним запросом по убыванию id, берём первое на booking_id.
+    msgs = session.exec(
+        select(Message).where(Message.booking_id.in_(booking_ids)).order_by(Message.id.desc())
+    ).all()
+    last_by_booking: dict = {}
+    for m in msgs:
+        last_by_booking.setdefault(m.booking_id, m)
+    ride_ids = {b.ride_id for b in bookings}
+    rides_by_id = {r.id: r for r in session.exec(select(Ride).where(Ride.id.in_(ride_ids))).all()}
+    # Собеседники: для пассажира — водитель, для водителя — пассажир.
+    peer_ids: set = set()
+    for b in bookings:
+        ride = rides_by_id.get(b.ride_id)
+        peer_ids.add(ride.driver_id if (ride and b.passenger_id == user.id) else b.passenger_id)
+    users_by_id = {u.id: u for u in session.exec(select(User).where(User.id.in_(peer_ids))).all()}
     out: list = []
-    for b in user_bookings(session, user):
-        last = session.exec(
-            select(Message).where(Message.booking_id == b.id).order_by(Message.id.desc())
-        ).first()
+    for b in bookings:
+        last = last_by_booking.get(b.id)
         if last is None:
             continue
-        ride = session.get(Ride, b.ride_id)
-        peer = session.get(User, ride.driver_id) if (ride and b.passenger_id == user.id) else session.get(User, b.passenger_id)
+        ride = rides_by_id.get(b.ride_id)
+        peer = users_by_id.get(ride.driver_id) if (ride and b.passenger_id == user.id) else users_by_id.get(b.passenger_id)
         out.append(ConversationOut(
             booking_id=b.id,
             peer_name=(peer.name if peer and peer.name else "Собеседник"),
