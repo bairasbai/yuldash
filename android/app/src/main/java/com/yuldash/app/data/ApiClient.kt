@@ -226,6 +226,7 @@ object ApiClient {
             obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
             obj.optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
             saveName(obj.optString("name").ifBlank { name })
+            Analytics.log("login", mapOf("method" to "sms"))
         }
 
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
@@ -249,7 +250,7 @@ object ApiClient {
             "POST", "/auth/tg/verify",
             JSONObject().put("request_id", requestId).put("code", code),
             auth = false,
-        ).onSuccess { it.applyAuth() }
+        ).onSuccess { it.applyAuth(); Analytics.log("login", mapOf("method" to "telegram")) }
 
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = call("GET", "/me", null, auth = true)
@@ -365,14 +366,14 @@ object ApiClient {
             .put("pickup_lat", pickupLat ?: JSONObject.NULL)
             .put("pickup_lng", pickupLng ?: JSONObject.NULL),
         auth = true,
-    ).map { }
+    ).map { }.onSuccess { Analytics.log("publish_ride") }
 
     /** Забронировать поездку. Возвращает id брони. */
     suspend fun book(rideId: Int, seats: Int): Result<Int> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats),
         auth = true,
-    ).map { it.optInt("id") }
+    ).map { it.optInt("id") }.onSuccess { Analytics.log("booking") }
 
     // ---------- Заявки ----------
 
@@ -404,7 +405,7 @@ object ApiClient {
                 transcript?.takeIf { it.isNotBlank() }?.let { put("transcript", it) }
             },
         auth = true,
-    ).map { }
+    ).map { }.onSuccess { Analytics.log("create_request") }
 
     /** Мои заявки (для вкладки «Заявка»). */
     suspend fun getMyRequests(): Result<List<RequestDto>> =
@@ -452,11 +453,11 @@ object ApiClient {
         }
 
     suspend fun sos(category: String, note: String): Result<Unit> =
-        call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }
+        call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }.onSuccess { Analytics.log("sos") }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
     suspend fun requestCallback(note: String): Result<Unit> =
-        call("POST", "/callback", JSONObject().put("note", note), auth = true).map { }
+        call("POST", "/callback", JSONObject().put("note", note), auth = true).map { }.onSuccess { Analytics.log("callback_request") }
 
     // ---------- Жалобы и чёрный список ----------
     suspend fun reportUser(targetUserId: Int, reason: String): Result<Unit> =
@@ -485,7 +486,7 @@ object ApiClient {
         }
 
     suspend fun respondToRequest(requestId: Int, price: Int, comment: String): Result<Unit> =
-        call("POST", "/requests/$requestId/respond", JSONObject().put("price", price).put("comment", comment), auth = true).map { }
+        call("POST", "/requests/$requestId/respond", JSONObject().put("price", price).put("comment", comment), auth = true).map { }.onSuccess { Analytics.log("respond_request") }
 
     suspend fun getRequestResponses(requestId: Int): Result<List<ResponseDto>> =
         call("GET", "/requests/$requestId/responses", null, auth = true).map { obj ->
@@ -498,7 +499,7 @@ object ApiClient {
 
     /** Пассажир принимает отклик → возвращает booking_id (переход в активную поездку). */
     suspend fun acceptResponse(responseId: Int): Result<Int> =
-        call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }
+        call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }.onSuccess { Analytics.log("accept_response") }
 
     // ---------- Админ: модерация водителей + жалобы ----------
     suspend fun getPendingDrivers(): Result<List<PendingDriverDto>> =
