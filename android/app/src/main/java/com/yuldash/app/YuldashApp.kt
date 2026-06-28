@@ -430,6 +430,7 @@ internal fun YuldashApp() {
                 onSupport = { screen = Screen.Support },
                 onReview = { screen = Screen.AppReview },
                 onAdminReviews = { screen = Screen.AdminReviews },
+                onAdminAds = { screen = Screen.AdminAds },
                 onBoost = { screen = Screen.Boost },
                 onPublishRide = { ride ->
                     rides.add(0, ride)
@@ -636,6 +637,7 @@ internal fun YuldashApp() {
             )
             Screen.AppReview -> AppReviewScreen(onBack = { openHome(HomeTab.Profile) })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { openHome(HomeTab.Profile) })
+            Screen.AdminAds -> AdminAdsScreen(onBack = { openHome(HomeTab.Profile) })
         }
         }
     }
@@ -1083,6 +1085,7 @@ internal fun HomeScreen(
     onHelp: () -> Unit,
     onReview: () -> Unit,
     onAdminReviews: () -> Unit,
+    onAdminAds: () -> Unit,
     onPassengerCabinet: () -> Unit,
     onDriverCabinet: () -> Unit,
     onSimpleMode: () -> Unit,
@@ -1177,6 +1180,7 @@ internal fun HomeScreen(
                     onHelp = onHelp,
                     onReview = onReview,
                     onAdminReviews = onAdminReviews,
+                    onAdminAds = onAdminAds,
                     onPassengerCabinet = onPassengerCabinet,
                     onDriverCabinet = onDriverCabinet,
                     onSimpleMode = onSimpleMode,

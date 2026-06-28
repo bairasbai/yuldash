@@ -286,7 +286,8 @@ internal enum class Screen {
     RepeatTrip,
     CallbackHelp,
     AppReview,
-    AdminReviews
+    AdminReviews,
+    AdminAds
 }
 
 internal enum class HomeTab {
