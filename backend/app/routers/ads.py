@@ -4,12 +4,12 @@
 Видимость в приложении: status==active И starts_at<=now И (ends_at null ИЛИ ends_at>now).
 Маркировка (РФ закон): поле erid обязательно, в выдаче есть partner_name → «Реклама · …».
 """
-from collections import Counter
 from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -76,8 +76,9 @@ class AdEventIn(BaseModel):
 
 
 @router.post("/ads/{ad_id}/event")
-def ad_event(ad_id: int, body: AdEventIn, session: Session = Depends(get_session)):
-    """Записать показ/клик (реальная статистика кабинета)."""
+def ad_event(ad_id: int, body: AdEventIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Записать показ/клик (реальная статистика кабинета). Требует входа — иначе
+    любой неавторизованный накручивал бы статистику и засорял таблицу AdEvent."""
     if not session.get(Ad, ad_id):
         raise HTTPException(404, "Объявление не найдено")
     t = "click" if body.type == "click" else "impression"
@@ -91,12 +92,15 @@ def ad_stats(user: User = Depends(current_user), session: Session = Depends(get_
     """Сводка показов/кликов по каждому объявлению (кабинет — только админ)."""
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для админа")
-    rows = session.exec(select(AdEvent)).all()
-    imp: Counter = Counter()
-    clk: Counter = Counter()
-    for r in rows:
-        (clk if r.event_type == "click" else imp)[r.ad_id] += 1
-    return {aid: {"impressions": imp[aid], "clicks": clk[aid]} for aid in (set(imp) | set(clk))}
+    # Агрегат считаем в SQL (GROUP BY), а не тянем всю таблицу AdEvent в память — она растёт на каждый показ/клик.
+    rows = session.exec(
+        select(AdEvent.ad_id, AdEvent.event_type, func.count()).group_by(AdEvent.ad_id, AdEvent.event_type)
+    ).all()
+    imp: dict = {}
+    clk: dict = {}
+    for ad_id, etype, cnt in rows:
+        (clk if etype == "click" else imp)[ad_id] = cnt
+    return {aid: {"impressions": imp.get(aid, 0), "clicks": clk.get(aid, 0)} for aid in (set(imp) | set(clk))}
 
 
 # ---------- Админ ----------

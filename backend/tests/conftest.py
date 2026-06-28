@@ -5,11 +5,14 @@ import tempfile
 
 import pytest
 
-_DB = pathlib.Path(tempfile.gettempdir()) / "yuldash_test.db"
-if _DB.exists():
-    _DB.unlink()
 os.environ["ENV"] = "dev"
-os.environ["DATABASE_URL"] = f"sqlite:///{_DB.as_posix()}"
+# По умолчанию — изолированная SQLite. Если снаружи задан Postgres DATABASE_URL
+# (CI-джоба для теста гонки брони `test_overbooking_concurrent`) — уважаем его, не перетираем.
+if not os.environ.get("DATABASE_URL", "").startswith("postgres"):
+    _DB = pathlib.Path(tempfile.gettempdir()) / "yuldash_test.db"
+    if _DB.exists():
+        _DB.unlink()
+    os.environ["DATABASE_URL"] = f"sqlite:///{_DB.as_posix()}"
 os.environ["SEED_DEMO"] = "false"
 os.environ["JWT_SECRET"] = "test-secret-key-1234567890"
 # Лимитер выключен для тестов: все /auth-хиты сессии делят один IP 'testclient'

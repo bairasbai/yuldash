@@ -530,12 +530,16 @@ internal fun ActiveTripScreen(
             ChatSocket(
                 bookingId = id,
                 onMessage = { inc ->
-                    // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
-                    val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
-                    messages = when {
-                        optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = MessageDto(inc.id, inc.text, inc.senderId) }
-                        inc.id > 0 && messages.any { it.id == inc.id } -> messages   // дубль по id — пропустить
-                        else -> messages + MessageDto(inc.id, inc.text, inc.senderId)
+                    // WS-колбэк приходит с фонового потока OkHttp → правку Compose-state делаем на main
+                    // (read-modify-write `messages` иначе может потерять обновление при гонке потоков).
+                    voiceScope.launch {
+                        // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
+                        val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
+                        messages = when {
+                            optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = MessageDto(inc.id, inc.text, inc.senderId) }
+                            inc.id > 0 && messages.any { it.id == inc.id } -> messages   // дубль по id — пропустить
+                            else -> messages + MessageDto(inc.id, inc.text, inc.senderId)
+                        }
                     }
                 },
                 onConnected = { wsConnected = it },

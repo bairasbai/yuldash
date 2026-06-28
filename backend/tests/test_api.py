@@ -1,4 +1,10 @@
 """Тесты API Юлдаша: ядро + закрытые дыры безопасности (регрессии не пройдут)."""
+import base64
+import os
+import threading
+
+import pytest
+
 from app.models import UserRole
 
 
@@ -190,9 +196,10 @@ def test_ads_lifecycle_founder_cap_and_public(client, user_factory):
     # пауза → скрыт
     client.post(f"/admin/ads/{aid}/status", headers=admin["auth"], json={"status": "paused"})
     assert client.get("/ads").json() == []
-    # событие + статистика
-    client.post(f"/ads/{aid}/event", json={"type": "impression"})
-    client.post(f"/ads/{aid}/event", json={"type": "click"})
+    # событие + статистика (запись событий требует входа — анти-накрутка)
+    assert client.post(f"/ads/{aid}/event", json={"type": "impression"}).status_code == 401  # без токена нельзя
+    client.post(f"/ads/{aid}/event", headers=admin["auth"], json={"type": "impression"})
+    client.post(f"/ads/{aid}/event", headers=admin["auth"], json={"type": "click"})
     st = client.get("/ads/stats", headers=admin["auth"]).json()
     assert st[str(aid)]["impressions"] == 1 and st[str(aid)]["clicks"] == 1
     # founder лимит 10
@@ -219,3 +226,59 @@ def test_ads_expiry_hidden(client, user_factory):
     client.post(f"/admin/ads/{aid}/status", headers=admin["auth"], json={"status": "active"})
     # active, но срок истёк → в публичной выдаче нет
     assert all(a["id"] != str(aid) for a in client.get("/ads").json())
+
+
+def test_voice_upload_multipart_and_b64(client, user_factory):
+    """Загрузка голоса: новый multipart-путь И старый base64 (обратная совместимость) оба работают."""
+    u = user_factory("Voicer")
+    # multipart: поле file, ext выводится из имени note.m4a
+    r = client.post("/voice", headers=u["auth"], files={"file": ("note.m4a", b"\x00\x01\x02audio-bytes", "audio/mp4")})
+    assert r.status_code == 200, r.text
+    assert "/voice/" in r.json()["url"] and r.json()["url"].endswith(".m4a")
+    # base64-путь (старый установленный клиент) — не сломан
+    b = base64.b64encode(b"old-client-audio").decode()
+    r2 = client.post("/voice", headers=u["auth"], json={"audio_b64": b, "ext": "m4a"})
+    assert r2.status_code == 200, r2.text
+    # без входа — 401 (квота/анти-абуз на авторизованного)
+    assert client.post("/voice", files={"file": ("x.m4a", b"x", "audio/mp4")}).status_code == 401
+
+
+def test_boarding_code_participants_only(client, user_factory):
+    """Код посадки виден ТОЛЬКО участникам брони (пассажир/водитель), постороннему — 403."""
+    drv = user_factory("BcDrv", role=UserRole.driver)
+    pax = user_factory("BcPax")
+    outsider = user_factory("BcOut")
+    rid = _ride(client, drv, seats=2)
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
+    rp = client.get(f"/bookings/{bid}/boarding-code", headers=pax["auth"])
+    assert rp.status_code == 200 and len(rp.json()["code"]) >= 4   # пассажир видит код
+    assert client.get(f"/bookings/{bid}/boarding-code", headers=drv["auth"]).status_code == 200  # водитель видит
+    assert client.get(f"/bookings/{bid}/boarding-code", headers=outsider["auth"]).status_code == 403  # чужой — нет
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgres"),
+    reason="Гонка брони (FOR UPDATE) проверяется только на Postgres — SQLite игнорирует row-lock. "
+           "Запуск: DATABASE_URL=postgresql://... pytest -k overbooking_concurrent",
+)
+def test_overbooking_concurrent(client, user_factory):
+    """Под нагрузкой ровно ОДНА бронь занимает единственное место (FOR UPDATE в book()).
+    На SQLite пропускается (row-lock no-op), на Postgres ловит регрессию овербукинга."""
+    drv = user_factory("CcDrv", role=UserRole.driver)
+    rid = _ride(client, drv, seats=1)
+    paxs = [user_factory(f"CcPax{i}") for i in range(8)]
+    results: list = []
+    lock = threading.Lock()
+
+    def attempt(p):
+        code = client.post("/bookings", headers=p["auth"], json={"ride_id": rid, "seats": 1}).status_code
+        with lock:
+            results.append(code)
+
+    threads = [threading.Thread(target=attempt, args=(p,)) for p in paxs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results.count(200) == 1, f"ожидалась ровно 1 успешная бронь, получили {results}"
+    assert results.count(400) == 7   # остальным мест не хватило

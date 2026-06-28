@@ -287,9 +287,12 @@ internal fun RidesScreen(
         "all" -> allLabel
         else -> activeLabel
     }
-    val routeAd = ads.forPlacement(AdPlacement.Route).filter { it.matchesRoute("Баймаҡ", "Сибай") }.firstOrNull { it.id == "ad-cafe-route" }
-        ?: ads.forPlacement(AdPlacement.Route).firstOrNull { it.matchesRoute("Баймаҡ", "Сибай") }
-    val sponsoredAd = ads.forPlacement(AdPlacement.RidesList).firstOrNull { it.id == "ad-service-rides" }
+    // Подбор рекламы — в remember(ads): фильтры не пересчитываются на каждой рекомпозиции списка.
+    val routeAd = remember(ads) {
+        ads.forPlacement(AdPlacement.Route).filter { it.matchesRoute("Баймаҡ", "Сибай") }.firstOrNull { it.id == "ad-cafe-route" }
+            ?: ads.forPlacement(AdPlacement.Route).firstOrNull { it.matchesRoute("Баймаҡ", "Сибай") }
+    }
+    val sponsoredAd = remember(ads) { ads.forPlacement(AdPlacement.RidesList).firstOrNull { it.id == "ad-service-rides" } }
     val inlineAd = routeAd ?: sponsoredAd
     LaunchedEffect(presetTo, presetToday) {
         if (presetTo.isNotBlank() || presetToday) selectedStatus = "active"
@@ -1215,7 +1218,9 @@ internal fun ChatScreen(
         "system" to LocalizedText("Система", "Система")
     )
     val nowText = appText("сейчас", "хәҙер")
+    val sendFailedText = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
     val chatScope = rememberCoroutineScope()
+    val chatCtx = LocalContext.current
     LaunchedEffect(convReload) {
         ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
         convLoading = true
@@ -1282,9 +1287,17 @@ internal fun ChatScreen(
                     onSend = {
                         val text = draft.trim()
                         if (text.isNotEmpty()) {
-                            latestBookingId?.let { ApiClient.fireSendMessage(it, text) }
                             onAddVoiceMessage(LocalVoiceMessage(ApiClient.cachedName() ?: "Я", text, nowText))
                             draft = ""
+                            // Доставка через suspend sendMessage (не fire-and-forget): при сбое сети
+                            // показываем «не отправлено», а не молча теряем сообщение.
+                            latestBookingId?.let { bid ->
+                                chatScope.launch {
+                                    ApiClient.sendMessage(bid, text).onFailure {
+                                        Toast.makeText(chatCtx, sendFailedText, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
                         }
                     },
                     onVoiceRecorded = { path, dur ->
@@ -1431,8 +1444,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
             } else if (feed.isEmpty()) {
                 item { ListedEmpty(appText("Заявок пока нет", "Әлегә заявкалар юҡ"), appText("Здесь появятся заявки пассажиров.", "Бында пассажир заявкалары күренер")) }
             } else {
-                items(feed.size) { i ->
-                    val r = feed[i]
+                items(feed, key = { it.id }) { r ->
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${r.from} → ${r.to}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
@@ -1470,8 +1482,7 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
             } else if (resps.isEmpty()) {
                 item { ListedEmpty(appText("Откликов пока нет", "Әлегә яуап юҡ"), appText("Водители ещё не откликнулись. Загляни позже.", "Водителдәр яуап бирмәгән. Һуңыраҡ кер.")) }
             } else {
-                items(resps.size) { i ->
-                    val r = resps[i]
+                items(resps, key = { it.id }) { r ->
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1534,6 +1545,20 @@ internal fun ListedEmpty(title: String, subtitle: String) {
             Icon(Icons.Default.ListAlt, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
             Text(title, color = CanonText, fontWeight = FontWeight.Black)
             Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+        }
+    }
+}
+
+/** Состояние ошибки загрузки списка: понятный текст + «Повторить». Чтобы сетевой сбой
+ *  НЕ выглядел как «пусто» (важно для админ-лент — иначе можно решить, что водителей/жалоб нет). */
+@Composable
+internal fun ListedError(message: String, onRetry: () -> Unit) {
+    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(message, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp)
+            Button(onClick = onRetry, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

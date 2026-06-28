@@ -280,7 +280,14 @@ def test_otp_login_flow(client):
 def test_verify_wrong_code(client):
     phone = "+79997654321"
     client.post("/auth/request-code", json={"phone": phone})
-    assert client.post("/auth/verify", json={"phone": phone, "code": "0000", "name": "X"}).status_code in (400, 429)
+    # Первый неверный код → именно 400 (неверный код), не замаскировано троттлингом.
+    assert client.post("/auth/verify", json={"phone": phone, "code": "0000", "name": "X"}).status_code == 400
+    # Перебор: после лимита попыток на код → 429. Так регрессия анти-brute-force лока не пройдёт зелёной.
+    statuses = [
+        client.post("/auth/verify", json={"phone": phone, "code": str(c), "name": "X"}).status_code
+        for c in range(2000, 2010)
+    ]
+    assert 429 in statuses, f"ожидался 429 после перебора попыток, получили {statuses}"
 
 
 def _login(client, phone, name="U"):

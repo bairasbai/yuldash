@@ -23,7 +23,6 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
@@ -34,7 +33,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -1192,37 +1190,6 @@ private fun YandexMapCard(
                     Text(appText("Геолокация откроется после подтверждения поездки", "Геолокация сәфәр раҫланғас асыла"), fontSize = 15.sp)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun MapMarkerHitTargets(rides: List<Ride>, onRideTap: (Ride) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize().zIndex(5f)) {
-        val byCity = remember(rides) { rides.groupBy { it.from } }
-        byCity["Баймаҡ"]?.firstOrNull()?.let { ride ->
-            Box(
-                Modifier
-                    .offset(x = maxWidth * 0.34f, y = maxHeight * 0.18f)
-                    .size(width = 96.dp, height = 64.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { onRideTap(ride) }
-                    )
-            )
-        }
-        byCity["Сибай"]?.firstOrNull()?.let { ride ->
-            Box(
-                Modifier
-                    .offset(x = maxWidth * 0.62f, y = maxHeight * 0.39f)
-                    .size(width = 112.dp, height = 72.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { onRideTap(ride) }
-                    )
-            )
         }
     }
 }

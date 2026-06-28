@@ -72,6 +72,8 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
     """Отмена поездки пассажиром или водителем. Места возвращаются в поездку."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if booking.status not in (BookingStatus.cancelled, BookingStatus.done):
+        # Блокируем строку поездки (как в book) → две одновременные отмены не затрут инкремент мест.
+        ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
         booking.status = BookingStatus.cancelled
         ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
         session.add(booking)

@@ -162,4 +162,6 @@ dependencies {
     // Версия = уже резолвящаяся в графе lifecycle 2.9.4 → без конфликта версий.
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    // JVM unit-тесты (каркас «с нуля»): чистая логика без Android-фреймворка. Запуск: gradlew :app:testDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
 }

@@ -4,7 +4,7 @@ import os
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -13,7 +13,7 @@ from ..config import settings
 from ..db import get_session
 from ..models import DriverProfile, User, UserRole
 from ..security import current_user
-from ..services import DOC_DIR, decode_upload_b64, enforce_upload_quota, secure_docs_url
+from ..services import DOC_DIR, enforce_upload_quota, read_upload, secure_docs_url
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["drivers"])
@@ -36,17 +36,12 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     return dp
 
 
-class PhotoIn(BaseModel):
-    photo_b64: str
-    ext: str = "jpg"
-
-
 @router.post("/upload/photo")
-def upload_photo(body: PhotoIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Загрузка фото документа/авто → приватная папка → защищённый URL (только админ/владелец)."""
+async def upload_photo(request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Загрузка фото документа/авто (multipart `file` ИЛИ base64 — обратная совместимость со
+    старым клиентом) → приватная папка → защищённый URL (только админ/владелец)."""
     enforce_upload_quota(session, user.id)
-    ext = "".join(c for c in body.ext.lower() if c.isalnum()) or "jpg"
-    data, ext = decode_upload_b64(body.photo_b64, settings.image_ext_set, ext, "фото", sniff_image=True)
+    data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
     name = f"{uuid.uuid4().hex}.{ext}"
     with open(os.path.join(DOC_DIR, name), "wb") as f:
         f.write(data)

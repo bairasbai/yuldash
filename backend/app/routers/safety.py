@@ -1,7 +1,7 @@
 """Безопасность: SOS (с SMS доверенным контактам), жалобы, блокировки."""
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from typing import List, Optional
@@ -19,6 +19,14 @@ router = APIRouter(tags=["safety"])
 SOS_SMS_PER_HOUR = 6
 
 
+def _send_sos_sms(phones: list, text: str) -> None:
+    """Рассылка SOS-SMS доверенным контактам — в фоне (после ответа), чтобы не держать
+    коннект БД и не заставлять паникующего ждать sms.ru по ~10с на контакт."""
+    for ph in phones:
+        if ph:
+            send_text(ph, text)
+
+
 class SosIn(BaseModel):
     category: str = "other"      # medical / breakdown / other
     booking_id: Optional[int] = None
@@ -26,7 +34,7 @@ class SosIn(BaseModel):
 
 
 @router.post("/sos", response_model=SosEvent)
-def sos(body: SosIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
     if body.booking_id is not None:
         booking_and_ride_for_user(session, body.booking_id, user)
     # Сколько SOS уже было за последний час (ДО записи нового) — для кепа SMS.
@@ -37,21 +45,21 @@ def sos(body: SosIn, user: User = Depends(current_user), session: Session = Depe
     ).all()
     event = SosEvent(user_id=user.id, **body.model_dump())
     session.add(event)
-    session.commit()
+    session.commit()                 # событие фиксируем СИНХРОННО (жизнь дороже) — данные не теряются
     session.refresh(event)
-    # Реально уведомляем доверенные контакты по SMS — но только пока не превышен почасовой кеп.
+    # Телефоны доверенных контактов собираем ПОКА сессия открыта, рассылку SMS — в фон (после ответа).
     notified = 0
     if len(recent) < SOS_SMS_PER_HOUR:
         contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
         who = user.name or user.phone
-        for c in contacts:
-            if c.phone:
-                send_text(c.phone, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.")
-                notified += 1
+        phones = [c.phone for c in contacts if c.phone]
+        notified = len(phones)
+        background.add_task(_send_sos_sms, phones, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.")
     else:
         print(f"[SOS] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
-    # Уведомляем поддержку (админа) в Telegram — SOS важнее «перезвоните». Координаты/детали приходят в note.
-    notify_admin_telegram(
+    # Уведомление админу в Telegram — тоже в фон (httpx-вызов не держит коннект БД и не тормозит ответ SOS).
+    background.add_task(
+        notify_admin_telegram,
         f"🆘 SOS (Юлдаш)\n"
         f"От: {user.name or '—'}\n"
         f"Тел: {user.phone or '—'}\n"

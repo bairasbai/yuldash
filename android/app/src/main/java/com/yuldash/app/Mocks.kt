@@ -308,6 +308,7 @@ internal val demoPartnerAds = listOf(
         description = "Скидка 10% для поездок в больницу",
         descriptionBa = "Больницаға сәфәрҙәр өсөн 10% ташлама",
         address = "Баймаҡ, ул. Ленина, 12",
+        addressBa = "Баймаҡ, Ленин урамы, 12",
         advertiserName = "ООО «Аптека Здоровье»",
         erid = "2VtzqxXXXX",
         city = "Баймаҡ",

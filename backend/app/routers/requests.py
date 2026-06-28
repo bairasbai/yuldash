@@ -4,11 +4,12 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import (
-    Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
+    Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
 )
 from ..security import current_user, gen_otp
@@ -130,9 +131,12 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
             RequestResponse.request_id.in_([r.id for r in reqs]),
         )
     ).all()}
+    # Блокировки текущего водителя — ОДНИМ запросом (анти-N+1 вместо is_blocked в цикле по 200 заявкам).
+    blk = session.exec(select(Block).where(or_(Block.user_id == user.id, Block.blocked_user_id == user.id))).all()
+    blocked_ids = {(b.blocked_user_id if b.user_id == user.id else b.user_id) for b in blk}
     out: list = []
     for r in reqs:
-        if is_blocked(session, user.id, r.passenger_id):
+        if r.passenger_id in blocked_ids:
             continue
         p = pax.get(r.passenger_id)
         out.append(RequestFeedOut(
@@ -236,8 +240,7 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
         seats_total=req.seats, seats_left=0, price=resp.price, category=req.category, status=RideStatus.active,
     )
     session.add(ride)
-    session.commit()
-    session.refresh(ride)
+    session.flush()   # flush выдаёт ride.id БЕЗ commit → Ride+Booking+статусы фиксируем ОДНОЙ транзакцией.
     booking = Booking(   # бронь на ПАССАЖИРА заявки (а не на того, кто принял — важно при admin-accept)
         ride_id=ride.id, passenger_id=req.passenger_id, seats=req.seats, price=resp.price * req.seats,
         status=BookingStatus.confirmed, boarding_code=gen_otp(),
@@ -247,7 +250,7 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     resp.status = "accepted"
     session.add(req)
     session.add(resp)
-    session.commit()
+    session.commit()   # атомарно: сбой не оставит «осиротевшую» поездку без брони и не даст принять отклик повторно
     session.refresh(booking)
     pax = session.get(User, req.passenger_id)
     send_push(session, resp.driver_id, "Заявку приняли", f"{(pax.name if pax else 'Пассажир')}: {req.from_city} → {req.to_city}")

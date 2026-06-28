@@ -1,7 +1,6 @@
 package com.yuldash.app.data
 
 import android.content.Context
-import android.util.Base64
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.yuldash.app.BuildConfig
@@ -54,16 +53,8 @@ object ApiClient {
         bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup, pickupLat, pickupLng) }
     }
 
-    fun fireBook(rideId: Int, seats: Int) {
-        bg.launch { book(rideId, seats) }
-    }
-
     fun fireAddContact(name: String, relation: String, phone: String, notifyByDefault: Boolean) {
         bg.launch { addContact(name, relation, phone, notifyByDefault) }
-    }
-
-    fun fireSos(category: String, note: String) {
-        bg.launch { sos(category, note) }
     }
 
     fun fireRequestCallback(note: String) {
@@ -132,8 +123,9 @@ object ApiClient {
 
     // Кеш разобранного JWT: myUserId() зовётся на КАЖДОЕ сообщение в чате (senderId == myUserId()).
     // Без кеша это Base64-декод + JSON-парс на каждый рендер строки. Сбрасывается сменой токена.
-    private var cachedUserId: Int? = null
-    private var cachedUserIdForToken: String? = null
+    // @Volatile: myUserId() читается из UI-потока и фонового приёма WS — без него возможна гонка видимости.
+    @Volatile private var cachedUserId: Int? = null
+    @Volatile private var cachedUserIdForToken: String? = null
 
     /** Мой user_id из JWT (поле sub) — чтобы отличать свои сообщения. */
     internal fun myUserId(): Int? {
@@ -601,18 +593,16 @@ object ApiClient {
             }
         }
 
-    // Голосовое: загрузить аудио (base64) → URL, затем отправить сообщение со ссылкой.
+    // Голосовое: загрузить аудио (multipart) → URL, затем отправить сообщение со ссылкой.
     suspend fun uploadVoice(bytes: ByteArray): Result<String> =
-        call("POST", "/voice", JSONObject().put("audio_b64", Base64.encodeToString(bytes, Base64.NO_WRAP)).put("ext", "m4a"), auth = true)
-            .map { it.optString("url") }
+        callMultipart("/voice", bytes, "m4a", "voice.m4a").map { it.optString("url") }
 
     suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true).map { }
 
-    // Фото в чате: загрузить (base64) → публичный URL, затем отправить как сообщение с меткой [img].
+    // Фото в чате: загрузить (multipart) → публичный URL, затем отправить как сообщение с меткой [img].
     suspend fun uploadChatPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =
-        call("POST", "/upload/chat-photo", JSONObject().put("photo_b64", Base64.encodeToString(bytes, Base64.NO_WRAP)).put("ext", ext), auth = true)
-            .map { it.optString("url") }
+        callMultipart("/upload/chat-photo", bytes, ext, "photo.$ext").map { it.optString("url") }
 
     const val IMG_PREFIX = "[img]"
 
@@ -620,10 +610,9 @@ object ApiClient {
         sendMessage(bookingId, "$IMG_PREFIX$photoUrl")
 
     // ---------- Проверка водителя ----------
-    /** Загрузить фото (документ/авто) base64 → публичный URL. */
+    /** Загрузить фото (документ/авто) через multipart → публичный URL. */
     suspend fun uploadPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =
-        call("POST", "/upload/photo", JSONObject().put("photo_b64", Base64.encodeToString(bytes, Base64.NO_WRAP)).put("ext", ext), auth = true)
-            .map { it.optString("url") }
+        callMultipart("/upload/photo", bytes, ext, "photo.$ext").map { it.optString("url") }
 
     /** Сохранить реальные данные авто водителя. */
     suspend fun setDriverProfile(make: String, model: String, color: String, plate: String, seats: Int): Result<Unit> =
@@ -744,14 +733,15 @@ object ApiClient {
             }
         }
 
-    /** Записать показ/клик по рекламе (реальная статистика). Fire-and-forget. */
+    /** Записать показ/клик по рекламе (реальная статистика). Fire-and-forget. Требует входа
+     *  (сервер закрыл endpoint от накрутки) — в приложении реклама показывается уже после логина. */
     fun fireAdEvent(adId: String, type: String) {
-        bg.launch { call("POST", "/ads/$adId/event", JSONObject().put("type", type), auth = false) }
+        bg.launch { call("POST", "/ads/$adId/event", JSONObject().put("type", type), auth = true) }
     }
 
-    /** Сводка показов/кликов по каждой рекламе (для кабинета). */
+    /** Сводка показов/кликов по каждой рекламе (для кабинета). Эндпоинт admin-only → нужен токен. */
     suspend fun getAdStats(): Result<Map<String, AdStatsDto>> =
-        call("GET", "/ads/stats", null, auth = false).map { o ->
+        call("GET", "/ads/stats", null, auth = true).map { o ->
             val out = mutableMapOf<String, AdStatsDto>()
             val keys = o.keys()
             while (keys.hasNext()) {
@@ -898,6 +888,60 @@ object ApiClient {
                 // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
                 conn.disconnect(); conn = null
                 if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
+                else Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
+            } else {
+                val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
+                Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    /** Загрузка файла через multipart/form-data (поле `file` + `ext`). В отличие от base64-JSON
+     *  не держит весь файл удвоенным в памяти как строку. Сервер принимает и multipart, и base64
+     *  (обратная совместимость). Те же auth + однократный refresh на 401, что и в call(). */
+    private suspend fun callMultipart(
+        path: String,
+        fileBytes: ByteArray,
+        ext: String,
+        filename: String,
+        isRetry: Boolean = false,
+    ): Result<JSONObject> = withContext(Dispatchers.IO) {
+        val usedToken = token
+        var conn: HttpURLConnection? = null
+        try {
+            val boundary = "----yuldash${System.nanoTime().toString(16)}"
+            val crlf = "\r\n"
+            conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 20000
+                readTimeout = 30000
+                doOutput = true
+                setRequestProperty("Accept", "application/json")
+                usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
+                setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            }
+            conn.outputStream.use { out ->
+                val head = "--$boundary$crlf" +
+                    "Content-Disposition: form-data; name=\"ext\"$crlf$crlf$ext$crlf" +
+                    "--$boundary$crlf" +
+                    "Content-Disposition: form-data; name=\"file\"; filename=\"$filename\"$crlf" +
+                    "Content-Type: application/octet-stream$crlf$crlf"
+                out.write(head.toByteArray(Charsets.UTF_8))
+                out.write(fileBytes)
+                out.write("$crlf--$boundary--$crlf".toByteArray(Charsets.UTF_8))
+            }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code in 200..299) {
+                Result.success(if (text.isBlank()) JSONObject() else JSONObject(text))
+            } else if (code == 401 && !isRetry && !refreshToken.isNullOrBlank()) {
+                conn.disconnect(); conn = null
+                if (tryRefresh(usedToken)) callMultipart(path, fileBytes, ext, filename, isRetry = true)
                 else Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
             } else {
                 val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()

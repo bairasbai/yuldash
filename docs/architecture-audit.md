@@ -1,5 +1,74 @@
 # 🏗️ Архитектурный аудит Юлдаша (senior-разбор)
 
+## 📓 Журнал: «исправь всё по порядку» — Tier B + остаток находок end-to-end (2026-06-28, Opus, worktree)
+
+**Контекст:** после аудита роем Александр выбрал доделать всё. Решения через вопросы: `/ads/event` → **требовать вход**; делать **все 4 крупных пункта** (back-stack, multipart, тесты Android, тест гонки брони); после — **коммит без деплоя**. Остальное (явные баги) — без вопросов.
+
+**Backend — pytest 65/65 (+1 skip — тест гонки на Postgres), security-smoke OK:**
+- **SEC1-ads:** `/ads/{id}/event` теперь `Depends(current_user)` — закрыт от накрутки/засора `AdEvent`. Клиент шлёт `auth=true` (реклама показывается после логина). Тест: без токена → 401.
+- **SEC1-middleware:** `_client_ip` → берёт **X-Real-IP** (nginx ставит `$remote_addr`, перезаписывая клиентский; приложение слушает 127.0.0.1 → видит только nginx). X-Forwarded-For клиент мог подделать (свежий IP/запрос → обход IP-rate-limit) — теперь только dev-фоллбэк.
+- **DATA2 multipart (аддитивно, без поломки старых APK):** `read_upload()` в services принимает И `multipart/form-data` (поле `file`), И JSON-base64 (обратная совместимость). 3 эндпоинта (`/upload/photo`, `/voice`, `/upload/chat-photo`) → `async def` + `read_upload`. multipart не держит файл удвоенным base64-строкой в памяти. Валидация (размер/тип/magic-bytes) общая `_validate_upload`. **Новая зависимость `python-multipart>=0.0.9`** (в requirements.txt).
+- **Тесты:** multipart+base64 upload (оба пути), код посадки (участники vs 403), усилен `test_verify_wrong_code` (400 на первый неверный + 429 после перебора — ловит регресс анти-brute-force), **тест гонки брони** `test_overbooking_concurrent` (8 параллельных, ровно 1 успех) — `skipif` не-Postgres (на SQLite FOR UPDATE = no-op). conftest теперь уважает внешний `DATABASE_URL=postgres`.
+
+**Android — BUILD SUCCESSFUL, JVM unit-тесты добавлены с нуля:**
+- **DATA2 клиент:** `callMultipart()` (HttpURLConnection, ручной boundary, те же auth+refresh-on-401, что в `call()`). `uploadPhoto`/`uploadVoice`/`uploadChatPhoto` → multipart. Убран осиротевший `import Base64`.
+- **SEC1-ads клиент:** `fireAdEvent` → `auth=true`. Заодно починен латентный баг: `getAdStats` слал `auth=false`, хотя `/ads/stats` admin-only → серверная статистика у админа не грузилась. Теперь `auth=true`.
+- **ARCH1 back-stack:** лёгкий стек экранов для аппаратной «Назад» (раньше всегда прыгала на Home). Авто-трекинг трейла через `LaunchedEffect(screen)` (флаг `navPopping` глушит запись pop'а) → **не тронуты 76 forward-переходов и onBack-лямбды**. Пусто после kill → фоллбэк на Home. Гард-редирект дата-экранов защищает pop без транзитных данных.
+- **PERF4:** WS-колбэк `onMessage` (фон OkHttp) делал read-modify-write Compose-state → обёрнут в `voiceScope.launch` (main).
+- **BL2:** добавлен `addressBa` демо-аптеке (был единственный без BA-пары; черновик в tasks.md).
+- **TEST1 каркас:** `testImplementation(junit)` + `app/src/test/.../CoreLogicTest.kt` (5 тестов: `appTextFor` двуязычие не-односторонне, `AdStats.ctrPercent`). Запуск `gradlew :app:testDebugUnitTest`.
+
+**⚠️ ВАЖНО перед деплоем backend (когда будешь катать):**
+- **Поставить `python-multipart` на проде:** `/opt/yuldash/.venv/bin/pip install python-multipart` (или `pip install -r requirements.txt`). Иначе **новый** клиент (multipart-upload) получит 500 на загрузке фото/голоса. Старые base64-загрузки работают без него. Деплой backend + раздачу нового APK делать вместе.
+- Миграций БД нет (схема не менялась).
+
+**Осознанно отложено (не баги / нужен передел-эмулятор):** `ARCH3` god-composable и `ARCH2` полный ViewModel (рефактор, не баг — back-stack главную UX-боль снял); Compose/инструментальные тесты (нужен androidTest+устройство); `DEAD1` дроп колонок `vk_id`/`whatsapp_verified` (прод-миграция, низкий приоритет); `TEST3` (сильные негативные security-тесты уже в pytest — `test_flows` IDOR/403, throttle, усиленный verify; `smoke_security.py` дублирует их вручную).
+
+---
+
+## 📓 Журнал: глубокий аудит роем + состязательная проверка + безопасные фиксы (2026-06-28, Opus, worktree)
+
+**Метод (по запросу «глубокий аудит, рефакторинг, ревью всего кода, запусти рой агентов»):** Workflow-рой из **9 read-only аудиторов** по непересекающимся зонам (backend security/reliability/quality, android data/compose-perf/ui/bilingual/architecture, tests) → **каждая находка прошла состязательного скептика** (лезет в живой код, метит real / already_fixed / false_positive). Это ключевой урок прошлых сессий: их субагенты выдавали ложные «блокеры» (чат-сокет, logout, revoke — оказались уже закрыты). Скептик отсекает призраков. Итог: **48 агентов, 39 находок → 37 подтверждено, 2 ложных** (CORS DELETE на деле разрешён; legacy `.sql` безвредны). 0 «уже починено» — прошлые проходы реальный долг не маскировали.
+
+**Применены безопасные фиксы (поведение 1:1, всё проверено). Backend — pytest 63/63, security-smoke OK. Android — BUILD SUCCESSFUL.**
+
+**Backend (9 фиксов):**
+- 🔴 `accept_response` (`requests.py`) — Ride+Booking+статусы были **2 commit** → при сбое между ними фантомная поездка + повторный приём отклика. Слито в **одну транзакцию** через `session.flush()` (выдаёт `ride.id` без commit). Атомарно.
+- 🔴 WS-чат (`chat.py`) — блокирующий `send_push` (FCM) звался **прямо в event-loop** async-WS → залип в Google морозил все WS воркера. Обёрнут в `await run_in_threadpool(...)`.
+- WS-цикл (`chat.py`) — `json.loads` без try → битый кадр ронял хэндлер мимо `disconnect` (утечка сокета). Теперь `try/except JSONDecodeError → continue` + `disconnect` в `finally`.
+- `cancel_booking` (`bookings.py`) — возврат мест был незалоченный read-modify-write → потеря инкремента при гонке отмен. Добавлен `with_for_update()` (как в `book`).
+- `requests_feed` (`requests.py`) — `is_blocked` в цикле по 200 заявкам (N+1). Блокировки грузятся **одним запросом** в set.
+- `conversations` (`chat.py`) — N+1 (последнее сообщение + Ride + User на каждую бронь). **Батч** по `in_` (как в `notifications`).
+- `ad_stats` (`ads.py`) — тянул всю `AdEvent` в память. Теперь **SQL GROUP BY COUNT** (+убран мёртвый `Counter`).
+- `sos` (`safety.py`) — рассылка SMS+Telegram держала коннект БД до ~60с. SosEvent пишется синхронно (данные целы), **SMS/Telegram → `BackgroundTasks`** (ответ мгновенный).
+- `notifications` (`chat.py`) — `.limit(15)` в SQL вместо выборки всех сообщений и среза `[:15]` в Python.
+
+**Android (12 фиксов):**
+- Мёртвый код удалён: `fireSos`/`fireBook` (`ApiClient.kt`, SOS/бронь не должны быть fire-and-forget), `MapMarkerHitTargets` + 2 осиротевших импорта (`MapScreen.kt`).
+- Чат `ChatScreen.onSend` (`RidesRequestsChatScreens.kt`) — слал через `fireSendMessage` (глотал ошибку, UI показывал «отправлено»). Теперь `chatScope.launch { sendMessage().onFailure { Toast «не отправлено» } }`.
+- `@Volatile` на кеш JWT (`cachedUserId`/`cachedUserIdForToken`) — читается из UI и фонового WS.
+- **4 админ/безопасность-экрана** (`SecondaryScreens.kt`): сетевая ошибка показывалась как «пусто» («жалоб нет», «водителей нет», «чёрный список пуст», «не на кого жаловаться»). Введён общий компонент `ListedError(msg, onRetry)` + ветка `error != null` перед empty. **Важно для модерации:** иначе при обрыве сети водители тихо не проверяются.
+- Перф: `key` в списки `RequestsFeedScreen`/`ResponsesScreen`; `remember(ads)` на подбор рекламы в ленте поездок.
+- Двуязычие: метка `erid` в кабинете рекламы → `appText(...)`.
+
+**Сознательно НЕ применено (находки подтверждены, но фикс вреден/не стоит риска — честно):**
+- `PERF5` (ProfileScreen `adStats + serverStats`) — предложенный `remember(adStats,...)` **сломал бы реактивность**: `adStats` это `SnapshotStateMap`, его instance стабилен, контент мутируется → ключевание на instance заморозит счётчик показов. Слияние малых карт на admin-экране дешёвое. Оставлено.
+- `BL2` (демо-`address` в `Mocks.kt`) — все ОТОБРАЖАЕМЫЕ поля рекламы уже имеют `*Ba`-пары; без пары только топоним демо-адреса (мок-фоллбэк). Косметика.
+- `ARCH4` (реклама с сервера `titleBa = a.title`) — контент партнёра одноязычный, авто-перевести нельзя; показывать его как есть в обоих языках — корректно (by design).
+- `PERF4` (WS-колбэк read-modify-write в ActiveTrip) — low, чат там тяжело оттестирован и работает; риск регрессии > выгода.
+
+**Tier B — на решение Александру (архитектурный долг / нужна инфра / меняет API; НЕ блокеры, осознанно отложено прошлыми сессиями):**
+- `ARCH1` нет back-stack (кнопка «Назад» всегда на Home) + `ARCH3` god-composable `YuldashApp` + `ARCH2` ViewModel/process-death → полный переход на Navigation-Compose + ViewModel. Большой передел ядра 26 экранов, высокий риск регрессии на живой бете.
+- `DATA2` фото/голос как base64 в памяти → multipart (меняет upload-эндпоинты + клиент).
+- `SEC1-middleware` обход rate-limit подменой `X-Forwarded-For` — нужен trusted-proxy/nginx-перезапись (verifier понизил до medium: перебор OTP режется отдельно по БД, SMS-кеп — по user.id).
+- `SEC1-ads` `/ads/{id}/event` без авторизации (накрутка статистики) — нужно решение: требовать `current_user` или дедуп (меняет поведение трекинга).
+- `TEST2/TEST1` нет конкурентного теста гонки брони (FOR UPDATE = no-op на SQLite, нужен Postgres-CI) + Android вообще без тестов.
+- `DEAD1` мёртвые колонки `User.vk_id`/`whatsapp_verified` — дроп требует прод-миграции, низкий приоритет.
+
+**⏳ Не задеплоено** (worktree). Backend выкатить после мёржа (`deploy-backend.bat` или `scp -r app/`), миграций нет — схема не менялась. Android-фиксы — в APK при следующей сборке релиза.
+
+---
+
 ## 📓 Журнал: тех-лид аудит всего кода + команда /techlead (2026-06-28, Opus, worktree)
 
 **Что:** адаптировал вирусный промт «act as senior tech lead» под Юлдаш → команда/скилл `.claude/commands/techlead.md` (режим «думай как техлид, а не генератор кода»: уточни → оспорь → найди риски роста → tradeoffs → план → готовый прод-код). Отличие от `/architect`: тот **проектирует** систему, `/techlead` — **линза решений/ревью** под любую задачу. Затем прогнал режим end-to-end: 2 параллельных read-only субагента (`Explore`) по backend `app/` и Android `app/`.

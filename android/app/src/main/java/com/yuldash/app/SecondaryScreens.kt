@@ -698,16 +698,21 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<com.yuldash.app.data.PendingDriverDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
     val token = remember { ApiClient.currentToken() ?: "" }
     val approvedMsg = appText("Водитель одобрен", "Водитель раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
-    fun reload() { scope.launch { ApiClient.getPendingDrivers().onSuccess { list = it }; loading = false } }
+    val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    // error отделяет «сеть упала» от «список пуст» — иначе админ решит, что заявок на проверку нет.
+    fun reload() { loading = true; error = null; scope.launch { ApiClient.getPendingDrivers().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
     LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Модерация водителей", "Водителдәрҙе модерациялау"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Проверь права и фото авто. Одобри или отклони.", "Права һәм авто фотоһын тикшер. Раҫла йәки кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (error != null) {
+                item { ListedError(error!!) { reload() } }
             } else if (list.isEmpty()) {
                 item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән водителдәр күренер")) }
             } else {
@@ -736,14 +741,21 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
 /** Админ: жалобы пользователей — кто на кого, причина, дата. */
 @Composable
 internal fun AdminReportsScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
     var list by remember { mutableStateOf<List<com.yuldash.app.data.AdminReportDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) { ApiClient.getAdminReports().onSuccess { list = it }; loading = false }
+    var error by remember { mutableStateOf<String?>(null) }
+    val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    // error отделяет «сеть упала» от «жалоб нет» — иначе сбой выглядит как «всё хорошо».
+    fun reload() { loading = true; error = null; scope.launch { ApiClient.getAdminReports().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
+    LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Жалобы", "Ялыуҙар"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Жалобы пользователей. Разберись — позвони, предупреди или отклони водителя в модерации.", "Ҡулланыусы ялыуҙары. Тикшер — шылтырат, иҫкәрт йәки модерацияла кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (error != null) {
+                item { ListedError(error!!) { reload() } }
             } else if (list.isEmpty()) {
                 item { ListedEmpty(appText("Жалоб нет", "Ялыу юҡ"), appText("Хороший знак — пользователи довольны.", "Яҡшы билдә — ҡулланыусылар риза.")) }
             } else {
@@ -913,10 +925,14 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
     var blocks by remember { mutableStateOf<List<com.yuldash.app.data.BlockDto>>(emptyList()) }
     var partners by remember { mutableStateOf<List<com.yuldash.app.data.ReportableUserDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
     val blockedMsg = appText("Добавлен в чёрный список", "Ҡара исемлеккә өҫтәлде")
+    val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     fun reload() {
+        loading = true; error = null
         scope.launch {
-            ApiClient.getBlocks().onSuccess { blocks = it }
+            // Ошибку ловим по основному списку (getBlocks) — иначе сбой сети выглядит как «список пуст».
+            ApiClient.getBlocks().onSuccess { blocks = it }.onFailure { error = loadErr }
             ApiClient.getReportableUsers().onSuccess { partners = it }
             loading = false
         }
@@ -933,6 +949,8 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
             item { Text(appText("Заблокированные не видят ваши поездки и не могут писать.", "Блоктағылар сәфәрегеҙҙе күрмәй һәм яҙа алмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (error != null) {
+                item { ListedError(error!!) { reload() } }
             } else {
                 if (blocks.isEmpty()) {
                     item {
@@ -972,10 +990,13 @@ internal fun ReportScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var partners by remember { mutableStateOf<List<com.yuldash.app.data.ReportableUserDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
     var target by remember { mutableStateOf<com.yuldash.app.data.ReportableUserDto?>(null) }
     var reason by remember { mutableStateOf("") }
     val sentMsg = appText("Жалоба отправлена. Спасибо.", "Ялыу ебәрелде. Рәхмәт.")
-    LaunchedEffect(Unit) { ApiClient.getReportableUsers().onSuccess { partners = it }; loading = false }
+    val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    fun reload() { loading = true; error = null; scope.launch { ApiClient.getReportableUsers().onSuccess { partners = it }.onFailure { error = loadErr }; loading = false } }
+    LaunchedEffect(Unit) { reload() }
     target?.let { t ->
         AlertDialog(
             onDismissRequest = { target = null },
@@ -1007,6 +1028,8 @@ internal fun ReportScreen(onBack: () -> Unit) {
             item { Text(appText("Выберите, на кого пожаловаться. Видят только модераторы Юлдаша.", "Кемгә ялыу икәнен һайлағыҙ. Тик Юлдаш модераторҙары күрә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (error != null) {
+                item { ListedError(error!!) { reload() } }
             } else if (partners.isEmpty()) {
                 item {
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {

@@ -297,6 +297,19 @@ internal fun YuldashApp() {
         }
     }
 
+    // Лёгкий back-stack: трейл экранов, чтобы аппаратная «Назад» возвращалась по нему, а не прыгала
+    // сразу на Home. Авто-трекинг через LaunchedEffect(screen) → не трогаем 76 forward-переходов.
+    // Не saveable: после kill процесса история пуста → «Назад» уводит на Home (как было раньше).
+    val navHistory = remember { androidx.compose.runtime.mutableStateListOf<Screen>() }
+    var navPopping by remember { mutableStateOf(false) }
+    var navPrev by remember { mutableStateOf(screen) }
+    LaunchedEffect(screen) {
+        val transient = navPrev == Screen.Splash || navPrev == Screen.Login || navPrev == Screen.Onboarding
+        if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)   // forward → запоминаем, откуда пришли
+        navPopping = false
+        navPrev = screen
+    }
+
     // После kill/restore: screen сохранён, но транзитные selectedRide/activeBookingId — нет.
     // Если восстановились на экране брони/активной поездки без данных → на Home (без краша/пустоты).
     LaunchedEffect(Unit) {
@@ -405,7 +418,10 @@ internal fun YuldashApp() {
             }
         }
         BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash) {
-            screen = Screen.Home
+            // Возврат по трейлу (если есть), иначе — на Home. Гард-редирект (выше) защитит
+            // дата-экраны без транзитных данных. navPopping глушит запись pop'а в историю.
+            val prev = navHistory.removeLastOrNull()
+            if (prev != null && prev != screen) { navPopping = true; screen = prev } else screen = Screen.Home
         }
         AnimatedContent(
             targetState = screen,

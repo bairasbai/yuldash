@@ -19,7 +19,13 @@ _STRICT_PREFIXES = ("/auth", "/sos", "/api/v1/auth", "/api/v1/sos")
 
 
 def _client_ip(request: Request) -> str:
-    # За nginx реальный IP — в X-Forwarded-For (первый). Иначе peer.
+    # Прод за nginx: реальный IP — в X-Real-IP (nginx ставит $remote_addr, ПЕРЕЗАПИСЫВАЯ
+    # любой клиентский заголовок). Приложение слушает 127.0.0.1 → видит только трафик nginx,
+    # поэтому X-Real-IP доверенный. X-Forwarded-For клиент может подделать (свежий IP на запрос
+    # → обход IP-rate-limit), поэтому НЕ берём его как первичный, только как фоллбэк для dev.
+    real = request.headers.get("x-real-ip")
+    if real:
+        return real.strip()
     xff = request.headers.get("x-forwarded-for")
     if xff:
         return xff.split(",")[0].strip()

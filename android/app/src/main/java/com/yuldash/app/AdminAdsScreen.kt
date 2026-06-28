@@ -231,7 +231,7 @@ private fun CreateAdForm(founderFull: Boolean, onCreated: () -> Unit) {
                 OutlinedTextField(city, { city = it }, label = { Text(appText("Город", "Ҡала")) }, singleLine = true, modifier = Modifier.weight(1f))
             }
             OutlinedTextField(target, { target = it }, label = { Text(appText("Ссылка при клике", "Баҫҡанда һылтанма")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(erid, { erid = it }, label = { Text("erid (маркировка)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(erid, { erid = it }, label = { Text(appText("erid (маркировка)", "erid (билдәләмә)")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
             Text(appText("Тариф", "Тариф"), color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

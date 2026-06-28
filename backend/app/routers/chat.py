@@ -6,6 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
+from starlette.concurrency import run_in_threadpool
 
 from ..db import engine, get_session
 from ..models import Booking, Message, Ride, User
@@ -57,7 +58,10 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
     try:
         while True:
             data = await websocket.receive_text()
-            payload = json.loads(data)
+            try:
+                payload = json.loads(data)
+            except (json.JSONDecodeError, ValueError):
+                continue   # битый (не-JSON) кадр — игнорируем, соединение НЕ роняем
             if payload.get("type") == "message":
                 # `with` → коннект возвращается в пул сразу (без утечки сессий на каждое сообщение).
                 with Session(engine) as session:
@@ -75,11 +79,19 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                         "text": msg.text,
                         "timestamp": msg.created_at.isoformat()
                     })
-                    # Push другой стороне (она может быть офлайн / не в чате).
+                    # Push другой стороне (она может быть офлайн / не в чате). send_push — блокирующий
+                    # сетевой вызов к FCM; в async-WS гоним через threadpool, иначе залипший запрос к
+                    # Google морозит event-loop и ВСЕ WS-соединения воркера.
                     sender = session.get(User, user_id)
-                    send_push(session, other_id, (sender.name if sender else None) or "Новое сообщение", (msg.text or "Сообщение")[:120])
+                    await run_in_threadpool(
+                        send_push, session, other_id,
+                        (sender.name if sender else None) or "Новое сообщение",
+                        (msg.text or "Сообщение")[:120],
+                    )
     except WebSocketDisconnect:
-        manager.disconnect(booking_id, websocket)
+        pass
+    finally:
+        manager.disconnect(booking_id, websocket)   # снятие регистрации при ЛЮБОМ выходе — нет утечки сокета
 
 
 @router.post("/bookings/{booking_id}/messages", response_model=Message)
@@ -179,15 +191,32 @@ class ConversationOut(BaseModel):
 @router.get("/conversations", response_model=List[ConversationOut])
 def conversations(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Инбокс: брони пользователя (как пассажир и как водитель), где есть сообщения."""
+    bookings = user_bookings(session, user)
+    if not bookings:
+        return []
+    booking_ids = [b.id for b in bookings]
+    # Последнее сообщение каждой брони — ОДНИМ запросом (анти-N+1): все сообщения по этим броням
+    # по убыванию id, первое встреченное на booking_id = последнее.
+    last_by_booking: dict = {}
+    for m in session.exec(
+        select(Message).where(Message.booking_id.in_(booking_ids)).order_by(Message.id.desc())
+    ).all():
+        last_by_booking.setdefault(m.booking_id, m)
+    # Поездки и собеседники — пачкой по id (вместо session.get в цикле).
+    rides_by_id = {r.id: r for r in session.exec(select(Ride).where(Ride.id.in_({b.ride_id for b in bookings}))).all()}
+    peer_ids = {
+        (rides_by_id[b.ride_id].driver_id if (b.ride_id in rides_by_id and b.passenger_id == user.id) else b.passenger_id)
+        for b in bookings
+    }
+    peers_by_id = {u.id: u for u in session.exec(select(User).where(User.id.in_(peer_ids))).all()} if peer_ids else {}
     out: list = []
-    for b in user_bookings(session, user):
-        last = session.exec(
-            select(Message).where(Message.booking_id == b.id).order_by(Message.id.desc())
-        ).first()
+    for b in bookings:
+        last = last_by_booking.get(b.id)
         if last is None:
             continue
-        ride = session.get(Ride, b.ride_id)
-        peer = session.get(User, ride.driver_id) if (ride and b.passenger_id == user.id) else session.get(User, b.passenger_id)
+        ride = rides_by_id.get(b.ride_id)
+        peer_id = ride.driver_id if (ride and b.passenger_id == user.id) else b.passenger_id
+        peer = peers_by_id.get(peer_id)
         out.append(ConversationOut(
             booking_id=b.id,
             peer_name=(peer.name if peer and peer.name else "Собеседник"),
@@ -205,8 +234,9 @@ def notifications(user: User = Depends(current_user), session: Session = Depends
     out: list = []
     if booking_ids:
         msgs = session.exec(
-            select(Message).where(Message.booking_id.in_(booking_ids), Message.sender_id != user.id).order_by(Message.id.desc())
+            select(Message).where(Message.booking_id.in_(booking_ids), Message.sender_id != user.id)
+            .order_by(Message.id.desc()).limit(15)   # тянем из БД только последние 15, не всю переписку
         ).all()
-        for m in msgs[:15]:
+        for m in msgs:
             out.append({"type": "message", "title": "Новое сообщение", "text": (m.text if m.text else "Голосовое сообщение")})
     return out
