@@ -1355,7 +1355,8 @@ internal fun ChatScreen(
                             time = "",
                             unread = 0,
                             verified = true,
-                            onClick = { onOpenChat(c.bookingId, c.peerName, c.route) }
+                            onClick = { onOpenChat(c.bookingId, c.peerName, c.route) },
+                            avatarUrl = c.peerAvatar
                         )
                     }
                 }
@@ -1513,7 +1514,7 @@ internal fun ListedEmpty(title: String, subtitle: String) {
 }
 
 @Composable
-private fun ChatCard(initial: String, name: String, subtitle: String, message: String, time: String, unread: Int, verified: Boolean, support: Boolean = false, onClick: (() -> Unit)? = null) {
+private fun ChatCard(initial: String, name: String, subtitle: String, message: String, time: String, unread: Int, verified: Boolean, support: Boolean = false, onClick: (() -> Unit)? = null, avatarUrl: String = "") {
     Card(
         modifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -1530,7 +1531,16 @@ private fun ChatCard(initial: String, name: String, subtitle: String, message: S
                     .background(if (support) Color(0xFF0B6B3A) else MaterialTheme.colorScheme.primaryContainer, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(initial, fontSize = 20.sp, fontWeight = FontWeight.Black, color = if (support) Color.White else MaterialTheme.colorScheme.primary)
+                if (avatarUrl.isBlank()) {
+                    Text(initial, fontSize = 20.sp, fontWeight = FontWeight.Black, color = if (support) Color.White else MaterialTheme.colorScheme.primary)
+                } else {
+                    coil.compose.AsyncImage(
+                        model = avatarUrl,
+                        contentDescription = null,
+                        modifier = Modifier.size(58.dp).clip(CircleShape),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
+                }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {

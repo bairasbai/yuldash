@@ -237,6 +237,10 @@ object ApiClient {
     suspend fun updateName(name: String): Result<Unit> =
         call("POST", "/me/update", JSONObject().put("name", name), auth = true).onSuccess { saveName(name) }.map { }
 
+    /** Сохранить аватар (публичный URL из uploadChatPhoto). */
+    suspend fun updateAvatar(url: String): Result<Unit> =
+        call("POST", "/me/update", JSONObject().put("avatar_url", url), auth = true).map { }
+
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
     // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
 
@@ -653,7 +657,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"))
+                ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"), o.optString("peer_avatar"))
             }
         }
 
@@ -975,6 +979,7 @@ data class ConversationDto(
     val peerName: String,
     val route: String,
     val lastMessage: String,
+    val peerAvatar: String = "",
 )
 
 data class PopularRouteDto(val from: String, val to: String, val count: Int)

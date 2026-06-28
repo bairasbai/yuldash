@@ -92,6 +92,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.HeadsetMic
@@ -274,14 +275,27 @@ internal fun ProfileScreen(
     // Свой рейтинг (как пассажира) — из реальных оценок водителей. null, пока никто не оценил.
     var myRating by remember { mutableStateOf<Double?>(null) }
     var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: "Я") }
+    var avatarUrl by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         ApiClient.me().onSuccess { o ->
             myRating = if (o.isNull("rating")) null else o.optDouble("rating")
             o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
+            o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
         }
     }
     val editCtx = LocalContext.current
     val editScope = rememberCoroutineScope()
+    val avatarSavedMsg = appText("Фото обновлено", "Фото яңыртылды")
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { u ->
+            editScope.launch {
+                val bytes = runCatching { editCtx.contentResolver.openInputStream(u)?.use { it.readBytes() } }.getOrNull()
+                if (bytes != null) ApiClient.uploadChatPhoto(bytes).onSuccess { url ->
+                    ApiClient.updateAvatar(url).onSuccess { avatarUrl = url; Toast.makeText(editCtx, avatarSavedMsg, Toast.LENGTH_SHORT).show() }
+                }
+            }
+        }
+    }
     var showEditName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(displayName) }
     val nameSavedMsg = appText("Имя обновлено", "Исем яңыртылды")
@@ -331,10 +345,21 @@ internal fun ProfileScreen(
                             Box(
                                 modifier = Modifier
                                     .size(70.dp)
-                                    .background(Color.White.copy(alpha = 0.18f), CircleShape),
+                                    .background(Color.White.copy(alpha = 0.18f), CircleShape)
+                                    .bounceClick { avatarPicker.launch("image/*") },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(displayName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
+                                if (avatarUrl.isBlank()) {
+                                    Text(displayName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 28.sp)
+                                } else {
+                                    coil.compose.AsyncImage(
+                                        model = avatarUrl,
+                                        contentDescription = appText("Фото профиля", "Профиль фотоһы"),
+                                        modifier = Modifier.size(70.dp).clip(CircleShape),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                }
+                                Icon(Icons.Default.Edit, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp).align(Alignment.BottomEnd))
                             }
                             Spacer(Modifier.width(14.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -41,6 +41,7 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     phone: str = Field(index=True, unique=True)
     name: str = ""
+    avatar_url: str = ""        # фото профиля (публичный media-URL), необязательно
     role: UserRole = UserRole.passenger
     language: str = "ru"
     verified: bool = False

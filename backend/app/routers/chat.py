@@ -171,6 +171,7 @@ def delete_message(booking_id: int, message_id: int, scope: str = "all",
 class ConversationOut(BaseModel):
     booking_id: int
     peer_name: str
+    peer_avatar: str = ""
     route: str
     last_message: str
 
@@ -190,6 +191,7 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
         out.append(ConversationOut(
             booking_id=b.id,
             peer_name=(peer.name if peer and peer.name else "Собеседник"),
+            peer_avatar=(peer.avatar_url if peer else ""),
             route=(f"{ride.from_city} → {ride.to_city}" if ride else ""),
             last_message=(last.text if last.text else "Голосовое"),
         ))
