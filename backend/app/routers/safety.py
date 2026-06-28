@@ -34,6 +34,15 @@ def sos(body: SosIn, user: User = Depends(current_user), session: Session = Depe
         if c.phone:
             send_text(c.phone, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.")
             notified += 1
+    # Уведомляем поддержку (админа) в Telegram — SOS важнее «перезвоните». Координаты/детали приходят в note.
+    notify_admin_telegram(
+        f"🆘 SOS (Юлдаш)\n"
+        f"От: {user.name or '—'}\n"
+        f"Тел: {user.phone or '—'}\n"
+        f"Категория: {body.category}\n"
+        f"Контактов уведомлено (SMS): {notified}\n"
+        f"Детали: {body.note or '—'}"
+    )
     print(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
     return event
 
