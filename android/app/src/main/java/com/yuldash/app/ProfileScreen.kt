@@ -259,6 +259,9 @@ internal fun ProfileScreen(
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
     onHelp: () -> Unit,
+    onReview: () -> Unit,
+    onAdminReviews: () -> Unit,
+    onAdminAds: () -> Unit,
     onPassengerCabinet: () -> Unit,
     onDriverCabinet: () -> Unit,
     onSimpleMode: () -> Unit,
@@ -276,11 +279,13 @@ internal fun ProfileScreen(
     var myRating by remember { mutableStateOf<Double?>(null) }
     var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: "Я") }
     var avatarUrl by remember { mutableStateOf("") }
+    var role by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         ApiClient.me().onSuccess { o ->
             myRating = if (o.isNull("rating")) null else o.optDouble("rating")
             o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
             o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
+            role = o.optString("role")
         }
     }
     val editCtx = LocalContext.current
@@ -415,6 +420,11 @@ internal fun ProfileScreen(
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Настройки", "Көйләүҙәр"), appText("Уведомления, карта, предпочтения", "Хәбәрҙәр, карта, өҫтөнлөктәр"), Icons.Default.Settings, onSettings) } }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Конфиденциальность", "Хосусилыҡ"), appText("Геолокация и разрешения", "Геолокация һәм рөхсәттәр"), Icons.Default.Shield, onPrivacy) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Помощь", "Ярдам"), appText("Ответы на частые вопросы", "Йыш һорауҙарға яуаптар"), Icons.Default.Help, onHelp) } }
+            item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Оставить отзыв", "Фекер ҡалдырыу"), appText("Оцени приложение — лучшие попадут на сайт", "Ҡушымтаны баһала — иң яҡшылары сайтҡа эләгер"), Icons.Default.Star, onReview) } }
+            if (role == "admin") {
+                item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Модерация отзывов", "Фекерҙәрҙе модерациялау"), appText("Одобрить отзывы для сайта", "Сайт өсөн фекерҙәрҙе раҫларға"), Icons.Default.Verified, onAdminReviews) } }
+                item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Управление рекламой", "Реклама идаралау"), appText("Объявления партнёров: публикация, пауза, удаление", "Партнёр иғландары: баҫтырыу, пауза, бөтөрөү"), Icons.Default.AdminPanelSettings, onAdminAds) } }
+            }
             item {
                 Text(appText("Партнёры Юлдаш", "Юлдаш партнёрҙары"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
             }

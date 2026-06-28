@@ -445,6 +445,9 @@ internal fun YuldashApp() {
                 onCreateRide = { screen = Screen.CreateRide },
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onSupport = { screen = Screen.Support },
+                onReview = { screen = Screen.AppReview },
+                onAdminReviews = { screen = Screen.AdminReviews },
+                onAdminAds = { screen = Screen.AdminAds },
                 onBoost = { screen = Screen.Boost },
                 onPublishRide = { ride ->
                     rides.add(0, ride)
@@ -688,6 +691,9 @@ internal fun YuldashApp() {
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Шылтыратыу заявкаһы булдырылды" else "Заявка на звонок создана", Toast.LENGTH_SHORT).show()
                 }
             )
+            Screen.AppReview -> AppReviewScreen(onBack = { openHome(HomeTab.Profile) })
+            Screen.AdminReviews -> AdminReviewsScreen(onBack = { openHome(HomeTab.Profile) })
+            Screen.AdminAds -> AdminAdsScreen(onBack = { openHome(HomeTab.Profile) })
         }
         }
     }
@@ -1134,6 +1140,9 @@ internal fun HomeScreen(
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
     onHelp: () -> Unit,
+    onReview: () -> Unit,
+    onAdminReviews: () -> Unit,
+    onAdminAds: () -> Unit,
     onPassengerCabinet: () -> Unit,
     onDriverCabinet: () -> Unit,
     onSimpleMode: () -> Unit,
@@ -1227,6 +1236,9 @@ internal fun HomeScreen(
                     onSettings = onSettings,
                     onPrivacy = onPrivacy,
                     onHelp = onHelp,
+                    onReview = onReview,
+                    onAdminReviews = onAdminReviews,
+                    onAdminAds = onAdminAds,
                     onPassengerCabinet = onPassengerCabinet,
                     onDriverCabinet = onDriverCabinet,
                     onSimpleMode = onSimpleMode,

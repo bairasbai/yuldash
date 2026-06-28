@@ -296,7 +296,10 @@ internal enum class Screen {
     FamilyOrder,
     TrustedContacts,
     RepeatTrip,
-    CallbackHelp
+    CallbackHelp,
+    AppReview,
+    AdminReviews,
+    AdminAds
 }
 
 internal enum class HomeTab {

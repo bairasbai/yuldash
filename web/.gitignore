@@ -1,0 +1,13 @@
+# deps
+/node_modules
+
+# next
+/.next/
+/out/
+
+# misc
+*.tsbuildinfo
+.DS_Store
+
+# APK кладётся вручную на сервер, не в git (может быть тяжёлым / подписан)
+/public/yuldash.apk

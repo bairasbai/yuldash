@@ -547,6 +547,28 @@ object ApiClient {
             (0 until arr.length()).map { i -> val o = arr.getJSONObject(i); ReportableUserDto(o.optInt("id"), o.optString("name")) }
         }
 
+    /** Отзыв о приложении (идёт на лендинг после модерации published). */
+    suspend fun submitAppReview(stars: Int, text: String, city: String): Result<Unit> =
+        call(
+            "POST", "/reviews",
+            JSONObject().put("stars", stars).put("text", text).put("city", city),
+            auth = true,
+        ).map { }
+
+    /** Отзывы, ожидающие модерации (только админ). */
+    suspend fun getPendingReviews(): Result<List<ReviewItem>> =
+        call("GET", "/admin/reviews/pending", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                ReviewItem(o.optInt("id"), o.optString("name"), o.optString("city"), o.optInt("stars", 5), o.optString("text"))
+            }
+        }
+
+    /** Одобрить отзыв (или снять с публикации). */
+    suspend fun publishReview(id: Int, published: Boolean): Result<Unit> =
+        call("POST", "/admin/reviews/$id/publish", JSONObject().put("published", published), auth = true).map { }
+
     // ---------- Чат (сообщения по брони) ----------
 
     /** Id моих броней (чату нужен booking_id). */
@@ -739,6 +761,54 @@ object ApiClient {
             out
         }
 
+    // ---------- Реклама: админ-управление ----------
+    /** Все объявления для админ-кабинета + сколько founder-слотов занято. */
+    suspend fun getAdminAds(): Result<AdminAdsDto> =
+        call("GET", "/admin/ads", null, auth = true).map { o ->
+            val arr = o.optJSONArray("items") ?: JSONArray()
+            val items = (0 until arr.length()).map { i ->
+                val a = arr.getJSONObject(i)
+                val pls = a.optJSONArray("placements")
+                val placements = if (pls != null) (0 until pls.length()).joinToString(",") { pls.optString(it) } else ""
+                AdminAdDto(
+                    id = a.optString("id"),
+                    partner = a.optString("partner"),
+                    title = a.optString("title"),
+                    text = a.optString("text"),
+                    plan = a.optString("plan"),
+                    status = a.optString("status"),
+                    placements = placements,
+                    erid = a.optString("erid"),
+                    endsAt = a.optString("ends_at").ifBlank { null },
+                    live = a.optBoolean("live"),
+                    expired = a.optBoolean("expired"),
+                )
+            }
+            AdminAdsDto(o.optInt("founder_used"), o.optInt("founder_limit", 10), items)
+        }
+
+    /** Создать объявление (admin). plan: founder/standard/premium. */
+    suspend fun createAd(
+        partnerName: String, title: String, text: String, button: String,
+        plan: String, placements: String, erid: String, target: String, city: String,
+    ): Result<Unit> =
+        call(
+            "POST", "/admin/ads",
+            JSONObject()
+                .put("partner_name", partnerName).put("title", title).put("text", text)
+                .put("button", button).put("plan", plan).put("placements", placements)
+                .put("erid", erid).put("target", target).put("cities", city),
+            auth = true,
+        ).map { }
+
+    /** Сменить статус: active / paused / draft / archived. */
+    suspend fun setAdStatus(id: String, status: String): Result<Unit> =
+        call("POST", "/admin/ads/$id/status", JSONObject().put("status", status), auth = true).map { }
+
+    /** Удалить (мягко в архив). */
+    suspend fun deleteAd(id: String): Result<Unit> =
+        call("DELETE", "/admin/ads/$id", null, auth = true).map { }
+
     // ---------- Активная поездка: поделиться / статус ----------
 
     suspend fun shareTrip(bookingId: Int, contactId: Int): Result<Unit> =
@@ -856,6 +926,8 @@ object ApiClient {
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
 class ApiException(val status: Int, message: String) : Exception(message)
+
+data class ReviewItem(val id: Int, val name: String, val city: String, val stars: Int, val text: String)
 
 /** Поездка с витрины сервера (бэкенд RideOut: поездка + данные водителя). */
 data class PriceHintDto(val avg: Int, val count: Int)
@@ -1017,3 +1089,10 @@ data class BoostResultDto(
 data class AdDto(val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String)
 /** Серверная статистика рекламы (показы/клики). */
 data class AdStatsDto(val impressions: Int, val clicks: Int)
+
+data class AdminAdDto(
+    val id: String, val partner: String, val title: String, val text: String,
+    val plan: String, val status: String, val placements: String, val erid: String,
+    val endsAt: String?, val live: Boolean, val expired: Boolean,
+)
+data class AdminAdsDto(val founderUsed: Int, val founderLimit: Int, val items: List<AdminAdDto>)
