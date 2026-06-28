@@ -31,14 +31,22 @@ class RequestIn(BaseModel):
     for_relative_name: Optional[str] = Field(None, max_length=120)
     voice_url: Optional[str] = None
     transcript: Optional[str] = Field(None, max_length=4000)
+    assisted: bool = False   # заявка из «помощь»-режима (пожилой/голос/за близкого) — НЕ храним, только уведомляем админа
 
 
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    req = RideRequest(passenger_id=user.id, **body.model_dump())
+    req = RideRequest(passenger_id=user.id, **body.model_dump(exclude={"assisted"}))
     session.add(req)
     session.commit()
     session.refresh(req)
+    # Срочно/помощь — сразу уведомляем админа, чтобы не упустить время (пожилому может быть нужно срочно).
+    if body.assisted or req.category == RideCategory.urgent:
+        notify_admin_telegram(
+            f"🆕 Заявка — нужна помощь{' (СРОЧНО)' if req.category == RideCategory.urgent else ''}\n"
+            f"От: {user.name or user.phone}\n{req.from_city} → {req.to_city}\n"
+            f"{req.comment or '—'}\n→ Кабинет админа → Отклики по заявке #{req.id}"
+        )
     return req
 
 

@@ -40,8 +40,8 @@ object ApiClient {
     // переживает навигацию (scope экрана отменяется при уходе и обрывает запрос).
     private val bg = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    fun fireCreateRequest(fromCity: String, toCity: String, seats: Int, category: String, withKids: Boolean, comment: String, maxPrice: Int, voiceUrl: String? = null, transcript: String? = null) {
-        bg.launch { createRequest(fromCity, toCity, seats, category, withKids, comment, maxPrice, voiceUrl, transcript) }
+    fun fireCreateRequest(fromCity: String, toCity: String, seats: Int, category: String, withKids: Boolean, comment: String, maxPrice: Int, voiceUrl: String? = null, transcript: String? = null, assisted: Boolean = false) {
+        bg.launch { createRequest(fromCity, toCity, seats, category, withKids, comment, maxPrice, voiceUrl, transcript, assisted) }
     }
 
     fun firePublishRide(
@@ -387,6 +387,7 @@ object ApiClient {
         maxPrice: Int,
         voiceUrl: String? = null,
         transcript: String? = null,
+        assisted: Boolean = false,
     ): Result<Unit> = call(
         "POST", "/requests",
         JSONObject()
@@ -397,6 +398,7 @@ object ApiClient {
             .put("with_kids", withKids)
             .put("max_price", maxPrice)
             .put("comment", comment)
+            .put("assisted", assisted)
             .apply {
                 voiceUrl?.takeIf { it.isNotBlank() }?.let { put("voice_url", it) }
                 transcript?.takeIf { it.isNotBlank() }?.let { put("transcript", it) }

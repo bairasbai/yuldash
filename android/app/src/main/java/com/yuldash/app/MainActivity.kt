@@ -280,6 +280,7 @@ internal enum class Screen {
     Blocklist,
     Report,
     Filters,
+    AdminCabinet,
     AdminRequest,
     AdminResponses,
     RequestsFeed,
@@ -491,7 +492,8 @@ internal fun fireRequestFromRoute(route: String, comment: String = "", voiceUrl:
     val parts = route.split("→", "->", "-").map { it.trim() }.filter { it.isNotEmpty() }
     val from = parts.getOrElse(0) { route.trim() }
     val to = parts.getOrElse(1) { "" }
-    if (from.isNotBlank()) ApiClient.fireCreateRequest(from, to, 1, "regular", false, comment, 0, voiceUrl, transcript)
+    // assisted=true: вызывается из «помощь»-режимов (голос/повтор/простой) → админ получит уведомление.
+    if (from.isNotBlank()) ApiClient.fireCreateRequest(from, to, 1, "regular", false, comment, 0, voiceUrl, transcript, assisted = true)
 }
 
 // Нативный календарь + часы → строка «ДД.ММ.ГГГГ, ЧЧ:ММ» в поле даты заявки/поездки.

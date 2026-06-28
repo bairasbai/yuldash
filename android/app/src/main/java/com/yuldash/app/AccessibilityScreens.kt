@@ -716,6 +716,7 @@ internal fun CreatePassengerRequestScreen(
                             from.trim(), to.trim(),
                             seats.toIntOrNull() ?: 1,
                             apiCat, withKids, comment.trim(), priceVal,
+                            assisted = true,   // заявка за близкого → уведомить админа
                         )
                         onCreateRequest(
                             LocalRequest(

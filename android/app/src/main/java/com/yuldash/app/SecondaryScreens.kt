@@ -437,8 +437,7 @@ internal fun SettingsScreen(
     onPayments: () -> Unit = {},
     onFilters: () -> Unit = {},
     isAdmin: Boolean = false,
-    onAdminRequest: () -> Unit = {},
-    onAdminResponses: () -> Unit = {},
+    onAdminCabinet: () -> Unit = {},
 ) {
     var notifications by remember { mutableStateOf(true) }
     var sounds by remember { mutableStateOf(true) }
@@ -490,8 +489,7 @@ internal fun SettingsScreen(
             if (isAdmin) {
                 item {
                     SettingsGroup {
-                        SettingsNavRow(Icons.Default.HeadsetMic, appText("Заявка за пользователя", "Ҡулланыусы өсөн заявка"), appText("Создать заявку после звонка «перезвоните мне»", "«Шылтыратығыҙ» һуңында заявка булдырыу"), onClick = onAdminRequest)
-                        SettingsNavRow(Icons.Default.ListAlt, appText("Отклики по заявке", "Заявка буйынса яуаптар"), appText("Принять отклик за пользователя без интернета", "Интернетһыҙ ҡулланыусы өсөн яуап ҡабул итеү"), onClick = onAdminResponses)
+                        SettingsNavRow(Icons.Default.AdminPanelSettings, appText("Кабинет админа", "Админ кабинеты"), appText("Заявки, отклики, реклама — единый центр", "Заявкалар, яуаптар, реклама — берҙәм үҙәк"), onClick = onAdminCabinet)
                     }
                 }
             }
@@ -674,6 +672,28 @@ private fun PersonRow(name: String, actionLabel: String, danger: Boolean, onActi
             Spacer(Modifier.width(12.dp))
             Text(name, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
             TextButton(onClick = onAction) { Text(actionLabel, color = if (danger) CanonRed else CanonGreen2, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+/** Кабинет админа — единый центр: заявки помощи, отклики, реклама. Виден только админу. */
+@Composable
+internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit) {
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
+        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+            item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            item {
+                SettingsGroup {
+                    SettingsNavRow(Icons.Default.HeadsetMic, appText("Заявка за пользователя", "Ҡулланыусы өсөн заявка"), appText("Создать заявку после звонка «перезвоните мне»", "«Шылтыратығыҙ» һуңында заявка булдырыу"), onClick = onAdminRequest)
+                    SettingsNavRow(Icons.Default.ListAlt, appText("Отклики по заявке", "Заявка буйынса яуаптар"), appText("Принять отклик за пользователя без интернета", "Интернетһыҙ ҡулланыусы өсөн яуап ҡабул итеү"), onClick = onAdminResponses)
+                }
+            }
+            item {
+                SettingsGroup {
+                    SettingsNavRow(Icons.Default.CreditCard, appText("Реклама", "Реклама"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), onClick = onAds)
+                }
+            }
+            item { Text(appText("Скоро: модерация водителей и жалобы.", "Тиҙҙән: водителдәрҙе модерациялау һәм ялыуҙар."), color = CanonMuted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp)) }
         }
     }
 }
