@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     # --- Push (FCM) ---
     firebase_credentials: str = ""      # путь к JSON сервисного аккаунта Firebase (для отправки пушей). Пусто → push выключен.
 
+    # --- Платежи (ЮKassa, самозанятый: монетизация СВОИХ услуг — Boost/реклама) ---
+    payments_provider: str = "mock"     # mock | yookassa. mock — платёж сразу «оплачен» (только dev).
+    yookassa_shop_id: str = ""          # shopId из кабинета ЮKassa (для самозанятых). НЕ в git — в .env.
+    yookassa_secret_key: str = ""       # секретный ключ ЮKassa (Basic-auth). НЕ в git — в .env.
+    payment_return_url: str = "https://yulbash.ru/pay/done"  # куда ЮKassa вернёт пользователя после оплаты
+
     # --- Redis (масштаб) ---
     # Один URL на всё: общий rate-limit между воркерами + WS-чат pub/sub между процессами.
     # Пусто → rate-limit in-memory на воркер, WS — локальный режим (один воркер). Пример: redis://127.0.0.1:6379/0
@@ -87,6 +93,9 @@ class Settings(BaseSettings):
             problems.append("TELEGRAM_WEBHOOK_SECRET обязателен при заданном TELEGRAM_BOT_TOKEN")
         if self.cors_origins.strip() == "*":
             problems.append("CORS_ORIGINS не должен быть '*' в проде")
+        # mock-платежи в проде = «оплата» без денег. Включён реальный приём → ключи обязательны.
+        if self.payments_provider == "yookassa" and not (self.yookassa_shop_id and self.yookassa_secret_key):
+            problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")
         if self.database_url.startswith("sqlite"):
             problems.append("DATABASE_URL не должен быть sqlite в проде")
         media_base = self.media_base_url.lower()

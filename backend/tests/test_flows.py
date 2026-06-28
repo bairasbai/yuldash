@@ -459,3 +459,27 @@ def test_upload_daily_quota(client, user_factory):
         assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": img, "ext": "jpg"}).status_code == 429
     finally:
         settings.max_uploads_per_day = orig
+
+
+# ----------------------------- Boost (платное поднятие, mock-оплата) -----------------------------
+def test_boost_plans_and_sorting(client, user_factory):
+    plans = client.get("/boost/plans").json()
+    assert {p["tier"] for p in plans} == {"quick", "day", "urgent"}
+    drv = user_factory("BoostDrv", role=UserRole.driver)
+    city = "БустГрад"
+    a = _publish(client, drv, frm=city, to="Сибай", depart_at="2030-01-01T08:00:00")
+    b = _publish(client, drv, frm=city, to="Сибай", depart_at="2030-01-01T12:00:00")
+    ids = [r["id"] for r in client.get("/rides", params={"from_city": city}).json()]
+    assert ids.index(a["id"]) < ids.index(b["id"])          # без буста — по времени (A раньше B)
+    r = client.post("/boost/create", headers=drv["auth"], json={"ride_id": b["id"], "tier": "day"})
+    assert r.status_code == 200 and r.json()["status"] == "succeeded"   # mock-оплата прошла сразу
+    out = client.get("/rides", params={"from_city": city}).json()
+    assert out[0]["id"] == b["id"] and out[0]["boosted"] is True        # B поднят → первым
+
+
+def test_boost_only_own_ride(client, user_factory):
+    drv = user_factory("BoostOwnDrv", role=UserRole.driver)
+    ride = _publish(client, drv)
+    other = user_factory("BoostOther", role=UserRole.driver)
+    assert client.post("/boost/create", headers=other["auth"], json={"ride_id": ride["id"], "tier": "quick"}).status_code == 403
+    assert client.post("/boost/create", headers=drv["auth"], json={"ride_id": ride["id"], "tier": "nope"}).status_code == 400

@@ -333,3 +333,19 @@
 - 2026-06-22 Ads 2.0: проверено `assembleDebug` → `BUILD SUCCESSFUL`; UI-dump подтвердил на карте `Реклама · erid`, пакет `Город + категория`, места размещения, действие, контакт и CTR; профиль подтвердил кабинет со статусами, модерацией, точками карты и stats; `logcat` без `FATAL EXCEPTION`.
 - 2026-06-28 Security-аудит (senior security-инженер, прод): построчно проверен весь `backend/app/**` + security-поверхность Android. Критичных дыр нет. Найдено и починено 3 реальные уязвимости в WebSocket-чате (V1 обход logout-ревокации, V2 обход блокировки, V3 утечка сессий БД→DoS) — только бэкенд, клиент не тронут. Отчёт: `docs/security-audit.md`. Верификация: `python -m pytest` → **54 passed** (включая новый регресс `test_ws_rejects_token_revoked_by_logout`). Рекомендации на потом (не ломая живой клиент): R1 OTP 6-значный, R2 magic-bytes+квота загрузок, R3 `/ads/stats` под admin, R4 убрать `?token=` в WS.
 - 2026-06-28 Security R2+R3 (бэкенд, ship-safe): R2 — защита загрузок: magic-bytes для фото (`_looks_like_image` в `decode_upload_b64(sniff_image=True)` для `/upload/photo` и `/upload/chat-photo`) + суточная квота на юзера (`UploadEvent` + `enforce_upload_quota`, `MAX_UPLOADS_PER_DAY=60`) на всех 3 upload-эндпоинтах. R3 — `/ads/stats` закрыт под admin (был публичный). Новая таблица `uploadevent` создаётся `create_all` при рестарте (миграция не нужна). Тесты: **56 passed** (+`test_ad_stats_admin_only`, +`test_upload_daily_quota`, +magic-bytes assert). R1 (OTP 6 цифр) и R4 (убрать `?token=` в WS) + клиентский `getAdStats` auth=true — ОТЛОЖЕНЫ в следующий релиз APK (трогают живой клиент).
+
+## План: Boost-поездки + реклама через реальную оплату (самозанятый, ЮKassa) — 2026-06-28
+Юр.основа: самозанятый монетизирует СВОИ услуги (Boost/реклама), НЕ посредничество за поездки.
+Провайдер: ЮKassa v3 REST (поддерживает самозанятых, авто-чек «Мой налог»). Ключи — в .env, mock-фолбэк в dev.
+
+**Фаза 1 — бэкенд (эта сессия, ship-safe, mock-тест, без правки живого APK):**
+1. `Ride.boosted_until` (+`boost_tier`) — поднятая поездка и срок. Миграция `migrate_boost.sql` (PG ALTER; sqlite авто).
+2. Сортировка `/rides` и `/rides/near`: boosted (boosted_until>now) — первыми, затем по depart_at.
+3. Boost-тарифы на бэке (CLAUDE.md): quick=20₽/2ч, day=50₽/24ч, urgent=70₽/6ч.
+4. `Payment` модель: user_id, purpose (boost|ad), provider_id, ride_id, tier, amount_kop, status, created_at.
+5. `app/payments.py`: ЮKassa-клиент (`create_payment`→confirmation_url; `fetch_payment` для верификации). Mock-режим: pending→авто-succeeded в dev.
+6. `routers/payments.py`: `POST /boost/create {ride_id,tier}` (owner-check → создаёт платёж → confirmation_url), `POST /payments/yookassa/webhook` (GET платёж в ЮKassa по id → succeeded → активирует boost). Безопасность вебхука: доверяем не телу, а перепроверке через API ЮKassa.
+7. Тесты: сортировка boosted-first, создание boost (mock), активация по webhook.
+**Действие Александра:** ЮKassa для самозанятых → shop_id + secret_key → `.env` на проде. Без них — mock (boost в dev).
+
+**Фаза 2 — Android (следующий релиз APK):** заменить `SbpTransferSheet` в `BoostScreen` на реальный редирект ЮKassa (`POST /boost/create`→открыть `confirmation_url`→вернуться→poll статус). Аналогично для платной рекламы.

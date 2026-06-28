@@ -13,6 +13,7 @@ import math
 import os
 
 from fastapi import HTTPException
+from sqlalchemy import case
 from sqlmodel import Session, select
 
 from .config import settings
@@ -301,6 +302,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict) -> 
     rating = round(avg, 1) if cnt > 0 else (prof.rating if prof else 5.0)  # реальный рейтинг; до отзывов — сид
     return RideOut(
         **ride.model_dump(exclude={"created_at"}),
+        boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),
         driver_name=(drv.name if drv else "Водитель"),
         driver_rating=rating,
         driver_verified=(drv.verified if drv else False),
@@ -317,6 +319,13 @@ def rides_out(rides: list, session: Session) -> list:
 def ride_out(ride: Ride, session: Session) -> RideOut:
     """Одна поездка → RideOut (обёртка над батчем для единичных вызовов)."""
     return rides_out([ride], session)[0]
+
+
+def boost_then_depart_order():
+    """ORDER BY для выдачи поездок: с активным Boost — первыми, затем по времени выезда.
+    Истёкший/отсутствующий boost (NULL) попадает в общий порядок."""
+    now = utcnow()
+    return (case((Ride.boosted_until > now, 0), else_=1), Ride.depart_at)
 
 
 # ----------------------------- Гео -----------------------------

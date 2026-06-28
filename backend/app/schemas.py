@@ -54,6 +54,7 @@ class RideOut(BaseModel):
     baggage: bool = False
     air_conditioner: bool = False
     status: RideStatus
+    boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)
     driver_name: str
     driver_rating: float
     driver_verified: bool

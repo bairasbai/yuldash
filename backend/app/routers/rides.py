@@ -11,7 +11,10 @@ from ..db import get_session
 from ..models import Ride, RideCategory, RideStatus, User
 from ..schemas import RideIn, RideOut
 from ..security import current_user
-from ..services import CITY_COORDS, drivers_bundle, geocode_city, haversine_km, ride_out_with, rides_out
+from ..services import (
+    CITY_COORDS, boost_then_depart_order, drivers_bundle, geocode_city,
+    haversine_km, ride_out_with, rides_out,
+)
 
 router = APIRouter(tags=["rides"])
 
@@ -70,7 +73,7 @@ def search_rides(
         q = q.where(Ride.women_only == True)  # noqa: E712
     if baggage:
         q = q.where(Ride.baggage == True)  # noqa: E712
-    q = q.order_by(Ride.depart_at)
+    q = q.order_by(*boost_then_depart_order())   # поднятые (Boost) — первыми
     if limit is not None:
         q = q.offset(max(0, offset)).limit(max(1, min(limit, 200)))   # потолок 200/страница
     rides = session.exec(q).all()
@@ -129,7 +132,7 @@ def rides_near(
             q = q.where(Ride.id.in_(ids)) if ids else q.where(Ride.id.is_(None))
         except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк
             print(f"[GEO] PostGIS prefilter skipped: {e}")
-    rides = session.exec(q.order_by(Ride.depart_at)).all()  # по времени выезда ↑
+    rides = session.exec(q.order_by(*boost_then_depart_order())).all()  # Boost первыми, затем по времени выезда ↑
     users, profiles, rating_agg = drivers_bundle(session, {r.driver_id for r in rides})
     items: list = []
     for r in rides:

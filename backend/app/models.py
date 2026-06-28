@@ -145,6 +145,9 @@ class Ride(SQLModel, table=True):
     baggage: bool = False             # есть место под багаж
     air_conditioner: bool = False     # кондиционер
     status: RideStatus = Field(default=RideStatus.active, index=True)   # /rides и /rides/near фильтруют active
+    # Boost (платное поднятие): пока boosted_until > now — поездка выше в выдаче.
+    boosted_until: Optional[datetime] = Field(default=None, index=True)
+    boost_tier: str = ""              # quick / day / urgent (последний оплаченный тариф)
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -251,6 +254,20 @@ class AdEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ad_id: str = Field(index=True)
     event_type: str = Field(index=True)      # impression / click
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class Payment(SQLModel, table=True):
+    """Платёж за СВОЮ услугу платформы (самозанятый): Boost поездки или платная реклама.
+    НЕ посредничество за проезд. provider_id — id платежа в ЮKassa (или mock-id в dev)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    purpose: str = "boost"                       # boost | ad
+    provider_id: str = Field(default="", index=True)  # id платежа в ЮKassa
+    ride_id: Optional[int] = Field(default=None, foreign_key="ride.id")  # для boost
+    tier: str = ""                               # quick / day / urgent (для boost)
+    amount_kop: int = 0                          # сумма в копейках
+    status: str = "pending"                      # pending | succeeded | canceled
     created_at: datetime = Field(default_factory=utcnow)
 
 
