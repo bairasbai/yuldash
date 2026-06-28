@@ -458,15 +458,27 @@ manager = ConnectionManager()
 
 
 async def _chat_subscribe_loop(redis_client):
-    """Слушает Redis-канал и доставляет сообщения локальным WS-соединениям этого воркера."""
+    """Слушает Redis-канал и доставляет сообщения локальным WS-соединениям этого воркера.
+    get_message(timeout) вместо listen()-генератора — чисто отменяется при рестарте воркера
+    (иначе RuntimeError: aclose async generator already running на graceful-shutdown)."""
+    import asyncio
     pubsub = redis_client.pubsub()
     await pubsub.subscribe(_CHAT_CHANNEL)
-    async for msg in pubsub.listen():
-        if msg.get("type") != "message":
-            continue
+    try:
+        while True:
+            msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if msg and msg.get("type") == "message":
+                try:
+                    obj = json.loads(msg["data"])
+                    await manager.local_broadcast(int(obj["booking_id"]), obj["data"])
+                except Exception:  # noqa: BLE001
+                    pass
+    except asyncio.CancelledError:
+        pass
+    finally:
         try:
-            obj = json.loads(msg["data"])
-            await manager.local_broadcast(int(obj["booking_id"]), obj["data"])
+            await pubsub.unsubscribe(_CHAT_CHANNEL)
+            await pubsub.aclose()
         except Exception:  # noqa: BLE001
             pass
 
@@ -483,7 +495,7 @@ async def init_chat_redis():
         await _redis_pub.ping()
         sub_client = aioredis.from_url(settings.redis_url, decode_responses=True)
         asyncio.create_task(_chat_subscribe_loop(sub_client))
-        print("[REDIS] WS pub/sub активен")
+        print("[REDIS] WS pub/sub активен", flush=True)
     except Exception as e:  # noqa: BLE001 — Redis недоступен → локальный режим, не падаем
         print(f"[REDIS] WS pub/sub недоступен ({e}) → локальный режим")
         _redis_pub = None
