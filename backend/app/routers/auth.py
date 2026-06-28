@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import engine, get_session
-from ..models import DeviceToken, OtpCode, TgAuth, User
+from ..models import DeviceToken, OtpCode, TgAuth, User, UserRole
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
 from ..services import send_sms, user_rating
 from ..timeutil import utcnow
@@ -239,6 +239,10 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
     # повторяет ввод того же кода. Клиент по 403 phone_required показывает экран-подсказку.
     if is_placeholder_phone(user.phone):
         raise HTTPException(403, "phone_required")
+    # Автоадмин: вход с Telegram-id владельца (тот же, куда шлём админ-уведомления) → роль admin.
+    if settings.admin_telegram_chat_id and user.telegram_id == settings.admin_telegram_chat_id and user.role != UserRole.admin:
+        user.role = UserRole.admin
+        session.add(user)
     row.status = "used"
     session.add(row)
     session.commit()
