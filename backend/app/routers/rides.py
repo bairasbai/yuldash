@@ -153,6 +153,17 @@ def rides_near(
     return {"count": total, "items": items}   # count = всего (чтобы клиент знал, есть ли «ещё»)
 
 
+@router.get("/driver/rides", response_model=List[RideOut])
+def my_driver_rides(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Свои активные поездки водителя — для выбора, какую поднять (Boost).
+    `boosted` в RideOut показывает, что уже поднята."""
+    rides = session.exec(
+        select(Ride).where(Ride.driver_id == user.id, Ride.status == RideStatus.active)
+        .order_by(*boost_then_depart_order())
+    ).all()
+    return rides_out(rides, session)
+
+
 @router.get("/rides/{ride_id}", response_model=Ride)
 def get_ride(ride_id: int, session: Session = Depends(get_session)):
     ride = session.get(Ride, ride_id)

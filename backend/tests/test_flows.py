@@ -513,3 +513,13 @@ def test_boost_sbp_manual_flow(client, user_factory):
         assert out[0]["id"] == b["id"] and out[0]["boosted"] is True
     finally:
         settings.payments_provider, settings.sbp_phone = op, ph
+
+
+def test_driver_rides_own_only(client, user_factory):
+    drv = user_factory("MyRidesDrv", role=UserRole.driver)
+    _publish(client, drv, frm="МойГрад", to="Сибай")
+    other = user_factory("OtherDrv", role=UserRole.driver)
+    _publish(client, other, frm="ЧужГрад", to="Сибай")
+    rows = client.get("/driver/rides", headers=drv["auth"]).json()
+    assert rows and all(r["driver_id"] == drv["id"] for r in rows)
+    assert client.get("/driver/rides").status_code == 401   # нужен токен

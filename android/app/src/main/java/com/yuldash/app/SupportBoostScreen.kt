@@ -234,6 +234,9 @@ import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.BoostPlanDto
+import com.yuldash.app.data.BoostResultDto
+import com.yuldash.app.data.RideDto
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
@@ -329,70 +332,237 @@ internal fun SupportScreen(onBack: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BoostScreen(onBack: () -> Unit) {
-    var activatedPlan by remember { mutableStateOf<String?>(null) }
-    var pendingPlan by remember { mutableStateOf<Pair<String, Int>?>(null) }
-    val activatedPlanText = when (activatedPlan) {
-        "quick" -> appText("Быстрое поднятие", "Тиҙ күтәреү")
-        "day" -> appText("День вверху", "Көн буйы өҫтә")
-        "urgent" -> appText("Срочная поездка", "Ашығыс сәфәр")
-        else -> null
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+
+    var plans by remember { mutableStateOf<List<BoostPlanDto>>(emptyList()) }
+    var rides by remember { mutableStateOf<List<RideDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf(false) }
+    var selectedRideId by remember { mutableStateOf<Int?>(null) }
+    var selectedTier by remember { mutableStateOf<String?>(null) }
+    var submitting by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<BoostResultDto?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val failText = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")  // appText @Composable → хойстим из корутины
+
+    fun reload() {
+        loading = true; loadError = false
+        scope.launch {
+            val p = ApiClient.getBoostPlans()
+            val r = ApiClient.getDriverRides()
+            p.onSuccess { plans = it }
+            r.onSuccess { list -> rides = list; if (selectedRideId == null) selectedRideId = list.firstOrNull()?.id }
+            loadError = p.isFailure || r.isFailure
+            loading = false
+        }
     }
+    LaunchedEffect(Unit) { reload() }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { ScreenTopBar(appText("Поднять объявление", "Иғланды өҫкә күтәреү"), onBack) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item { BoostPlan(appText("Быстрое поднятие", "Тиҙ күтәреү"), appText("2 часа выше в списке", "2 сәғәт исемлектә өҫтәрәк"), "20 ₽", onClick = { pendingPlan = "quick" to 20 }) }
-            item { BoostPlan(appText("День вверху", "Көн буйы өҫтә"), appText("24 часа выше в списке + выделение на карте", "24 сәғәт исемлектә өҫтәрәк + картала айырыу"), "50 ₽", onClick = { pendingPlan = "day" to 50 }) }
-            item { BoostPlan(appText("Срочная поездка", "Ашығыс сәфәр"), appText("6 часов выше в списке, выделение, метка срочно", "6 сәғәт исемлектә өҫтәрәк, айырыу, ашығыс билдәһе"), "70 ₽", onClick = { pendingPlan = "urgent" to 70 }) }
-            if (activatedPlan != null) {
-                item {
-                    InfoCard(
-                        title = appText("Поднятие включено", "Күтәреү ҡабыҙылды"),
-                        text = appText("Тариф «$activatedPlanText» включён после перевода по СБП. Спасибо!", "«$activatedPlanText» тарифы СБП аша түләүҙән һуң ҡабыҙылды. Рәхмәт!"),
-                        icon = Icons.Default.TrendingUp
-                    )
+        Box(Modifier.padding(padding).fillMaxSize()) {
+            when {
+                loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = CanonGreen)
+                loadError -> StateMessage(
+                    icon = Icons.Default.Refresh,
+                    title = appText("Не удалось загрузить", "Йөкләп булманы"),
+                    text = appText("Проверь соединение и попробуй снова.", "Бәйләнеште тикшереп, ҡабат ҡара."),
+                    actionText = appText("Повторить", "Ҡабатлау"),
+                    onAction = { reload() },
+                )
+                rides.isEmpty() -> StateMessage(
+                    icon = Icons.Default.AddRoad,
+                    title = appText("Нет активных поездок", "Әүҙем сәфәрҙәр юҡ"),
+                    text = appText("Сначала опубликуй поездку — потом её можно поднять выше в списке.", "Башта сәфәр бастыр — һуңынан уны исемлектә өҫкә күтәреп була."),
+                    actionText = appText("Понятно", "Аңлашыла"),
+                    onAction = onBack,
+                )
+                else -> LazyColumn(
+                    modifier = Modifier.padding(16.dp).fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        Text(appText("Какую поездку поднять", "Ҡайһы сәфәрҙе күтәрергә"),
+                            fontWeight = FontWeight.Black, fontSize = 15.sp, color = CanonText)
+                    }
+                    items(rides, key = { it.id }) { ride ->
+                        BoostRideRow(ride, selected = ride.id == selectedRideId,
+                            onClick = { selectedRideId = ride.id; result = null; error = null })
+                    }
+                    item {
+                        Text(appText("Тариф поднятия", "Күтәреү тарифы"),
+                            fontWeight = FontWeight.Black, fontSize = 15.sp, color = CanonText,
+                            modifier = Modifier.padding(top = 4.dp))
+                    }
+                    items(plans, key = { it.tier }) { plan ->
+                        BoostPlanCard(plan, selected = plan.tier == selectedTier,
+                            onClick = { selectedTier = plan.tier; result = null; error = null })
+                    }
+                    error?.let { msg ->
+                        item { Text(msg, color = CanonRed, fontSize = 14.sp) }
+                    }
+                    item {
+                        val plan = plans.firstOrNull { it.tier == selectedTier }
+                        AppButton(
+                            text = if (plan != null) appText("Оплатить ${plan.price} ₽", "${plan.price} ₽ түләү")
+                                   else appText("Выбери тариф", "Тариф һайла"),
+                            onClick = {
+                                val rid = selectedRideId ?: return@AppButton
+                                val tier = selectedTier ?: return@AppButton
+                                submitting = true; error = null; result = null
+                                scope.launch {
+                                    ApiClient.createBoost(rid, tier)
+                                        .onSuccess { res ->
+                                            result = res
+                                            if (res.method == "yookassa" && !res.confirmationUrl.isNullOrBlank()) {
+                                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(res.confirmationUrl))) }
+                                            }
+                                            if (res.status == "succeeded") reload()
+                                        }
+                                        .onFailure { e -> error = (e as? ApiException)?.message ?: failText }
+                                    submitting = false
+                                }
+                            },
+                            style = AppButtonStyle.Accent,
+                            icon = Icons.Default.Payments,
+                            enabled = selectedTier != null && selectedRideId != null && !submitting,
+                        )
+                    }
+                    result?.let { res -> item { BoostResultCard(res, clipboard) } }
+                    item {
+                        Text(
+                            appText("Поднятие не гарантирует бронирование и влияет только на релевантные результаты.", "Күтәреү бронде гарантияламай һәм тик тура килгән һөҙөмтәләргә генә йоғонто яһай."),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp
+                        )
+                    }
                 }
             }
-            item {
-                Text(
-                    appText("Поднятие не гарантирует бронирование и влияет только на релевантные результаты.", "Күтәреү бронде гарантияламай һәм тик тура килгән һөҙөмтәләргә генә йоғонто яһай."),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        pendingPlan?.let { (key, price) ->
-            SbpTransferSheet(price, onPaid = { activatedPlan = key; pendingPlan = null }, onDismiss = { pendingPlan = null })
         }
     }
 }
 
 @Composable
-private fun BoostPlan(title: String, text: String, price: String, onClick: () -> Unit) {
+private fun BoostRideRow(ride: RideDto, selected: Boolean, onClick: () -> Unit) {
+    val border by animateColorAsState(if (selected) CanonGreen else Color.Transparent, label = "rideBorder")
     Card(
-        modifier = Modifier.bounceClick(onClick),
+        modifier = Modifier.fillMaxWidth().bounceClick(onClick).border(2.dp, border, RoundedCornerShape(18.dp)),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(if (selected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                contentDescription = null, tint = if (selected) CanonGreen else CanonMuted)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("${ride.fromCity} → ${ride.toCity}", fontWeight = FontWeight.Bold, color = CanonText)
+                Text(appText("${ride.seatsLeft} мест · ${ride.price} ₽", "${ride.seatsLeft} урын · ${ride.price} ₽"),
+                    fontSize = 13.sp, color = CanonMuted)
+            }
+            if (ride.boosted) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(appText("уже поднята", "күтәрелгән"), fontSize = 12.sp, color = CanonGreen)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoostPlanCard(plan: BoostPlanDto, selected: Boolean, onClick: () -> Unit) {
+    val border by animateColorAsState(if (selected) CanonGreen else Color.Transparent, label = "planBorder")
+    val sub = when (plan.tier) {
+        "quick" -> appText("${plan.hours} часа выше в списке", "${plan.hours} сәғәт исемлектә өҫтәрәк")
+        "day" -> appText("${plan.hours} часа выше + выделение на карте", "${plan.hours} сәғәт өҫтә + картала айырыу")
+        "urgent" -> appText("${plan.hours} часов выше, выделение, метка срочно", "${plan.hours} сәғәт өҫтә, айырыу, ашығыс билдәһе")
+        else -> appText("${plan.hours} ч выше в списке", "${plan.hours} сәғәт өҫтәрәк")
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth().bounceClick(onClick).border(2.dp, border, RoundedCornerShape(20.dp)),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Default.TrendingUp, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.TrendingUp, contentDescription = null, tint = if (selected) CanonGreen else CanonMuted)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Black)
-                Text(text)
+                Text(plan.title, fontWeight = FontWeight.Black, color = CanonText)
+                Text(sub, fontSize = 13.sp, color = CanonMuted)
             }
-            Button(onClick = onClick, colors = ButtonDefaults.buttonColors()) {
-                Text(price)
+            Surface(color = if (selected) CanonGreen else CanonGreen.copy(alpha = 0.12f), shape = RoundedCornerShape(50)) {
+                Text("${plan.price} ₽", color = if (selected) Color.White else CanonGreen,
+                    fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun BoostResultCard(res: BoostResultDto, clipboard: androidx.compose.ui.platform.ClipboardManager) {
+    when {
+        res.status == "succeeded" -> InfoCard(
+            title = appText("Объявление поднято", "Иғлан күтәрелде"),
+            text = appText("Поднятие включено. Спасибо!", "Күтәреү ҡабыҙылды. Рәхмәт!"),
+            icon = Icons.Default.CheckCircle
+        )
+        res.method == "sbp_manual" -> Card(
+            colors = CardDefaults.cardColors(containerColor = CanonSurface),
+            shape = RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(appText("Переведи ${res.amount} ₽ по СБП", "СБП аша ${res.amount} ₽ күсер"),
+                    fontWeight = FontWeight.Black, fontSize = 16.sp, color = CanonText)
+                res.payeePhone?.let { phone ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(phone, fontWeight = FontWeight.Bold, color = CanonText, fontSize = 17.sp)
+                            Text(listOfNotNull(res.payeeBank, res.payeeName).joinToString(" · "),
+                                fontSize = 13.sp, color = CanonMuted)
+                        }
+                        OutlinedButton(onClick = { clipboard.setText(AnnotatedString(phone)) }) {
+                            Text(appText("Скопировать", "Күсереп алыу"))
+                        }
+                    }
+                }
+                Text(
+                    appText("После перевода поднятие включим вручную — обычно быстро. Чек придёт от самозанятого.",
+                            "Күсергәндән һуң күтәреүҙе ҡулдан ҡабыҙабыҙ — ғәҙәттә тиҙ. Чек самозанятыйҙан килер."),
+                    fontSize = 13.sp, color = CanonMuted
+                )
+            }
+        }
+        else -> InfoCard(
+            title = appText("Переходим к оплате", "Түләүгә күсәбеҙ"),
+            text = appText("Заверши оплату в открывшемся окне. После оплаты поднятие включится.",
+                           "Асылған тәҙрәлә түләүҙе тамамла. Түләүҙән һуң күтәреү ҡабыҙыла."),
+            icon = Icons.Default.Payments
+        )
+    }
+}
+
+@Composable
+private fun StateMessage(icon: ImageVector, title: String, text: String, actionText: String, onAction: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(48.dp))
+        Spacer(Modifier.height(14.dp))
+        Text(title, fontWeight = FontWeight.Black, fontSize = 18.sp, color = CanonText, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(6.dp))
+        Text(text, color = CanonMuted, textAlign = TextAlign.Center, fontSize = 14.sp)
+        Spacer(Modifier.height(18.dp))
+        Button(onClick = onAction, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen)) {
+            Text(actionText, color = Color.White)
         }
     }
 }

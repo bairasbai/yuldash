@@ -647,6 +647,41 @@ object ApiClient {
     suspend fun cancelBooking(bookingId: Int): Result<Unit> =
         call("POST", "/bookings/$bookingId/cancel", null, auth = true).map { }
 
+    // ---------- Boost (поднятие объявления, оплата) ----------
+
+    /** Тарифы поднятия (цены с бэкенда). */
+    suspend fun getBoostPlans(): Result<List<BoostPlanDto>> =
+        call("GET", "/boost/plans", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                BoostPlanDto(o.optString("tier"), o.optString("title"), o.optInt("price"), o.optInt("hours"))
+            }
+        }
+
+    /** Мои активные поездки (для выбора, какую поднять). */
+    suspend fun getDriverRides(): Result<List<RideDto>> =
+        call("GET", "/driver/rides", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
+        }
+
+    /** Создать платёж за поднятие поездки. Возврат: статус + реквизиты СБП / ссылка ЮKassa. */
+    suspend fun createBoost(rideId: Int, tier: String): Result<BoostResultDto> =
+        call("POST", "/boost/create", JSONObject().put("ride_id", rideId).put("tier", tier), auth = true).map { o ->
+            val payee = o.optJSONObject("payee")
+            BoostResultDto(
+                status = o.optString("status"),
+                method = o.optString("method"),
+                paymentId = o.optInt("payment_id"),
+                amount = o.optInt("amount"),
+                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
+                payeePhone = payee?.optString("phone")?.ifBlank { null },
+                payeeBank = payee?.optString("bank")?.ifBlank { null },
+                payeeName = payee?.optString("name")?.ifBlank { null },
+            )
+        }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -745,6 +780,7 @@ private fun JSONObject.toRideDto() = RideDto(
     pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
     pickupLng = if (isNull("pickup_lng")) null else optDouble("pickup_lng"),
     distanceKm = if (isNull("distance_km")) null else optDouble("distance_km"),
+    boosted = optBoolean("boosted"),
 )
 
 data class RideDto(
@@ -770,6 +806,7 @@ data class RideDto(
     val pickupLat: Double? = null,    // координаты точки сбора (пин на карте)
     val pickupLng: Double? = null,
     val distanceKm: Double? = null,   // дистанция клиент→точка выезда (только из /rides/near с координатами)
+    val boosted: Boolean = false,     // активный Boost (подсветка/бейдж)
 )
 
 /** Статус проверки водителя (с бэкенда /driver/status). */
@@ -841,6 +878,21 @@ data class FeedDto(
     val drivers: Int, val topFrom: String, val topTo: String, val topCount: Int
 )
 data class NotifDto(val title: String, val text: String)
+
+/** Тариф поднятия (с бэкенда /boost/plans). */
+data class BoostPlanDto(val tier: String, val title: String, val price: Int, val hours: Int)
+
+/** Результат /boost/create: статус + способ оплаты (реквизиты СБП или ссылка ЮKassa). */
+data class BoostResultDto(
+    val status: String,            // succeeded | pending
+    val method: String,            // sbp_manual | yookassa
+    val paymentId: Int,
+    val amount: Int,               // ₽
+    val confirmationUrl: String?,  // ЮKassa redirect
+    val payeePhone: String?,       // СБП: номер получателя
+    val payeeBank: String?,
+    val payeeName: String?,
+)
 data class AdDto(val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String)
 /** Серверная статистика рекламы (показы/клики). */
 data class AdStatsDto(val impressions: Int, val clicks: Int)
