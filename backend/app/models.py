@@ -265,7 +265,7 @@ class RequestResponse(SQLModel, table=True):
 class AdEvent(SQLModel, table=True):
     """Событие по рекламе: показ или клик (для реальной статистики кабинета)."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    ad_id: str = Field(index=True)
+    ad_id: int = Field(index=True, foreign_key="ad.id")
     event_type: str = Field(index=True)      # impression / click
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -302,4 +302,28 @@ class AppReview(SQLModel, table=True):
     stars: int = 5                           # 1..5
     text: str = ""                           # текст отзыва
     published: bool = Field(default=False, index=True)  # одобрено к показу на лендинге
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class Ad(SQLModel, table=True):
+    """Рекламное объявление партнёра. Управляется админом из кабинета.
+    Видно в приложении только active + в периоде. founder = место навсегда (ends_at=null), лимит 10."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    partner_name: str = ""                   # рекламодатель (показывается «Реклама · …»)
+    partner_contact: str = ""                # tg/телефон (для админа, не публично)
+    title: str = ""
+    text: str = ""
+    button: str = ""                         # текст кнопки
+    target: str = ""                         # ссылка/deep-link при клике
+    image_url: str = ""                      # картинка (опц.)
+    erid: str = ""                           # маркировка рекламы (РФ закон) — обязательна
+    plan: str = Field(default="standard")    # founder / standard / premium
+    placements: str = ""                     # CSV: route,ridesList,profile,nearby,tripDetails,help
+    cities: str = ""                         # CSV городов; пусто = все
+    founder_lock: bool = False               # founder: место/цена навсегда
+    priority: int = Field(default=0, index=True)  # выше = раньше (premium больше)
+    starts_at: datetime = Field(default_factory=utcnow)
+    ends_at: Optional[datetime] = None       # null = бессрочно (founder)
+    status: str = Field(default="draft", index=True)  # draft/active/paused/expired/archived
+    created_by: Optional[int] = Field(default=None, foreign_key="user.id")
     created_at: datetime = Field(default_factory=utcnow)
