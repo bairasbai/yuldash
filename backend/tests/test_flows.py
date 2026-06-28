@@ -523,3 +523,27 @@ def test_driver_rides_own_only(client, user_factory):
     rows = client.get("/driver/rides", headers=drv["auth"]).json()
     assert rows and all(r["driver_id"] == drv["id"] for r in rows)
     assert client.get("/driver/rides").status_code == 401   # нужен токен
+
+
+def test_yookassa_webhook_only_known_payment(client, user_factory):
+    """P1: вебхук активирует ТОЛЬКО известный платёж; чужой/случайный id — no-op (анти-амплификация)."""
+    from app.db import engine
+    from app.models import Payment, Ride
+    from sqlmodel import Session, select
+    drv = user_factory("WhDrv", role=UserRole.driver)
+    ride = _publish(client, drv, frm="ХукГрад", to="Сибай")
+    # эмулируем выпущенный нами yookassa-платёж (pending)
+    with Session(engine) as s:
+        s.add(Payment(user_id=drv["id"], purpose="boost", ride_id=ride["id"], tier="day",
+                      amount_kop=5000, provider_id="pid_known", status="pending"))
+        s.commit()
+    # чужой id — ничего не активирует, 200
+    assert client.post("/payments/yookassa/webhook", json={"object": {"id": "pid_random_attacker"}}).status_code == 200
+    with Session(engine) as s:
+        assert s.get(Ride, ride["id"]).boosted_until is None      # не тронуто
+    # наш id — fetch_payment в dev возвращает succeeded → активируется
+    assert client.post("/payments/yookassa/webhook", json={"object": {"id": "pid_known"}}).status_code == 200
+    with Session(engine) as s:
+        assert s.get(Ride, ride["id"]).boosted_until is not None   # поднято
+    # пустое тело / без id — 200, без падения
+    assert client.post("/payments/yookassa/webhook", json={}).status_code == 200

@@ -155,13 +155,17 @@ async def yookassa_webhook(request: Request, session: Session = Depends(get_sess
     provider_id = ((body.get("object") or {}).get("id")) or ""
     if not provider_id:
         return {"ok": True}
-    try:
-        info = fetch_payment(provider_id)   # перепроверка через API ЮKassa (не доверяем телу)
-    except Exception:  # noqa: BLE001 — неизвестный/битый id → просто игнор (ЮKassa повторит)
-        return {"ok": True}
-    if info["status"] != "succeeded":
-        return {"ok": True}
+    # Сначала ищем СВОЙ платёж по id (параметризованный запрос). Нет совпадения / уже
+    # оплачен → тихо выходим БЕЗ исходящего запроса к ЮKassa. Иначе любой мог бы флудить
+    # вебхук случайными id и заставлять сервер ходить наружу (амплификация/DoS), а чужой id
+    # уходил бы в URL-путь ЮKassa. Наружу ходим только за id, что сами выпустили.
     payment = session.exec(select(Payment).where(Payment.provider_id == provider_id)).first()
-    if payment:
+    if not payment or payment.status == "succeeded":
+        return {"ok": True}
+    try:
+        info = fetch_payment(provider_id)   # верификация статуса у ЮKassa (телу не доверяем)
+    except Exception:  # noqa: BLE001 — ошибка сети/ЮKassa → игнор (ЮKassa повторит вебхук)
+        return {"ok": True}
+    if info["status"] == "succeeded":
         _activate_boost(session, payment)
     return {"ok": True}
