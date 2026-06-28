@@ -448,9 +448,11 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 publishError?.let {
                     Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(bottom = 8.dp))
                 }
-                Button(
+                AppButton(
+                    text = appText("Опубликовать", "Баҫтырыу"),
+                    loading = publishing,
                     onClick = {
-                        if (publishing) return@Button
+                        if (publishing) return@AppButton
                         val fromVal = from.ifBlank { "Баймаҡ" }
                         val toVal = to.ifBlank { "Сибай" }
                         val priceVal = price.toIntOrNull() ?: 300
@@ -481,12 +483,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         }
                     },
                     enabled = !publishing,
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    if (publishing) CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                    else Text(appText("Опубликовать", "Баҫтырыу"))
-                }
+                )
             }
             item {
                 TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {

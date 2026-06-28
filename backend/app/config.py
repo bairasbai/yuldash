@@ -12,9 +12,13 @@ class Settings(BaseSettings):
     access_expire_min: int = 60 * 24 * 7   # access-токен живёт 7 дней (refresh обновляет)
     refresh_expire_days: int = 90          # refresh-токен живёт 90 дней (ротируется при каждом refresh)
     otp_ttl_sec: int = 300              # код жив 5 минут
-    sms_provider: str = "mock"          # mock | smsru
+    sms_provider: str = "mock"          # mock | smsru | smsdar
     sms_ru_api_id: str = ""             # api_id из кабинета sms.ru (нужен для sms_provider=smsru)
     sms_from: str = ""                  # буквенный отправитель sms.ru после модерации (напр. Yuldash)
+    # --- SMSDAR (go.smsdar.ru, API api.zmtech.ru) — нужен sms_provider=smsdar ---
+    smsdar_id: str = ""                 # ID из Профиль → Получить API ключ
+    smsdar_password: str = ""           # API-ключ (password). НЕ в git — только в .env
+    smsdar_sender: str = ""             # одобренный брендовый отправитель (из sms_senders, напр. Yulbash)
     yandex_geocoder_key: str = ""       # ключ Яндекс.Геокодера НА СЕРВЕРЕ (клиент ходит на /geocode, ключ не в APK)
 
     # --- Telegram-вход (бот) ---
@@ -71,6 +75,8 @@ class Settings(BaseSettings):
         # SMS заморожен (sms_provider=mock) — это допустимо в проде. Оживить: SMS_PROVIDER=smsru + ключ.
         if self.sms_provider == "smsru" and not self.sms_ru_api_id:
             problems.append("SMS_RU_API_ID обязателен при SMS_PROVIDER=smsru")
+        if self.sms_provider == "smsdar" and not (self.smsdar_id and self.smsdar_password and self.smsdar_sender):
+            problems.append("SMSDAR_ID, SMSDAR_PASSWORD и SMSDAR_SENDER обязательны при SMS_PROVIDER=smsdar")
         # Telegram-бот включён, но вебхук без секрета → любой шлёт фейковые апдейты и выпускает себе код входа.
         if self.telegram_bot_token and not self.telegram_webhook_secret:
             problems.append("TELEGRAM_WEBHOOK_SECRET обязателен при заданном TELEGRAM_BOT_TOKEN")

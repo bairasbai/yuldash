@@ -10,11 +10,30 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import engine, get_session
 from ..models import DeviceToken, OtpCode, TgAuth, User
-from ..security import current_user, gen_otp, issue_tokens, revoke_all_refresh, rotate_refresh
+from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
 from ..services import send_sms, user_rating
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["auth"])
+
+
+def _norm_phone(raw: str) -> str:
+    """Нормализуем номер из Telegram-контакта: только цифры, ведущий +."""
+    d = "".join(c for c in (raw or "") if c.isdigit())
+    return ("+" + d) if d else ""
+
+
+def _set_user_phone(session: Session, user: User, phone: str) -> None:
+    """Сохранить реальный номер юзеру. Не перезаписываем, если номер уже занят
+    другим юзером (User.phone unique) — тогда тихо оставляем как есть."""
+    if not phone or user.phone == phone:
+        return
+    clash = session.exec(select(User).where(User.phone == phone, User.id != user.id)).first()
+    if clash:
+        return
+    user.phone = phone
+    session.add(user)
+    session.commit()
 
 
 # ----------------------------- Телефон + OTP -----------------------------
@@ -116,7 +135,35 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     text = msg.get("text") or ""
     frm = msg.get("from") or {}
     chat = msg.get("chat") or {}
+    contact = msg.get("contact") or {}
+
+    # Юзер поделился номером кнопкой request_contact. Принимаем ТОЛЬКО свой номер
+    # (contact.user_id == отправитель) — не пересланный чужой контакт.
+    if contact and frm.get("id"):
+        tid = str(frm["id"])
+        if str(contact.get("user_id")) == tid and contact.get("phone_number"):
+            phone = _norm_phone(contact["phone_number"])
+            with Session(engine) as s:
+                u = s.exec(select(User).where(User.telegram_id == tid)).first()
+                if u:
+                    _set_user_phone(s, u, phone)               # юзер уже есть → сразу пишем
+                else:
+                    # ещё не верифицировался → запомним на сессии входа, применим при verify
+                    row = s.exec(
+                        select(TgAuth).where(TgAuth.telegram_id == tid).order_by(TgAuth.id.desc())
+                    ).first()
+                    if row:
+                        row.shared_phone = phone
+                        s.add(row)
+                        s.commit()
+            return {"method": "sendMessage", "chat_id": chat.get("id"),
+                    "text": "Спасибо! Номер сохранён ✅ Вернись в приложение и введи код.",
+                    "reply_markup": {"remove_keyboard": True}}
+        return {"method": "sendMessage", "chat_id": chat.get("id"),
+                "text": "Поделись своим номером кнопкой ниже 🙏"}
+
     reply = None
+    reply_markup = None
     if text.startswith("/start") and frm.get("id"):
         parts = text.split(maxsplit=1)
         req = parts[1].strip() if len(parts) > 1 else ""
@@ -131,11 +178,23 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                 row.status = "sent"
                 s.add(row)
                 s.commit()
-                reply = f"Твой код для входа в Юлдаш: {code}\nВведи его в приложении. Код живёт 5 минут."
+                reply = (
+                    f"Твой код для входа в Юлдаш: {code}\n"
+                    "Код живёт 5 минут.\n\n"
+                    "Для безопасности нажми «📱 Поделиться номером» ниже — без номера "
+                    "вход не завершится. Затем введи код в приложении."
+                )
+                reply_markup = {
+                    "keyboard": [[{"text": "📱 Поделиться номером", "request_contact": True}]],
+                    "resize_keyboard": True, "one_time_keyboard": True,
+                }
             else:
                 reply = "Открой приложение Юлдаш и нажми «Вход через Telegram» — я пришлю код."
     if reply is not None:
-        return {"method": "sendMessage", "chat_id": chat.get("id"), "text": reply}
+        out = {"method": "sendMessage", "chat_id": chat.get("id"), "text": reply}
+        if reply_markup is not None:
+            out["reply_markup"] = reply_markup
+        return out
     return {"ok": True}
 
 
@@ -160,17 +219,28 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
         session.add(row)
         session.commit()
         raise HTTPException(400, "Неверный код")
-    row.status = "used"
-    session.add(row)
     user = session.exec(select(User).where(User.telegram_id == row.telegram_id)).first()
     if not user:
         user = User(
-            phone=f"tg{row.telegram_id}",   # плейсхолдер (не настоящий номер), уникален по telegram_id
+            phone=f"tg{row.telegram_id}",   # плейсхолдер, пока юзер не поделился реальным номером
             name=row.first_name or row.username or "Telegram",
             telegram_id=row.telegram_id,
             verified=True,
         )
         session.add(user)
+        session.commit()
+        session.refresh(user)
+    # Реальный номер из бота (кнопка «Поделиться номером») — подставляем, если есть.
+    if row.shared_phone:
+        _set_user_phone(session, user, row.shared_phone)
+        session.refresh(user)
+    # ⛔ Номер ОБЯЗАТЕЛЕН (безопасность / защита от мошенников). Без реального номера вход
+    # не завершаем: код НЕ помечаем used (status='sent') → юзер делится номером в боте и
+    # повторяет ввод того же кода. Клиент по 403 phone_required показывает экран-подсказку.
+    if is_placeholder_phone(user.phone):
+        raise HTTPException(403, "phone_required")
+    row.status = "used"
+    session.add(row)
     session.commit()
     session.refresh(user)
     tokens = issue_tokens(session, user.id)   # commit внутри → user протухает

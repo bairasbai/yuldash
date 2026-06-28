@@ -772,7 +772,7 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
                     Text(
-                        text = if (isLastPage) appText("Войти по телефону", "Телефон аша инеү") else appText("Далее", "Артабан"),
+                        text = if (isLastPage) appText("Войти через Telegram", "Telegram аша инеү") else appText("Далее", "Артабан"),
                         fontWeight = FontWeight.Black,
                         fontSize = 18.sp
                     )
@@ -1036,8 +1036,8 @@ private fun onboardingSlides() = listOf(
         eyebrowBa = "Беренсе сәфәргә әҙер",
         titleRu = "Начнём?",
         titleBa = "Башлайбыҙмы?",
-        bodyRu = "Выберите удобный сценарий и войдите по номеру телефона.",
-        bodyBa = "Уңайлы сценарийҙы һайлап, телефон номеры аша инегеҙ.",
+        bodyRu = "Войдите через Telegram — быстро и безопасно, без SMS и паролей.",
+        bodyBa = "Telegram аша инегеҙ — тиҙ һәм хәүефһеҙ, SMS-һыҙ һәм паролһеҙ.",
         hero = OnboardingHero.Start,
         items = emptyList()
     )

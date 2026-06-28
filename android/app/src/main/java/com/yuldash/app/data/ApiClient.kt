@@ -477,6 +477,16 @@ object ApiClient {
     suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true).map { }
 
+    // Фото в чате: загрузить (base64) → публичный URL, затем отправить как сообщение с меткой [img].
+    suspend fun uploadChatPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =
+        call("POST", "/upload/chat-photo", JSONObject().put("photo_b64", Base64.encodeToString(bytes, Base64.NO_WRAP)).put("ext", ext), auth = true)
+            .map { it.optString("url") }
+
+    const val IMG_PREFIX = "[img]"
+
+    suspend fun sendPhotoMessage(bookingId: Int, photoUrl: String): Result<Unit> =
+        sendMessage(bookingId, "$IMG_PREFIX$photoUrl")
+
     // ---------- Проверка водителя ----------
     /** Загрузить фото (документ/авто) base64 → публичный URL. */
     suspend fun uploadPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =

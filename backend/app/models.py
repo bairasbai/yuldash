@@ -92,6 +92,9 @@ class TgAuth(SQLModel, table=True):
     code: Optional[str] = None
     status: str = "waiting"          # waiting (ждём Старт) / sent (код отправлен) / used
     attempts: int = 0                # попыток ввода кода (защита от перебора)
+    # Реальный номер, которым юзер поделился в боте (кнопка request_contact). Необязателен.
+    # Применяется к User при верификации (если юзер ещё не создан на момент шеринга).
+    shared_phone: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow)
     expires_at: datetime
 

@@ -316,6 +316,7 @@ private fun LoginFormCard(
     var showPhone by remember { mutableStateOf(false) }   // SMS-форма (заморожена) раскрывается по тапу
     var tgMode by remember { mutableStateOf(false) }      // true — ждём ввод кода из Telegram
     var tgRequestId by remember { mutableStateOf("") }
+    var needPhone by remember { mutableStateOf(false) }   // сервер требует номер (403 phone_required)
     val context = LocalContext.current
 
     Card(
@@ -341,10 +342,19 @@ private fun LoginFormCard(
                 val errBadTgCode = appTextFor(currentLanguage, "Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп, ҡабат индер.")
                 val errExpiredCode = appTextFor(currentLanguage, "Код истёк. Получи новый — открой Telegram ещё раз.", "Код ваҡыты бөттө. Яңыһын ал — Telegram'ды тағы ас.")
                 val errTooManyCode = appTextFor(currentLanguage, "Слишком много попыток. Получи новый код.", "Бик күп омтылыш. Яңы код ал.")
+                val errPhoneRequired = appTextFor(currentLanguage, "Для безопасности нужен номер. В Telegram нажми «📱 Поделиться номером», потом вернись и нажми «Войти».", "Хәүефһеҙлек өсөн номер кәрәк. Telegram'да «📱 Номер менән бүлешергә» баҫ, аҙаҡ кире ҡайтып «Инеү» баҫ.")
                 Text(
                     text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот код ебәрер. Шуны индер."),
                     color = CanonMuted, fontSize = 16.sp, lineHeight = 22.sp
                 )
+                if (needPhone) {
+                    Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Default.Shield, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(22.dp))
+                            Text(errPhoneRequired, color = CanonWarn, fontSize = 14.sp, lineHeight = 19.sp)
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = code,
                     onValueChange = { code = it.filter { c -> c.isDigit() }.take(4); error = null },
@@ -356,38 +366,43 @@ private fun LoginFormCard(
                     shape = RoundedCornerShape(14.dp)
                 )
                 error?.let { Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp) }
-                Button(
+                AppButton(
+                    text = appTextFor(currentLanguage, "Войти", "Инеү"),
+                    loading = loading,
                     onClick = {
-                        if (loading) return@Button
-                        if (code.length < 4) { error = errEnterTgCode; return@Button }
+                        if (loading) return@AppButton
+                        if (code.length < 4) { error = errEnterTgCode; return@AppButton }
                         loading = true; error = null
                         scope.launch {
                             ApiClient.tgVerify(tgRequestId, code.trim())
                                 .onSuccess { loading = false; onContinue() }
                                 .onFailure { e ->
                                     loading = false
-                                    error = when ((e as? ApiException)?.status) {
-                                        410 -> errExpiredCode          // код истёк
-                                        429 -> errTooManyCode          // много попыток
-                                        else -> errBadTgCode           // неверный код
+                                    when ((e as? ApiException)?.status) {
+                                        403 -> { needPhone = true; error = errPhoneRequired }   // нужен номер
+                                        410 -> { needPhone = false; error = errExpiredCode }   // код истёк
+                                        429 -> { needPhone = false; error = errTooManyCode }   // много попыток
+                                        else -> { needPhone = false; error = errBadTgCode }    // неверный код
                                     }
                                 }
                         }
                     },
                     enabled = !loading,
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                ) {
-                    if (loading) CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                    else Text(appTextFor(currentLanguage, "Войти", "Инеү"), fontWeight = FontWeight.Black, fontSize = 16.sp)
-                }
+                )
                 TextButton(onClick = {
                     runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$tgRequestId")).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+                        // Нужен номер → открываем чат с ботом БЕЗ ?start (не перевыпускаем код,
+                        // юзер жмёт там кнопку «Поделиться номером»). Иначе — обычный повтор входа.
+                        val url = if (needPhone) "https://t.me/${BuildConfig.TELEGRAM_BOT}"
+                                  else "https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$tgRequestId"
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
                     }
                 }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                    Text(appTextFor(currentLanguage, "Открыть Telegram ещё раз", "Telegram'ды тағы асырға"), color = CanonGreen2, fontSize = 14.sp)
+                    Text(
+                        if (needPhone) appTextFor(currentLanguage, "Открыть Telegram и поделиться номером", "Telegram'ды асып, номер менән бүлешергә")
+                        else appTextFor(currentLanguage, "Открыть Telegram ещё раз", "Telegram'ды тағы асырға"),
+                        color = CanonGreen2, fontSize = 14.sp
+                    )
                 }
                 TextButton(onClick = { tgMode = false; code = ""; error = null }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                     Text(appTextFor(currentLanguage, "Назад", "Кире"), color = CanonMuted, fontSize = 14.sp)

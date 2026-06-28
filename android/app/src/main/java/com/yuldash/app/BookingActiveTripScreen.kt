@@ -178,6 +178,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.sizeIn
+import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -716,6 +718,14 @@ internal fun ActiveTripScreen(
                                 ApiClient.getMessages(bookingId).onSuccess { messages = it }
                             }
                         }
+                    },
+                    onPhotoPicked = { bytes ->
+                        if (bookingId != null) voiceScope.launch {
+                            ApiClient.uploadChatPhoto(bytes).onSuccess { url ->
+                                ApiClient.sendPhotoMessage(bookingId, url)
+                                ApiClient.getMessages(bookingId).onSuccess { messages = it }
+                            }
+                        }
                     }
                 )
             }
@@ -810,6 +820,16 @@ private fun MessageBubble(text: String, voiceUrl: String?, mine: Boolean, failed
                     Spacer(Modifier.width(4.dp))
                     Text(appText("Голосовое", "Тауыш"), modifier = Modifier.padding(end = 8.dp), color = if (mine) Color.White else CanonText, fontSize = 14.sp)
                 }
+            } else if (text.startsWith(ApiClient.IMG_PREFIX)) {
+                AsyncImage(
+                    model = text.removePrefix(ApiClient.IMG_PREFIX),
+                    contentDescription = appText("Фото", "Фото"),
+                    modifier = Modifier
+                        .padding(4.dp)
+                        .sizeIn(maxWidth = 240.dp, maxHeight = 320.dp)
+                        .clip(RoundedCornerShape(14.dp)),
+                    contentScale = ContentScale.Fit
+                )
             } else {
                 Text(
                     text,

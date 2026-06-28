@@ -30,9 +30,11 @@ from .timeutil import utcnow
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEDIA_DIR = os.path.join(_BASE, "media")
 VOICE_DIR = os.path.join(MEDIA_DIR, "voice")
+CHAT_DIR = os.path.join(MEDIA_DIR, "chat")   # фото в чате — публично (как голосовые)
 PRIVATE_DIR = os.path.join(_BASE, "private")
 DOC_DIR = os.path.join(PRIVATE_DIR, "docs")
 os.makedirs(VOICE_DIR, exist_ok=True)
+os.makedirs(CHAT_DIR, exist_ok=True)
 os.makedirs(DOC_DIR, exist_ok=True)
 
 
@@ -135,6 +137,31 @@ def mask_phone(phone: str) -> str:
     return f"+{d[0]}****{d[-4:]}" if len(d) >= 5 else "+****"
 
 
+def _smsdar_send(phone: str, text: str) -> tuple[bool, str]:
+    """Отправка одного SMS через SMSDAR (брендовый канал /v1/brand). Возврат (ok, инфо для лога).
+    Авторизация в теле JSON: {id, password}. Номер → формат 79XXXXXXXXX."""
+    import httpx
+    d = "".join(c for c in (phone or "") if c.isdigit())
+    if d.startswith("8"):
+        d = "7" + d[1:]
+    if len(d) == 10:
+        d = "7" + d
+    body = {
+        "id": settings.smsdar_id,
+        "password": settings.smsdar_password,
+        "pack": [{"phone": d, "message": text, "sender": settings.smsdar_sender}],
+    }
+    r = httpx.post("https://api.zmtech.ru:7778/v1/brand", json=body, timeout=10)
+    ok = False
+    if r.status_code == 200:
+        try:
+            data = r.json()
+            ok = isinstance(data, list) and len(data) > 0 and bool(data[0].get("id"))
+        except Exception:  # noqa: BLE001
+            ok = False
+    return ok, f"{r.status_code} {str(r.text)[:80]}"
+
+
 def send_text(phone: str, text: str) -> None:
     """Отправка произвольного SMS (SOS, статусы близким). smsru → реально; иначе/фоллбэк — в лог."""
     mp = mask_phone(phone)
@@ -152,6 +179,16 @@ def send_text(phone: str, text: str) -> None:
                 print(f"[SMS-FALLBACK] {mp}: {text}")
         except Exception as e:  # noqa: BLE001
             print(f"[SMS] {mp}: smsru error {e}")
+            if not settings.is_prod:
+                print(f"[SMS-FALLBACK] {mp}: {text}")
+    elif settings.sms_provider == "smsdar" and settings.smsdar_id and settings.smsdar_password:
+        try:
+            ok, info = _smsdar_send(phone, text)
+            print(f"[SMS] {mp}: smsdar sent={ok} ({info})")
+            if not ok and not settings.is_prod:
+                print(f"[SMS-FALLBACK] {mp}: {text}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[SMS] {mp}: smsdar error {e}")
             if not settings.is_prod:
                 print(f"[SMS-FALLBACK] {mp}: {text}")
     else:
@@ -179,6 +216,21 @@ def send_sms(phone: str, code: str) -> None:
                 print(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except Exception as e:  # noqa: BLE001
             print(f"[SMS] {mp}: smsru error {e}")
+            if settings.is_prod:
+                raise HTTPException(502, "SMS не отправлено")
+            print(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
+    elif settings.sms_provider == "smsdar" and settings.smsdar_id and settings.smsdar_password:
+        try:
+            ok, info = _smsdar_send(phone, f"Yuldash: kod {code}")
+            print(f"[SMS] {mp}: smsdar sent={ok} ({info})")
+            if not ok:
+                if settings.is_prod:
+                    raise HTTPException(502, "SMS не отправлено")
+                print(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            print(f"[SMS] {mp}: smsdar error {e}")
             if settings.is_prod:
                 raise HTTPException(502, "SMS не отправлено")
             print(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)

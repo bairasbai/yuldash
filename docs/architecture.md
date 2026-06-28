@@ -7,7 +7,7 @@
 ## Главное
 
 - **UI разрезан на модули (2026-06-27, Opus). `MainActivity.kt` 8184→664 строки.** Раньше весь UI был в одном файле — теперь по файлам (тот же пакет `com.yuldash.app`, общие символы `internal`). Каждый экран = свой файл → разные агенты пилят разные экраны параллельно. Карта файлов:
-  - **Фундамент:** `AppText.kt` (двуязычие), `CanonTokens.kt` (палитра/формы/тема), `Domain.kt` (модели).
+  - **Фундамент:** `AppText.kt` (двуязычие), `CanonTokens.kt` (палитра/формы/тема), `Domain.kt` (модели), **`UiKit.kt`** (продакшен-компоненты: `AppButton`/`AppStateContainer`/`AppLoading`/`AppErrorState`/`AppEmptyState`/`SkeletonBox`/`SkeletonCard`/`AppCard`/`SectionHeader` — единый источник правды для кнопок и состояний loading/empty/error; команда `/ui`).
   - **Экраны:** `LoginScreen.kt`, `SupportBoostScreen.kt`, `SecondaryScreens.kt` (Уведомл/Безоп/Настр/Помощь), `AccessibilityScreens.kt` (доступность/семья), `SosVerifyScreens.kt` (SOS+проверка водителя), `CreateRideScreen.kt`, `ProfileScreen.kt` (+кабинеты), `BookingActiveTripScreen.kt`, `RidesRequestsChatScreens.kt` (Поездки+Заявки+Чат), `MapScreen.kt` (Яндекс MapKit).
   - **Навигация:** `YuldashApp.kt` — корень (`when(screen)`) + `HomeScreen` + нижнее меню.
   - **`MainActivity.kt` (1008 строк)** — тонкий общий слой: класс `MainActivity`, `enum Screen`, сплэш/онбординг, общие модели/моки (`demoRides`/`demoPartnerAds`), OAuth-хелперы (`openTelegramLogin`…).

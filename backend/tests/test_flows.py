@@ -326,3 +326,84 @@ def test_logout_revokes_token(client):
     # повторный вход выдаёт новый рабочий токен
     tok2 = _login(client, phone, "LogoutUser")
     assert client.get("/me", headers={"Authorization": f"Bearer {tok2}"}).status_code == 200
+
+
+def test_tg_share_contact_sets_real_phone(client):
+    """Telegram «Поделиться номером»: бот получает contact → реальный номер
+    попадает юзеру при верификации (а не плейсхолдер tg<id>)."""
+    tid = "900900900"
+    req = client.post("/auth/tg/start").json()["request_id"]
+    # /start <req> от юзера → бот отдаёт код
+    r = client.post("/telegram/webhook", json={
+        "message": {"text": f"/start {req}", "from": {"id": int(tid), "first_name": "Айдар"},
+                    "chat": {"id": int(tid)}}
+    }).json()
+    assert r["method"] == "sendMessage"
+    code = "".join(c for c in r["text"].split("Юлдаш:")[1][:6] if c.isdigit())
+    # юзер делится своим номером (contact.user_id == отправитель)
+    client.post("/telegram/webhook", json={
+        "message": {"from": {"id": int(tid)}, "chat": {"id": int(tid)},
+                    "contact": {"phone_number": "+7 925 111-22-33", "user_id": int(tid)}}
+    })
+    # верификация → юзер с РЕАЛЬНЫМ номером
+    user = client.post("/auth/tg/verify", json={"request_id": req, "code": code}).json()["user"]
+    assert user["phone"] == "+79251112233"
+    assert user["telegram_id"] == tid
+
+
+def test_tg_rejects_foreign_contact(client):
+    """Пересланный ЧУЖОЙ контакт (user_id != отправитель) не сохраняется → вход не проходит."""
+    tid = "901901901"
+    req = client.post("/auth/tg/start").json()["request_id"]
+    r = client.post("/telegram/webhook", json={
+        "message": {"text": f"/start {req}", "from": {"id": int(tid), "first_name": "Тимур"},
+                    "chat": {"id": int(tid)}}
+    }).json()
+    code = "".join(c for c in r["text"].split("Юлдаш:")[1][:6] if c.isdigit())
+    client.post("/telegram/webhook", json={  # чужой номер
+        "message": {"from": {"id": int(tid)}, "chat": {"id": int(tid)},
+                    "contact": {"phone_number": "+79990000000", "user_id": 555}}
+    })
+    # чужой номер не сохранён → реального номера нет → 403 phone_required
+    resp = client.post("/auth/tg/verify", json={"request_id": req, "code": code})
+    assert resp.status_code == 403 and resp.json()["detail"] == "phone_required"
+
+
+def test_tg_phone_required_then_share_unlocks(client):
+    """Номер ОБЯЗАТЕЛЕН: без контакта verify=403, код не сгорает; после шеринга — вход."""
+    tid = "902902902"
+    req = client.post("/auth/tg/start").json()["request_id"]
+    r = client.post("/telegram/webhook", json={
+        "message": {"text": f"/start {req}", "from": {"id": int(tid), "first_name": "Гузель"},
+                    "chat": {"id": int(tid)}}
+    }).json()
+    code = "".join(c for c in r["text"].split("Юлдаш:")[1][:6] if c.isdigit())
+    # ввод кода без номера → 403, код остаётся валидным
+    assert client.post("/auth/tg/verify", json={"request_id": req, "code": code}).status_code == 403
+    # юзер делится своим номером
+    client.post("/telegram/webhook", json={
+        "message": {"from": {"id": int(tid)}, "chat": {"id": int(tid)},
+                    "contact": {"phone_number": "+79261239988", "user_id": int(tid)}}
+    })
+    # тот же код снова → вход проходит, номер реальный
+    ok = client.post("/auth/tg/verify", json={"request_id": req, "code": code})
+    assert ok.status_code == 200
+    body = ok.json()
+    assert body["user"]["phone"] == "+79261239988"
+    # токен рабочий (current_user пропускает — номер есть)
+    assert client.get("/me", headers={"Authorization": f"Bearer {body['access_token']}"}).status_code == 200
+
+
+def test_upload_chat_photo_public(client, user_factory):
+    """Фото чата → публичный URL (/media/chat/...), не приватный /secure/docs."""
+    import base64 as _b64
+    u = user_factory("ChatPhoto")
+    img = _b64.b64encode(b"\xff\xd8\xff\xe0fake-jpeg").decode()
+    r = client.post("/upload/chat-photo", headers=u["auth"], json={"photo_b64": img, "ext": "jpg"})
+    assert r.status_code == 200
+    url = r.json()["url"]
+    assert "/media/chat/" in url and "/secure/" not in url
+    # битый base64 → 400
+    assert client.post("/upload/chat-photo", headers=u["auth"], json={"photo_b64": "!!!", "ext": "jpg"}).status_code == 400
+    # без токена → 401
+    assert client.post("/upload/chat-photo", json={"photo_b64": img, "ext": "jpg"}).status_code == 401

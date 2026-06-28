@@ -228,6 +228,17 @@ import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -618,11 +629,11 @@ internal fun NearbySkeletonCard() {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.fillMaxWidth(0.7f).height(16.dp).background(CanonMint, RoundedCornerShape(8.dp)))
-            Box(Modifier.fillMaxWidth(0.4f).height(13.dp).background(CanonMint, RoundedCornerShape(7.dp)))
-            Box(Modifier.fillMaxWidth(0.55f).height(13.dp).background(CanonMint, RoundedCornerShape(7.dp)))
+            SkeletonBox(widthFraction = 0.7f, height = 16.dp)
+            SkeletonBox(widthFraction = 0.4f, height = 13.dp)
+            SkeletonBox(widthFraction = 0.55f, height = 13.dp)
             Spacer(Modifier.weight(1f))
-            Box(Modifier.fillMaxWidth(0.5f).height(34.dp).background(CanonMint, RoundedCornerShape(12.dp)))
+            SkeletonBox(widthFraction = 0.5f, height = 34.dp, shape = RoundedCornerShape(12.dp))
         }
     }
 }
@@ -1209,7 +1220,9 @@ internal fun ChatScreen(
         convLoading = true
         ApiClient.getConversations()
             .onSuccess { conversations = it; convError = false }
-            .onFailure { convError = true }
+            // 401 / нет сессии — это НЕ сетевая ошибка: диалогов просто нет, показываем дружелюбное «пусто».
+            // Реальная ошибка (нет сети, 5xx) → convError=true → «Повторить».
+            .onFailure { e -> convError = (e as? ApiException)?.status != 401 }
         convLoading = false
         ApiClient.getMyRequests().onSuccess { myRequests = it }
     }
@@ -1283,6 +1296,13 @@ internal fun ChatScreen(
                                 if (bytes != null) ApiClient.uploadVoice(bytes).onSuccess { url -> ApiClient.sendVoiceMessage(bid, url) }
                             }
                         }
+                    },
+                    onPhotoPicked = { bytes ->
+                        latestBookingId?.let { bid ->
+                            chatScope.launch {
+                                ApiClient.uploadChatPhoto(bytes).onSuccess { url -> ApiClient.sendPhotoMessage(bid, url) }
+                            }
+                        }
                     }
                 )
             }
@@ -1339,8 +1359,8 @@ internal fun ChatScreen(
                 item {
                     Box(Modifier.appearIn(0)) {
                         when {
-                            convLoading -> Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(modifier = Modifier.size(28.dp), color = CanonGreen2, strokeWidth = 2.dp)
+                            convLoading -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                repeat(4) { SkeletonCard(lines = 2) }
                             }
                             convError -> EmptyStateCard(
                                 title = appText("Не удалось загрузить диалоги", "Диалогтарҙы йөкләп булманы"),
@@ -1424,10 +1444,17 @@ internal fun ChatComposer(
     draft: String,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
-    onVoiceRecorded: (String, Int) -> Unit
+    onVoiceRecorded: (String, Int) -> Unit,
+    onPhotoPicked: (ByteArray) -> Unit = {}
 ) {
     val context = LocalContext.current
     val recorder = remember { VoiceRecorder(context) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            if (bytes != null) onPhotoPicked(bytes)
+        }
+    }
     var recording by remember { mutableStateOf(false) }
     var startMs by remember { mutableStateOf(0L) }
     fun begin() { if (recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
@@ -1438,46 +1465,88 @@ internal fun ChatComposer(
         if (p != null) onVoiceRecorded(p, dur)
     }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) begin() }
+    fun requestVoice() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) begin()
+        else permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    var showAttach by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(26.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (recording) {
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(4.dp))
                 Box(Modifier.size(12.dp).background(CanonRed, CircleShape))
-                Spacer(Modifier.width(10.dp))
-                Text(appText("Идёт запись… нажмите, чтобы отправить", "Яҙыла… ебәреү өсөн баҫығыҙ"), modifier = Modifier.weight(1f), color = CanonText, fontSize = 14.sp)
-            } else {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = onDraftChange,
-                    placeholder = { Text(appText("Сообщение", "Хәбәр"), fontSize = 14.sp) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(18.dp),
-                    maxLines = 3
+                Text(
+                    appText("Идёт запись… отправить →", "Яҙыла… ебәреү →"),
+                    modifier = Modifier.weight(1f).padding(start = 12.dp),
+                    color = CanonText, fontSize = 14.sp
                 )
+            } else {
+                // «+» — вложение (меню реальных действий, расширяется)
+                Box {
+                    IconButton(onClick = { showAttach = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.Add, contentDescription = appText("Прикрепить", "Беркетеү"), tint = CanonGreen2)
+                    }
+                    DropdownMenu(expanded = showAttach, onDismissRequest = { showAttach = false }) {
+                        DropdownMenuItem(
+                            text = { Text(appText("Голосовое сообщение", "Тауыш хәбәре")) },
+                            leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, tint = CanonGreen2) },
+                            onClick = { showAttach = false; requestVoice() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(appText("Фото", "Фото")) },
+                            leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, tint = CanonGreen2) },
+                            onClick = { showAttach = false; photoPicker.launch("image/*") }
+                        )
+                    }
+                }
+                // Пилюля: эмодзи + поле ввода
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(CanonMint, RoundedCornerShape(22.dp))
+                        .padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { focus.requestFocus() }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.EmojiEmotions, contentDescription = appText("Эмодзи", "Эмодзи"), tint = CanonMuted, modifier = Modifier.size(22.dp))
+                    }
+                    Box(modifier = Modifier.weight(1f).padding(horizontal = 4.dp, vertical = 12.dp)) {
+                        if (draft.isBlank()) Text(appText("Сообщение", "Хәбәр"), color = CanonMuted, fontSize = 15.sp)
+                        BasicTextField(
+                            value = draft,
+                            onValueChange = onDraftChange,
+                            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                            textStyle = TextStyle(color = CanonText, fontSize = 15.sp),
+                            cursorBrush = SolidColor(CanonGreen2),
+                            maxLines = 4
+                        )
+                    }
+                }
             }
-            Spacer(Modifier.width(10.dp))
+            // Кнопка справа: микрофон (пусто) / отправить (есть текст или идёт запись)
             IconButton(
                 onClick = {
                     when {
                         recording -> finish()
                         draft.isNotBlank() -> onSend()
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> begin()
-                        else -> permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        else -> requestVoice()
                     }
                 },
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(48.dp)
                     .background(if (recording) CanonRed else CanonGreen2, CircleShape)
             ) {
                 Icon(
-                    if (recording || draft.isNotBlank()) Icons.Default.NearMe else Icons.Default.HeadsetMic,
+                    if (recording || draft.isNotBlank()) Icons.Default.Send else Icons.Default.Mic,
                     contentDescription = if (recording) appText("Отправить запись", "Яҙманы ебәреү") else if (draft.isBlank()) appText("Записать голос", "Тауыш яҙҙырыу") else appText("Отправить", "Ебәреү"),
                     tint = Color.White
                 )

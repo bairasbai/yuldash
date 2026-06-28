@@ -13,7 +13,7 @@ from ..config import settings
 from ..db import get_session
 from ..models import AdEvent, Booking, Ride, User
 from ..security import current_user
-from ..services import VOICE_DIR, cache_get_json, cache_set_json, decode_upload_b64, public_media_url
+from ..services import CHAT_DIR, VOICE_DIR, cache_get_json, cache_set_json, decode_upload_b64, public_media_url
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["discovery"])
@@ -153,3 +153,20 @@ def upload_voice(body: VoiceIn, user: User = Depends(current_user)):
     with open(os.path.join(VOICE_DIR, name), "wb") as f:
         f.write(data)
     return {"url": public_media_url(f"voice/{name}")}
+
+
+class ChatPhotoIn(BaseModel):
+    photo_b64: str
+    ext: str = "jpg"
+
+
+@router.post("/upload/chat-photo")
+def upload_chat_photo(body: ChatPhotoIn, user: User = Depends(current_user)):
+    """Фото для чата (base64) → публичная папка media/chat → публичный URL.
+    Отдельно от документов водителя (/secure/docs): те приватны, фото чата видит собеседник."""
+    ext = "".join(c for c in body.ext.lower() if c.isalnum()) or "jpg"
+    data, ext = decode_upload_b64(body.photo_b64, settings.image_ext_set, ext, "фото")
+    name = f"{uuid.uuid4().hex}.{ext}"
+    with open(os.path.join(CHAT_DIR, name), "wb") as f:
+        f.write(data)
+    return {"url": public_media_url(f"chat/{name}")}

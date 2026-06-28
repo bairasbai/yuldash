@@ -1,5 +1,6 @@
 import hashlib
 import random
+import re
 import secrets
 import string
 from datetime import timedelta
@@ -15,6 +16,15 @@ from .models import RefreshToken, User
 from .timeutil import utcnow
 
 bearer = HTTPBearer(auto_error=True)
+
+# Telegram-плейсхолдер tg<id>: ставится при входе, пока юзер не поделился реальным
+# номером. Реальный номер обязателен (безопасность / защита от мошенников).
+_TG_PLACEHOLDER_RE = re.compile(r"^tg\d+$")
+
+
+def is_placeholder_phone(phone) -> bool:
+    """True, если номер ещё не задан или это Telegram-плейсхолдер tg<id> (не реальный)."""
+    return not phone or bool(_TG_PLACEHOLDER_RE.match(phone))
 
 
 def make_token(user_id: int) -> str:
@@ -101,4 +111,7 @@ def current_user(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден")
     if _token_revoked(payload, user):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сессия завершена. Войди заново.")
+    # Номер обязателен: без реального номера приложение не работает (защита от мошенников).
+    if is_placeholder_phone(user.phone):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "phone_required")
     return user
