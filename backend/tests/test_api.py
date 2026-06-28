@@ -124,3 +124,26 @@ def test_ws_rejects_non_participant(client, user_factory):
     with pytest.raises((WebSocketDisconnect, Exception)):
         with client.websocket_connect(f"/ws/bookings/{bid}?token={outsider['token']}") as ws:
             ws.receive_text()
+
+
+def test_app_review_submit_moderation_and_public(client, user_factory):
+    u = user_factory("Гульназ")
+    # слишком короткий — 400
+    assert client.post("/reviews", headers=u["auth"], json={"stars": 5, "text": "ок"}).status_code == 400
+    # валидный — сохраняется НЕопубликованным
+    r = client.post("/reviews", headers=u["auth"], json={"stars": 5, "text": "Очень удобно ездить со своими!", "city": "Сибай"})
+    assert r.status_code == 200, r.text
+    assert r.json()["published"] is False
+    review_id = r.json()["id"]
+    # до модерации в public пусто
+    assert client.get("/reviews/public").json() == []
+    # обычный юзер не модерирует
+    assert client.post(f"/admin/reviews/{review_id}/publish", headers=u["auth"], json={"published": True}).status_code == 403
+    # админ публикует
+    admin = user_factory("Админ", role=UserRole.admin)
+    assert client.get("/admin/reviews/pending", headers=admin["auth"]).status_code == 200
+    assert client.post(f"/admin/reviews/{review_id}/publish", headers=admin["auth"], json={"published": True}).status_code == 200
+    pub = client.get("/reviews/public").json()
+    assert len(pub) == 1 and pub[0]["name"] == "Гульназ" and pub[0]["city"] == "Сибай" and pub[0]["stars"] == 5
+    # доступно и под версионным префиксом
+    assert client.get("/api/v1/reviews/public").status_code == 200
