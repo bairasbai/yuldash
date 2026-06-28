@@ -135,6 +135,7 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "seats": dp.seats if dp else 4,
         "license_url": dp.license_url if dp else "",
         "car_photo_url": dp.car_photo_url if dp else "",
+        "online": dp.online if dp else False,
     }
 
 

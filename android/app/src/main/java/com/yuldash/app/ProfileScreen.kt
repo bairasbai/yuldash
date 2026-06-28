@@ -540,9 +540,11 @@ internal fun DriverCabinetScreen(
     val rateScope = rememberCoroutineScope()
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
+    var online by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
+        ApiClient.getDriverStatus().onSuccess { online = it.online }
     }
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
@@ -558,6 +560,16 @@ internal fun DriverCabinetScreen(
             item {
                 Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
                 Text(appText("Публикуйте поездки, проходите проверку и поднимайте маршрут выше.", "Сәфәр баҫтырығыҙ, тикшереү үтегеҙ һәм маршрутты өҫкә күтәрегеҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+            }
+            item {
+                SettingsGroup {
+                    SettingSwitchRow(
+                        Icons.Default.DirectionsCar,
+                        appText("Я на линии", "Мин эштә"),
+                        appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
+                        online,
+                    ) { v -> online = v; rateScope.launch { ApiClient.setOnline(v) } }
+                }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

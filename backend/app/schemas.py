@@ -60,3 +60,4 @@ class RideOut(BaseModel):
     driver_verified: bool
     driver_car: str
     driver_avatar: str = ""
+    driver_online: bool = False

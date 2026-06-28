@@ -11,6 +11,7 @@ internal data class Ride(
     val timeBa: String? = null,
     val driver: String,
     val driverAvatar: String = "",
+    val driverOnline: Boolean = false,
     val car: String,
     val carBa: String? = null,
     val price: Int,

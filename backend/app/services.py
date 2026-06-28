@@ -325,6 +325,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict) -> 
         driver_verified=(drv.verified if drv else False),
         driver_car=car,
         driver_avatar=(drv.avatar_url if drv else ""),
+        driver_online=(prof.online if prof else False),
     )
 
 

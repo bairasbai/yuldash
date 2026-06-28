@@ -632,8 +632,13 @@ object ApiClient {
                 seats = o.optInt("seats", 4),
                 licenseUrl = o.optString("license_url"),
                 carPhotoUrl = o.optString("car_photo_url"),
+                online = o.optBoolean("online"),
             )
         }
+
+    /** Водитель: я на линии (доступен сейчас) / не на линии. */
+    suspend fun setOnline(online: Boolean): Result<Unit> =
+        call("POST", "/driver/online", JSONObject().put("online", online), auth = true).map { }
 
     /** Брони на поездки водителя — чтобы оценить пассажиров. */
     suspend fun getDriverBookings(): Result<List<DriverBookingDto>> =
@@ -874,6 +879,7 @@ private fun JSONObject.toRideDto() = RideDto(
     driverVerified = optBoolean("driver_verified"),
     driverCar = optString("driver_car"),
     driverAvatar = optString("driver_avatar"),
+    driverOnline = optBoolean("driver_online"),
     petsAllowed = optBoolean("pets_allowed"),
     childSeat = optBoolean("child_seat"),
     womenOnly = optBoolean("women_only"),
@@ -901,6 +907,7 @@ data class RideDto(
     val driverVerified: Boolean,
     val driverCar: String,
     val driverAvatar: String = "",
+    val driverOnline: Boolean = false,
     val petsAllowed: Boolean = false,
     val childSeat: Boolean = false,
     val womenOnly: Boolean = false,
@@ -925,6 +932,7 @@ data class DriverStatusDto(
     val seats: Int,
     val licenseUrl: String,
     val carPhotoUrl: String,
+    val online: Boolean = false,
 )
 
 /** Бронь на поездку водителя — для оценки пассажира. */

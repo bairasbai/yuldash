@@ -589,7 +589,9 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SmallAvatar(dto.driverAvatar, dto.driverName, 30)
                 Spacer(Modifier.width(8.dp))
-                Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (dto.driverOnline) { Spacer(Modifier.width(6.dp)); OnlineBadge() }
+                Spacer(Modifier.weight(1f))
                 Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(3.dp))
                 Text(dto.driverRating.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -735,6 +737,10 @@ internal fun RideCard(
                         if (ride.verified) {
                             Spacer(Modifier.width(4.dp))
                             Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                        }
+                        if (ride.driverOnline) {
+                            Spacer(Modifier.width(8.dp))
+                            OnlineBadge()
                         }
                     }
                     Text(ride.carText(), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1496,6 +1502,16 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
                 }
             }
         }
+    }
+}
+
+/** Бейдж «на линии» — зелёная точка + текст. Водитель доступен сейчас. */
+@Composable
+internal fun OnlineBadge() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(7.dp).background(Color(0xFF2FB36E), CircleShape))
+        Spacer(Modifier.width(3.dp))
+        Text(appText("на линии", "эштә"), color = Color(0xFF2FB36E), fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
