@@ -419,6 +419,28 @@ object ApiClient {
     suspend fun sos(category: String, note: String): Result<Unit> =
         call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }
 
+    /** Отзыв о приложении (идёт на лендинг после модерации published). */
+    suspend fun submitAppReview(stars: Int, text: String, city: String): Result<Unit> =
+        call(
+            "POST", "/reviews",
+            JSONObject().put("stars", stars).put("text", text).put("city", city),
+            auth = true,
+        ).map { }
+
+    /** Отзывы, ожидающие модерации (только админ). */
+    suspend fun getPendingReviews(): Result<List<ReviewItem>> =
+        call("GET", "/admin/reviews/pending", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                ReviewItem(o.optInt("id"), o.optString("name"), o.optString("city"), o.optInt("stars", 5), o.optString("text"))
+            }
+        }
+
+    /** Одобрить отзыв (или снять с публикации). */
+    suspend fun publishReview(id: Int, published: Boolean): Result<Unit> =
+        call("POST", "/admin/reviews/$id/publish", JSONObject().put("published", published), auth = true).map { }
+
     // ---------- Чат (сообщения по брони) ----------
 
     /** Id моих броней (чату нужен booking_id). */
@@ -647,6 +669,8 @@ object ApiClient {
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
 class ApiException(val status: Int, message: String) : Exception(message)
+
+data class ReviewItem(val id: Int, val name: String, val city: String, val stars: Int, val text: String)
 
 /** Поездка с витрины сервера (бэкенд RideOut: поездка + данные водителя). */
 data class PriceHintDto(val avg: Int, val count: Int)
