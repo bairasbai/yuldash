@@ -6,6 +6,12 @@
 - **Stitch проект:** `Юлдаш — UI`, projectId `16399503343704919649`. Использовать его, не создавать новые.
 - **Stitch дизайн-система:** `assets/4395563391561812483` (зелёный #0B6B3A, Manrope+Inter, ROUND_TWELVE). Все экраны генерить с ней. Превью макетов — `docs/stitch/`.
 
+## 2026-06-28 (merge perf-ветки доведён до конца + деплой, Opus)
+- **Влита `perf/lifecycle-sms-pagination` в main** (общий предок 684c01e — ДО разрезки монолита). Конфликты: `main.py` оставлен наш (роутеры), `models.py` индексы perf + наш `utcnow`, requirements объединён. Android lifecycle-поллинг карты + db-пул пришли авто. `pytest.ini` (testpaths=tests) — чтобы pytest не падал на `ws_scale_test.py`.
+- **WS-Redis pub/sub ДОПОРТИРОВАН** в новую структуру (раньше жил в монолите perf): `services.py::ConnectionManager.broadcast` → Redis publish или локально (graceful-fallback), `_chat_subscribe_loop` (через `get_message(timeout)`, не `listen()`-генератор — чисто отменяется при рестарте, иначе `RuntimeError: aclose`), `init_chat_redis()` из lifespan. Убран дубль `redis_url` в config (артефакт merge).
+- ✅ **ЗАДЕПЛОЕНО на прод:** бэкап БД → `scp app` → `migrate_perf_indexes.sql` (индексы `Ride.depart_at/status` + ANALYZE) → рестарт. Прод `gunicorn -w 2` (2 воркера) → **оба печатают `[REDIS] WS pub/sub активен`**, health `db:ok`, рестарт чистый (без `aclose`). Redis ping True, redis_url в .env, redis 8.0.1 в venv. **WS-чат теперь раздаётся между воркерами.**
+- pytest **53/53**, Android BUILD SUCCESSFUL. main → `cb03d18`.
+
 ## 2026-06-28 (WCAG-аудит контраста к релизу, Opus)
 - **Объективный замер контраста палитры `Canon*`** (скрипт, формула WCAG 2.1, светлая+тёмная). Нашёл **4 фейла** (< 4.5:1 текст / < 3:1 крупный): светлая Warn/WarnBg (3.42), светлая Red/DangerBg (4.17), тёмная кнопка Primary белый/Green2 (2.69), тёмная кнопка Danger белый/Red (2.79).
 - **Исправил минимальным сдвигом цвета** (вид почти не изменился), все 11 проверенных пар теперь проходят: Warn светлый `#B87400→#9A6200`; Red светлый `#D93025→#CC2A20`, тёмный `#FF6B5E→#F25A4D`; Green2 тёмный `#2FB36E→#27A463`; Mint тёмный `#143024→#0F2419` (чтобы зелёный текст на мяте остался ≥4.5 после затемнения Green2). Все правки — в `CanonTokens.kt`, использования не трогали (адаптивные геттеры).
