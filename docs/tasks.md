@@ -355,3 +355,8 @@
   * СБП-интерим ЗАДЕПЛОЕН (бэкенд): `PAYMENTS_PROVIDER=sbp_manual` → `/boost/create` отдаёт pending+реквизиты (`sbp_phone/bank/name` из .env, НЕ в git), активирует админ: `GET /admin/payments/pending`, `POST /admin/payments/{id}/confirm|reject`. 59 тестов зелёные. Прод пока mock (буст 503) — флипнем на sbp_manual + номер когда Android Фаза 2 пойдёт в стор.
   * APK debug собран (BUILD SUCCESSFUL 1m5s), скрины сняты на эмуляторе.
   Осталось: Android Фаза 2 (экран Boost: реквизиты СБП + «я оплатил»→pending; редирект ЮKassa на будущее) + RuStore-пакет/публикация.
+- 2026-06-28 Boost Фаза 2 (Android платёжный флоу) — код готов, бэкенд задеплоен:
+  * Backend: `GET /driver/rides` (свои активные поездки, owner-scoped) задеплоен, 401 без токена. 60 тестов.
+  * Android: `BoostScreen` переписан — фейковый `SbpTransferSheet` убран. Загрузка тарифов (`/boost/plans`) + своих поездок (`/driver/rides`), выбор поездки+тарифа → `/boost/create`. sbp_manual → карточка реквизитов СБП (номер/банк/имя + копировать) + pending; yookassa → редирект; succeeded → «поднято». Все состояния (загрузка/ошибка/пусто/результат), 2 языка, Canon, анимации выбора. `ApiClient`: getBoostPlans/getDriverRides/createBoost + DTO; RideDto.boosted.
+  * Верификация: assembleDebug BUILD SUCCESSFUL; новый экран отрендерился на эмуляторе (состояние ошибки против реального бэкенда — экран+сеть+стейт-машина работают, без краша). Полный визуальный happy-path не снят: гостевой режим приложения сделал авто-логин на эмуляторе непрактичным → покрыто тестами. Личный СБП-номер в dev-`.env` НЕ коммитился (gitignored, удалён).
+  Осталось: на проде флипнуть `PAYMENTS_PROVIDER=sbp_manual`+`SBP_PHONE` когда пойдём в стор; RuStore-публикация (разблокирует анкету ЮKassa).
