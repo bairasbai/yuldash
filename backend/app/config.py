@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     firebase_credentials: str = ""      # путь к JSON сервисного аккаунта Firebase (для отправки пушей). Пусто → push выключен.
 
     # --- Redis (масштаб) ---
-    # Нужен при НЕСКОЛЬКИХ воркерах: WS-чат раздаёт сообщения между процессами через pub/sub.
-    # Пусто → WS работает локально (один воркер). Пример: redis://127.0.0.1:6379/0
+    # Один URL на всё: общий rate-limit между воркерами + WS-чат pub/sub между процессами.
+    # Пусто → rate-limit in-memory на воркер, WS — локальный режим (один воркер). Пример: redis://127.0.0.1:6379/0
     redis_url: str = ""
 
     # --- Прод-параметры ---
@@ -42,7 +42,6 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True               # глобальный лимит запросов на IP
     rate_limit_per_min: int = 300                 # запросов/мин с одного IP (обычный клиент << этого)
     rate_limit_auth_per_min: int = 20             # отдельный, строгий лимит на /auth/* и /sos (анти-перебор/спам)
-    redis_url: str = ""                           # redis://host:port/db — общий лимит на все воркеры; пусто → in-memory (на воркер)
     max_upload_mb: int = 10                        # лимит размера загрузки (фото/аудио)
     allowed_image_ext: str = "jpg,jpeg,png,webp"  # разрешённые расширения фото
     allowed_audio_ext: str = "m4a,mp3,ogg,wav,aac"  # разрешённые расширения аудио

@@ -25,7 +25,7 @@ from .middleware import (
 )
 from .routers import all_routers
 from .routers.health import API_VERSION
-from .services import MEDIA_DIR, seed_demo
+from .services import MEDIA_DIR, init_chat_redis, seed_demo
 
 API_V1_PREFIX = "/api/v1"
 
@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         if settings.seed_demo:
             seed_demo(session)
+    await init_chat_redis()   # WS pub/sub между воркерами (если есть Redis), иначе локально
     yield
 
 

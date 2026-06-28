@@ -409,8 +409,15 @@ def cache_set_json(key: str, value, ttl_sec: int) -> None:
 
 
 # ----------------------------- WebSocket -----------------------------
+# Несколько воркеров gunicorn → WS-коннекты разбросаны по процессам, прямой broadcast
+# чужие не достаёт. Решение: Redis pub/sub — publish в канал, каждый воркер раздаёт
+# своим локальным соединениям. Без Redis (один воркер/dev) — локальная доставка.
+_CHAT_CHANNEL = "yuldash:chat"
+_redis_pub = None   # async-клиент для publish (заполняется в init_chat_redis, если есть Redis)
+
+
 class ConnectionManager:
-    """Управление WebSocket соединениями для чата в реальном времени."""
+    """WebSocket-соединения чата: локальные коннекты процесса + раздача между воркерами через Redis."""
     def __init__(self):
         self.active_connections: dict = {}
 
@@ -420,15 +427,63 @@ class ConnectionManager:
 
     def disconnect(self, booking_id: int, websocket):
         if booking_id in self.active_connections:
-            self.active_connections[booking_id].remove(websocket)
+            try:
+                self.active_connections[booking_id].remove(websocket)
+            except ValueError:
+                pass
+            if not self.active_connections[booking_id]:
+                self.active_connections.pop(booking_id, None)
+
+    async def local_broadcast(self, booking_id: int, data: dict):
+        """Доставить только соединениям ЭТОГО процесса."""
+        for connection in list(self.active_connections.get(booking_id, [])):
+            try:
+                await connection.send_json(data)
+            except Exception:  # noqa: BLE001
+                pass
 
     async def broadcast(self, booking_id: int, data: dict):
-        if booking_id in self.active_connections:
-            for connection in self.active_connections[booking_id]:
-                try:
-                    await connection.send_json(data)
-                except Exception:
-                    pass
+        """Есть Redis → publish (подписчик доставит на всех воркерах, включая этот).
+        Нет Redis → доставляем только локально (режим одного воркера)."""
+        if _redis_pub is not None:
+            try:
+                await _redis_pub.publish(_CHAT_CHANNEL, json.dumps({"booking_id": booking_id, "data": data}))
+                return
+            except Exception:  # noqa: BLE001 — Redis отвалился → мягко на локальную доставку
+                pass
+        await self.local_broadcast(booking_id, data)
 
 
 manager = ConnectionManager()
+
+
+async def _chat_subscribe_loop(redis_client):
+    """Слушает Redis-канал и доставляет сообщения локальным WS-соединениям этого воркера."""
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(_CHAT_CHANNEL)
+    async for msg in pubsub.listen():
+        if msg.get("type") != "message":
+            continue
+        try:
+            obj = json.loads(msg["data"])
+            await manager.local_broadcast(int(obj["booking_id"]), obj["data"])
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def init_chat_redis():
+    """Поднять Redis pub/sub для WS-чата (из lifespan). Без Redis/библиотеки — тихо локальный режим."""
+    global _redis_pub
+    if not settings.redis_url:
+        return
+    try:
+        import asyncio
+        import redis.asyncio as aioredis
+        _redis_pub = aioredis.from_url(settings.redis_url, decode_responses=True)
+        await _redis_pub.ping()
+        sub_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+        asyncio.create_task(_chat_subscribe_loop(sub_client))
+        print("[REDIS] WS pub/sub активен")
+    except Exception as e:  # noqa: BLE001 — Redis недоступен → локальный режим, не падаем
+        print(f"[REDIS] WS pub/sub недоступен ({e}) → локальный режим")
+        _redis_pub = None
