@@ -17,6 +17,17 @@ from ..timeutil import utcnow
 router = APIRouter(tags=["auth"])
 
 
+def _maybe_promote_admin(session: Session, user: User) -> None:
+    """Автоадмин: вход с Telegram-id владельца ИЛИ с админ-телефона (config) → роль admin.
+    Реюз admin_telegram_chat_id + список admin_phones. Кабинет админа появляется сам."""
+    admin_phones = {p.strip() for p in (settings.admin_phones or "").split(",") if p.strip()}
+    by_tg = bool(settings.admin_telegram_chat_id) and user.telegram_id == settings.admin_telegram_chat_id
+    by_phone = bool(user.phone) and user.phone in admin_phones
+    if (by_tg or by_phone) and user.role != UserRole.admin:
+        user.role = UserRole.admin
+        session.add(user)
+
+
 def _norm_phone(raw: str) -> str:
     """Нормализуем номер из Telegram-контакта: только цифры, ведущий +."""
     d = "".join(c for c in (raw or "") if c.isdigit())
@@ -91,6 +102,7 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
         session.add(user)
         session.commit()
         session.refresh(user)
+    _maybe_promote_admin(session, user)   # автоадмин по телефону (SMS-вход)
     tokens = issue_tokens(session, user.id)   # commit внутри → user протухает
     session.refresh(user)                     # перечитываем, чтобы сериализовать в ответ
     return {**tokens, "user": user}
@@ -239,10 +251,7 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
     # повторяет ввод того же кода. Клиент по 403 phone_required показывает экран-подсказку.
     if is_placeholder_phone(user.phone):
         raise HTTPException(403, "phone_required")
-    # Автоадмин: вход с Telegram-id владельца (тот же, куда шлём админ-уведомления) → роль admin.
-    if settings.admin_telegram_chat_id and user.telegram_id == settings.admin_telegram_chat_id and user.role != UserRole.admin:
-        user.role = UserRole.admin
-        session.add(user)
+    _maybe_promote_admin(session, user)   # автоадмин по telegram_id или телефону
     row.status = "used"
     session.add(row)
     session.commit()
