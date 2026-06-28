@@ -4,7 +4,12 @@
 > (новое сообщение в чате, бронь, SOS) даже когда приложение закрыто.
 > **Твоя часть — 4 шага в Firebase + скинуть мне 2 файла. Код пишу я.**
 
-> ✅ **КОД ПРОВЕРЕН И ГОТОВ (2026-06-28).** Бэкенд: `firebase-admin` в requirements, `send_push()` шлёт на все устройства юзера, эндпоинт `/push/register`, вызовы push при сообщении/SOS уже стоят. Android: `firebase-bom`+`messaging-ktx`, `FcmService.kt` зареган в манифесте (MESSAGING_EVENT + канал), плагин google-services применяется **автоматически при наличии `app/google-services.json`** (без файла сборка не падает — push просто выключен). **Активация = только твои 2 файла (ниже) + `FIREBASE_CREDENTIALS=путь` в `/opt/yuldash/.env` на сервере. Кодить больше нечего.**
+> ✅✅ **АКТИВИРОВАНО end-to-end (проверено 2026-06-28).** Firebase-проект **`yuldash-9586e`** создан, оба файла на месте:
+> - **Сервер:** `FIREBASE_CREDENTIALS=/opt/yuldash/firebase-service-account.json` (права 600), `firebase-admin 7.4.0` в venv. **Admin SDK инициализируется — проверено** (`FIREBASE INIT OK — project: yuldash-9586e`). Сервер реально может слать push.
+> - **Android:** `app/google-services.json` (пакет `com.yuldash.app`, gitignored — внутри API-ключ). Релизная сборка включает push — `processReleaseGoogleServices` отрабатывает, `assembleRelease` зелёный.
+> - **Код:** бэкенд `send_push()` + `/push/register` + вызовы при сообщении/брони/SOS; Android `FcmService.kt` в манифесте.
+>
+> **Осталось живьём:** устройства зарегистрируют FCM-токен (`/push/register`) при первом запуске push-сборки → push пойдут. Тестовый push можно проверить после установки релизного APK на телефон (он звякнет на новое сообщение/бронь). **Кодить и настраивать больше нечего — фича рабочая.**
 
 ## Зачем
 Сейчас про бронь/сообщение/SOS пользователь узнаёт, только если сам зайдёт в приложение.
