@@ -10,6 +10,7 @@ internal data class Ride(
     val time: String,
     val timeBa: String? = null,
     val driver: String,
+    val driverAvatar: String = "",
     val car: String,
     val carBa: String? = null,
     val price: Int,

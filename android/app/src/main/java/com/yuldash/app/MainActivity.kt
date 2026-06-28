@@ -452,6 +452,7 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     to = toCity,
     time = formatDepart(departAt),
     driver = driverName.ifBlank { "Водитель" },
+    driverAvatar = driverAvatar,
     car = driverCar,
     price = price,
     seats = seatsLeft,

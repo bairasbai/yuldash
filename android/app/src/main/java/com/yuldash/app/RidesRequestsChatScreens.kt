@@ -587,9 +587,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(30.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-                    Text(dto.driverName.take(1).uppercase(), fontWeight = FontWeight.Black, fontSize = 13.sp, color = CanonGreen2)
-                }
+                SmallAvatar(dto.driverAvatar, dto.driverName, 30)
                 Spacer(Modifier.width(8.dp))
                 Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(15.dp))
@@ -729,14 +727,7 @@ internal fun RideCard(
                 Text(ride.timeText(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                    .background(CanonMint, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(ride.driver.first().toString(), fontWeight = FontWeight.Black)
-                }
+                SmallAvatar(ride.driverAvatar, ride.driver, 44)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
