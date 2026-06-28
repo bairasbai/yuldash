@@ -31,8 +31,10 @@ def make_token(user_id: int) -> str:
     """Короткоживущий access-токен (JWT)."""
     now = utcnow()
     exp = now + timedelta(minutes=settings.access_expire_min)
-    # iat — момент выпуска (дробные секунды, чтобы не было гонки login→logout→login
-    # в пределах одной секунды). По нему отсекаем токены, выпущенные до logout.
+    # iat — момент выпуска (с дробными секундами). По нему отсекаем токены, выпущенные
+    # ≤ tokens_valid_from (logout). От гонки login→logout→login в одной миллисекунде
+    # (часы Windows дают одинаковое значение соседним вызовам) защищает не точность iat,
+    # а сброс метки при входе (issue_tokens) + нестрогое сравнение в _token_revoked.
     return jwt.encode(
         {"sub": str(user_id), "iat": now.timestamp(), "exp": exp},
         settings.jwt_secret, algorithm="HS256",
@@ -44,7 +46,16 @@ def _hash_refresh(raw: str) -> str:
 
 
 def issue_tokens(session: Session, user_id: int) -> dict:
-    """Выдать пару access+refresh. Refresh — непрозрачный, в БД лежит ХЕШ."""
+    """Выдать пару access+refresh. Refresh — непрозрачный, в БД лежит ХЕШ.
+
+    Свежая выдача токенов = начало валидной сессии: сбрасываем метку ревокации
+    `tokens_valid_from`. Без этого токен, выпущенный в ту же миллисекунду, что и
+    предыдущий logout (часы дают одинаковое значение для соседних вызовов —
+    особенно на Windows), мог бы оказаться «отозванным» сразу после входа."""
+    user = session.get(User, user_id)
+    if user and user.tokens_valid_from is not None:
+        user.tokens_valid_from = None
+        session.add(user)
     raw = secrets.token_urlsafe(48)
     session.add(RefreshToken(
         user_id=user_id, token_hash=_hash_refresh(raw),
@@ -96,14 +107,17 @@ def authenticate_ws(token: str, session: Session) -> User:
 
 
 def _token_revoked(payload: dict, user: User) -> bool:
-    """Токен недействителен, если выпущен ДО `user.tokens_valid_from` (logout/ревокация).
+    """Токен недействителен, если выпущен В МОМЕНТ `user.tokens_valid_from` или ДО него
+    (logout/ревокация). Сравнение нестрогое (`<=`): токен, выпущенный в ту же
+    миллисекунду, что и logout (часы дают одинаковое значение для соседних вызовов),
+    тоже гасится. Свежий вход не страдает — он сбрасывает метку в `issue_tokens`.
     Старые токены без `iat` — пропускаем (обратная совместимость)."""
     if not user.tokens_valid_from:
         return False
     iat = payload.get("iat")
     if iat is None:
         return False
-    return float(iat) < user.tokens_valid_from.timestamp()
+    return float(iat) <= user.tokens_valid_from.timestamp()
 
 
 def gen_otp() -> str:
