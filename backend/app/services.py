@@ -8,6 +8,7 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 """
 from datetime import timedelta
 import base64
+import json
 import math
 import os
 
@@ -310,6 +311,49 @@ def seed_demo(session: Session) -> None:
             category=RideCategory.regular,
         ))
     session.commit()
+
+
+# ----------------------------- Кеш (Redis) -----------------------------
+# Кешируем горячие глобальные read-эндпоинты (feed, popular-routes) с коротким TTL.
+# Снимает нагрузку full-table-scan при росте трафика. Без Redis — просто без кеша.
+_cache = None
+_cache_tried = False
+
+
+def _cache_client():
+    global _cache, _cache_tried
+    if _cache_tried:
+        return _cache
+    _cache_tried = True
+    if settings.redis_url:
+        try:
+            import redis
+            _cache = redis.from_url(settings.redis_url, decode_responses=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[CACHE] redis init failed: {e}")
+            _cache = None
+    return _cache
+
+
+def cache_get_json(key: str):
+    c = _cache_client()
+    if not c:
+        return None
+    try:
+        v = c.get(key)
+        return json.loads(v) if v else None
+    except Exception:  # noqa: BLE001 — кеш не должен ронять запрос
+        return None
+
+
+def cache_set_json(key: str, value, ttl_sec: int) -> None:
+    c = _cache_client()
+    if not c:
+        return
+    try:
+        c.set(key, json.dumps(value, ensure_ascii=False), ex=ttl_sec)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ----------------------------- WebSocket -----------------------------

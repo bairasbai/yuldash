@@ -13,7 +13,7 @@ from ..config import settings
 from ..db import get_session
 from ..models import AdEvent, Booking, Ride, User
 from ..security import current_user
-from ..services import VOICE_DIR, decode_upload_b64, public_media_url
+from ..services import VOICE_DIR, cache_get_json, cache_set_json, decode_upload_b64, public_media_url
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["discovery"])
@@ -21,15 +21,23 @@ router = APIRouter(tags=["discovery"])
 
 @router.get("/popular-routes")
 def popular_routes(session: Session = Depends(get_session)):
-    """Топ направлений — считаем из реальных поездок."""
+    """Топ направлений — считаем из реальных поездок. Кеш 120с (Redis, если есть)."""
+    cached = cache_get_json("popular_routes:v1")
+    if cached is not None:
+        return cached
     rides = session.exec(select(Ride)).all()
     cnt = Counter((r.from_city, r.to_city) for r in rides if r.from_city and r.to_city)
-    return [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
+    result = [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
+    cache_set_json("popular_routes:v1", result, 120)
+    return result
 
 
 @router.get("/feed")
 def feed(session: Session = Depends(get_session)):
-    """Живая лента карты: счётчики поездок за период (день/неделя/месяц/год) + топ-маршрут недели. Из реальных данных."""
+    """Живая лента карты: счётчики поездок за период (день/неделя/месяц/год) + топ-маршрут недели. Из реальных данных. Кеш 60с."""
+    cached = cache_get_json("feed:v1")
+    if cached is not None:
+        return cached
     now = utcnow()
     bookings = session.exec(select(Booking)).all()
 
@@ -41,11 +49,13 @@ def feed(session: Session = Depends(get_session)):
     week_rides = [r for r in rides if r.created_at and r.created_at >= now - timedelta(days=7) and r.from_city and r.to_city]
     top = Counter((r.from_city, r.to_city) for r in week_rides).most_common(1)
     top_route = ({"from_city": top[0][0][0], "to_city": top[0][0][1], "count": top[0][1]} if top else None)
-    return {
+    result = {
         "today": since(1), "week": since(7), "month": since(30), "year": since(365),
         "drivers": len({r.driver_id for r in rides}),
         "top_route": top_route,
     }
+    cache_set_json("feed:v1", result, 60)
+    return result
 
 
 @router.get("/my-routes")

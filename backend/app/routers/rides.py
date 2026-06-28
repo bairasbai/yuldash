@@ -118,8 +118,11 @@ def rides_near(
     # объёмах. Фолбэк (sqlite/без PostGIS/ошибка) — Python-haversine ниже даёт тот же результат.
     if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
         try:
+            # NULL-координатные поездки НЕ выкидываем (старые/негеокоженные) — их
+            # отфильтрует Python-haversine по CITY_COORDS ниже. ST_DWithin (с GiST-индексом)
+            # отсекает далёкие среди геокоженных.
             ids = [row[0] for row in session.execute(text(
-                "SELECT id FROM ride WHERE from_lat IS NOT NULL AND "
+                "SELECT id FROM ride WHERE from_lat IS NULL OR "
                 "ST_DWithin(ST_MakePoint(from_lng, from_lat)::geography, "
                 "ST_MakePoint(:lng, :lat)::geography, :r)"
             ), {"lng": lng, "lat": lat, "r": radius_km * 1000.0}).all()]
