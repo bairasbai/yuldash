@@ -116,6 +116,13 @@
 - ✅ Задеплоено на `yulbash.ru` (`deploy-backend.bat` scp+ssh + `migrate_premium.sql` = 9× `ALTER TABLE`: 6 колонок `ride` + 3 `driverprofile`). Проверено server-side: `/driver/status`, `/upload/photo` → 401 (живы, нужен токен), `/rides/near` отдаёт `women_only`/`pets_allowed`. **Прод-API проверять server-side через ssh** (`curl localhost:8000/...`) — Windows-curl к домену = `000` (ТСПУ).
 - ✅ Android ИСПОЛЬЗУЕТ (сборка зелёная на ПК): чипы предпочтений `RidePrefChips`/`PrefChip` в `FullRideCard`, тумблеры `PrefToggleRow` в «Создать поездку», фильтр `NearbyFilterChip` над «Ближайшими», переписанный `VerifyDriverScreen` (загрузка фото прав/авто `UploadTile`→`/upload/photo`, `/driver/profile`, `/driver/verify`, статус-баннер `StatusBanner` из `/driver/status`). Работает по-настоящему (бэк живой). Осталось: водительский UI оценки пассажира, фильтр вкладок чата.
 
+## Push-уведомления (FCM) — реализованы, Firebase настроен (2026-06-27)
+Полный end-to-end, активируется наличием конфигов (без них — тихо выключено, сборка не падает):
+- **Android:** `data/FcmService.kt` (`FirebaseMessagingService` — показ нотификации), регистрация токена `ApiClient.registerPushToken`/`getFcmToken` (`FirebaseMessaging.getInstance().token` → `POST /push/register`), permission `POST_NOTIFICATIONS` (Android 13+). Плагин `com.google.gms.google-services` применяется в `build.gradle.kts` **только при наличии** `app/google-services.json`; зависимости `firebase-bom` + `firebase-messaging-ktx`.
+- **Бэкенд:** `services.send_push(session, user_id, title, body)` через `firebase_admin` → шлёт на все `DeviceToken` юзера. Триггеры: новая бронь (`bookings.py`), новое сообщение чата (`chat.py`), SOS. `POST /push/register` сохраняет токен. Конфиг `firebase_credentials` (путь к service-account JSON).
+- **Конфиги на месте:** прод `/opt/yuldash/firebase-service-account.json` + `FIREBASE_CREDENTIALS` в `.env` (бэкенд шлёт); `android/app/google-services.json` — в главном чекауте Александра (в `.gitignore`, потому в worktree-сборках FCM скомпилён, но неактивен → токен не регистрируется).
+- ⚠️ **Осталось:** проверить реальную доставку на устройство (сборка из главного чекаута). Для теста в worktree — скопировать `google-services.json` в `android/app/`.
+
 ## Что ещё фейковое (только UI)
 Платежи (донат/Boost — мок), проверка водителя, реальное распознавание голоса (имитация), звонок оператору, «скрытый номер»/код посадки (UI). Реклама — локальные счётчики показов/кликов. **SMS** — код провайдера готов (`sms.ru`), но без ключа работает мок (код в логе сервера). Полные чат-треды списком диалогов — `ChatScreen` всё ещё показывает мок-карточки (реальный тред — в `ActiveTripScreen`).
 
