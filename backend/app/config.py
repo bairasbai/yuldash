@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     rate_limit_per_min: int = 300                 # запросов/мин с одного IP (обычный клиент << этого)
     rate_limit_auth_per_min: int = 20             # отдельный, строгий лимит на /auth/* и /sos (анти-перебор/спам)
     max_upload_mb: int = 10                        # лимит размера загрузки (фото/аудио)
+    max_uploads_per_day: int = 60                  # лимит загрузок на юзера в сутки (анти disk-fill / спам)
     allowed_image_ext: str = "jpg,jpeg,png,webp"  # разрешённые расширения фото
     allowed_audio_ext: str = "m4a,mp3,ogg,wav,aac"  # разрешённые расширения аудио
 

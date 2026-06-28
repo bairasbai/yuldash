@@ -230,12 +230,15 @@ def test_driver_profile_verify_moderate(client, user_factory):
 # ----------------------------- загрузки -----------------------------
 def test_upload_photo_and_bad_b64(client, user_factory):
     u = user_factory("UpUser")
-    good = base64.b64encode(b"fake-image-bytes").decode()
+    good = base64.b64encode(b"\xff\xd8\xfffake-jpeg").decode()   # валидная JPEG-сигнатура
     r = client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "jpg"})
     assert r.status_code == 200 and "/secure/docs/" in r.json()["url"]
     assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": "!!!notb64!!!", "ext": "jpg"}).status_code == 400
     # запрещённое расширение
     assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "exe"}).status_code == 400
+    # R2: байты без JPEG-сигнатуры под видом .jpg → 400 (magic-bytes)
+    notimg = base64.b64encode(b"this is not an image").decode()
+    assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": notimg, "ext": "jpg"}).status_code == 400
 
 
 def test_upload_voice(client, user_factory):
@@ -431,3 +434,28 @@ def test_message_edit_and_delete(client, user_factory):
     # после удаления у всех — пометка видна обоим (сообщение остаётся в списке как deleted)
     msgs = client.get(f"/bookings/{bid}/messages", headers=pax["auth"]).json()
     assert any(x["id"] == mid and x["deleted"] for x in msgs)
+
+
+# ----------------------------- R3: /ads/stats только админ -----------------------------
+def test_ad_stats_admin_only(client, user_factory):
+    u = user_factory("AdViewer")
+    assert client.get("/ads/stats", headers=u["auth"]).status_code == 403   # обычный юзер
+    assert client.get("/ads/stats").status_code in (401, 403)               # без токена
+    admin = user_factory("AdAdmin", role=UserRole.admin)
+    assert client.get("/ads/stats", headers=admin["auth"]).status_code == 200
+
+
+# ----------------------------- R2: суточная квота загрузок -----------------------------
+def test_upload_daily_quota(client, user_factory):
+    from app.config import settings
+    u = user_factory("QuotaUser")
+    img = base64.b64encode(b"\xff\xd8\xfffake").decode()
+    orig = settings.max_uploads_per_day
+    settings.max_uploads_per_day = 2
+    try:
+        assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": img, "ext": "jpg"}).status_code == 200
+        assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": img, "ext": "jpg"}).status_code == 200
+        # третья за сутки — превышение квоты → 429
+        assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": img, "ext": "jpg"}).status_code == 429
+    finally:
+        settings.max_uploads_per_day = orig

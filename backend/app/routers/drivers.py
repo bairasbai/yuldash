@@ -12,7 +12,7 @@ from ..config import settings
 from ..db import get_session
 from ..models import DriverProfile, User, UserRole
 from ..security import current_user
-from ..services import DOC_DIR, decode_upload_b64, secure_docs_url
+from ..services import DOC_DIR, decode_upload_b64, enforce_upload_quota, secure_docs_url
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["drivers"])
@@ -41,10 +41,11 @@ class PhotoIn(BaseModel):
 
 
 @router.post("/upload/photo")
-def upload_photo(body: PhotoIn, user: User = Depends(current_user)):
+def upload_photo(body: PhotoIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Загрузка фото документа/авто → приватная папка → защищённый URL (только админ/владелец)."""
+    enforce_upload_quota(session, user.id)
     ext = "".join(c for c in body.ext.lower() if c.isalnum()) or "jpg"
-    data, ext = decode_upload_b64(body.photo_b64, settings.image_ext_set, ext, "фото")
+    data, ext = decode_upload_b64(body.photo_b64, settings.image_ext_set, ext, "фото", sniff_image=True)
     name = f"{uuid.uuid4().hex}.{ext}"
     with open(os.path.join(DOC_DIR, name), "wb") as f:
         f.write(data)

@@ -19,7 +19,7 @@ from .config import settings
 from .db import engine
 from .models import (
     Block, Booking, DeviceToken, DriverProfile, Rating, Ride, RideCategory,
-    RideStatus, User, UserRole,
+    RideStatus, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
 from .timeutil import utcnow
@@ -46,8 +46,23 @@ def secure_docs_url(name: str) -> str:
     return f"{settings.media_base_url.rstrip('/')}/secure/docs/{name}"
 
 
-def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: str) -> tuple[bytes, str]:
-    """Безопасная обработка base64 upload: whitelist расширений + лимит размера."""
+def _looks_like_image(data: bytes, ext: str) -> bool:
+    """Сигнатура (magic-bytes) совпадает с заявленным расширением изображения?
+    Защита от заливки произвольных байтов под видом .jpg. Неизвестный тип — пропускаем
+    (расширение уже прошло whitelist)."""
+    if ext in ("jpg", "jpeg"):
+        return data[:3] == b"\xff\xd8\xff"
+    if ext == "png":
+        return data[:8] == b"\x89PNG\r\n\x1a\n"
+    if ext == "webp":
+        return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    return True
+
+
+def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: str,
+                      sniff_image: bool = False) -> tuple[bytes, str]:
+    """Безопасная обработка base64 upload: whitelist расширений + лимит размера.
+    sniff_image=True — дополнительно проверяем magic-bytes (для фото)."""
     ext = "".join(c for c in default_ext.lower() if c.isalnum()) or default_ext
     if "," in raw and raw.strip().lower().startswith("data:"):
         raw = raw.split(",", 1)[1]
@@ -61,7 +76,22 @@ def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: s
         raise HTTPException(413, f"Файл слишком большой: максимум {settings.max_upload_mb} МБ")
     if ext not in allowed_ext:
         raise HTTPException(400, f"Недопустимый тип файла: .{ext}")
+    if sniff_image and not _looks_like_image(data, ext):
+        raise HTTPException(400, f"Файл не похож на изображение: {kind}")
     return data, ext
+
+
+def enforce_upload_quota(session: Session, user_id: int) -> None:
+    """Суточная квота загрузок на юзера (анти disk-fill / спам). Считаем загрузки за 24ч,
+    при превышении — 429. Записываем факт текущей загрузки."""
+    edge = utcnow() - timedelta(days=1)
+    recent = session.exec(
+        select(UploadEvent.id).where(UploadEvent.user_id == user_id, UploadEvent.created_at > edge)
+    ).all()
+    if len(recent) >= settings.max_uploads_per_day:
+        raise HTTPException(429, "Слишком много загрузок за сутки. Попробуй позже.")
+    session.add(UploadEvent(user_id=user_id))
+    session.commit()
 
 
 # ----------------------------- Брони / доступ -----------------------------

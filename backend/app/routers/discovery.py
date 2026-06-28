@@ -5,15 +5,18 @@ from datetime import timedelta
 import os
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import AdEvent, Booking, Ride, User
+from ..models import AdEvent, Booking, Ride, User, UserRole
 from ..security import current_user
-from ..services import CHAT_DIR, VOICE_DIR, cache_get_json, cache_set_json, decode_upload_b64, public_media_url
+from ..services import (
+    CHAT_DIR, VOICE_DIR, cache_get_json, cache_set_json, decode_upload_b64,
+    enforce_upload_quota, public_media_url,
+)
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["discovery"])
@@ -96,8 +99,10 @@ def ad_event(ad_id: str, body: AdEventIn, session: Session = Depends(get_session
 
 
 @router.get("/ads/stats")
-def ad_stats(session: Session = Depends(get_session)):
-    """Сводка показов/кликов по каждой рекламе (для кабинета)."""
+def ad_stats(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Сводка показов/кликов по каждой рекламе (кабинет — только админ)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
     rows = session.exec(select(AdEvent)).all()
     imp: Counter = Counter()
     clk: Counter = Counter()
@@ -145,8 +150,9 @@ class VoiceIn(BaseModel):
 
 
 @router.post("/voice")
-def upload_voice(body: VoiceIn, user: User = Depends(current_user)):
+def upload_voice(body: VoiceIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Загрузка голосового (base64) → сохранение в media → публичный URL."""
+    enforce_upload_quota(session, user.id)
     ext = "".join(c for c in body.ext.lower() if c.isalnum()) or "m4a"
     data, ext = decode_upload_b64(body.audio_b64, settings.audio_ext_set, ext, "аудио")
     name = f"{uuid.uuid4().hex}.{ext}"
@@ -161,11 +167,12 @@ class ChatPhotoIn(BaseModel):
 
 
 @router.post("/upload/chat-photo")
-def upload_chat_photo(body: ChatPhotoIn, user: User = Depends(current_user)):
+def upload_chat_photo(body: ChatPhotoIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Фото для чата (base64) → публичная папка media/chat → публичный URL.
     Отдельно от документов водителя (/secure/docs): те приватны, фото чата видит собеседник."""
+    enforce_upload_quota(session, user.id)
     ext = "".join(c for c in body.ext.lower() if c.isalnum()) or "jpg"
-    data, ext = decode_upload_b64(body.photo_b64, settings.image_ext_set, ext, "фото")
+    data, ext = decode_upload_b64(body.photo_b64, settings.image_ext_set, ext, "фото", sniff_image=True)
     name = f"{uuid.uuid4().hex}.{ext}"
     with open(os.path.join(CHAT_DIR, name), "wb") as f:
         f.write(data)

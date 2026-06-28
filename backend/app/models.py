@@ -254,6 +254,14 @@ class AdEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class UploadEvent(SQLModel, table=True):
+    """Факт загрузки файла юзером (фото/голос) — для суточной квоты (анти disk-fill / спам).
+    Лёгкая строка на каждую загрузку; считаем за последние 24ч."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class AppReview(SQLModel, table=True):
     """Отзыв о приложении (отдельно от Rating за поездку). Идёт на лендинг.
     Модерация: published=False по умолчанию — на сайт попадает только одобренное."""
