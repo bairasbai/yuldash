@@ -136,6 +136,14 @@ android {
             if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
         }
     }
+
+    // AAB: НЕ дробим ресурсы по языку. В приложении свой рантайм-переключатель RU/BA
+    // (appText/AppLanguage) → Play не должен выкидывать «лишний» язык, иначе второй язык пропадёт.
+    bundle {
+        language {
+            enableSplit = false
+        }
+    }
 }
 
 dependencies {
