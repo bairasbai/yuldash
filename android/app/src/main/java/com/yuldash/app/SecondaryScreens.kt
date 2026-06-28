@@ -366,7 +366,13 @@ private fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVecto
 }
 
 @Composable
-internal fun SafetyScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, onSos: () -> Unit) {
+internal fun SafetyScreen(
+    onBack: () -> Unit,
+    onSelectTab: (HomeTab) -> Unit,
+    onSos: () -> Unit,
+    onShareTrip: () -> Unit = {},
+    onRules: () -> Unit = {},
+) {
     var hidePhone by remember { mutableStateOf(true) }
     var verifiedOnly by remember { mutableStateOf(true) }
     Scaffold(
@@ -407,10 +413,8 @@ internal fun SafetyScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, on
                 SettingsGroup {
                     SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it }
                     SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it }
-                    SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."))
-                    SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите совершать поездки.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."))
-                    SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщите о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр итегеҙ."))
-                    SettingsNavRow(Icons.Default.Description, appText("Правила поездок", "Сәфәр ҡағиҙәләре"), appText("Ознакомьтесь с правилами сервиса Юлдаш.", "Юлдаш ҡағиҙәләре менән танышығыҙ."))
+                    SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
+                    SettingsNavRow(Icons.Default.Description, appText("Правила поездок", "Сәфәр ҡағиҙәләре"), appText("Ознакомьтесь с правилами сервиса Юлдаш.", "Юлдаш ҡағиҙәләре менән танышығыҙ."), onClick = onRules)
                 }
             }
             item {
@@ -421,10 +425,26 @@ internal fun SafetyScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, on
 }
 
 @Composable
-internal fun SettingsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, onToggleLanguage: () -> Unit) {
+internal fun SettingsScreen(
+    onBack: () -> Unit,
+    onSelectTab: (HomeTab) -> Unit,
+    onToggleLanguage: () -> Unit,
+    onPrivacy: () -> Unit = {},
+    onPayments: () -> Unit = {},
+) {
     var notifications by remember { mutableStateOf(true) }
     var sounds by remember { mutableStateOf(true) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     val isBashkir = LocalAppLanguage.current == AppLanguage.Ba
+    // Текущая тема приложения (она же тема карты): системная / светлая / тёмная.
+    val themeLabel = when (ThemePrefs.darkOverride) {
+        true -> appText("Тёмная", "Ҡараңғы")
+        false -> appText("Светлая", "Яҡты")
+        null -> appText("Как в системе", "Системалағыса")
+    }
+    if (showThemeDialog) {
+        ThemePickerDialog(current = ThemePrefs.darkOverride, onPick = { ThemePrefs.darkOverride = it; showThemeDialog = false }, onDismiss = { showThemeDialog = false })
+    }
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
@@ -444,19 +464,18 @@ internal fun SettingsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, 
                 SettingsGroup {
                     SettingSwitchRow(Icons.Default.Notifications, appText("Уведомления", "Хәбәрҙәр"), appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу"), notifications) { notifications = it }
                     SettingsNavRow(Icons.Default.Language, appText("Язык", "Тел"), if (isBashkir) "Башҡортса" else "Русский", onClick = onToggleLanguage)
-                    SettingsNavRow(Icons.Default.Map, appText("Тема карты", "Карта темаһы"), appText("Светлая", "Яҡты"))
+                    SettingsNavRow(Icons.Default.Map, appText("Тема", "Тема"), themeLabel, onClick = { showThemeDialog = true })
                 }
             }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.Shield, appText("Приватность", "Махсуслыҡ"), appText("Управление безопасностью и данными", "Хәүефһеҙлек һәм мәғлүмәт"))
+                    SettingsNavRow(Icons.Default.Shield, appText("Приватность", "Махсуслыҡ"), appText("Управление безопасностью и данными", "Хәүефһеҙлек һәм мәғлүмәт"), onClick = onPrivacy)
                     SettingSwitchRow(Icons.Default.VolumeUp, appText("Звуки", "Тауыштар"), appText("Звуковые уведомления и эффекты", "Тауышлы хәбәрҙәр"), sounds) { sounds = it }
                 }
             }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.Tune, appText("Фильтры по умолчанию", "Ғәҙәти фильтрҙар"), appText("Настройте фильтры для поиска поездок", "Сәфәр эҙләү фильтрҙары"))
-                    SettingsNavRow(Icons.Default.CreditCard, appText("Способы оплаты", "Түләү ысулдары"), appText("Управление картами и платежами", "Карталар һәм түләүҙәр"))
+                    SettingsNavRow(Icons.Default.CreditCard, appText("Оплата поездок", "Сәфәр түләүе"), appText("Как оплачивать поездки в Юлдаш", "Юлдашта сәфәр өсөн нисек түләргә"), onClick = onPayments)
                 }
             }
             item {
@@ -468,6 +487,124 @@ internal fun SettingsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, 
                 Text("Юлдаш © 2026", modifier = Modifier.fillMaxWidth(), color = CanonMuted, fontSize = 13.sp)
             }
         }
+    }
+}
+
+/** Выбор темы оформления (она же тема карты): системная / светлая / тёмная. */
+@Composable
+internal fun ThemePickerDialog(current: Boolean?, onPick: (Boolean?) -> Unit, onDismiss: () -> Unit) {
+    val options = listOf<Pair<Boolean?, String>>(
+        null to appText("Как в системе", "Системалағыса"),
+        false to appText("Светлая", "Яҡты"),
+        true to appText("Тёмная", "Ҡараңғы"),
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CanonSurface,
+        confirmButton = { TextButton(onClick = onDismiss) { Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold) } },
+        title = { Text(appText("Тема оформления", "Биҙәлеш темаһы"), color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                options.forEach { (value, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().bounceClick { onPick(value) }.padding(vertical = 12.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (value == current) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                            contentDescription = null,
+                            tint = if (value == current) CanonGreen2 else CanonMuted
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(label, color = CanonText, fontSize = 16.sp)
+                    }
+                }
+            }
+        },
+    )
+}
+
+/** Правила поездок «между своими» — статический экран. */
+@Composable
+internal fun RulesScreen(onBack: () -> Unit) {
+    val rules = listOf(
+        appText("Уважайте друг друга", "Бер-берегеҙҙе хөрмәт итегеҙ") to appText("Юлдаш — поездки между своими. Будьте вежливы и пунктуальны.", "Юлдаш — үҙ кешеләр араһында сәфәр. Әҙәпле һәм ваҡытлы булығыҙ."),
+        appText("Договаривайтесь заранее", "Алдан килешегеҙ") to appText("Согласуйте место и время встречи в чате до выезда.", "Сығышҡа тиклем осрашыу урынын һәм ваҡытын чатта килешегеҙ."),
+        appText("Безопасность прежде всего", "Хәүефһеҙлек беренсе урында") to appText("Пристёгивайтесь, не отвлекайте водителя, при опасности — кнопка SOS.", "Бәйләнегеҙ, водителде борсомағыҙ, хәүеф булһа — SOS төймәһе."),
+        appText("Честная оплата", "Намыҫлы түләү") to appText("Оплачивайте поездку как договорились, переводом по СБП.", "Сәфәр өсөн килешеүсә, СБП аша түләгеҙ."),
+        appText("Оставляйте отзыв", "Баһа ҡалдырығыҙ") to appText("После поездки оцените попутчика — так доверие растёт у всех.", "Сәфәрҙән һуң юлдашты баһалағыҙ — шулай ышаныс үҫә."),
+    )
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Правила поездок", "Сәфәр ҡағиҙәләре"), onBack) }) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            items(rules.size) { i ->
+                val (t, d) = rules[i]
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
+                        Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                            Text("${i + 1}", Modifier.padding(horizontal = 13.dp, vertical = 8.dp), color = CanonGreen2, fontWeight = FontWeight.Black)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(t, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                            Text(d, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Как оплачивать поездки — статический экран (сейчас СБП напрямую, ЮКасса позже). */
+@Composable
+internal fun PaymentInfoScreen(onBack: () -> Unit) {
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Оплата поездок", "Сәфәр түләүе"), onBack) }) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item {
+                Surface(color = CanonMint, shape = CanonItemShape) {
+                    Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CreditCard, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(32.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Оплата напрямую водителю", "Тура водителгә түләү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                            Text(appText("Сейчас оплата — переводом по СБП на карту водителя, как договоритесь в чате.", "Хәҙер түләү — СБП аша водитель картаһына, чатта килешеүсә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                        }
+                    }
+                }
+            }
+            item {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(appText("Как это работает", "Был нисек эшләй"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                        PaymentStepRow("1", appText("Договоритесь о цене в чате", "Хаҡты чатта килешегеҙ"))
+                        PaymentStepRow("2", appText("После поездки переведите по СБП", "Сәфәрҙән һуң СБП аша күсерегеҙ"))
+                        PaymentStepRow("3", appText("Оставьте отзыв друг о друге", "Бер-берегеҙ тураһында баһа ҡалдырығыҙ"))
+                    }
+                }
+            }
+            item {
+                Text(appText("Скоро: оплата картой прямо в приложении.", "Тиҙҙән: ҡушымтала карта менән түләү."), color = CanonMuted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PaymentStepRow(n: String, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = CanonMint, shape = RoundedCornerShape(10.dp)) {
+            Text(n, Modifier.padding(horizontal = 11.dp, vertical = 6.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(text, color = CanonText, fontSize = 15.sp)
     }
 }
 

@@ -275,6 +275,8 @@ internal enum class Screen {
     Safety,
     Settings,
     Privacy,
+    Rules,
+    PaymentInfo,
     Help,
     PassengerCabinet,
     DriverCabinet,

@@ -554,14 +554,24 @@ internal fun YuldashApp() {
                 onSelectTab = { tab -> openHome(tab) }
             )
             Screen.Privacy -> PrivacyScreen(onBack = { openHome(HomeTab.Profile) })
+            Screen.Rules -> RulesScreen(onBack = { screen = Screen.Safety })
+            Screen.PaymentInfo -> PaymentInfoScreen(onBack = { screen = Screen.Settings })
             Screen.Safety -> SafetyScreen(
                 onBack = { openHome(HomeTab.Profile) },
                 onSelectTab = { tab -> openHome(tab) },
-                onSos = { screen = Screen.Sos }
+                onSos = { screen = Screen.Sos },
+                onShareTrip = { screen = Screen.TrustedContacts },
+                onRules = { screen = Screen.Rules }
             )
-            Screen.Settings -> SettingsScreen(onBack = { openHome(HomeTab.Profile) }, onSelectTab = { tab -> openHome(tab) }, onToggleLanguage = {
-                language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
-            })
+            Screen.Settings -> SettingsScreen(
+                onBack = { openHome(HomeTab.Profile) },
+                onSelectTab = { tab -> openHome(tab) },
+                onToggleLanguage = {
+                    language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
+                },
+                onPrivacy = { screen = Screen.Privacy },
+                onPayments = { screen = Screen.PaymentInfo }
+            )
             Screen.Help -> HelpScreen(
                 ads = partnerAds,
                 adStats = adStats,
