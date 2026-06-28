@@ -76,8 +76,10 @@ class AdEventIn(BaseModel):
 
 
 @router.post("/ads/{ad_id}/event")
-def ad_event(ad_id: str, body: AdEventIn, session: Session = Depends(get_session)):
+def ad_event(ad_id: int, body: AdEventIn, session: Session = Depends(get_session)):
     """Записать показ/клик (реальная статистика кабинета)."""
+    if not session.get(Ad, ad_id):
+        raise HTTPException(404, "Объявление не найдено")
     t = "click" if body.type == "click" else "impression"
     session.add(AdEvent(ad_id=ad_id, event_type=t))
     session.commit()

@@ -243,7 +243,7 @@ class Rating(SQLModel, table=True):
 class AdEvent(SQLModel, table=True):
     """Событие по рекламе: показ или клик (для реальной статистики кабинета)."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    ad_id: str = Field(index=True)
+    ad_id: int = Field(index=True, foreign_key="ad.id")
     event_type: str = Field(index=True)      # impression / click
     created_at: datetime = Field(default_factory=utcnow)
 
