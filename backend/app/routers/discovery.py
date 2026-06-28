@@ -123,6 +123,12 @@ def geocode(q: str = ""):
     query = (q or "").strip()
     if not key or len(query) < 2:
         return {"items": []}
+    # Кеш адресов в Redis на сутки. Адреса стабильны, а все ищут одни города
+    # (Баймаҡ/Сибай/Уфа) → кеш режет вызовы к Яндексу в разы (бесплатная квота ~1000/день).
+    ckey = f"geocode:v1:{query.lower()}"
+    cached = cache_get_json(ckey)
+    if cached is not None:
+        return cached
     try:
         import httpx
         r = httpx.get("https://geocode-maps.yandex.ru/1.x/", params={
@@ -130,7 +136,7 @@ def geocode(q: str = ""):
         }, timeout=8)
         members = r.json()["response"]["GeoObjectCollection"]["featureMember"]
     except Exception:  # noqa: BLE001
-        return {"items": []}
+        return {"items": []}     # ошибку НЕ кешируем — попробуем снова в следующий раз
     items: list = []
     for m in members:
         go = m.get("GeoObject", {})
@@ -145,7 +151,9 @@ def geocode(q: str = ""):
         title = f"{name}, {desc}" if desc else name
         if title:
             items.append({"title": title, "lat": lat, "lon": lon})
-    return {"items": items}
+    result = {"items": items}
+    cache_set_json(ckey, result, 86400)   # сутки
+    return result
 
 
 class VoiceIn(BaseModel):
