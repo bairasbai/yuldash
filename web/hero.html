@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#0A1410" />
+<title>Юлдаш — попутки между своими</title>
+
+<!-- Шрифты: выразительный дисплей Sora + чистый Inter (с системным фолбэком, если нет сети) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+
+<style>
+  /* ============ Токены бренда (синхронны с приложением, Theme.kt) ============ */
+  :root {
+    --green-deep:   #0B6B3A;
+    --green:        #0E8247;
+    --green-bright: #2FB36E;
+    --green-glow:   #7FE3AB;
+    --gold:         #D89B12;
+    --gold-light:   #E8C36B;
+    --gold-soft:    #FFE3A1;
+    --night:        #0A1410;
+    --ink:          #0B1F14;
+    --text:         #EAF2EC;
+    --text-dim:     #A9BcB1;
+    --text-mute:    rgba(234,242,236,.45);
+
+    --font-display: "Sora", system-ui, "Segoe UI", sans-serif;
+    --font-sans:    "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+
+    --radius:    22px;
+    --radius-lg: 34px;
+
+    /* плавные «дорогие» кривые (премиум-тайминг 400–600ms) */
+    --ease: cubic-bezier(.21,.47,.32,.98);
+    --shadow-glow: 0 0 60px -12px rgba(47,179,110,.45);
+    --shadow-card: 0 24px 60px -20px rgba(0,0,0,.55);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--night);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+    min-height: 100dvh;
+  }
+
+  ::selection { background: rgba(47,179,110,.35); }
+
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; cursor: pointer; border: none; background: none; }
+
+  :focus-visible {
+    outline: 2px solid var(--green-glow);
+    outline-offset: 3px;
+    border-radius: 8px;
+  }
+
+  /* ============ Фон-аврора (живые зелёно-золотые пятна) ============ */
+  .aurora { position: fixed; inset: 0; z-index: -1; overflow: hidden; }
+  .aurora::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: radial-gradient(120% 120% at 50% -10%, #10241a 0%, #0a1410 55%, #070f0b 100%);
+  }
+  .blob { position: absolute; border-radius: 50%; filter: blur(140px); opacity: .85; }
+  .blob.b1 { top: -16rem; left: 8%;  width: 44rem; height: 44rem; background: rgba(47,179,110,.28);
+             animation: drift1 22s var(--ease) infinite; }
+  .blob.b2 { top: 10%;  right: 4%;  width: 38rem; height: 38rem; background: rgba(216,155,18,.22);
+             animation: drift2 26s var(--ease) infinite; }
+  .blob.b3 { bottom: -14rem; left: 32%; width: 40rem; height: 40rem; background: rgba(11,107,58,.34);
+             animation: drift3 28s var(--ease) infinite; }
+  .grain { position: absolute; inset: 0; opacity: .035; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+  @keyframes drift1 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(60px,40px) scale(1.12)} 66%{transform:translate(-20px,10px) scale(.98)} }
+  @keyframes drift2 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(-50px,30px) scale(1.08)} 66%{transform:translate(30px,-20px) scale(1.04)} }
+  @keyframes drift3 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(40px,-30px) scale(1.1)} 66%{transform:translate(-30px,20px) scale(.96)} }
+
+  /* ============ Стекло ============ */
+  .glass {
+    background: rgba(25,36,32,.55);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid rgba(127,227,171,.12);
+  }
+
+  /* ============ Шапка ============ */
+  header { position: fixed; inset: 0 0 auto 0; z-index: 50; padding: 12px 16px 0; }
+  .nav {
+    max-width: 1120px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 10px 16px; border-radius: 999px;
+    animation: dropIn .6s var(--ease) both;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 800; font-size: 18px; }
+  .brand .mark {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: grid; place-items: center; color: var(--night);
+    background: linear-gradient(135deg, var(--green-bright), var(--green-deep));
+    box-shadow: var(--shadow-glow);
+  }
+  .nav-links { display: none; gap: 28px; font-size: 14px; color: var(--text-dim); }
+  .nav-links a { transition: color .2s var(--ease); }
+  .nav-links a:hover { color: var(--text); }
+
+  .lang {
+    display: flex; align-items: center; gap: 2px;
+    padding: 3px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05);
+    font-size: 13px; font-weight: 600;
+  }
+  .lang button {
+    min-width: 44px; min-height: 36px; padding: 6px 12px; border-radius: 999px;
+    color: var(--text-mute); transition: color .25s var(--ease), background .25s var(--ease);
+  }
+  .lang button[aria-pressed="true"] { color: var(--night); background: var(--green-bright); }
+
+  /* ============ Hero ============ */
+  .hero {
+    max-width: 1120px; margin: 0 auto;
+    padding: 140px 24px 80px;
+    display: grid; gap: 56px; align-items: center;
+  }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 16px; border-radius: 999px;
+    font-size: 14px; font-weight: 600; color: var(--green-glow);
+  }
+  .pulse { position: relative; width: 8px; height: 8px; }
+  .pulse i { position: absolute; inset: 0; border-radius: 50%; background: var(--green-bright); }
+  .pulse i:first-child { animation: ping 1.8s var(--ease) infinite; }
+  @keyframes ping { 0%{transform:scale(1);opacity:.8} 75%,100%{transform:scale(2.4);opacity:0} }
+
+  h1 {
+    font-family: var(--font-display); font-weight: 800; letter-spacing: -.02em;
+    font-size: clamp(2.75rem, 9vw, 5rem); line-height: 1.04; margin-top: 22px;
+  }
+  .grad {
+    background: linear-gradient(100deg, var(--green-glow) 0%, var(--green-bright) 38%, var(--gold-light) 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    animation: shimmer 5s linear infinite;
+  }
+  @keyframes shimmer { to { background-position: 200% center; } }
+
+  .sub {
+    margin-top: 22px; max-width: 34rem; font-size: clamp(1.05rem, 2.4vw, 1.2rem);
+    line-height: 1.6; color: var(--text-dim);
+  }
+
+  .cta-row { margin-top: 36px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+
+  /* Главная кнопка — hover: подъём + усиление свечения + бегущий блик */
+  .btn-primary {
+    position: relative; overflow: hidden;
+    display: inline-flex; flex-direction: column; align-items: center;
+    min-height: 56px; padding: 14px 30px; border-radius: var(--radius);
+    background: var(--green-bright); color: var(--night);
+    font-family: var(--font-display); font-weight: 700; font-size: 16px;
+    box-shadow: var(--shadow-glow);
+    transition: transform .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease);
+  }
+  .btn-primary .line { display: inline-flex; align-items: center; gap: 10px; }
+  .btn-primary small { margin-top: 2px; font-weight: 600; font-size: 12px; color: rgba(10,20,16,.72); font-family: var(--font-sans); }
+  .btn-primary::after {
+    content: ""; position: absolute; inset: 0; transform: translateX(-120%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
+    transition: transform .7s var(--ease);
+  }
+  .btn-primary:hover { transform: translateY(-3px) scale(1.03); background: var(--green-glow);
+    box-shadow: 0 0 80px -10px rgba(47,179,110,.6); }
+  .btn-primary:hover::after { transform: translateX(120%); }
+  .btn-primary:active { transform: translateY(0) scale(.98); }
+
+  /* Вторичная кнопка — hover: подсветка рамки + лёгкий фон */
+  .btn-ghost {
+    min-height: 56px; padding: 16px 28px; border-radius: var(--radius);
+    border: 1px solid rgba(255,255,255,.16); color: rgba(234,242,236,.85);
+    font-weight: 600; font-size: 15px;
+    transition: border-color .25s var(--ease), color .25s var(--ease), background .25s var(--ease), transform .25s var(--ease);
+  }
+  .btn-ghost:hover { border-color: var(--green-glow); color: var(--text); background: rgba(47,179,110,.08); transform: translateY(-2px); }
+  .btn-ghost:active { transform: translateY(0); }
+
+  .note { margin-top: 22px; max-width: 28rem; font-size: 13.5px; color: var(--text-mute); }
+
+  /* Мини-метрики доверия */
+  .stats { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 14px 30px; }
+  .stat .num { font-family: var(--font-display); font-weight: 800; font-size: 26px; color: var(--gold-light); }
+  .stat .lbl { font-size: 13px; color: var(--text-mute); margin-top: 2px; }
+
+  /* ============ Мокап телефона ============ */
+  .phone-wrap { display: flex; justify-content: center; }
+  .phone {
+    position: relative; width: 296px; height: 600px;
+    border: 10px solid #1c2722; border-radius: 44px; background: var(--ink);
+    box-shadow: var(--shadow-card);
+    animation: floatY 6s var(--ease) infinite;
+  }
+  @keyframes floatY { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-14px)} }
+  .phone::before { content: ""; position: absolute; inset: -24px; z-index: -1; border-radius: 60px; background: rgba(47,179,110,.2); filter: blur(48px); }
+  .island { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 96px; height: 24px; border-radius: 999px; background: rgba(0,0,0,.8); z-index: 5; }
+  .screen { position: absolute; inset: 0; margin: 0; border-radius: 34px; overflow: hidden; background: #0e1714; }
+  .map { position: relative; height: 58%; background: radial-gradient(120% 100% at 30% 10%, #16271f 0%, #0e1714 70%); }
+  .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .roads { stroke: #22332b; stroke-width: 6; fill: none; stroke-linecap: round; opacity: .5; }
+  .route { fill: none; stroke: var(--green-bright); stroke-width: 5; stroke-linecap: round;
+    stroke-dasharray: 320; stroke-dashoffset: 320; animation: draw 1.6s var(--ease) 1s forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  .dot-start { position: absolute; left: 60px; top: 244px; width: 14px; height: 14px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 5px rgba(216,155,18,.22); }
+  .dot-end { position: absolute; right: 44px; top: 60px; width: 24px; height: 24px; border-radius: 50%; background: var(--gold); color: var(--night); display: grid; place-items: center; transform: scale(0); animation: pop .5s var(--ease) 2.4s forwards; }
+  @keyframes pop { to { transform: scale(1); } }
+  .eta { position: absolute; left: 12px; top: 12px; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--green-glow); }
+
+  .card { position: absolute; inset: auto 0 0 0; padding: 16px 16px 24px; background: #141d19; border-radius: 26px 26px 0 0; }
+  .grip { width: 40px; height: 4px; border-radius: 999px; background: rgba(255,255,255,.15); margin: 0 auto 14px; }
+  .driver { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .ava { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; background: rgba(11,107,58,.4); }
+  .driver .name { font-weight: 700; font-size: 14px; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; color: var(--green-glow); background: rgba(47,179,110,.15); }
+  .badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--green-bright); }
+  .price { margin-left: auto; font-family: var(--font-display); font-weight: 800; font-size: 18px; color: var(--gold-light); }
+  .trip { font-size: 12px; display: grid; gap: 8px; margin-bottom: 16px; color: rgba(234,242,236,.8); }
+  .trip div { display: flex; align-items: center; gap: 8px; }
+  .pin { width: 8px; height: 8px; border-radius: 50%; }
+  .go { padding: 11px; border-radius: 999px; background: var(--green-bright); color: var(--night); text-align: center; font-weight: 700; font-size: 14px; }
+
+  /* ============ Анимации появления (стаггер на загрузке) ============ */
+  .reveal { opacity: 0; transform: translateY(26px); animation: rise .8s var(--ease) forwards; }
+  .d1 { animation-delay: .10s; } .d2 { animation-delay: .22s; } .d3 { animation-delay: .34s; }
+  .d4 { animation-delay: .46s; } .d5 { animation-delay: .58s; } .d6 { animation-delay: .70s; }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+  @keyframes dropIn { from { opacity: 0; transform: translateY(-24px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ============ Адаптив ============ */
+  @media (min-width: 768px) {
+    .nav-links { display: flex; }
+    .stats { gap: 14px 44px; }
+  }
+  @media (min-width: 1024px) {
+    .hero { grid-template-columns: 1.05fr .95fr; padding-top: 168px; }
+    .eyebrow, h1, .sub, .cta-row, .note, .stats { text-align: left; }
+  }
+  @media (max-width: 1023px) {
+    .hero { text-align: center; justify-items: center; }
+    .sub, .note { margin-left: auto; margin-right: auto; }
+    .cta-row, .stats { justify-content: center; }
+    .phone-wrap { order: -1; }
+  }
+
+  /* ============ Уважение к reduced-motion ============ */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+    .reveal { opacity: 1; transform: none; }
+    .route { stroke-dashoffset: 0; } .dot-end { transform: scale(1); }
+  }
+</style>
+</head>
+
+<body>
+  <!-- Фон -->
+  <div class="aurora" aria-hidden="true">
+    <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+    <span class="grain"></span>
+  </div>
+
+  <!-- Шапка -->
+  <header>
+    <nav class="nav glass">
+      <a class="brand" href="#" aria-label="Юлдаш">
+        <span class="mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11m-14 0h14m-14 0a2 2 0 0 0-2 2v3a1 1 0 0 0 1 1h1m14-6a2 2 0 0 1 2 2v3a1 1 0 0 1-1 1h-1M7 17v1a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-1m12 0v1a1 1 0 0 0 1 1h0a1 1 0 0 0 1-1v-1M7.5 14h.01M16.5 14h.01"/></svg>
+        </span>
+        Юлдаш
+      </a>
+
+      <div class="nav-links">
+        <a href="#" data-i18n="nav_features">Возможности</a>
+        <a href="#" data-i18n="nav_trust">Безопасность</a>
+      </div>
+
+      <div class="lang" role="group" aria-label="Язык / Тел">
+        <button type="button" data-lang="ru" aria-pressed="true">RU</button>
+        <button type="button" data-lang="ba" aria-pressed="false">БА</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Hero -->
+  <main class="hero">
+    <section>
+      <span class="eyebrow glass reveal d1">
+        <span class="pulse" aria-hidden="true"><i></i><i></i></span>
+        <span data-i18n="badge">Попутки между своими</span>
+      </span>
+
+      <h1 class="reveal d2">
+        <span data-i18n="title1">Доедем</span>
+        <span class="grad" data-i18n="title2">вместе</span>
+      </h1>
+
+      <p class="sub reveal d3" data-i18n="sub">
+        Юлдаш — попутки по Башкортостану между своими. Доверие, тёплые поездки и честная цена.
+      </p>
+
+      <div class="cta-row reveal d4">
+        <a class="btn-primary" href="#" download>
+          <span class="line">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/></svg>
+            <span data-i18n="cta">Скачать для Android</span>
+          </span>
+          <small data-i18n="cta_sub">Бесплатно · APK · ~12 МБ</small>
+        </a>
+        <a class="btn-ghost" href="#" data-i18n="cta2">Как это работает</a>
+      </div>
+
+      <p class="note reveal d5" data-i18n="note">
+        После загрузки разреши установку «из этого источника» — это нормально для APK.
+      </p>
+
+      <div class="stats reveal d6">
+        <div class="stat"><div class="num">100%</div><div class="lbl" data-i18n="s1">между своими</div></div>
+        <div class="stat"><div class="num">4.9★</div><div class="lbl" data-i18n="s2">средний рейтинг</div></div>
+        <div class="stat"><div class="num">SOS</div><div class="lbl" data-i18n="s3">кнопка безопасности</div></div>
+      </div>
+    </section>
+
+    <!-- Мокап -->
+    <section class="phone-wrap reveal d3">
+      <div class="phone" role="img" aria-label="Экран приложения Юлдаш с картой и поездкой">
+        <span class="island" aria-hidden="true"></span>
+        <div class="screen">
+          <div class="map">
+            <svg viewBox="0 0 296 360" aria-hidden="true">
+              <g class="roads"><path d="M-10 90 L120 120 L200 70 L320 110"/><path d="M40 -10 L70 140 L30 280"/><path d="M-10 230 L140 250 L260 210 L320 240"/><path d="M200 -10 L230 160 L300 300"/></g>
+              <path class="route" d="M64 250 C 110 200, 120 150, 170 120 S 230 90, 244 70"/>
+            </svg>
+            <span class="dot-start" aria-hidden="true"></span>
+            <span class="dot-end" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.1 2 5 5.1 5 9c0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg></span>
+            <span class="eta glass" data-i18n="eta">12 мин · 8 км</span>
+          </div>
+
+          <div class="card">
+            <div class="grip"></div>
+            <div class="driver">
+              <span class="ava" aria-hidden="true">👩</span>
+              <div>
+                <div class="name" data-i18n="drv">Айгуль · 4.9 ★</div>
+                <span class="badge"><i></i><span data-i18n="ver">Проверена</span></span>
+              </div>
+              <span class="price">350 ₽</span>
+            </div>
+            <div class="trip">
+              <div><span class="pin" style="background:var(--gold)"></span><span data-i18n="from">Уфа, Гагарина</span></div>
+              <div><span class="pin" style="background:var(--green-bright)"></span><span data-i18n="to">Стерлитамак</span></div>
+            </div>
+            <div class="go" data-i18n="go">Поехали</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ===== Двуязычие RU/БА (БА — черновик, на проверке носителем) =====
+    const I18N = {
+      ru: {
+        nav_features:"Возможности", nav_trust:"Безопасность",
+        badge:"Попутки между своими", title1:"Доедем", title2:"вместе",
+        sub:"Юлдаш — попутки по Башкортостану между своими. Доверие, тёплые поездки и честная цена.",
+        cta:"Скачать для Android", cta_sub:"Бесплатно · APK · ~12 МБ", cta2:"Как это работает",
+        note:"После загрузки разреши установку «из этого источника» — это нормально для APK.",
+        s1:"между своими", s2:"средний рейтинг", s3:"кнопка безопасности",
+        eta:"12 мин · 8 км", drv:"Айгуль · 4.9 ★", ver:"Проверена",
+        from:"Уфа, Гагарина", to:"Стерлитамак", go:"Поехали"
+      },
+      ba: {
+        nav_features:"Мөмкинлектәр", nav_trust:"Именлек",
+        badge:"Үҙ-ара юлдаштар", title1:"Барып етәбеҙ", title2:"бергә",
+        sub:"Юлдаш — Башҡортостан буйлап үҙ-ара юлдаштар. Ышаныс, йылы юлдар һәм ғәҙел хаҡ.",
+        cta:"Android өсөн йөкләргә", cta_sub:"Бушлай · APK · ~12 МБ", cta2:"Был нисек эшләй",
+        note:"Йөкләгәндән һуң «был сығанаҡтан» урынлаштырыуға рөхсәт ит — APK өсөн был ғәҙәти.",
+        s1:"үҙ-ара", s2:"уртаса рейтинг", s3:"именлек төймәһе",
+        eta:"12 мин · 8 км", drv:"Айгөл · 4.9 ★", ver:"Тикшерелгән",
+        from:"Өфө, Гагарин", to:"Стәрлетамаҡ", go:"Киттек"
+      }
+    };
+    function setLang(lang) {
+      document.documentElement.lang = lang === "ba" ? "ba" : "ru";
+      document.querySelectorAll("[data-i18n]").forEach(el => {
+        const k = el.getAttribute("data-i18n");
+        if (I18N[lang][k]) el.textContent = I18N[lang][k];
+      });
+      document.querySelectorAll(".lang button").forEach(b =>
+        b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+    }
+    document.querySelectorAll(".lang button").forEach(b =>
+      b.addEventListener("click", () => setLang(b.dataset.lang)));
+  </script>
+</body>
+</html>

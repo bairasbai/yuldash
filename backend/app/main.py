@@ -23,7 +23,7 @@ from urllib.parse import urlencode
 from .config import settings
 from .db import engine, get_session, init_db
 from .models import (
-    AdEvent, Block, Booking, BookingStatus, DeviceToken, DriverProfile, Message, OtpCode, Rating, Report,
+    AdEvent, AppReview, Block, Booking, BookingStatus, DeviceToken, DriverProfile, Message, OtpCode, Rating, Report,
     Ride, RideCategory, RideRequest, RideStatus, SosEvent, TgAuth, TripShare,
     TrustedContact, User, UserRole,
 )
@@ -1313,3 +1313,102 @@ def create_block(body: BlockIn, user: User = Depends(current_user), session: Ses
     session.commit()
     session.refresh(block)
     return block
+
+
+# ---- Отзывы о приложении (для лендинга) ----
+
+class AppReviewIn(BaseModel):
+    stars: int = 5
+    text: str = ""
+    city: str = ""
+
+
+class PublicReviewOut(BaseModel):
+    name: str
+    city: str = ""
+    stars: int
+    text: str
+    created_at: datetime
+
+
+@app.post("/reviews", response_model=AppReview)
+def create_app_review(body: AppReviewIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пользователь оставляет отзыв о приложении. На лендинг попадёт после модерации (published)."""
+    text = (body.text or "").strip()
+    if len(text) < 10:
+        raise HTTPException(400, "Отзыв слишком короткий")
+    if len(text) > 600:
+        raise HTTPException(400, "Отзыв слишком длинный")
+    stars = max(1, min(5, body.stars))
+    review = AppReview(
+        user_id=user.id,
+        name=(user.name or "").strip(),
+        city=(body.city or "").strip()[:60],
+        stars=stars,
+        text=text,
+        published=False,  # модерация: на сайт — только после одобрения
+    )
+    session.add(review)
+    session.commit()
+    session.refresh(review)
+    return review
+
+
+@app.get("/reviews/mine", response_model=List[AppReview])
+def my_app_reviews(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    return session.exec(
+        select(AppReview).where(AppReview.user_id == user.id).order_by(AppReview.created_at.desc())
+    ).all()
+
+
+@app.get("/reviews/public", response_model=List[PublicReviewOut])
+def public_app_reviews(limit: int = 12, session: Session = Depends(get_session)):
+    """Публичные отзывы для лендинга — только одобренные (published=True), новые сверху."""
+    limit = max(1, min(50, limit))
+    rows = session.exec(
+        select(AppReview)
+        .where(AppReview.published == True)  # noqa: E712
+        .order_by(AppReview.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [
+        PublicReviewOut(
+            name=r.name or "Аноним",
+            city=r.city,
+            stars=r.stars,
+            text=r.text,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+
+# ---- Модерация отзывов (только админ) ----
+
+class ReviewPublishIn(BaseModel):
+    published: bool = True
+
+
+@app.get("/admin/reviews/pending", response_model=List[AppReview])
+def admin_pending_reviews(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отзывы, ожидающие модерации (не опубликованные)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    return session.exec(
+        select(AppReview).where(AppReview.published == False).order_by(AppReview.created_at.desc())  # noqa: E712
+    ).all()
+
+
+@app.post("/admin/reviews/{review_id}/publish", response_model=AppReview)
+def admin_publish_review(review_id: int, body: ReviewPublishIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Одобрить отзыв к показу на лендинге (или снять с публикации)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    review = session.get(AppReview, review_id)
+    if not review:
+        raise HTTPException(404, "Отзыв не найден")
+    review.published = body.published
+    session.add(review)
+    session.commit()
+    session.refresh(review)
+    return review

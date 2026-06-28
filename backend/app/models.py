@@ -222,3 +222,16 @@ class AdEvent(SQLModel, table=True):
     ad_id: str = Field(index=True)
     event_type: str = Field(index=True)      # impression / click
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AppReview(SQLModel, table=True):
+    """Отзыв о приложении (отдельно от Rating за поездку). Идёт на лендинг.
+    Модерация: published=False по умолчанию — на сайт попадает только одобренное."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
+    name: str = ""                           # имя для показа (по умолчанию из профиля)
+    city: str = ""                           # город (опционально)
+    stars: int = 5                           # 1..5
+    text: str = ""                           # текст отзыва
+    published: bool = Field(default=False, index=True)  # одобрено к показу на лендинге
+    created_at: datetime = Field(default_factory=datetime.utcnow)

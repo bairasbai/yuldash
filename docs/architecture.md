@@ -19,6 +19,46 @@
   Но **бо́льшая часть надписей пишется прямо в коде** через `appText(ru, ba)`.
 - Стек: Jetpack Compose, Material3, minSdk 26, target/compile 36, versionName 0.1.0.
 
+## Лендинг для скачивания (`web/`) — добавлено 2026-06-27
+- **Отдельная веб-зона**, не Android. Премиум-лендинг для скачивания APK напрямую.
+- **Стек:** Next.js 14 (App Router) + framer-motion + Tailwind. `output: "export"` → чистая статика (`web/out/`), раздаётся Nginx на yulbash.ru (Node в проде НЕ нужен).
+- **Цвета** синхронизированы с приложением (`Theme.kt`) через `web/tailwind.config.ts` (green #0B6B3A/#2FB36E, gold #D89B12, тёмный фон).
+- **Двуязычие:** RU/БА через контекст `web/components/lang.tsx` (`dict` + `useLang`), переключатель в шапке. БА — черновик, на проверке (tasks.md → «Переводы на проверку»).
+- **Структура:** `app/page.tsx` (обёрнут в `MotionConfig reducedMotion="user"`) собирает `Hero`/`Features`/`HowItWorks`/`Testimonials`/`Trust`/`FAQ`/`Download`/`Footer` + `Aurora` (фон) + `Header` + `StickyDownloadBar`. Появления — `Reveal.tsx` (whileInView). Мокап телефона — `PhoneMockup.tsx` (живая карта со слоями + едущая машина на CSS `offset-path`, анимации в `globals.css` `.mockup-*`; координаты маршрута SVG = offset-path машины).
+- **Маркетинг-блоки:** герой — мини-метрики + платформы (Android доступно, iPhone «скоро»). `Testimonials.tsx` (3 отзыва, соцдоказательство). `FAQ.tsx` (аккордеон, 5 вопросов, снимает возражения). `StickyDownloadBar.tsx` (залипающая «Скачать» на мобиле, `scrollY>640`). `Download.tsx` — APK + iPhone «скоро» (disabled). `Footer.tsx` — разделы/документы/контакты + соцсети.
+- **Конфиг ссылок:** `config.ts` — `SOCIAL` (telegram/vk/email), `LEGAL` (privacy/terms, заглушки `#`), `METRIKA_ID` (пусто = Метрика выключена) — подставить реальные.
+- **Премиум-слой ($15k-проход, 2026-06-27):**
+  - `StructuredData.tsx` — JSON-LD (SoftwareApplication + Organization + FAQPage) в `<head>` через layout → rich-сниппеты Google.
+  - OG-картинка `public/og.png` (1200×630) — отрендерена из `web/og-source.html` через Playwright (источник держим для перегенерации; в `out/` не попадает). В метаданных `og:image`/`twitter summary_large_image` + `canonical`.
+  - `Features.tsx` — **bento-сетка** (1 крупная featured-карточка с аватарами «свои» + 4.9★, остальные стандартные).
+  - `Counter.tsx` — count-up метрик героя (0→100%, 0→4.9), `useInView`, уважает reduced-motion.
+  - `ScrollProgress.tsx` — полоса прогресса прокрутки сверху (`useScroll`+`useSpring`).
+  - `CookieConsent.tsx` — баннер согласия (152-ФЗ), `localStorage`, двуязычный.
+  - `app/not-found.tsx` — кастомная брендовая 404 (двуязычная).
+  - `layout.tsx` — skip-link (a11y) + слот Яндекс.Метрики (грузится только при `METRIKA_ID`).
+- **Юр.страницы:** `app/privacy/page.tsx` + `app/terms/page.tsx` (статик-маршруты `/privacy`, `/terms`, в sitemap). Контент — `components/legal-content.ts` (`PRIVACY`/`TERMS`, тело RU — юридически значимый язык, заголовки двуязычные). Рендер — `components/LegalView.tsx` (шапка, переключатель RU/БА, двуязычная пометка про язык). ⚠️ В тексте плейсхолдер реквизитов оператора `[укажите ИП/ООО…]` — заполнить. Контакты в документах: Telegram @bairas_ntv, VK bairas_ntv.
+- **Контакты (config `SOCIAL`):** Telegram `https://t.me/bairas_ntv`, VK `https://vk.com/bairas_ntv` (email убран из футера). `LEGAL` → `/privacy`, `/terms`.
+- **Письмо от создателя (2026-06-27):** `FounderLetter.tsx` (секция `#founder`, после «Доверие») — фото `public/founder.jpg` (кадр 4:5 из оригинала, ~67 КБ) + личное письмо Байраса. Контент — `founder-content.ts` (двуязычный, BA — черновик). Сильный триггер доверия: фото, имя/роль, цитата-акцент, подпись, CTA «Скачать» + «Написать Байрасу» (Telegram).
+- **Финальная полировка (2026-06-27):**
+  - `Header.tsx` — полностью переписан: уплотнение при скролле (glass+тень), подсветка активной секции (IntersectionObserver + `layoutId` подчёркивание), **мобильное меню** (бургер → дровер справа, скрим, блок body-скролла, lang+CTA внизу). Шапка на `z-[60]` (выше cookie/sticky — иначе stacking-context съедал z, см. lessons.md).
+  - Якоря: `section[id]{scroll-margin-top:88px}` в globals.css — заголовки не прячутся под шапку.
+  - `PhoneMockup` — 3D-тилт за курсором (`useMotionValue`+`useSpring`, reduced-motion off).
+  - `StickyDownloadBar` ↔ `CookieConsent` синхронизированы через событие `yuldash-cookie-ok` (sticky не появляется, пока cookie не принят).
+- **Доделка до релиза без APK (2026-06-27):**
+  - `APP_READY` (config) = false. Все кнопки «Скачать» идут через `DownloadProvider`/`useDownload`: при false → модалка «Приложение почти готово» + «Написать в Telegram» (ловит спрос); при true → реальное скачивание APK. Положишь APK → `APP_READY=true`.
+  - `Comparison.tsx` (секция `#why`, после «Как это работает») — таблица Юлдаш vs Такси vs Автобус (колонка Юлдаш подсвечена), states yes/partial/no.
+  - PWA: `app/manifest.ts` (Next отдаёт `/manifest.webmanifest` + link), иконки `public/icon-192/512.png`, `apple-touch-icon.png`, `favicon.ico` (сгенерены из logo через PIL). Метаданные иконок в `layout.tsx`.
+  - `analytics.ts` `track(goal)` — цели Метрики (срабатывает только при `METRIKA_ID`). Трекаются: `download`/`download_intent`/`notify_telegram`.
+- **Иконки (2026-06-27):** единый набор `icons.tsx` (Lucide-стиль, stroke 2, БЕЗ эмодзи): BadgeCheck/Star/LifeBuoy/Lock/ShieldHeart/Tag/UserGlyph. Trust — эмодзи (✅⭐🆘🔒) заменены на SVG в зелёных плашках + ховер-scale. Features: «Честная цена» → Tag, «Спокойствие» → ShieldHeart (отлично от Trust-бейджа), иконки масштабируются на hover. Аватары (отзывы/мокап) → монограммы (буква имени) в градиентном круге; ряд «свои» в featured → UserGlyph-круги. Декор-эмодзи в тексте (💚🛣🐎) оставлены как тёплые акценты, не UI-иконки.
+- **21st.dev-приёмы (2026-06-27):** `BorderBeam.tsx` (бегущий свет по рамке — conic-gradient + mask-exclude + `@property --beam-a`, утилита `.shine-border` в globals) на CTA-блоке скачивания, фото создателя, featured-карточке возможностей. `SpotlightCard.tsx` + утилита `.spotlight` (свечение radial за курсором через CSS-переменные `--mx/--my`, ставит `spotMove`) на карточках «Возможности». Всё с reduced-motion.
+- **Премиум-моушн (motionsites-стиль, 2026-06-27):** `Loader.tsx` (брендовый intro — курай+«Юлдаш»+прогресс, 1 раз/сессию через sessionStorage + модульный флаг против StrictMode-double-mount; таймер НЕ чистим в cleanup), `Marquee.tsx` (бегущая лента городов РБ с курай-разделителями, край-fade), `Reveal.tsx` апгрейд (blur+scale «фокус-ин» по всему сайту), герой: пословное появление заголовка (stagger+blur), scroll-parallax (телефон/текст разной скоростью + fade), cursor-spotlight (зелёное свечение за курсором), `DownloadButton` — магнитный эффект (тянется к курсору). Всё уважает reduced-motion.
+- **Башкирский колорит (2026-06-27):** `Ornament.tsx` — `KuraiBloom` (цветок курая нарисован с нуля по референсу герба: веер из 7 листьев + ромб + завитки-рога/кускар; `variant="filled"` эмблема / `"outline"` контур для фона), `OrnamentKicker` (курай+линии над заголовками центр-секций: Features/How/Comparison/Testimonials/FAQ), `OrnamentBand` (кускар-разделитель: ромбы+завитки-рога, SVG pattern) — 2 шт в `page.tsx`. Курай-водяной знак в `Aurora` (медленно вращается, opacity ~0.05). Футер: курай + строка `kurai_meaning` («7 лепестков — 7 родов, ставших своими»). Цвета бренда (зелёный/золото) = цвета флага РБ + курай. Кнопки «Скачать»: при `APP_READY=false` подпись авто «Скоро запуск».
+- **SEO/e2e:** `app/robots.ts` + `app/sitemap.ts` (force-static → `out/robots.txt`, `out/sitemap.xml`), OG/Twitter-метаданные + `metadataBase` в `layout.tsx`. Базовый URL — `SITE_URL` в `config.ts`.
+- **APK:** `web/public/yuldash.apk` (в `.gitignore`), качается с `/yuldash.apk`. Размер/ссылка — `web/components/config.ts`. Деплой и Nginx — `web/README.md`.
+- **`web/hero.html`** — отдельный standalone-герой (один файл, без сборки) для быстрого превью/правок; не часть Next-сборки.
+- Сборка зелёная (6 статик-страниц), визуал всех секций прогнан через Playwright (RU/БА, десктоп+мобайл).
+- ⚠️ Next 14.2.x держим намеренно: CVE из аудита — про self-hosted Node-сервер (SSR/Image Optimizer/middleware), у нас статик-экспорт → не применимы. На next@16 (мажор) не прыгаем.
+
 ## Сервер / интеграция (слой `data/`) — добавлено 2026-06-23
 - API: **`https://yulbash.ru`** (FastAPI на сервере, см. [server.md](server.md)). Клиент: **`data/ApiClient.kt`** (object, встроенный `HttpURLConnection`, БЕЗ внешних зависимостей).
 - Токен JWT в `SharedPreferences("yuldash")`, автологин. `ApiClient.init(context)` зовётся в `YuldashApplication.onCreate`.

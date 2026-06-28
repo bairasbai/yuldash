@@ -1,0 +1,232 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0a1410;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Якорные секции не заезжают под фиксированную шапку */
+section[id] {
+  scroll-margin-top: 88px;
+}
+
+body {
+  background-color: var(--bg);
+  color: #eaf2ec;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+/* Премиум-градиентный текст (зелёный → золото) */
+.text-gradient {
+  background: linear-gradient(100deg, #7fe3ab 0%, #2fb36e 38%, #e8c36b 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Стеклянная карточка */
+.glass {
+  background: rgba(25, 36, 32, 0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(127, 227, 171, 0.12);
+}
+
+/* Тонкая зернистость поверх — «дорогой» матовый эффект */
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection {
+  background: rgba(47, 179, 110, 0.35);
+}
+
+/* ===== Border Beam (21st/MagicUI-стиль): бегущий свет по рамке ===== */
+@property --beam-a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.shine-border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--beam-a),
+    transparent 0%,
+    transparent 58%,
+    #2fb36e 72%,
+    #7fe3ab 80%,
+    #e8c36b 88%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: beam-spin 6s linear infinite;
+  opacity: 0.75;
+}
+@keyframes beam-spin {
+  to {
+    --beam-a: 360deg;
+  }
+}
+
+/* ===== Слайдер калькулятора ===== */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #2fb36e;
+  border: 3px solid #0a1410;
+  box-shadow: 0 0 0 4px rgba(47, 179, 110, 0.25);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+.slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #2fb36e;
+  border: 3px solid #0a1410;
+  cursor: pointer;
+}
+
+/* ===== Spotlight card: свечение за курсором (CSS-переменные --mx/--my) ===== */
+.spotlight {
+  position: relative;
+}
+.spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  background: radial-gradient(
+    220px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(47, 179, 110, 0.16),
+    transparent 70%
+  );
+}
+.spotlight:hover::before {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shine-border {
+    animation: none;
+  }
+}
+
+/* ===== Мокап телефона: карта, маршрут, едущая машина ===== */
+/* Маршрут (общий path) — координаты должны совпадать с offset-path машины */
+.mockup-route {
+  stroke-dasharray: 420;
+  stroke-dashoffset: 420;
+  animation: route-draw 1.7s cubic-bezier(0.21, 0.47, 0.32, 0.98) 0.7s forwards;
+}
+@keyframes route-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Машина едет по маршруту */
+.mockup-car {
+  offset-path: path("M66 290 C 110 245 120 175 168 145 S 224 90 220 64");
+  offset-rotate: auto;
+  offset-distance: 0%;
+  animation: mockup-drive 5s cubic-bezier(0.45, 0.05, 0.3, 1) 2.3s infinite;
+}
+@keyframes mockup-drive {
+  0% { offset-distance: 0%; opacity: 0; }
+  6% { opacity: 1; }
+  74% { offset-distance: 100%; opacity: 1; }
+  90% { offset-distance: 100%; opacity: 0; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+/* Пин финиша — выпадает */
+.mockup-pin {
+  transform: scale(0);
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: mockup-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 1.9s forwards;
+}
+@keyframes mockup-pop {
+  to { transform: scale(1); }
+}
+
+/* Пульс точки старта */
+.mockup-ping {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: mockup-ping 2.4s cubic-bezier(0.21, 0.47, 0.32, 0.98) infinite;
+}
+@keyframes mockup-ping {
+  0% { transform: scale(1); opacity: 0.7; }
+  70%, 100% { transform: scale(3); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mockup-route { stroke-dashoffset: 0; }
+  .mockup-car { animation: none; offset-distance: 58%; opacity: 1; }
+  .mockup-pin { transform: scale(1); }
+  .mockup-ping { animation: none; opacity: 0; }
+}
+
+/* Бегущая «комета» по контуру карты покрытия */
+@keyframes coverage-flow {
+  to { stroke-dashoffset: -1; }
+}
+.coverage-runner {
+  stroke-dashoffset: 0;
+  animation: coverage-flow 16s linear infinite;
+}
+.coverage-runner-2 {
+  animation-duration: 16s;
+  animation-delay: -8s;
+}
+
+/* Уважаем prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

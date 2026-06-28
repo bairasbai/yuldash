@@ -18,9 +18,45 @@
 - Код: `/opt/yuldash` (залит из `backend/`). venv: `/opt/yuldash/.venv`.
 - Конфиг: `/opt/yuldash/.env` (`env=prod`, `jwt_secret`, `DATABASE_URL` → PostgreSQL, `SMS_PROVIDER`). **НЕ в git.**
 - Сервис: systemd **`yuldash-api`** (uvicorn на `127.0.0.1:8000`, автозапуск при загрузке, `Restart=always`).
-- nginx: проксь `:443`/`:80` → `:8000`. Конфиг `/etc/nginx/sites-available/yuldash`. **WebSocket включён** (2026-06-27): `map $http_upgrade $connection_upgrade` в `/etc/nginx/conf.d/ws_upgrade.conf` + `proxy_http_version 1.1` + `Upgrade`/`Connection` заголовки + `proxy_read_timeout 3600s` в `location /`. Realtime-чат `wss://yulbash.ru/ws/bookings/{id}` работает.
+- nginx (ОБНОВЛЕНО 2026-06-28): `yulbash.ru/` отдаёт **статик-лендинг** из `/var/www/yuldash-landing`, а все НЕ-файловые пути (API) идут на `:8000`. Конфиг `/etc/nginx/sites-available/yuldash` (бэкап `/root/yuldash.nginx.bak.*`):
+  ```
+  root /var/www/yuldash-landing; index index.html;
+  location = / { try_files /index.html @api; }
+  location /   { try_files $uri $uri.html $uri/ @api; }   # есть файл → лендинг, нет → API
+  location @api { proxy_pass http://127.0.0.1:8000; + Host/X-Forwarded/Upgrade/Connection; proxy_read_timeout 3600s; }
+  ```
+  Пути лендинга (`/`,`/safety`,`/_next/*`,...) и API (`/health`,`/rides`,`/reviews`,`/ws/*`,...) НЕ пересекаются → приложение работает без изменений. WebSocket: `map $http_upgrade $connection_upgrade` в `/etc/nginx/conf.d/ws_upgrade.conf`; upgrade-заголовки в `@api`. `wss://yulbash.ru/ws/bookings/{id}` работает.
+  - **Заголовки безопасности** (2026-06-28, на все ответы): `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: geolocation=()/microphone=()/camera=()`. CSP НЕ ставил (риск сломать Метрику/Next inline — добавлять только с тестом). `gzip on` (nginx.conf).
+  - **Кэш**: `location /_next/static/` → `Cache-Control: public, max-age=31536000, immutable` (имена файлов хешированы). HTML — без явного кэша (обновления видны сразу).
 - **API публично (HTTPS): `https://yulbash.ru`** (HTTP → 301 на HTTPS). Проверка: `curl https://yulbash.ru/health` → `{"status":"ok","env":"prod"}`.
 - Домен: **`yulbash.ru`** (A-запись → `85.239.52.55`, регистратор Timeweb). SSL: Let's Encrypt (`certbot`, плагин nginx) для `yulbash.ru` + `www.yulbash.ru`. Авто-обновление: `certbot.timer`. Cert: `/etc/letsencrypt/live/yulbash.ru/`. (Старый `sslip.io`-cert тоже остался, не мешает.)
+
+## 🚀 Деплой (ШПАРГАЛКА)
+Ключ SSH: `~/.ssh/id_ed25519`, сервер `root@85.239.52.55`. ⚠️ ТСПУ может рвать SSH → повтор/VPN.
+
+### Лендинг (web/) → `https://yulbash.ru`
+1. Любая правка в `web/`. ⚠️ заглушить локальный `npm run dev` ПЕРЕД сборкой (делят `.next`).
+2. Сборка статики:
+   ```
+   cd web && npm run build      # → web/out/ (11 страниц)
+   ```
+3. Залить на сервер (чистим старое для свежести):
+   ```
+   ssh -i ~/.ssh/id_ed25519 root@85.239.52.55 "rm -rf /var/www/yuldash-landing/*"
+   scp -i ~/.ssh/id_ed25519 -r web/out/* root@85.239.52.55:/var/www/yuldash-landing/
+   ssh -i ~/.ssh/id_ed25519 root@85.239.52.55 "chmod -R a+rX /var/www/yuldash-landing"
+   ```
+4. Проверка: `curl https://yulbash.ru/` (с сервера, т.к. ТСПУ режет curl с ноута). nginx уже настроен — перезапуск НЕ нужен.
+
+### Бэкенд (FastAPI) → прод
+- ⚠️ Прод = **рефакторённая** архитектура (`main.py`-фабрика + `app/routers/*`), деплоится с ветки `claude/quizzical-wescoff-bcdfd1` (НЕ из старых монолит-веток!). Отзывы там: коммит `fa12e39`, роутер `app/routers/reviews.py`.
+- Ручной деплой файла: `scp app/<file>.py root@85.239.52.55:/opt/yuldash/app/` → `ssh ... "chown -R yuldash:yuldash /opt/yuldash && systemctl restart yuldash-api"`. Новые таблицы создаёт сам `create_all` при старте.
+- Проверка: `ssh root@85.239.52.55 "curl -s http://127.0.0.1:8000/health"` и `curl https://yulbash.ru/reviews/public`.
+- ⚠️ Деплой монолита поверх рефакта = краш (разъезд импортов). Сверять архитектуру перед заливкой.
+
+### Отзывы (модерация на лендинг)
+- Поток: приложение `POST /reviews` → скрыто (published=false) → админ одобряет (экран «Модерация отзывов» в приложении ИЛИ `POST /admin/reviews/{id}/publish`) → лендинг `GET /reviews/public` показывает.
+- Лендинг тянет `TESTIMONIALS_API="/reviews/public"` клиентски; пусто → честная заглушка.
 
 ## 💾 Бэкапы БД (2026-06-27)
 - Скрипт `/opt/yuldash/backup-db.sh` (исходник в git: `backend/backup-db.sh`): `pg_dump yuldash | gzip` → `/opt/yuldash/backups/`, хранит последние 14.
