@@ -350,3 +350,8 @@
 
 **Фаза 2 — Android (следующий релиз APK):** заменить `SbpTransferSheet` в `BoostScreen` на реальный редирект ЮKassa (`POST /boost/create`→открыть `confirmation_url`→вернуться→poll статус). Аналогично для платной рекламы.
 - 2026-06-28 Boost Фаза 1 ЗАДЕПЛОЕНО: миграция `migrate_boost.sql` (ALTER ride + индекс) прошла, `payment` создана `create_all`, сервис active, `/boost/plans` отдаёт 3 тарифа на проде, health ok. Прод-провайдер=mock → `/boost/create` отдаёт 503 (бесплатных бустов нет). 58 тестов зелёные. Ждёт: ключи ЮKassa от Александра + Android Фаза 2 (реальный редирект вместо фейкового СБП).
+- 2026-06-28 Платежи СБП-интерим + ЮKassa-материалы:
+  * ЮKassa — ВСЁ готово к подключению (бэкенд+авто-чек задеплоено ранее). Анкета ЮKassa: текст «что продаёте» + 2 скрина с ценами готовы → `C:\Users\Bayra\Yuldash\yookassa-anketa\` (01_uslugi_boost_ceny.png — тарифы 20/50/70₽, 02_prilozhenie_poezdki.png). Блокер анкеты: поле «ссылка на приложение» — нужна публикация (RuStore). Ключи ЮKassa Александр добавит позже.
+  * СБП-интерим ЗАДЕПЛОЕН (бэкенд): `PAYMENTS_PROVIDER=sbp_manual` → `/boost/create` отдаёт pending+реквизиты (`sbp_phone/bank/name` из .env, НЕ в git), активирует админ: `GET /admin/payments/pending`, `POST /admin/payments/{id}/confirm|reject`. 59 тестов зелёные. Прод пока mock (буст 503) — флипнем на sbp_manual + номер когда Android Фаза 2 пойдёт в стор.
+  * APK debug собран (BUILD SUCCESSFUL 1m5s), скрины сняты на эмуляторе.
+  Осталось: Android Фаза 2 (экран Boost: реквизиты СБП + «я оплатил»→pending; редирект ЮKassa на будущее) + RuStore-пакет/публикация.
