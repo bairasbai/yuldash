@@ -281,6 +281,7 @@ internal enum class Screen {
     Report,
     Filters,
     AdminRequest,
+    AdminResponses,
     RequestsFeed,
     RequestResponses,
     Help,

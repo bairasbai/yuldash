@@ -291,10 +291,28 @@ internal fun SosScreen(onBack: () -> Unit) {
     val selectedIdx = on.indexOfFirst { it }.takeIf { on.count { v -> v } == 1 }
     val dialNumber = if (selectedIdx != null) services[selectedIdx].number else "112"
 
-    // Координаты — берём уже кешированную геопозицию (если включена), показываем для диктовки оператору.
-    val lat = LocationPrefs.lastLat
-    val lng = LocationPrefs.lastLng
-    val coordsText = if (lat != null && lng != null) String.format("%.5f, %.5f", lat, lng) else null
+    // Живая геолокация для ЧП — запрашиваем прямо здесь (а не ждём кеш с карты). Главное в SOS.
+    var sosLat by remember { mutableStateOf(LocationPrefs.lastLat) }
+    var sosLng by remember { mutableStateOf(LocationPrefs.lastLng) }
+    fun fetchLoc() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        val loc = try {
+            lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+                ?: lm.getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER)
+        } catch (e: SecurityException) { null }
+        if (loc != null) { sosLat = loc.latitude; sosLng = loc.longitude; LocationPrefs.lastLat = loc.latitude; LocationPrefs.lastLng = loc.longitude }
+    }
+    val locPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) fetchLoc()
+    }
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) fetchLoc()
+        else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    val coordsText = if (sosLat != null && sosLng != null) String.format("%.5f, %.5f", sosLat, sosLng) else null
 
     fun dictText(): String = buildString {
         if (description.isNotBlank()) append(description.trim())
@@ -361,23 +379,44 @@ internal fun SosScreen(onBack: () -> Unit) {
             }
 
             // Что продиктовать оператору: текст + координаты (в звонок их вложить нельзя — даём скопировать/прочитать).
-            if (description.isNotBlank() || coordsText != null) {
-                item {
-                    Surface(color = CanonMint, shape = CanonItemShape) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(appText("Продиктуй оператору", "Операторға әйт"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                            if (description.isNotBlank()) Text(description.trim(), color = CanonText, fontSize = 15.sp, lineHeight = 20.sp)
-                            if (coordsText != null) Text(appText("Координаты: ", "Координаталар: ") + coordsText, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            item {
+                Surface(color = CanonMint, shape = CanonItemShape) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(appText("Продиктуй оператору", "Операторға әйт"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                        if (description.isNotBlank()) Text(description.trim(), color = CanonText, fontSize = 15.sp, lineHeight = 20.sp)
+                        if (coordsText != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(appText("Координаты: ", "Координаталар: ") + coordsText, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        } else {
+                            Text(appText("Геолокация выключена — включи, чтобы продиктовать координаты.", "Геолокация һүндерелгән — координаталарҙы әйтер өсөн ҡабыҙ."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = {
-                                    clipboard.setText(AnnotatedString(dictText()))
-                                    Toast.makeText(context, tCopied, Toast.LENGTH_SHORT).show()
+                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) fetchLoc()
+                                    else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                                 },
                                 shape = RoundedCornerShape(14.dp)
                             ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.NearMe, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(appText("Скопировать", "Күсереү"))
+                                Text(if (coordsText != null) appText("Обновить", "Яңыртыу") else appText("Включить гео", "Геоны ҡабыҙыу"))
+                            }
+                            if (description.isNotBlank() || coordsText != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        clipboard.setText(AnnotatedString(dictText()))
+                                        Toast.makeText(context, tCopied, Toast.LENGTH_SHORT).show()
+                                    },
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(appText("Скопировать", "Күсереү"))
+                                }
                             }
                         }
                     }
@@ -404,16 +443,19 @@ internal fun SosScreen(onBack: () -> Unit) {
                 )
             }
 
-            // 🟧 Второй канал — сигнал «своим» водителям рядом (наш бэкенд).
+            // 🟧 Второй канал — уведомление доверенным контактам (SMS) + поддержке (Telegram админу). Реальный бэкенд.
             item { Spacer(Modifier.height(4.dp)) }
             item {
-                Text(appText("Или сигнал своим", "Йәки үҙебеҙҙекеләргә сигнал"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                    Text(appText("SMS твоим доверенным контактам + сигнал поддержке Юлдаш с твоими координатами.", "Ышаныслы контакттарыңа SMS + Юлдаш ярҙамына координаталарың менән сигнал."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                }
             }
             if (sent) {
                 item {
                     InfoCard(
-                        title = appText("Сигнал отправлен", "Сигнал ебәрелде"),
-                        text = appText("Ближайшие водители увидят твой SOS. Статус: ожидание отклика.", "Яҡындағы водителдәр SOS-ыңды күрер. Статус: яуап көтөү."),
+                        title = appText("Уведомление отправлено", "Хәбәр ебәрелде"),
+                        text = appText("Доверенные контакты получат SMS, поддержка увидит сигнал с координатами.", "Ышаныслы контакттар SMS алыр, ярҙам координаталар менән сигналды күрер."),
                         icon = Icons.Default.Sos
                     )
                 }
@@ -429,19 +471,20 @@ internal fun SosScreen(onBack: () -> Unit) {
             }
             item {
                 AppButton(
-                    text = if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Сигнал водителям рядом", "Яҡындағы водителдәргә сигнал"),
+                    text = if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"),
                     onClick = {
                         if (sending) return@AppButton
                         failed = false
                         sent = false
                         sending = true
-                        // Категория «своим»: берём выбранную службу (если одна), иначе общий note со всеми выбранными.
+                        // Категория: берём выбранную службу (если одна), иначе other. В note кладём службы + текст + КООРДИНАТЫ (бэкенд без гео-поля → передаём строкой).
                         val chosen = services.filterIndexed { i, _ -> on[i] }
                         val cat = chosen.singleOrNull()?.sosCategory ?: "other"
                         val note = buildString {
                             if (chosen.isNotEmpty()) append("Службы: " + chosen.joinToString(", ") { it.label.ru } + ". ")
-                            if (description.isNotBlank()) append(description.trim())
-                        }.ifBlank { "SOS" }
+                            if (description.isNotBlank()) append(description.trim() + " ")
+                            if (coordsText != null) append("Координаты: $coordsText (https://yandex.ru/maps/?pt=$sosLng,$sosLat&z=17)")
+                        }.trim().ifBlank { "SOS" }
                         scope.launch {
                             val r = ApiClient.sos(cat, note)   // ждём сервер, НЕ fire-and-forget (кнопка безопасности)
                             sending = false

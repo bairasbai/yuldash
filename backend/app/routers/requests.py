@@ -187,7 +187,7 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
     req = session.get(RideRequest, request_id)
     if not req:
         raise HTTPException(404, "Заявка не найдена")
-    if req.passenger_id != user.id:
+    if req.passenger_id != user.id and user.role != UserRole.admin:   # админ видит любые (помощь по звонку)
         raise HTTPException(403, "Нет доступа")
     resps = session.exec(
         select(RequestResponse).where(RequestResponse.request_id == request_id).order_by(RequestResponse.id.desc())
@@ -212,7 +212,9 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     if not resp:
         raise HTTPException(404, "Отклик не найден")
     req = session.get(RideRequest, resp.request_id)
-    if not req or req.passenger_id != user.id:
+    if not req:
+        raise HTTPException(404, "Заявка не найдена")
+    if req.passenger_id != user.id and user.role != UserRole.admin:   # админ принимает ЗА юзера (без интернета)
         raise HTTPException(403, "Нет доступа")
     if req.status != "active":
         raise HTTPException(400, "Заявка уже закрыта")
@@ -224,8 +226,8 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     session.add(ride)
     session.commit()
     session.refresh(ride)
-    booking = Booking(
-        ride_id=ride.id, passenger_id=user.id, seats=req.seats, price=resp.price * req.seats,
+    booking = Booking(   # бронь на ПАССАЖИРА заявки (а не на того, кто принял — важно при admin-accept)
+        ride_id=ride.id, passenger_id=req.passenger_id, seats=req.seats, price=resp.price * req.seats,
         status=BookingStatus.confirmed, boarding_code=gen_otp(),
     )
     session.add(booking)
@@ -235,7 +237,8 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     session.add(resp)
     session.commit()
     session.refresh(booking)
-    send_push(session, resp.driver_id, "Заявку приняли", f"{user.name or 'Пассажир'}: {req.from_city} → {req.to_city}")
+    pax = session.get(User, req.passenger_id)
+    send_push(session, resp.driver_id, "Заявку приняли", f"{(pax.name if pax else 'Пассажир')}: {req.from_city} → {req.to_city}")
     return {"booking_id": booking.id}
 
 

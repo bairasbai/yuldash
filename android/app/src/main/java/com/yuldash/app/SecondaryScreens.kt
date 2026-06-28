@@ -438,6 +438,7 @@ internal fun SettingsScreen(
     onFilters: () -> Unit = {},
     isAdmin: Boolean = false,
     onAdminRequest: () -> Unit = {},
+    onAdminResponses: () -> Unit = {},
 ) {
     var notifications by remember { mutableStateOf(true) }
     var sounds by remember { mutableStateOf(true) }
@@ -490,6 +491,7 @@ internal fun SettingsScreen(
                 item {
                     SettingsGroup {
                         SettingsNavRow(Icons.Default.HeadsetMic, appText("Заявка за пользователя", "Ҡулланыусы өсөн заявка"), appText("Создать заявку после звонка «перезвоните мне»", "«Шылтыратығыҙ» һуңында заявка булдырыу"), onClick = onAdminRequest)
+                        SettingsNavRow(Icons.Default.ListAlt, appText("Отклики по заявке", "Заявка буйынса яуаптар"), appText("Принять отклик за пользователя без интернета", "Интернетһыҙ ҡулланыусы өсөн яуап ҡабул итеү"), onClick = onAdminResponses)
                     }
                 }
             }
@@ -724,6 +726,66 @@ internal fun AdminRequestScreen(onBack: () -> Unit) {
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) { Text(appText("Создать заявку", "Заявка булдырыу"), fontWeight = FontWeight.Black) }
+            }
+        }
+    }
+}
+
+/** Админ: отклики по заявке (из Telegram-уведомления) → принять ЗА пользователя (без интернета). */
+@Composable
+internal fun AdminResponsesScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var reqId by remember { mutableStateOf("") }
+    var resps by remember { mutableStateOf<List<com.yuldash.app.data.ResponseDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    val acceptedMsg = appText("Поездка создана. Перезвоните пассажиру и водителю.", "Сәфәр булдырылды. Пассажирға һәм водителгә шылтыратығыҙ.")
+    val noResp = appText("Откликов нет или заявка не найдена", "Яуап юҡ йәки заявка табылманы")
+    fun load() {
+        val id = reqId.toIntOrNull() ?: return
+        loading = true
+        scope.launch {
+            ApiClient.getRequestResponses(id)
+                .onSuccess { resps = it; loading = false; if (it.isEmpty()) Toast.makeText(ctx, noResp, Toast.LENGTH_SHORT).show() }
+                .onFailure { loading = false; Toast.makeText(ctx, noResp, Toast.LENGTH_SHORT).show() }
+        }
+    }
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики по заявке", "Заявка буйынса яуаптар"), onBack) }) { padding ->
+        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+            item { Text(appText("Из Telegram-уведомления возьми № заявки. Открой отклики и прими за пользователя после звонка.", "Telegram хәбәренән заявка № ал. Шылтыратҡас яуаптарҙы ас, ҡулланыусы өсөн ҡабул ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(reqId, { reqId = it.filter { c -> c.isDigit() }.take(8) }, label = { Text(appText("№ заявки", "Заявка №")) }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(14.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Button(onClick = { load() }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Открыть", "Асыу"), fontWeight = FontWeight.Bold) }
+                }
+            }
+            if (loading) item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            items(resps.size) { i ->
+                val r = resps[i]
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(r.driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                            r.driverRating?.let { Spacer(Modifier.width(6.dp)); Text("★ $it", color = CanonMuted, fontSize = 13.sp) }
+                            Spacer(Modifier.weight(1f))
+                            if (r.price > 0) Text("${r.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                        }
+                        if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
+                        if (r.status == "accepted") {
+                            Text(appText("Принято", "Ҡабул ителде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        } else {
+                            Button(
+                                onClick = {
+                                    val id = r.id
+                                    scope.launch { ApiClient.acceptResponse(id).onSuccess { Toast.makeText(ctx, acceptedMsg, Toast.LENGTH_LONG).show(); load() } }
+                                },
+                                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                            ) { Text(appText("Принять за пользователя", "Ҡулланыусы өсөн ҡабул итеү"), fontWeight = FontWeight.Black) }
+                        }
+                    }
+                }
             }
         }
     }

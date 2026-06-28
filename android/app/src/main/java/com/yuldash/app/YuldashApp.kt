@@ -583,9 +583,11 @@ internal fun YuldashApp() {
                 onPayments = { screen = Screen.PaymentInfo },
                 onFilters = { screen = Screen.Filters },
                 isAdmin = isAdmin,
-                onAdminRequest = { screen = Screen.AdminRequest }
+                onAdminRequest = { screen = Screen.AdminRequest },
+                onAdminResponses = { screen = Screen.AdminResponses }
             )
             Screen.AdminRequest -> AdminRequestScreen(onBack = { screen = Screen.Settings })
+            Screen.AdminResponses -> AdminResponsesScreen(onBack = { screen = Screen.Settings })
             Screen.Help -> HelpScreen(
                 ads = partnerAds,
                 adStats = adStats,
