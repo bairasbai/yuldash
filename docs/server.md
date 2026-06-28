@@ -22,12 +22,24 @@
 - **API публично (HTTPS): `https://yulbash.ru`** (HTTP → 301 на HTTPS). Проверка: `curl https://yulbash.ru/health` → `{"status":"ok","env":"prod"}`.
 - Домен: **`yulbash.ru`** (A-запись → `85.239.52.55`, регистратор Timeweb). SSL: Let's Encrypt (`certbot`, плагин nginx) для `yulbash.ru` + `www.yulbash.ru`. Авто-обновление: `certbot.timer`. Cert: `/etc/letsencrypt/live/yulbash.ru/`. (Старый `sslip.io`-cert тоже остался, не мешает.)
 
-## 💾 Бэкапы БД (2026-06-27)
+## 💾 Бэкапы БД (2026-06-27, + офсайт-S3 2026-06-28)
 - Скрипт `/opt/yuldash/backup-db.sh` (исходник в git: `backend/backup-db.sh`): `pg_dump yuldash | gzip` → `/opt/yuldash/backups/`, хранит последние 14.
 - Cron: **ежедневно 4:00**, лог `/opt/yuldash/backups/backup.log`.
 - Ручной бэкап: `ssh root@85.239.52.55 "/opt/yuldash/backup-db.sh"`.
 - Восстановить: `gunzip -c backups/yuldash-ДАТА.sql.gz | sudo -u postgres psql yuldash`.
-- ⚠️ Бэкапы на том же сервере → при потере сервера потеряются. Позже: копировать в облако/другой хост.
+- **Офсайт-копия в S3 (2026-06-28, infra готова, aws-cli v2 стоит).** Скрипт после локального дампа грузит копию в S3-совместимый бакет — страховка на случай гибели сервера. **Включается одним файлом `/opt/yuldash/.backup-s3.env` (НЕ в git):**
+  ```
+  S3_ENDPOINT=https://s3.twcstorage.ru   # эндпоинт твоего бакета (Timeweb/Selectel/Backblaze)
+  S3_BUCKET=yuldash-backups
+  AWS_ACCESS_KEY_ID=...
+  AWS_SECRET_ACCESS_KEY=...
+  ```
+  Без файла блок тихо пропускается (локальный бэкап цел). Ретеншн в облаке настраивается lifecycle-правилом бакета. ⚠️ Действие Александра: создать бакет + ключи, положить файл.
+
+## 🔔 Мониторинг (2026-06-28)
+- Скрипт `/opt/yuldash/monitor.sh` (git: `backend/monitor.sh`): пинг `http://127.0.0.1:8000/health` **раз в минуту** (cron), лог `/opt/yuldash/monitor.log`.
+- При падении (`/health` не `ok`/`db:ok`) шлёт алерт в **Telegram** через бот `@yuldash_sms_bot`. Сообщение — ТОЛЬКО на смене состояния (упал/восстановился), без спама.
+- **Включается файлом `/opt/yuldash/.monitor.env` (НЕ в git):** `ALERT_CHAT_ID=<твой chat_id>`. Узнать chat_id: напиши боту любое сообщение → `curl -s "https://api.telegram.org/bot$TOKEN/getUpdates"` (TOKEN из `.env`) → поле `"id"`. Без chat_id скрипт работает, но молчит.
 
 ## 🚪 Как подключиться и управлять (шпаргалка для Александра)
 
