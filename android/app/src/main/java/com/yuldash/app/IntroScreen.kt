@@ -35,7 +35,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,7 +49,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -58,6 +67,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** Размотка Compose-контекста (часто ContextWrapper) до Activity — чтобы достать window для иконок статус-бара. */
+private fun Context.findActivityCompat(): Activity? {
+    var c: Context? = this
+    while (c is ContextWrapper) { if (c is Activity) return c; c = c.baseContext }
+    return null
+}
 
 private val Gold = Color(0xFFD89B12)
 private val GoldLight = Color(0xFFFFF1CC)
@@ -78,10 +94,10 @@ private fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
         text.forEachIndexed { i, ch ->
             AnimatedVisibility(
                 visible = visible,
-                enter = fadeIn(tween(600, i * 42, EaseOutExpo)) +
-                    slideInVertically(tween(680, i * 42, EaseOutExpo)) { it / 2 },
-                exit = fadeOut(tween(300, i * 22)) +
-                    slideOutVertically(tween(360, i * 22)) { -it / 3 },
+                enter = fadeIn(tween(620, i * 38, EaseOutExpo)) +
+                    slideInVertically(tween(700, i * 38, EaseOutExpo)) { it / 2 },
+                exit = fadeOut(tween(260, i * 12)) +
+                    slideOutVertically(tween(300, i * 12)) { -it / 3 },
             ) {
                 Text(ch.toString(), color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Medium, fontFamily = Montserrat, letterSpacing = 1.sp)
             }
@@ -108,6 +124,23 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         }.getOrDefault(false)
     }
 
+    val haptic = LocalHapticFeedback.current
+    // Светлые (белые) иконки статус/нав-бара поверх тёмного пейзажа; вернуть прежние при уходе из интро.
+    // SideEffect переустанавливает каждый recompose — переигрывает тему (windowLightStatusBar=true).
+    val barController = remember(ctx) {
+        ctx.findActivityCompat()?.let { act -> WindowCompat.getInsetsController(act.window, act.window.decorView) }
+    }
+    SideEffect {
+        barController?.isAppearanceLightStatusBars = false
+        barController?.isAppearanceLightNavigationBars = false
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            barController?.isAppearanceLightStatusBars = true   // вернуть тёмные иконки (светлая тема приложения)
+            barController?.isAppearanceLightNavigationBars = true
+        }
+    }
+
     var showMeaning by remember { mutableStateOf(false) }
     var showBrand by remember { mutableStateOf(reduceMotion) }
     var showUnderline by remember { mutableStateOf(reduceMotion) }
@@ -117,41 +150,40 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     var done by remember { mutableStateOf(false) }
     fun finish() { if (!done) { done = true; onComplete() } }
 
-    val logoScale = remember { Animatable(if (reduceMotion) 1f else 0.84f) }
-    val logoAlpha = remember { Animatable(if (reduceMotion) 1f else 0f) }
-    val glow = remember { Animatable(if (reduceMotion) 1f else 0f) }
+    val logoScale = remember { Animatable(if (reduceMotion) 1f else 0.96f) }   // лёгкий settle, без «прыжка» (значок уже виден на системном сплэше)
+    val logoAlpha = remember { Animatable(1f) }   // лого видно сразу — бесшовный хэндофф с системного сплэша (фейд даёт переход экрана)
     val drift = remember { Animatable(1f) }
     val sheen = remember { Animatable(-260f) }    // позиция золотого блика по «Юлдаш»
-    val kurai = remember { Animatable(if (reduceMotion) 1f else 0f) }   // распускание курая (7 родов)
-    val road = remember { Animatable(if (reduceMotion) 1f else 0f) }    // прорисовка дороги (маршрут)
+    val sceneScale = remember { Animatable(if (reduceMotion) 1f else 1.08f) }   // мягкий push-in пейзажа (Ken-Burns)
+    val sceneAlpha = remember { Animatable(if (reduceMotion) 1f else 0f) }      // пейзаж ПРОЯВЛЯЕТСЯ из зелёного → бесшовно с системным сплэшем
 
     LaunchedEffect(Unit) {
         if (reduceMotion) { delay(1000); finish(); return@LaunchedEffect }
         launch { drift.animateTo(1.05f, tween(4700, easing = EaseInOutSine)) }
-        launch { logoAlpha.animateTo(1f, tween(540, easing = EaseOutExpo)) }
-        launch { glow.animateTo(1f, tween(950, easing = EaseOutExpo)) }
-        launch { kurai.animateTo(1f, tween(1300, easing = EaseOutExpo)) }       // курай распускается за лого
-        launch { road.animateTo(1f, tween(1400, easing = EaseOutExpo)) }        // дорога рисуется + точка едет
+        launch { sceneScale.animateTo(1f, tween(4700, easing = EaseInOutSine)) }   // пейзаж медленно «наезжает»
+        launch { sceneAlpha.animateTo(1f, tween(800, easing = EaseInOutSine)) }    // плавное проявление пейзажа из зелёного (без резкого «хлопка»)
         logoScale.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow))
-        delay(110)
+        delay(160)
         showMeaning = true
-        delay(1000)
-        showMeaning = false; showBrand = true
-        launch { delay(300); sheen.animateTo(680f, tween(900, easing = EaseInOutSine)) }   // блик по бренду
-        delay(320); showUnderline = true
-        delay(720); showSlogan = true
-        delay(880); sloganBa = true
-        delay(1000); exiting = true
-        delay(440); finish()
+        delay(1200)                 // «Попутчик» держим дольше — читается спокойно
+        showMeaning = false
+        delay(420)                  // слово ПОЛНОСТЬЮ уходит до «Юлдаш» — без наложения
+        showBrand = true
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)   // тактильный «тук» в момент появления бренда
+        launch { delay(360); sheen.animateTo(720f, tween(1100, easing = EaseInOutSine)) }   // медленный люкс-блик
+        delay(500); showUnderline = true
+        delay(780); showSlogan = true
+        delay(1400); sloganBa = true    // русский слоган подышал — потом башкирский
+        delay(1200); exiting = true     // башкирский подышал — и плавный уход
+        delay(500); finish()
     }
 
-    val ring by animateFloatAsState(if (showMeaning || showBrand) 1f else 0f, tween(720, easing = EaseOutExpo), label = "ring")
-    val brandIn by animateFloatAsState(if (showBrand) 1f else 0f, tween(680, easing = EaseOutExpo), label = "bIn")
-    val brandScale by animateFloatAsState(if (showBrand) 1f else 0.94f, spring(0.78f, Spring.StiffnessMediumLow), label = "bSc")
-    val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(800, easing = EaseOutExpo), label = "ul")
-    val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(440, easing = EaseInOutSine), label = "exA")
-    val exitScale by animateFloatAsState(if (exiting) 1.08f else 1f, tween(460, easing = EaseInCubic), label = "exS")
-    val roadFade by animateFloatAsState(if (showMeaning || showBrand) 0f else 1f, tween(520, easing = EaseInOutSine), label = "rf")
+    val brandIn by animateFloatAsState(if (showBrand) 1f else 0f, tween(780, easing = EaseOutExpo), label = "bIn")
+    val brandScale by animateFloatAsState(if (showBrand) 1f else 0.92f, spring(0.82f, Spring.StiffnessLow), label = "bSc")
+    val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(820, easing = EaseOutExpo), label = "ul")
+    val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(560, easing = EaseInOutSine), label = "exA")
+    val exitScale by animateFloatAsState(if (exiting) 1.06f else 1f, tween(580, easing = EaseInCubic), label = "exS")
+    val sloganAlpha by animateFloatAsState(if (showSlogan) 1f else 0f, tween(560, easing = EaseOutExpo), label = "sloA")
 
     val brandBrush = Brush.linearGradient(
         listOf(Color.White, Color.White, GoldLight, Color.White, Color.White),
@@ -161,11 +193,25 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(GreenTop, GreenBottom)))
+            .background(GreenTop)   // тот же зелёный, что у СИСТЕМНОГО сплэша → бесшовный хэндофф, пока пейзаж проявляется
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { finish() },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Transparent, Color(0x40000000)), radius = 1500f)))
+        // Пейзаж Башкортостана (как на референсе) — проявляется из зелёного (alpha) + мягкий push-in (scale)
+        Image(
+            painter = painterResource(R.drawable.splash_landscape),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                scaleX = sceneScale.value; scaleY = sceneScale.value; alpha = sceneAlpha.value
+            },
+        )
+        // Тёплая вуаль + виньетка: тёмно-зелёный тон и читаемость белого текста поверх сцены
+        Box(Modifier.fillMaxSize().background(Color(0x33000000)))
+        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Transparent, Color(0x5A000000)), radius = 1500f)))
+
+        // Золотая «пыльца» в небе — лёгкая премиум-жизнь, появляется/гаснет вместе с пейзажем
+        SkyMotes(Modifier.fillMaxSize()) { sceneAlpha.value }
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -178,40 +224,37 @@ internal fun IntroScreen(onComplete: () -> Unit) {
             BrandHero(
                 logoAlpha = logoAlpha.value,
                 logoScale = logoScale.value,
-                glow = glow.value,
-                ring = ring,
-                kurai = kurai.value,
-                road = road.value,
-                roadFade = roadFade,
             )
-            Spacer(Modifier.height(8.dp))
-            Box(modifier = Modifier.height(88.dp), contentAlignment = Alignment.TopCenter) {
+            Spacer(Modifier.height(4.dp))
+            // Слот СЛОВА (Попутчик/Юлдаш) — компактный, слово по центру; черта и слоган идут вплотную ниже.
+            Box(modifier = Modifier.height(58.dp), contentAlignment = Alignment.Center) {
                 StaggerWord("Попутчик", showMeaning, 38.sp)
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "Юлдаш",
-                        fontSize = 44.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = Montserrat,
-                        letterSpacing = (brandIn * 2f).sp,
-                        modifier = Modifier.graphicsLayer { alpha = brandIn; scaleX = brandScale; scaleY = brandScale },
-                        style = TextStyle(brush = brandBrush),
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Box(
-                        Modifier.width(72.dp).height(3.dp)
-                            .graphicsLayer { scaleX = underline }
-                            .background(Gold, RoundedCornerShape(2.dp)),
-                    )
-                }
+                Text(
+                    "Юлдаш",
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = Montserrat,
+                    letterSpacing = (brandIn * 2f).sp,
+                    modifier = Modifier.graphicsLayer { alpha = brandIn; scaleX = brandScale; scaleY = brandScale },
+                    style = TextStyle(brush = brandBrush),
+                )
             }
-            Spacer(Modifier.height(12.dp))
-            AnimatedVisibility(showSlogan, enter = fadeIn(tween(560, easing = EaseOutExpo))) {
+            Spacer(Modifier.height(10.dp))
+            Box(
+                Modifier.width(72.dp).height(3.dp)
+                    .graphicsLayer { scaleX = underline }
+                    .background(Gold, RoundedCornerShape(2.dp)),
+            )
+            Spacer(Modifier.height(14.dp))
+            // Высота слота слогана зарезервирована ВСЕГДА → его появление НЕ меняет высоту колонки
+            // и не двигает лого вверх (раньше колонка перецентрировалась → дёрганье). Слоган только фейдится.
+            Box(modifier = Modifier.height(22.dp), contentAlignment = Alignment.Center) {
                 AnimatedContent(
                     targetState = sloganBa,
                     transitionSpec = {
-                        (fadeIn(tween(640, easing = EaseOutExpo)) + slideInVertically(tween(640, easing = EaseOutExpo)) { it / 3 })
-                            .togetherWith(fadeOut(tween(360)) + slideOutVertically(tween(360)) { -it / 3 })
+                        // Сначала русский УХОДИТ (240мс), потом башкирский ПРИХОДИТ (delay 240) — без наложения строк.
+                        (fadeIn(tween(560, delayMillis = 240, easing = EaseOutExpo)) + slideInVertically(tween(560, delayMillis = 240, easing = EaseOutExpo)) { it / 4 })
+                            .togetherWith(fadeOut(tween(240, easing = EaseInOutSine)) + slideOutVertically(tween(240, easing = EaseInOutSine)) { -it / 4 })
                     },
                     label = "slo",
                 ) { ba ->
@@ -219,6 +262,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                         if (ba) "Үҙебеҙҙекеләр араһында юллашыу" else "Поездки между своими",
                         color = Color.White.copy(0.92f), fontSize = 15.sp, fontFamily = Montserrat,
                         fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
+                        modifier = Modifier.graphicsLayer { alpha = sloganAlpha },
                     )
                 }
             }

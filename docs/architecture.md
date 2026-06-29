@@ -88,6 +88,7 @@
 ## Навигация (как устроены экраны)
 
 - Нет навигационной библиотеки. Всё через `enum Screen` + `when(screen)` в `YuldashApp()`. **Первый экран — `Screen.Splash`** (зелёный мост → цель `splashTarget`; первый запуск → `Screen.Intro` морф-интро → онбординг; повтор → сразу Home/Login). Состояние навигации — в `YuldashViewModel` (переживает поворот/смерть процесса).
+- **Интро на фоне пейзажа (2026-06-29):** `IntroScreen` теперь рисуется поверх вектор-пейзажа Башкортостана `res/drawable/splash_landscape.xml` (горы, долина, золотая дорога-маршрут, сосны, курай — порт из `yuldash_splash_vector.svg`, viewport 1080×1920; blur/тень SVG не переносятся). Фон: мягкий Ken-Burns (`sceneScale` 1.08→1.0) + полупрозрачная вуаль/виньетка под читаемость белого текста. Премиум-моушн: «Попутчик»→«Юлдаш» с золотым бликом, золотая черта, слоган RU→BA, тап-скип, reduce-motion. Значок — чистый белый круг с лого (курай-веер и дорога-стрелка в `BrandHero` убраны по просьбе Александра 2026-06-29; функции `drawKurai`/`drawRoad` оставлены неиспользуемыми). Контракт `onComplete→Onboarding` и `Screen.Splash` (тонкий зелёный мост) не менялись.
 - Внутри главного экрана 5 вкладок — `enum HomeTab` (Map, Rides, Request, Chat, Profile).
 - Состояние держится в `remember { mutableStateOf(...) }`. Сохраняется на диск только флаг онбординга (`SharedPreferences "yuldash_prefs" → onboarding_completed`).
 - Язык: `enum AppLanguage` (Ru/Ba), переключается кнопкой, раздаётся через `LocalAppLanguage`.
