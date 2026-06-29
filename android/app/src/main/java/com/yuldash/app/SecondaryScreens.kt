@@ -833,7 +833,7 @@ internal fun AdminReportsScreen(onBack: () -> Unit) {
 
 /** Кабинет админа — единый центр: заявки помощи, отклики, реклама. Виден только админу. */
 @Composable
-internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}) {
+internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
@@ -851,7 +851,79 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
             }
             item {
                 SettingsGroup {
+                    SettingsNavRow(Icons.Default.Payments, appText("Заявки на оплату", "Түләү заявкалары"), appText("Подтвердить оплату буста и донаты", "Буст түләүен раҫлау һәм донаттар"), onClick = onPaymentRequests)
                     SettingsNavRow(Icons.Default.CreditCard, appText("Реклама", "Реклама"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), onClick = onAds)
+                }
+            }
+        }
+    }
+}
+
+/** Админ: заявки на оплату (буст/донат) на подтверждение + счётчик подтверждённых донатов. */
+@Composable
+internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var list by remember { mutableStateOf<List<com.yuldash.app.data.PendingPaymentDto>>(emptyList()) }
+    var summary by remember { mutableStateOf<com.yuldash.app.data.PaymentsSummaryDto?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val confirmedMsg = appText("Оплата подтверждена", "Түләү раҫланды")
+    val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
+    val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    fun reload() {
+        loading = true; error = null
+        scope.launch {
+            ApiClient.getPaymentsSummary().onSuccess { summary = it }
+            ApiClient.getPendingPayments().onSuccess { list = it }.onFailure { error = loadErr }
+            loading = false
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заявки на оплату", "Түләү заявкалары"), onBack) }) { padding ->
+        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+            item { Text(appText("Сверь свою карту по сумме и имени, потом подтверди — буст запустится. Донаты просто засчитываются.", "Картаңды сумма һәм исем буйынса тикшер, аҙаҡ раҫла — буст эшләй. Донаттар иҫәпләнә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            summary?.let { s ->
+                item {
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(appText("Донаты подтверждённые", "Раҫланған донаттар"), color = CanonMuted, fontSize = 13.sp)
+                            Text("${s.donateCount} " + appText("чел.", "кеше") + " · ${s.donateSum} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                        }
+                    }
+                }
+            }
+            if (loading) {
+                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (error != null) {
+                item { ListedError(error!!) { reload() } }
+            } else if (list.isEmpty()) {
+                item { ListedEmpty(appText("Нет заявок на оплату", "Түләү заявкалары юҡ"), appText("Здесь появятся оплаты буста и донаты на подтверждение.", "Бында буст түләүҙәре һәм донаттар раҫлауға күренер")) }
+            } else {
+                items(list.size) { i ->
+                    val p = list[i]
+                    val label = when (p.purpose) {
+                        "donate" -> appText("Донат", "Донат")
+                        "boost" -> appText("Буст поездки", "Сәфәр бусты")
+                        "ad" -> appText("Реклама", "Реклама")
+                        else -> p.purpose
+                    }
+                    val noName = appText("Без имени", "Исемһеҙ")
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(label, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                                Text("${p.amount} ₽", color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            }
+                            Text((p.payerName.ifBlank { noName }) + (if (p.payerPhone.isNotBlank()) " · ${p.payerPhone}" else ""), color = CanonMuted, fontSize = 13.sp)
+                            if (p.note.isNotBlank()) Text(p.note, color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            if (p.createdAt.length >= 10) Text(p.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(onClick = { val id = p.paymentId; scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = p.paymentId; scope.launch { ApiClient.rejectPayment(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                    }
                 }
             }
         }

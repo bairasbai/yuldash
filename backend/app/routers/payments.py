@@ -12,9 +12,10 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import Payment, Ride, RideStatus, User, UserRole
+from ..models import Ad, Payment, Ride, RideStatus, User, UserRole
 from ..payments import BOOST_PLANS, create_payment, fetch_payment
 from ..security import current_user
+from ..services import notify_admin_telegram
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["payments"])
@@ -29,8 +30,9 @@ def boost_plans():
     ]
 
 
-def _activate_boost(session: Session, payment: Payment) -> None:
-    """Применить оплаченный boost к поездке (идемпотентно: только из pending)."""
+def _activate_payment(session: Session, payment: Payment) -> None:
+    """Применить оплаченный платёж (идемпотентно, только из pending):
+    boost → поднять поездку; ad → опубликовать рекламу; donate → просто succeeded."""
     if payment.status == "succeeded":
         return
     payment.status = "succeeded"
@@ -42,7 +44,20 @@ def _activate_boost(session: Session, payment: Payment) -> None:
             ride.boosted_until = utcnow() + timedelta(hours=plan[2])
             ride.boost_tier = payment.tier
             session.add(ride)
+    elif payment.purpose == "ad" and payment.ad_id is not None:
+        ad = session.get(Ad, payment.ad_id)
+        if ad:
+            ad.status = "active"        # реклама публикуется после подтверждения оплаты
+            session.add(ad)
     session.commit()
+
+
+def _notify_new_payment(session: Session, payment: Payment) -> None:
+    """Telegram админу о новой заявке на оплату (СБП): сверь карту → подтверди в кабинете."""
+    payer = session.get(User, payment.user_id)
+    who = (payer.name if payer and payer.name else "—") + (f" · {payer.phone}" if payer and payer.phone else "")
+    label = {"boost": "Буст", "donate": "Донат", "ad": "Реклама"}.get(payment.purpose, payment.purpose)
+    notify_admin_telegram(f"💳 Новая оплата: {label} {payment.amount_kop // 100} ₽ от {who}. Проверь карту → подтверди в кабинете.")
 
 
 class BoostFreeIn(BaseModel):
@@ -97,6 +112,7 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
 
     # СБП-перевод по номеру: платёж висит pending, активирует админ после получения денег.
     if settings.payments_provider == "sbp_manual":
+        _notify_new_payment(session, payment)
         return {
             "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
             "amount": amount_kop // 100,
@@ -110,9 +126,46 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
     session.commit()
 
     if res["status"] == "succeeded":          # mock/dev — оплачено сразу
-        _activate_boost(session, payment)
+        _activate_payment(session, payment)
         session.refresh(ride)
         return {"status": "succeeded", "method": "yookassa", "payment_id": payment.id, "boosted_until": ride.boosted_until}
+    return {"status": "pending", "method": "yookassa", "payment_id": payment.id, "confirmation_url": res["confirmation_url"]}
+
+
+class DonateIn(BaseModel):
+    amount: int   # сумма доната, ₽
+
+
+@router.post("/donate")
+def donate_create(body: DonateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Донат на платформу. Интерим (до ЮKassa): СБП-перевод вручную → заявка админу на подтверждение.
+    Подтверждённые донаты идут в счётчик (/admin/payments/summary)."""
+    amount = body.amount
+    if amount < 10 or amount > 100000:
+        raise HTTPException(400, "Сумма доната — от 10 до 100000 ₽")
+    if settings.is_prod and settings.payments_provider == "mock":
+        raise HTTPException(503, "Оплата скоро будет доступна")
+
+    payment = Payment(user_id=user.id, purpose="donate", amount_kop=amount * 100)
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+
+    if settings.payments_provider == "sbp_manual":
+        _notify_new_payment(session, payment)
+        return {
+            "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
+            "amount": amount,
+            "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
+        }
+
+    res = create_payment(amount * 100, "Юлдаш · донат", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    payment.provider_id = res["provider_id"]
+    session.add(payment)
+    session.commit()
+    if res["status"] == "succeeded":          # mock/dev — оплачено сразу
+        _activate_payment(session, payment)     # для donate просто помечает succeeded (поездку не трогает)
+        return {"status": "succeeded", "method": "yookassa", "payment_id": payment.id}
     return {"status": "pending", "method": "yookassa", "payment_id": payment.id, "confirmation_url": res["confirmation_url"]}
 
 
@@ -130,10 +183,19 @@ def admin_pending_payments(user: User = Depends(current_user), session: Session 
     out = []
     for p in rows:
         payer = session.get(User, p.user_id)
+        name = (payer.name if payer else "")
+        note = ""
+        if p.purpose == "ad" and p.ad_id is not None:
+            ad = session.get(Ad, p.ad_id)
+            if ad:
+                name = ad.partner_name or name      # для рекламы в очереди показываем партнёра
+                note = ad.title
+        elif p.purpose == "boost" and p.ride_id is not None:
+            note = f"Поездка #{p.ride_id}"
         out.append({
             "payment_id": p.id, "purpose": p.purpose, "tier": p.tier,
-            "amount": p.amount_kop // 100, "ride_id": p.ride_id,
-            "payer_name": (payer.name if payer else ""), "payer_phone": (payer.phone if payer else ""),
+            "amount": p.amount_kop // 100, "ride_id": p.ride_id, "note": note,
+            "payer_name": name, "payer_phone": (payer.phone if payer else ""),
             "created_at": p.created_at,
         })
     return out
@@ -148,7 +210,7 @@ def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), s
         raise HTTPException(404, "Платёж не найден")
     if payment.status == "succeeded":
         return {"payment_id": payment.id, "status": "succeeded"}
-    _activate_boost(session, payment)
+    _activate_payment(session, payment)
     return {"payment_id": payment.id, "status": "succeeded"}
 
 
@@ -164,6 +226,18 @@ def admin_reject_payment(payment_id: int, user: User = Depends(current_user), se
         session.add(payment)
         session.commit()
     return {"payment_id": payment.id, "status": payment.status}
+
+
+@router.get("/admin/payments/summary")
+def admin_payments_summary(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Сводка подтверждённых платежей (счётчик донатов/буста). Для админа."""
+    _require_admin(user)
+
+    def agg(purpose: str) -> dict:
+        rows = session.exec(select(Payment).where(Payment.purpose == purpose, Payment.status == "succeeded")).all()
+        return {"count": len(rows), "sum_rub": sum(p.amount_kop for p in rows) // 100}
+
+    return {"donate": agg("donate"), "boost": agg("boost")}
 
 
 @router.post("/payments/yookassa/webhook")
@@ -188,5 +262,5 @@ async def yookassa_webhook(request: Request, session: Session = Depends(get_sess
     except Exception:  # noqa: BLE001 — ошибка сети/ЮKassa → игнор (ЮKassa повторит вебхук)
         return {"ok": True}
     if info["status"] == "succeeded":
-        _activate_boost(session, payment)
+        _activate_payment(session, payment)
     return {"ok": True}

@@ -286,6 +286,7 @@ internal enum class Screen {
     AdminResponses,
     AdminDrivers,
     AdminReports,
+    AdminPaymentRequests,
     RequestsFeed,
     RequestResponses,
     Help,
@@ -601,10 +602,14 @@ internal fun Modifier.appearIn(index: Int = 0): Modifier {
 // Перевод по СБП на номер телефона (без мерчанта). Копировать номер + инструкция + «я перевёл».
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () -> Unit) {
+internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () -> Unit, payeePhone: String? = null, payeeBank: String? = null, payeeName: String? = null) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val copied = appText("Номер скопирован", "Номер күсерелде")
+    // Реквизиты из ответа бэкенда (донат/буст); фолбэк — прежние константы.
+    val phone = payeePhone?.takeIf { it.isNotBlank() } ?: SBP_PHONE_DIGITS
+    val bank = payeeBank?.takeIf { it.isNotBlank() } ?: SBP_BANK
+    val name = payeeName?.takeIf { it.isNotBlank() } ?: SBP_NAME
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 28.dp),
@@ -615,20 +620,20 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(appText("Получатель · СБП", "Алыусы · СБП"), color = CanonMuted, fontSize = 13.sp)
-                    Text(SBP_PHONE_DISPLAY, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                    Text("$SBP_NAME · $SBP_BANK", color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(phone, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    Text("$name · $bank", color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
             Text(
                 appText(
-                    "Откройте банк → Переводы → По номеру телефона (СБП) → банк получателя $SBP_BANK → вставьте номер и сумму $amountRub ₽.",
-                    "Банк ҡушымтаһын асығыҙ → Күсереүҙәр → Телефон номеры буйынса (СБП) → алыусы банкы $SBP_BANK → номерҙы һәм $amountRub ₽ сумманы ҡуйығыҙ."
+                    "Откройте банк → Переводы → По номеру телефона (СБП) → банк получателя $bank → вставьте номер и сумму $amountRub ₽.",
+                    "Банк ҡушымтаһын асығыҙ → Күсереүҙәр → Телефон номеры буйынса (СБП) → алыусы банкы $bank → номерҙы һәм $amountRub ₽ сумманы ҡуйығыҙ."
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
             )
             Button(
                 onClick = {
-                    clipboard.setText(AnnotatedString(SBP_PHONE_DIGITS))
+                    clipboard.setText(AnnotatedString(phone))
                     Toast.makeText(context, copied, Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),

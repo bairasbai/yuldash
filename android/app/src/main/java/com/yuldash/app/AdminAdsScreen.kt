@@ -68,6 +68,7 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
     var stats by remember { mutableStateOf<Map<String, AdStatsDto>>(emptyMap()) }
     var busyId by remember { mutableStateOf<String?>(null) }
     var showForm by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<AdminAdDto?>(null) }
 
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
 
@@ -108,15 +109,15 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                             Text("Founder $founderUsed/$founderLimit", color = CanonGold, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                         }
                         Spacer(Modifier.weight(1f))
-                        Button(onClick = { showForm = !showForm }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {
+                        Button(onClick = { editing = null; showForm = !showForm }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(appText("Создать", "Булдырыу"), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
-                if (showForm) {
-                    item { CreateAdForm(founderFull = founderUsed >= founderLimit, onCreated = { showForm = false; scope.launch { reload() } }) }
+                if (showForm || editing != null) {
+                    item { CreateAdForm(founderFull = founderUsed >= founderLimit, edit = editing, onCreated = { showForm = false; editing = null; scope.launch { reload() } }) }
                 }
                 if (items.isEmpty()) {
                     item {
@@ -145,6 +146,7 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                             busyId = ad.id
                             scope.launch { ApiClient.deleteAd(ad.id).onSuccess { reload() }.onFailure { error = loadErr }; busyId = null }
                         },
+                        onEdit = { editing = ad; showForm = false },
                     )
                 }
                 item { Spacer(Modifier.height(24.dp)) }
@@ -154,7 +156,7 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun AdAdminCard(ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean, onPublish: () -> Unit, onPause: () -> Unit, onDelete: () -> Unit) {
+private fun AdAdminCard(ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean, onPublish: () -> Unit, onPause: () -> Unit, onDelete: () -> Unit, onEdit: () -> Unit) {
     val statusColor = when {
         ad.status == "active" && ad.live -> CanonGreen
         ad.status == "paused" -> CanonGold
@@ -194,6 +196,9 @@ private fun AdAdminCard(ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean, onPubl
                         else Text(appText("Опубликовать", "Баҫтырырға"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+                OutlinedButton(onClick = onEdit, enabled = !busy, shape = CanonCardShape) {
+                    Text(appText("Изменить", "Үҙгәртергә"), fontSize = 13.sp)
+                }
                 OutlinedButton(onClick = onDelete, enabled = !busy, shape = CanonCardShape) {
                     Text(appText("Удалить", "Бөтөрөргә"), color = CanonRed, fontSize = 13.sp)
                 }
@@ -204,25 +209,26 @@ private fun AdAdminCard(ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean, onPubl
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CreateAdForm(founderFull: Boolean, onCreated: () -> Unit) {
+private fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCreated: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var partner by remember { mutableStateOf("") }
-    var title by remember { mutableStateOf("") }
-    var text by remember { mutableStateOf("") }
-    var button by remember { mutableStateOf("") }
-    var erid by remember { mutableStateOf("") }
-    var target by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("") }
-    var plan by remember { mutableStateOf("standard") }
-    val places = remember { mutableStateListOf<String>() }
+    var partner by remember(edit?.id) { mutableStateOf(edit?.partner ?: "") }
+    var title by remember(edit?.id) { mutableStateOf(edit?.title ?: "") }
+    var text by remember(edit?.id) { mutableStateOf(edit?.text ?: "") }
+    var button by remember(edit?.id) { mutableStateOf(edit?.button ?: "") }
+    var erid by remember(edit?.id) { mutableStateOf(edit?.erid ?: "") }
+    var target by remember(edit?.id) { mutableStateOf(edit?.target ?: "") }
+    var city by remember(edit?.id) { mutableStateOf(edit?.cities ?: "") }
+    var price by remember(edit?.id) { mutableStateOf("") }
+    var plan by remember(edit?.id) { mutableStateOf(edit?.plan ?: "standard") }
+    val places = remember(edit?.id) { mutableStateListOf<String>().apply { edit?.placements?.split(",")?.forEach { if (it.isNotBlank()) add(it) } } }
     var sending by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
-    val genericErr = appText("Не удалось создать", "Булдырып булманы")
+    val genericErr = appText("Не удалось сохранить", "Һаҡлап булманы")
     val canSave = partner.isNotBlank() && title.isNotBlank() && text.trim().length >= 3 && erid.isNotBlank() && !sending
 
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(appText("Новое объявление", "Яңы иғлан"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            Text(appText(if (edit != null) "Изменить объявление" else "Новое объявление", if (edit != null) "Иғланды үҙгәртеү" else "Яңы иғлан"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
             OutlinedTextField(partner, { partner = it }, label = { Text(appText("Рекламодатель", "Рекламала ҡатнашыусы")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(title, { title = it }, label = { Text(appText("Заголовок", "Башлыҡ")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(text, { text = it }, label = { Text(appText("Текст", "Текст")) }, minLines = 2, modifier = Modifier.fillMaxWidth())
@@ -232,6 +238,7 @@ private fun CreateAdForm(founderFull: Boolean, onCreated: () -> Unit) {
             }
             OutlinedTextField(target, { target = it }, label = { Text(appText("Ссылка при клике", "Баҫҡанда һылтанма")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(erid, { erid = it }, label = { Text(appText("erid (маркировка)", "erid (билдәләмә)")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            if (edit == null) OutlinedTextField(price, { price = it.filter { c -> c.isDigit() }.take(7) }, label = { Text(appText("Цена партнёру, ₽ (0 — без оплаты)", "Партнёр хаҡы, ₽ (0 — түләүһеҙ)")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
             Text(appText("Тариф", "Тариф"), color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -275,9 +282,11 @@ private fun CreateAdForm(founderFull: Boolean, onCreated: () -> Unit) {
                 onClick = {
                     sending = true; err = null
                     scope.launch {
-                        ApiClient.createAd(partner.trim(), title.trim(), text.trim(), button.trim(), plan, places.joinToString(","), erid.trim(), target.trim(), city.trim())
-                            .onSuccess { onCreated() }
-                            .onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: genericErr }
+                        val res = if (edit != null)
+                            ApiClient.updateAd(edit.id, partner.trim(), title.trim(), text.trim(), button.trim(), plan, places.joinToString(","), erid.trim(), target.trim(), city.trim())
+                        else
+                            ApiClient.createAd(partner.trim(), title.trim(), text.trim(), button.trim(), plan, places.joinToString(","), erid.trim(), target.trim(), city.trim(), price.toIntOrNull() ?: 0)
+                        res.onSuccess { onCreated() }.onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: genericErr }
                         sending = false
                     }
                 },
@@ -287,9 +296,9 @@ private fun CreateAdForm(founderFull: Boolean, onCreated: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().height(50.dp),
             ) {
                 if (sending) CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                else Text(appText("Создать (черновик)", "Булдырыу (ҡаралама)"), fontWeight = FontWeight.Bold)
+                else Text(appText(if (edit != null) "Сохранить" else "Создать (черновик)", if (edit != null) "Һаҡлау" else "Булдырыу (ҡаралама)"), fontWeight = FontWeight.Bold)
             }
-            Text(appText("Создаётся как черновик. Опубликуй после оплаты партнёром.", "Ҡаралама булып булдырыла. Партнёр түләгәс баҫтыр."), color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp)
+            if (edit == null) Text(appText("Указал цену → объявление попадёт в «Заявки на оплату». Партнёр заплатил → подтвердишь → реклама опубликуется. Цена 0 → публикуешь вручную.", "Хаҡ ҡуйһаң → иғлан «Түләү заявкалары»на эләгә. Партнёр түләне → раҫлайһың → реклама баҫтырыла. Хаҡ 0 → үҙең баҫтыр."), color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp)
         }
     }
 }

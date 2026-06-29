@@ -257,6 +257,11 @@ internal fun SupportScreen(onBack: () -> Unit) {
     var selectedAmount by remember { mutableIntStateOf(30) }
     var completed by remember { mutableStateOf(false) }
     var showSbp by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var donation by remember { mutableStateOf<com.yuldash.app.data.BoostResultDto?>(null) }
+    var sending by remember { mutableStateOf(false) }
+    val errMsg = appText("Не удалось. Проверь интернет.", "Булманы. Интернетты тикшер.")
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -305,7 +310,17 @@ internal fun SupportScreen(onBack: () -> Unit) {
             item {
                 AppButton(
                     text = appText("Поддержать на $selectedAmount ₽", "$selectedAmount ₽ менән ярҙам итеү"),
-                    onClick = { showSbp = true },
+                    onClick = {
+                        if (!sending) {
+                            sending = true
+                            scope.launch {
+                                ApiClient.createDonation(selectedAmount)
+                                    .onSuccess { donation = it; showSbp = true }
+                                    .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
+                                sending = false
+                            }
+                        }
+                    },
                     style = AppButtonStyle.Accent,
                     icon = Icons.Default.Payments,
                 )
@@ -314,7 +329,7 @@ internal fun SupportScreen(onBack: () -> Unit) {
                 item {
                     InfoCard(
                         title = appText("Спасибо за поддержку", "Ярҙәмегеҙ өсөн рәхмәт"),
-                        text = appText("Если перевод по СБП на $selectedAmount ₽ прошёл — спасибо! Деньги идут на серверы, карты и SMS.", "СБП аша $selectedAmount ₽ күсерелгән булһа — рәхмәт! Аҡса серверҙарға, карталарға һәм SMS-ҡа китә."),
+                        text = appText("Заявка отправлена. Когда админ увидит перевод — донат засчитается. Деньги идут на серверы, карты и SMS.", "Заявка ебәрелде. Админ күсереүҙе күргәс — донат иҫәпләнә. Аҡса серверҙарға, карталарға һәм SMS-ҡа китә."),
                         icon = Icons.Default.VolunteerActivism
                     )
                 }
@@ -325,7 +340,12 @@ internal fun SupportScreen(onBack: () -> Unit) {
                 }
             }
         }
-        if (showSbp) SbpTransferSheet(selectedAmount, onPaid = { showSbp = false; completed = true }, onDismiss = { showSbp = false })
+        if (showSbp) SbpTransferSheet(
+            donation?.amount ?: selectedAmount,
+            onPaid = { showSbp = false; completed = true },
+            onDismiss = { showSbp = false },
+            payeePhone = donation?.payeePhone, payeeBank = donation?.payeeBank, payeeName = donation?.payeeName,
+        )
     }
 }
 

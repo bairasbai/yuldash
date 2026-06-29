@@ -282,9 +282,10 @@ class Payment(SQLModel, table=True):
     НЕ посредничество за проезд. provider_id — id платежа в ЮKassa (или mock-id в dev)."""
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
-    purpose: str = "boost"                       # boost | ad
+    purpose: str = "boost"                       # boost | ad | donate
     provider_id: str = Field(default="", index=True)  # id платежа в ЮKassa
     ride_id: Optional[int] = Field(default=None, foreign_key="ride.id")  # для boost
+    ad_id: Optional[int] = Field(default=None, foreign_key="ad.id")       # для оплаты рекламы (purpose=ad)
     tier: str = ""                               # quick / day / urgent (для boost)
     amount_kop: int = 0                          # сумма в копейках
     status: str = "pending"                      # pending | succeeded | canceled

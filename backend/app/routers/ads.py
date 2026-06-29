@@ -13,7 +13,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Ad, AdEvent, User, UserRole
+from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..security import current_user
 from ..timeutil import utcnow
 
@@ -125,6 +125,7 @@ class AdIn(BaseModel):
     priority: int = 0
     starts_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None       # null = бессрочно (founder)
+    price: int = 0                           # ₽: если >0 → заявка на оплату админу (purpose=ad), реклама публикуется после подтверждения
 
 
 class AdStatusIn(BaseModel):
@@ -195,6 +196,11 @@ def admin_create_ad(body: AdIn, user: User = Depends(current_user), session: Ses
     session.add(ad)
     session.commit()
     session.refresh(ad)
+    # Платная реклама (price>0): заявка на оплату попадёт в /admin/payments/pending.
+    # Реклама опубликуется автоматически, когда админ подтвердит платёж (purpose=ad).
+    if body.price > 0:
+        session.add(Payment(user_id=user.id, purpose="ad", ad_id=ad.id, amount_kop=body.price * 100))
+        session.commit()
     return ad
 
 

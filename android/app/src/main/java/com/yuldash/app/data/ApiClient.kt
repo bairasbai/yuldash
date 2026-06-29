@@ -812,6 +812,8 @@ object ApiClient {
                 val a = arr.getJSONObject(i)
                 val pls = a.optJSONArray("placements")
                 val placements = if (pls != null) (0 until pls.length()).joinToString(",") { pls.optString(it) } else ""
+                val cts = a.optJSONArray("cities")
+                val cities = if (cts != null) (0 until cts.length()).joinToString(",") { cts.optString(it) } else ""
                 AdminAdDto(
                     id = a.optString("id"),
                     partner = a.optString("partner"),
@@ -824,6 +826,9 @@ object ApiClient {
                     endsAt = a.optString("ends_at").ifBlank { null },
                     live = a.optBoolean("live"),
                     expired = a.optBoolean("expired"),
+                    button = a.optString("button"),
+                    target = a.optString("target"),
+                    cities = cities,
                 )
             }
             AdminAdsDto(o.optInt("founder_used"), o.optInt("founder_limit", 10), items)
@@ -832,10 +837,24 @@ object ApiClient {
     /** Создать объявление (admin). plan: founder/standard/premium. */
     suspend fun createAd(
         partnerName: String, title: String, text: String, button: String,
-        plan: String, placements: String, erid: String, target: String, city: String,
+        plan: String, placements: String, erid: String, target: String, city: String, price: Int = 0,
     ): Result<Unit> =
         call(
             "POST", "/admin/ads",
+            JSONObject()
+                .put("partner_name", partnerName).put("title", title).put("text", text)
+                .put("button", button).put("plan", plan).put("placements", placements)
+                .put("erid", erid).put("target", target).put("cities", city).put("price", price),
+            auth = true,
+        ).map { }
+
+    /** Редактировать объявление (admin). Цену не трогаем — правка контента не пере-выставляет оплату. */
+    suspend fun updateAd(
+        id: String, partnerName: String, title: String, text: String, button: String,
+        plan: String, placements: String, erid: String, target: String, city: String,
+    ): Result<Unit> =
+        call(
+            "POST", "/admin/ads/$id",
             JSONObject()
                 .put("partner_name", partnerName).put("title", title).put("text", text)
                 .put("button", button).put("plan", plan).put("placements", placements)
@@ -900,6 +919,47 @@ object ApiClient {
                 payeeBank = payee?.optString("bank")?.ifBlank { null },
                 payeeName = payee?.optString("name")?.ifBlank { null },
             )
+        }
+
+    /** Донат на платформу (интерим СБП): создаёт заявку на подтверждение, возвращает реквизиты (как boost). */
+    suspend fun createDonation(amount: Int): Result<BoostResultDto> =
+        call("POST", "/donate", JSONObject().put("amount", amount), auth = true).map { o ->
+            val payee = o.optJSONObject("payee")
+            BoostResultDto(
+                status = o.optString("status"), method = o.optString("method"),
+                paymentId = o.optInt("payment_id"), amount = o.optInt("amount"),
+                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
+                payeePhone = payee?.optString("phone")?.ifBlank { null },
+                payeeBank = payee?.optString("bank")?.ifBlank { null },
+                payeeName = payee?.optString("name")?.ifBlank { null },
+            )
+        }
+
+    // ---------- Админ: заявки на оплату (буст/донат на подтверждение) ----------
+    suspend fun getPendingPayments(): Result<List<PendingPaymentDto>> =
+        call("GET", "/admin/payments/pending", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                PendingPaymentDto(
+                    o.optInt("payment_id"), o.optString("purpose"), o.optString("tier"),
+                    o.optInt("amount"), if (o.isNull("ride_id")) null else o.optInt("ride_id"),
+                    o.optString("payer_name"), o.optString("payer_phone"), o.optString("created_at"), o.optString("note"),
+                )
+            }
+        }
+
+    suspend fun confirmPayment(paymentId: Int): Result<Unit> =
+        call("POST", "/admin/payments/$paymentId/confirm", JSONObject(), auth = true).map { }
+
+    suspend fun rejectPayment(paymentId: Int): Result<Unit> =
+        call("POST", "/admin/payments/$paymentId/reject", JSONObject(), auth = true).map { }
+
+    suspend fun getPaymentsSummary(): Result<PaymentsSummaryDto> =
+        call("GET", "/admin/payments/summary", null, auth = true).map { o ->
+            val d = o.optJSONObject("donate") ?: JSONObject()
+            val b = o.optJSONObject("boost") ?: JSONObject()
+            PaymentsSummaryDto(d.optInt("count"), d.optInt("sum_rub"), b.optInt("count"), b.optInt("sum_rub"))
         }
 
     // ---------- Базовый вызов ----------
@@ -1203,6 +1263,14 @@ data class BoostResultDto(
     val payeeBank: String?,
     val payeeName: String?,
 )
+
+/** Заявка на оплату (буст/донат) в админ-очереди подтверждения. */
+data class PendingPaymentDto(
+    val paymentId: Int, val purpose: String, val tier: String, val amount: Int,
+    val rideId: Int?, val payerName: String, val payerPhone: String, val createdAt: String, val note: String = "",
+)
+/** Счётчик подтверждённых оплат (донаты/буст) для админ-кабинета. */
+data class PaymentsSummaryDto(val donateCount: Int, val donateSum: Int, val boostCount: Int, val boostSum: Int)
 data class AdDto(val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String)
 /** Серверная статистика рекламы (показы/клики). */
 data class AdStatsDto(val impressions: Int, val clicks: Int)
@@ -1211,5 +1279,6 @@ data class AdminAdDto(
     val id: String, val partner: String, val title: String, val text: String,
     val plan: String, val status: String, val placements: String, val erid: String,
     val endsAt: String?, val live: Boolean, val expired: Boolean,
+    val button: String = "", val target: String = "", val cities: String = "",  // для предзаполнения формы при редактировании
 )
 data class AdminAdsDto(val founderUsed: Int, val founderLimit: Int, val items: List<AdminAdDto>)
