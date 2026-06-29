@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -58,15 +59,25 @@ private fun DrawScope.drawRoad(cx: Float, yBottom: Float, yTop: Float, progress:
     val h = yBottom - yTop
     val road = Path().apply {
         moveTo(cx, yBottom)
-        cubicTo(cx - 42.dp.toPx(), yBottom - h * 0.34f, cx + 42.dp.toPx(), yBottom - h * 0.66f, cx, yTop)
+        // почти прямая, лёгкий изгиб — дорога уходит к пину (не «червь»)
+        cubicTo(cx - 13.dp.toPx(), yBottom - h * 0.36f, cx + 11.dp.toPx(), yBottom - h * 0.68f, cx, yTop)
     }
     val pm = PathMeasure().apply { setPath(road, false) }
     val stop = pm.length * progress
     val seg = Path()
     pm.getSegment(0f, stop, seg, true)
-    drawPath(seg, color = RoadYellow.copy(alpha = 0.9f * fade), style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round))
+    // полотно дороги + белая пунктирная осевая → читается как ДОРОГА (пин = пункт назначения в конце)
+    drawPath(seg, color = RoadYellow.copy(alpha = 0.95f * fade), style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round))
+    drawPath(
+        seg, color = Color.White.copy(alpha = 0.9f * fade),
+        style = Stroke(
+            width = 2.dp.toPx(), cap = StrokeCap.Round,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(9.dp.toPx(), 8.dp.toPx())),
+        ),
+    )
+    // светящаяся точка-маршрут на голове
     val head = pm.getPosition(stop)
-    drawCircle(Color.White.copy(alpha = 0.9f * fade), radius = 7.dp.toPx(), center = head)
+    drawCircle(Color.White.copy(alpha = 0.95f * fade), radius = 7.dp.toPx(), center = head)
     drawCircle(RoadYellow.copy(alpha = fade), radius = 4.dp.toPx(), center = head)
 }
 
