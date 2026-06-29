@@ -161,6 +161,8 @@ dependencies {
     // поллинг ленты/ближайших ставится на паузу, когда приложение в фоне (не дёргаем сервер зря).
     // Версия = уже резолвящаяся в графе lifecycle 2.9.4 → без конфликта версий.
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
+    // ViewModel в Compose (viewModel()) — состояние приложения вынесено из YuldashApp в YuldashViewModel.
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     // JVM unit-тесты (каркас «с нуля»): чистая логика без Android-фреймворка. Запуск: gradlew :app:testDebugUnitTest
     testImplementation("junit:junit:4.13.2")

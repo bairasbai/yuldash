@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -254,13 +255,15 @@ internal fun YuldashApp() {
     val prefs = remember {
         context.getSharedPreferences("yuldash_prefs", android.content.Context.MODE_PRIVATE)
     }
-    val rides = remember { mutableStateListOf<Ride>().apply { addAll(demoRides) } }
-    val trustedContacts = remember { mutableStateListOf<TrustedContact>().apply { addAll(demoTrustedContacts) } }
-    val localRequests = remember { mutableStateListOf<LocalRequest>() }
+    // Всё состояние приложения живёт в YuldashViewModel (вынесено из god-composable).
+    val vm: YuldashViewModel = viewModel()
+    val rides = vm.rides
+    val trustedContacts = vm.trustedContacts
+    val localRequests = vm.localRequests
     val appScope = rememberCoroutineScope()
-    var activeBookingId by remember { mutableStateOf<Int?>(null) }
-    var activeTrip by remember { mutableStateOf<Ride?>(null) }   // подтверждённая поездка → маршрут на карте; исчезает при завершении
-    val voiceMessages = remember { mutableStateListOf<LocalVoiceMessage>() }
+    var activeBookingId by vm.activeBookingId
+    var activeTrip by vm.activeTrip   // подтверждённая поездка → маршрут на карте; исчезает при завершении
+    val voiceMessages = vm.voiceMessages
     // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
     val splashTarget = remember {
         when {
@@ -270,17 +273,19 @@ internal fun YuldashApp() {
             else -> Screen.Login
         }
     }
-    var screen by rememberSaveable { mutableStateOf(Screen.Splash) }   // переживает поворот И kill процесса
-    var language by rememberSaveable { mutableStateOf(AppLanguage.Ru) }   // переживает поворот экрана
-    var selectedRide by remember { mutableStateOf<Ride?>(null) }
-    var startHomeTab by rememberSaveable { mutableStateOf(HomeTab.Map) }
-    var callbackRequested by remember { mutableStateOf(false) }
-    var responsesRequestId by remember { mutableStateOf(0) }   // какую заявку открыть в «Откликах»
+    // VM переживает поворот → selectedRide/activeTrip больше НЕ сбрасываются на повороте брони/поездки.
+    // screen/language/startHomeTab переживают и смерть процесса (persistNav в SavedStateHandle, ниже).
+    var screen by vm.screen
+    var language by vm.language
+    var selectedRide by vm.selectedRide
+    var startHomeTab by vm.startHomeTab
+    var callbackRequested by vm.callbackRequested
+    var responsesRequestId by vm.responsesRequestId   // какую заявку открыть в «Откликах»
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
-    var isAdmin by remember { mutableStateOf(false) }
+    var isAdmin by vm.isAdmin
     LaunchedEffect(Unit) { ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" } }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
-    var partnerAds by remember { mutableStateOf(demoPartnerAds) }
+    var partnerAds by vm.partnerAds
     LaunchedEffect(Unit) {
         ApiClient.getAds().onSuccess { srv ->
             val tmpl = demoPartnerAds.firstOrNull()
@@ -289,20 +294,14 @@ internal fun YuldashApp() {
             }
         }
     }
-    // SnapshotStateMap: при показе/клике мутируем ТОЛЬКО одну запись вместо копии всей карты
-    // на каждый импрешн (adStats + (..) аллоцировал новый Map при каждом событии рекламы).
-    val adStats = remember {
-        androidx.compose.runtime.mutableStateMapOf<String, AdStats>().apply {
-            putAll(demoPartnerAds.associate { it.id to AdStats() })
-        }
-    }
+    val adStats = vm.adStats   // SnapshotStateMap: мутируем одну запись вместо копии всей карты на событие
+    // Сохраняем survival-состояние в SavedStateHandle при изменении → переживает смерть процесса.
+    LaunchedEffect(screen, language, startHomeTab) { vm.persistNav() }
 
-    // Лёгкий back-stack: трейл экранов, чтобы аппаратная «Назад» возвращалась по нему, а не прыгала
-    // сразу на Home. Авто-трекинг через LaunchedEffect(screen) → не трогаем 76 forward-переходов.
-    // Не saveable: после kill процесса история пуста → «Назад» уводит на Home (как было раньше).
-    val navHistory = remember { androidx.compose.runtime.mutableStateListOf<Screen>() }
-    var navPopping by remember { mutableStateOf(false) }
-    var navPrev by remember { mutableStateOf(screen) }
+    // Лёгкий back-stack: трейл экранов, чтобы аппаратная «Назад» возвращалась по нему, а не прыгала на Home.
+    val navHistory = vm.navHistory
+    var navPopping by vm.navPopping
+    var navPrev by vm.navPrev
     LaunchedEffect(screen) {
         val transient = navPrev == Screen.Splash || navPrev == Screen.Login || navPrev == Screen.Onboarding
         if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)   // forward → запоминаем, откуда пришли
