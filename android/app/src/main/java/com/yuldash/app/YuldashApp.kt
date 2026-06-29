@@ -267,8 +267,8 @@ internal fun YuldashApp() {
     // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
     val splashTarget = remember {
         when {
-            BuildConfig.DEBUG -> Screen.Home               // DEV-обход входа: только debug-сборка. Релиз — вход как обычно.
-            !prefs.getBoolean("onboarding_completed", false) -> Screen.Onboarding
+            !prefs.getBoolean("onboarding_completed", false) -> Screen.Intro  // ПЕРВЫЙ запуск → брендовое интро (даже в debug)
+            BuildConfig.DEBUG -> Screen.Home               // DEV-обход входа (повторные запуски): только debug-сборка.
             ApiClient.isLoggedIn() -> Screen.Home          // уже вошёл → сразу домой
             else -> Screen.Login
         }
@@ -436,9 +436,13 @@ internal fun YuldashApp() {
         ) { scr ->
         when (scr) {
             Screen.Splash -> {
-                SplashScreen()
-                LaunchedEffect(Unit) { delay(1300); screen = splashTarget }
+                // Зелёный «мост» — продолжение СИСТЕМНОГО сплэша, БЕЗ повторной анимации лого.
+                // Это убирает «дубль» (раньше Compose-сплэш заново анимировал то же лого поверх системного).
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0B6B3A), Color(0xFF073F25)))))
+                // Первый запуск → брендовое интро; повтор → быстро в приложение (без второго лого).
+                LaunchedEffect(Unit) { delay(if (splashTarget == Screen.Intro) 60 else 140); screen = splashTarget }
             }
+            Screen.Intro -> IntroScreen(onComplete = { screen = Screen.Onboarding })
             Screen.Onboarding -> OnboardingScreen(onFinish = ::finishOnboarding)
             Screen.Login -> {
                 LoginScreen(

@@ -260,6 +260,7 @@ class MainActivity : ComponentActivity() {
 
 internal enum class Screen {
     Splash,
+    Intro,        // брендовое интро при ПЕРВОМ запуске (морф «Попутчик»→«Юлдаш» + слоган RU→BA) → онбординг
     Onboarding,
     Login,
     Home,
@@ -371,46 +372,6 @@ private const val SBP_PHONE_DISPLAY = "+7 (999) 134-82-75"
 private const val SBP_PHONE_DIGITS = "+79991348275"
 private const val SBP_NAME = "Байрас"
 private const val SBP_BANK = "Сбербанк"
-
-// Стартовый сплэш: лого появляется с масштабом+прозрачностью, текст — следом. ~1.6с → следующий экран.
-@Composable
-internal fun SplashScreen() {
-    var start by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(targetValue = if (start) 1f else 0.62f, animationSpec = tween(820), label = "logoScale")
-    val logoAlpha by animateFloatAsState(targetValue = if (start) 1f else 0f, animationSpec = tween(620), label = "logoAlpha")
-    val textAlpha by animateFloatAsState(targetValue = if (start) 1f else 0f, animationSpec = tween(640, delayMillis = 380), label = "textAlpha")
-    LaunchedEffect(Unit) { start = true }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF0B6B3A), Color(0xFF073F25)))),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Surface(
-                modifier = Modifier.size(132.dp).scale(scale).alpha(logoAlpha),
-                shape = CircleShape,
-                color = Color.White,
-                shadowElevation = 18.dp
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.yuldash_logo),
-                    contentDescription = "Юлдаш",
-                    modifier = Modifier.padding(22.dp)
-                )
-            }
-            Spacer(Modifier.height(26.dp))
-            Text("Юлдаш", color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Black, modifier = Modifier.alpha(textAlpha))
-            Spacer(Modifier.height(6.dp))
-            Text(
-                appText("Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
-                color = Color.White.copy(alpha = 0.9f),
-                fontSize = 15.sp,
-                modifier = Modifier.alpha(textAlpha)
-            )
-        }
-    }
-}
 
 @Composable
 internal fun LocalizedText.text(): String = appText(ru, ba)

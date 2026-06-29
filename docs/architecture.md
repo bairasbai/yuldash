@@ -87,7 +87,7 @@
 
 ## Навигация (как устроены экраны)
 
-- Нет навигационной библиотеки. Всё через `enum Screen` + `when(screen)` в `YuldashApp()`. **Первый экран — `Screen.Splash`** (анимированное лого ~1.3с → онбординг/логин/хоум, цель `splashTarget` вычисляется заранее).
+- Нет навигационной библиотеки. Всё через `enum Screen` + `when(screen)` в `YuldashApp()`. **Первый экран — `Screen.Splash`** (зелёный мост → цель `splashTarget`; первый запуск → `Screen.Intro` морф-интро → онбординг; повтор → сразу Home/Login). Состояние навигации — в `YuldashViewModel` (переживает поворот/смерть процесса).
 - Внутри главного экрана 5 вкладок — `enum HomeTab` (Map, Rides, Request, Chat, Profile).
 - Состояние держится в `remember { mutableStateOf(...) }`. Сохраняется на диск только флаг онбординга (`SharedPreferences "yuldash_prefs" → onboarding_completed`).
 - Язык: `enum AppLanguage` (Ru/Ba), переключается кнопкой, раздаётся через `LocalAppLanguage`.
@@ -194,7 +194,7 @@
 
 ## Дизайн-спринт (добавлено 2026-06-23)
 - **Тёмная тема (Material 3).** Палитра `Canon*` адаптивна: каждый цвет — `@Composable`-геттер `if (isSystemInDarkTheme()) тёмный else светлый` (вверху MainActivity.kt). 410 использований не тронуты. `Theme.kt` — `darkColorScheme`. Карточки: `Color.White` → адаптивный `CanonSurface`. Подводный камень: `@Composable`-геттер нельзя вне composable (Canvas/DrawScope, не-composable хелперы) — см. lessons.
-- **Сплэш.** `Screen.Splash` + `SplashScreen()` (лого scale+alpha, текст следом, ~1.3с). Системный сплэш Android 12 брендирован в `styles.xml` (`windowBackground` + `windowSplashScreenBackground` = `@color/yuldash_splash`) — без белой вспышки.
+- **Сплэш + брендовое интро (2026-06-29).** Раньше: `Screen.Splash` + `SplashScreen()` заново анимировал лого поверх системного сплэша → **двойное лого** (жалоба Александра). Теперь: `Screen.Splash` = тонкий зелёный «мост» (продолжает системный сплэш, БЕЗ повторной анимации лого). На ПЕРВОМ запуске → **`Screen.Intro`** (`IntroScreen.kt`): 3 акта ~3.25с, тап = скип — лого мягко проявляется (без scale-pop) → слово-смысл **«Попутчик»** → морф (crossfade+scale) в бренд **«Юлдаш»** → слоган **RU→BA** («Поездки между своими»→«Үҙебеҙҙекеләр араһында юллашыу») → онбординг. Уважает reduced-motion (анимации выкл. → сразу финальный кадр). На повторных запусках интро НЕ показывается (сразу Home/Login). `splashTarget`: первый запуск (`!onboarding_completed`) → `Intro` (раньше debug-обхода). Старый `SplashScreen()` удалён. Системный сплэш Android 12 — `styles.xml` (`windowSplashScreenBackground`=`@color/yuldash_splash`).
 - **Онбординг.** `OnboardingHeroCard(slide, pageOffset: () -> Float)` — параллакс героя на свайпе (deferred read `currentPageOffsetFraction`). `OnboardingDots` — анимированные ширина+цвет активной точки.
 - **Иконка.** `drawable/ic_launcher_bg.xml` — мягкий радиальный мятный градиент вместо плоского белого; adaptive-icon background обновлён.
 
