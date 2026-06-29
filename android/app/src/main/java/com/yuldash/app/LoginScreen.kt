@@ -182,6 +182,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -273,18 +274,24 @@ internal fun LoginScreen(
                     .fillMaxWidth()
                     .height(700.dp)
             )
-            // Форма «висит» над геро (-44), а подвал идёт сразу за ней — без пустой дыры.
+            // Форма «висит» над геро: поднимаем карточку на heroOverlap И на столько же ужимаем
+            // её высоту в layout. Голый offset сдвигает только рисование, а layout-высоту не меняет —
+            // отсюда брался пустой фон снизу (зазор при скролле в конец). Custom layout сдвигает
+            // карточку вверх и одновременно укорачивает прокручиваемую высоту → дыры нет.
+            val heroOverlap = 118.dp
             Column(
-                modifier = Modifier
-                    .offset(y = (-118).dp)
-                    .padding(bottom = 0.dp)
+                modifier = Modifier.layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    val dy = -heroOverlap.roundToPx()
+                    layout(placeable.width, (placeable.height + dy).coerceAtLeast(0)) {
+                        placeable.place(0, dy)
+                    }
+                }
             ) {
                 LoginFormCard(
                     currentLanguage = currentLanguage,
                     onContinue = onContinue,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 0.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }
