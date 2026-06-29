@@ -20,6 +20,12 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
@@ -167,6 +173,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -369,44 +376,137 @@ internal data class OnboardingItem(
 // СБП-перевод по номеру телефона (донат/boost) — P2P, без мерчант-аккаунта. Позже вынести в конфиг/бэкенд.
 private const val SBP_PHONE_DISPLAY = "+7 (999) 134-82-75"
 private const val SBP_PHONE_DIGITS = "+79991348275"
-private const val SBP_NAME = "Байрас"
+private const val SBP_NAME = "Байрас Байбулов"
 private const val SBP_BANK = "Сбербанк"
 
-// Стартовый сплэш: лого появляется с масштабом+прозрачностью, текст — следом. ~1.6с → следующий экран.
+// Частица сплеша (золотая «пыльца» в небе). Координаты в долях экрана, радиус в dp. Без рандома — детерминизм.
+private class SplashParticle(val x: Float, val y: Float, val r: Float, val speed: Float, val phase: Float)
+private val SPLASH_PARTICLES = listOf(
+    SplashParticle(0.16f, 0.18f, 2.2f, 0.55f, 0.0f),
+    SplashParticle(0.30f, 0.42f, 1.6f, 0.80f, 1.1f),
+    SplashParticle(0.44f, 0.10f, 2.6f, 0.40f, 2.0f),
+    SplashParticle(0.58f, 0.34f, 1.8f, 0.65f, 0.7f),
+    SplashParticle(0.70f, 0.22f, 2.0f, 0.90f, 2.6f),
+    SplashParticle(0.80f, 0.48f, 1.5f, 0.50f, 1.7f),
+    SplashParticle(0.22f, 0.62f, 1.7f, 0.72f, 3.0f),
+    SplashParticle(0.50f, 0.70f, 1.4f, 0.45f, 0.4f),
+    SplashParticle(0.66f, 0.58f, 1.9f, 0.85f, 2.2f),
+    SplashParticle(0.10f, 0.36f, 1.5f, 0.60f, 1.4f),
+)
+
+// Палитра иллюстрации сплеша (фиксированная бренд-картина, не тема) — золото черты/частиц и зелёное свечение.
+private val SplashGoldStart = Color(0xFFF7C64A)
+private val SplashGoldEnd = Color(0xFFF1A51F)
+private val SplashGlow = Color(0xFFBDF77B)
+private val SplashParticleColor = Color(0xFFFFD14F)
+private val SplashBase = Color(0xFF062C25)   // базовый фон под кроп вектора
+
+// Стартовый сплэш: пейзаж Башкортостана (вектор) + живой герой (значок, «Юлдаш», золотая черта, слоган, частицы).
+// Системный сплэш зелёный (#0B6B3A) → значок здесь стартует почти в финале (без «двойного лого»). ~2с → следующий экран.
 @Composable
 internal fun SplashScreen() {
     var start by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(targetValue = if (start) 1f else 0.62f, animationSpec = tween(820), label = "logoScale")
-    val logoAlpha by animateFloatAsState(targetValue = if (start) 1f else 0f, animationSpec = tween(620), label = "logoAlpha")
-    val textAlpha by animateFloatAsState(targetValue = if (start) 1f else 0f, animationSpec = tween(640, delayMillis = 380), label = "textAlpha")
     LaunchedEffect(Unit) { start = true }
+
+    val sceneAlpha by animateFloatAsState(if (start) 1f else 0f, tween(700), label = "sceneAlpha")
+    val sceneScale by animateFloatAsState(if (start) 1f else 1.06f, tween(2200, easing = FastOutSlowInEasing), label = "sceneScale")
+    val logoScale by animateFloatAsState(if (start) 1f else 0.92f, tween(460, easing = FastOutSlowInEasing), label = "logoScale")
+    val logoAlpha by animateFloatAsState(if (start) 1f else 0f, tween(420), label = "logoAlpha")
+    val titleAlpha by animateFloatAsState(if (start) 1f else 0f, tween(520, delayMillis = 250), label = "titleAlpha")
+    val titleShift by animateFloatAsState(if (start) 0f else 14f, tween(520, delayMillis = 250, easing = FastOutSlowInEasing), label = "titleShift")
+    val lineWidth by animateFloatAsState(if (start) 116f else 0f, tween(500, delayMillis = 600, easing = FastOutSlowInEasing), label = "lineWidth")
+    val subAlpha by animateFloatAsState(if (start) 1f else 0f, tween(500, delayMillis = 760), label = "subAlpha")
+
+    val inf = rememberInfiniteTransition(label = "splashInf")
+    val glowPulse by inf.animateFloat(0.42f, 0.62f, infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "glow")
+    val drift by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart), label = "drift")
+
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF0B6B3A), Color(0xFF073F25)))),
+            .background(SplashBase)
+            .clipToBounds(),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Surface(
-                modifier = Modifier.size(132.dp).scale(scale).alpha(logoAlpha),
-                shape = CircleShape,
-                color = Color.White,
-                shadowElevation = 18.dp
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.yuldash_logo),
-                    contentDescription = "Юлдаш",
-                    modifier = Modifier.padding(22.dp)
+        // 1) Пейзаж (вектор) — мягкий Ken-Burns + проявление
+        Image(
+            painter = painterResource(R.drawable.splash_landscape),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { scaleX = sceneScale; scaleY = sceneScale; alpha = sceneAlpha }
+        )
+
+        // 2) Золотые частицы в небе (медленный дрейф + мерцание)
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            SPLASH_PARTICLES.forEach { p ->
+                val raw = (p.y - drift * p.speed) % 1f
+                val ny = if (raw < 0f) raw + 1f else raw
+                val tw = 0.5f + 0.5f * kotlin.math.sin((drift * 6.2832f * p.speed + p.phase).toDouble()).toFloat()
+                drawCircle(
+                    color = SplashParticleColor,
+                    radius = p.r.dp.toPx(),
+                    center = Offset(p.x * w, h * 0.10f + ny * h * 0.58f),
+                    alpha = ((0.30f + 0.55f * tw) * sceneAlpha).coerceIn(0f, 0.9f)
                 )
             }
-            Spacer(Modifier.height(26.dp))
-            Text("Юлдаш", color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Black, modifier = Modifier.alpha(textAlpha))
-            Spacer(Modifier.height(6.dp))
+        }
+
+        // 3) Герой: свечение + значок + название + золотая черта + слоган
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.offset(y = (-32).dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(250.dp)
+                        .alpha(glowPulse * logoAlpha)
+                        .background(
+                            Brush.radialGradient(listOf(SplashGlow.copy(alpha = 0.85f), SplashGlow.copy(alpha = 0f))),
+                            shape = CircleShape
+                        )
+                )
+                Surface(
+                    modifier = Modifier
+                        .size(146.dp)
+                        .graphicsLayer { scaleX = logoScale; scaleY = logoScale; alpha = logoAlpha },
+                    shape = CircleShape,
+                    color = Color.White,
+                    shadowElevation = 16.dp
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.yuldash_logo),
+                        contentDescription = "Юлдаш",
+                        modifier = Modifier.padding(24.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.height(22.dp))
+            Text(
+                "Юлдаш",
+                color = Color.White,
+                fontSize = 44.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.graphicsLayer { alpha = titleAlpha; translationY = titleShift }
+            )
+            Spacer(Modifier.height(12.dp))
+            Box(
+                Modifier
+                    .width(lineWidth.dp)
+                    .height(5.dp)
+                    .clip(CircleShape)
+                    .background(Brush.horizontalGradient(listOf(SplashGoldStart, SplashGoldEnd)))
+            )
+            Spacer(Modifier.height(14.dp))
             Text(
                 appText("Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
-                color = Color.White.copy(alpha = 0.9f),
+                color = Color.White.copy(alpha = 0.92f),
                 fontSize = 15.sp,
-                modifier = Modifier.alpha(textAlpha)
+                modifier = Modifier.alpha(subAlpha)
             )
         }
     }
@@ -416,7 +516,15 @@ internal fun SplashScreen() {
 internal fun LocalizedText.text(): String = appText(ru, ba)
 
 @Composable
-internal fun seatsText(count: Int): String = appText("$count места", "$count урын")
+internal fun seatsText(count: Int): String {
+    val ru = when {
+        count % 100 in 11..14 -> "$count мест"
+        count % 10 == 1 -> "$count место"
+        count % 10 in 2..4 -> "$count места"
+        else -> "$count мест"
+    }
+    return appText(ru, "$count урын")
+}
 
 @Composable
 internal fun Ride.timeText(): String = appText(time, timeBa ?: time)

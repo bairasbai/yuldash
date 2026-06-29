@@ -687,6 +687,8 @@ internal fun RideCard(
     onShare: () -> Unit,
     onBoost: () -> Unit
 ) {
+    val hasSeats = ride.seats > 0
+    val noSeatsText = appText("Мест нет", "Урын юҡ")
     if (compact && fullWidth) {
         FullRideCard(
             ride = ride,
@@ -765,11 +767,12 @@ internal fun RideCard(
                     }
                     Button(
                         onClick = onBook,
+                        enabled = hasSeats,
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                     ) {
-                        Text(appText("Поехать", "Барырға"), fontWeight = FontWeight.Black)
+                        Text(if (hasSeats) appText("Поехать", "Барырға") else noSeatsText, fontWeight = FontWeight.Black)
                     }
                 }
             } else {
@@ -783,10 +786,11 @@ internal fun RideCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = onBook,
+                        enabled = hasSeats,
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text(appText("Забронировать", "Бронләү"))
+                        Text(if (hasSeats) appText("Забронировать", "Бронләү") else noSeatsText)
                     }
                     IconButton(onClick = onShare) {
                         Icon(Icons.Default.IosShare, contentDescription = appText("Поделиться", "Бүлешеү"))
@@ -1089,6 +1093,8 @@ private fun FullRideCard(
     onBoost: () -> Unit
 ) {
     val isHospital = ride.car.contains("больниц", ignoreCase = true)
+    val hasSeats = ride.seats > 0
+    val noSeatsText = appText("Мест нет", "Урын юҡ")
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1175,11 +1181,12 @@ private fun FullRideCard(
                 }
                 Button(
                     onClick = onBook,
+                    enabled = hasSeats,
                     modifier = Modifier.weight(1f).height(42.dp),
                     shape = RoundedCornerShape(15.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
-                    Text(appText("Поехать", "Барырға"), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
+                    Text(if (hasSeats) appText("Поехать", "Барырға") else noSeatsText, fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
                 }
                 IconButton(onClick = onShare) {
                     Icon(Icons.Default.IosShare, contentDescription = appText("Поделиться", "Бүлешеү"), tint = CanonText)
@@ -1216,6 +1223,8 @@ internal fun ChatScreen(
     )
     val nowText = appText("сейчас", "хәҙер")
     val chatScope = rememberCoroutineScope()
+    val chatContext = LocalContext.current
+    val sendFailedText = appText("Не удалось отправить сообщение", "Хәбәр ебәреп булманы")
     LaunchedEffect(convReload) {
         ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
         convLoading = true
@@ -1272,40 +1281,43 @@ internal fun ChatScreen(
         }
         if (selected == "active") {
             // Композер — только на «Активные» и шлёт по активной поездке (последняя бронь), с явной подписью.
-            latestBookingId?.let {
+            latestBookingId?.let { activeBookingId ->
                 item { Text(appText("Сообщение по активной поездке", "Актив сәфәр буйынса хәбәр"), color = CanonMuted, fontSize = 12.sp) }
-            }
-            item {
-                ChatComposer(
-                    draft = draft,
-                    onDraftChange = { draft = it },
-                    onSend = {
-                        val text = draft.trim()
-                        if (text.isNotEmpty()) {
-                            latestBookingId?.let { ApiClient.fireSendMessage(it, text) }
-                            onAddVoiceMessage(LocalVoiceMessage(ApiClient.cachedName() ?: "Я", text, nowText))
-                            draft = ""
-                        }
-                    },
-                    onVoiceRecorded = { path, dur ->
-                        onAddVoiceMessage(LocalVoiceMessage(ApiClient.cachedName() ?: "Я", "", nowText, audioPath = path, durationSec = dur))
-                        voiceSent = true
-                        // Реально шлём голос на сервер по активной брони (раньше оставался только локально).
-                        latestBookingId?.let { bid ->
+                item {
+                    ChatComposer(
+                        draft = draft,
+                        onDraftChange = { draft = it },
+                        onSend = {
+                            val text = draft.trim()
+                            if (text.isNotEmpty()) {
+                                chatScope.launch {
+                                    ApiClient.sendMessage(activeBookingId, text)
+                                        .onSuccess {
+                                            draft = ""
+                                            convReload++
+                                        }
+                                        .onFailure {
+                                            Toast.makeText(chatContext, sendFailedText, Toast.LENGTH_SHORT).show()
+                                        }
+                                }
+                            }
+                        },
+                        onVoiceRecorded = { path, dur ->
+                            onAddVoiceMessage(LocalVoiceMessage(ApiClient.cachedName() ?: "Я", "", nowText, audioPath = path, durationSec = dur))
+                            voiceSent = true
+                            // Реально шлём голос на сервер по активной брони (раньше оставался только локально).
                             chatScope.launch {
                                 val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull()
-                                if (bytes != null) ApiClient.uploadVoice(bytes).onSuccess { url -> ApiClient.sendVoiceMessage(bid, url) }
+                                if (bytes != null) ApiClient.uploadVoice(bytes).onSuccess { url -> ApiClient.sendVoiceMessage(activeBookingId, url) }
                             }
-                        }
-                    },
-                    onPhotoPicked = { bytes ->
-                        latestBookingId?.let { bid ->
+                        },
+                        onPhotoPicked = { bytes ->
                             chatScope.launch {
-                                ApiClient.uploadChatPhoto(bytes).onSuccess { url -> ApiClient.sendPhotoMessage(bid, url) }
+                                ApiClient.uploadChatPhoto(bytes).onSuccess { url -> ApiClient.sendPhotoMessage(activeBookingId, url) }
                             }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
         if (selected == "requests") {

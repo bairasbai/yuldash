@@ -348,7 +348,7 @@ private fun LoginFormCard(
                 // отвечает 409 «код ещё не пришёл». Честное сообщение, чтобы юзер не думал, что ошибся.
                 val errCodeNotYet = appTextFor(currentLanguage, "Код ещё идёт от Telegram — подожди пару секунд и нажми «Войти» снова.", "Код Telegram'дан килә — бер-ике секунд көт тә «Инеү» баҫ.")
                 Text(
-                    text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот код ебәрер. Шуны индер."),
+                    text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт 6-значный код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот 6 һанлы код ебәрер. Шуны индер."),
                     color = CanonMuted, fontSize = 16.sp, lineHeight = 22.sp
                 )
                 if (needPhone) {
@@ -427,7 +427,7 @@ private fun LoginFormCard(
                 }
             } else {
             Text(
-                text = appTextFor(currentLanguage, "Быстрый вход через Telegram", "Telegram аша тиҙ инеү"),
+                text = appTextFor(currentLanguage, "Telegram пришлёт 6-значный код для входа.", "Telegram инеү өсөн 6 һанлы код ебәрер."),
                 color = CanonMuted,
                 fontSize = 16.sp,
                 lineHeight = 22.sp
@@ -457,9 +457,13 @@ private fun LoginFormCard(
                 },
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0088CC))
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
-                Text(appTextFor(currentLanguage, "Вход через Telegram", "Telegram аша инеү"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                } else {
+                    Text(appTextFor(currentLanguage, "Вход через Telegram", "Telegram аша инеү"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
             }
             // VK и WhatsApp убраны: VK требует ИНН (бизнес), WhatsApp — WhatsApp Business API. Оба недоступны физлицу.
             // SMS-вход ЗАМОРОЖЕН (нет юр.лица для sms.ru). Форма цела — видна только при SMS_LOGIN_ENABLED.
@@ -598,9 +602,15 @@ private fun BrandHero(
             .background(CanonGreen2)
     ) {
         Image(
-            painter = painterResource(R.drawable.login_car_hero_square),
+            painter = painterResource(R.drawable.login_bashkir_telegram_hero),
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = 1.07f
+                    scaleY = 1.07f
+                    translationY = 34f
+                },
             contentScale = ContentScale.Crop
         )
         Box(
@@ -608,10 +618,10 @@ private fun BrandHero(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to Color(0x99175F3F),
-                        0.44f to Color(0x33175F3F),
-                        0.72f to Color(0x2206130F),
-                        1f to Color(0xE606130F)
+                        0f to CanonGreen2.copy(alpha = 0.60f),
+                        0.44f to CanonGreen2.copy(alpha = 0.22f),
+                        0.72f to Color.Black.copy(alpha = 0.14f),
+                        1f to Color.Black.copy(alpha = 0.90f)
                     )
                 )
         )
@@ -620,9 +630,9 @@ private fun BrandHero(
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
-                        0f to Color(0x66105239),
+                        0f to CanonGreen2.copy(alpha = 0.40f),
                         0.55f to Color.Transparent,
-                        1f to Color(0x3306130F)
+                        1f to Color.Black.copy(alpha = 0.20f)
                     )
                 )
         )
@@ -650,69 +660,71 @@ private fun BrandHero(
             Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
         }
 
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(top = 16.dp, start = 24.dp)
+                .size(54.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = Color.White,
+            shadowElevation = 6.dp
+        ) {
+            Image(
+                painter = painterResource(R.drawable.yuldash_logo),
+                contentDescription = null,
+                modifier = Modifier.padding(7.dp),
+                contentScale = ContentScale.Fit
+            )
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(top = 52.dp, start = 28.dp, end = 22.dp)
+                .padding(top = 104.dp, start = 28.dp, end = 22.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    modifier = Modifier.size(68.dp),
-                    shape = CircleShape,
-                    color = Color.White,
-                    shadowElevation = 6.dp
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.yuldash_logo),
-                        contentDescription = null,
-                        modifier = Modifier.padding(8.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Юлдаш", color = Color.White, fontSize = 40.sp, lineHeight = 42.sp, fontWeight = FontWeight.Black)
-                    Text(
-                        text = appTextFor(currentLanguage, "Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 18.sp,
-                        lineHeight = 22.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-            Spacer(Modifier.height(22.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                HeroPill(Icons.Default.PhoneLocked, appTextFor(currentLanguage, "Скрытый номер", "Йәшерен номер"))
-                HeroPill(Icons.Default.Pin, appTextFor(currentLanguage, "Код посадки", "Ултырыу коды"))
-            }
-        }
-
-    }
-}
-
-@Composable
-private fun HeroPill(icon: ImageVector, text: String) {
-    Surface(
-        color = Color.White.copy(alpha = 0.16f),
-        shape = RoundedCornerShape(999.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.34f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+            Text("Юлдаш", color = Color.White, fontSize = 38.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(5.dp))
             Text(
-                text = text,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                maxLines = 1
+                text = appTextFor(currentLanguage, "Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
+                color = Color.White.copy(alpha = 0.94f),
+                fontSize = 18.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.Medium
             )
+            Spacer(Modifier.height(16.dp))
+            Surface(
+                color = Color.White.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.28f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(11.dp)
+                ) {
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = appTextFor(currentLanguage, "Telegram-код", "Telegram коды"),
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            lineHeight = 18.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            text = appTextFor(currentLanguage, "6 цифр — без паролей и SMS", "6 һан — пароль һәм SMS-һыҙ"),
+                            color = Color.White.copy(alpha = 0.88f),
+                            fontSize = 13.sp,
+                            lineHeight = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
+
     }
 }
 
@@ -730,19 +742,19 @@ private fun TrustCard(currentLanguage: AppLanguage, modifier: Modifier = Modifie
             TrustRow(
                 icon = Icons.Default.PhoneLocked,
                 title = appTextFor(currentLanguage, "Телефон скрыт", "Телефон йәшерелгән"),
-                subtitle = appTextFor(currentLanguage, "До подтверждения брони", "Бронь раҫланғанға тиклем")
+                subtitle = appTextFor(currentLanguage, "Откроется после брони", "Брондән һуң асыла")
             )
             TrustDivider()
             TrustRow(
                 icon = Icons.Default.Shield,
                 title = appTextFor(currentLanguage, "Код посадки", "Ултырыу коды"),
-                subtitle = appTextFor(currentLanguage, "Для вашей безопасности", "Һеҙҙең хәүефһеҙлек өсөн")
+                subtitle = appTextFor(currentLanguage, "Появляется в активной поездке", "Актив сәфәрҙә күренә")
             )
             TrustDivider()
             TrustRow(
                 icon = Icons.Default.Verified,
-                title = appTextFor(currentLanguage, "Проверка водителя и машины", "Водитель һәм машинаны тикшереү"),
-                subtitle = appTextFor(currentLanguage, "Каждый водитель проходит проверку", "Һәр водитель тикшереү үтә")
+                title = appTextFor(currentLanguage, "Проверка водителя", "Водителде тикшереү"),
+                subtitle = appTextFor(currentLanguage, "Права и авто уходят на модерацию", "Права һәм авто модерацияға китә")
             )
         }
     }

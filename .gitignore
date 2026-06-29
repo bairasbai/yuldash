@@ -69,3 +69,6 @@ promo/.remotion/
 
 # Playwright MCP артефакты (скриншоты/снапшоты)
 .playwright-mcp/
+
+# QA-скриншоты эмулятора (папка)
+/android/screenshots/

@@ -84,7 +84,7 @@ class DeviceToken(SQLModel, table=True):
 
 
 class TgAuth(SQLModel, table=True):
-    """Сессия входа через Telegram-бота: request_id ↔ telegram_id ↔ 4-значный код."""
+    """Сессия входа через Telegram-бота: request_id ↔ telegram_id ↔ 6-значный код."""
     id: Optional[int] = Field(default=None, primary_key=True)
     request_id: str = Field(index=True, unique=True)
     telegram_id: Optional[str] = None

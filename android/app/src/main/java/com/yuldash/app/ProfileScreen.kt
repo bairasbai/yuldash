@@ -280,13 +280,17 @@ internal fun ProfileScreen(
     var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: "Я") }
     var avatarUrl by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
+    var profileConfirmed by remember { mutableStateOf(ApiClient.isLoggedIn()) }
     LaunchedEffect(Unit) {
-        ApiClient.me().onSuccess { o ->
-            myRating = if (o.isNull("rating")) null else o.optDouble("rating")
-            o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
-            o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
-            role = o.optString("role")
-        }
+        ApiClient.me()
+            .onSuccess { o ->
+                profileConfirmed = true
+                myRating = if (o.isNull("rating")) null else o.optDouble("rating")
+                o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
+                o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
+                role = o.optString("role")
+            }
+            .onFailure { profileConfirmed = false }
     }
     val editCtx = LocalContext.current
     val editScope = rememberCoroutineScope()
@@ -392,7 +396,12 @@ internal fun ProfileScreen(
                             ) {
                                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(appText("Профиль подтверждён", "Профиль раҫланған"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(
+                                    if (profileConfirmed) appText("Профиль подтверждён", "Профиль раҫланған") else appText("Демо-режим без входа", "Инеүһеҙ демо-режим"),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
                             }
                         }
                     }

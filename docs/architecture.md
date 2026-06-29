@@ -4,6 +4,17 @@
 > ⚠️ После сессии серверной интеграции (2026-06-23) номера строк сильно сдвинулись —
 > ищи функции через `grep`/`rg` по имени; числа ниже ориентировочные.
 
+## Лендинг web/ — интерактивная версия 2026-06-29
+- Главная страница `web/app/page.tsx` стала тонкой оболочкой: `MotionConfig` → `LangProvider` → `DownloadProvider` → `YuldashLanding`.
+- Новый основной файл: `web/components/YuldashLanding.tsx`. Внутри: Lenis smooth scroll, живой hero с H1 «Юлдаш ведёт по республике красиво», видеофоном `/yuldash-promo.mp4`, анимированной маршрутной сценой, телефонным mockup, секции `#how`, `#map`, `#reviews`, `#download`, footer.
+- Двуязычие лендинга осталось через `useLang()` и локальные пары RU/BA в `YuldashLanding.tsx`. BA-строки этой итерации — черновик модели, вынесены в `docs/tasks.md` как требующие проверки носителем.
+- 21st.dev/shadcn-требование реализовано локальными минималистичными компонентами в стиле MagicUI/shadcn, потому что проверка `npm view @21st-dev/react` вернула `404 Not Found`.
+- Новые зависимости `web/package.json`: `lenis` (плавный скролл) и `lucide-react` (иконки).
+- Remotion-видео: `promo/src/Root.tsx` теперь 1920×1080, `promo/src/Promo.tsx` рисует сценарий поиск → бронь → поездка. Рендер: `web/public/yuldash-promo.mp4`.
+- Проверка 2026-06-29: `web/npm run build` успешен, локально `http://localhost:3007` открылся, видео загружено (`readyState=4`), консоль браузера без ошибок.
+- **Итерация "$15k" (2026-06-29):** после фидбэка «выглядит дешево» `YuldashLanding.tsx` переписан ещё раз в более строгую premium/editorial-систему: H1 = «Юлдаш», full-bleed карта/маршрут как первый экран, live-route панель вместо игрушечного телефона, 8px/острые панели вместо больших скруглений, без typewriter и 3D-карусели. `promo/src/Promo.tsx` теперь фоновый маршрутный ролик без emoji и текстовых слоёв; `web/public/yuldash-promo.mp4` ~860 КБ. Блок отзывов честный: реальные отзывы появятся после подтверждённых поездок, без выдуманных цитат. Проверено: `npm run build`, desktop/mobile браузер на `localhost:3007`, видео `readyState=4`, горизонтального скролла нет, console warn/error пусто.
+- **Возврат первого направления (2026-06-29):** после фидбэка «первый вариант был лучше» лендинг возвращён к живой продуктовой версии: typewriter-hero, телефонный mockup, интерактивная SVG-карта, 3D-карусель beta-сценариев, тёплые CTA. Сохранены улучшения второй итерации: чистый Remotion-фон без текстового шума и честный блок отзывов без выдуманных реальных цитат. В `web/app/layout.tsx` исправлен конфликт Метрики (`id="yandex-metrika"` вместо `id="ym"`). Проверено: `npm run build`, браузерный smoke на `localhost:3017`, видео `readyState=4`, desktop/mobile без горизонтального скролла, console warn/error пусто.
+
 ## Главное
 
 - **UI разрезан на модули (2026-06-27, Opus). `MainActivity.kt` 8184→664 строки.** Раньше весь UI был в одном файле — теперь по файлам (тот же пакет `com.yuldash.app`, общие символы `internal`). Каждый экран = свой файл → разные агенты пилят разные экраны параллельно. Карта файлов:
@@ -106,10 +117,10 @@
 - **`YuldashApp()` — 525** ← корень навигации (`when(screen)`), вся маршрутизация, локальные счётчики рекламы и локальные состояния новых модулей
 
 ### Онбординг (4 слайда)
-- `OnboardingScreen` — 408 · тексты слайдов `onboardingSlides()` — 717
+- `OnboardingScreen` — 4 слайда перед входом. V2 от 2026-06-28: большой photo/illustration hero `drawable-nodpi/onboarding_bashkir_hero.png` с дорогой/машиной/башкирским орнаментом, маленький логотип поверх, story-карточки шагов, актуальные тексты про Telegram-вход, проверку водителя, скрытый номер, SOS, заявки→отклики→поездку.
 
 ### Логин
-- `LoginScreen` — **реальный вход по SMS-коду** (`LoginFormCard`: телефон → «Получить код» → код → «Войти» → JWT, автологин). Логика — `data/ApiClient.kt`. · `BrandHero` · `TrustCard`
+- `LoginScreen` — **реальный вход через Telegram-код** (`LoginFormCard`: открыть Telegram-бота → получить 6-значный код → ввести код → JWT, автологин). SMS-вход заморожен флагом, основной рабочий канал — Telegram. `BrandHero` использует `drawable-nodpi/login_bashkir_telegram_hero.png` (фото из файла Александра `C:\Users\Bayra\Downloads\a432a300-30f2-416a-b204-d8e1f7b4fc73.png`); `TrustCard` не обещает проверку каждого водителя, а честно показывает текущую модерацию прав/авто. Логика — `data/ApiClient.kt`.
 
 ### Главный экран (оболочка + нижнее меню)
 - `HomeScreen` — 1294 (Scaffold + вкладки) · `YuldashBottomBar` — 1416
@@ -166,7 +177,7 @@
 - `ChatScreen`: локальное голосовое сообщение сохраняется как `LocalVoiceMessage` с текстовой расшифровкой.
 
 ## Что РЕАЛЬНО на сервере (обновлено 2026-06-23)
-Подключено к бэкенду `https://yulbash.ru` через `data/ApiClient.kt`: **вход по SMS-коду** (JWT, автологин), **поездки** (список), **заявки** (создать+список), **публикация поездки**, **бронь**, **SOS**, **доверенные контакты**, **чат**, **экран активной поездки** (share/статус). Данные живут на сервере (PostgreSQL), не пропадают при перезапуске.
+Подключено к бэкенду `https://yulbash.ru` через `data/ApiClient.kt`: **вход через Telegram-код** (JWT, автологин; SMS-код заморожен флагом), **поездки** (список), **заявки** (создать+список), **публикация поездки**, **бронь**, **SOS**, **доверенные контакты**, **чат**, **экран активной поездки** (share/статус). Данные живут на сервере (PostgreSQL), не пропадают при перезапуске.
 
 ## Бэкенд: премиум-поля и проверка водителя (2026-06-24, ✅ ЗАДЕПЛОЕНО на yulbash.ru)
 - `Ride` + `RideIn`/`RideOut`: новые булевы поля предпочтений — `pets_allowed` (животные), `child_seat` (детское кресло/бустер), `women_only` (только женщины), `smoking`, `baggage`, `air_conditioner`. `GET /rides` принимает их как фильтры. Дефолты `False` → обратносовместимо.
@@ -195,7 +206,7 @@
 ## Дизайн-спринт (добавлено 2026-06-23)
 - **Тёмная тема (Material 3).** Палитра `Canon*` адаптивна: каждый цвет — `@Composable`-геттер `if (isSystemInDarkTheme()) тёмный else светлый` (вверху MainActivity.kt). 410 использований не тронуты. `Theme.kt` — `darkColorScheme`. Карточки: `Color.White` → адаптивный `CanonSurface`. Подводный камень: `@Composable`-геттер нельзя вне composable (Canvas/DrawScope, не-composable хелперы) — см. lessons.
 - **Сплэш.** `Screen.Splash` + `SplashScreen()` (лого scale+alpha, текст следом, ~1.3с). Системный сплэш Android 12 брендирован в `styles.xml` (`windowBackground` + `windowSplashScreenBackground` = `@color/yuldash_splash`) — без белой вспышки.
-- **Онбординг.** `OnboardingHeroCard(slide, pageOffset: () -> Float)` — параллакс героя на свайпе (deferred read `currentPageOffsetFraction`). `OnboardingDots` — анимированные ширина+цвет активной точки.
+- **Онбординг.** `OnboardingHeroCard(slide, pageOffset: () -> Float)` — photo/illustration hero с параллаксом на свайпе (deferred read `currentPageOffsetFraction`), маленький логотип поверх, story-карточки ниже. `OnboardingDots` — анимированные ширина+цвет активной точки.
 - **Иконка.** `drawable/ic_launcher_bg.xml` — мягкий радиальный мятный градиент вместо плоского белого; adaptive-icon background обновлён.
 
 ## Сборка и запуск
