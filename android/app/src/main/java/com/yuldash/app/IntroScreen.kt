@@ -118,20 +118,21 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     var done by remember { mutableStateOf(false) }
     fun finish() { if (!done) { done = true; onComplete() } }
 
-    val logoScale = remember { Animatable(if (reduceMotion) 1f else 0.84f) }
-    val logoAlpha = remember { Animatable(if (reduceMotion) 1f else 0f) }
+    val logoScale = remember { Animatable(if (reduceMotion) 1f else 0.96f) }   // лёгкий settle, без «прыжка» (значок уже виден на системном сплэше)
+    val logoAlpha = remember { Animatable(1f) }   // лого видно сразу — бесшовный хэндофф с системного сплэша (фейд даёт переход экрана)
     val glow = remember { Animatable(if (reduceMotion) 1f else 0f) }
     val drift = remember { Animatable(1f) }
     val sheen = remember { Animatable(-260f) }    // позиция золотого блика по «Юлдаш»
     val kurai = remember { Animatable(if (reduceMotion) 1f else 0f) }   // распускание курая (7 родов)
     val road = remember { Animatable(if (reduceMotion) 1f else 0f) }    // прорисовка дороги (маршрут)
     val sceneScale = remember { Animatable(if (reduceMotion) 1f else 1.08f) }   // мягкий push-in пейзажа (Ken-Burns)
+    val sceneAlpha = remember { Animatable(if (reduceMotion) 1f else 0f) }      // пейзаж ПРОЯВЛЯЕТСЯ из зелёного → бесшовно с системным сплэшем
 
     LaunchedEffect(Unit) {
         if (reduceMotion) { delay(1000); finish(); return@LaunchedEffect }
         launch { drift.animateTo(1.05f, tween(4700, easing = EaseInOutSine)) }
         launch { sceneScale.animateTo(1f, tween(4700, easing = EaseInOutSine)) }   // пейзаж медленно «наезжает»
-        launch { logoAlpha.animateTo(1f, tween(540, easing = EaseOutExpo)) }
+        launch { sceneAlpha.animateTo(1f, tween(800, easing = EaseInOutSine)) }    // плавное проявление пейзажа из зелёного (без резкого «хлопка»)
         launch { glow.animateTo(1f, tween(950, easing = EaseOutExpo)) }
         launch { kurai.animateTo(1f, tween(1300, easing = EaseOutExpo)) }       // курай распускается за лого
         launch { road.animateTo(1f, tween(1400, easing = EaseOutExpo)) }        // дорога рисуется + точка едет
@@ -157,6 +158,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(560, easing = EaseInOutSine), label = "exA")
     val exitScale by animateFloatAsState(if (exiting) 1.06f else 1f, tween(580, easing = EaseInCubic), label = "exS")
     val roadFade by animateFloatAsState(if (showMeaning || showBrand) 0f else 1f, tween(520, easing = EaseInOutSine), label = "rf")
+    val sloganAlpha by animateFloatAsState(if (showSlogan) 1f else 0f, tween(560, easing = EaseOutExpo), label = "sloA")
 
     val brandBrush = Brush.linearGradient(
         listOf(Color.White, Color.White, GoldLight, Color.White, Color.White),
@@ -166,16 +168,18 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(GreenBottom)
+            .background(GreenTop)   // тот же зелёный, что у СИСТЕМНОГО сплэша → бесшовный хэндофф, пока пейзаж проявляется
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { finish() },
         contentAlignment = Alignment.Center,
     ) {
-        // Пейзаж Башкортостана (как на референсе) — мягкий push-in позади героя
+        // Пейзаж Башкортостана (как на референсе) — проявляется из зелёного (alpha) + мягкий push-in (scale)
         Image(
             painter = painterResource(R.drawable.splash_landscape),
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = sceneScale.value; scaleY = sceneScale.value },
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                scaleX = sceneScale.value; scaleY = sceneScale.value; alpha = sceneAlpha.value
+            },
         )
         // Тёплая вуаль + виньетка: тёмно-зелёный тон и читаемость белого текста поверх сцены
         Box(Modifier.fillMaxSize().background(Color(0x33000000)))
@@ -219,7 +223,9 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                     .background(Gold, RoundedCornerShape(2.dp)),
             )
             Spacer(Modifier.height(14.dp))
-            AnimatedVisibility(showSlogan, enter = fadeIn(tween(560, easing = EaseOutExpo))) {
+            // Высота слота слогана зарезервирована ВСЕГДА → его появление НЕ меняет высоту колонки
+            // и не двигает лого вверх (раньше колонка перецентрировалась → дёрганье). Слоган только фейдится.
+            Box(modifier = Modifier.height(22.dp), contentAlignment = Alignment.Center) {
                 AnimatedContent(
                     targetState = sloganBa,
                     transitionSpec = {
@@ -233,6 +239,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                         if (ba) "Үҙебеҙҙекеләр араһында юллашыу" else "Поездки между своими",
                         color = Color.White.copy(0.92f), fontSize = 15.sp, fontFamily = Montserrat,
                         fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
+                        modifier = Modifier.graphicsLayer { alpha = sloganAlpha },
                     )
                 }
             }
