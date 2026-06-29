@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Пейзаж интро Юлдаша: тёмно-зелёный Башкортостан (горы, долина, золотая дорога, сосны, курай).
-     Порт из yuldash_splash_vector (1).svg (viewport 1080×1920). Лого, текст, курай-герой и анимации —
-     в Compose (IntroScreen/BrandHero). Blur/drop-shadow из SVG не переносятся (VectorDrawable их не умеет). -->
+<!-- Пейзаж интро Юлдаша: тёмно-зелёный Башкортостан (слоистые горы с рёбрами, долина с рекой,
+     сосновый лес на склоне, золотая дорога-маршрут, курай по краям, звёзды). Лого, текст и анимации —
+     в Compose (IntroScreen/BrandHero). Blur/drop-shadow из SVG не переносятся (VectorDrawable их не умеет).
+     VectorDrawable не знает <circle> → звёзды и соцветия курая заданы дуговыми path. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="360dp"
@@ -31,6 +32,54 @@
         </aapt:attr>
     </path>
 
+    <!-- Северное сияние (мягкие занавеси по краям, лёгкая волна; fillAlpha × альфа стопов) -->
+    <path android:fillAlpha="0.5" android:pathData="M150,104 C96,290 132,460 92,648 C72,712 156,718 196,640 C150,460 196,300 220,116 C198,150 168,150 150,104 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="90" android:endX="0" android:endY="660">
+                <item android:offset="0" android:color="#009CF7C8" />
+                <item android:offset="0.16" android:color="#808FF0C4" />
+                <item android:offset="0.5" android:color="#3854C7A6" />
+                <item android:offset="1" android:color="#0054C7A6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillAlpha="0.36" android:pathData="M250,112 C214,300 240,470 214,642 C198,694 262,694 290,628 C256,470 286,300 306,120 C290,150 266,150 250,112 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="90" android:endX="0" android:endY="700">
+                <item android:offset="0" android:color="#00BFE9FF" />
+                <item android:offset="0.18" android:color="#6B7FE6D2" />
+                <item android:offset="0.55" android:color="#296FD8C4" />
+                <item android:offset="1" android:color="#006FD8C4" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillAlpha="0.46" android:pathData="M880,104 C934,290 898,470 938,656 C958,716 874,720 836,642 C882,460 836,300 812,116 C834,152 862,150 880,104 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="90" android:endX="0" android:endY="660">
+                <item android:offset="0" android:color="#009CF7C8" />
+                <item android:offset="0.16" android:color="#808FF0C4" />
+                <item android:offset="0.5" android:color="#3854C7A6" />
+                <item android:offset="1" android:color="#0054C7A6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillAlpha="0.32" android:pathData="M788,118 C824,300 798,460 824,640 C840,690 778,690 750,626 C784,470 756,300 736,124 C752,154 772,152 788,118 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="90" android:endX="0" android:endY="700">
+                <item android:offset="0" android:color="#00BFE9FF" />
+                <item android:offset="0.18" android:color="#6B7FE6D2" />
+                <item android:offset="0.55" android:color="#296FD8C4" />
+                <item android:offset="1" android:color="#006FD8C4" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Звёзды (премиум-небо). Дуговые «кружки» — VectorDrawable без <circle>. -->
+    <path android:fillColor="#EAF6C8" android:fillAlpha="0.5"
+        android:pathData="M147.4,170 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0 Z M857.6,150 a2.4,2.4 0 1 0 4.8,0 a2.4,2.4 0 1 0 -4.8,0 Z M978,120 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0 Z M938.2,250 a1.8,1.8 0 1 0 3.6,0 a1.8,1.8 0 1 0 -3.6,0 Z" />
+    <path android:fillColor="#EAF6C8" android:fillAlpha="0.3"
+        android:pathData="M230.3,120 a1.7,1.7 0 1 0 3.4,0 a1.7,1.7 0 1 0 -3.4,0 Z M318,250 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0 Z M118.4,360 a1.6,1.6 0 1 0 3.2,0 a1.6,1.6 0 1 0 -3.2,0 Z M778.4,210 a1.6,1.6 0 1 0 3.2,0 a1.6,1.6 0 1 0 -3.2,0 Z M698.5,110 a1.5,1.5 0 1 0 3,0 a1.5,1.5 0 1 0 -3,0 Z M428.4,150 a1.6,1.6 0 1 0 3.2,0 a1.6,1.6 0 1 0 -3.2,0 Z M608.5,200 a1.5,1.5 0 1 0 3,0 a1.5,1.5 0 1 0 -3,0 Z M898.5,360 a1.5,1.5 0 1 0 3,0 a1.5,1.5 0 1 0 -3,0 Z" />
+
     <!-- Декоративные «ветровые» линии в небе -->
     <path android:pathData="M790,660 C890,640 1000,642 1040,675 C980,645 915,660 860,700 C930,680 1010,696 1085,735"
         android:strokeColor="#B6E58B" android:strokeWidth="3" android:strokeAlpha="0.28" android:strokeLineCap="round" />
@@ -38,8 +87,14 @@
         android:strokeColor="#F3C13A" android:strokeWidth="2" android:strokeAlpha="0.18" android:strokeLineCap="round" />
     <path android:pathData="M730,780 C850,750 960,760 1090,815"
         android:strokeColor="#9CCD76" android:strokeWidth="2" android:strokeAlpha="0.13" android:strokeLineCap="round" />
-    <path android:pathData="M845,760 C940,740 1010,750 1080,790"
-        android:strokeColor="#7FC46D" android:strokeWidth="2" android:strokeAlpha="0.13" android:strokeLineCap="round" />
+    <path android:pathData="M150,720 C260,694 360,704 470,752"
+        android:strokeColor="#9CCD76" android:strokeWidth="2" android:strokeAlpha="0.12" android:strokeLineCap="round" />
+
+    <!-- Дальний хребет (дымка, аэро-перспектива) -->
+    <path android:pathData="M0,1200 L120,1150 L210,1192 L320,1120 L430,1185 L540,1110 L650,1188 L770,1118 L880,1190 L1000,1130 L1080,1175 L1080,1300 L0,1300 Z"
+        android:fillColor="#6FB07A" android:fillAlpha="0.26" />
+    <path android:pathData="M315,1126 L362,1182 L338,1150 Z M535,1116 L585,1180 L560,1146 Z M765,1124 L815,1186 L790,1150 Z"
+        android:fillColor="#D9E08F" android:fillAlpha="0.3" />
 
     <!-- Дальние горы -->
     <path android:pathData="M0,1225 L105,1130 L160,1185 L260,1088 L342,1180 L430,1045 L520,1168 L615,1026 L710,1180 L810,1040 L910,1185 L1080,1045 L1080,1370 L0,1370 Z"
@@ -49,10 +104,32 @@
     <path android:pathData="M415,1055 L508,1166 L463,1118 Z M620,1035 L707,1175 L654,1093 Z M810,1050 L903,1184 L850,1104 Z"
         android:fillColor="#F6C548" android:fillAlpha="0.45" />
 
+    <!-- Левая гора (баланс композиции) -->
+    <path android:pathData="M180,1265 L360,960 L470,1265 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="250" android:startY="1080" android:endX="470" android:endY="1270">
+                <item android:offset="0" android:color="#D98FC97C" />
+                <item android:offset="0.6" android:color="#E61C6E50" />
+                <item android:offset="1" android:color="#FF063A30" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M360,960 L470,1265 L432,1070 Z" android:fillColor="#093C34" android:fillAlpha="0.9" />
+    <path android:pathData="M300,1075 L360,960 L348,1066 L322,1118 Z" android:fillColor="#C1D88A" android:fillAlpha="0.55" />
+    <path android:pathData="M360,985 C352,1070 340,1160 326,1255"
+        android:strokeColor="#0A3A30" android:strokeWidth="3" android:strokeAlpha="0.5" android:strokeLineCap="round" />
+    <path android:pathData="M362,985 C372,1070 388,1150 404,1240"
+        android:strokeColor="#D9E08F" android:strokeWidth="2" android:strokeAlpha="0.28" android:strokeLineCap="round" />
+
     <!-- Главные горы -->
     <path android:pathData="M575,1265 L705,935 L805,1265 Z" android:fillColor="#0C5A46" />
     <path android:pathData="M705,935 L805,1265 L760,1035 Z" android:fillColor="#093C34" />
     <path android:pathData="M626,1132 L705,935 L690,1060 L650,1110 Z" android:fillColor="#C1D88A" android:fillAlpha="0.74" />
+    <path android:pathData="M705,965 C700,1060 692,1160 681,1258"
+        android:strokeColor="#06342B" android:strokeWidth="3.5" android:strokeAlpha="0.55" android:strokeLineCap="round" />
+    <path android:pathData="M707,962 C690,1040 660,1130 622,1212"
+        android:strokeColor="#A9C97E" android:strokeWidth="2" android:strokeAlpha="0.3" android:strokeLineCap="round" />
+
     <path android:pathData="M762,1060 L890,910 L1055,1265 L805,1265 Z">
         <aapt:attr name="android:fillColor">
             <gradient android:type="linear" android:startX="760" android:startY="1060" android:endX="1055" android:endY="1265">
@@ -65,14 +142,59 @@
     <path android:pathData="M890,910 L1055,1265 L972,1028 Z" android:fillColor="#093B33" />
     <path android:pathData="M828,1020 L890,910 L865,1015 L817,1083 Z" android:fillColor="#F0C75A" android:fillAlpha="0.65" />
     <path android:pathData="M915,1000 L890,910 L972,1028 L936,1017 Z" android:fillColor="#D9E08F" android:fillAlpha="0.45" />
+    <path android:pathData="M890,940 C903,1035 928,1140 957,1240"
+        android:strokeColor="#062C25" android:strokeWidth="3.5" android:strokeAlpha="0.5" android:strokeLineCap="round" />
+    <path android:pathData="M888,940 C872,1020 845,1110 815,1196"
+        android:strokeColor="#EBD98F" android:strokeWidth="2" android:strokeAlpha="0.3" android:strokeLineCap="round" />
+
+    <!-- Дымка-туман между пиками и у подножия (атмосфера, глубина) -->
+    <path android:fillAlpha="0.9" android:pathData="M0,1250 C260,1224 540,1234 820,1258 C1000,1274 1060,1268 1080,1262 L1080,1322 C820,1302 540,1308 300,1302 C150,1298 60,1302 0,1308 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="1235" android:endX="0" android:endY="1330">
+                <item android:offset="0" android:color="#00CFEAB8" />
+                <item android:offset="0.5" android:color="#57CFEAB8" />
+                <item android:offset="1" android:color="#00CFEAB8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillAlpha="0.7" android:pathData="M120,1292 C360,1270 600,1278 840,1300 C620,1324 360,1328 160,1320 C140,1312 128,1302 120,1292 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="1235" android:endX="0" android:endY="1330">
+                <item android:offset="0" android:color="#00CFEAB8" />
+                <item android:offset="0.5" android:color="#57CFEAB8" />
+                <item android:offset="1" android:color="#00CFEAB8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Подножие гор -->
     <path android:pathData="M0,1390 C180,1275 330,1280 525,1330 C685,1370 812,1315 1080,1280 L1080,1625 L0,1625 Z"
         android:fillColor="#0A493A" android:fillAlpha="0.9" />
 
-    <!-- Долина / вода -->
-    <path android:pathData="M168,1310 C276,1248 400,1240 492,1280 C585,1320 620,1375 720,1388 C590,1424 443,1430 310,1395 C236,1375 200,1362 115,1372 C128,1340 144,1325 168,1310 Z"
-        android:fillColor="#74C7A2" android:fillAlpha="0.72" />
-    <path android:pathData="M170,1324 C310,1275 410,1275 512,1316 C445,1318 320,1312 214,1348 Z"
-        android:fillColor="#DFF8C8" android:fillAlpha="0.18" />
+    <!-- Долина (мягкая низина) -->
+    <path android:pathData="M150,1320 C300,1262 470,1268 600,1318 C700,1356 760,1378 860,1388 C700,1428 460,1432 300,1400 C220,1382 190,1368 120,1378 C124,1352 136,1334 150,1320 Z"
+        android:fillColor="#3E8E68" android:fillAlpha="0.4" />
+
+    <!-- Спокойный изгиб реки (шире, ярче — ловит свет неба, зеркало) -->
+    <path android:pathData="M286,1404 C386,1358 514,1356 616,1392 C518,1406 432,1412 360,1430 C332,1423 304,1414 286,1404 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="440" android:startY="1360" android:endX="440" android:endY="1428">
+                <item android:offset="0" android:color="#F2E6FBEF" />
+                <item android:offset="0.5" android:color="#E692DCBA" />
+                <item android:offset="1" android:color="#C741A87E" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M306,1398 C398,1364 512,1364 598,1392"
+        android:strokeColor="#F2FFF7" android:strokeWidth="3.5" android:strokeAlpha="0.6" android:strokeLineCap="round" />
+    <path android:pathData="M330,1408 C410,1382 500,1382 566,1402"
+        android:strokeColor="#FFFFFF" android:strokeWidth="1.6" android:strokeAlpha="0.3" android:strokeLineCap="round" />
+
+    <!-- Сосновый лес, взбегающий по склону холма (плотный, два тона для глубины) -->
+    <path android:pathData="M784,1444 L771,1478 L797,1478 Z M824,1432 L811,1466 L837,1466 Z M862,1398 L849,1430 L875,1430 Z M900,1370 L888,1400 L912,1400 Z M938,1350 L926,1380 L950,1380 Z M964,1342 L953,1370 L975,1370 Z"
+        android:fillColor="#0B4A3A" />
+    <path android:pathData="M760,1452 L744,1494 L776,1494 Z M800,1440 L782,1488 L818,1488 Z M822,1432 L806,1476 L838,1476 Z M844,1404 L826,1458 L862,1458 Z M882,1376 L865,1428 L899,1428 Z M902,1370 L886,1418 L918,1418 Z M920,1354 L904,1402 L936,1402 Z M958,1342 L943,1388 L973,1388 Z M168,1462 L157,1492 L179,1492 Z M198,1452 L186,1486 L210,1486 Z M214,1470 L204,1498 L224,1498 Z M232,1444 L221,1476 L243,1476 Z M250,1458 L240,1486 L260,1486 Z"
+        android:fillColor="#06342B" />
 
     <!-- Холмы -->
     <path android:pathData="M0,1450 C225,1325 450,1380 610,1430 C785,1488 905,1405 1080,1360 L1080,1920 L0,1920 Z">
@@ -87,12 +209,18 @@
         android:fillColor="#07372F" android:fillAlpha="0.95" />
     <path android:pathData="M0,1695 C180,1570 300,1610 500,1710 C675,1800 860,1710 1080,1618 L1080,1920 L0,1920 Z"
         android:fillColor="#05241F" />
+
+    <!-- Контуры холмов (рельеф) -->
     <path android:pathData="M-60,1500 C105,1405 250,1400 430,1448"
         android:strokeColor="#A1D371" android:strokeWidth="2" android:strokeAlpha="0.35" android:strokeLineCap="round" />
     <path android:pathData="M520,1515 C650,1440 800,1430 1015,1385"
         android:strokeColor="#E6C354" android:strokeWidth="2" android:strokeAlpha="0.45" android:strokeLineCap="round" />
     <path android:pathData="M520,1635 C700,1530 855,1530 1080,1465"
         android:strokeColor="#8CC46C" android:strokeWidth="2" android:strokeAlpha="0.42" android:strokeLineCap="round" />
+    <path android:pathData="M60,1560 C170,1500 300,1502 420,1532"
+        android:strokeColor="#7FBE63" android:strokeWidth="2" android:strokeAlpha="0.22" android:strokeLineCap="round" />
+    <path android:pathData="M40,1690 C180,1612 320,1628 470,1700"
+        android:strokeColor="#5FA05A" android:strokeWidth="2" android:strokeAlpha="0.22" android:strokeLineCap="round" />
 
     <!-- Золотая дорога-маршрут -->
     <path android:pathData="M680,1925 C650,1780 565,1700 650,1585 C720,1490 638,1448 540,1420 C470,1400 483,1362 564,1342 C640,1324 734,1305 694,1252 C802,1315 820,1385 720,1443 C646,1488 642,1534 710,1582 C812,1655 843,1785 818,1925 Z"
@@ -125,7 +253,13 @@
     <path android:pathData="M28,1710 C60,1680 80,1672 118,1688 M120,1788 C165,1755 188,1758 230,1785"
         android:strokeColor="#477F43" android:strokeWidth="5" android:strokeAlpha="0.6" android:strokeLineCap="round" />
 
-    <!-- Трава / курай (передний план) -->
+    <!-- Курай слева (рамка переднего плана): стебель + лучи соцветия -->
+    <path android:pathData="M150,1920 C156,1820 150,1740 168,1664 M168,1664 L120,1612 M168,1664 L150,1596 M168,1664 L186,1598 M168,1664 L214,1614 M168,1664 L168,1588 M168,1664 L132,1632 M168,1664 L204,1632"
+        android:strokeColor="#D5B13B" android:strokeWidth="2.4" android:strokeAlpha="0.85" android:strokeLineCap="round" />
+    <path android:fillColor="#E8C758" android:fillAlpha="0.8"
+        android:pathData="M116.8,1612 a3.2,3.2 0 1 0 6.4,0 a3.2,3.2 0 1 0 -6.4,0 Z M146.8,1596 a3.2,3.2 0 1 0 6.4,0 a3.2,3.2 0 1 0 -6.4,0 Z M164.8,1588 a3.2,3.2 0 1 0 6.4,0 a3.2,3.2 0 1 0 -6.4,0 Z M182.8,1598 a3.2,3.2 0 1 0 6.4,0 a3.2,3.2 0 1 0 -6.4,0 Z M210.8,1614 a3.2,3.2 0 1 0 6.4,0 a3.2,3.2 0 1 0 -6.4,0 Z M129,1632 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0 Z M201,1632 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0 Z" />
+
+    <!-- Трава / курай (передний план, справа) -->
     <path android:pathData="M875,1912 C860,1835 858,1755 886,1688 M886,1688 C850,1670 827,1685 810,1712 M886,1688 C914,1655 950,1655 980,1680 M886,1688 C870,1655 890,1628 925,1625 M886,1688 C895,1660 925,1668 950,1708 M970,1915 C955,1848 962,1795 990,1750 M990,1750 C960,1730 935,1738 920,1762 M990,1750 C1018,1720 1042,1724 1063,1758 M990,1750 C980,1724 1005,1705 1036,1714 M800,1920 C792,1870 794,1820 814,1780 M814,1780 C790,1766 772,1775 758,1795 M814,1780 C838,1754 860,1760 878,1788 M814,1780 C812,1756 835,1745 856,1756"
         android:strokeColor="#D5B13B" android:strokeWidth="2" android:strokeAlpha="0.88" android:strokeLineCap="round" />
     <path android:pathData="M850,1920 C865,1875 885,1845 920,1810 M900,1920 C900,1870 910,1830 936,1788 M954,1920 C945,1878 948,1842 965,1800 M1030,1920 C1005,1878 990,1840 988,1785 M770,1920 C790,1880 805,1850 840,1812"
