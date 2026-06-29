@@ -47,8 +47,6 @@ class User(SQLModel, table=True):
     verified: bool = False
     # OAuth / Социальные сети
     telegram_id: Optional[str] = Field(default=None, index=True, unique=True)
-    vk_id: Optional[str] = Field(default=None, index=True, unique=True)
-    whatsapp_verified: bool = False
     # Выход/ревокация: токены, выпущенные ДО этого момента, считаются недействительными
     # (logout «со всех устройств», смена/угон телефона). Сравнивается с `iat` токена.
     tokens_valid_from: Optional[datetime] = None
