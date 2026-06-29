@@ -110,14 +110,7 @@ internal fun BrandHero(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.size(224.dp, 230.dp)) {
-        Canvas(Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = 88.dp.toPx()
-            val logoR = 66.dp.toPx()
-            drawKurai(cx, cy, kurai)
-            // дорога короткая (стрелка-навигатор главная, дорога = её след к пину)
-            drawRoad(cx, size.height - 40.dp.toPx(), cy + logoR - 2.dp.toPx(), road, roadFade)
-        }
+        // Курай-веер и дорога-стрелка убраны по просьбе: чистый белый значок над пейзажем (как референс).
         // Лого-стек (сияние + кольцо + белый круг + пин), центр на (112, 88dp).
         Box(
             Modifier.align(Alignment.TopCenter).padding(top = 22.dp).size(132.dp),
