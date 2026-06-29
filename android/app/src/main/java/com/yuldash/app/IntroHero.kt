@@ -118,7 +118,7 @@ internal fun BrandHero(
         ) {
             Box(
                 Modifier.size(188.dp).graphicsLayer { alpha = glow * 0.40f }
-                    .background(Brush.radialGradient(listOf(Color.White.copy(0.30f), Color.Transparent))),
+                    .background(Brush.radialGradient(listOf(Color.White.copy(0.30f), Color.Transparent)), shape = CircleShape),
             )
             Box(Modifier.size(150.dp).graphicsLayer { alpha = ring * 0.42f }.border(1.5.dp, RoadYellow, CircleShape))
             Surface(
