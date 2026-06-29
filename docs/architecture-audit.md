@@ -1,5 +1,23 @@
 # 🏗️ Архитектурный аудит Юлдаша (senior-разбор)
 
+## 📓 Журнал: ViewModel + инструментальные тесты + DEAD1 + Docker (2026-06-29, Opus, worktree)
+
+**Запрос:** «делай по порядку end-to-end» по остатку (ViewModel/Nav, инструм-тесты, DEAD1) + перепроверить Docker.
+
+**№1 Docker — РАБОТАЕТ.** Раньше крашился (Inference manager), но daemon поднимается. Поднял `postgres:16-alpine` → прогнал **`test_overbooking_concurrent` на Postgres → PASSED** (8 параллельных броней на 1 место → ровно 1 успех; `FOR UPDATE` доказан под нагрузкой). Контейнер эфемерный, прибран.
+
+**№2 ViewModel — СДЕЛАНО, эмулятор-verified.** Всё состояние god-composable `YuldashApp` вынесено в `YuldashViewModel` (новый файл). Делегирование через `by vm.xxx` → **76 переходов `screen=X` и все чтения не тронуты** (минимальный диф). Реальный фикс: `selectedRide`/`activeTrip` были `remember` → на повороте экрана брони/поездки сбрасывало на Home (баг); теперь в VM → переживают поворот. `screen`/`language`/`startHomeTab` переживают смерть процесса через `SavedStateHandle` (`persistNav`). Зависимость `lifecycle-viewmodel-compose:2.9.4`. **Эмулятор:** старт на Home, поворот портрет↔ландшафт без краша и с сохранением состояния, back-stack жив, 0 FATAL. `assembleDebug` SUCCESSFUL.
+
+**Полный Navigation-Compose — ОСОЗНАННО НЕ СДЕЛАН (senior-решение).** Два реальных выигрыша (выживание состояния + корректная аппаратная «Назад») уже доставлены через ViewModel + back-stack и проверены. Замена `enum Screen + when` на NavHost = 26 destination + переписать 76 переходов + сериализация аргументов (а `selectedRide`/`activeTrip` — объекты, всё равно жили бы в VM, не в nav-args) + переделать анимации. Огромная площадь регрессии на проверенно-рабочем коде ради косметики; deep links/типизированные маршруты сейчас не нужны. С состоянием уже в VM разница `when` vs NavHost почти косметическая. Брать только если понадобятся deep links — отдельным заходом с полным QA.
+
+**№3 Инструментальные тесты — каркас + рабочий VM-тест.** Настроен androidTest с нуля: deps (`ui-test-junit4`/`ext:junit`/`runner`/`espresso 3.6.1`/`ui-test-manifest`), `testInstrumentationRunner=AndroidJUnitRunner` (без него AGP брал легаси `android.test.*` → краш). Урок: **эмулятор тут Android 17 / API 37** (будущая версия) — Espresso 3.6.1 (latest stable) на ней падает `NoSuchMethodException InputManager.getInstance` (метод удалён, AndroidX не догнал). Поэтому Compose-UI-тест `BilingualComposeTest` помечен `@Ignore` (каркас готов, снять на API ≤36). А `YuldashViewModelInstrumentedTest` (4 теста, БЕЗ Espresso → зелёный на API 37) реально гоняется на устройстве и покрывает survival-логику VM (restore из SavedStateHandle, дефолты, persistNav, битое значение→дефолт).
+
+**№4 DEAD1 — СДЕЛАНО.** Мёртвые `User.vk_id`/`whatsapp_verified` убраны из модели + идемпотентная миграция `0002_drop_dead_user_columns` (на свежей БД no-op, на проде дропает; batch_alter для SQLite). Проверено: pytest **65/65**, `alembic upgrade head` чисто (`0001→0002`, head=`0002`). Прод-дроп — опц. `alembic upgrade head` (низкий приоритет).
+
+**Итог сессии:** pytest 65/65 (+1 concurrency на Postgres = 66 на PG), Android `assembleDebug`+`testDebugUnitTest` зелёные, инструм-VM-тест на устройстве, ViewModel верифицирован на эмуляторе. Коммиты: `2cd33b3` (VM), `1c6e96b` (DEAD1) + инструм-тесты.
+
+---
+
 ## 📓 Журнал: «исправь всё по порядку» — Tier B + остаток находок end-to-end (2026-06-28, Opus, worktree)
 
 **Контекст:** после аудита роем Александр выбрал доделать всё. Решения через вопросы: `/ads/event` → **требовать вход**; делать **все 4 крупных пункта** (back-stack, multipart, тесты Android, тест гонки брони); после — **коммит без деплоя**. Остальное (явные баги) — без вопросов.

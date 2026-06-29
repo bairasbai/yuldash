@@ -90,6 +90,8 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        // Рунер инструментальных тестов (без него AGP берёт легаси android.test.* → краш Compose-тестов).
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Пробрасываем ключ в BuildConfig (в коде не хардкодим).
         buildConfigField("String", "YANDEX_MAPKIT_KEY", "\"$mapkitKey\"")
@@ -166,4 +168,12 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     // JVM unit-тесты (каркас «с нуля»): чистая логика без Android-фреймворка. Запуск: gradlew :app:testDebugUnitTest
     testImplementation("junit:junit:4.13.2")
+    // Инструментальные Compose-тесты (на устройстве/эмуляторе). Запуск: gradlew :app:connectedDebugAndroidTest
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.00"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    // Espresso 3.6.1: старые версии падают на новых API (NoSuchMethodException InputManager.getInstance).
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
