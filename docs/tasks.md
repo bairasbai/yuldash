@@ -1,5 +1,26 @@
 # ✅ Задачи Юлдаш
 
+## План: новый фон входа с Салаватом Юлаевым — 2026-06-29
+
+- [x] Сгенерировать новый вертикальный bitmap-фон по референсу Александра: Салават Юлаев, Уфа/Белая, зелёные холмы, тёплый свет, без текста внутри изображения.
+- [x] Сохранить фон как `android/app/src/main/res/drawable-nodpi/login_salavat_yulaev_hero.png`; старый `login_bashkir_telegram_hero.png` оставить в проекте для отката.
+- [x] Переключить `LoginScreen.kt` на новый фон и убрать прежний ручной сдвиг/зум кадра.
+- [x] Проверить: `:app:assembleDebug` и `:app:assembleRelease` — BUILD SUCCESSFUL; release-экран входа снят в `android/screenshots/login-salavat-bg.png`.
+
+## План: регистрация как на референсе — 2026-06-29
+- [x] Перестроить Android-экран входа под референс: высокий hero с фоном Башкортостана, крупный бренд, три преимущества и нижняя белая панель входа.
+- [x] Оставить фактически рабочий сценарий: основной вход через Telegram-код; телефонная кнопка видна только при включённом `SMS_LOGIN_ENABLED`.
+- [x] Сохранить двуязычие через `appTextFor(ru, ba)` и отметить новые BA-строки как черновики.
+- [x] Проверить сборку: `:app:assembleDebug` — BUILD SUCCESSFUL.
+
+### Переводы на проверку — логин 2026-06-29
+- «Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡулланығыҙ» (подпись формы)
+- «йәки» (разделитель)
+- Ряды на геро ОБНОВЛЕНЫ (старые повторяли онбординг → заменены на трасты про вход):
+  - `Вход без пароля` → `Парольһеҙ инеү` · `Только код — ни паролей, ни анкет` → `Бары код — пароль да, анкета ла юҡ`
+  - `Никакого спама` → `Спам юҡ` · `Не звоним и не шлём SMS` → `Шылтыратмайбыҙ, SMS ебәрмәйбеҙ`
+  - `Данные под защитой` → `Мәғлүмәт һаҡлауҙа` · `Шифруем и не передаём третьим` → `Шифрлайбыҙ, өсөнсө яҡҡа бирмәйбеҙ`
+
 ## План: вернуть живость первого лендинга — 2026-06-29
 - [x] Вернуть направление первого варианта: эмоциональный hero, живой интерфейс приложения, тёплые CTA, ощущение мобильного продукта.
 - [x] Оставить улучшения второй итерации: чистый Remotion-фон без текстового шума, честный блок отзывов, аккуратная адаптация.
@@ -130,7 +151,7 @@
 
 ## Сделано
 - [x] 2026-06-28 **Логин v2 под стиль онбординга.** `LoginScreen.kt`: `BrandHero` использует `android/app/src/main/res/drawable-nodpi/login_bashkir_telegram_hero.png` — фото из файла Александра `C:\Users\Bayra\Downloads\a432a300-30f2-416a-b204-d8e1f7b4fc73.png` (без текста внутри изображения, с башкирским визуальным колоритом). Тексты входа актуализированы под 6-значный Telegram-код; кнопка входа — фирменная зелёная; `TrustCard` больше не обещает «каждый водитель проходит проверку», а честно пишет про модерацию прав и авто. Скриншот проверки: `android/screenshots/login-user-photo.png`.
-- [x] 2026-06-29 **Логин v2: кадрирование hero-фото.** В `LoginScreen.kt` фон `login_bashkir_telegram_hero.png` слегка увеличен и сдвинут вниз (`graphicsLayer scale 1.07 + translationY 34f`), чтобы памятник Салавату Юлаеву не упирался в статус-бар. Проверка: `:app:assembleDebug :app:assembleRelease` — BUILD SUCCESSFUL.
+- [x] 2026-06-29 **Логин v2: кадрирование hero-фото.** В `LoginScreen.kt` фон `login_bashkir_telegram_hero.png` слегка увеличивался и сдвигался вниз (`graphicsLayer scale 1.07 + translationY 34f`), чтобы памятник Салавату Юлаеву не упирался в статус-бар. Позже в тот же день заменено новым фоном `login_salavat_yulaev_hero.png` без ручного зума/сдвига. Проверка: `:app:assembleDebug :app:assembleRelease` — BUILD SUCCESSFUL.
 - [x] 2026-06-28 **Онбординг v2 под стиль входа.** Сгенерирована и подключена картинка `android/app/src/main/res/drawable-nodpi/onboarding_bashkir_hero.png` (дорога по Башкортостану, машина, горы/степь, орнамент, без текста/логотипа внутри изображения). `YuldashApp.kt`: `OnboardingHeroCard` теперь как `BrandHero` на входе — большое изображение, затемнение, маленький логотип в углу, story-плашка и иконка слайда; карточки шагов получили номера. Тексты актуализированы: убрано широкое обещание «подтверждённые участники», оставлено фактическое — Telegram-вход, проверка водителя, скрытый номер, SOS, заявки→отклики→поездка. Проверка: `:app:assembleDebug` и `:app:assembleRelease` — BUILD SUCCESSFUL; release установлен на эмулятор, `pm clear`, первый запуск показывает онбординг. Скриншоты: `android/screenshots/onboarding-v2-final-1.png` … `onboarding-v2-final-4.png`.
 - [x] 2026-06-28 **БОЛЬШАЯ СЕССИЯ: продукт-полнота для беты (Opus, всё на проде, всё зелёное pytest 61/61).** ① **Поток заявок замкнут** (был «в никуда»): `RequestResponse` + `/requests/feed`,`/requests/{id}/respond`,`/requests/{id}/responses`,`/responses/{id}/accept`→Ride+Booking; `RequestsFeedScreen`+`ResponsesScreen`. ② **Кабинет админа** (Настройки→единый вход, `isAdmin`): заявка за юзера (`/admin/request-for-phone`), отклики (принять ЗА юзера), модерация водителей (`/admin/drivers/pending`+фото Coil+Bearer), жалобы (`/admin/reports`), реклама. **Автоадмин** по tg-id/телефону. ③ **Профиль:** имя (`/me/update`+поле при входе), аватар (`User.avatar_url`+`migrate_avatar.sql`, `SmallAvatar` везде), онлайн-водитель (`/driver/online`+бейдж). ④ **Заглушки закрыты:** звонок→Telegram (`/callback`), код посадки (`/bookings/{id}/boarding-code`), STT уже был. ⑤ **8 мёртвых кнопок** оживлены + чёрный список/жалобы (`/blocks`,`/reportable-users`). ⑥ **Уведомления админу** о срочных/«помощь»-заявках (`assisted`). ⑦ **Firebase Analytics** (события воронки). ⑧ **Инфра выжата** (воркеры 5+preload, кеш rides/geocode, pool_pre_ping; БЕЗ апгрейда до 5к) + мониторинг (`monitor.sh`→Telegram) + офсайт-S3-бэкап. `.aab` пересобран. **Рекомендация: ЗАПУСК** (Play→юзеры→аналитика). Детали — decisions/architecture/backend/lessons.
 - [x] 2026-06-28 **Scale-tier end-to-end + ЗАДЕПЛОЕНО (Opus).** ① **Refresh-токены**: access короткий + refresh ротируемый (хеш в БД) + `/auth/refresh` + logout-ревокация всех refresh; Android авто-refresh на 401 (Mutex, повтор 1 раз). ② **Redis rate-limit**: общий на воркеры (фикс-окно), фолбэк in-memory; на проде Redis уже был (соседняя ветка) → подхватил. ③ **PostGIS**: геокод концов при публикации (`services.geocode_city` → `ride.from_lat/lng,to_lat/lng`) + `ST_DWithin`/GiST-префильтр с haversine-фолбэком; extension+индекс на проде. ④ **load-more**: `limit/offset` на `/rides`,`/bookings/mine`,`/requests/mine`,`/rides/near` + Android `NearbyMoreCard`. **Баг найден+починен:** гонка 2 воркеров gunicorn на `create_all`→`DuplicateTable` → `init_db` идемпотентен (try/except ProgrammingError). Миграции `migrate_geo.sql` + RefreshToken-таблица (auto). **Прод проверен:** workers стартуют, health `db:ok`, refreshtoken+4 geo-колонки+postgis+GiST+redis-ключи живые. pytest **47/47**, Android BUILD SUCCESSFUL. `.env.example`+`deploy-backend.bat` обновлены. Детали — decisions/lessons/architecture-audit.

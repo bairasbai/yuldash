@@ -120,7 +120,7 @@
 - `OnboardingScreen` — 4 слайда перед входом. V2 от 2026-06-28: большой photo/illustration hero `drawable-nodpi/onboarding_bashkir_hero.png` с дорогой/машиной/башкирским орнаментом, маленький логотип поверх, story-карточки шагов, актуальные тексты про Telegram-вход, проверку водителя, скрытый номер, SOS, заявки→отклики→поездку.
 
 ### Логин
-- `LoginScreen` — **реальный вход через Telegram-код** (`LoginFormCard`: открыть Telegram-бота → получить 6-значный код → ввести код → JWT, автологин). SMS-вход заморожен флагом, основной рабочий канал — Telegram. `BrandHero` использует `drawable-nodpi/login_bashkir_telegram_hero.png` (фото из файла Александра `C:\Users\Bayra\Downloads\a432a300-30f2-416a-b204-d8e1f7b4fc73.png`); `TrustCard` не обещает проверку каждого водителя, а честно показывает текущую модерацию прав/авто. Логика — `data/ApiClient.kt`.
+- `LoginScreen` — **реальный вход через Telegram-код** (`LoginFormCard`: открыть Telegram-бота → получить 6-значный код → ввести код → JWT, автологин). SMS-вход заморожен флагом, основной рабочий канал — Telegram. `BrandHero` использует `drawable-nodpi/login_salavat_yulaev_hero.png` — сгенерированный вертикальный фон по референсу Александра с Салаватом Юлаевым, Уфой/Белой и дорогой; старый `login_bashkir_telegram_hero.png` оставлен для отката. `TrustCard` не обещает проверку каждого водителя, а честно показывает текущую модерацию прав/авто. Логика — `data/ApiClient.kt`.
 
 ### Главный экран (оболочка + нижнее меню)
 - `HomeScreen` — 1294 (Scaffold + вкладки) · `YuldashBottomBar` — 1416
