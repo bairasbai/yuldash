@@ -728,7 +728,7 @@ private fun BrandHero(
                 lineHeight = 29.sp,
                 fontWeight = FontWeight.Medium
             )
-            Spacer(Modifier.height(42.dp))
+            Spacer(Modifier.height(18.dp))
             LoginHeroFeatures(currentLanguage)
         }
 
@@ -738,7 +738,7 @@ private fun BrandHero(
 // Переключатель языка — тот же сегментированный стиль, что на онбординге (белая «таблетка», активный чип зелёный).
 @Composable
 private fun LoginHeroFeatures(currentLanguage: AppLanguage) {
-    Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(15.dp)) {
         LoginHeroFeature(
             icon = Icons.Default.Lock,
             title = appTextFor(currentLanguage, "Вход без пароля", "Парольһеҙ инеү"),
