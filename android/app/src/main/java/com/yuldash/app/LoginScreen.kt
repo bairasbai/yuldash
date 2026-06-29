@@ -63,8 +63,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -114,6 +116,8 @@ import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhoneLocked
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Pin
@@ -257,44 +261,30 @@ internal fun LoginScreen(
         modifier = Modifier.fillMaxSize(),
         color = CanonBg
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-            contentPadding = PaddingValues(bottom = 28.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
         ) {
-            item {
-                Column {
-                    BrandHero(
-                        currentLanguage = currentLanguage,
-                        onToggleLanguage = onToggleLanguage,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(360.dp)
-                    )
-                    LoginFormCard(
-                        currentLanguage = currentLanguage,
-                        onContinue = onContinue,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp)
-                            .offset(y = (-44).dp)
-                    )
-                }
-            }
-            item {
-                TrustCard(
+            BrandHero(
+                currentLanguage = currentLanguage,
+                onToggleLanguage = onToggleLanguage,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(700.dp)
+            )
+            // Форма «висит» над геро (-44), а подвал идёт сразу за ней — без пустой дыры.
+            Column(
+                modifier = Modifier
+                    .offset(y = (-118).dp)
+                    .padding(bottom = 0.dp)
+            ) {
+                LoginFormCard(
                     currentLanguage = currentLanguage,
+                    onContinue = onContinue,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                )
-            }
-            item {
-                SafetyFooter(
-                    currentLanguage = currentLanguage,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
+                        .padding(horizontal = 0.dp)
                 )
             }
         }
@@ -323,19 +313,35 @@ private fun LoginFormCard(
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
-        shape = RoundedCornerShape(24.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+        shape = RoundedCornerShape(topStart = 44.dp, topEnd = 44.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 22.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(13.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 32.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
                 text = appTextFor(currentLanguage, "Войти в Юлдаш", "Юлдашҡа инеү"),
                 color = CanonText,
-                fontSize = 24.sp,
-                lineHeight = 28.sp,
-                fontWeight = FontWeight.Black
+                fontSize = 32.sp,
+                lineHeight = 36.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = appTextFor(
+                    currentLanguage,
+                    "Используйте Telegram для быстрого и безопасного входа",
+                    "Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡулланығыҙ"
+                ),
+                color = CanonMuted,
+                fontSize = 20.sp,
+                lineHeight = 26.sp,
+                textAlign = TextAlign.Center
             )
             if (tgMode) {
                 // --- Ввод 6-значного кода, который бот прислал в Telegram ---
@@ -348,7 +354,7 @@ private fun LoginFormCard(
                 // отвечает 409 «код ещё не пришёл». Честное сообщение, чтобы юзер не думал, что ошибся.
                 val errCodeNotYet = appTextFor(currentLanguage, "Код ещё идёт от Telegram — подожди пару секунд и нажми «Войти» снова.", "Код Telegram'дан килә — бер-ике секунд көт тә «Инеү» баҫ.")
                 Text(
-                    text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот код ебәрер. Шуны индер."),
+                    text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт 6-значный код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот 6 һанлы код ебәрер. Шуны индер."),
                     color = CanonMuted, fontSize = 16.sp, lineHeight = 22.sp
                 )
                 if (needPhone) {
@@ -426,13 +432,8 @@ private fun LoginFormCard(
                     Text(appTextFor(currentLanguage, "Назад", "Кире"), color = CanonMuted, fontSize = 14.sp)
                 }
             } else {
-            Text(
-                text = appTextFor(currentLanguage, "Быстрый вход через Telegram", "Telegram аша тиҙ инеү"),
-                color = CanonMuted,
-                fontSize = 16.sp,
-                lineHeight = 22.sp
-            )
-            Spacer(modifier = Modifier.height(4.dp))
+            // Подпись про «6-значный код» убрана — бейдж на геро уже это говорит (без дубля).
+            Spacer(modifier = Modifier.height(2.dp))
             // Telegram — рабочий вход (бот шлёт 6-значный код). VK/WhatsApp — «скоро».
             val errTgStart = appTextFor(currentLanguage, "Не удалось начать вход. Повтори.", "Инеүҙе башлап булманы. Ҡабатла.")
             val tgSoon = appTextFor(currentLanguage, "Вход через Telegram скоро", "Telegram аша инеү тиҙҙән")
@@ -455,18 +456,37 @@ private fun LoginFormCard(
                             .onFailure { loading = false; error = errTgStart }
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0088CC))
+                modifier = Modifier.fillMaxWidth().height(72.dp),
+                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
-                Text(appTextFor(currentLanguage, "Вход через Telegram", "Telegram аша инеү"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text(appTextFor(currentLanguage, "Войти через Telegram", "Telegram аша инеү"), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    }
+                }
             }
             // VK и WhatsApp убраны: VK требует ИНН (бизнес), WhatsApp — WhatsApp Business API. Оба недоступны физлицу.
             // SMS-вход ЗАМОРОЖЕН (нет юр.лица для sms.ru). Форма цела — видна только при SMS_LOGIN_ENABLED.
             if (BuildConfig.SMS_LOGIN_ENABLED) {
-            Spacer(modifier = Modifier.height(6.dp))
-            TextButton(onClick = { showPhone = !showPhone }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text(appTextFor(currentLanguage, "Войти по номеру телефона", "Телефон номеры аша инеү"), color = CanonGreen2, fontSize = 14.sp)
+            LoginDivider(currentLanguage)
+            OutlinedButton(
+                onClick = { showPhone = !showPhone },
+                modifier = Modifier.fillMaxWidth().height(64.dp),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, CanonGreen2),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = CanonGreen2)
+            ) {
+                Icon(Icons.Default.Phone, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(26.dp))
+                Spacer(Modifier.width(14.dp))
+                Text(appTextFor(currentLanguage, "Войти по номеру телефона", "Телефон номеры аша инеү"), color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
             if (showPhone) {
             Text(
@@ -581,8 +601,41 @@ private fun LoginFormCard(
             }
             }   // конец if (showPhone)
             }   // конец if (BuildConfig.SMS_LOGIN_ENABLED) — SMS-вход заморожен
+            Spacer(Modifier.height(6.dp))
+            LoginConsent(
+                currentLanguage = currentLanguage,
+                modifier = Modifier.fillMaxWidth()
+            )
             }   // конец else (tgMode == false) — экран выбора входа
         }
+    }
+}
+
+@Composable
+private fun LoginDivider(currentLanguage: AppLanguage) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(CanonBorder)
+        )
+        Text(
+            text = appTextFor(currentLanguage, "или", "йәки"),
+            color = CanonMuted,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(CanonBorder)
+        )
     }
 }
 
@@ -598,9 +651,15 @@ private fun BrandHero(
             .background(CanonGreen2)
     ) {
         Image(
-            painter = painterResource(R.drawable.login_car_hero_square),
+            painter = painterResource(R.drawable.login_salavat_yulaev_hero),
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = 1.0f
+                    scaleY = 1.0f
+                    translationY = 0f
+                },
             contentScale = ContentScale.Crop
         )
         Box(
@@ -608,10 +667,10 @@ private fun BrandHero(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to Color(0x99175F3F),
-                        0.44f to Color(0x33175F3F),
-                        0.72f to Color(0x2206130F),
-                        1f to Color(0xE606130F)
+                        0f to CanonGreen2.copy(alpha = 0.60f),
+                        0.44f to CanonGreen2.copy(alpha = 0.22f),
+                        0.72f to Color.Black.copy(alpha = 0.14f),
+                        1f to Color.Black.copy(alpha = 0.90f)
                     )
                 )
         )
@@ -620,166 +679,140 @@ private fun BrandHero(
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
-                        0f to Color(0x66105239),
+                        0f to CanonGreen2.copy(alpha = 0.40f),
                         0.55f to Color.Transparent,
-                        1f to Color(0x3306130F)
+                        1f to Color.Black.copy(alpha = 0.20f)
                     )
                 )
         )
 
-        Row(
+        LoginLangToggle(
+            currentLanguage = currentLanguage,
+            onToggleLanguage = onToggleLanguage,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .padding(top = 16.dp, end = 24.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .clickable(onClick = onToggleLanguage)
-                .background(Color.White.copy(alpha = 0.16f))
-                .border(1.dp, Color.White.copy(alpha = 0.30f), RoundedCornerShape(999.dp))
-                .padding(horizontal = 15.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        )
+
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(top = 16.dp, start = 24.dp)
+                .size(54.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = Color.White,
+            shadowElevation = 6.dp
         ) {
-            Icon(Icons.Default.Language, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-            Text(
-                text = if (currentLanguage == AppLanguage.Ba) "БАШ" else "РУС",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
+            Image(
+                painter = painterResource(R.drawable.yuldash_logo),
+                contentDescription = null,
+                modifier = Modifier.padding(7.dp),
+                contentScale = ContentScale.Fit
             )
-            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
         }
 
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(top = 52.dp, start = 28.dp, end = 22.dp)
+                .padding(top = 104.dp, start = 24.dp, end = 24.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    modifier = Modifier.size(68.dp),
-                    shape = CircleShape,
-                    color = Color.White,
-                    shadowElevation = 6.dp
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.yuldash_logo),
-                        contentDescription = null,
-                        modifier = Modifier.padding(8.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Юлдаш", color = Color.White, fontSize = 40.sp, lineHeight = 42.sp, fontWeight = FontWeight.Black)
-                    Text(
-                        text = appTextFor(currentLanguage, "Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 18.sp,
-                        lineHeight = 22.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-            Spacer(Modifier.height(22.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                HeroPill(Icons.Default.PhoneLocked, appTextFor(currentLanguage, "Скрытый номер", "Йәшерен номер"))
-                HeroPill(Icons.Default.Pin, appTextFor(currentLanguage, "Код посадки", "Ултырыу коды"))
-            }
-        }
-
-    }
-}
-
-@Composable
-private fun HeroPill(icon: ImageVector, text: String) {
-    Surface(
-        color = Color.White.copy(alpha = 0.16f),
-        shape = RoundedCornerShape(999.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.34f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+            Text("Юлдаш", color = Color.White, fontSize = 64.sp, lineHeight = 66.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(5.dp))
             Text(
-                text = text,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                maxLines = 1
+                text = appTextFor(currentLanguage, "Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
+                color = Color.White.copy(alpha = 0.94f),
+                fontSize = 24.sp,
+                lineHeight = 29.sp,
+                fontWeight = FontWeight.Medium
             )
+            Spacer(Modifier.height(42.dp))
+            LoginHeroFeatures(currentLanguage)
         }
+
+    }
+}
+
+// Переключатель языка — тот же сегментированный стиль, что на онбординге (белая «таблетка», активный чип зелёный).
+@Composable
+private fun LoginHeroFeatures(currentLanguage: AppLanguage) {
+    Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+        LoginHeroFeature(
+            icon = Icons.Default.Lock,
+            title = appTextFor(currentLanguage, "Вход без пароля", "Парольһеҙ инеү"),
+            body = appTextFor(currentLanguage, "Только код — ни паролей, ни анкет", "Бары код — пароль да, анкета ла юҡ")
+        )
+        LoginHeroFeature(
+            icon = Icons.Default.Block,
+            title = appTextFor(currentLanguage, "Никакого спама", "Спам юҡ"),
+            body = appTextFor(currentLanguage, "Не звоним и не шлём SMS", "Шылтыратмайбыҙ, SMS ебәрмәйбеҙ")
+        )
+        LoginHeroFeature(
+            icon = Icons.Default.Shield,
+            title = appTextFor(currentLanguage, "Данные под защитой", "Мәғлүмәт һаҡлауҙа"),
+            body = appTextFor(currentLanguage, "Шифруем и не передаём третьим", "Шифрлайбыҙ, өсөнсө яҡҡа бирмәйбеҙ")
+        )
     }
 }
 
 @Composable
-private fun TrustCard(currentLanguage: AppLanguage, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        shape = RoundedCornerShape(22.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
-        ) {
-            TrustRow(
-                icon = Icons.Default.PhoneLocked,
-                title = appTextFor(currentLanguage, "Телефон скрыт", "Телефон йәшерелгән"),
-                subtitle = appTextFor(currentLanguage, "До подтверждения брони", "Бронь раҫланғанға тиклем")
-            )
-            TrustDivider()
-            TrustRow(
-                icon = Icons.Default.Shield,
-                title = appTextFor(currentLanguage, "Код посадки", "Ултырыу коды"),
-                subtitle = appTextFor(currentLanguage, "Для вашей безопасности", "Һеҙҙең хәүефһеҙлек өсөн")
-            )
-            TrustDivider()
-            TrustRow(
-                icon = Icons.Default.Verified,
-                title = appTextFor(currentLanguage, "Проверка водителя и машины", "Водитель һәм машинаны тикшереү"),
-                subtitle = appTextFor(currentLanguage, "Каждый водитель проходит проверку", "Һәр водитель тикшереү үтә")
-            )
-        }
-    }
-}
-
-@Composable
-private fun TrustDivider() {
-    Box(
-        Modifier
-            .padding(start = 72.dp)
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(CanonBorder)
-    )
-}
-
-@Composable
-private fun TrustRow(icon: ImageVector, title: String, subtitle: String) {
+private fun LoginHeroFeature(icon: ImageVector, title: String, body: String) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 66.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Surface(
-            modifier = Modifier.size(48.dp),
-            color = CanonMint,
-            shape = RoundedCornerShape(14.dp)
+            modifier = Modifier.size(54.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = CanonGreen2.copy(alpha = 0.92f),
+            shadowElevation = 4.dp
         ) {
-            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp))
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.padding(13.dp)
+            )
         }
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = CanonText, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium)
-            Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp)
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = Color.White, fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black)
+            Text(body, color = Color.White.copy(alpha = 0.92f), fontSize = 16.sp, lineHeight = 20.sp)
         }
-        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(28.dp))
+    }
+}
+
+@Composable
+private fun LoginLangToggle(
+    currentLanguage: AppLanguage,
+    onToggleLanguage: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(999.dp),
+        color = CanonSurface,
+        border = BorderStroke(1.dp, CanonBorder),
+        shadowElevation = 3.dp
+    ) {
+        Row(Modifier.padding(2.dp)) {
+            LoginLangChip("РУС", currentLanguage == AppLanguage.Ru) { if (currentLanguage != AppLanguage.Ru) onToggleLanguage() }
+            LoginLangChip("БАШ", currentLanguage == AppLanguage.Ba) { if (currentLanguage != AppLanguage.Ba) onToggleLanguage() }
+        }
+    }
+}
+
+@Composable
+private fun LoginLangChip(text: String, active: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .background(if (active) CanonGreen2 else Color.Transparent)
+            .padding(horizontal = 12.dp, vertical = 5.dp)
+    ) {
+        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Black)
     }
 }
 
@@ -809,5 +842,52 @@ private fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Modi
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+// Согласие с офертой: ссылки ведут на реальные страницы лендинга (yulbash.ru/terms, /privacy).
+@Composable
+private fun LoginConsent(currentLanguage: AppLanguage, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    fun open(url: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+        }
+    }
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = appTextFor(currentLanguage, "Входя, ты принимаешь", "Инеп, һин ҡабул итәһең:"),
+            color = CanonMuted,
+            fontSize = 12.sp,
+            lineHeight = 16.sp,
+            textAlign = TextAlign.Center
+        )
+        Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = appTextFor(currentLanguage, "Условия", "Шарттарҙы"),
+                color = CanonGreen2,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { open("https://yulbash.ru/terms/") }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+            Text(" · ", color = CanonMuted, fontSize = 12.sp)
+            Text(
+                text = appTextFor(currentLanguage, "Политику конфиденциальности", "Конфиденциаллек сәйәсәтен"),
+                color = CanonGreen2,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { open("https://yulbash.ru/privacy/") }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
     }
 }

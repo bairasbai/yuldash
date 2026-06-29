@@ -708,6 +708,8 @@ internal fun RideCard(
     onShare: () -> Unit,
     onBoost: () -> Unit
 ) {
+    val hasSeats = ride.seats > 0
+    val noSeatsText = appText("Мест нет", "Урын юҡ")
     if (compact && fullWidth) {
         FullRideCard(
             ride = ride,
@@ -786,11 +788,12 @@ internal fun RideCard(
                     }
                     Button(
                         onClick = onBook,
+                        enabled = hasSeats,
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                     ) {
-                        Text(appText("Поехать", "Барырға"), fontWeight = FontWeight.Black)
+                        Text(if (hasSeats) appText("Поехать", "Барырға") else noSeatsText, fontWeight = FontWeight.Black)
                     }
                 }
             } else {
@@ -804,10 +807,11 @@ internal fun RideCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = onBook,
+                        enabled = hasSeats,
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text(appText("Забронировать", "Бронләү"))
+                        Text(if (hasSeats) appText("Забронировать", "Бронләү") else noSeatsText)
                     }
                     IconButton(onClick = onShare) {
                         Icon(Icons.Default.IosShare, contentDescription = appText("Поделиться", "Бүлешеү"))
@@ -1110,6 +1114,8 @@ private fun FullRideCard(
     onBoost: () -> Unit
 ) {
     val isHospital = ride.car.contains("больниц", ignoreCase = true)
+    val hasSeats = ride.seats > 0
+    val noSeatsText = appText("Мест нет", "Урын юҡ")
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1196,11 +1202,12 @@ private fun FullRideCard(
                 }
                 Button(
                     onClick = onBook,
+                    enabled = hasSeats,
                     modifier = Modifier.weight(1f).height(42.dp),
                     shape = RoundedCornerShape(15.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
-                    Text(appText("Поехать", "Барырға"), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
+                    Text(if (hasSeats) appText("Поехать", "Барырға") else noSeatsText, fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
                 }
                 IconButton(onClick = onShare) {
                     Icon(Icons.Default.IosShare, contentDescription = appText("Поделиться", "Бүлешеү"), tint = CanonText)

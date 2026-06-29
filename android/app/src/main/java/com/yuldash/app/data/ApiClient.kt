@@ -99,9 +99,10 @@ object ApiClient {
         if (secure != null && plain.contains("token")) {
             secure.edit()
                 .putString("token", plain.getString("token", null))
+                .putString("refresh_token", plain.getString("refresh_token", null))
                 .putString("user_name", plain.getString("user_name", null))
                 .apply()
-            plain.edit().remove("token").remove("user_name").apply()
+            plain.edit().remove("token").remove("refresh_token").remove("user_name").apply()
         }
         val p = secure ?: plain
         prefs = p

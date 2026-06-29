@@ -21,6 +21,12 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
@@ -168,6 +174,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -378,14 +385,22 @@ internal data class OnboardingItem(
 // СБП-перевод по номеру телефона (донат/boost) — P2P, без мерчант-аккаунта. Позже вынести в конфиг/бэкенд.
 private const val SBP_PHONE_DISPLAY = "+7 (999) 134-82-75"
 private const val SBP_PHONE_DIGITS = "+79991348275"
-private const val SBP_NAME = "Байрас"
+private const val SBP_NAME = "Байрас Байбулов"
 private const val SBP_BANK = "Сбербанк"
 
 @Composable
 internal fun LocalizedText.text(): String = appText(ru, ba)
 
 @Composable
-internal fun seatsText(count: Int): String = appText("$count места", "$count урын")
+internal fun seatsText(count: Int): String {
+    val ru = when {
+        count % 100 in 11..14 -> "$count мест"
+        count % 10 == 1 -> "$count место"
+        count % 10 in 2..4 -> "$count места"
+        else -> "$count мест"
+    }
+    return appText(ru, "$count урын")
+}
 
 @Composable
 internal fun Ride.timeText(): String = appText(time, timeBa ?: time)

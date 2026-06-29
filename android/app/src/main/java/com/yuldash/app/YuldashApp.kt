@@ -81,6 +81,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.AddRoad
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Badge
@@ -109,7 +111,9 @@ import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MoneyOff
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.Notifications
@@ -123,6 +127,7 @@ import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
@@ -266,10 +271,12 @@ internal fun YuldashApp() {
     val voiceMessages = vm.voiceMessages
     // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
     val splashTarget = remember {
+        // Память режима: старт в последнем выбранном (водитель → кабинет водителя, пассажир → дом).
+        val startDriver = prefs.getString("preferred_role", "") == RideRole.Driver.name
         when {
             !prefs.getBoolean("onboarding_completed", false) -> Screen.Intro  // ПЕРВЫЙ запуск → брендовое интро (даже в debug)
-            BuildConfig.DEBUG -> Screen.Home               // DEV-обход входа (повторные запуски): только debug-сборка.
-            ApiClient.isLoggedIn() -> Screen.Home          // уже вошёл → сразу домой
+            BuildConfig.DEBUG -> if (startDriver) Screen.DriverCabinet else Screen.Home   // DEV-обход входа (повторные запуски)
+            ApiClient.isLoggedIn() -> if (startDriver) Screen.DriverCabinet else Screen.Home   // уже вошёл → в последний режим
             else -> Screen.Login
         }
     }
@@ -445,14 +452,23 @@ internal fun YuldashApp() {
                 LaunchedEffect(Unit) { delay(if (splashTarget == Screen.Intro) 60 else 140); screen = splashTarget }
             }
             Screen.Intro -> IntroScreen(onComplete = { screen = Screen.Onboarding })
-            Screen.Onboarding -> OnboardingScreen(onFinish = ::finishOnboarding)
+            Screen.Onboarding -> OnboardingScreen(
+                onFinish = ::finishOnboarding,
+                language = language,
+                onSelectLanguage = { language = it }
+            )
             Screen.Login -> {
                 LoginScreen(
                     currentLanguage = language,
                     onToggleLanguage = {
                         language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                     },
-                    onContinue = { openHome() },
+                    onContinue = {
+                        if (prefs.getString("preferred_role", "") == RideRole.Driver.name) {
+                            startHomeTab = HomeTab.Profile   // назад из кабинета водителя → профиль
+                            screen = Screen.DriverCabinet     // выбрал «Я водитель» → сразу в кабинет (проверка/публикация)
+                        } else openHome()
+                    },
                 )
             }
             Screen.Home -> HomeScreen(
@@ -517,8 +533,8 @@ internal fun YuldashApp() {
                 onSettings = { screen = Screen.Settings },
                 onPrivacy = { screen = Screen.Privacy },
                 onHelp = { screen = Screen.Help },
-                onPassengerCabinet = { screen = Screen.PassengerCabinet },
-                onDriverCabinet = { screen = Screen.DriverCabinet },
+                onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
+                onDriverCabinet = { prefs.edit().putString("preferred_role", RideRole.Driver.name).apply(); screen = Screen.DriverCabinet },
                 onSimpleMode = { screen = Screen.SimpleMode },
                 onTrustedContacts = { screen = Screen.TrustedContacts },
                 onCallbackHelp = { screen = Screen.CallbackHelp },
@@ -734,7 +750,7 @@ internal fun shareRide(context: android.content.Context, text: String, chooserTi
 }
 
 @Composable
-private fun OnboardingScreen(onFinish: (RideRole) -> Unit) {
+private fun OnboardingScreen(onFinish: (RideRole) -> Unit, language: AppLanguage, onSelectLanguage: (AppLanguage) -> Unit) {
     val slides = remember { onboardingSlides() }
     val pagerState = rememberPagerState(pageCount = { slides.size })
     val scope = rememberCoroutineScope()
@@ -751,11 +767,19 @@ private fun OnboardingScreen(onFinish: (RideRole) -> Unit) {
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                OnboardingLangToggle(language, onSelectLanguage)
+            }
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.weight(1f)
             ) { page ->
                 val slide = slides[page]
+                var played by remember { mutableStateOf(false) }
+                LaunchedEffect(pagerState.currentPage) { if (pagerState.currentPage == page) played = true }
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -768,35 +792,41 @@ private fun OnboardingScreen(onFinish: (RideRole) -> Unit) {
                     item {
                         Text(
                             text = appText(slide.titleRu, slide.titleBa),
+                            modifier = Modifier.onbAppear(0, played),
                             color = CanonText,
-                            fontSize = 34.sp,
-                            lineHeight = 36.sp,
+                            fontSize = 30.sp,
+                            lineHeight = 33.sp,
                             fontWeight = FontWeight.Black
                         )
                     }
                     item {
                         Text(
                             text = appText(slide.bodyRu, slide.bodyBa),
+                            modifier = Modifier.onbAppear(1, played),
                             color = CanonMuted,
-                            fontSize = 18.sp,
-                            lineHeight = 25.sp,
+                            fontSize = 17.sp,
+                            lineHeight = 24.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
                     if (page == slides.lastIndex) {
                         item {
-                            OnboardingRoleChooser(
-                                selected = role,
-                                onSelect = { role = it }
-                            )
+                            Box(Modifier.onbAppear(2, played)) {
+                                OnboardingRoleChooser(
+                                    selected = role,
+                                    onSelect = { role = it }
+                                )
+                            }
                         }
                     } else {
-                        items(slide.items, key = { it.titleRu }) { item ->
-                            OnboardingFeatureCard(item)
+                        itemsIndexed(slide.items, key = { _, item -> item.titleRu }) { index, item ->
+                            Box(Modifier.onbAppear(2 + index, played)) {
+                                OnboardingFeatureCard(item, index + 1)
+                            }
                         }
                     }
                     if (slide.noteRu != null && slide.noteBa != null) {
-                        item { OnboardingSafetyNote(appText(slide.noteRu, slide.noteBa)) }
+                        item { Box(Modifier.onbAppear(5, played)) { OnboardingSafetyNote(appText(slide.noteRu, slide.noteBa)) } }
                     }
                 }
             }
@@ -858,34 +888,93 @@ private fun OnboardingScreen(onFinish: (RideRole) -> Unit) {
 }
 
 @Composable
+private fun OnboardingLangToggle(language: AppLanguage, onSelect: (AppLanguage) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = CanonSurface,
+        border = BorderStroke(1.dp, CanonBorder)
+    ) {
+        Row(Modifier.padding(2.dp)) {
+            OnboardingLangChip("РУС", language == AppLanguage.Ru) { onSelect(AppLanguage.Ru) }
+            OnboardingLangChip("БАШ", language == AppLanguage.Ba) { onSelect(AppLanguage.Ba) }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingLangChip(text: String, active: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .background(if (active) CanonGreen2 else Color.Transparent)
+            .padding(horizontal = 11.dp, vertical = 4.dp)
+    ) {
+        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 11.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+/** Спокойное появление элемента: fade + лёгкий сдвиг вверх, стаггер по index. Играет, когда слайд стал активным. */
+@Composable
+private fun Modifier.onbAppear(index: Int, play: Boolean): Modifier {
+    val a by animateFloatAsState(if (play) 1f else 0f, tween(durationMillis = 430, delayMillis = if (play) index * 75 else 0), label = "onbA")
+    val ty by animateFloatAsState(if (play) 0f else 34f, tween(durationMillis = 430, delayMillis = if (play) index * 75 else 0), label = "onbY")
+    return graphicsLayer { this.alpha = a; translationY = ty }
+}
+
+@Composable
 private fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float = { 0f }) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(260.dp)
+            .height(318.dp)
             .clip(CanonCardShape)
-            .background(Brush.linearGradient(listOf(CanonGreen, Color(0xFF16884E), CanonYellow)))
-            .padding(20.dp)
+            .background(CanonGreen2)
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawCircle(Color.White.copy(alpha = 0.12f), radius = 170f, center = Offset(size.width * 0.86f, size.height * 0.04f))
-            drawCircle(Color.White.copy(alpha = 0.14f), radius = 92f, center = Offset(size.width * 0.82f, size.height * 0.78f))
-            val road = Path().apply {
-                moveTo(size.width * 0.04f, size.height * 0.74f)
-                cubicTo(size.width * 0.32f, size.height * 0.44f, size.width * 0.58f, size.height * 0.85f, size.width * 0.96f, size.height * 0.54f)
-            }
-            drawPath(road, Color.White.copy(alpha = 0.25f), style = Stroke(width = 20f, cap = StrokeCap.Round))
-            drawPath(road, Color.White.copy(alpha = 0.90f), style = Stroke(width = 7f, cap = StrokeCap.Round))
-            drawCircle(Color.White, radius = 13f, center = Offset(size.width * 0.04f, size.height * 0.74f))
-            drawCircle(Color.White, radius = 10f, center = Offset(size.width * 0.96f, size.height * 0.54f))
-        }
+        Image(
+            painter = painterResource(R.drawable.onboarding_bashkir_hero),
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationX = pageOffset() * 42f
+                    scaleX = 1.04f
+                    scaleY = 1.04f
+                },
+            contentScale = ContentScale.Crop
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.16f),
+                        0.46f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.58f)
+                    )
+                )
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        0f to CanonGreen2.copy(alpha = 0.54f),
+                        0.45f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.14f)
+                    )
+                )
+        )
+
         Row(
-            modifier = Modifier.align(Alignment.TopStart),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                modifier = Modifier.size(58.dp),
-                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.size(48.dp),
+                shape = RoundedCornerShape(16.dp),
                 color = Color.White,
                 shadowElevation = 5.dp
             ) {
@@ -896,51 +985,68 @@ private fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float =
                     contentScale = ContentScale.Fit
                 )
             }
-            Spacer(Modifier.width(12.dp))
-            Text("Юлдаш", color = Color.White, fontSize = 42.sp, lineHeight = 44.sp, fontWeight = FontWeight.Black)
         }
-        Text(
-            text = appText(slide.eyebrowRu, slide.eyebrowBa),
-            color = Color.White,
-            fontSize = 20.sp,
-            lineHeight = 25.sp,
-            fontWeight = FontWeight.Medium,
+
+        Surface(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .graphicsLayer { translationX = pageOffset() * 75f }
-                .padding(top = 78.dp, end = 14.dp)
-        )
+                .align(Alignment.BottomStart)
+                .padding(start = 18.dp, end = 92.dp, bottom = 18.dp)
+                .graphicsLayer { translationX = pageOffset() * 62f },
+            color = Color.White.copy(alpha = 0.18f),
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.30f))
+        ) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Юлдаш",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    lineHeight = 26.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = appText(slide.eyebrowRu, slide.eyebrowBa),
+                    color = Color.White.copy(alpha = 0.94f),
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .graphicsLayer { translationX = pageOffset() * 150f; translationY = pageOffset() * -28f }
-                .size(96.dp)
-                .background(Color.White.copy(alpha = 0.18f), CircleShape),
+                .padding(end = 18.dp, bottom = 22.dp)
+                .graphicsLayer { translationX = pageOffset() * 120f; translationY = pageOffset() * -24f }
+                .size(72.dp)
+                .background(Color.White.copy(alpha = 0.20f), CircleShape)
+                .border(1.dp, Color.White.copy(alpha = 0.34f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Icon(onboardingHeroIcon(slide.hero), contentDescription = null, tint = Color.White, modifier = Modifier.size(58.dp))
+            Icon(onboardingHeroIcon(slide.hero), contentDescription = null, tint = Color.White, modifier = Modifier.size(38.dp))
         }
     }
 }
 
 private fun onboardingHeroIcon(hero: OnboardingHero): ImageVector {
     return when (hero) {
-        OnboardingHero.Route -> Icons.Default.DirectionsCar
+        OnboardingHero.Route -> Icons.Default.NearMe
         OnboardingHero.Security -> Icons.Default.Shield
         OnboardingHero.Steps -> Icons.Default.Route
-        OnboardingHero.Start -> Icons.Default.LocationOn
+        OnboardingHero.Start -> Icons.Default.RocketLaunch
     }
 }
 
 @Composable
-private fun OnboardingFeatureCard(item: OnboardingItem) {
+private fun OnboardingFeatureCard(item: OnboardingItem, index: Int) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        border = BorderStroke(1.dp, CanonBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            OnboardingIconBubble(item.icon)
+            OnboardingIconBubble(item.icon, index)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText(item.titleRu, item.titleBa), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, lineHeight = 21.sp)
@@ -1004,10 +1110,10 @@ private fun OnboardingRoleCard(
 @Composable
 private fun OnboardingTrustStrip() {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OnboardingMiniTrust(Icons.Default.PhoneLocked, appText("Скрытый\nномер", "Йәшерен\nномер"), Modifier.weight(1f))
-            OnboardingMiniTrust(Icons.Default.Pin, appText("Код\nпосадки", "Ултырыу\nкоды"), Modifier.weight(1f))
-            OnboardingMiniTrust(Icons.Default.Verified, appText("Проверка\nводителя", "Водителде\nтикшереү"), Modifier.weight(1f))
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+            OnboardingMiniTrust(Icons.Default.Handshake, appText("Между\nсвоими", "Үҙ кеше\nараһында"), Modifier.weight(1f))
+            OnboardingMiniTrust(Icons.Default.MoneyOff, appText("Без\nкомиссии", "Комиссия\nюҡ"), Modifier.weight(1f))
+            OnboardingMiniTrust(Icons.Default.Map, appText("Весь\nБашкортостан", "Бөтә\nБашҡортостан"), Modifier.weight(1f))
         }
     }
 }
@@ -1017,12 +1123,12 @@ private fun OnboardingMiniTrust(icon: ImageVector, label: String, modifier: Modi
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, contentDescription = null, tint = CanonGreen2)
         Spacer(Modifier.height(6.dp))
-        Text(label, color = CanonText, textAlign = TextAlign.Center, fontWeight = FontWeight.Black, fontSize = 12.sp, lineHeight = 13.sp)
+        Text(label, color = CanonText, textAlign = TextAlign.Center, fontWeight = FontWeight.Black, fontSize = 12.sp, lineHeight = 13.sp, minLines = 2, maxLines = 2)
     }
 }
 
 @Composable
-private fun OnboardingIconBubble(icon: ImageVector) {
+private fun OnboardingIconBubble(icon: ImageVector, index: Int? = null) {
     Box(
         modifier = Modifier
             .size(58.dp)
@@ -1030,12 +1136,25 @@ private fun OnboardingIconBubble(icon: ImageVector) {
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(30.dp))
+        if (index != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(22.dp),
+                shape = CircleShape,
+                color = CanonGreen2
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(index.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun OnboardingSafetyNote(text: String) {
-    Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, Color(0x2235A363))) {
+    Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonHairlineGreen)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2)
             Spacer(Modifier.width(12.dp))
@@ -1063,56 +1182,57 @@ private fun OnboardingDots(count: Int, selected: Int, modifier: Modifier = Modif
 
 private fun onboardingSlides() = listOf(
     OnboardingSlide(
-        eyebrowRu = "Поездки между своими",
-        eyebrowBa = "Үҙ кешеләрең менән сәфәрҙәр",
-        titleRu = "Юлдаш помогает ехать спокойнее",
-        titleBa = "Юлдаш тынысыраҡ барырға ярҙам итә",
-        bodyRu = "Ищите поездку, создавайте заявку или публикуйте маршрут. Важные детали остаются внутри приложения.",
-        bodyBa = "Сәфәр эҙләгеҙ, заявка булдырығыҙ йәки маршрут ҡуйығыҙ. Мөһим мәғлүмәт ҡушымта эсендә ҡала.",
+        eyebrowRu = "Дорога по Башкортостану",
+        eyebrowBa = "Башҡортостан буйлап юл",
+        titleRu = "Едешь с юлдашом, не с незнакомцем",
+        titleBa = "Ят кеше менән түгел, юлдаш менән бараһың",
+        bodyRu = "Поездки и заявки между своими: Баймак, Сибай, Уфа и другие привычные маршруты рядом.",
+        bodyBa = "Үҙ кешеләр араһында сәфәрҙәр һәм заявкалар: Баймаҡ, Сибай, Өфө һәм яҡын маршруттар.",
         hero = OnboardingHero.Route,
         items = listOf(
-            OnboardingItem(Icons.Default.PhoneLocked, "Скрытый номер", "Йәшерен номер", "Телефон не раскрывается до подтверждения поездки.", "Телефон сәфәр раҫланғанға тиклем асылмай."),
-            OnboardingItem(Icons.Default.Pin, "Код посадки", "Ултырыу коды", "Встреча с водителем подтверждается уникальным кодом.", "Водитель менән осрашыу айырым код менән раҫлана."),
-            OnboardingItem(Icons.Default.Verified, "Проверка водителя", "Водителде тикшереү", "Профиль водителя и машина проходят проверку.", "Водитель профиле һәм машина тикшереү үтә.")
+            OnboardingItem(Icons.Default.Search, "Нашёл маршрут", "Маршрут таптың", "Смотри ближайшие поездки или оставь заявку, если машины ещё нет.", "Яҡындағы сәфәрҙәрҙе ҡара йәки машина юҡ икән заявка ҡалдыр."),
+            OnboardingItem(Icons.Default.ChatBubbleOutline, "Договорился в чате", "Чатта килештең", "После отклика можно спокойно уточнить место, время и багаж.", "Яуаптан һуң урын, ваҡыт һәм багаж тураһында һөйләшергә була."),
+            OnboardingItem(Icons.Default.DirectionsCar, "Поехал спокойно", "Тыныс юлға сыҡтың", "Важные детали поездки остаются внутри приложения.", "Сәфәрҙең мөһим деталдәре ҡушымта эсендә ҡала.")
         )
     ),
     OnboardingSlide(
-        eyebrowRu = "Безопасность в каждой поездке",
-        eyebrowBa = "Һәр сәфәрҙә хәүефһеҙлек",
-        titleRu = "Защита включена с первого шага",
-        titleBa = "Һаҡлау беренсе аҙымдан эшләй",
-        bodyRu = "Подтверждённые участники, скрытые контакты и SOS помогают держать поездку под контролем.",
-        bodyBa = "Раҫланған ҡатнашыусылар, йәшерен контакттар һәм SOS сәфәрҙе контролдә тоторға ярҙам итә.",
+        eyebrowRu = "Доверие важнее скорости",
+        eyebrowBa = "Ышаныс тиҙлектән мөһимерәк",
+        titleRu = "Безопасность перед дорогой",
+        titleBa = "Юл алдынан хәүефһеҙлек",
+        bodyRu = "Водитель может пройти проверку, номер не раскрывается заранее, а в поездке есть SOS и связь с близкими.",
+        bodyBa = "Водитель тикшереү үтә ала, номер алдан асылмай, ә сәфәрҙә SOS һәм яҡындар менән бәйләнеш бар.",
         hero = OnboardingHero.Security,
         items = listOf(
-            OnboardingItem(Icons.Default.AdminPanelSettings, "Подтверждённые участники", "Раҫланған ҡатнашыусылар", "Меньше случайных контактов в заявках и откликах.", "Заявкаларҙа һәм яуаптарҙа осраҡлы бәйләнештәр кәмей."),
-            OnboardingItem(Icons.Default.VisibilityOff, "Номер не виден сразу", "Номер шунда уҡ күренмәй", "Контакты открываются после подтверждения поездки.", "Контакттар сәфәр раҫланғандан һуң асыла."),
-            OnboardingItem(Icons.Default.Sos, "SOS и поддержка", "SOS һәм ярҙам", "Экстренная помощь доступна прямо из приложения.", "Ашығыс ярҙам ҡушымта эсендә бар.")
+            OnboardingItem(Icons.Default.Verified, "Проверка водителя", "Водителде тикшереү", "Профиль водителя и фото машины уходят на модерацию.", "Водитель профиле һәм машина фотоһы модерацияға китә."),
+            OnboardingItem(Icons.Default.VisibilityOff, "Номер скрыт", "Номер йәшерелгән", "Контакты открываются только после подтверждения поездки.", "Контакттар сәфәр раҫланғандан һуң ғына асыла."),
+            OnboardingItem(Icons.Default.Sos, "SOS рядом", "SOS яҡында", "В экстренной ситуации можно быстро отправить сигнал помощи.", "Ашығыс хәлдә ярҙам сигналы ебәрергә була."),
+            OnboardingItem(Icons.Default.Share, "Близкий видит поездку", "Яҡының сәфәрҙе күрә", "Поделись маршрутом — родной человек на связи всю дорогу.", "Маршрут менән бүлеш — яҡының юл буйы бәйләнештә.")
         )
     ),
     OnboardingSlide(
-        eyebrowRu = "Всё просто и понятно",
-        eyebrowBa = "Барыһы ла ябай һәм аңлайышлы",
-        titleRu = "Как это работает",
-        titleBa = "Нисек эшләй",
-        bodyRu = "Выберите маршрут, найдите подходящую поездку или создайте заявку, если варианта ещё нет.",
-        bodyBa = "Маршрут һайлағыҙ, уңайлы сәфәр табығыҙ йәки вариант юҡ икән заявка булдырығыҙ.",
+        eyebrowRu = "Когда машины ещё нет",
+        eyebrowBa = "Машина әле юҡ икән",
+        titleRu = "Заявка не пропадает в пустоту",
+        titleBa = "Заявка бушҡа юғалмай",
+        bodyRu = "Пассажир оставляет маршрут, водитель видит заявку, откликается, а после принятия появляется поездка с чатом.",
+        bodyBa = "Пассажир маршрут ҡалдыра, водитель заявканы күрә, яуап бирә, ҡабул иткәс чатлы сәфәр асыла.",
         hero = OnboardingHero.Steps,
         items = listOf(
-            OnboardingItem(Icons.Default.Search, "Найдите поездку", "Сәфәр табығыҙ", "Выберите маршрут и посмотрите ближайшие варианты.", "Маршрут һайлап, яҡындағы варианттарҙы ҡарағыҙ."),
-            OnboardingItem(Icons.Default.AddRoad, "Создайте заявку", "Заявка булдырығыҙ", "Укажите маршрут, время и условия поездки.", "Маршрутты, ваҡытты һәм шарттарҙы күрһәтегеҙ."),
-            OnboardingItem(Icons.Default.ChatBubbleOutline, "Договоритесь в чате", "Чатта килешегеҙ", "После отклика можно обсудить детали и подтвердить поездку.", "Яуаптан һуң деталдәрҙе һөйләшеп, сәфәрҙе раҫларға була.")
+            OnboardingItem(Icons.Default.EditNote, "Создай заявку", "Заявка булдыр", "Укажи маршрут, время и что важно в дороге.", "Маршрутты, ваҡытты һәм юлдағы мөһим шарттарҙы күрһәт."),
+            OnboardingItem(Icons.Default.QuestionAnswer, "Водитель откликнется", "Водитель яуап бирер", "Отклики приходят к пассажиру, можно выбрать подходящий вариант.", "Яуаптар пассажирға килә, уңайлы вариантты һайларға була."),
+            OnboardingItem(Icons.Default.Pin, "Код посадки", "Ултырыу коды", "Подтверждённая поездка получает чат и код посадки.", "Раҫланған сәфәрҙә чат һәм ултырыу коды була.")
         ),
-        noteRu = "Телефон откроется только после подтверждения поездки",
-        noteBa = "Телефон сәфәр раҫланғандан һуң ғына асыла"
+        noteRu = "Так закрывается путь: заявка → отклик → поездка",
+        noteBa = "Шулай юл ябыла: заявка → яуап → сәфәр"
     ),
     OnboardingSlide(
         eyebrowRu = "Готово к первой поездке",
         eyebrowBa = "Беренсе сәфәргә әҙер",
         titleRu = "Начнём?",
         titleBa = "Башлайбыҙмы?",
-        bodyRu = "Войдите через Telegram — быстро и безопасно, без SMS и паролей.",
-        bodyBa = "Telegram аша инегеҙ — тиҙ һәм хәүефһеҙ, SMS-һыҙ һәм паролһеҙ.",
+        bodyRu = "Войди через Telegram: бот пришлёт код, а Юлдаш откроет карту, заявки, чат и профиль.",
+        bodyBa = "Telegram аша ин: бот код ебәрер, ә Юлдаш карта, заявкалар, чат һәм профилде асыр.",
         hero = OnboardingHero.Start,
         items = emptyList()
     )
