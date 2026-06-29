@@ -152,11 +152,8 @@ internal fun IntroScreen(onComplete: () -> Unit) {
 
     val logoScale = remember { Animatable(if (reduceMotion) 1f else 0.96f) }   // лёгкий settle, без «прыжка» (значок уже виден на системном сплэше)
     val logoAlpha = remember { Animatable(1f) }   // лого видно сразу — бесшовный хэндофф с системного сплэша (фейд даёт переход экрана)
-    val glow = remember { Animatable(if (reduceMotion) 1f else 0f) }
     val drift = remember { Animatable(1f) }
     val sheen = remember { Animatable(-260f) }    // позиция золотого блика по «Юлдаш»
-    val kurai = remember { Animatable(if (reduceMotion) 1f else 0f) }   // распускание курая (7 родов)
-    val road = remember { Animatable(if (reduceMotion) 1f else 0f) }    // прорисовка дороги (маршрут)
     val sceneScale = remember { Animatable(if (reduceMotion) 1f else 1.08f) }   // мягкий push-in пейзажа (Ken-Burns)
     val sceneAlpha = remember { Animatable(if (reduceMotion) 1f else 0f) }      // пейзаж ПРОЯВЛЯЕТСЯ из зелёного → бесшовно с системным сплэшем
 
@@ -165,9 +162,6 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         launch { drift.animateTo(1.05f, tween(4700, easing = EaseInOutSine)) }
         launch { sceneScale.animateTo(1f, tween(4700, easing = EaseInOutSine)) }   // пейзаж медленно «наезжает»
         launch { sceneAlpha.animateTo(1f, tween(800, easing = EaseInOutSine)) }    // плавное проявление пейзажа из зелёного (без резкого «хлопка»)
-        launch { glow.animateTo(1f, tween(950, easing = EaseOutExpo)) }
-        launch { kurai.animateTo(1f, tween(1300, easing = EaseOutExpo)) }       // курай распускается за лого
-        launch { road.animateTo(1f, tween(1400, easing = EaseOutExpo)) }        // дорога рисуется + точка едет
         logoScale.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow))
         delay(160)
         showMeaning = true
@@ -184,13 +178,11 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         delay(500); finish()
     }
 
-    val ring by animateFloatAsState(if (showMeaning || showBrand) 1f else 0f, tween(720, easing = EaseOutExpo), label = "ring")
     val brandIn by animateFloatAsState(if (showBrand) 1f else 0f, tween(780, easing = EaseOutExpo), label = "bIn")
     val brandScale by animateFloatAsState(if (showBrand) 1f else 0.92f, spring(0.82f, Spring.StiffnessLow), label = "bSc")
     val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(820, easing = EaseOutExpo), label = "ul")
     val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(560, easing = EaseInOutSine), label = "exA")
     val exitScale by animateFloatAsState(if (exiting) 1.06f else 1f, tween(580, easing = EaseInCubic), label = "exS")
-    val roadFade by animateFloatAsState(if (showMeaning || showBrand) 0f else 1f, tween(520, easing = EaseInOutSine), label = "rf")
     val sloganAlpha by animateFloatAsState(if (showSlogan) 1f else 0f, tween(560, easing = EaseOutExpo), label = "sloA")
 
     val brandBrush = Brush.linearGradient(
@@ -232,11 +224,6 @@ internal fun IntroScreen(onComplete: () -> Unit) {
             BrandHero(
                 logoAlpha = logoAlpha.value,
                 logoScale = logoScale.value,
-                glow = glow.value,
-                ring = ring,
-                kurai = kurai.value,
-                road = road.value,
-                roadFade = roadFade,
             )
             Spacer(Modifier.height(4.dp))
             // Слот СЛОВА (Попутчик/Юлдаш) — компактный, слово по центру; черта и слоган идут вплотную ниже.
