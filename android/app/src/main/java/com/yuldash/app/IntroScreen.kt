@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseInCubic
 import androidx.compose.animation.core.EaseInOutSine
 import androidx.compose.animation.core.EaseOutExpo
 import androidx.compose.animation.core.Spring
@@ -17,6 +18,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -41,11 +43,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -54,35 +58,36 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val Gold = Color(0xFFD89B12)
+private val GoldLight = Color(0xFFFFF1CC)
 private val GreenTop = Color(0xFF0B6B3A)
 private val GreenBottom = Color(0xFF05301D)
 
-/** Слово, проявляющееся ПО БУКВАМ (stagger) с премиум-easing — fade + подъём снизу.
- *  При visible=false буквы каскадом улетают вверх (для морфа смысла в бренд). */
+/** Слово ПО БУКВАМ (stagger) — для «смысла» (Попутчик): по-человечески, скромно.
+ *  Появление: fade + подъём (EaseOutExpo). Уход: каскад вверх (морф в бренд). */
 @Composable
-private fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit, color: Color = Color.White) {
+private fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
     Row {
         text.forEachIndexed { i, ch ->
             AnimatedVisibility(
                 visible = visible,
-                enter = fadeIn(tween(620, i * 45, EaseOutExpo)) +
-                    slideInVertically(tween(700, i * 45, EaseOutExpo)) { it / 2 },
+                enter = fadeIn(tween(600, i * 42, EaseOutExpo)) +
+                    slideInVertically(tween(680, i * 42, EaseOutExpo)) { it / 2 },
                 exit = fadeOut(tween(300, i * 22)) +
                     slideOutVertically(tween(360, i * 22)) { -it / 3 },
             ) {
-                Text(ch.toString(), color = color, fontSize = fontSize, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Text(ch.toString(), color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
             }
         }
     }
 }
 
 /**
- * Брендовое интро ПЕРВОГО запуска (→ онбординг) — кинематографично, уровень дорогого бренда.
- * Акт 0: лого всплывает (bloom-сияние + пружинная посадка + focus-blur на API 31+).
- * Акт 1: смысл «Попутчик» проявляется по буквам (EaseOutExpo).
- * Акт 2: «Попутчик» каскадом улетает, «Юлдаш» появляется по буквам + золотая черта (цвет бренда) чертится из центра.
- * Акт 3: слоган RU→BA (fade + подъём). Финал: плавный fade-zoom выход в онбординг.
- * Тап = скип. Уважает reduced-motion (анимации выкл → сразу финальный кадр).
+ * Кинематографичное интро ПЕРВОГО запуска (→ онбординг), уровень дорогого бренда.
+ * Лого: bloom-сияние + золотое кольцо-ободок + сдержанная пружина (damping .72) + focus-blur (API 31+).
+ * «Попутчик» — по буквам (смысл, скромно) → каскадом улетает.
+ * «Юлдаш» — приходит уверенным ЦЕЛЫМ: fade+scale, tracking-in (буквы раздвигаются), и по нему
+ *   проходит ЗОЛОТОЙ БЛИК (sheen sweep) — фирменная luxury-деталь. + золотая черта из центра.
+ * Слоган RU→BA. Финал: ease-in fade-zoom «улёт» сцены в онбординг. Тап=скип. Reduced-motion → финал.
  */
 @Composable
 internal fun IntroScreen(onComplete: () -> Unit) {
@@ -95,8 +100,8 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         }.getOrDefault(false)
     }
 
-    var showMeaning by remember { mutableStateOf(false) }              // «Попутчик» (в reduceMotion не показываем)
-    var showBrand by remember { mutableStateOf(reduceMotion) }        // «Юлдаш»
+    var showMeaning by remember { mutableStateOf(false) }
+    var showBrand by remember { mutableStateOf(reduceMotion) }
     var showUnderline by remember { mutableStateOf(reduceMotion) }
     var showSlogan by remember { mutableStateOf(reduceMotion) }
     var sloganBa by remember { mutableStateOf(reduceMotion) }
@@ -108,27 +113,37 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     val logoAlpha = remember { Animatable(if (reduceMotion) 1f else 0f) }
     val glow = remember { Animatable(if (reduceMotion) 1f else 0f) }
     val drift = remember { Animatable(1f) }
+    val sheen = remember { Animatable(-260f) }    // позиция золотого блика по «Юлдаш»
 
     LaunchedEffect(Unit) {
         if (reduceMotion) { delay(1000); finish(); return@LaunchedEffect }
-        launch { drift.animateTo(1.05f, tween(4600, easing = EaseInOutSine)) }   // медленный «дыхательный» зум
+        launch { drift.animateTo(1.05f, tween(4700, easing = EaseInOutSine)) }
         launch { logoAlpha.animateTo(1f, tween(540, easing = EaseOutExpo)) }
         launch { glow.animateTo(1f, tween(950, easing = EaseOutExpo)) }
-        logoScale.animateTo(1f, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessLow))   // мягкая пружина
+        logoScale.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow))
         delay(110)
         showMeaning = true
         delay(1000)
-        showMeaning = false; showBrand = true        // морф: смысл → бренд
-        delay(320); showUnderline = true             // золотая черта
-        delay(700); showSlogan = true                // слоган RU
-        delay(880); sloganBa = true                  // слоган RU → BA
-        delay(1000); exiting = true                  // кинематографичный выход
-        delay(430); finish()
+        showMeaning = false; showBrand = true
+        launch { delay(300); sheen.animateTo(680f, tween(900, easing = EaseInOutSine)) }   // блик по бренду
+        delay(320); showUnderline = true
+        delay(720); showSlogan = true
+        delay(880); sloganBa = true
+        delay(1000); exiting = true
+        delay(440); finish()
     }
 
-    val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(780, easing = EaseOutExpo), label = "ul")
-    val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(430, easing = EaseInOutSine), label = "exA")
-    val exitScale by animateFloatAsState(if (exiting) 1.05f else 1f, tween(430, easing = EaseInOutSine), label = "exS")
+    val ring by animateFloatAsState(if (showMeaning || showBrand) 1f else 0f, tween(720, easing = EaseOutExpo), label = "ring")
+    val brandIn by animateFloatAsState(if (showBrand) 1f else 0f, tween(680, easing = EaseOutExpo), label = "bIn")
+    val brandScale by animateFloatAsState(if (showBrand) 1f else 0.94f, spring(0.78f, Spring.StiffnessMediumLow), label = "bSc")
+    val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(800, easing = EaseOutExpo), label = "ul")
+    val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(440, easing = EaseInOutSine), label = "exA")
+    val exitScale by animateFloatAsState(if (exiting) 1.08f else 1f, tween(460, easing = EaseInCubic), label = "exS")
+
+    val brandBrush = Brush.linearGradient(
+        listOf(Color.White, Color.White, GoldLight, Color.White, Color.White),
+        start = Offset(sheen.value, 0f), end = Offset(sheen.value + 200f, 0f),
+    )
 
     Box(
         Modifier
@@ -149,10 +164,10 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Box(
-                    Modifier.size(230.dp)
-                        .graphicsLayer { alpha = glow.value * 0.45f }
+                    Modifier.size(230.dp).graphicsLayer { alpha = glow.value * 0.45f }
                         .background(Brush.radialGradient(listOf(Color.White.copy(0.32f), Color.Transparent))),
                 )
+                Box(Modifier.size(150.dp).graphicsLayer { alpha = ring * 0.45f }.border(1.5.dp, Gold, CircleShape))
                 Surface(
                     modifier = Modifier.size(132.dp)
                         .graphicsLayer { scaleX = logoScale.value; scaleY = logoScale.value; alpha = logoAlpha.value }
@@ -165,14 +180,21 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                     Image(painterResource(R.drawable.yuldash_logo), "Юлдаш", Modifier.padding(22.dp))
                 }
             }
-            Spacer(Modifier.height(34.dp))
-            Box(modifier = Modifier.height(86.dp), contentAlignment = Alignment.TopCenter) {
+            Spacer(Modifier.height(36.dp))
+            Box(modifier = Modifier.height(88.dp), contentAlignment = Alignment.TopCenter) {
                 StaggerWord("Попутчик", showMeaning, 38.sp)
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    StaggerWord("Юлдаш", showBrand, 44.sp)
+                    Text(
+                        "Юлдаш",
+                        fontSize = 44.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = (brandIn * 2f).sp,
+                        modifier = Modifier.graphicsLayer { alpha = brandIn; scaleX = brandScale; scaleY = brandScale },
+                        style = TextStyle(brush = brandBrush),
+                    )
                     Spacer(Modifier.height(12.dp))
                     Box(
-                        Modifier.width(70.dp).height(3.dp)
+                        Modifier.width(72.dp).height(3.dp)
                             .graphicsLayer { scaleX = underline }
                             .background(Gold, RoundedCornerShape(2.dp)),
                     )
