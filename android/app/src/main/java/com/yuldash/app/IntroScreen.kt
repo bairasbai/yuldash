@@ -79,10 +79,10 @@ private fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
         text.forEachIndexed { i, ch ->
             AnimatedVisibility(
                 visible = visible,
-                enter = fadeIn(tween(600, i * 42, EaseOutExpo)) +
-                    slideInVertically(tween(680, i * 42, EaseOutExpo)) { it / 2 },
-                exit = fadeOut(tween(300, i * 22)) +
-                    slideOutVertically(tween(360, i * 22)) { -it / 3 },
+                enter = fadeIn(tween(620, i * 38, EaseOutExpo)) +
+                    slideInVertically(tween(700, i * 38, EaseOutExpo)) { it / 2 },
+                exit = fadeOut(tween(260, i * 12)) +
+                    slideOutVertically(tween(300, i * 12)) { -it / 3 },
             ) {
                 Text(ch.toString(), color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Medium, fontFamily = Montserrat, letterSpacing = 1.sp)
             }
@@ -136,24 +136,26 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         launch { kurai.animateTo(1f, tween(1300, easing = EaseOutExpo)) }       // курай распускается за лого
         launch { road.animateTo(1f, tween(1400, easing = EaseOutExpo)) }        // дорога рисуется + точка едет
         logoScale.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow))
-        delay(110)
+        delay(160)
         showMeaning = true
-        delay(1000)
-        showMeaning = false; showBrand = true
-        launch { delay(300); sheen.animateTo(680f, tween(900, easing = EaseInOutSine)) }   // блик по бренду
-        delay(320); showUnderline = true
-        delay(720); showSlogan = true
-        delay(880); sloganBa = true
-        delay(1000); exiting = true
-        delay(440); finish()
+        delay(1200)                 // «Попутчик» держим дольше — читается спокойно
+        showMeaning = false
+        delay(420)                  // слово ПОЛНОСТЬЮ уходит до «Юлдаш» — без наложения
+        showBrand = true
+        launch { delay(360); sheen.animateTo(720f, tween(1100, easing = EaseInOutSine)) }   // медленный люкс-блик
+        delay(500); showUnderline = true
+        delay(780); showSlogan = true
+        delay(1400); sloganBa = true    // русский слоган подышал — потом башкирский
+        delay(1200); exiting = true     // башкирский подышал — и плавный уход
+        delay(500); finish()
     }
 
     val ring by animateFloatAsState(if (showMeaning || showBrand) 1f else 0f, tween(720, easing = EaseOutExpo), label = "ring")
-    val brandIn by animateFloatAsState(if (showBrand) 1f else 0f, tween(680, easing = EaseOutExpo), label = "bIn")
-    val brandScale by animateFloatAsState(if (showBrand) 1f else 0.94f, spring(0.78f, Spring.StiffnessMediumLow), label = "bSc")
-    val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(800, easing = EaseOutExpo), label = "ul")
-    val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(440, easing = EaseInOutSine), label = "exA")
-    val exitScale by animateFloatAsState(if (exiting) 1.08f else 1f, tween(460, easing = EaseInCubic), label = "exS")
+    val brandIn by animateFloatAsState(if (showBrand) 1f else 0f, tween(780, easing = EaseOutExpo), label = "bIn")
+    val brandScale by animateFloatAsState(if (showBrand) 1f else 0.92f, spring(0.82f, Spring.StiffnessLow), label = "bSc")
+    val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(820, easing = EaseOutExpo), label = "ul")
+    val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(560, easing = EaseInOutSine), label = "exA")
+    val exitScale by animateFloatAsState(if (exiting) 1.06f else 1f, tween(580, easing = EaseInCubic), label = "exS")
     val roadFade by animateFloatAsState(if (showMeaning || showBrand) 0f else 1f, tween(520, easing = EaseInOutSine), label = "rf")
 
     val brandBrush = Brush.linearGradient(
@@ -222,8 +224,9 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                 AnimatedContent(
                     targetState = sloganBa,
                     transitionSpec = {
-                        (fadeIn(tween(640, easing = EaseOutExpo)) + slideInVertically(tween(640, easing = EaseOutExpo)) { it / 3 })
-                            .togetherWith(fadeOut(tween(360)) + slideOutVertically(tween(360)) { -it / 3 })
+                        // Сначала русский УХОДИТ (240мс), потом башкирский ПРИХОДИТ (delay 240) — без наложения строк.
+                        (fadeIn(tween(560, delayMillis = 240, easing = EaseOutExpo)) + slideInVertically(tween(560, delayMillis = 240, easing = EaseOutExpo)) { it / 4 })
+                            .togetherWith(fadeOut(tween(240, easing = EaseInOutSine)) + slideOutVertically(tween(240, easing = EaseInOutSine)) { -it / 4 })
                     },
                     label = "slo",
                 ) { ba ->
