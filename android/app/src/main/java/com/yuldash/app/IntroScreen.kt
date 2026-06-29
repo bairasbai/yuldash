@@ -122,12 +122,18 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     val glow = remember { Animatable(if (reduceMotion) 1f else 0f) }
     val drift = remember { Animatable(1f) }
     val sheen = remember { Animatable(-260f) }    // позиция золотого блика по «Юлдаш»
+    val kurai = remember { Animatable(if (reduceMotion) 1f else 0f) }   // распускание курая (7 родов)
+    val kuraiRot = remember { Animatable(0f) }                          // лёгкий дрейф-вращение курая
+    val road = remember { Animatable(if (reduceMotion) 1f else 0f) }    // прорисовка дороги (маршрут)
 
     LaunchedEffect(Unit) {
         if (reduceMotion) { delay(1000); finish(); return@LaunchedEffect }
         launch { drift.animateTo(1.05f, tween(4700, easing = EaseInOutSine)) }
         launch { logoAlpha.animateTo(1f, tween(540, easing = EaseOutExpo)) }
         launch { glow.animateTo(1f, tween(950, easing = EaseOutExpo)) }
+        launch { kurai.animateTo(1f, tween(1300, easing = EaseOutExpo)) }       // курай распускается за лого
+        launch { kuraiRot.animateTo(16f, tween(5200, easing = EaseInOutSine)) } // медленный дрейф
+        launch { road.animateTo(1f, tween(1400, easing = EaseOutExpo)) }        // дорога рисуется + точка едет
         logoScale.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow))
         delay(110)
         showMeaning = true
@@ -147,6 +153,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     val underline by animateFloatAsState(if (showUnderline) 1f else 0f, tween(800, easing = EaseOutExpo), label = "ul")
     val exitAlpha by animateFloatAsState(if (exiting) 0f else 1f, tween(440, easing = EaseInOutSine), label = "exA")
     val exitScale by animateFloatAsState(if (exiting) 1.08f else 1f, tween(460, easing = EaseInCubic), label = "exS")
+    val roadFade by animateFloatAsState(if (showMeaning || showBrand) 0f else 1f, tween(520, easing = EaseInOutSine), label = "rf")
 
     val brandBrush = Brush.linearGradient(
         listOf(Color.White, Color.White, GoldLight, Color.White, Color.White),
@@ -170,25 +177,17 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                 scaleY = exitScale * drift.value
             },
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Box(
-                    Modifier.size(230.dp).graphicsLayer { alpha = glow.value * 0.45f }
-                        .background(Brush.radialGradient(listOf(Color.White.copy(0.32f), Color.Transparent))),
-                )
-                Box(Modifier.size(150.dp).graphicsLayer { alpha = ring * 0.45f }.border(1.5.dp, Gold, CircleShape))
-                Surface(
-                    modifier = Modifier.size(132.dp)
-                        .graphicsLayer { scaleX = logoScale.value; scaleY = logoScale.value; alpha = logoAlpha.value }
-                        .then(
-                            if (Build.VERSION.SDK_INT >= 31 && logoAlpha.value < 0.98f)
-                                Modifier.blur(((1f - logoAlpha.value) * 16).dp) else Modifier,
-                        ),
-                    shape = CircleShape, color = Color.White, shadowElevation = 22.dp,
-                ) {
-                    Image(painterResource(R.drawable.yuldash_logo), "Юлдаш", Modifier.padding(22.dp))
-                }
-            }
-            Spacer(Modifier.height(36.dp))
+            BrandHero(
+                logoAlpha = logoAlpha.value,
+                logoScale = logoScale.value,
+                glow = glow.value,
+                ring = ring,
+                kurai = kurai.value,
+                kuraiRot = kuraiRot.value,
+                road = road.value,
+                roadFade = roadFade,
+            )
+            Spacer(Modifier.height(8.dp))
             Box(modifier = Modifier.height(88.dp), contentAlignment = Alignment.TopCenter) {
                 StaggerWord("Попутчик", showMeaning, 38.sp)
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
