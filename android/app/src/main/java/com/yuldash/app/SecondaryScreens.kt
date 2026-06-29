@@ -745,6 +745,7 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(d.name, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
                             Text((d.car.ifBlank { "—" }) + " · " + d.phone, color = CanonMuted, fontSize = 13.sp)
+                            AutoCheckRow(d.autocheckResult, d.autocheckData)
                             Text(appText("Водительское удостоверение", "Водитель таныҡлығы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             DocImage(d.licenseUrl, token)
                             Text(appText("Фото автомобиля", "Автомобиль фотоһы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -756,6 +757,38 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Бейдж авто-проверки прав (OCR) в карточке модерации: вердикт + распознанные данные. */
+@Composable
+private fun AutoCheckRow(result: String, dataJson: String) {
+    if (result.isBlank()) return
+    val parsed = remember(dataJson) {
+        try { org.json.JSONObject(dataJson) } catch (e: Exception) { org.json.JSONObject() }
+    }
+    val num = parsed.optString("license_number")
+    val expiry = parsed.optString("expiry")
+    val (label, color) = when (result) {
+        "pass" -> appText("🤖 Авто: похоже на действительные права", "🤖 Авто: ысын права кеүек") to CanonGreen2
+        "reject" -> appText("🤖 Авто: фото не распознано", "🤖 Авто: фото танылманы") to CanonRed
+        "error" -> appText("🤖 Авто: проверка недоступна", "🤖 Авто: тикшереп булманы") to CanonMuted
+        else -> appText("🤖 Авто: нужна ручная проверка", "🤖 Авто: ҡул менән тикшерергә") to CanonMuted
+    }
+    val numLabel = appText("№ прав ", "права № ")
+    val expLabel = appText("срок до ", "ваҡыты ")
+    Surface(color = color.copy(alpha = 0.10f), shape = RoundedCornerShape(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            if (num.isNotBlank() || expiry.isNotBlank()) {
+                val recog = buildString {
+                    if (num.isNotBlank()) append(numLabel).append(num)
+                    if (num.isNotBlank() && expiry.isNotBlank()) append("  ·  ")
+                    if (expiry.isNotBlank()) append(expLabel).append(expiry)
+                }
+                Text(recog, color = CanonMuted, fontSize = 12.sp)
             }
         }
     }

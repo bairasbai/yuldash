@@ -515,7 +515,8 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                PendingDriverDto(o.optInt("user_id"), o.optString("name"), o.optString("phone"), o.optString("car"), o.optString("license_url"), o.optString("car_photo_url"))
+                PendingDriverDto(o.optInt("user_id"), o.optString("name"), o.optString("phone"), o.optString("car"), o.optString("license_url"), o.optString("car_photo_url"),
+                    o.optString("autocheck_result"), o.optDouble("autocheck_score", 0.0), o.optString("autocheck_data"))
             }
         }
 
@@ -693,6 +694,8 @@ object ApiClient {
                 licenseUrl = o.optString("license_url"),
                 carPhotoUrl = o.optString("car_photo_url"),
                 online = o.optBoolean("online"),
+                autocheckResult = o.optString("autocheck_result"),
+                autocheckData = o.optString("autocheck_data"),
             )
         }
 
@@ -1098,6 +1101,8 @@ data class DriverStatusDto(
     val licenseUrl: String,
     val carPhotoUrl: String,
     val online: Boolean = false,
+    val autocheckResult: String = "",   // "" / pass / needs_human / reject / error
+    val autocheckData: String = "",      // JSON: распознанные поля + коды причин
 )
 
 /** Бронь на поездку водителя — для оценки пассажира. */
@@ -1144,7 +1149,8 @@ data class RequestDto(
 /** Доверенный контакт с сервера. */
 data class BlockDto(val blockedUserId: Int, val name: String)
 data class ReportableUserDto(val id: Int, val name: String)
-data class PendingDriverDto(val userId: Int, val name: String, val phone: String, val car: String, val licenseUrl: String, val carPhotoUrl: String)
+data class PendingDriverDto(val userId: Int, val name: String, val phone: String, val car: String, val licenseUrl: String, val carPhotoUrl: String,
+    val autocheckResult: String = "", val autocheckScore: Double = 0.0, val autocheckData: String = "")
 data class AdminReportDto(val id: Int, val reporterName: String, val targetName: String, val targetPhone: String, val reason: String, val createdAt: String)
 data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "")
 data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String, val driverAvatar: String = "")

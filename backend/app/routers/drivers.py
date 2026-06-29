@@ -1,5 +1,6 @@
 """Водитель: онлайн-статус, профиль авто, загрузка фото документов (приватно),
 отправка на проверку, статус проверки, выдача защищённых документов, модерация админом."""
+import json
 import os
 import uuid
 from typing import List
@@ -101,9 +102,43 @@ class DriverVerifyIn(BaseModel):
     car_photo_url: str = ""
 
 
+def _run_autocheck(session: Session, dp: DriverProfile) -> None:
+    """Авто-проверка документов (OCR прав): помечает заявку и опц. авто-решает.
+
+    Никогда не валит отправку: любая ошибка → autocheck_result='error', статус
+    остаётся 'pending' (заявка уходит к человеку). Авто-одобрение по умолчанию
+    выключено (settings.driver_autoapprove_enabled) — финальная кнопка за админом.
+    """
+    if not settings.driver_autocheck_enabled:
+        return
+    try:
+        from ..driver_check import check_driver_docs
+        res = check_driver_docs(dp.license_url, dp.car_photo_url)
+        dp.autocheck_result = res["result"]
+        dp.autocheck_score = float(res["score"])
+        dp.autocheck_data = json.dumps(res["data"], ensure_ascii=False)
+        dp.autocheck_at = utcnow()
+        if settings.driver_autoreject_enabled and res["result"] == "reject":
+            dp.docs_status = "rejected"
+            target = session.get(User, dp.user_id)
+            if target:
+                target.verified = False
+                session.add(target)
+        elif settings.driver_autoapprove_enabled and res["result"] == "pass":
+            dp.docs_status = "verified"
+            target = session.get(User, dp.user_id)
+            if target:
+                target.verified = True
+                session.add(target)
+        # иначе остаётся 'pending' → решает админ (с готовыми данными из autocheck_data)
+    except Exception as e:  # OCR/разбор упали — не наказываем водителя, отдаём человеку
+        dp.autocheck_result = "error"
+        dp.autocheck_data = json.dumps({"reasons": ["autocheck_error"], "error": str(e)[:200]}, ensure_ascii=False)
+
+
 @router.post("/driver/verify", response_model=DriverProfile)
 def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Водитель отправляет документы на проверку → статус 'pending' (модерацию делает админ)."""
+    """Водитель отправляет документы на проверку → 'pending' + авто-проверка (OCR прав)."""
     if not body.license_url or not body.car_photo_url:
         raise HTTPException(400, "Нужны фото прав и фото автомобиля")
     dp = _get_or_create_profile(session, user.id)
@@ -111,6 +146,7 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     dp.car_photo_url = body.car_photo_url
     dp.docs_status = "pending"
     dp.verify_submitted_at = utcnow()
+    _run_autocheck(session, dp)   # может сменить статус на verified/rejected (если включено)
     session.add(dp)
     session.commit()
     session.refresh(dp)
@@ -131,6 +167,9 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "license_url": dp.license_url if dp else "",
         "car_photo_url": dp.car_photo_url if dp else "",
         "online": dp.online if dp else False,
+        "autocheck_result": dp.autocheck_result if dp else "",
+        "autocheck_score": dp.autocheck_score if dp else 0.0,
+        "autocheck_data": dp.autocheck_data if dp else "",
     }
 
 
@@ -141,6 +180,9 @@ class PendingDriverOut(BaseModel):
     car: str
     license_url: str
     car_photo_url: str
+    autocheck_result: str = ""        # pass / needs_human / reject / error / "" — подсказка админу
+    autocheck_score: float = 0.0
+    autocheck_data: str = ""          # JSON: распознанные поля + коды причин
 
 
 @router.get("/admin/drivers/pending", response_model=List[PendingDriverOut])
@@ -160,6 +202,8 @@ def pending_drivers(user: User = Depends(current_user), session: Session = Depen
             user_id=p.user_id, name=(u.name if u and u.name else "Водитель"),
             phone=(u.phone if u else ""), car=car,
             license_url=p.license_url, car_photo_url=p.car_photo_url,
+            autocheck_result=p.autocheck_result, autocheck_score=p.autocheck_score,
+            autocheck_data=p.autocheck_data,
         ))
     return out
 

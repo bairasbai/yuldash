@@ -117,6 +117,11 @@ class DriverProfile(SQLModel, table=True):
     license_url: str = ""             # фото водительского удостоверения
     car_photo_url: str = ""           # фото автомобиля
     verify_submitted_at: Optional[datetime] = None
+    # Авто-проверка документов (OCR прав). Подсказка админу + основа для авто-решения.
+    autocheck_result: str = ""        # "" (не проверяли) / pass / needs_human / reject / error
+    autocheck_score: float = 0.0      # 0..1 — уверенность авто-проверки
+    autocheck_data: str = ""          # JSON: распознанные поля + коды причин (для админа/клиента)
+    autocheck_at: Optional[datetime] = None
 
 
 class Ride(SQLModel, table=True):
