@@ -10,7 +10,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Surface
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -32,6 +39,40 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 private val KuraiGold = Color(0xFFF0C840)
+
+/** Золотая «пыльца» неба: едва заметные тёплые искорки, медленный дрейф + мерцание. Премиум-жизнь без шума. */
+private class Mote(val x: Float, val y: Float, val r: Float, val spd: Float, val ph: Float)
+private val MOTES = listOf(
+    Mote(0.14f, 0.10f, 2.0f, 0.60f, 0.0f),
+    Mote(0.27f, 0.30f, 1.5f, 0.85f, 1.2f),
+    Mote(0.78f, 0.16f, 2.2f, 0.50f, 2.1f),
+    Mote(0.86f, 0.36f, 1.6f, 0.70f, 0.6f),
+    Mote(0.66f, 0.24f, 1.7f, 0.90f, 2.7f),
+    Mote(0.10f, 0.40f, 1.4f, 0.55f, 1.7f),
+    Mote(0.90f, 0.50f, 1.5f, 0.65f, 3.0f),
+)
+
+/** Канвас золотой пыльцы в верхней полусфере (небо). `sceneAlpha` гасит её вместе с проявлением пейзажа. */
+@Composable
+internal fun SkyMotes(modifier: Modifier = Modifier, sceneAlpha: () -> Float) {
+    val inf = rememberInfiniteTransition(label = "motes")
+    val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing), RepeatMode.Restart), label = "t")
+    Canvas(modifier) {
+        val a = sceneAlpha()
+        if (a <= 0f) return@Canvas
+        for (m in MOTES) {
+            val raw = (m.y - t * m.spd) % 1f
+            val ny = if (raw < 0f) raw + 1f else raw
+            val tw = 0.5f + 0.5f * sin((t * 6.2832f * m.spd + m.ph).toDouble()).toFloat()
+            drawCircle(
+                color = KuraiGold,
+                radius = m.r.dp.toPx(),
+                center = Offset(m.x * size.width, (0.06f + ny * 0.46f) * size.height),
+                alpha = ((0.12f + 0.40f * tw) * a).coerceIn(0f, 0.6f),
+            )
+        }
+    }
+}
 private val RoadYellow = Color(0xFFE8A21A)
 private val ArrowLight = Color(0xFFFFD23D)
 private val ArrowDeep = Color(0xFFE8A21A)

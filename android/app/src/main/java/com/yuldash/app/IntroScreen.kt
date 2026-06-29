@@ -185,6 +185,9 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         Box(Modifier.fillMaxSize().background(Color(0x33000000)))
         Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Transparent, Color(0x5A000000)), radius = 1500f)))
 
+        // Золотая «пыльца» в небе — лёгкая премиум-жизнь, появляется/гаснет вместе с пейзажем
+        SkyMotes(Modifier.fillMaxSize()) { sceneAlpha.value }
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.graphicsLayer {
