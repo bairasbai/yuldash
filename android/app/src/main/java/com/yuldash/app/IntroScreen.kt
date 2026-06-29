@@ -123,7 +123,6 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     val drift = remember { Animatable(1f) }
     val sheen = remember { Animatable(-260f) }    // позиция золотого блика по «Юлдаш»
     val kurai = remember { Animatable(if (reduceMotion) 1f else 0f) }   // распускание курая (7 родов)
-    val kuraiRot = remember { Animatable(0f) }                          // лёгкий дрейф-вращение курая
     val road = remember { Animatable(if (reduceMotion) 1f else 0f) }    // прорисовка дороги (маршрут)
 
     LaunchedEffect(Unit) {
@@ -132,7 +131,6 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         launch { logoAlpha.animateTo(1f, tween(540, easing = EaseOutExpo)) }
         launch { glow.animateTo(1f, tween(950, easing = EaseOutExpo)) }
         launch { kurai.animateTo(1f, tween(1300, easing = EaseOutExpo)) }       // курай распускается за лого
-        launch { kuraiRot.animateTo(16f, tween(5200, easing = EaseInOutSine)) } // медленный дрейф
         launch { road.animateTo(1f, tween(1400, easing = EaseOutExpo)) }        // дорога рисуется + точка едет
         logoScale.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow))
         delay(110)
@@ -183,7 +181,6 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                 glow = glow.value,
                 ring = ring,
                 kurai = kurai.value,
-                kuraiRot = kuraiRot.value,
                 road = road.value,
                 roadFade = roadFade,
             )
