@@ -119,10 +119,12 @@ internal fun BrandHero(
             // Без отдельного свечения: полупрозрачный слой-glow давал квадратный артефакт
             // (GPU эмулятора подсвечивал прямоугольные границы слоя). Ambient-свет даёт сам
             // пейзаж (центр-глоу неба за значком) — чистый белый круг, как референс.
+            // shadowElevation = 0: тень значка на эмуляторе рисовалась прямоугольником под кругом
+            // (квадрат). Без тени — чистый белый круг, отделяется контрастом от тёмного пейзажа.
             Surface(
                 modifier = Modifier.size(132.dp)
                     .graphicsLayer { scaleX = logoScale; scaleY = logoScale; alpha = logoAlpha },
-                shape = CircleShape, color = Color.White, shadowElevation = 18.dp,
+                shape = CircleShape, color = Color.White, shadowElevation = 0.dp,
             ) {
                 Image(painterResource(R.drawable.yuldash_logo), "Юлдаш", Modifier.padding(22.dp))
             }
