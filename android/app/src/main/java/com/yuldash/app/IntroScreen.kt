@@ -47,6 +47,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -124,10 +125,12 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     val sheen = remember { Animatable(-260f) }    // позиция золотого блика по «Юлдаш»
     val kurai = remember { Animatable(if (reduceMotion) 1f else 0f) }   // распускание курая (7 родов)
     val road = remember { Animatable(if (reduceMotion) 1f else 0f) }    // прорисовка дороги (маршрут)
+    val sceneScale = remember { Animatable(if (reduceMotion) 1f else 1.08f) }   // мягкий push-in пейзажа (Ken-Burns)
 
     LaunchedEffect(Unit) {
         if (reduceMotion) { delay(1000); finish(); return@LaunchedEffect }
         launch { drift.animateTo(1.05f, tween(4700, easing = EaseInOutSine)) }
+        launch { sceneScale.animateTo(1f, tween(4700, easing = EaseInOutSine)) }   // пейзаж медленно «наезжает»
         launch { logoAlpha.animateTo(1f, tween(540, easing = EaseOutExpo)) }
         launch { glow.animateTo(1f, tween(950, easing = EaseOutExpo)) }
         launch { kurai.animateTo(1f, tween(1300, easing = EaseOutExpo)) }       // курай распускается за лого
@@ -161,11 +164,20 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(GreenTop, GreenBottom)))
+            .background(GreenBottom)
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { finish() },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Transparent, Color(0x40000000)), radius = 1500f)))
+        // Пейзаж Башкортостана (как на референсе) — мягкий push-in позади героя
+        Image(
+            painter = painterResource(R.drawable.splash_landscape),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = sceneScale.value; scaleY = sceneScale.value },
+        )
+        // Тёплая вуаль + виньетка: тёмно-зелёный тон и читаемость белого текста поверх сцены
+        Box(Modifier.fillMaxSize().background(Color(0x33000000)))
+        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Transparent, Color(0x5A000000)), radius = 1500f)))
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
