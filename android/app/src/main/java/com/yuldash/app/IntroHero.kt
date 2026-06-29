@@ -116,15 +116,9 @@ internal fun BrandHero(
             Modifier.align(Alignment.TopCenter).padding(top = 22.dp).size(132.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Canvas(Modifier.size(180.dp)) {
-                val r = size.minDimension / 2f
-                drawCircle(
-                    brush = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.26f), Color.Transparent), center = center, radius = r),
-                    radius = r,
-                    center = center,
-                    alpha = (glow).coerceIn(0f, 1f),
-                )
-            }
+            // Без отдельного свечения: полупрозрачный слой-glow давал квадратный артефакт
+            // (GPU эмулятора подсвечивал прямоугольные границы слоя). Ambient-свет даёт сам
+            // пейзаж (центр-глоу неба за значком) — чистый белый круг, как референс.
             Surface(
                 modifier = Modifier.size(132.dp)
                     .graphicsLayer { scaleX = logoScale; scaleY = logoScale; alpha = logoAlpha },
