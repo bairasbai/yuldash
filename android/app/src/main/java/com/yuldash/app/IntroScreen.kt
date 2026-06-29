@@ -35,7 +35,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,7 +50,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -59,6 +67,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** Размотка Compose-контекста (часто ContextWrapper) до Activity — чтобы достать window для иконок статус-бара. */
+private fun Context.findActivityCompat(): Activity? {
+    var c: Context? = this
+    while (c is ContextWrapper) { if (c is Activity) return c; c = c.baseContext }
+    return null
+}
 
 private val Gold = Color(0xFFD89B12)
 private val GoldLight = Color(0xFFFFF1CC)
@@ -109,6 +124,23 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         }.getOrDefault(false)
     }
 
+    val haptic = LocalHapticFeedback.current
+    // Светлые (белые) иконки статус/нав-бара поверх тёмного пейзажа; вернуть прежние при уходе из интро.
+    // SideEffect переустанавливает каждый recompose — переигрывает тему (windowLightStatusBar=true).
+    val barController = remember(ctx) {
+        ctx.findActivityCompat()?.let { act -> WindowCompat.getInsetsController(act.window, act.window.decorView) }
+    }
+    SideEffect {
+        barController?.isAppearanceLightStatusBars = false
+        barController?.isAppearanceLightNavigationBars = false
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            barController?.isAppearanceLightStatusBars = true   // вернуть тёмные иконки (светлая тема приложения)
+            barController?.isAppearanceLightNavigationBars = true
+        }
+    }
+
     var showMeaning by remember { mutableStateOf(false) }
     var showBrand by remember { mutableStateOf(reduceMotion) }
     var showUnderline by remember { mutableStateOf(reduceMotion) }
@@ -143,6 +175,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
         showMeaning = false
         delay(420)                  // слово ПОЛНОСТЬЮ уходит до «Юлдаш» — без наложения
         showBrand = true
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)   // тактильный «тук» в момент появления бренда
         launch { delay(360); sheen.animateTo(720f, tween(1100, easing = EaseInOutSine)) }   // медленный люкс-блик
         delay(500); showUnderline = true
         delay(780); showSlogan = true

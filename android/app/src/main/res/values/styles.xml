@@ -8,6 +8,13 @@
         <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/yuldash_splash</item>
     </style>
 
+    <!-- Стартовая тема (SplashScreen API): зелёный системный сплэш, потом ПЛАВНЫЙ уход (фейд) в интро.
+         Иконку явно не задаём — берётся launcher-icon (вид как сейчас). postSplashScreenTheme → обычная тема. -->
+    <style name="Theme.Yuldash.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/yuldash_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.Yuldash</item>
+    </style>
+
     <!-- Календарь/часы в брендовом зелёном (нативный DatePicker/TimePicker). -->
     <style name="Theme.Yuldash.DatePicker" parent="android:style/Theme.Material.Light.Dialog">
         <item name="android:colorAccent">#0B6B3A</item>
