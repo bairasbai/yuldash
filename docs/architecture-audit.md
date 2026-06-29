@@ -1,5 +1,16 @@
 # 🏗️ Архитектурный аудит Юлдаша (senior-разбор)
 
+## 📓 ✅ ЗАДЕПЛОЕНО НА ПРОД (2026-06-29, yulbash.ru / 85.239.52.55)
+
+Весь бэкенд-долг сессии (аудит-фиксы + Tier B + DEAD1-код) выкатан на прод и проверен.
+- **Деплой из worktree** (НЕ `deploy-backend.bat` — тот берёт код из основного чекаута, а он на ветке `codex`). Шаги: бэкап `app/` → `backups/app-pre-audit-20260629-092712.tar.gz`; **`pip install python-multipart` 0.0.32** в `/opt/yuldash/.venv` (критичная предусловие multipart-загрузок); `scp -r app/` + `requirements.txt`; чистка `__pycache__`; `chown yuldash:yuldash`; `systemctl restart yuldash-api`.
+- **Миграций НЕ запускал:** схема не менялась. DEAD1-дроп колонок на прод НЕ применял — модель их просто игнорирует, колонки в БД инертны (create_all не трогает существующую таблицу). Дроп — опц. позже.
+- **Проверка server-side:** сервис `active`; `/health`→`{ok,prod,db:ok}`; `/rides`→200; **`/ads/event` без токена→401** (анти-накрутка фикс жив); журнал чист (5 воркеров gunicorn, Redis WS активен, 0 трейсбеков).
+- **Откат при нужде:** `tar xzf backups/app-pre-audit-20260629-092712.tar.gz -C /opt/yuldash && systemctl restart yuldash-api` + (опц.) `pip uninstall python-multipart`.
+- Git remote отсутствует → «пуш» = деплой на сервер (выполнен). Android-фиксы — в релизном APK при следующей сборке.
+
+---
+
 ## 📓 Журнал: ViewModel + инструментальные тесты + DEAD1 + Docker (2026-06-29, Opus, worktree)
 
 **Запрос:** «делай по порядку end-to-end» по остатку (ViewModel/Nav, инструм-тесты, DEAD1) + перепроверить Docker.
