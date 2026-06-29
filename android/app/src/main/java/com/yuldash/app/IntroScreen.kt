@@ -50,6 +50,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -61,6 +63,12 @@ private val Gold = Color(0xFFD89B12)
 private val GoldLight = Color(0xFFFFF1CC)
 private val GreenTop = Color(0xFF0B6B3A)
 private val GreenBottom = Color(0xFF05301D)
+
+/** Montserrat (сабсет с кириллицей+башкирским) — премиум-гарнитура интро. */
+private val Montserrat = FontFamily(
+    Font(R.font.montserrat_medium, FontWeight.Medium),
+    Font(R.font.montserrat_black, FontWeight.Black),
+)
 
 /** Слово ПО БУКВАМ (stagger) — для «смысла» (Попутчик): по-человечески, скромно.
  *  Появление: fade + подъём (EaseOutExpo). Уход: каскад вверх (морф в бренд). */
@@ -75,7 +83,7 @@ private fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
                 exit = fadeOut(tween(300, i * 22)) +
                     slideOutVertically(tween(360, i * 22)) { -it / 3 },
             ) {
-                Text(ch.toString(), color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Text(ch.toString(), color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Medium, fontFamily = Montserrat, letterSpacing = 1.sp)
             }
         }
     }
@@ -188,6 +196,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                         "Юлдаш",
                         fontSize = 44.sp,
                         fontWeight = FontWeight.Black,
+                        fontFamily = Montserrat,
                         letterSpacing = (brandIn * 2f).sp,
                         modifier = Modifier.graphicsLayer { alpha = brandIn; scaleX = brandScale; scaleY = brandScale },
                         style = TextStyle(brush = brandBrush),
@@ -212,7 +221,8 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                 ) { ba ->
                     Text(
                         if (ba) "Үҙебеҙҙекеләр араһында юллашыу" else "Поездки между своими",
-                        color = Color.White.copy(0.92f), fontSize = 15.sp, letterSpacing = 0.5.sp,
+                        color = Color.White.copy(0.92f), fontSize = 15.sp, fontFamily = Montserrat,
+                        fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
                     )
                 }
             }
