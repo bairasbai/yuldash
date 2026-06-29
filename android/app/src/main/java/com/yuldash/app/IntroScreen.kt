@@ -198,28 +198,27 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                 road = road.value,
                 roadFade = roadFade,
             )
-            Spacer(Modifier.height(8.dp))
-            Box(modifier = Modifier.height(88.dp), contentAlignment = Alignment.TopCenter) {
+            Spacer(Modifier.height(4.dp))
+            // Слот СЛОВА (Попутчик/Юлдаш) — компактный, слово по центру; черта и слоган идут вплотную ниже.
+            Box(modifier = Modifier.height(58.dp), contentAlignment = Alignment.Center) {
                 StaggerWord("Попутчик", showMeaning, 38.sp)
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "Юлдаш",
-                        fontSize = 44.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = Montserrat,
-                        letterSpacing = (brandIn * 2f).sp,
-                        modifier = Modifier.graphicsLayer { alpha = brandIn; scaleX = brandScale; scaleY = brandScale },
-                        style = TextStyle(brush = brandBrush),
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Box(
-                        Modifier.width(72.dp).height(3.dp)
-                            .graphicsLayer { scaleX = underline }
-                            .background(Gold, RoundedCornerShape(2.dp)),
-                    )
-                }
+                Text(
+                    "Юлдаш",
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = Montserrat,
+                    letterSpacing = (brandIn * 2f).sp,
+                    modifier = Modifier.graphicsLayer { alpha = brandIn; scaleX = brandScale; scaleY = brandScale },
+                    style = TextStyle(brush = brandBrush),
+                )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
+            Box(
+                Modifier.width(72.dp).height(3.dp)
+                    .graphicsLayer { scaleX = underline }
+                    .background(Gold, RoundedCornerShape(2.dp)),
+            )
+            Spacer(Modifier.height(14.dp))
             AnimatedVisibility(showSlogan, enter = fadeIn(tween(560, easing = EaseOutExpo))) {
                 AnimatedContent(
                     targetState = sloganBa,

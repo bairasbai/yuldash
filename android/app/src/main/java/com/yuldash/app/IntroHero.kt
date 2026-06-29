@@ -109,22 +109,26 @@ internal fun BrandHero(
     roadFade: Float,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.size(224.dp, 230.dp)) {
-        // Курай-веер и дорога-стрелка убраны по просьбе: чистый белый значок над пейзажем (как референс).
-        // Лого-стек (сияние + кольцо + белый круг + пин), центр на (112, 88dp).
+    Box(modifier.size(224.dp, 158.dp)) {
+        // Чистый белый значок (как референс) — без курая и кольца. Свечение рисуем Canvas-кругом
+        // (drawCircle = математически круг, без квадратного слоя graphicsLayer → НИКАКОГО квадрата).
         Box(
             Modifier.align(Alignment.TopCenter).padding(top = 22.dp).size(132.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Box(
-                Modifier.size(188.dp).graphicsLayer { alpha = glow * 0.40f }
-                    .background(Brush.radialGradient(listOf(Color.White.copy(0.30f), Color.Transparent)), shape = CircleShape),
-            )
-            Box(Modifier.size(150.dp).graphicsLayer { alpha = ring * 0.42f }.border(1.5.dp, RoadYellow, CircleShape))
+            Canvas(Modifier.size(180.dp)) {
+                val r = size.minDimension / 2f
+                drawCircle(
+                    brush = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.26f), Color.Transparent), center = center, radius = r),
+                    radius = r,
+                    center = center,
+                    alpha = (glow).coerceIn(0f, 1f),
+                )
+            }
             Surface(
                 modifier = Modifier.size(132.dp)
                     .graphicsLayer { scaleX = logoScale; scaleY = logoScale; alpha = logoAlpha },
-                shape = CircleShape, color = Color.White, shadowElevation = 20.dp,
+                shape = CircleShape, color = Color.White, shadowElevation = 18.dp,
             ) {
                 Image(painterResource(R.drawable.yuldash_logo), "Юлдаш", Modifier.padding(22.dp))
             }
