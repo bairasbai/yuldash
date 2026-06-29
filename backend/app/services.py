@@ -60,6 +60,21 @@ def _looks_like_image(data: bytes, ext: str) -> bool:
     return True
 
 
+def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sniff_image: bool) -> tuple[bytes, str]:
+    """Общая валидация загруженных байтов: непусто + лимит размера + whitelist расширений
+    + (для фото) magic-bytes. Используется и base64-, и multipart-путём."""
+    ext = "".join(c for c in (ext or "").lower() if c.isalnum())
+    if not data:
+        raise HTTPException(400, f"Пустой файл: {kind}")
+    if len(data) > settings.max_upload_bytes:
+        raise HTTPException(413, f"Файл слишком большой: максимум {settings.max_upload_mb} МБ")
+    if ext not in allowed_ext:
+        raise HTTPException(400, f"Недопустимый тип файла: .{ext}")
+    if sniff_image and not _looks_like_image(data, ext):
+        raise HTTPException(400, f"Файл не похож на изображение: {kind}")
+    return data, ext
+
+
 def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: str,
                       sniff_image: bool = False) -> tuple[bytes, str]:
     """Безопасная обработка base64 upload: whitelist расширений + лимит размера.
@@ -71,15 +86,33 @@ def decode_upload_b64(raw: str, allowed_ext: set[str], default_ext: str, kind: s
         data = base64.b64decode(raw, validate=True)
     except Exception:
         raise HTTPException(400, f"Некорректный файл: {kind}")
-    if not data:
-        raise HTTPException(400, f"Пустой файл: {kind}")
-    if len(data) > settings.max_upload_bytes:
-        raise HTTPException(413, f"Файл слишком большой: максимум {settings.max_upload_mb} МБ")
-    if ext not in allowed_ext:
-        raise HTTPException(400, f"Недопустимый тип файла: .{ext}")
-    if sniff_image and not _looks_like_image(data, ext):
-        raise HTTPException(400, f"Файл не похож на изображение: {kind}")
-    return data, ext
+    return _validate_upload(data, allowed_ext, ext, kind, sniff_image)
+
+
+async def read_upload(request, allowed_ext: set[str], default_ext: str, kind: str,
+                      sniff_image: bool = False) -> tuple[bytes, str]:
+    """Прочитать загрузку из multipart/form-data (поле `file` [+ опц. `ext`]) ИЛИ из JSON-base64
+    (обратная совместимость со старыми установленными клиентами). multipart не держит весь файл
+    как base64-строку в памяти (+33%) — Starlette стримит в SpooledTemporaryFile."""
+    ctype = request.headers.get("content-type", "")
+    if "multipart/form-data" in ctype:
+        form = await request.form()
+        up = form.get("file")
+        if up is None or not hasattr(up, "read"):
+            raise HTTPException(400, f"Нет файла в запросе: {kind}")
+        data = await up.read()
+        ext = (str(form.get("ext") or "")
+               or os.path.splitext(getattr(up, "filename", "") or "")[1].lstrip(".")
+               or default_ext)
+        return _validate_upload(data, allowed_ext, ext, kind, sniff_image)
+    # JSON base64 — старый клиент
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, f"Некорректный запрос: {kind}")
+    raw = body.get("photo_b64") or body.get("audio_b64") or ""
+    ext = body.get("ext") or default_ext
+    return decode_upload_b64(raw, allowed_ext, ext, kind, sniff_image)
 
 
 def enforce_upload_quota(session: Session, user_id: int) -> None:
@@ -132,6 +165,12 @@ def is_blocked(session: Session, a: int, b: int) -> bool:
         (r.user_id == a and r.blocked_user_id == b) or (r.user_id == b and r.blocked_user_id == a)
         for r in rows
     )
+
+
+def blocked_user_ids(session: Session, uid: int) -> set[int]:
+    """Все user_id, с кем у uid есть блокировка в любую сторону — для фильтра выдачи поездок (без N+1)."""
+    rows = session.exec(select(Block).where((Block.user_id == uid) | (Block.blocked_user_id == uid))).all()
+    return {(r.blocked_user_id if r.user_id == uid else r.user_id) for r in rows}
 
 
 # ----------------------------- Push (FCM) -----------------------------

@@ -31,6 +31,17 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         raise HTTPException(400, "Нельзя бронировать собственную поездку")
     if is_blocked(session, user.id, ride.driver_id):
         raise HTTPException(403, "Бронь недоступна")
+    # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
+    # Идемпотентно — возвращаем существующую активную бронь, мест не списываем заново.
+    existing = session.exec(
+        select(Booking).where(
+            Booking.ride_id == ride.id,
+            Booking.passenger_id == user.id,
+            Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
+        )
+    ).first()
+    if existing:
+        return existing
     if ride.seats_left < body.seats:
         raise HTTPException(400, "Не хватает мест")
     booking = Booking(
@@ -55,6 +66,31 @@ def boarding_code(booking_id: int, user: User = Depends(current_user), session: 
     return {"code": booking.boarding_code or ""}
 
 
+@router.get("/bookings/{booking_id}/role")
+def booking_role(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Роль текущего юзера в брони — водитель/пассажир. Экран активной поездки показывает
+    нужные кнопки статуса (водитель: «выехал/подъезжаю»; пассажир: «сел/доехал/завершить»)."""
+    _booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    return {"role": "driver" if ride.driver_id == user.id else "passenger"}
+
+
+class DriverStatusIn(BaseModel):
+    status: str  # departed | arriving
+
+
+@router.post("/bookings/{booking_id}/driver-status")
+def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель отмечает «выехал/подъезжаю» → push пассажиру (закрывает тревогу ожидания)."""
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    if ride.driver_id != user.id:
+        raise HTTPException(403, "Только водитель")
+    if body.status not in {"departed", "arriving"}:
+        raise HTTPException(400, "Недопустимый статус")
+    title = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
+    send_push(session, booking.passenger_id, title, f"{ride.from_city} → {ride.to_city}")
+    return {"ok": True}
+
+
 @router.post("/bookings/{booking_id}/confirm", response_model=Booking)
 def confirm_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
@@ -72,6 +108,8 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
     """Отмена поездки пассажиром или водителем. Места возвращаются в поездку."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if booking.status not in (BookingStatus.cancelled, BookingStatus.done):
+        # Блокируем строку поездки (как в book) → две одновременные отмены не затрут инкремент мест.
+        ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
         booking.status = BookingStatus.cancelled
         ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
         session.add(booking)
@@ -81,17 +119,47 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
     return booking
 
 
-@router.get("/bookings/mine", response_model=List[Booking])
+@router.get("/bookings/mine")
 def my_bookings(
     limit: Optional[int] = None,        # пагинация (опц., None = все — обратносовместимо)
     offset: int = 0,
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    q = select(Booking).where(Booking.passenger_id == user.id)
-    if limit is not None:   # порядок добавляем только при пагинации (дефолт — как было)
-        q = q.order_by(Booking.id.desc()).offset(max(0, offset)).limit(max(1, min(limit, 200)))
-    return session.exec(q).all()
+    q = select(Booking).where(Booking.passenger_id == user.id).order_by(Booking.id.desc())
+    if limit is not None:
+        q = q.offset(max(0, offset)).limit(max(1, min(limit, 200)))
+    bookings = session.exec(q).all()
+    # Джойн сводки поездки (маршрут/водитель/время), чтобы экран «Мои поездки» показывал реальные
+    # карточки, а не заглушку. Батч-выборка против N+1. Поле id сохранено → старый клиент не ломается.
+    ride_ids = {b.ride_id for b in bookings}
+    rides = (
+        {r.id: r for r in session.exec(select(Ride).where(Ride.id.in_(ride_ids))).all()}
+        if ride_ids else {}
+    )
+    driver_ids = {r.driver_id for r in rides.values()}
+    drivers = (
+        {u.id: u for u in session.exec(select(User).where(User.id.in_(driver_ids))).all()}
+        if driver_ids else {}
+    )
+    out = []
+    for b in bookings:
+        r = rides.get(b.ride_id)
+        drv = drivers.get(r.driver_id) if r else None
+        out.append({
+            "id": b.id,
+            "ride_id": b.ride_id,
+            "seats": b.seats,
+            "price": b.price,
+            "status": b.status.value if hasattr(b.status, "value") else b.status,
+            "boarding_code": b.boarding_code,
+            "from_city": r.from_city if r else "",
+            "to_city": r.to_city if r else "",
+            "depart_at": r.depart_at.isoformat() if r and r.depart_at else "",
+            "driver_name": (drv.name if drv and drv.name else ""),
+            "driver_verified": bool(drv.verified) if drv else False,
+        })
+    return out
 
 
 @router.get("/driver/bookings")

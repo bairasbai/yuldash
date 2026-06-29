@@ -74,6 +74,8 @@ import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Favorite
@@ -263,16 +265,10 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
         else -> allLabel
     }
     var serverNotifs by remember { mutableStateOf<List<NotifDto>>(emptyList()) }
-    LaunchedEffect(Unit) { ApiClient.getNotifications().onSuccess { serverNotifs = it } }
-    val demoNotifs = listOf(
-        Triple(Icons.Default.DirectionsCar, appText("Водитель откликнулся на заявку", "Водитель заявкаға яуап бирҙе"), appText("Рамиль едет к вам", "Рамиль һеҙгә килә")),
-        Triple(Icons.Default.CheckCircle, appText("Поездка подтверждена", "Сәфәр раҫланды"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30")),
-        Triple(Icons.Default.ChatBubble, appText("Новое сообщение в чате", "Чатта яңы хәбәр"), appText("Рамиль: «Буду у вокзала в 17:20»", "Рамиль: «17:20-лә вокзалда булам»")),
-        Triple(Icons.Default.Shield, appText("Профиль успешно проверен", "Профиль уңышлы тикшерелде"), appText("Ваш профиль подтверждён", "Профилегеҙ раҫланды")),
-        Triple(Icons.Default.Schedule, appText("Поездка начнётся через 30 минут", "Сәфәр 30 минуттан башлана"), appText("Баймаҡ → Сибай, сегодня в 17:30", "Баймаҡ → Сибай, бөгөн 17:30"))
-    )
-    // Реальные события с сервера; демо — пока их нет (новый юзер).
-    val notifications = if (serverNotifs.isNotEmpty()) serverNotifs.map { Triple(Icons.Default.ChatBubble, it.title, it.text) } else demoNotifs
+    var notifsLoading by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) { ApiClient.getNotifications().onSuccess { serverNotifs = it }; notifsLoading = false }
+    // Только реальные события с сервера. Пусто → честная заглушка (без демо-обмана «Рамиль едет»).
+    val notifications = serverNotifs.map { Triple(Icons.Default.ChatBubble, it.title, it.text) }
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Chat, onSelect = onSelectTab) }
@@ -310,35 +306,25 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
                     }
                 )
             }
-            if (cleared) {
+            val visibleNotifications = if (cleared) emptyList() else notifications.filter { (icon, _, _) ->
+                selected == "all" ||
+                    (selected == "rides" && icon != Icons.Default.ChatBubble && icon != Icons.Default.Shield) ||
+                    (selected == "chat" && icon == Icons.Default.ChatBubble) ||
+                    (selected == "system" && icon == Icons.Default.Shield)
+            }
+            if (notifsLoading && !cleared) {
+                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (visibleNotifications.isEmpty()) {
                 item {
                     InfoCard(
-                        title = appText("Уведомлений нет", "Хәбәрҙәр юҡ"),
+                        title = appText("Уведомлений пока нет", "Хәбәрҙәр әлегә юҡ"),
                         text = appText("Новые события по поездкам, чату и профилю появятся здесь.", "Сәфәр, чат һәм профиль буйынса яңы ваҡиғалар бында күренә."),
                         icon = Icons.Default.Notifications
                     )
                 }
             } else {
-                val visibleNotifications = notifications.filter { (icon, _, _) ->
-                    selected == "all" ||
-                        (selected == "rides" && icon != Icons.Default.ChatBubble && icon != Icons.Default.Shield) ||
-                        (selected == "chat" && icon == Icons.Default.ChatBubble) ||
-                        (selected == "system" && icon == Icons.Default.Shield)
-                }
                 items(visibleNotifications, key = { it.second }) { (icon, title, subtitle) ->
-                    NotificationRow(
-                        icon = icon,
-                        title = title,
-                        subtitle = subtitle,
-                        time = when (icon) {
-                            Icons.Default.DirectionsCar -> "09:30"
-                            Icons.Default.CheckCircle -> "09:28"
-                            Icons.Default.ChatBubble -> "09:15"
-                            Icons.Default.Shield -> appText("Вчера, 16:45", "Кисә, 16:45")
-                            else -> appText("Вчера, 16:20", "Кисә, 16:20")
-                        },
-                        unread = icon != Icons.Default.Shield && icon != Icons.Default.Schedule
-                    )
+                    NotificationRow(icon = icon, title = title, subtitle = subtitle, time = "", unread = true)
                 }
             }
         }
@@ -375,8 +361,9 @@ internal fun SafetyScreen(
     onBlocklist: () -> Unit = {},
     onReport: () -> Unit = {},
 ) {
-    var hidePhone by remember { mutableStateOf(true) }
-    var verifiedOnly by remember { mutableStateOf(true) }
+    val ctx = LocalContext.current
+    var hidePhone by remember { mutableStateOf(AppPrefs.hidePhone(ctx)) }
+    var verifiedOnly by remember { mutableStateOf(AppPrefs.verifiedOnly(ctx)) }
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
@@ -392,7 +379,7 @@ internal fun SafetyScreen(
                 Text(appText("Ваши данные и поездки под защитой", "Һеҙҙең мәғлүмәт һәм сәфәрҙәр һаҡланған"), color = CanonMuted, fontSize = 15.sp)
             }
             item {
-                Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, Color(0x33D93025))) {
+                Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = CanonDangerBg, shape = RoundedCornerShape(18.dp)) {
                             Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -413,8 +400,8 @@ internal fun SafetyScreen(
             }
             item {
                 SettingsGroup {
-                    SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it }
-                    SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it }
+                    SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it; AppPrefs.setHidePhone(ctx, it) }
+                    SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
                     SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
                     SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
                     SettingsNavRow(Icons.Default.Report, appText("Пожаловаться на пользователя", "Ҡулланыусыға ялыу"), appText("Сообщите о нарушении правил или безопасности.", "Ҡағиҙә йәки хәүефһеҙлек боҙолоуын хәбәр итегеҙ."), onClick = onReport)
@@ -438,10 +425,13 @@ internal fun SettingsScreen(
     onFilters: () -> Unit = {},
     isAdmin: Boolean = false,
     onAdminCabinet: () -> Unit = {},
+    onLogout: () -> Unit = {},
 ) {
-    var notifications by remember { mutableStateOf(true) }
-    var sounds by remember { mutableStateOf(true) }
+    val ctx = LocalContext.current
+    var notifications by remember { mutableStateOf(AppPrefs.notifications(ctx)) }
+    var sounds by remember { mutableStateOf(AppPrefs.sounds(ctx)) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
     val isBashkir = LocalAppLanguage.current == AppLanguage.Ba
     // Текущая тема приложения (она же тема карты): системная / светлая / тёмная.
     val themeLabel = when (ThemePrefs.darkOverride) {
@@ -451,6 +441,16 @@ internal fun SettingsScreen(
     }
     if (showThemeDialog) {
         ThemePickerDialog(current = ThemePrefs.darkOverride, onPick = { ThemePrefs.darkOverride = it; showThemeDialog = false }, onDismiss = { showThemeDialog = false })
+    }
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Выйти из аккаунта?", "Иҫәптән сығаһығыҙмы?"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = { Text(appText("Нужно будет снова войти через Telegram.", "Telegram аша яңынан инергә кәрәк буласаҡ."), color = CanonMuted) },
+            confirmButton = { TextButton(onClick = { showLogoutDialog = false; onLogout() }) { Text(appText("Выйти", "Сығыу"), color = CanonRed, fontWeight = FontWeight.Bold) } },
+            dismissButton = { TextButton(onClick = { showLogoutDialog = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
     }
     Scaffold(
         containerColor = CanonBg,
@@ -469,7 +469,7 @@ internal fun SettingsScreen(
             item { CompactProfileBanner() }
             item {
                 SettingsGroup {
-                    SettingSwitchRow(Icons.Default.Notifications, appText("Уведомления", "Хәбәрҙәр"), appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу"), notifications) { notifications = it }
+                    SettingSwitchRow(Icons.Default.Notifications, appText("Уведомления", "Хәбәрҙәр"), appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу"), notifications) { notifications = it; AppPrefs.setNotifications(ctx, it) }
                     SettingsNavRow(Icons.Default.Language, appText("Язык", "Тел"), if (isBashkir) "Башҡортса" else "Русский", onClick = onToggleLanguage)
                     SettingsNavRow(Icons.Default.Map, appText("Тема", "Тема"), themeLabel, onClick = { showThemeDialog = true })
                 }
@@ -477,7 +477,7 @@ internal fun SettingsScreen(
             item {
                 SettingsGroup {
                     SettingsNavRow(Icons.Default.Shield, appText("Приватность", "Махсуслыҡ"), appText("Управление безопасностью и данными", "Хәүефһеҙлек һәм мәғлүмәт"), onClick = onPrivacy)
-                    SettingSwitchRow(Icons.Default.VolumeUp, appText("Звуки", "Тауыштар"), appText("Звуковые уведомления и эффекты", "Тауышлы хәбәрҙәр"), sounds) { sounds = it }
+                    SettingSwitchRow(Icons.Default.VolumeUp, appText("Звуки", "Тауыштар"), appText("Звуковые уведомления и эффекты", "Тауышлы хәбәрҙәр"), sounds) { sounds = it; AppPrefs.setSounds(ctx, it) }
                 }
             }
             item {
@@ -495,7 +495,12 @@ internal fun SettingsScreen(
             }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.Info, appText("О приложении", "Ҡушымта тураһында"), "Версия 1.0.0 (100)")
+                    SettingsNavRow(Icons.Default.Info, appText("О приложении", "Ҡушымта тураһында"), "Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                }
+            }
+            item {
+                SettingsGroup {
+                    SettingsNavRow(Icons.Default.ExitToApp, appText("Выйти из аккаунта", "Иҫәптән сығыу"), appText("Завершить сеанс на этом устройстве", "Был ҡоролмала сеансты тамамлау"), onClick = { showLogoutDialog = true })
                 }
             }
             item {
@@ -634,6 +639,24 @@ internal object FilterPrefs {
     }
 }
 
+/**
+ * Настройки приложения — реальные тумблеры (Уведомления/Звуки/Безопасность), хранятся на диске.
+ * Уведомления/Звуки читает [com.yuldash.app.data.FcmService] перед показом пуша (клиентское заглушение).
+ * verifiedOnly применяется как фильтр выдачи «Ближайших» на карте.
+ */
+internal object AppPrefs {
+    private const val PREF = "yuldash_settings"
+    private fun sp(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+    fun notifications(ctx: Context) = sp(ctx).getBoolean("notifications", true)
+    fun sounds(ctx: Context) = sp(ctx).getBoolean("sounds", true)
+    fun verifiedOnly(ctx: Context) = sp(ctx).getBoolean("verified_only", false)
+    fun hidePhone(ctx: Context) = sp(ctx).getBoolean("hide_phone", true)
+    fun setNotifications(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("notifications", v).apply()
+    fun setSounds(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("sounds", v).apply()
+    fun setVerifiedOnly(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("verified_only", v).apply()
+    fun setHidePhone(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("hide_phone", v).apply()
+}
+
 /** Экран «Фильтры по умолчанию»: тумблеры условий, сохраняются и применяются к «Ближайшим». */
 @Composable
 internal fun FiltersScreen(onBack: () -> Unit) {
@@ -698,16 +721,19 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<com.yuldash.app.data.PendingDriverDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
     val token = remember { ApiClient.currentToken() ?: "" }
     val approvedMsg = appText("Водитель одобрен", "Водитель раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
-    fun reload() { scope.launch { ApiClient.getPendingDrivers().onSuccess { list = it }; loading = false } }
+    fun reload() { scope.launch { loading = true; error = false; ApiClient.getPendingDrivers().onSuccess { list = it }.onFailure { error = true }; loading = false } }
     LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Модерация водителей", "Водителдәрҙе модерациялау"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Проверь права и фото авто. Одобри или отклони.", "Права һәм авто фотоһын тикшер. Раҫла йәки кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (error) {
+                item { EmptyStateCard(appText("Не удалось загрузить", "Йөкләп булманы"), appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"), Icons.Default.Refresh, appText("Повторить", "Ҡабатлау")) { reload() } }
             } else if (list.isEmpty()) {
                 item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән водителдәр күренер")) }
             } else {
@@ -736,14 +762,19 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
 /** Админ: жалобы пользователей — кто на кого, причина, дата. */
 @Composable
 internal fun AdminReportsScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
     var list by remember { mutableStateOf<List<com.yuldash.app.data.AdminReportDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) { ApiClient.getAdminReports().onSuccess { list = it }; loading = false }
+    var error by remember { mutableStateOf(false) }
+    fun reload() { scope.launch { loading = true; error = false; ApiClient.getAdminReports().onSuccess { list = it }.onFailure { error = true }; loading = false } }
+    LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Жалобы", "Ялыуҙар"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Жалобы пользователей. Разберись — позвони, предупреди или отклони водителя в модерации.", "Ҡулланыусы ялыуҙары. Тикшер — шылтырат, иҫкәрт йәки модерацияла кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (error) {
+                item { EmptyStateCard(appText("Не удалось загрузить", "Йөкләп булманы"), appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"), Icons.Default.Refresh, appText("Повторить", "Ҡабатлау")) { reload() } }
             } else if (list.isEmpty()) {
                 item { ListedEmpty(appText("Жалоб нет", "Ялыу юҡ"), appText("Хороший знак — пользователи довольны.", "Яҡшы билдә — ҡулланыусылар риза.")) }
             } else {
@@ -975,6 +1006,7 @@ internal fun ReportScreen(onBack: () -> Unit) {
     var target by remember { mutableStateOf<com.yuldash.app.data.ReportableUserDto?>(null) }
     var reason by remember { mutableStateOf("") }
     val sentMsg = appText("Жалоба отправлена. Спасибо.", "Ялыу ебәрелде. Рәхмәт.")
+    val errMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшерегеҙ.")
     LaunchedEffect(Unit) { ApiClient.getReportableUsers().onSuccess { partners = it }; loading = false }
     target?.let { t ->
         AlertDialog(
@@ -991,7 +1023,11 @@ internal fun ReportScreen(onBack: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     val r = reason.trim(); val id = t.id
-                    scope.launch { ApiClient.reportUser(id, r); Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
+                    scope.launch {
+                        ApiClient.reportUser(id, r)
+                            .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
+                    }
                     target = null; reason = ""
                 }) { Text(appText("Отправить", "Ебәреү"), color = CanonRed, fontWeight = FontWeight.Bold) }
             },
@@ -1038,7 +1074,25 @@ internal fun HelpScreen(
 ) {
     val usefulAd = ads.forPlacement(AdPlacement.Help).firstOrNull { it.category == "В больницу" }
         ?: ads.forPlacement(AdPlacement.Help).firstOrNull { it.city == "Баймаҡ" }
+    val ctx = LocalContext.current
+    val supportSent = appText("Заявка отправлена — мы свяжемся с вами.", "Заявка ебәрелде — һеҙҙең менән бәйләнешербеҙ.")
     var helpQuery by remember { mutableStateOf("") }
+    // FAQ строим в composable-контексте (appText), не внутри LazyColumn-лямбды.
+    val faq = listOf(
+        Triple(Icons.Default.Search, appText("Как найти поездку?", "Сәфәрҙе нисек табырға?"), appText(
+            "Откройте вкладку «Карта» или «Поездки». В «Ближайших поездках» включите нужные фильтры (только женщины, кресло, животные) и нажмите «Поехать» — водитель получит вашу бронь и код посадки.",
+            "«Карта» йәки «Сәфәрҙәр» бүлеген асығыҙ. «Яҡын сәфәрҙәр»ҙә кәрәкле фильтрҙарҙы тоҡандырығыҙ һәм «Барам» тип баҫығыҙ — водитель брондауҙы һәм ултырыу кодын ала.")),
+        Triple(Icons.Default.AddRoad, appText("Как создать заявку?", "Заявканы нисек булдырырға?"), appText(
+            "Вкладка «Заявка» → укажите маршрут, дату и число мест → отправьте. Водители увидят заявку и откликнутся; вы выберете подходящего во вкладке «Чат» → «Заявки».",
+            "«Заявка» бүлеге → юлды, көндө һәм урын һанын күрһәтегеҙ → ебәрегеҙ. Водителдәр заявканы күреп яуап бирер; «Чат» → «Заявкалар»ҙа кәрәклеһен һайларһығыҙ.")),
+        Triple(Icons.Default.Shield, appText("Как проходит проверка водителя?", "Водитель нисек тикшерелә?"), appText(
+            "Водитель загружает фото прав и авто в разделе «Стать водителем». Модератор Юлдаша проверяет вручную и ставит значок «Проверен». Документы видны только модератору.",
+            "Водитель «Водитель булыу» бүлегендә права һәм машина фотоһын тейәй. Юлдаш модераторы ҡулдан тикшереп «Тикшерелгән» билдәһен ҡуя. Документтар тик модераторға күренә.")),
+        Triple(Icons.Default.Notifications, appText("Что делать в экстренной ситуации?", "Ашығыс хәлдә нимә эшләргә?"), appText(
+            "Нажмите красную кнопку SOS («Безопасность» или активная поездка). Откроется звонок в службы 112/102/101/103, а доверенным контактам уйдёт SMS с вашими координатами.",
+            "Ҡыҙыл SOS төймәһенә баҫығыҙ («Хәүефһеҙлек» йәки сәфәр барышында). 112/102/101/103-кә шылтыратыу асыла, ышаныслы кешеләргә координаталар менән SMS китә.")),
+    )
+    val faqFiltered = if (helpQuery.isBlank()) faq else faq.filter { it.second.contains(helpQuery.trim(), ignoreCase = true) }
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
@@ -1063,25 +1117,22 @@ internal fun HelpScreen(
                     shape = RoundedCornerShape(999.dp)
                 )
             }
-            if (helpQuery.isNotBlank()) {
-                item {
-                    InfoCard(
-                        appText("Найдено по запросу: $helpQuery", "$helpQuery буйынса табылды"),
-                        appText("Откройте подходящий вопрос ниже или напишите в поддержку.", "Түбәндәге һорауҙы асығыҙ йәки ярҙамға яҙығыҙ."),
-                        Icons.Default.Search
-                    )
-                }
-            }
             item { Text(appText("Популярные вопросы", "Популяр һорауҙар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
-            item { HelpRow(Icons.Default.Search, appText("Как найти поездку?", "Сәфәрҙе нисек табырға?"), appText("Поиск и фильтры, выбор водителя", "Эҙләү, фильтрҙар, водитель һайлау")) }
-            item { HelpRow(Icons.Default.AddRoad, appText("Как создать заявку?", "Заявканы нисек булдырырға?"), appText("Пошаговая инструкция", "Аҙымлап аңлатма")) }
-            item { HelpRow(Icons.Default.Shield, appText("Как проходит проверка водителя?", "Водитель нисек тикшерелә?"), appText("Безопасность и подтверждение", "Хәүефһеҙлек һәм раҫлау")) }
-            item { HelpRow(Icons.Default.Notifications, appText("Что делать в экстренной ситуации?", "Ашығыс хәлдә нимә эшләргә?"), appText("SOS, отмена поездки, поддержка", "SOS, сәфәрҙе туҡтатыу, ярҙам")) }
+            if (faqFiltered.isEmpty()) {
+                item { InfoCard(appText("Ничего не найдено", "Бер ни ҙә табылманы"), appText("Попробуйте другой запрос или напишите в поддержку ниже.", "Башҡа һорау яҙығыҙ йәки түбәндә ярҙамға мөрәжәғәт итегеҙ."), Icons.Default.Search) }
+            } else {
+                items(faqFiltered, key = { it.second }) { f -> ExpandableHelpRow(f.first, f.second, f.third) }
+            }
             item { Text(appText("Связаться с поддержкой", "Ярдам менән бәйләнеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.ChatBubble, appText("Связаться с поддержкой", "Ярдамға яҙыу"), appText("Мы поможем решить ваш вопрос", "Һорауығыҙҙы хәл итергә ярҙам итәбеҙ"))
-                    SettingsNavRow(Icons.Default.HeadsetMic, appText("Написать в чат поддержки", "Ярдам чатына яҙыу"), appText("Онлайн-ответ в чате приложения", "Ҡушымта чатында онлайн яуап"))
+                    SettingsNavRow(Icons.Default.ChatBubble, appText("Связаться с поддержкой", "Ярҙамға яҙыу"), appText("Оставьте заявку — мы перезвоним", "Заявка ҡалдырығыҙ — шылтыратырбыҙ"), onClick = {
+                        ApiClient.fireRequestCallback("Поддержка из раздела «Помощь»")
+                        Toast.makeText(ctx, supportSent, Toast.LENGTH_SHORT).show()
+                    })
+                    SettingsNavRow(Icons.Default.HeadsetMic, appText("Написать в Telegram", "Telegram-ға яҙыу"), appText("Открыть чат поддержки Юлдаш", "Юлдаш ярҙам чатын асыу"), onClick = {
+                        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/bairas_ntv")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    })
                 }
             }
             item {
@@ -1103,19 +1154,23 @@ internal fun HelpScreen(
     }
 }
 
+/** Вопрос FAQ с раскрытием ответа по тапу (поиск выше реально фильтрует список). */
 @Composable
-private fun HelpRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String) {
+private fun ExpandableHelpRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, answer: String) {
+    var expanded by remember { mutableStateOf(false) }
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(13.dp))
+        Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+                    Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(13.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                Icon(if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 14.sp)
+            AnimatedVisibility(visible = expanded) {
+                Text(answer, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp, start = 4.dp))
             }
-            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
         }
     }
 }

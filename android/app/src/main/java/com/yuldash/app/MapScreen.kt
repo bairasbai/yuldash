@@ -279,6 +279,7 @@ internal fun MapScreen(
     var nearbyLimit by remember { mutableStateOf(NEARBY_PAGE) }  // сколько показываем сейчас
     val filterCtx = LocalContext.current
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
+    val verifiedOnly = remember { AppPrefs.verifiedOnly(filterCtx) }  // «Только проверенные» из раздела Безопасность
     val focusFrom = activeTrip?.from
     val focusTo = activeTrip?.to
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
@@ -296,14 +297,17 @@ internal fun MapScreen(
     }
     // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
     // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
-    val shownNearby = remember(nearby, prefFilter) {
-        if (prefFilter.isEmpty()) nearby else nearby.filter { d ->
-            ("women" !in prefFilter || d.womenOnly) &&
+    val shownNearby = remember(nearby, prefFilter, verifiedOnly) {
+        if (prefFilter.isEmpty() && !verifiedOnly) nearby else nearby.filter { d ->
+            (!verifiedOnly || d.driverVerified) &&
+                ("women" !in prefFilter || d.womenOnly) &&
                 ("child" !in prefFilter || d.childSeat) &&
                 ("pets" !in prefFilter || d.petsAllowed) &&
                 ("baggage" !in prefFilter || d.baggage)
         }
     }
+    // Пины-ценники на карте = те же «Ближайшие» (реальные поездки), макс 20 чтобы не захламлять.
+    val mapPins = remember(shownNearby) { shownNearby.take(20).map { it.toUiRide() } }
     Scaffold(containerColor = CanonBg) { padding ->
         Column(
             modifier = Modifier
@@ -318,6 +322,7 @@ internal fun MapScreen(
                 Box(Modifier.appearIn(1)) {
                     MapHero(
                         activeTrip = activeTrip,
+                        rides = mapPins,
                         onRideTap = { selectedRide = it },
                         onFind = onOpenPopular,
                         onDriver = onDriver
@@ -429,6 +434,7 @@ internal fun MapScreen(
 @Composable
 private fun MapHero(
     activeTrip: Ride?,
+    rides: List<Ride> = emptyList(),
     onRideTap: (Ride) -> Unit,
     onFind: (PopularRoute) -> Unit,
     onDriver: () -> Unit
@@ -473,6 +479,7 @@ private fun MapHero(
                 YandexMapCard(
                     modifier = Modifier.matchParentSize(),
                     activeTrip = activeTrip,
+                    rides = rides,
                     onRideTap = onRideTap,
                     showPrivacyNotice = false
                 )
@@ -945,6 +952,7 @@ private fun ensureMapKit(context: Context) {
 private fun YandexMapCard(
     modifier: Modifier = Modifier,
     activeTrip: Ride? = null,
+    rides: List<Ride> = emptyList(),
     onRideTap: (Ride) -> Unit = {},
     showPrivacyNotice: Boolean = true
 ) {
@@ -957,12 +965,14 @@ private fun YandexMapCard(
     val nightMap = appIsDark()   // тёмная тема → ночной стиль карты
     // Свежие ссылки на активную поездку/тап, чтобы tap-listener не «застревал» на старых данных.
     val currentTrip by rememberUpdatedState(activeTrip)
+    val currentRides by rememberUpdatedState(rides)
     val currentOnTap by rememberUpdatedState(onRideTap)
     val tapListener = remember {
         MapObjectTapListener { obj, _ ->
-            val trip = currentTrip?.takeIf { it.id == obj.userData as? String }
-            if (trip != null) currentOnTap(trip)
-            trip != null
+            val id = obj.userData as? String
+            val ride = currentTrip?.takeIf { it.id == id } ?: currentRides.firstOrNull { it.id == id }
+            if (ride != null) currentOnTap(ride)
+            ride != null
         }
     }
     val mapView = remember {
@@ -1118,6 +1128,26 @@ private fun YandexMapCard(
             runCatching { roadSession?.cancel() }
             added.forEach { runCatching { map.mapObjects.remove(it) } }
         }
+    }
+    // Ценники поездок из ленты «Ближайших» на карте. Координаты — cityPoint (синхронно, известные города БашРТ);
+    // неизвестный город пропускаем (без async-геокод-шторма). userData=id → тап открывает карточку поездки.
+    DisposableEffect(rides) {
+        val map = mapView.mapWindow.map
+        val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
+        rides.forEach { ride ->
+            if (activeTrip?.id == ride.id) return@forEach   // активную рисует отдельный эффект — не дублируем
+            val pt = cityPoint(ride.from) ?: return@forEach
+            runCatching {
+                added += map.mapObjects.addPlacemark().apply {
+                    geometry = pt
+                    setIcon(ImageProvider.fromBitmap(ridePinBitmap("${ride.price} ₽", ride.boosted)))
+                    setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0f)))
+                    userData = ride.id
+                    addTapListener(tapListener)
+                }
+            }
+        }
+        onDispose { added.forEach { runCatching { map.mapObjects.remove(it) } } }
     }
     // Жизненный цикл карты привязан к появлению/скрытию экрана «Карта».
     DisposableEffect(Unit) {

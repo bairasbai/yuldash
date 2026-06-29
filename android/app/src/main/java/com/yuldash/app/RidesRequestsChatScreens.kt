@@ -294,6 +294,21 @@ internal fun RidesScreen(
     LaunchedEffect(presetTo, presetToday) {
         if (presetTo.isNotBlank() || presetToday) selectedStatus = "active"
     }
+    // Реальные брони пользователя (раньше тут были захардкоженные «Рамиль/12 мая»).
+    var bookings by remember { mutableStateOf<List<com.yuldash.app.data.BookingMineDto>>(emptyList()) }
+    var bookingsLoading by remember { mutableStateOf(true) }
+    var bookingsError by remember { mutableStateOf(false) }
+    var bookingsReload by remember { mutableStateOf(0) }
+    LaunchedEffect(bookingsReload) {
+        bookingsLoading = true
+        ApiClient.getMyBookingsDetailed()
+            .onSuccess { bookings = it; bookingsError = false }
+            // 401 (не вошёл) — не ошибка сети: просто пусто. Реальный сбой → «Повторить».
+            .onFailure { e -> bookingsError = (e as? ApiException)?.status != 401 }
+        bookingsLoading = false
+    }
+    val activeStatuses = listOf("pending", "confirmed", "onboard")
+    val historyStatuses = listOf("done", "cancelled")
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -318,8 +333,27 @@ internal fun RidesScreen(
                     }
                 )
             }
-            if (rides.isEmpty()) {
-                item {
+            val visibleBookings = bookings.filter {
+                when (selectedStatus) {
+                    "history" -> it.status in historyStatuses
+                    "all" -> true
+                    else -> it.status in activeStatuses
+                }
+            }
+            when {
+                bookingsLoading -> item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } }
+                }
+                bookingsError -> item {
+                    EmptyStateCard(
+                        title = appText("Не удалось загрузить поездки", "Сәфәрҙәрҙе йөкләп булманы"),
+                        text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
+                        icon = Icons.Default.Refresh,
+                        action = appText("Повторить", "Ҡабатлау"),
+                        onAction = { bookingsReload++ }
+                    )
+                }
+                visibleBookings.isEmpty() -> item {
                     EmptyStateCard(
                         title = appText("Поездок пока нет", "Әлегә сәфәрҙәр юҡ"),
                         text = appText("Создайте заявку или опубликуйте маршрут водителя.", "Заявка булдырығыҙ йәки водитель маршрутын баҫтырығыҙ."),
@@ -328,71 +362,55 @@ internal fun RidesScreen(
                         onAction = onCreateRequest
                     )
                 }
-            } else {
-                item {
-                    Box(Modifier.appearIn(0)) {
-                    MyTripCard(
-                        ride = rides.first(),
-                        status = appText("Подтверждена", "Раҫланды"),
-                        statusColor = CanonMint,
-                        icon = Icons.Default.DirectionsCar,
-                        primaryAction = appText("Подробнее", "Ентекле"),
-                        secondaryAction = appText("Связаться", "Бәйләнеү"),
-                        onPrimary = { onOpenActiveTrip(rides.first()) },
-                        onSecondary = onMessage
-                    )
-                    }
-                }
-                item {
-                    Box(Modifier.appearIn(1)) {
-                    MyTripCard(
-                        ride = rides.getOrElse(2) { rides.first() },
-                        status = appText("Ожидает", "Көтә"),
-                        statusColor = CanonWarnBg,
-                        icon = Icons.Default.Schedule,
-                        primaryAction = appText("Подробнее", "Ентекле"),
-                        secondaryAction = appText("Написать", "Яҙыу"),
-                        onPrimary = { onBookRide(rides.getOrElse(2) { rides.first() }) },
-                        onSecondary = onMessage
-                    )
-                    }
-                }
-                inlineAd?.let { ad ->
-                    item {
-                        InlinePartnerAdCard(
-                            ad = ad,
-                            label = if (ad.id == routeAd?.id) appText("Партнёр по маршруту", "Маршрут партнёры") else appText("Совет партнёра", "Партнёр кәңәше"),
-                            onImpression = onAdImpression,
-                            onClick = onAdClick
-                        )
-                    }
-                }
-                item {
-                    Box(Modifier.appearIn(2)) {
-                    MyTripCard(
-                        ride = Ride(
-                            id = "done",
-                            from = "Баймаҡ",
-                            to = "Сибай",
-                            time = "12 мая, 17:40",
-                            timeBa = "12 май, 17:40",
-                            driver = "Рамиль",
-                            car = "Lada Vesta",
-                            carBa = "Lada Vesta",
-                            price = 300,
-                            seats = 2,
-                            rating = 5.0,
-                            verified = true,
+                else -> {
+                    itemsIndexed(visibleBookings, key = { _, b -> b.id }) { i, b ->
+                        // Сводку с сервера дополняем feed-поездкой по ride_id (если сервер ещё без джойна).
+                        val feed = rides.firstOrNull { it.id == b.rideId.toString() }
+                        val displayRide = Ride(
+                            id = b.id.toString(),   // id = booking_id → onOpenActiveTrip получит верный booking
+                            from = b.fromCity.ifBlank { feed?.from ?: appText("Поездка", "Сәфәр") },
+                            to = b.toCity.ifBlank { feed?.to ?: "№${b.rideId}" },
+                            time = b.departAt.ifBlank { feed?.time ?: "" },
+                            timeBa = b.departAt.ifBlank { feed?.timeBa ?: feed?.time ?: "" },
+                            driver = b.driverName.ifBlank { feed?.driver ?: "" },
+                            car = feed?.car ?: "",
+                            carBa = feed?.carBa ?: feed?.car ?: "",
+                            price = if (b.price > 0) b.price else (feed?.price ?: 0),
+                            seats = b.seats,
+                            rating = feed?.rating ?: 0.0,
+                            verified = b.driverVerified || (feed?.verified ?: false),
                             boosted = false
-                        ),
-                        status = appText("Завершена", "Тамамланды"),
-                        statusColor = Color(0xFFEDEDED),
-                        icon = Icons.Default.CheckCircle,
-                        primaryAction = appText("Повторить маршрут", "Маршрутты ҡабатлау"),
-                        secondaryAction = appText("Написать", "Яҙыу"),
-                        onPrimary = { onCreateRequest() },
-                        onSecondary = onMessage
-                    )
+                        )
+                        val isHist = b.status in historyStatuses
+                        val (statusLabel, statusColor, statusIcon) = when (b.status) {
+                            "confirmed" -> Triple(appText("Подтверждена", "Раҫланды"), CanonMint, Icons.Default.DirectionsCar)
+                            "onboard" -> Triple(appText("В пути", "Юлда"), CanonMint, Icons.Default.DirectionsCar)
+                            "done" -> Triple(appText("Завершена", "Тамамланды"), CanonMint, Icons.Default.CheckCircle)
+                            "cancelled" -> Triple(appText("Отменена", "Кире ҡағылды"), CanonDangerBg, Icons.Default.Close)
+                            else -> Triple(appText("Ожидает", "Көтә"), CanonWarnBg, Icons.Default.Schedule)
+                        }
+                        Box(Modifier.appearIn(i)) {
+                            MyTripCard(
+                                ride = displayRide,
+                                status = statusLabel,
+                                statusColor = statusColor,
+                                icon = statusIcon,
+                                primaryAction = if (isHist) appText("Повторить маршрут", "Маршрутты ҡабатлау") else appText("Подробнее", "Ентекле"),
+                                secondaryAction = appText("Написать", "Яҙыу"),
+                                onPrimary = { if (isHist) onCreateRequest() else onOpenActiveTrip(displayRide) },
+                                onSecondary = onMessage
+                            )
+                        }
+                    }
+                    inlineAd?.let { ad ->
+                        item {
+                            InlinePartnerAdCard(
+                                ad = ad,
+                                label = if (ad.id == routeAd?.id) appText("Партнёр по маршруту", "Маршрут партнёры") else appText("Совет партнёра", "Партнёр кәңәше"),
+                                onImpression = onAdImpression,
+                                onClick = onAdClick
+                            )
+                        }
                     }
                 }
             }
@@ -1201,9 +1219,6 @@ internal fun ChatScreen(
     onOpenResponses: (Int) -> Unit = {}
 ) {
     var selected by remember { mutableStateOf("active") }
-    var voiceSent by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf("") }
-    var latestBookingId by remember { mutableStateOf<Int?>(null) }
     var conversations by remember { mutableStateOf<List<ConversationDto>>(emptyList()) }
     var convLoading by remember { mutableStateOf(true) }
     var convError by remember { mutableStateOf(false) }
@@ -1214,10 +1229,7 @@ internal fun ChatScreen(
         "requests" to LocalizedText("Заявки", "Заявкалар"),
         "system" to LocalizedText("Система", "Система")
     )
-    val nowText = appText("сейчас", "хәҙер")
-    val chatScope = rememberCoroutineScope()
     LaunchedEffect(convReload) {
-        ApiClient.getMyBookings().onSuccess { latestBookingId = it.maxOrNull() }
         convLoading = true
         ApiClient.getConversations()
             .onSuccess { conversations = it; convError = false }
@@ -1270,44 +1282,6 @@ internal fun ChatScreen(
                 }
             }
         }
-        if (selected == "active") {
-            // Композер — только на «Активные» и шлёт по активной поездке (последняя бронь), с явной подписью.
-            latestBookingId?.let {
-                item { Text(appText("Сообщение по активной поездке", "Актив сәфәр буйынса хәбәр"), color = CanonMuted, fontSize = 12.sp) }
-            }
-            item {
-                ChatComposer(
-                    draft = draft,
-                    onDraftChange = { draft = it },
-                    onSend = {
-                        val text = draft.trim()
-                        if (text.isNotEmpty()) {
-                            latestBookingId?.let { ApiClient.fireSendMessage(it, text) }
-                            onAddVoiceMessage(LocalVoiceMessage(ApiClient.cachedName() ?: "Я", text, nowText))
-                            draft = ""
-                        }
-                    },
-                    onVoiceRecorded = { path, dur ->
-                        onAddVoiceMessage(LocalVoiceMessage(ApiClient.cachedName() ?: "Я", "", nowText, audioPath = path, durationSec = dur))
-                        voiceSent = true
-                        // Реально шлём голос на сервер по активной брони (раньше оставался только локально).
-                        latestBookingId?.let { bid ->
-                            chatScope.launch {
-                                val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull()
-                                if (bytes != null) ApiClient.uploadVoice(bytes).onSuccess { url -> ApiClient.sendVoiceMessage(bid, url) }
-                            }
-                        }
-                    },
-                    onPhotoPicked = { bytes ->
-                        latestBookingId?.let { bid ->
-                            chatScope.launch {
-                                ApiClient.uploadChatPhoto(bytes).onSuccess { url -> ApiClient.sendPhotoMessage(bid, url) }
-                            }
-                        }
-                    }
-                )
-            }
-        }
         if (selected == "requests") {
             // Вкладка «Заявки» — реальные заявки пользователя (ждут отклика водителя).
             if (myRequests.isEmpty()) {
@@ -1337,10 +1311,7 @@ internal fun ChatScreen(
                 }
             }
         } else {
-            // Вкладка «Активные» — чаты по поездкам + записанные голосовые.
-            items(voiceMessages, key = { it.audioPath ?: (it.author + it.time + it.transcript) }) { message ->
-                VoiceMessageCard(message)
-            }
+            // Вкладка «Активные» — список диалогов по поездкам (сам чат открывается в поездке).
             if (conversations.isNotEmpty()) {
                 itemsIndexed(conversations, key = { _, c -> c.bookingId }) { i, c ->
                     Box(Modifier.appearIn(i)) {

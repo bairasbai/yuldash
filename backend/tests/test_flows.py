@@ -128,10 +128,87 @@ def test_cancel_returns_seats(client, user_factory):
     assert client.get(f"/rides/{ride['id']}").json()["seats_left"] == 2
 
 
+def test_no_duplicate_booking(client, user_factory):
+    drv = user_factory("DupDrv", role=UserRole.driver)
+    ride = _publish(client, drv, seats=3)
+    pax = user_factory("DupPax")
+    b1 = _book(client, pax, ride["id"], seats=1)
+    b2 = _book(client, pax, ride["id"], seats=1)   # повтор / двойной тап «Поехать»
+    assert b1["id"] == b2["id"]                      # идемпотентно — та же бронь
+    assert client.get(f"/rides/{ride['id']}").json()["seats_left"] == 2  # место списано один раз, не два
+
+
+def test_finish_trip_closes_booking(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    r = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "done"})
+    assert r.status_code == 200
+    mine = client.get("/bookings/mine", headers=pax["auth"]).json()
+    me = next(b for b in mine if b["id"] == booking["id"])
+    assert me["status"] == "done"   # «Завершить» реально закрыло бронь на сервере
+
+
+def test_blocked_driver_hidden_from_search(client, user_factory):
+    drv = user_factory("BlkDrv", role=UserRole.driver)
+    ride = _publish(client, drv, frm="Кага", to="Уфа")
+    pax = user_factory("BlkPax")
+    # до блокировки — поездка видна пассажиру
+    assert any(r["id"] == ride["id"] for r in client.get("/rides", headers=pax["auth"], params={"from_city": "Кага"}).json())
+    # пассажир блокирует водителя
+    assert client.post("/blocks", headers=pax["auth"], json={"blocked_user_id": ride["driver_id"]}).status_code == 200
+    # теперь скрыта из поиска для него
+    assert all(r["id"] != ride["id"] for r in client.get("/rides", headers=pax["auth"], params={"from_city": "Кага"}).json())
+    # аноним (без токена) по-прежнему видит — фильтр только для залогиненного
+    assert any(r["id"] == ride["id"] for r in client.get("/rides", params={"from_city": "Кага"}).json())
+
+
+def test_referral_flow(client, user_factory):
+    a = user_factory("RefA")
+    b = user_factory("RefB")
+    code = client.get("/referral/me", headers=a["auth"]).json()["code"]
+    assert len(code) == 6
+    # b вводит код a → оба получают по 1 бонусу
+    assert client.post("/referral/redeem", headers=b["auth"], json={"code": code}).json()["credits"] == 1
+    a_me = client.get("/referral/me", headers=a["auth"]).json()
+    assert a_me["credits"] == 1 and a_me["invited"] == 1
+    assert client.get("/referral/me", headers=b["auth"]).json()["redeemed"] is True
+    # нельзя дважды и нельзя свой код
+    assert client.post("/referral/redeem", headers=b["auth"], json={"code": code}).status_code == 400
+    assert client.post("/referral/redeem", headers=a["auth"], json={"code": code}).status_code == 400
+
+
+def test_boost_free_consumes_credit(client, user_factory):
+    drv = user_factory("BoostDrv", role=UserRole.driver)
+    other = user_factory("BoostRef")
+    code = client.get("/referral/me", headers=drv["auth"]).json()["code"]
+    client.post("/referral/redeem", headers=other["auth"], json={"code": code})  # drv +1 бонус
+    assert client.get("/referral/me", headers=drv["auth"]).json()["credits"] == 1
+    ride = _publish(client, drv)
+    assert client.post("/boost/free", headers=drv["auth"], json={"ride_id": ride["id"]}).json()["credits"] == 0
+    # без бонусов — отказ; чужую поездку — нельзя
+    assert client.post("/boost/free", headers=drv["auth"], json={"ride_id": ride["id"]}).status_code == 400
+    assert client.post("/boost/free", headers=other["auth"], json={"ride_id": ride["id"]}).status_code == 403
+
+
+def test_driver_status_and_role(client, user_factory):
+    drv, pax, ride, booking = _trip(client, user_factory)
+    assert client.get(f"/bookings/{booking['id']}/role", headers=drv["auth"]).json()["role"] == "driver"
+    assert client.get(f"/bookings/{booking['id']}/role", headers=pax["auth"]).json()["role"] == "passenger"
+    assert client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "departed"}).status_code == 200
+    assert client.post(f"/bookings/{booking['id']}/driver-status", headers=pax["auth"], json={"status": "departed"}).status_code == 403
+    assert client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "xxx"}).status_code == 400
+
+
 def test_booking_lists(client, user_factory):
     drv, pax, ride, booking = _trip(client, user_factory)
-    assert any(b["id"] == booking["id"] for b in client.get("/bookings/mine", headers=pax["auth"]).json())
+    mine = client.get("/bookings/mine", headers=pax["auth"]).json()
+    assert any(b["id"] == booking["id"] for b in mine)
     assert any(b["booking_id"] == booking["id"] for b in client.get("/driver/bookings", headers=drv["auth"]).json())
+    # Джойн сводки поездки (экран «Мои поездки» рисует реальные карточки, а не заглушку).
+    me = next(b for b in mine if b["id"] == booking["id"])
+    assert me["from_city"] == "Баймак" and me["to_city"] == "Сибай"
+    assert me["driver_name"] == "Drv"
+    assert me["ride_id"] == ride["id"]
+    assert me["status"] in ("pending", "confirmed", "onboard", "done", "cancelled")
 
 
 # ----------------------------- чат + инбокс -----------------------------

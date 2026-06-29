@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.yuldash.app.AppPrefs
 import com.yuldash.app.MainActivity
 import com.yuldash.app.R
 
@@ -23,6 +24,8 @@ class FcmService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(msg: RemoteMessage) {
+        // Тумблер «Уведомления» (Настройки) выключен → не показываем пуш (клиентское заглушение).
+        if (!AppPrefs.notifications(this)) return
         val n = msg.notification
         val title = n?.title ?: msg.data["title"] ?: "Юлдаш"
         val body = n?.body ?: msg.data["body"] ?: ""
@@ -31,6 +34,7 @@ class FcmService : FirebaseMessagingService() {
 
     private fun showNotification(title: String, body: String) {
         val mgr = getSystemService(NotificationManager::class.java) ?: return
+        val silent = !AppPrefs.sounds(this)   // тумблер «Звуки» выключен → беззвучно
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             mgr.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "Уведомления Юлдаш", NotificationManager.IMPORTANCE_HIGH)
@@ -46,7 +50,8 @@ class FcmService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(if (silent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
+            .setSilent(silent)
             .setContentIntent(pi)
             .build()
         mgr.notify(System.currentTimeMillis().toInt(), notif)

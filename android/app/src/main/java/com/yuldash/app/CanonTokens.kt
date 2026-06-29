@@ -44,5 +44,7 @@ internal val CanonWarn: Color @Composable get() = if (appIsDark()) Color(0xFFE8B
 internal val CanonStar: Color = Color(0xFFE7A921)
 // Тонкая зелёная разделительная линия (border карточек) — была хардкод 0x1A0B6B3A в нескольких экранах.
 internal val CanonHairlineGreen: Color = Color(0x1A0B6B3A)
+// Тонкая красная рамка danger-карточек (SOS) — была хардкод 0x33D93025 в SafetyScreen.
+internal val CanonDangerBorder: Color = Color(0x33D93025)
 internal val CanonCardShape = RoundedCornerShape(28.dp)
 internal val CanonItemShape = RoundedCornerShape(22.dp)

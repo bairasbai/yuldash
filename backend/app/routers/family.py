@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Booking, DriverProfile, Rating, Ride, TripShare, TrustedContact, User
+from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, TripShare, TrustedContact, User
 from ..security import current_user
 from ..services import booking_and_ride_for_user, send_text, user_rating
 
@@ -65,6 +65,12 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         raise HTTPException(403, "Статус семейного контроля меняет только пассажир")
     if body.status not in {"sat", "arrived", "done"}:
         raise HTTPException(400, "Недопустимый статус поездки")
+    # «Завершил поездку» → реально закрываем бронь на сервере (раньше статус уходил только близким,
+    # а бронь висела активной). Идемпотентно: повторный done/отменённую не трогаем.
+    if body.status == "done" and booking.status not in (BookingStatus.done, BookingStatus.cancelled):
+        booking.status = BookingStatus.done
+        session.add(booking)
+        session.commit()
     contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()]
     if not contact_ids:
         return []

@@ -40,8 +40,8 @@ object ApiClient {
     // переживает навигацию (scope экрана отменяется при уходе и обрывает запрос).
     private val bg = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    fun fireCreateRequest(fromCity: String, toCity: String, seats: Int, category: String, withKids: Boolean, comment: String, maxPrice: Int, voiceUrl: String? = null, transcript: String? = null, assisted: Boolean = false) {
-        bg.launch { createRequest(fromCity, toCity, seats, category, withKids, comment, maxPrice, voiceUrl, transcript, assisted) }
+    fun fireCreateRequest(fromCity: String, toCity: String, seats: Int, category: String, withKids: Boolean, comment: String, maxPrice: Int, voiceUrl: String? = null, transcript: String? = null, assisted: Boolean = false, relativeName: String? = null) {
+        bg.launch { createRequest(fromCity, toCity, seats, category, withKids, comment, maxPrice, voiceUrl, transcript, assisted, relativeName) }
     }
 
     fun firePublishRide(
@@ -272,7 +272,8 @@ object ApiClient {
 
     /** Активные поездки с витриной водителя (для «Ближайших поездок»). */
     suspend fun getRides(): Result<List<RideDto>> =
-        call("GET", "/rides", null, auth = false).map { obj ->
+        // auth=true: шлём токен (если есть) → сервер прячет заблокированных водителей. Без токена — аноним, как раньше.
+        call("GET", "/rides", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
         }
@@ -320,7 +321,8 @@ object ApiClient {
             add("limit=$limit")
         }
         val path = "/rides/near?" + params.joinToString("&")
-        return call("GET", path, null, auth = false).map { obj ->
+        // auth=true: токен (если есть) → сервер прячет заблокированных. Аноним по-прежнему видит всё.
+        return call("GET", path, null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             NearbyPage((0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }, obj.optInt("count"))
         }
@@ -401,6 +403,7 @@ object ApiClient {
         voiceUrl: String? = null,
         transcript: String? = null,
         assisted: Boolean = false,
+        relativeName: String? = null,
     ): Result<Unit> = call(
         "POST", "/requests",
         JSONObject()
@@ -415,6 +418,7 @@ object ApiClient {
             .apply {
                 voiceUrl?.takeIf { it.isNotBlank() }?.let { put("voice_url", it) }
                 transcript?.takeIf { it.isNotBlank() }?.let { put("transcript", it) }
+                relativeName?.takeIf { it.isNotBlank() }?.let { put("for_relative_name", it) }
             },
         auth = true,
     ).map { }.onSuccess { Analytics.log("create_request") }
@@ -578,6 +582,29 @@ object ApiClient {
             (0 until arr.length()).map { i -> arr.getJSONObject(i).optInt("id") }
         }
 
+    /** Мои брони со сводкой поездки (маршрут/водитель/статус) — для экрана «Мои поездки».
+     *  Старый сервер вернёт только id/seats/status → поля сводки пустые, экран это переживает. */
+    suspend fun getMyBookingsDetailed(): Result<List<BookingMineDto>> =
+        call("GET", "/bookings/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                BookingMineDto(
+                    id = o.optInt("id"),
+                    rideId = o.optInt("ride_id"),
+                    seats = o.optInt("seats", 1),
+                    price = o.optInt("price"),
+                    status = o.optString("status"),
+                    boardingCode = o.optString("boarding_code"),
+                    fromCity = o.optString("from_city"),
+                    toCity = o.optString("to_city"),
+                    departAt = o.optString("depart_at"),
+                    driverName = o.optString("driver_name"),
+                    driverVerified = o.optBoolean("driver_verified"),
+                )
+            }
+        }
+
     suspend fun sendMessage(bookingId: Int, text: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true).map { }
 
@@ -591,6 +618,28 @@ object ApiClient {
     /** Код посадки брони (виден только участникам) — пассажир называет, водитель сверяет. */
     suspend fun getBoardingCode(bookingId: Int): Result<String> =
         call("GET", "/bookings/$bookingId/boarding-code", null, auth = true).map { it.optString("code") }
+
+    /** Роль в брони: "driver" | "passenger" — экран активной поездки показывает нужные кнопки. */
+    suspend fun getBookingRole(bookingId: Int): Result<String> =
+        call("GET", "/bookings/$bookingId/role", null, auth = true).map { it.optString("role") }
+
+    /** Водитель отмечает «выехал»/«подъезжаю» → push пассажиру. status: "departed"|"arriving". */
+    suspend fun driverStatus(bookingId: Int, status: String): Result<Unit> =
+        call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { }
+
+    /** Мой реферал: код, сколько привёл, бонусы, вводил ли чей-то код. */
+    suspend fun getReferral(): Result<ReferralDto> =
+        call("GET", "/referral/me", null, auth = true).map { o ->
+            ReferralDto(o.optString("code"), o.optInt("invited"), o.optInt("credits"), o.optBoolean("redeemed"))
+        }
+
+    /** Ввести код друга → оба получают бонус. Возвращает новый баланс бонусов. */
+    suspend fun redeemReferral(code: String): Result<Int> =
+        call("POST", "/referral/redeem", JSONObject().put("code", code), auth = true).map { it.optInt("credits") }
+
+    /** Поднять свою поездку бесплатно за бонус. Возвращает остаток бонусов. */
+    suspend fun boostFree(rideId: Int): Result<Int> =
+        call("POST", "/boost/free", JSONObject().put("ride_id", rideId), auth = true).map { it.optInt("credits") }
 
     suspend fun getMessages(bookingId: Int): Result<List<MessageDto>> =
         call("GET", "/bookings/$bookingId/messages", null, auth = true).map { obj ->
@@ -749,9 +798,9 @@ object ApiClient {
         bg.launch { call("POST", "/ads/$adId/event", JSONObject().put("type", type), auth = false) }
     }
 
-    /** Сводка показов/кликов по каждой рекламе (для кабинета). */
+    /** Сводка показов/кликов по каждой рекламе (для кабинета, admin-only на сервере → шлём токен). */
     suspend fun getAdStats(): Result<Map<String, AdStatsDto>> =
-        call("GET", "/ads/stats", null, auth = false).map { o ->
+        call("GET", "/ads/stats", null, auth = true).map { o ->
             val out = mutableMapOf<String, AdStatsDto>()
             val keys = o.keys()
             while (keys.hasNext()) {
@@ -1014,6 +1063,24 @@ data class DriverBookingDto(
     val passengerRating: Double?,
     val route: String,
     val status: String,
+)
+
+/** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
+data class ReferralDto(val code: String, val invited: Int, val credits: Int, val redeemed: Boolean)
+
+/** Моя бронь со сводкой поездки — для экрана «Мои поездки». */
+data class BookingMineDto(
+    val id: Int,
+    val rideId: Int,
+    val seats: Int,
+    val price: Int,
+    val status: String,
+    val boardingCode: String,
+    val fromCity: String,
+    val toCity: String,
+    val departAt: String,
+    val driverName: String,
+    val driverVerified: Boolean,
 )
 
 /** Заявка пассажира с сервера. */

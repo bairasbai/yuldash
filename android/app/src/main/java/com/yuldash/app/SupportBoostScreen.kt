@@ -345,7 +345,9 @@ internal fun BoostScreen(onBack: () -> Unit) {
     var submitting by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<BoostResultDto?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var credits by remember { mutableStateOf(0) }   // реферальные бонусы = бесплатные поднятия
     val failText = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")  // appText @Composable → хойстим из корутины
+    val freeBoostOkMsg = appText("Поездка поднята бесплатно на 24 часа", "Сәфәр 24 сәғәткә бушлай күтәрелде")
 
     fun reload() {
         loading = true; loadError = false
@@ -354,6 +356,7 @@ internal fun BoostScreen(onBack: () -> Unit) {
             val r = ApiClient.getDriverRides()
             p.onSuccess { plans = it }
             r.onSuccess { list -> rides = list; if (selectedRideId == null) selectedRideId = list.firstOrNull()?.id }
+            ApiClient.getReferral().onSuccess { credits = it.credits }
             loadError = p.isFailure || r.isFailure
             loading = false
         }
@@ -404,6 +407,26 @@ internal fun BoostScreen(onBack: () -> Unit) {
                     }
                     error?.let { msg ->
                         item { Text(msg, color = CanonRed, fontSize = 14.sp) }
+                    }
+                    if (credits > 0) {
+                        item {
+                            AppButton(
+                                text = appText("Поднять бесплатно ($credits бонус.)", "Бушлай күтәреү ($credits бонус)"),
+                                onClick = {
+                                    val rid = selectedRideId ?: return@AppButton
+                                    submitting = true; error = null
+                                    scope.launch {
+                                        ApiClient.boostFree(rid)
+                                            .onSuccess { left -> credits = left; Toast.makeText(context, freeBoostOkMsg, Toast.LENGTH_SHORT).show(); reload() }
+                                            .onFailure { e -> error = (e as? ApiException)?.message ?: failText }
+                                        submitting = false
+                                    }
+                                },
+                                style = AppButtonStyle.Secondary,
+                                icon = Icons.Default.TrendingUp,
+                                enabled = selectedRideId != null && !submitting,
+                            )
+                        }
                     }
                     item {
                         val plan = plans.firstOrNull { it.tier == selectedTier }
