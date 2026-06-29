@@ -45,6 +45,27 @@ def _activate_boost(session: Session, payment: Payment) -> None:
     session.commit()
 
 
+class BoostFreeIn(BaseModel):
+    ride_id: int
+
+
+@router.post("/boost/free")
+def boost_free(body: BoostFreeIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Поднять СВОЮ поездку бесплатно за реферальный бонус (1 бонус = 24ч поднятия)."""
+    if user.referral_credits < 1:
+        raise HTTPException(400, "Нет бонусов")
+    ride = session.get(Ride, body.ride_id)
+    if not ride or ride.driver_id != user.id:
+        raise HTTPException(403, "Это не ваша поездка")
+    ride.boosted_until = utcnow() + timedelta(hours=24)
+    ride.boost_tier = "free"
+    user.referral_credits -= 1
+    session.add(ride)
+    session.add(user)
+    session.commit()
+    return {"ok": True, "credits": user.referral_credits}
+
+
 class BoostIn(BaseModel):
     ride_id: int
     tier: str

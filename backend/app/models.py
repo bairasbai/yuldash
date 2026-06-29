@@ -50,6 +50,10 @@ class User(SQLModel, table=True):
     # Выход/ревокация: токены, выпущенные ДО этого момента, считаются недействительными
     # (logout «со всех устройств», смена/угон телефона). Сравнивается с `iat` токена.
     tokens_valid_from: Optional[datetime] = None
+    # Реферал «позови своего»: свой код, кто пригласил, бонусы (1 бонус = 1 бесплатное поднятие).
+    referral_code: str = Field(default="", index=True)
+    referred_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    referral_credits: int = 0
     created_at: datetime = Field(default_factory=utcnow)
 
 

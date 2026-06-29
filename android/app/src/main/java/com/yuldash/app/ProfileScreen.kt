@@ -291,13 +291,51 @@ internal fun ProfileScreen(
     val editCtx = LocalContext.current
     val editScope = rememberCoroutineScope()
     val avatarSavedMsg = appText("Фото обновлено", "Фото яңыртылды")
+    val saveErrMsg = appText("Не удалось сохранить. Проверь сеть.", "Һаҡлап булманы. Селтәрҙе тикшерегеҙ.")
+    // Реферал «позови своего»: код, бонусы, ввод кода друга.
+    var referral by remember { mutableStateOf<com.yuldash.app.data.ReferralDto?>(null) }
+    var referralReload by remember { mutableStateOf(0) }
+    LaunchedEffect(referralReload) { ApiClient.getReferral().onSuccess { referral = it } }
+    var showRedeem by remember { mutableStateOf(false) }
+    var redeemCode by remember { mutableStateOf("") }
+    val redeemOkMsg = appText("Бонус начислен — вам и другу", "Бонус яҙылды — һеҙгә һәм дуҫҡа")
+    val redeemErrMsg = appText("Код не подошёл", "Код тура килмәне")
+    if (showRedeem) {
+        AlertDialog(
+            onDismissRequest = { showRedeem = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Код друга", "Дуҫ коды"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(appText("Введи код того, кто тебя позвал. Бонус получите оба.", "Һине саҡырған кешенең кодын индер. Бонусты икәүегеҙ ҙә алырһығыҙ."), color = CanonMuted, fontSize = 13.sp)
+                    OutlinedTextField(redeemCode, { redeemCode = it.uppercase().take(12) }, singleLine = true, modifier = Modifier.fillMaxWidth(), placeholder = { Text("ABC123") }, shape = RoundedCornerShape(14.dp))
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = redeemCode.isNotBlank(), onClick = {
+                    val c = redeemCode.trim()
+                    editScope.launch {
+                        ApiClient.redeemReferral(c)
+                            .onSuccess { showRedeem = false; redeemCode = ""; referralReload++; Toast.makeText(editCtx, redeemOkMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(editCtx, redeemErrMsg, Toast.LENGTH_SHORT).show() }
+                    }
+                }) { Text(appText("Применить", "Ҡулланыу"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { showRedeem = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { u ->
             editScope.launch {
                 val bytes = runCatching { editCtx.contentResolver.openInputStream(u)?.use { it.readBytes() } }.getOrNull()
-                if (bytes != null) ApiClient.uploadChatPhoto(bytes).onSuccess { url ->
-                    ApiClient.updateAvatar(url).onSuccess { avatarUrl = url; Toast.makeText(editCtx, avatarSavedMsg, Toast.LENGTH_SHORT).show() }
-                }
+                if (bytes == null) { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show(); return@launch }
+                ApiClient.uploadChatPhoto(bytes)
+                    .onSuccess { url ->
+                        ApiClient.updateAvatar(url)
+                            .onSuccess { avatarUrl = url; Toast.makeText(editCtx, avatarSavedMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
+                    }
+                    .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
             }
         }
     }
@@ -314,7 +352,11 @@ internal fun ProfileScreen(
                 TextButton(onClick = {
                     val n = nameDraft.trim()
                     if (n.isNotBlank()) {
-                        editScope.launch { ApiClient.updateName(n).onSuccess { displayName = n; Toast.makeText(editCtx, nameSavedMsg, Toast.LENGTH_SHORT).show() } }
+                        editScope.launch {
+                            ApiClient.updateName(n)
+                                .onSuccess { displayName = n; Toast.makeText(editCtx, nameSavedMsg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
+                        }
                         showEditName = false
                     }
                 }) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
@@ -393,6 +435,43 @@ internal fun ProfileScreen(
                                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(appText("Профиль подтверждён", "Профиль раҫланған"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                referral?.let { ref ->
+                    Box(Modifier.appearIn(0)) {
+                        Card(colors = CardDefaults.cardColors(containerColor = CanonMint), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2)
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(appText("Позови своего", "Үҙеңдекен саҡыр"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                                }
+                                Text(appText("Пригласил соседа → вы оба получаете бонус (бесплатное поднятие поездки).", "Күршеңде саҡырҙың → икәүегеҙ ҙә бонус (сәфәрҙе бушлай күтәреү) аласаҡ."), color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                                    Column { Text(appText("Позвал", "Саҡырҙы"), color = CanonGreen2, fontSize = 12.sp); Text(ref.invited.toString(), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 20.sp) }
+                                    Column { Text(appText("Бонусов", "Бонус"), color = CanonGreen2, fontSize = 12.sp); Text(ref.credits.toString(), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 20.sp) }
+                                    Column { Text(appText("Твой код", "Кодың"), color = CanonGreen2, fontSize = 12.sp); Text(ref.code, color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 2.sp) }
+                                }
+                                val shareTxt = appText(
+                                    "Я в Юлдаше — попутки между своими по Башкортостану. Мой код: ${ref.code}. Введи его в профиле — получим бонусы. Скачать: https://yulbash.ru",
+                                    "Мин Юлдашта — Башҡортостан буйлап үҙебеҙ араһында юлдаштар. Кодым: ${ref.code}. Профилдә индер — бонус алырбыҙ. Йөкләргә: https://yulbash.ru"
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = {
+                                        runCatching { editCtx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, shareTxt), null)) }
+                                    }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                                        Text(appText("Пригласить", "Саҡырыу"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
+                                    if (!ref.redeemed) {
+                                        OutlinedButton(onClick = { showRedeem = true }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
+                                            Text(appText("Ввести код", "Код индереү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -488,9 +567,17 @@ internal fun PassengerCabinetScreen(
     onCreateRequest: () -> Unit,
     onSafety: () -> Unit
 ) {
-    val activeRide = rides.firstOrNull()
+    // Реальные брони и заявки пользователя (раньше метрики и карточка брались из демо-списка).
+    var bookings by remember { mutableStateOf<List<com.yuldash.app.data.BookingMineDto>>(emptyList()) }
+    var serverReqCount by remember { mutableStateOf<Int?>(null) }
     var myRating by remember { mutableStateOf<Double?>(null) }
-    LaunchedEffect(Unit) { ApiClient.me().onSuccess { o -> myRating = if (o.isNull("rating")) null else o.optDouble("rating") } }
+    LaunchedEffect(Unit) {
+        ApiClient.getMyBookingsDetailed().onSuccess { bookings = it }
+        ApiClient.getMyRequests().onSuccess { serverReqCount = it.size }
+        ApiClient.me().onSuccess { o -> myRating = if (o.isNull("rating")) null else o.optDouble("rating") }
+    }
+    val activeBookings = bookings.filter { it.status == "pending" || it.status == "confirmed" || it.status == "onboard" }
+    val activeBooking = activeBookings.firstOrNull()
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет пассажира", "Пассажир кабинеты"), onBack) }
@@ -506,15 +593,27 @@ internal fun PassengerCabinetScreen(
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CabinetMetric(appText("Активные", "Актив"), rides.size.toString(), Modifier.weight(1f))
-                    CabinetMetric(appText("Заявки", "Заявкалар"), requests.size.toString(), Modifier.weight(1f))
+                    CabinetMetric(appText("Активные", "Актив"), activeBookings.size.toString(), Modifier.weight(1f))
+                    CabinetMetric(appText("Заявки", "Заявкалар"), (serverReqCount ?: requests.size).toString(), Modifier.weight(1f))
                     CabinetMetric(appText("Рейтинг", "Рейтинг"), myRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—", Modifier.weight(1f))
                 }
             }
-            activeRide?.let { ride ->
+            activeBooking?.let { b ->
                 item {
                     MyTripCard(
-                        ride = ride,
+                        ride = Ride(
+                            id = b.id.toString(),
+                            from = b.fromCity.ifBlank { appText("Поездка", "Сәфәр") },
+                            to = b.toCity.ifBlank { "№${b.rideId}" },
+                            time = b.departAt,
+                            driver = b.driverName,
+                            car = "",
+                            price = b.price,
+                            seats = b.seats,
+                            rating = 0.0,
+                            verified = b.driverVerified,
+                            boosted = false
+                        ),
                         status = appText("Ближайшая", "Яҡындағы"),
                         statusColor = CanonMint,
                         icon = Icons.Default.EventSeat,
@@ -545,19 +644,22 @@ internal fun DriverCabinetScreen(
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit = {}
 ) {
-    val driverRides = remember(rides) { rides.filter { it.driver == (ApiClient.cachedName() ?: "Я") } }
+    // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
+    var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
     val ctx = LocalContext.current
     val rateScope = rememberCoroutineScope()
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
+        ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess { online = it.online }
     }
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
+    val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет водителя", "Водитель кабинеты"), onBack) }
@@ -578,7 +680,16 @@ internal fun DriverCabinetScreen(
                         appText("Я на линии", "Мин эштә"),
                         appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
                         online,
-                    ) { v -> online = v; rateScope.launch { ApiClient.setOnline(v) } }
+                    ) { v ->
+                        val prev = online
+                        online = v
+                        rateScope.launch {
+                            ApiClient.setOnline(v).onFailure {
+                                online = prev
+                                Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
                 }
             }
             item {

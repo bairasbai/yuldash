@@ -4,6 +4,7 @@ import re
 import secrets
 import string
 from datetime import timedelta
+from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -16,6 +17,7 @@ from .models import RefreshToken, User
 from .timeutil import utcnow
 
 bearer = HTTPBearer(auto_error=True)
+bearer_optional = HTTPBearer(auto_error=False)   # для публичных списков: токен есть → знаем юзера, нет → аноним
 
 # Telegram-плейсхолдер tg<id>: ставится при входе, пока юзер не поделился реальным
 # номером. Реальный номер обязателен (безопасность / защита от мошенников).
@@ -126,6 +128,12 @@ def gen_otp() -> str:
     return "".join(random.choices(string.digits, k=6))
 
 
+def gen_referral_code() -> str:
+    """Короткий реферальный код (буквы+цифры, без 0/O/1/I — чтобы не путать при наборе)."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(random.choices(alphabet, k=6))
+
+
 def current_user(
     cred: HTTPAuthorizationCredentials = Depends(bearer),
     session: Session = Depends(get_session),
@@ -143,4 +151,23 @@ def current_user(
     # Номер обязателен: без реального номера приложение не работает (защита от мошенников).
     if is_placeholder_phone(user.phone):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "phone_required")
+    return user
+
+
+def current_user_optional(
+    cred: Optional[HTTPAuthorizationCredentials] = Depends(bearer_optional),
+    session: Session = Depends(get_session),
+) -> Optional[User]:
+    """Как current_user, но без токена/при невалидном — None (не падает).
+    Для публичных списков (/rides, /rides/near): залогиненному прячем заблокированных, аноним видит всё."""
+    if cred is None:
+        return None
+    try:
+        payload = jwt.decode(cred.credentials, settings.jwt_secret, algorithms=["HS256"])
+        user_id = int(payload["sub"])
+    except (JWTError, KeyError, ValueError):
+        return None
+    user = session.get(User, user_id)
+    if not user or _token_revoked(payload, user) or is_placeholder_phone(user.phone):
+        return None
     return user

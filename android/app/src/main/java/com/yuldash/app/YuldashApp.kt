@@ -317,8 +317,10 @@ internal fun YuldashApp() {
         }
     }
 
-    fun finishOnboarding() {
-        prefs.edit().putBoolean("onboarding_completed", true).apply()
+    fun finishOnboarding(role: RideRole) {
+        // Сохраняем выбор роли (раньше выбор был «мёртвым» — никуда не уходил).
+        prefs.edit().putBoolean("onboarding_completed", true).putString("preferred_role", role.name).apply()
+        startHomeTab = if (role == RideRole.Driver) HomeTab.Rides else HomeTab.Map
         screen = Screen.Login
     }
 
@@ -605,7 +607,8 @@ internal fun YuldashApp() {
                 onPayments = { screen = Screen.PaymentInfo },
                 onFilters = { screen = Screen.Filters },
                 isAdmin = isAdmin,
-                onAdminCabinet = { screen = Screen.AdminCabinet }
+                onAdminCabinet = { screen = Screen.AdminCabinet },
+                onLogout = { ApiClient.logout(); isAdmin = false; screen = Screen.Login }
             )
             Screen.AdminCabinet -> AdminCabinetScreen(
                 onBack = { screen = Screen.Settings },
@@ -697,6 +700,8 @@ internal fun YuldashApp() {
                 onBack = { screen = Screen.SimpleMode },
                 onRepeat = { request ->
                     localRequests.add(0, request)
+                    // Реальная серверная заявка по маршруту (раньше повтор оставался только в памяти).
+                    fireRequestFromRoute(request.route)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Йыш сәфәр ҡабатланды" else "Частая поездка повторена", Toast.LENGTH_SHORT).show()
                     screen = Screen.SimpleMode
                 }
@@ -727,7 +732,7 @@ internal fun shareRide(context: android.content.Context, text: String, chooserTi
 }
 
 @Composable
-private fun OnboardingScreen(onFinish: () -> Unit) {
+private fun OnboardingScreen(onFinish: (RideRole) -> Unit) {
     val slides = remember { onboardingSlides() }
     val pagerState = rememberPagerState(pageCount = { slides.size })
     val scope = rememberCoroutineScope()
@@ -818,7 +823,7 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
                         selected = pagerState.currentPage,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = onFinish) {
+                    TextButton(onClick = { onFinish(role) }) {
                         Text(appText("Пропустить", "Үткәреп ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Black)
                     }
                 }
@@ -826,7 +831,7 @@ private fun OnboardingScreen(onFinish: () -> Unit) {
                 Button(
                     onClick = {
                         if (isLastPage) {
-                            onFinish()
+                            onFinish(role)
                         } else {
                             scope.launch {
                                 pagerState.animateScrollToPage(pagerState.currentPage + 1)

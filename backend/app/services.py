@@ -167,6 +167,12 @@ def is_blocked(session: Session, a: int, b: int) -> bool:
     )
 
 
+def blocked_user_ids(session: Session, uid: int) -> set[int]:
+    """Все user_id, с кем у uid есть блокировка в любую сторону — для фильтра выдачи поездок (без N+1)."""
+    rows = session.exec(select(Block).where((Block.user_id == uid) | (Block.blocked_user_id == uid))).all()
+    return {(r.blocked_user_id if r.user_id == uid else r.user_id) for r in rows}
+
+
 # ----------------------------- Push (FCM) -----------------------------
 _fcm_app = None
 

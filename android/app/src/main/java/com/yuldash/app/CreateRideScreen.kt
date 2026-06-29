@@ -456,7 +456,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         val fromVal = from.ifBlank { "Баймаҡ" }
                         val toVal = to.ifBlank { "Сибай" }
                         val priceVal = price.toIntOrNull() ?: 300
-                        val seatsVal = seats.toIntOrNull() ?: 2
+                        val seatsVal = (seats.toIntOrNull() ?: 2).coerceAtLeast(1)   // мест не меньше 1
                         // Берём выбранную дату из пикера ("dd.MM.yyyy, HH:mm"); если пусто/не распарсилось — now+3ч.
                         val isoFmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
                         val departIso = runCatching {
@@ -482,7 +482,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                                 .onFailure { publishing = false; publishError = errPublish }
                         }
                     },
-                    enabled = !publishing,
+                    enabled = !publishing && from.isNotBlank() && to.isNotBlank(),   // не публикуем без маршрута
                 )
             }
             item {

@@ -500,6 +500,12 @@ internal fun ActiveTripScreen(
     val context = LocalContext.current
     var messages by remember { mutableStateOf<List<MessageDto>>(emptyList()) }
     val voiceScope = rememberCoroutineScope()
+    val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшерегеҙ.")
+    val shareErrMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшерегеҙ.")
+    val driverNotifiedMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
+    // Роль в этой брони: водитель видит «Я выехал/Подъезжаю» (push пассажиру), пассажир — «сел/доехал/завершить».
+    var role by remember { mutableStateOf("") }
+    LaunchedEffect(bookingId) { bookingId?.let { ApiClient.getBookingRole(it).onSuccess { r -> role = r } } }
     var draft by remember { mutableStateOf("") }
     var editingId by remember { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
     var status by remember { mutableStateOf<String?>(null) }
@@ -620,21 +626,40 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
-            item { Text(appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(2)) }
+            item { Text(if (role == "driver") appText("Сообщить пассажиру", "Пассажирға хәбәр итеү") else appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(2)) }
             item {
                 Row(modifier = Modifier.appearIn(2), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        "sat" to appText("Я сел", "Ултырҙым"),
-                        "arrived" to appText("Доехал", "Барып еттем"),
-                        "done" to appText("Завершить", "Тамам")
-                    ).forEach { (st, label) ->
+                    val statusButtons = if (role == "driver")
+                        listOf("departed" to appText("Я выехал", "Сыҡтым"), "arriving" to appText("Подъезжаю", "Яҡынлашам"))
+                    else
+                        listOf("sat" to appText("Я сел", "Ултырҙым"), "arrived" to appText("Доехал", "Барып еттем"), "done" to appText("Завершить", "Тамам"))
+                    statusButtons.forEach { (st, label) ->
                         FilledTonalButton(
-                            onClick = { status = st; bookingId?.let { ApiClient.fireSetTripStatus(it, st) }; if (st == "done") onTripEnd() },
+                            onClick = {
+                                val bid = bookingId
+                                if (role == "driver") {
+                                    // Водитель: push пассажиру «выехал/подъезжаю» (закрывает тревогу ожидания).
+                                    if (bid != null) voiceScope.launch {
+                                        ApiClient.driverStatus(bid, st)
+                                            .onSuccess { Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show() }
+                                            .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                    }
+                                } else {
+                                    status = st
+                                    if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем
+                                    else voiceScope.launch {
+                                        ApiClient.setTripStatus(bid, st)
+                                            // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
+                                            .onSuccess { if (st == "done") onTripEnd() }
+                                            .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                    }
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(16.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (status == st) CanonMint else CanonSurface,
+                                containerColor = if (role != "driver" && status == st) CanonMint else CanonSurface,
                                 contentColor = CanonText
                             )
                         ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -834,9 +859,13 @@ internal fun ActiveTripScreen(
                 contacts.forEach { c ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
-                            bookingId?.let { ApiClient.fireShareTrip(it, c.id) }
+                            val bid = bookingId
                             showShare = false
-                            Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
+                            if (bid != null) voiceScope.launch {
+                                ApiClient.shareTrip(bid, c.id)
+                                    .onSuccess { Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show() }
+                                    .onFailure { Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show() }
+                            }
                         }.padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

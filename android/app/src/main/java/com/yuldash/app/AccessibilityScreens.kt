@@ -329,11 +329,12 @@ private fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> U
         shadowElevation = 1.dp
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+            modifier = Modifier.heightIn(min = 64.dp).padding(vertical = 14.dp, horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.Center
         ) {
-            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.height(6.dp))
             Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -747,10 +748,14 @@ internal fun FamilyOrderScreen(
     val familyRequestTitle = appText("Заказ за близкого", "Яҡын кеше өсөн заказ")
     val familyRequestTime = appText("сегодня после 17:00", "бөгөн 17:00-тан һуң")
     val familyRequestStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
+    val commentLabel = appText("Заказ за близкого", "Яҡын кеше өсөн заказ")
     var passenger by remember { mutableStateOf(defaultPassenger) }
-    var phone by remember { mutableStateOf("+7 927 222-33-44") }
+    var phone by remember { mutableStateOf("") }
+    var fromCity by remember { mutableStateOf("") }
+    var toCity by remember { mutableStateOf("") }
     var notifyContact by remember { mutableStateOf(true) }
     val trusted = contacts.firstOrNull()
+    val canSubmit = passenger.isNotBlank() && fromCity.isNotBlank() && toCity.isNotBlank()
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заказать за близкого", "Яҡын өсөн заказ"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -758,8 +763,11 @@ internal fun FamilyOrderScreen(
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item { Text(appText("Кто поедет?", "Кем бара?"), color = CanonGreen, fontSize = 28.sp, fontWeight = FontWeight.Black) }
-            item { OutlinedTextField(value = passenger, onValueChange = { passenger = it }, label = { Text(appText("Имя пассажира", "Пассажир исеме")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-            item { OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text(appText("Телефон пассажира", "Пассажир телефоны")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item { OutlinedTextField(value = passenger, onValueChange = { passenger = it }, label = { Text(appText("Имя пассажира", "Пассажир исеме")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item { OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text(appText("Телефон пассажира", "Пассажир телефоны")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+            item { Text(appText("Маршрут", "Маршрут"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp) }
+            item { AddressSuggestField(fromCity, { fromCity = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) }
+            item { AddressSuggestField(toCity, { toCity = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
             item {
                 SettingSwitchRow(
                     Icons.Default.Notifications,
@@ -769,20 +777,18 @@ internal fun FamilyOrderScreen(
                 ) { notifyContact = it }
             }
             item {
-                VoiceParsedCard(
-                    title = appText("Маршрут для близкого", "Яҡын кеше маршруты"),
-                    lines = listOf("Баймаҡ → Сибай", appText("Сегодня после 17:00", "Бөгөн 17:00-тан һуң"), appText("Телефон пассажира скрыт до подтверждения", "Пассажир телефоны раҫлағанға тиклем йәшерен"))
-                )
-            }
-            item {
                 AppButton(
                     text = appText("Создать заявку", "Заявка булдырыу"),
+                    enabled = canSubmit,
                     onClick = {
-                        fireRequestFromRoute("Баймаҡ → Сибай")
+                        val f = fromCity.trim(); val t = toCity.trim()
+                        val comment = if (phone.isBlank()) commentLabel else "$commentLabel · ${phone.trim()}"
+                        // Реальная серверная заявка: маршрут из полей, имя близкого → for_relative_name, телефон → комментарий.
+                        ApiClient.fireCreateRequest(f, t, 1, "regular", false, comment, 0, assisted = true, relativeName = passenger.trim())
                         onCreateRequest(
                             LocalRequest(
                                 title = familyRequestTitle,
-                                route = "Баймаҡ → Сибай",
+                                route = "$f → $t",
                                 time = familyRequestTime,
                                 passenger = passenger,
                                 status = familyRequestStatus,
@@ -802,7 +808,33 @@ internal fun TrustedContactsScreen(
     onBack: () -> Unit,
     onAddContact: (TrustedContact) -> Unit
 ) {
-    var added by remember { mutableStateOf(false) }
+    var showAdd by remember { mutableStateOf(false) }
+    var nm by remember { mutableStateOf("") }
+    var rel by remember { mutableStateOf("") }
+    var ph by remember { mutableStateOf("") }
+    val defaultRel = appText("Контакт", "Контакт")
+    if (showAdd) {
+        AlertDialog(
+            onDismissRequest = { showAdd = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Новый контакт", "Яңы контакт"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(nm, { nm = it.take(60) }, label = { Text(appText("Имя", "Исем")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(rel, { rel = it.take(40) }, label = { Text(appText("Кто это (сестра, сын…)", "Кем (һеңле, ул…)")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(ph, { ph = it.take(20) }, label = { Text(appText("Телефон", "Телефон")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = nm.isNotBlank() && ph.isNotBlank(), onClick = {
+                    val r = rel.trim().ifBlank { defaultRel }
+                    onAddContact(TrustedContact(nm.trim(), r, ph.trim(), true, relationBa = r))
+                    nm = ""; rel = ""; ph = ""; showAdd = false
+                }) { Text(appText("Добавить", "Өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { showAdd = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Доверенные контакты", "Ышаныслы контакттар"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -821,14 +853,8 @@ internal fun TrustedContactsScreen(
             }
             item {
                 AppButton(
-                    text = if (added) appText("Контакт добавлен", "Контакт өҫтәлде") else appText("Добавить сестру", "Һеңлене өҫтәү"),
-                    onClick = {
-                        if (!added) {
-                            onAddContact(TrustedContact("Гульназ", "Сестра", "+7 927 777-88-99", true, relationBa = "Һеңле"))
-                            added = true
-                        }
-                    },
-                    enabled = !added
+                    text = appText("Добавить контакт", "Контакт өҫтәү"),
+                    onClick = { showAdd = true }
                 )
             }
         }

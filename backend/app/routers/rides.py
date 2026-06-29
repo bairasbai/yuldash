@@ -10,13 +10,24 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models import Ride, RideCategory, RideStatus, User
 from ..schemas import RideIn, RideOut
-from ..security import current_user
+from ..security import current_user, current_user_optional
 from ..services import (
-    CITY_COORDS, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle, geocode_city,
-    haversine_km, ride_out_with, rides_out,
+    CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
+    geocode_city, haversine_km, ride_out_with, rides_out,
 )
 
 router = APIRouter(tags=["rides"])
+
+
+def _hide_blocked(items, user, session):
+    """Прячем из выдачи поездки заблокированных водителей (в обе стороны). Аноним → без фильтра.
+    items — список RideOut (свежие) или dict (из кеша/near); оба содержат driver_id."""
+    if user is None:
+        return items
+    blocked = blocked_user_ids(session, user.id)
+    if not blocked:
+        return items
+    return [r for r in items if (r["driver_id"] if isinstance(r, dict) else r.driver_id) not in blocked]
 
 
 @router.post("/rides", response_model=Ride)
@@ -56,10 +67,12 @@ def search_rides(
     baggage: Optional[bool] = None,
     limit: Optional[int] = None,        # пагинация (опц., обратносовместимо: None = все)
     offset: int = 0,
+    user: Optional[User] = Depends(current_user_optional),   # есть токен → прячем заблокированных
     session: Session = Depends(get_session),
 ):
     # Горячий путь: дефолтный вызов без фильтров (его шлют ВСЕ на карте/вкладке поездок).
     # Кешируем в Redis на 20с → снимаем нагрузку с БД при наплыве. Фильтрованные запросы (реже) — мимо кеша.
+    # Кеш хранит ПОЛНЫЙ список; фильтр заблокированных — поверх, per-user (кеш не портим).
     no_filter = (
         not any([from_city, to_city, category, pets_allowed, child_seat, women_only, baggage])
         and limit is None
@@ -67,7 +80,7 @@ def search_rides(
     if no_filter:
         cached = cache_get_json("rides:active:v1")
         if cached is not None:
-            return cached
+            return _hide_blocked(cached, user, session)
 
     q = select(Ride).where(Ride.status == RideStatus.active)
     if from_city:
@@ -91,7 +104,7 @@ def search_rides(
     out = rides_out(rides, session)
     if no_filter:
         cache_set_json("rides:active:v1", [r.model_dump(mode="json") for r in out], 20)
-    return out
+    return _hide_blocked(out, user, session)
 
 
 @router.get("/rides/price_hint")
@@ -121,6 +134,7 @@ def rides_near(
     radius_km: Optional[float] = None,
     limit: Optional[int] = None,        # пагинация «показать ещё» (опц., None = все)
     offset: int = 0,
+    user: Optional[User] = Depends(current_user_optional),   # есть токен → прячем заблокированных
     session: Session = Depends(get_session),
 ):
     """Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).
@@ -161,6 +175,7 @@ def rides_near(
         out = ride_out_with(r, users, profiles, rating_agg).model_dump()
         out["distance_km"] = dist
         items.append(out)
+    items = _hide_blocked(items, user, session)   # прячем заблокированных до подсчёта total/пагинации
     total = len(items)
     if limit is not None:
         items = items[max(0, offset):max(0, offset) + max(1, min(limit, 200))]
