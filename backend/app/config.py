@@ -21,6 +21,17 @@ class Settings(BaseSettings):
     smsdar_sender: str = ""             # одобренный брендовый отправитель (из sms_senders, напр. Yulbash)
     yandex_geocoder_key: str = ""       # ключ Яндекс.Геокодера НА СЕРВЕРЕ (клиент ходит на /geocode, ключ не в APK)
 
+    # --- Авто-проверка водителей (OCR прав) ---
+    # Снижает ручную работу: при отправке документов сервер сам читает права и
+    # помечает заявку. Локальные гейты (есть ли текст/срок) бесплатны; OCR — Yandex
+    # Vision (~0,13 ₽/фото). Человек остаётся финальной кнопкой (autoapprove по умолч. ВЫКЛ).
+    driver_autocheck_enabled: bool = True    # запускать авто-проверку при /driver/verify
+    driver_autoreject_enabled: bool = True   # авто-отказ ТОЛЬКО на явный мусор (пустое/нечитаемое фото)
+    driver_autoapprove_enabled: bool = False # авто-одобрение при высокой уверенности (ВЫКЛ — решает админ)
+    driver_autocheck_min_score: float = 0.75 # порог уверенности для авто-одобрения (0..1)
+    yandex_vision_key: str = ""              # API-ключ Yandex Vision OCR. НЕ в git — в .env. Пусто → OCR выкл, всё к человеку.
+    yandex_vision_folder_id: str = ""        # ОПЦИОНАЛЬНО: нужен для ключей сервис-аккаунта; ключ AI Studio работает без него (проверено вживую)
+
     # --- Telegram-вход (бот) ---
     telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)
     telegram_webhook_secret: str = ""   # секрет: аутентификация Telegram→сервер (заголовок X-Telegram-Bot-Api-Secret-Token)
@@ -107,6 +118,9 @@ class Settings(BaseSettings):
             problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")
         if self.payments_provider == "sbp_manual" and not self.sbp_phone:
             problems.append("SBP_PHONE обязателен при PAYMENTS_PROVIDER=sbp_manual")
+        # Авто-одобрять водителей без OCR нельзя — это пустит непроверенных. Нужен ключ Vision.
+        if self.driver_autoapprove_enabled and not self.yandex_vision_key:
+            problems.append("YANDEX_VISION_KEY обязателен при DRIVER_AUTOAPPROVE_ENABLED (нельзя авто-одобрять без OCR)")
         if self.database_url.startswith("sqlite"):
             problems.append("DATABASE_URL не должен быть sqlite в проде")
         media_base = self.media_base_url.lower()
