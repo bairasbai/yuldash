@@ -248,6 +248,7 @@ object ApiClient {
     suspend fun tgStart(): Result<String> =
         call("POST", "/auth/tg/start", JSONObject(), auth = false)
             .map { it.optString("request_id") }
+            .onSuccess { Analytics.log("login_start", mapOf("method" to "telegram")) }   // старт входа → видно отвал «начал, но не дошёл до кода»
 
     /** Проверка 6-значного кода, который бот прислал в Telegram. При успехе — токен+имя. */
     suspend fun tgVerify(requestId: String, code: String): Result<JSONObject> =
@@ -782,7 +783,11 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                AdDto(o.optString("id"), o.optString("title"), o.optString("text"), o.optString("button"), o.optString("erid"), o.optString("placement"))
+                AdDto(
+                    o.optString("id"), o.optString("title"), o.optString("text"), o.optString("button"), o.optString("erid"), o.optString("placement"),
+                    partner = o.optString("partner"), contact = o.optString("contact"), target = o.optString("target"),
+                    image = o.optString("image"), city = o.optString("city"),
+                )
             }
         }
 
@@ -886,6 +891,7 @@ object ApiClient {
     /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку. */
     suspend fun cancelBooking(bookingId: Int): Result<Unit> =
         call("POST", "/bookings/$bookingId/cancel", null, auth = true).map { }
+            .onSuccess { Analytics.log("booking_cancel") }
 
     // ---------- Boost (поднятие объявления, оплата) ----------
 
@@ -1272,7 +1278,10 @@ data class PendingPaymentDto(
 )
 /** Счётчик подтверждённых оплат (донаты/буст) для админ-кабинета. */
 data class PaymentsSummaryDto(val donateCount: Int, val donateSum: Int, val boostCount: Int, val boostSum: Int)
-data class AdDto(val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String)
+data class AdDto(
+    val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String,
+    val partner: String = "", val contact: String = "", val target: String = "", val image: String = "", val city: String = "",
+)
 /** Серверная статистика рекламы (показы/клики). */
 data class AdStatsDto(val impressions: Int, val clicks: Int)
 

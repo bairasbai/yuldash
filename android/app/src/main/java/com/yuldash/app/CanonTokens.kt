@@ -23,6 +23,10 @@ internal fun appIsDark(): Boolean = ThemePrefs.darkOverride ?: isSystemInDarkThe
 
 internal val CanonGreen: Color @Composable get() = if (appIsDark()) Color(0xFF7FE3AB) else Color(0xFF073F25)
 internal val CanonGreen2: Color @Composable get() = if (appIsDark()) Color(0xFF27A463) else Color(0xFF0B6B3A)  // тёмный затемнён под WCAG (белый текст на кнопке ≥3:1)
+// Фиксированные тёмно-зелёные (НЕ адаптивные) — для шапок-градиентов с белым текстом.
+// CanonGreen/CanonGreen2 в тёмной теме инвертируются в светлую мяту → белый текст на них нечитаем.
+internal val CanonGreenInk: Color = Color(0xFF0B6B3A)      // верх градиента шапки
+internal val CanonGreenInkDark: Color = Color(0xFF073F25)  // низ градиента шапки
 internal val CanonMint: Color @Composable get() = if (appIsDark()) Color(0xFF0F2419) else Color(0xFFE7F5EC)  // тёмная мята темнее под контраст зелёного текста
 internal val CanonYellow: Color @Composable get() = if (appIsDark()) Color(0xFF4A3A14) else Color(0xFFFFE3A1)
 // Брендовое золото (как дорога на карте/лого) — заливка акцентной кнопки. Золотое в обеих темах → текст фиксированно тёмный.

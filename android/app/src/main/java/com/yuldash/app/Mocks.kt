@@ -285,6 +285,7 @@ internal data class PartnerAd(
     val targetActionBa: String? = null,
     val contact: String,
     val mapPoint: String,
+    val linkUrl: String = "",   // ссылка/таргет партнёра (живая реклама с сервера); клик → открыть в браузере
     val primaryButton: String,
     val primaryButtonBa: String? = null,
     val secondaryButton: String? = null,

@@ -228,6 +228,9 @@ def test_chat_conversations_notifications(client, user_factory):
 def test_two_way_rating(client, user_factory):
     drv, pax, ride, booking = _trip(client, user_factory)
     bid = booking["id"]
+    # Оценить можно только ЗАВЕРШЁННУЮ поездку (анти-накрутка): до завершения — 409, после — 200.
+    assert client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 5}).status_code == 409
+    client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "done"})
     r = client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 5})
     assert r.status_code == 200 and r.json()["ratee_id"] == drv["id"] and r.json()["rating"] == 5.0
     # рейтинг водителя виден в /me

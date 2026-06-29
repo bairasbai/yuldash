@@ -336,6 +336,10 @@ internal fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(11.dp),
                 contentPadding = PaddingValues(top = 11.dp, bottom = 8.dp)
             ) {
+                // Карточка «Простой режим» для пожилых: крупные кнопки + голос (ведёт в Simple Mode).
+                item {
+                    Box(Modifier.appearIn(2)) { SeniorAccessCard(onSimpleMode = onSimpleMode) }
+                }
                 item {
                     Box(Modifier.appearIn(3)) {
                         Row(
@@ -499,6 +503,9 @@ private fun MapHero(
                     ) {
                         QuickSearchCard(
                             feed = remember(popular, liveFeed) { mapFeedFrom(popular, liveFeed) },
+                            // Лента ещё не пришла с сервера → цифры это демо/офлайн-фоллбэк (mapFeedFrom),
+                            // показываем честную подпись «≈ примерно», чтобы не выдавать их за живые.
+                            feedLive = liveFeed != null,
                             onCollapse = { cardCollapsed = true },
                             onRouteChange = { activeRoute = it },
                             compact = true
@@ -616,7 +623,7 @@ private fun HomeHeader(onSos: () -> Unit) {
             modifier = Modifier.bounceClick(onSos),
             shape = RoundedCornerShape(16.dp),
             color = CanonDangerBg,
-            border = BorderStroke(1.dp, Color(0xFFFFC8C0))
+            border = BorderStroke(1.dp, CanonDangerBorder)
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -635,7 +642,8 @@ private fun QuickSearchCard(
     feed: List<MapFeedCard>,
     onCollapse: () -> Unit,
     onRouteChange: (PopularRoute) -> Unit,
-    compact: Boolean = false
+    compact: Boolean = false,
+    feedLive: Boolean = false   // лента подтверждена сервером? false → цифры приблизительные (демо/офлайн)
 ) {
     val safeFeed = feed.ifEmpty { mapFeedFrom(demoPopularRoutes) }
     val count = safeFeed.size
@@ -703,6 +711,15 @@ private fun QuickSearchCard(
                                     fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                                 )
                             }
+                        }
+                        // Честный сигнал: пока лента не пришла с сервера — цифры демо/офлайн, помечаем «≈ примерно».
+                        if (!feedLive) {
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                appText("≈ примерно", "≈ яҡынса"),
+                                color = CanonMuted, fontWeight = FontWeight.Medium,
+                                fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
                         }
                         Spacer(Modifier.weight(1f))
                         Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
@@ -1191,7 +1208,7 @@ private fun YandexMapCard(
                     else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                 }
             },
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 14.dp).size(38.dp).zIndex(6f),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 14.dp).size(48.dp).zIndex(6f),  // тач-цель ≥48dp
             shape = RoundedCornerShape(13.dp),
             color = Color.White,
             shadowElevation = 4.dp
@@ -1376,11 +1393,11 @@ private fun MapLabel(text: String, modifier: Modifier) {
 private fun MapZoomControls(modifier: Modifier = Modifier, onZoomIn: () -> Unit, onZoomOut: () -> Unit) {
     Surface(modifier = modifier, color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(13.dp), shadowElevation = 3.dp) {
         Column {
-            IconButton(onClick = onZoomIn, modifier = Modifier.size(38.dp)) {
+            IconButton(onClick = onZoomIn, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp (a11y §4.5)
                 Icon(Icons.Default.Add, contentDescription = appText("Приблизить", "Яҡынайтыу"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
             }
             Box(Modifier.width(20.dp).height(1.dp).background(Color(0x14000000)).align(Alignment.CenterHorizontally))
-            IconButton(onClick = onZoomOut, modifier = Modifier.size(38.dp)) {
+            IconButton(onClick = onZoomOut, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp (a11y §4.5)
                 Icon(Icons.Default.Remove, contentDescription = appText("Отдалить", "Йыраҡлаштырыу"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
             }
         }

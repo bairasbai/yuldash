@@ -75,17 +75,27 @@ def booking_role(booking_id: int, user: User = Depends(current_user), session: S
 
 
 class DriverStatusIn(BaseModel):
-    status: str  # departed | arriving
+    status: str  # departed | arriving | done
 
 
 @router.post("/bookings/{booking_id}/driver-status")
 def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Водитель отмечает «выехал/подъезжаю» → push пассажиру (закрывает тревогу ожидания)."""
+    """Водитель отмечает «выехал/подъезжаю» → push пассажиру (закрывает тревогу ожидания).
+    «done» — водитель завершает поездку: закрываем бронь (раньше закрыть мог ТОЛЬКО пассажир →
+    если он забывал нажать «Завершить», бронь висела активной, а места поездки не освобождались)."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if ride.driver_id != user.id:
         raise HTTPException(403, "Только водитель")
-    if body.status not in {"departed", "arriving"}:
+    if body.status not in {"departed", "arriving", "done"}:
         raise HTTPException(400, "Недопустимый статус")
+    if body.status == "done":
+        # Идемпотентно: уже завершённую/отменённую бронь не трогаем.
+        if booking.status not in (BookingStatus.done, BookingStatus.cancelled):
+            booking.status = BookingStatus.done
+            session.add(booking)
+            session.commit()
+        send_push(session, booking.passenger_id, "Поездка завершена", f"{ride.from_city} → {ride.to_city}")
+        return {"ok": True, "status": "done"}
     title = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
     send_push(session, booking.passenger_id, title, f"{ride.from_city} → {ride.to_city}")
     return {"ok": True}

@@ -169,6 +169,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -305,16 +306,18 @@ private fun LoginFormCard(
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    var step by remember { mutableStateOf(0) }            // 0 — ввод телефона, 1 — ввод кода
-    var phone by remember { mutableStateOf("") }
-    var code by remember { mutableStateOf("") }
+    // rememberSaveable: переживают смерть процесса. Главный кейс — юзер уходит в Telegram за кодом,
+    // ОС выгружает приложение; на возврате он остаётся на вводе кода (tgMode/tgRequestId/code), а не в начале входа.
+    var step by rememberSaveable { mutableStateOf(0) }            // 0 — ввод телефона, 1 — ввод кода
+    var phone by rememberSaveable { mutableStateOf("") }
+    var code by rememberSaveable { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var showPhone by remember { mutableStateOf(false) }   // SMS-форма (заморожена) раскрывается по тапу
-    var tgMode by remember { mutableStateOf(false) }      // true — ждём ввод кода из Telegram
-    var tgRequestId by remember { mutableStateOf("") }
-    var nameInput by remember { mutableStateOf("") }       // имя при регистрации (необязательно)
-    var needPhone by remember { mutableStateOf(false) }   // сервер требует номер (403 phone_required)
+    var showPhone by rememberSaveable { mutableStateOf(false) }   // SMS-форма (заморожена) раскрывается по тапу
+    var tgMode by rememberSaveable { mutableStateOf(false) }      // true — ждём ввод кода из Telegram
+    var tgRequestId by rememberSaveable { mutableStateOf("") }
+    var nameInput by rememberSaveable { mutableStateOf("") }       // имя при регистрации (необязательно)
+    var needPhone by rememberSaveable { mutableStateOf(false) }   // сервер требует номер (403 phone_required)
     val context = LocalContext.current
 
     Card(

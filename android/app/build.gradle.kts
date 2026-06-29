@@ -130,10 +130,13 @@ android {
 
         release {
             buildConfigField("String", "YULDASH_API_BASE_URL", "\"$releaseApiBaseUrl\"")
-            isMinifyEnabled = false
-            // Только arm64 в релизе → APK ~50 МБ вместо 145 (MapKit нативные либы). Покрывает ~все
-            // телефоны с 2017. Debug остаётся универсальным (эмулятор x86_64 работает). Под Google Play
-            // позже вернуть все ABI или использовать AAB-сплиты.
+            // R8: ужатие + обфускация. keep-правила для MapKit/Firebase/Tink/OkHttp — в proguard-rules.pro.
+            // ⚠️ Релиз arm64-only → на x86_64-эмуляторе не ставится; финальный smoke — на реальном телефоне.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Только arm64 в релизе → APK меньше (MapKit нативные либы). Покрывает ~все телефоны с 2017.
+            // Debug остаётся универсальным (эмулятор x86_64 работает). Под Google Play — AAB-сплиты.
             ndk { abiFilters += "arm64-v8a" }
             if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
         }

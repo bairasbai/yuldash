@@ -68,7 +68,8 @@ internal data class LocalRequest(
     val status: String,
     val price: Int = 0,
     val trustedContact: String? = null,
-    val voiceUrl: String? = null
+    val voiceUrl: String? = null,
+    val serverId: Int = 0   // id заявки на сервере → открыть её отклики (0 = локальная/без id)
 )
 
 internal data class LocalVoiceMessage(

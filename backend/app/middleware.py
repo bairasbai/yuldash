@@ -14,8 +14,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
 
-# Префиксы, где лимит строже (перебор кодов, спам SOS). Совпадение и с /api/v1.
-_STRICT_PREFIXES = ("/auth", "/sos", "/api/v1/auth", "/api/v1/sos")
+# Префиксы, где лимит строже (перебор кодов, спам SOS, флуд админа в Telegram). Совпадение и с /api/v1.
+# /callback, /donate, /boost/create шлют уведомление админу → без строгого лимита их можно заспамить.
+_STRICT_PREFIXES = (
+    "/auth", "/sos", "/callback", "/donate", "/boost/create",
+    "/api/v1/auth", "/api/v1/sos", "/api/v1/callback", "/api/v1/donate", "/api/v1/boost/create",
+)
 
 
 def _client_ip(request: Request) -> str:

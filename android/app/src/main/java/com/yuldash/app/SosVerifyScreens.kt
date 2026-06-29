@@ -285,6 +285,7 @@ internal fun SosScreen(onBack: () -> Unit) {
     var sent by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    var rateLimited by remember { mutableStateOf(false) }  // 429 — «слишком часто», не «нет сети»
 
     // Живая геолокация для ЧП — запрашиваем прямо здесь (а не ждём кеш с карты). Главное в SOS.
     var sosLat by remember { mutableStateOf(LocationPrefs.lastLat) }
@@ -492,8 +493,11 @@ internal fun SosScreen(onBack: () -> Unit) {
             if (failed) {
                 item {
                     InfoCard(
-                        title = appText("Сигнал не отправлен", "Сигнал ебәрелмәне"),
-                        text = appText("Похоже, нет сети. Проверь связь и нажми ещё раз.", "Бәйләнеш юҡ кеүек. Тикшереп, тағы баҫ."),
+                        title = if (rateLimited) appText("Слишком часто", "Артыҡ йыш") else appText("Сигнал не отправлен", "Сигнал ебәрелмәне"),
+                        text = if (rateLimited)
+                            appText("Сигнал уже отправлялся недавно. Подожди немного и нажми ещё раз.", "Сигнал күптән түгел ебәрелгән. Бер аҙ көт тә тағы баҫ.")
+                        else
+                            appText("Похоже, нет сети. Проверь связь и нажми ещё раз.", "Бәйләнеш юҡ кеүек. Тикшереп, тағы баҫ."),
                         icon = Icons.Default.Sos
                     )
                 }
@@ -504,6 +508,7 @@ internal fun SosScreen(onBack: () -> Unit) {
                     onClick = {
                         if (sending) return@AppButton
                         failed = false
+                        rateLimited = false
                         sent = false
                         sending = true
                         // В note кладём текст + КООРДИНАТЫ (бэкенд без гео-поля → передаём строкой со ссылкой на карту).
@@ -514,7 +519,13 @@ internal fun SosScreen(onBack: () -> Unit) {
                         scope.launch {
                             val r = ApiClient.sos("other", note)   // ждём сервер, НЕ fire-and-forget (кнопка безопасности)
                             sending = false
-                            if (r.isSuccess) sent = true else failed = true
+                            if (r.isSuccess) {
+                                sent = true
+                            } else {
+                                // 429 = «слишком часто» (rate-limit), а не «нет сети» — показываем честный текст.
+                                rateLimited = (r.exceptionOrNull() as? ApiException)?.status == 429
+                                failed = true
+                            }
                         }
                     },
                     style = AppButtonStyle.Danger,
@@ -589,11 +600,23 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
     var docsStatus by remember { mutableStateOf("none") }
     var verified by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
+    // Результат авто-проверки прав (OCR) — чтобы показать водителю причину, а не только админу.
+    var autocheckResult by remember { mutableStateOf("") }
+    var autocheckData by remember { mutableStateOf("") }
+    // Тихие сбои сети → показываем понятную ошибку, а не молчим / не врём про «отправлено».
+    var submitError by remember { mutableStateOf(false) }
+    var uploadError by remember { mutableStateOf(false) }
+
+    // Строки для Toast (вне Composable-контекста лямбд) — считаем заранее.
+    val tUploadFail = appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләп булманы, тағы ҡабатла")
+    val tSubmitFail = appText("Не получилось отправить. Проверь сеть и повтори", "Ебәреп булманы. Сетте тикшереп ҡабатла")
 
     LaunchedEffect(Unit) {
         ApiClient.getDriverStatus().onSuccess { s ->
             docsStatus = s.docsStatus
             verified = s.verified
+            autocheckResult = s.autocheckResult
+            autocheckData = s.autocheckData
             if (s.carMake.isNotBlank()) make = s.carMake
             if (s.carModel.isNotBlank()) model = s.carModel
             if (s.carColor.isNotBlank()) carColor = s.carColor
@@ -606,10 +629,12 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
     val pickLicense = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             uploadingLicense = true
+            uploadError = false
             scope.launch {
                 val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
                 val url = if (bytes != null) ApiClient.uploadPhoto(bytes).getOrNull() else null
                 if (url != null) licenseUrl = url
+                else { uploadError = true; Toast.makeText(context, tUploadFail, Toast.LENGTH_SHORT).show() }  // не молчим при сбое загрузки
                 uploadingLicense = false
             }
         }
@@ -617,10 +642,12 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
     val pickCar = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             uploadingCar = true
+            uploadError = false
             scope.launch {
                 val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
                 val url = if (bytes != null) ApiClient.uploadPhoto(bytes).getOrNull() else null
                 if (url != null) carPhotoUrl = url
+                else { uploadError = true; Toast.makeText(context, tUploadFail, Toast.LENGTH_SHORT).show() }
                 uploadingCar = false
             }
         }
@@ -649,6 +676,11 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
                     else -> StatusBanner(Icons.Default.Shield, appText("Проверка не пройдена", "Тикшереү үтелмәгән"), appText("Заполните данные авто и загрузите фото.", "Машина мәғлүмәтен тултырып, фото йөкләгеҙ."), CanonMint, CanonGreen2)
                 }
             }
+            // Причина отказа/правки для ВОДИТЕЛЯ (раньше видел только админ): что не так и что делать.
+            item { DriverReasonBanner(docsStatus, autocheckResult, autocheckData) }
+            if (submitError) {
+                item { SubmitErrorBanner() }
+            }
             item { Text(appText("Данные автомобиля", "Машина мәғлүмәте"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -672,10 +704,19 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
                 Button(
                     onClick = {
                         submitting = true
+                        submitError = false
                         scope.launch {
-                            ApiClient.setDriverProfile(make.trim(), model.trim(), carColor.trim(), plate.trim(), seats.toIntOrNull() ?: 4)
-                            val ok = ApiClient.submitDriverVerify(licenseUrl ?: "", carPhotoUrl ?: "").isSuccess
-                            if (ok) docsStatus = "pending"
+                            // Профиль и отправка на проверку — обе должны пройти. Любой сбой → честная ошибка, не «pending».
+                            val profileOk = ApiClient.setDriverProfile(make.trim(), model.trim(), carColor.trim(), plate.trim(), seats.toIntOrNull() ?: 4).isSuccess
+                            val submitOk = profileOk && ApiClient.submitDriverVerify(licenseUrl ?: "", carPhotoUrl ?: "").isSuccess
+                            if (submitOk) {
+                                docsStatus = "pending"
+                                autocheckResult = ""  // прошлый отказ больше не актуален
+                                autocheckData = ""
+                            } else {
+                                submitError = true
+                                Toast.makeText(context, tSubmitFail, Toast.LENGTH_SHORT).show()
+                            }
                             submitting = false
                         }
                     },
@@ -705,6 +746,96 @@ private fun StatusBanner(icon: ImageVector, title: String, sub: String, bg: Colo
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
                 Text(sub, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+        }
+    }
+}
+
+// Причина авто-проверки прав для ВОДИТЕЛЯ: что не так и что делать. Зеркало админского AutoCheckRow,
+// но человеческим языком и с действием. Показываем при отказе и когда авто-проверка нашла проблему.
+@Composable
+private fun DriverReasonBanner(docsStatus: String, autocheckResult: String, autocheckData: String) {
+    val rejected = docsStatus == "rejected"
+    // Показываем баннер если: заявку отклонили ИЛИ авто-проверка дала reject/needs_human (есть что объяснить).
+    val hasAutocheck = autocheckResult == "reject" || autocheckResult == "needs_human"
+    if (!rejected && !hasAutocheck) return
+
+    // Парсим JSON защищённо — кривой/пустой ответ не должен ронять экран.
+    val parsed = remember(autocheckData) {
+        try { org.json.JSONObject(autocheckData) } catch (e: Exception) { org.json.JSONObject() }
+    }
+    val licenseNumber = parsed.optString("license_number")
+    val expiry = parsed.optString("expiry")
+    val reasons = remember(autocheckData) {
+        val arr = parsed.optJSONArray("reasons")
+        if (arr == null) emptyList() else (0 until arr.length()).map { arr.optString(it) }
+    }
+
+    // Машинные коды причин → дружелюбный двуязычный текст (коды из backend/driver_check.py).
+    val explanations: List<String> = buildList {
+        if (reasons.contains("not_a_license")) add(appText("Не разобрали номер прав на фото.", "Фотола права номерын таный алманыҡ."))
+        if (reasons.contains("no_license_number")) add(appText("Не нашли номер водительского удостоверения.", "Водитель танытмаһы номерын тапманыҡ."))
+        if (reasons.contains("license_expired")) add(appText("Похоже, срок действия прав истёк.", "Права ваҡыты үткән кеүек."))
+        if (reasons.contains("no_expiry_date")) add(appText("Не нашли срок действия на фото.", "Фотола ваҡыт срогын тапманыҡ."))
+        if (reasons.contains("doc_not_found") || reasons.contains("doc_read_error")) add(appText("Фото прав не открылось. Загрузи его ещё раз.", "Права фотоһы асылманы. Тағы йөклә."))
+        // Совет по качеству фото — общий, когда конкретного кода нет, но что-то пошло не так.
+        if (isEmpty()) add(appText("Сделай фото прав чётким: хорошо освещено, без бликов, номер и срок читаются.", "Права фотоһын асыҡ яса: яҡшы яҡтыртылған, ялтырауһыҙ, номер һәм ваҡыт уҡыла."))
+    }
+
+    val needsHuman = autocheckResult == "needs_human" && !rejected
+    val title = when {
+        rejected -> appText("Почему отклонили", "Ниңә кире ҡағылды")
+        needsHuman -> appText("Нужна ручная проверка", "Ҡул менән тикшереү кәрәк")
+        else -> appText("Что улучшить в фото", "Фотоны нисек яҡшыртырға")
+    }
+    val tone = if (rejected) CanonRed else CanonWarn
+
+    Surface(color = tone.copy(alpha = 0.10f), shape = CanonItemShape) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Info, contentDescription = null, tint = tone, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            }
+            explanations.forEach { line ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Text("•  ", color = tone, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                    Text(line, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                }
+            }
+            // Распознанные данные (если есть) — чтобы водитель сверил с реальными правами.
+            if (licenseNumber.isNotBlank() || expiry.isNotBlank()) {
+                val recog = buildString {
+                    if (licenseNumber.isNotBlank()) append(appText("№ прав: ", "права №: ")).append(licenseNumber)
+                    if (licenseNumber.isNotBlank() && expiry.isNotBlank()) append("   ·   ")
+                    if (expiry.isNotBlank()) append(appText("срок до ", "ваҡыты ")).append(expiry)
+                }
+                Text(
+                    appText("Мы распознали: ", "Таныныҡ: ") + recog,
+                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
+                )
+            }
+            Text(
+                appText("Проверь данные и фото, затем отправь снова.", "Мәғлүмәт менән фотоны тикшереп, ҡабат ебәр."),
+                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
+            )
+        }
+    }
+}
+
+// Инлайн-ошибка отправки заявки (в дополнение к Toast) — не теряется, если Toast пропустили.
+@Composable
+private fun SubmitErrorBanner() {
+    Surface(color = CanonRed.copy(alpha = 0.10f), shape = CanonItemShape) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Info, contentDescription = null, tint = CanonRed, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(appText("Не отправилось", "Ебәрелмәне"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(
+                    appText("Проверь интернет и нажми «Отправить на проверку» ещё раз.", "Интернетты тикшереп, «Тикшереүгә ебәреү»гә тағы баҫ."),
+                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
+                )
             }
         }
     }

@@ -457,6 +457,7 @@ internal fun VoiceRequestScreen(
     var recordedPath by remember { mutableStateOf<String?>(null) }
     var recordedDur by remember { mutableStateOf(0) }
     var uploading by remember { mutableStateOf(false) }
+    var submittingText by remember { mutableStateOf(false) }
     val trusted = contacts.firstOrNull()
     val voiceRequestStatus = appText("ищем водителя", "водитель эҙләйбеҙ")
     val vrTitle = appText("Голосовая заявка", "Тауыш заявкаһы")
@@ -464,6 +465,8 @@ internal fun VoiceRequestScreen(
     val vrNow = appText("сейчас", "хәҙер")
     val vrPrompt = appText("Скажите маршрут", "Маршрутты әйтегеҙ")
     val vrNoStt = appText("Распознавание недоступно на устройстве", "Таныу ҡорамалда юҡ")
+    val vrSendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
+    val vrUploadError = appText("Не удалось загрузить запись. Проверь сеть и повтори.", "Яҙманы тейәп булманы. Интернетте тикшереп ҡабатла.")
     fun begin() { if (recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
     fun finish() {
         recordedPath = recorder.stop()
@@ -537,9 +540,23 @@ internal fun VoiceRequestScreen(
                 item {
                     AppButton(
                         text = appText("Создать заявку", "Заявка булдырыу"),
+                        loading = submittingText,
                         onClick = {
-                            fireRequestFromRoute(text, transcript = text)
-                            onCreateRequest(LocalRequest(title = vrTitle, route = text, time = vrNow, passenger = (ApiClient.cachedName() ?: "Я"), status = voiceRequestStatus, trustedContact = trusted?.name))
+                            // Разбор «откуда → куда» как в fireRequestFromRoute, но ждём ответ сервера.
+                            val parts = text.split("→", "->", "-").map { it.trim() }.filter { it.isNotEmpty() }
+                            val from = parts.getOrElse(0) { text.trim() }
+                            val to = parts.getOrElse(1) { "" }
+                            submittingText = true
+                            scope.launch {
+                                ApiClient.createRequest(from, to, 1, "regular", false, "", 0, transcript = text, assisted = true)
+                                    .onSuccess {
+                                        onCreateRequest(LocalRequest(title = vrTitle, route = text, time = vrNow, passenger = (ApiClient.cachedName() ?: "Я"), status = voiceRequestStatus, trustedContact = trusted?.name))
+                                    }
+                                    .onFailure {
+                                        submittingText = false
+                                        Toast.makeText(context, vrSendError, Toast.LENGTH_LONG).show()
+                                    }
+                            }
                         }
                     )
                 }
@@ -554,20 +571,33 @@ internal fun VoiceRequestScreen(
                         onClick = {
                             uploading = true
                             scope.launch {
+                                // Голос обязателен для голосовой заявки: загрузку не «проглатываем» — при ошибке
+                                // показываем сообщение и сбрасываем флаг, не уводим экран как при успехе.
                                 val bytes = runCatching { File(path).readBytes() }.getOrNull()
                                 val url = if (bytes != null) ApiClient.uploadVoice(bytes).getOrNull() else null
-                                fireRequestFromRoute(vrRoute, voiceUrl = url, transcript = recognizedText)
-                                onCreateRequest(
-                                    LocalRequest(
-                                        title = vrTitle,
-                                        route = vrRoute,
-                                        time = vrNow,
-                                        passenger = (ApiClient.cachedName() ?: "Я"),
-                                        status = voiceRequestStatus,
-                                        trustedContact = trusted?.name,
-                                        voiceUrl = url ?: path
-                                    )
-                                )
+                                if (url == null) {
+                                    uploading = false
+                                    Toast.makeText(context, vrUploadError, Toast.LENGTH_LONG).show()
+                                    return@launch
+                                }
+                                ApiClient.createRequest(vrRoute, "", 1, "regular", false, "", 0, voiceUrl = url, transcript = recognizedText, assisted = true)
+                                    .onSuccess {
+                                        onCreateRequest(
+                                            LocalRequest(
+                                                title = vrTitle,
+                                                route = vrRoute,
+                                                time = vrNow,
+                                                passenger = (ApiClient.cachedName() ?: "Я"),
+                                                status = voiceRequestStatus,
+                                                trustedContact = trusted?.name,
+                                                voiceUrl = url
+                                            )
+                                        )
+                                    }
+                                    .onFailure {
+                                        uploading = false
+                                        Toast.makeText(context, vrSendError, Toast.LENGTH_LONG).show()
+                                    }
                             }
                         },
                         loading = uploading
@@ -599,6 +629,10 @@ internal fun CreatePassengerRequestScreen(
     )
     val selectedCategoryText = categories.firstOrNull { it.first == category }?.second?.text() ?: categories.first().second.text()
     val waitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val sendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
+    var submitting by remember { mutableStateOf(false) }
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Создать заявку", "Заявка булдырыу"), onBack) }) { padding ->
         LazyColumn(
@@ -704,6 +738,7 @@ internal fun CreatePassengerRequestScreen(
             item {
                 AppButton(
                     text = appText("Создать заявку", "Заявка булдырыу"),
+                    loading = submitting,
                     onClick = {
                         val (apiCat, withKids) = when (category) {
                             "urgent" -> "urgent" to false
@@ -713,25 +748,35 @@ internal fun CreatePassengerRequestScreen(
                             else -> "regular" to false
                         }
                         val priceVal = price.toIntOrNull() ?: 0
-                        ApiClient.fireCreateRequest(
-                            from.trim(), to.trim(),
-                            seats.toIntOrNull() ?: 1,
-                            apiCat, withKids, comment.trim(), priceVal,
-                            assisted = true,   // заявка за близкого → уведомить админа
-                        )
-                        onCreateRequest(
-                            LocalRequest(
-                                title = selectedCategoryText,
-                                route = "$from → $to",
-                                time = time,
-                                passenger = (ApiClient.cachedName() ?: "Я"),
-                                status = waitingStatus,
-                                price = priceVal,
-                                trustedContact = comment.ifBlank { null }
+                        submitting = true
+                        scope.launch {
+                            // Ждём ответ сервера: «создано» показываем только при реальном успехе POST.
+                            ApiClient.createRequest(
+                                from.trim(), to.trim(),
+                                seats.toIntOrNull() ?: 1,
+                                apiCat, withKids, comment.trim(), priceVal,
+                                assisted = true,   // заявка за близкого → уведомить админа
                             )
-                        )
+                                .onSuccess {
+                                    onCreateRequest(
+                                        LocalRequest(
+                                            title = selectedCategoryText,
+                                            route = "$from → $to",
+                                            time = time,
+                                            passenger = (ApiClient.cachedName() ?: "Я"),
+                                            status = waitingStatus,
+                                            price = priceVal,
+                                            trustedContact = comment.ifBlank { null }
+                                        )
+                                    )
+                                }
+                                .onFailure {
+                                    submitting = false
+                                    Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
+                                }
+                        }
                     },
-                    enabled = from.isNotBlank() && to.isNotBlank() && time.isNotBlank() && price.isNotBlank()
+                    enabled = from.isNotBlank() && to.isNotBlank() && time.isNotBlank() && price.isNotBlank() && !submitting
                 )
             }
         }
@@ -744,16 +789,20 @@ internal fun FamilyOrderScreen(
     onBack: () -> Unit,
     onCreateRequest: (LocalRequest) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val defaultPassenger = appText("Мама", "Әсәй")
     val familyRequestTitle = appText("Заказ за близкого", "Яҡын кеше өсөн заказ")
     val familyRequestTime = appText("сегодня после 17:00", "бөгөн 17:00-тан һуң")
     val familyRequestStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
     val commentLabel = appText("Заказ за близкого", "Яҡын кеше өсөн заказ")
+    val sendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
     var passenger by remember { mutableStateOf(defaultPassenger) }
     var phone by remember { mutableStateOf("") }
     var fromCity by remember { mutableStateOf("") }
     var toCity by remember { mutableStateOf("") }
     var notifyContact by remember { mutableStateOf(true) }
+    var submitting by remember { mutableStateOf(false) }
     val trusted = contacts.firstOrNull()
     val canSubmit = passenger.isNotBlank() && fromCity.isNotBlank() && toCity.isNotBlank()
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заказать за близкого", "Яҡын өсөн заказ"), onBack) }) { padding ->
@@ -779,22 +828,32 @@ internal fun FamilyOrderScreen(
             item {
                 AppButton(
                     text = appText("Создать заявку", "Заявка булдырыу"),
-                    enabled = canSubmit,
+                    enabled = canSubmit && !submitting,
+                    loading = submitting,
                     onClick = {
                         val f = fromCity.trim(); val t = toCity.trim()
                         val comment = if (phone.isBlank()) commentLabel else "$commentLabel · ${phone.trim()}"
-                        // Реальная серверная заявка: маршрут из полей, имя близкого → for_relative_name, телефон → комментарий.
-                        ApiClient.fireCreateRequest(f, t, 1, "regular", false, comment, 0, assisted = true, relativeName = passenger.trim())
-                        onCreateRequest(
-                            LocalRequest(
-                                title = familyRequestTitle,
-                                route = "$f → $t",
-                                time = familyRequestTime,
-                                passenger = passenger,
-                                status = familyRequestStatus,
-                                trustedContact = if (notifyContact) trusted?.name else null
-                            )
-                        )
+                        submitting = true
+                        scope.launch {
+                            // Реальная серверная заявка: ждём ответ сервера — успех показываем только при удаче.
+                            ApiClient.createRequest(f, t, 1, "regular", false, comment, 0, assisted = true, relativeName = passenger.trim())
+                                .onSuccess {
+                                    onCreateRequest(
+                                        LocalRequest(
+                                            title = familyRequestTitle,
+                                            route = "$f → $t",
+                                            time = familyRequestTime,
+                                            passenger = passenger,
+                                            status = familyRequestStatus,
+                                            trustedContact = if (notifyContact) trusted?.name else null
+                                        )
+                                    )
+                                }
+                                .onFailure {
+                                    submitting = false
+                                    Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
+                                }
+                        }
                     }
                 )
             }
@@ -813,6 +872,19 @@ internal fun TrustedContactsScreen(
     var rel by remember { mutableStateOf("") }
     var ph by remember { mutableStateOf("") }
     val defaultRel = appText("Контакт", "Контакт")
+    // Свой экран сам тянет контакты с сервера: переданный список — затравка/фолбэк, плюс добавленные тут локально.
+    var serverContacts by remember { mutableStateOf<List<TrustedContact>>(emptyList()) }
+    val locallyAdded = remember { mutableStateListOf<TrustedContact>() }
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        ApiClient.getContacts()
+            .onSuccess { list -> serverContacts = list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) } }
+        loading = false
+    }
+    // Слияние: затравка → сервер → добавленные локально; дубли убираем по телефону, порядок сохраняем.
+    val merged = remember(contacts, serverContacts, locallyAdded.toList()) {
+        (contacts + serverContacts + locallyAdded).distinctBy { it.phone }
+    }
     if (showAdd) {
         AlertDialog(
             onDismissRequest = { showAdd = false },
@@ -828,7 +900,10 @@ internal fun TrustedContactsScreen(
             confirmButton = {
                 TextButton(enabled = nm.isNotBlank() && ph.isNotBlank(), onClick = {
                     val r = rel.trim().ifBlank { defaultRel }
-                    onAddContact(TrustedContact(nm.trim(), r, ph.trim(), true, relationBa = r))
+                    val newContact = TrustedContact(nm.trim(), r, ph.trim(), true, relationBa = r)
+                    onAddContact(newContact)
+                    // Показать сразу в списке, не дожидаясь обновления родителя/сервера.
+                    if (merged.none { it.phone == newContact.phone }) locallyAdded.add(newContact)
                     nm = ""; rel = ""; ph = ""; showAdd = false
                 }) { Text(appText("Добавить", "Өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
@@ -848,8 +923,24 @@ internal fun TrustedContactsScreen(
                     icon = Icons.Default.Shield
                 )
             }
-            itemsIndexed(contacts, key = { _, c -> c.phone }) { index, contact ->
-                Box(Modifier.appearIn(index)) { TrustedContactCard(contact) }
+            when {
+                loading && merged.isEmpty() -> item {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = CanonGreen2)
+                    }
+                }
+                merged.isEmpty() -> item {
+                    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(36.dp))
+                            Text(appText("Пока нет контактов", "Әлегә контакттар юҡ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, textAlign = TextAlign.Center)
+                            Text(appText("Добавь близкого — он сможет видеть статус твоей поездки.", "Яҡыныңды өҫтә — ул сәфәреңдең статусын күрә алыр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+                else -> itemsIndexed(merged, key = { _, c -> c.phone }) { index, contact ->
+                    Box(Modifier.appearIn(index)) { TrustedContactCard(contact) }
+                }
             }
             item {
                 AppButton(

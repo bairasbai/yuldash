@@ -108,6 +108,11 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
         ratee_id = b.passenger_id          # водитель → пассажир
     else:
         raise HTTPException(status_code=403, detail="Нельзя оценить эту поездку")
+    # Оценить можно только ЗАВЕРШЁННУЮ поездку — иначе можно забронировать и сразу накрутить
+    # рейтинг водителю, не съездив (репутация «между своими» = продукт). Проверка ПОСЛЕ участника:
+    # чужой получает 403, а участник недозавершённой — 409.
+    if b.status != BookingStatus.done:
+        raise HTTPException(status_code=409, detail="Оценить можно только завершённую поездку")
     stars = max(1, min(5, body.stars))
     existing = session.exec(
         select(Rating).where(Rating.booking_id == booking_id, Rating.rater_id == user.id)

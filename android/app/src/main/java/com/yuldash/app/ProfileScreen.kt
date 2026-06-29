@@ -386,7 +386,9 @@ internal fun ProfileScreen(
                     Column(
                         modifier = Modifier
                             .background(
-                                Brush.linearGradient(listOf(CanonGreen, Color(0xFF0E6C3F))),
+                                // Фикс тёмная тема: CanonGreen/CanonGreen2 инвертируются в светлую мяту →
+                                // белый текст шапки становился нечитаем. Ink-зелёные фиксированы в обеих темах.
+                                Brush.linearGradient(listOf(CanonGreenInk, CanonGreenInkDark)),
                                 CanonCardShape
                             )
                             .padding(18.dp),
@@ -423,7 +425,7 @@ internal fun ProfileScreen(
                                     Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                                     myRating?.let { r ->
                                         Spacer(Modifier.width(8.dp))
-                                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD54A), modifier = Modifier.size(14.dp))
+                                        Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
                                         Spacer(Modifier.width(2.dp))
                                         Text(r.toString(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
@@ -507,7 +509,7 @@ internal fun ProfileScreen(
             }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Настройки", "Көйләүҙәр"), appText("Уведомления, карта, предпочтения", "Хәбәрҙәр, карта, өҫтөнлөктәр"), Icons.Default.Settings, onSettings) } }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Конфиденциальность", "Хосусилыҡ"), appText("Геолокация и разрешения", "Геолокация һәм рөхсәттәр"), Icons.Default.Shield, onPrivacy) } }
-            item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Помощь", "Ярдам"), appText("Ответы на частые вопросы", "Йыш һорауҙарға яуаптар"), Icons.Default.Help, onHelp) } }
+            item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Помощь", "Ярҙам"), appText("Ответы на частые вопросы", "Йыш һорауҙарға яуаптар"), Icons.Default.Help, onHelp) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Оставить отзыв", "Фекер ҡалдырыу"), appText("Оцени приложение — лучшие попадут на сайт", "Ҡушымтаны баһала — иң яҡшылары сайтҡа эләгер"), Icons.Default.Star, onReview) } }
             if (role == "admin") {
                 item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Модерация отзывов", "Фекерҙәрҙе модерациялау"), appText("Одобрить отзывы для сайта", "Сайт өсөн фекерҙәрҙе раҫларға"), Icons.Default.Verified, onAdminReviews) } }
@@ -1046,7 +1048,7 @@ internal fun InlinePartnerAdCard(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(1.dp, Color(0x12000000))
+        border = BorderStroke(1.dp, CanonBorder)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1270,8 +1272,8 @@ private fun AdStatus.color(): Color {
         AdStatus.Active -> CanonGreen2
         AdStatus.Moderation -> CanonWarn
         AdStatus.Draft -> CanonMuted
-        AdStatus.Paused -> Color(0xFF7C5C00)
-        AdStatus.Finished -> Color(0xFF6F7570)
+        AdStatus.Paused -> CanonWarn
+        AdStatus.Finished -> CanonMuted
     }
 }
 
@@ -1332,7 +1334,7 @@ internal fun TripInfoRow(
     Surface(
         color = CanonSurface,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, Color(0x2235A363))
+        border = BorderStroke(1.dp, CanonHairlineGreen)
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(30.dp))

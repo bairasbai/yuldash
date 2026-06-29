@@ -491,7 +491,7 @@ internal fun MyTripCard(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Icon(Icons.Default.MoreVert, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(22.dp))
+                        // Убрана декоративная иконка «⋮» (MoreVert) — выглядела кликабельной, но меню не открывала.
                     }
                     Surface(color = statusColor, shape = RoundedCornerShape(999.dp)) {
                         Row(Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -933,16 +933,10 @@ private fun Metric(icon: androidx.compose.ui.graphics.vector.ImageVector, text: 
 }
 
 @Composable
-internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> Unit, onViewResponses: () -> Unit) {
-    val activeLabel = appText("Мои заявки", "Минең заявкалар")
-    val responsesLabel = appText("Отклики", "Яуаптар")
-    val draftsLabel = appText("Черновики", "Черновиктар")
-    var selectedTab by remember { mutableStateOf("active") }
-    val selectedLabel = when (selectedTab) {
-        "drafts" -> draftsLabel
-        "responses" -> responsesLabel
-        else -> activeLabel
-    }
+internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> Unit, onViewResponses: (Int) -> Unit) {
+    // Один честный список заявок. Прежние вкладки «Отклики»/«Черновики» были вечными
+    // заглушками (статичный текст + фейковый черновик «Баймак→Уфа 450₽») → убраны.
+    // Отклики открываются с карточки заявки кнопкой «Посмотреть отклики».
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -954,58 +948,31 @@ internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> U
         item {
             Text(appText("Мои заявки", "Минең заявкалар"), color = CanonGreen, fontSize = 28.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black)
         }
-        item {
-            SegmentedTabs(
-                tabs = listOf(activeLabel, responsesLabel, draftsLabel),
-                selected = selectedLabel,
-                onSelect = {
-                    selectedTab = when (it) {
-                        responsesLabel -> "responses"
-                        draftsLabel -> "drafts"
-                        else -> "active"
-                    }
-                }
-            )
-        }
-        if (selectedTab == "active") {
-            if (requests.isEmpty()) {
-                item {
-                    Box(Modifier.appearIn(0)) {
-                        InfoCard(
-                            title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
-                            text = appText("Создайте заявку — водители увидят её и откликнутся.", "Заявка булдырығыҙ — водителдәр уны күреп яуап бирер."),
-                            icon = Icons.Default.AddBox
-                        )
-                    }
-                }
-            } else {
-                items(requests, key = { it.route + it.time + it.title }) { req ->
-                    Box(Modifier.appearIn(0)) {
-                        RequestSummaryCard(
-                            icon = if (req.title.contains("больниц", ignoreCase = true)) Icons.Default.LocalHospital else Icons.Default.DirectionsCar,
-                            from = req.route.substringBefore(" → "),
-                            to = req.route.substringAfter(" → "),
-                            date = req.time,
-                            reason = req.title,
-                            price = if (req.price > 0) appText("${req.price} ₽ предлагаю", "${req.price} ₽ тәҡдим итәм") else appText("цена договорная", "хаҡ килешеү буйынса"),
-                            badge = req.status,
-                            action = appText("Посмотреть отклики", "Яуаптарҙы ҡарау"),
-                            onAction = onViewResponses
-                        )
-                    }
+        if (requests.isEmpty()) {
+            item {
+                Box(Modifier.appearIn(0)) {
+                    InfoCard(
+                        title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
+                        text = appText("Создайте заявку — водители увидят её и откликнутся.", "Заявка булдырығыҙ — водителдәр уны күреп яуап бирер."),
+                        icon = Icons.Default.AddBox
+                    )
                 }
             }
-        } else if (selectedTab == "responses") {
-            item {
-                InfoCard(
-                    title = appText("Отклики появятся здесь", "Яуаптар бында күренер"),
-                    text = appText("Когда водитель ответит на вашу заявку, карточка появится в этом списке.", "Водитель заявкаға яуап бирһә, карточка ошо исемлектә күренер."),
-                    icon = Icons.Default.ChatBubble
-                )
-            }
-        } else if (selectedTab == "drafts") {
-            item {
-                Box(Modifier.appearIn(0)) { DraftRequestCard() }
+        } else {
+            items(requests, key = { r -> if (r.serverId != 0) "id-${r.serverId}" else r.route + r.time + r.title }) { req ->
+                Box(Modifier.appearIn(0)) {
+                    RequestSummaryCard(
+                        icon = if (req.title.contains("больниц", ignoreCase = true)) Icons.Default.LocalHospital else Icons.Default.DirectionsCar,
+                        from = req.route.substringBefore(" → "),
+                        to = req.route.substringAfter(" → "),
+                        date = req.time,
+                        reason = req.title,
+                        price = if (req.price > 0) appText("${req.price} ₽ предлагаю", "${req.price} ₽ тәҡдим итәм") else appText("цена договорная", "хаҡ килешеү буйынса"),
+                        badge = req.status,
+                        action = appText("Посмотреть отклики", "Яуаптарҙы ҡарау"),
+                        onAction = { onViewResponses(req.serverId) }
+                    )
+                }
             }
         }
         item {
@@ -1061,7 +1028,7 @@ private fun RequestSummaryCard(
                     }
                     DetailMeta(Icons.Default.CalendarMonth, date)
                     DetailMeta(Icons.Default.AddBox, reason)
-                    DetailMeta(Icons.Default.Payments, appText("$price ₽ предлагаю", "$price ₽ тәҡдим итәм"))
+                    DetailMeta(Icons.Default.Payments, price)   // price уже готовая строка («450 ₽ предлагаю»); не оборачиваем повторно
                 }
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(CanonBorder))
@@ -1077,31 +1044,6 @@ private fun RequestSummaryCard(
                 Spacer(Modifier.weight(1f))
                 Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonGreen2)
             }
-        }
-    }
-}
-
-@Composable
-private fun DraftRequestCard() {
-    Surface(
-        color = Color.White.copy(alpha = 0.84f),
-        shape = CanonItemShape,
-        border = BorderStroke(1.dp, Color(0x2235A363))
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp).size(22.dp))
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(appText("Баймак → Уфа", "Баймаҡ → Өфө"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(appText("18 мая, в 10:00", "18 май, 10:00"), color = CanonMuted, fontSize = 13.sp)
-                Text(appText("450 ₽ предлагаю", "450 ₽ тәҡдим итәм"), color = CanonMuted, fontSize = 13.sp)
-            }
-            Surface(color = CanonWarnBg, shape = RoundedCornerShape(999.dp)) {
-                Text(appText("Черновик", "Черновик"), modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            }
-            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
         }
     }
 }
@@ -1377,11 +1319,13 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var feed by remember { mutableStateOf<List<com.yuldash.app.data.RequestFeedDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
     var target by remember { mutableStateOf<com.yuldash.app.data.RequestFeedDto?>(null) }
     var price by remember { mutableStateOf("") }
     var comment by remember { mutableStateOf("") }
     val sentMsg = appText("Отклик отправлен", "Яуап ебәрелде")
-    fun reload() { scope.launch { ApiClient.getRequestsFeed().onSuccess { feed = it }; loading = false } }
+    // Сбой сети больше не маскируется под «заявок нет» — показываем ошибку с «Повторить».
+    fun reload() { loading = true; error = false; scope.launch { ApiClient.getRequestsFeed().onSuccess { feed = it }.onFailure { error = true }; loading = false } }
     LaunchedEffect(Unit) { reload() }
     target?.let { t ->
         AlertDialog(
@@ -1409,6 +1353,8 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
             item { Text(appText("Пассажиры ищут поездку. Откликнись — предложи цену и время.", "Пассажирҙар сәфәр эҙләй. Яуап бир — хаҡ һәм ваҡыт тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (error) {
+                item { ListedError(appText("Не удалось загрузить заявки. Проверь сеть.", "Заявкаларҙы йөкләп булманы. Сетте тикшер."), onRetry = { reload() }) }
             } else if (feed.isEmpty()) {
                 item { ListedEmpty(appText("Заявок пока нет", "Әлегә заявкалар юҡ"), appText("Здесь появятся заявки пассажиров.", "Бында пассажир заявкалары күренер")) }
             } else {
@@ -1439,14 +1385,19 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
     val ctx = LocalContext.current
     var resps by remember { mutableStateOf<List<com.yuldash.app.data.ResponseDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
     var accepting by remember { mutableStateOf(false) }
+    var reloadTick by remember { mutableStateOf(0) }
     val failMsg = appText("Не получилось принять", "Ҡабул итеп булманы")
-    LaunchedEffect(requestId) { ApiClient.getRequestResponses(requestId).onSuccess { resps = it }; loading = false }
+    // Сбой загрузки откликов больше не выглядит как «откликов нет» — ошибка + «Повторить».
+    LaunchedEffect(requestId, reloadTick) { loading = true; error = false; ApiClient.getRequestResponses(requestId).onSuccess { resps = it }.onFailure { error = true }; loading = false }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики водителей", "Водитель яуаптары"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Выберите водителя — поездка начнётся, откроется чат.", "Водитель һайла — сәфәр башлана, чат асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (error) {
+                item { ListedError(appText("Не удалось загрузить отклики. Проверь сеть.", "Яуаптарҙы йөкләп булманы. Сетте тикшер."), onRetry = { reloadTick++ }) }
             } else if (resps.isEmpty()) {
                 item { ListedEmpty(appText("Откликов пока нет", "Әлегә яуап юҡ"), appText("Водители ещё не откликнулись. Загляни позже.", "Водителдәр яуап бирмәгән. Һуңыраҡ кер.")) }
             } else {
@@ -1457,7 +1408,7 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
                                 SmallAvatar(r.driverAvatar, r.driverName, 42)
                                 Spacer(Modifier.width(10.dp))
                                 Text(r.driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                                r.driverRating?.let { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFE7A921), modifier = Modifier.size(14.dp)); Text(" $it", color = CanonMuted, fontSize = 13.sp) }
+                                r.driverRating?.let { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp)); Text(" $it", color = CanonMuted, fontSize = 13.sp) }
                                 Spacer(Modifier.weight(1f))
                                 if (r.price > 0) Text("${r.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
                             }
@@ -1646,7 +1597,7 @@ internal fun ChatComposer(
                 )
             } else {
                 // «+» — прикрепить фото (голос — отдельной кнопкой-микрофоном справа)
-                IconButton(onClick = { photoPicker.launch("image/*") }, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = { photoPicker.launch("image/*") }, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp
                     Icon(Icons.Default.Add, contentDescription = appText("Прикрепить фото", "Фото беркетеү"), tint = CanonGreen2)
                 }
                 // Пилюля: эмодзи + поле ввода

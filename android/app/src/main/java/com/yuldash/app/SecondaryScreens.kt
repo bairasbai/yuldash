@@ -253,7 +253,6 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit) {
     var selected by remember { mutableStateOf("all") }
-    var cleared by remember { mutableStateOf(false) }
     val allLabel = appText("Все", "Бөтәһе")
     val ridesLabel = appText("Поездки", "Сәфәрҙәр")
     val chatLabel = appText("Чат", "Чат")
@@ -280,17 +279,10 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
         ) {
             item { Spacer(Modifier.height(10.dp)) }
             item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(appText("Уведомления", "Хәбәрҙәр"), modifier = Modifier.weight(1f), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-                    TextButton(
-                        enabled = !cleared,
-                        onClick = { cleared = true }
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, tint = CanonGreen2)
-                        Spacer(Modifier.width(6.dp))
-                        Text(appText("Очистить всё", "Барыһын таҙартыу"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                    }
-                }
+                // «Очистить всё» убрана: уведомления вычисляются из последних сообщений на сервере
+                // (не хранятся как отдельные записи) → «очистка» не могла сохраниться и при перезаходе
+                // список возвращался. Лента сама обновляется по факту прочтения переписки.
+                Text(appText("Уведомления", "Хәбәрҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
             }
             item {
                 SegmentedTabs(
@@ -306,13 +298,13 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
                     }
                 )
             }
-            val visibleNotifications = if (cleared) emptyList() else notifications.filter { (icon, _, _) ->
+            val visibleNotifications = notifications.filter { (icon, _, _) ->
                 selected == "all" ||
                     (selected == "rides" && icon != Icons.Default.ChatBubble && icon != Icons.Default.Shield) ||
                     (selected == "chat" && icon == Icons.Default.ChatBubble) ||
                     (selected == "system" && icon == Icons.Default.Shield)
             }
-            if (notifsLoading && !cleared) {
+            if (notifsLoading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (visibleNotifications.isEmpty()) {
                 item {

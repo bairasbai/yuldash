@@ -51,9 +51,14 @@ import com.yuldash.app.data.ApiClient
 import kotlinx.coroutines.launch
 
 private val PLAN_OPTIONS = listOf("founder", "standard", "premium")
+// key to (ru, ba) — appText вызывается на месте отрисовки (он @Composable)
 private val PLACEMENT_OPTIONS = listOf(
-    "route" to "Маршрут", "ridesList" to "Лента", "profile" to "Профиль",
-    "nearby" to "Рядом", "tripDetails" to "Поездка", "help" to "Помощь",
+    "route" to ("Маршрут" to "Маршрут"),
+    "ridesList" to ("Лента" to "Тасма"),
+    "profile" to ("Профиль" to "Профиль"),
+    "nearby" to ("Рядом" to "Янда"),
+    "tripDetails" to ("Поездка" to "Сәфәр"),
+    "help" to ("Помощь" to "Ярҙам"),
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -181,8 +186,11 @@ private fun AdAdminCard(ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean, onPubl
             if (ad.text.isNotBlank()) Text(ad.text, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
             Text(
                 appText("Места: ${ad.placements.ifBlank { "—" }}", "Урын: ${ad.placements.ifBlank { "—" }}") +
-                    (ad.endsAt?.let { " · до ${it.take(10)}" } ?: "") +
-                    "  ·  показы ${stat?.impressions ?: 0} · клики ${stat?.clicks ?: 0}",
+                    (ad.endsAt?.let { appText(" · до ${it.take(10)}", " · ${it.take(10)} тиклем") } ?: "") +
+                    appText(
+                        "  ·  показы ${stat?.impressions ?: 0} · клики ${stat?.clicks ?: 0}",
+                        "  ·  күрһәтеү ${stat?.impressions ?: 0} · баҫыу ${stat?.clicks ?: 0}",
+                    ),
                 color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -251,7 +259,7 @@ private fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCreat
                         modifier = Modifier.padding(vertical = 2.dp),
                     ) {
                         Text(
-                            planLabel(p) + if (disabled) " (нет мест)" else "",
+                            planLabel(p) + if (disabled) appText(" (нет мест)", " (урын юҡ)") else "",
                             color = if (sel) CanonBg else if (disabled) CanonMuted else CanonText,
                             fontSize = 13.sp, fontWeight = FontWeight.Bold,
                             modifier = Modifier
@@ -265,10 +273,11 @@ private fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCreat
             Text(appText("Места показа", "Күрһәтеү урындары"), color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PLACEMENT_OPTIONS.forEach { (key, label) ->
+                    val (labelRu, labelBa) = label
                     val sel = places.contains(key)
                     Surface(color = if (sel) CanonGreen2 else CanonBg, shape = RoundedCornerShape(999.dp), modifier = Modifier.padding(vertical = 2.dp)) {
                         Text(
-                            label, color = if (sel) Color.White else CanonText, fontSize = 13.sp,
+                            appText(labelRu, labelBa), color = if (sel) Color.White else CanonText, fontSize = 13.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp).clickable {
                                 if (sel) places.remove(key) else places.add(key)
                             },
@@ -303,8 +312,9 @@ private fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCreat
     }
 }
 
+@Composable
 private fun planLabel(p: String): String = when (p) {
-    "founder" -> "Основатель"
-    "premium" -> "Премиум"
-    else -> "Стандарт"
+    "founder" -> appText("Основатель", "Нигеҙләүсе")
+    "premium" -> appText("Премиум", "Премиум")
+    else -> appText("Стандарт", "Стандарт")
 }

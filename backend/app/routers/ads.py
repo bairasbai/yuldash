@@ -39,6 +39,7 @@ def _is_live(ad: Ad, now: datetime) -> bool:
 
 def _ad_public(ad: Ad) -> dict:
     placements = _csv(ad.placements)
+    cities = _csv(ad.cities)
     return {
         "id": str(ad.id),
         "partner": ad.partner_name,
@@ -46,12 +47,14 @@ def _ad_public(ad: Ad) -> dict:
         "text": ad.text,
         "button": ad.button,
         "target": ad.target,
+        "contact": ad.partner_contact,  # реальный телефон/контакт партнёра (клик по рекламе → звонок именно сюда, не на демо-номер)
         "image": ad.image_url,
         "erid": ad.erid,
         "plan": ad.plan,
         "placements": placements,
         "placement": placements[0] if placements else "",  # совместимость со старым клиентом
-        "cities": _csv(ad.cities),
+        "cities": cities,
+        "city": cities[0] if cities else "",  # первый город таргета (фильтр карточки «Партнёр рядом»)
     }
 
 

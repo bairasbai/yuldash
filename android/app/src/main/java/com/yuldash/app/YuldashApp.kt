@@ -240,6 +240,7 @@ import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
@@ -291,13 +292,39 @@ internal fun YuldashApp() {
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
     LaunchedEffect(Unit) { ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" } }
+    // Android 13+ требует РАНТАЙМ-разрешение на уведомления — без него пуши тихо не показываются
+    // (FCM настроен end-to-end, но без этого запроса доставка на новых телефонах = no-op).
+    // Просим один раз, когда пользователь уже в приложении (не на онбординге/входе).
+    val notifPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    var notifAsked by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(screen) {
+        if (!notifAsked && (screen == Screen.Home || screen == Screen.DriverCabinet) &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifAsked = true
+            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by vm.partnerAds
     LaunchedEffect(Unit) {
         ApiClient.getAds().onSuccess { srv ->
             val tmpl = demoPartnerAds.firstOrNull()
             if (srv.isNotEmpty() && tmpl != null) partnerAds = srv.map { a ->
-                tmpl.copy(id = a.id, title = a.title, titleBa = a.title, description = a.text, descriptionBa = a.text, erid = a.erid, primaryButton = a.button, primaryButtonBa = a.button)
+                // Шаблон даёт ТОЛЬКО оформление (иконка/места/категория). Все данные партнёра — с сервера.
+                // КРИТИЧНО: contact/mapPoint/имя/адрес НЕ наследуем от демо (иначе клик звонил на демо-номер).
+                tmpl.copy(
+                    id = a.id, title = a.title, titleBa = a.title,
+                    description = a.text, descriptionBa = a.text, erid = a.erid,
+                    advertiserName = a.partner.ifBlank { a.title },
+                    city = a.city.ifBlank { tmpl.city },
+                    address = a.city,                 // у сервера нет уличного адреса → город (а не демо-адрес)
+                    contact = a.contact,              // реальный телефон партнёра ("" если не задан → клик не наберёт чужой номер)
+                    mapPoint = "",                    // у сервера нет координат → пусто (а не демо-точка)
+                    linkUrl = a.target,               // ссылка партнёра → клик откроет её
+                    primaryButton = a.button, primaryButtonBa = a.button,
+                )
             }
         }
     }
@@ -327,6 +354,7 @@ internal fun YuldashApp() {
     fun finishOnboarding(role: RideRole) {
         // Сохраняем выбор роли (раньше выбор был «мёртвым» — никуда не уходил).
         prefs.edit().putBoolean("onboarding_completed", true).putString("preferred_role", role.name).apply()
+        Analytics.log("onboarding_complete", mapOf("role" to role.name))   // воронка: дошёл до конца онбординга
         startHomeTab = if (role == RideRole.Driver) HomeTab.Rides else HomeTab.Map
         screen = Screen.Login
     }
@@ -347,12 +375,18 @@ internal fun YuldashApp() {
         adStats[ad.id] = current.copy(clicks = current.clicks + 1)
         ApiClient.fireAdEvent(ad.id, "click")        // реальный клик на сервер
         val title = if (language == AppLanguage.Ba) ad.titleBa ?: ad.title else ad.title
-        // Реальное действие по клику: телефон → звонилка; иначе координаты → карта; иначе подсказка.
+        // Реальное действие по клику: ссылка → браузер; телефон → звонилка; координаты → карта; иначе подсказка.
         val phoneDigits = ad.contact.filter { it.isDigit() || it == '+' }
         val isPhone = phoneDigits.count { it.isDigit() } >= 10
         val mapPt = ad.mapPoint.replace(" ", "")
+        val link = ad.linkUrl.trim()
+        val isLink = link.startsWith("http://") || link.startsWith("https://")
         try {
             when {
+                isLink -> context.startActivity(
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
                 isPhone -> context.startActivity(
                     Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phoneDigits"))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -382,12 +416,23 @@ internal fun YuldashApp() {
                             to = d.toCity,
                             time = formatDepart(d.departAt),
                             driver = d.driverName,
+                            driverAvatar = d.driverAvatar,
+                            driverOnline = d.driverOnline,
                             car = d.driverCar,
                             price = d.price,
                             seats = d.seatsLeft,
                             rating = d.driverRating,
                             verified = d.driverVerified,
-                            boosted = false,
+                            boosted = d.boosted,                 // было хардкод false → Boost не подсвечивался
+                            petsAllowed = d.petsAllowed,
+                            childSeat = d.childSeat,
+                            womenOnly = d.womenOnly,
+                            smoking = d.smoking,
+                            baggage = d.baggage,
+                            airConditioner = d.airConditioner,
+                            pickup = d.pickup,
+                            pickupLat = d.pickupLat,
+                            pickupLng = d.pickupLng,
                         )
                     }
                 )
@@ -411,6 +456,7 @@ internal fun YuldashApp() {
                             status = reqWaitingStatus,
                             price = r.maxPrice,
                             trustedContact = r.comment.ifBlank { null },
+                            serverId = r.id,
                         )
                     }
                 )
@@ -728,9 +774,16 @@ internal fun YuldashApp() {
                 requested = callbackRequested,
                 onBack = { screen = Screen.SimpleMode },
                 onRequest = { note ->
+                    // Ждём ответ сервера: «заявка создана» показываем по факту, при сбое — честная ошибка (не ложный успех).
                     callbackRequested = true
-                    ApiClient.fireRequestCallback(note)
-                    Toast.makeText(context, if (language == AppLanguage.Ba) "Шылтыратыу заявкаһы булдырылды" else "Заявка на звонок создана", Toast.LENGTH_SHORT).show()
+                    appScope.launch {
+                        ApiClient.requestCallback(note)
+                            .onSuccess { Toast.makeText(context, if (language == AppLanguage.Ba) "Шылтыратыу заявкаһы булдырылды" else "Заявка на звонок создана", Toast.LENGTH_SHORT).show() }
+                            .onFailure {
+                                callbackRequested = false
+                                Toast.makeText(context, if (language == AppLanguage.Ba) "Булманы. Сетте тикшереп ҡабатла" else "Не получилось. Проверь сеть и повтори", Toast.LENGTH_SHORT).show()
+                            }
+                    }
                 }
             )
             Screen.AppReview -> AppReviewScreen(onBack = { openHome(HomeTab.Profile) })
@@ -754,7 +807,8 @@ private fun OnboardingScreen(onFinish: (RideRole) -> Unit, language: AppLanguage
     val slides = remember { onboardingSlides() }
     val pagerState = rememberPagerState(pageCount = { slides.size })
     val scope = rememberCoroutineScope()
-    var role by remember { mutableStateOf(RideRole.Passenger) }
+    var role by rememberSaveable { mutableStateOf(RideRole.Passenger) }  // переживает поворот: выбор «водитель» не сбрасывался в «пассажир»
+    LaunchedEffect(Unit) { Analytics.log("onboarding_start") }   // воронка: начало онбординга (с этим виден отвал внутри онбординга)
     val isLastPage = pagerState.currentPage == slides.lastIndex
 
     Surface(
@@ -1364,7 +1418,7 @@ internal fun HomeScreen(
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,
                     onCreateNew = onCreateRequest,
-                    onViewResponses = { selectedTab = HomeTab.Chat }
+                    onViewResponses = onOpenResponses   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
                 )
                 HomeTab.Chat -> ChatScreen(
                     voiceMessages = voiceMessages,
@@ -1415,6 +1469,7 @@ internal fun YuldashBottomBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()   // на жест-навигации иконки меню не уезжают под системную полосу
                 .height(78.dp)
                 .padding(horizontal = 6.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically

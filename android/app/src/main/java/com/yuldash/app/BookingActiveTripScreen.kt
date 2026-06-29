@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -469,7 +470,7 @@ internal fun CompactProfileBanner() {
     Card(colors = CardDefaults.cardColors(containerColor = Color.Transparent), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Row(
             modifier = Modifier
-                .background(Brush.linearGradient(listOf(CanonGreen, Color(0xFF0E6C3F))), CanonItemShape)
+                .background(Brush.linearGradient(listOf(CanonGreenInk, CanonGreenInkDark)), CanonItemShape)  // фикс тёмной темы: белый текст на фиксированном ink-зелёном
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -482,7 +483,6 @@ internal fun CompactProfileBanner() {
                 Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                 Text(appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерен"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
             }
-            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = Color.White)
         }
     }
 }
@@ -521,13 +521,21 @@ internal fun ActiveTripScreen(
     var tempSeq by remember(bookingId) { mutableStateOf(-2) }
     var boardingCode by remember(bookingId) { mutableStateOf("") }
     val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
+    // Состояние первой загрузки истории чата: спиннер, ошибка (с «Повторить»), пусто.
+    var historyLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
+    var historyError by remember(bookingId) { mutableStateOf(false) }
+    var historyTick by remember(bookingId) { mutableStateOf(0) }   // bump → перезагрузить историю (кнопка «Повторить»)
 
-    // История — по REST (один раз). + код посадки брони.
-    LaunchedEffect(bookingId) {
-        bookingId?.let { id ->
-            ApiClient.getMessages(id).onSuccess { messages = it }
-            ApiClient.getBoardingCode(id).onSuccess { boardingCode = it }
-        }
+    // История — по REST (один раз, + повтор по кнопке). + код посадки брони.
+    LaunchedEffect(bookingId, historyTick) {
+        val id = bookingId ?: run { historyLoading = false; return@LaunchedEffect }
+        historyLoading = true
+        historyError = false
+        ApiClient.getMessages(id)
+            .onSuccess { messages = it }
+            .onFailure { historyError = true }
+        historyLoading = false
+        ApiClient.getBoardingCode(id).onSuccess { boardingCode = it }
     }
 
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
@@ -555,6 +563,17 @@ internal fun ActiveTripScreen(
     DisposableEffect(bookingId) {
         chatSocket?.connect()
         onDispose { chatSocket?.close() }
+    }
+    // После авто-реконнекта WS (был обрыв → связь вернулась) дотягиваем пропущенные сообщения по REST:
+    // живой приём мог простоять, пока сокет был мёртв. Первый коннект не трогаем — историю уже грузит эффект выше.
+    var wasEverConnected by remember(bookingId) { mutableStateOf(false) }
+    LaunchedEffect(wsConnected) {
+        if (wsConnected) {
+            if (wasEverConnected) {
+                bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { messages = it } }
+            }
+            wasEverConnected = true
+        }
     }
 
     // Доставка одного сообщения. Сперва WS (если жив), иначе REST. Ошибку НЕ глотаем:
@@ -593,7 +612,7 @@ internal fun ActiveTripScreen(
         topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), onBack) }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp).imePadding(),  // поднимаем контент над клавиатурой (композер чата не перекрывается)
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 28.dp)
         ) {
@@ -630,7 +649,9 @@ internal fun ActiveTripScreen(
             item {
                 Row(modifier = Modifier.appearIn(2), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val statusButtons = if (role == "driver")
-                        listOf("departed" to appText("Я выехал", "Сыҡтым"), "arriving" to appText("Подъезжаю", "Яҡынлашам"))
+                        // + «Завершить»: водитель тоже закрывает поездку. Раньше закрыть бронь мог ТОЛЬКО
+                        // пассажир → если он забывал, бронь висела активной, а места поездки не освобождались.
+                        listOf("departed" to appText("Я выехал", "Сыҡтым"), "arriving" to appText("Подъезжаю", "Яҡынлашам"), "done" to appText("Завершить", "Тамам"))
                     else
                         listOf("sat" to appText("Я сел", "Ултырҙым"), "arrived" to appText("Доехал", "Барып еттем"), "done" to appText("Завершить", "Тамам"))
                     statusButtons.forEach { (st, label) ->
@@ -638,10 +659,14 @@ internal fun ActiveTripScreen(
                             onClick = {
                                 val bid = bookingId
                                 if (role == "driver") {
-                                    // Водитель: push пассажиру «выехал/подъезжаю» (закрывает тревогу ожидания).
-                                    if (bid != null) voiceScope.launch {
+                                    // Водитель: «выехал/подъезжаю» → push пассажиру; «Завершить» → закрывает бронь на сервере.
+                                    if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем экран
+                                    else voiceScope.launch {
                                         ApiClient.driverStatus(bid, st)
-                                            .onSuccess { Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show() }
+                                            .onSuccess {
+                                                if (st == "done") onTripEnd()   // уходим с экрана только при реальном закрытии брони
+                                                else Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
+                                            }
                                             .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
                                     }
                                 } else {
@@ -754,6 +779,20 @@ internal fun ActiveTripScreen(
                 }
             }
             item { Text(appText("Чат по поездке", "Сәфәр буйынса чат"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(4)) }
+            // WS лежит → сообщения уходят по REST. Спокойно сообщаем, что связь восстанавливается (не ошибка).
+            item {
+                AnimatedVisibility(visible = bookingId != null && !wsConnected) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)
+                            .background(CanonMint, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = CanonGreen2)
+                        Spacer(Modifier.width(10.dp))
+                        Text(appText("Соединение восстанавливается…", "Бәйләнеш тергеҙелә…"), color = CanonGreen2, fontSize = 13.sp)
+                    }
+                }
+            }
             item {
                 val voiceSoon = appText("Голос записан", "Тауыш яҙылды")
                 if (editingId != null) {
@@ -810,6 +849,51 @@ internal fun ActiveTripScreen(
                         }
                     }
                 )
+            }
+            // Состояния первой загрузки истории: спиннер / ошибка с «Повторить» / пусто.
+            // Оптимистично отправленное сообщение уже наполняет messages → состояния гаснут.
+            if (messages.isEmpty()) {
+                when {
+                    historyLoading -> item {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp, color = CanonGreen2)
+                        }
+                    }
+                    historyError -> item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                appText("Не удалось загрузить чат", "Чатты йөкләп булманы"),
+                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
+                            )
+                            OutlinedButton(
+                                onClick = { historyTick++ },
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, CanonGreen2)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    bookingId != null -> item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(30.dp))
+                            Text(
+                                appText("Пока нет сообщений. Напиши первым", "Әлегә хәбәрҙәр юҡ. Беренсе булып яҙ"),
+                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
             }
             items(messages, key = { it.id }) { m ->
                 val saved = m.id > 0   // оптимистичные (id<0) ещё не на сервере — без меню

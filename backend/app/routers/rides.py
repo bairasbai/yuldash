@@ -32,6 +32,9 @@ def _hide_blocked(items, user, session):
 
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
+    body.seats_total = max(1, min(8, body.seats_total))
+    body.price = max(0, min(100_000, body.price))
     # Геокодим концы маршрута (для радиус-поиска: PostGIS на проде / haversine иначе).
     frm = geocode_city(body.from_city) or (None, None)
     to = geocode_city(body.to_city) or (None, None)

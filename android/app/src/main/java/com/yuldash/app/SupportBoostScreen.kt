@@ -254,14 +254,23 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun SupportScreen(onBack: () -> Unit) {
     val amounts = listOf(10, 30, 50, 100)
+    val minAmount = 10
+    val maxAmount = 100_000
     var selectedAmount by remember { mutableIntStateOf(30) }
+    var customMode by remember { mutableStateOf(false) }
+    var customInput by remember { mutableStateOf("") }
     var completed by remember { mutableStateOf(false) }
     var showSbp by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
     var donation by remember { mutableStateOf<com.yuldash.app.data.BoostResultDto?>(null) }
     var sending by remember { mutableStateOf(false) }
-    val errMsg = appText("Не удалось. Проверь интернет.", "Булманы. Интернетты тикшер.")
+    var sendError by remember { mutableStateOf(false) }
+    val errMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
+
+    // Сумма к отправке: либо пресет, либо введённая вручную (если режим «своя сумма»).
+    val customAmount = customInput.toIntOrNull()
+    val effectiveAmount = if (customMode) customAmount else selectedAmount
+    val amountValid = effectiveAmount != null && effectiveAmount in minAmount..maxAmount
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -291,10 +300,12 @@ internal fun SupportScreen(onBack: () -> Unit) {
                         FilledTonalButton(
                             onClick = {
                                 selectedAmount = amount
+                                customMode = false
                                 completed = false
+                                sendError = false
                             },
                             colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (selectedAmount == amount) MaterialTheme.colorScheme.primaryContainer else CanonSurface
+                                containerColor = if (!customMode && selectedAmount == amount) MaterialTheme.colorScheme.primaryContainer else CanonSurface
                             )
                         ) {
                             Text("$amount ₽")
@@ -303,27 +314,68 @@ internal fun SupportScreen(onBack: () -> Unit) {
                 }
             }
             item {
-                OutlinedButton(onClick = { selectedAmount = 150; completed = false }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = {
+                        customMode = !customMode
+                        completed = false
+                        sendError = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = if (customMode) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                             else ButtonDefaults.outlinedButtonColors()
+                ) {
                     Text(appText("Своя сумма", "Үҙеңдең сумма"))
+                }
+            }
+            if (customMode) {
+                item {
+                    OutlinedTextField(
+                        value = customInput,
+                        onValueChange = { new ->
+                            // Только цифры, максимум 6 знаков (до 100 000).
+                            customInput = new.filter { it.isDigit() }.take(6)
+                            completed = false
+                            sendError = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        label = { Text(appText("Сумма, ₽", "Сумма, ₽")) },
+                        placeholder = { Text(appText("Например, 200", "Мәҫәлән, 200")) },
+                        suffix = { Text("₽") },
+                        isError = customInput.isNotEmpty() && !amountValid,
+                        supportingText = {
+                            if (customInput.isNotEmpty() && !amountValid)
+                                Text(appText("От $minAmount до 100 000 ₽", "$minAmount‑дан 100 000 ₽‑ҡа тиклем"))
+                        }
+                    )
                 }
             }
             item {
                 AppButton(
-                    text = appText("Поддержать на $selectedAmount ₽", "$selectedAmount ₽ менән ярҙам итеү"),
+                    text = if (amountValid) appText("Поддержать на $effectiveAmount ₽", "$effectiveAmount ₽ менән ярҙам итеү")
+                           else appText("Поддержать", "Ярҙам итеү"),
                     onClick = {
-                        if (!sending) {
-                            sending = true
-                            scope.launch {
-                                ApiClient.createDonation(selectedAmount)
-                                    .onSuccess { donation = it; showSbp = true }
-                                    .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
-                                sending = false
-                            }
+                        val amount = effectiveAmount ?: return@AppButton
+                        sending = true
+                        sendError = false
+                        scope.launch {
+                            ApiClient.createDonation(amount)
+                                .onSuccess { donation = it; showSbp = true }
+                                .onFailure { sendError = true }
+                            sending = false
                         }
                     },
                     style = AppButtonStyle.Accent,
                     icon = Icons.Default.Payments,
+                    loading = sending,
+                    enabled = amountValid && !sending,
                 )
+            }
+            if (sendError) {
+                item {
+                    Text(errMsg, color = CanonRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth())
+                }
             }
             if (completed) {
                 item {
@@ -341,7 +393,7 @@ internal fun SupportScreen(onBack: () -> Unit) {
             }
         }
         if (showSbp) SbpTransferSheet(
-            donation?.amount ?: selectedAmount,
+            donation?.amount ?: effectiveAmount ?: selectedAmount,
             onPaid = { showSbp = false; completed = true },
             onDismiss = { showSbp = false },
             payeePhone = donation?.payeePhone, payeeBank = donation?.payeeBank, payeeName = donation?.payeeName,

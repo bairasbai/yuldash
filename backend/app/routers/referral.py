@@ -10,6 +10,10 @@ from ..security import current_user, gen_referral_code
 
 router = APIRouter(tags=["referral"])
 
+# Потолок реферальных бонусов на пользователя (анти-накрутка: два аккаунта взаимно редимят
+# через новые регистрации → иначе бесконечные бесплатные поднятия). Хватает на реальную виральность.
+MAX_REFERRAL_CREDITS = 20
+
 
 def _ensure_code(session: Session, user: User) -> str:
     """Лениво генерим уникальный код, если ещё нет (старые юзеры — без бэкфилл-миграции)."""
@@ -52,10 +56,11 @@ def referral_redeem(body: RedeemIn, user: User = Depends(current_user), session:
     referrer = session.exec(select(User).where(User.referral_code == code)).first()
     if not referrer or referrer.id == user.id:
         raise HTTPException(400, "Код не найден")
-    # Награда обоим: по 1 бонусу (бесплатное поднятие поездки).
+    # Награда обоим: по 1 бонусу (бесплатное поднятие поездки), но с потолком на пользователя
+    # (анти-накрутка взаимными редимами через новые аккаунты).
     user.referred_by = referrer.id
-    user.referral_credits += 1
-    referrer.referral_credits += 1
+    user.referral_credits = min(user.referral_credits + 1, MAX_REFERRAL_CREDITS)
+    referrer.referral_credits = min(referrer.referral_credits + 1, MAX_REFERRAL_CREDITS)
     session.add(user)
     session.add(referrer)
     session.commit()

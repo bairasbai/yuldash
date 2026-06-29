@@ -318,7 +318,7 @@ class Ad(SQLModel, table=True):
     Видно в приложении только active + в периоде. founder = место навсегда (ends_at=null), лимит 10."""
     id: Optional[int] = Field(default=None, primary_key=True)
     partner_name: str = ""                   # рекламодатель (показывается «Реклама · …»)
-    partner_contact: str = ""                # tg/телефон (для админа, не публично)
+    partner_contact: str = ""                # ПУБЛИЧНЫЙ контакт партнёра (tg/телефон/ссылка): отдаётся в /ads, клик по рекламе ведёт сюда. НЕ класть приватные заметки.
     title: str = ""
     text: str = ""
     button: str = ""                         # текст кнопки

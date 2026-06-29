@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -69,6 +70,7 @@ internal fun AppReviewScreen(onBack: () -> Unit) {
                 .padding(padding)
                 .padding(horizontal = 16.dp)
                 .fillMaxSize()
+                .imePadding()   // поле отзыва/кнопка не прячутся за клавиатурой
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
