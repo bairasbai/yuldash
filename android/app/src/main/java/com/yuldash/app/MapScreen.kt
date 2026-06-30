@@ -1434,7 +1434,7 @@ private fun YandexMapCard(
                     androidx.compose.runtime.withFrameNanos { }
                     continue
                 }
-                val a = 0.18f                     // доля пути к цели за кадр → доводит за ~0.3с, плавно
+                val a = 0.12f                     // доля пути к цели за кадр → мягкий глайд ~0.4с (плавнее, без рывков)
                 curLat += (p.lat - curLat) * a
                 curLng += (p.lng - curLng) * a
                 pm.geometry = Point(curLat, curLng)
@@ -1644,8 +1644,8 @@ private fun YandexMapCard(
                                 com.yuldash.app.data.TripLocationBus.peer = com.yuldash.app.data.LocationSocket.Peer("driver", cur.latitude, cur.longitude, brg, i.toLong())
                                 // Остаток пути → живой ETA «осталось». Та же функция, что у реальной поездки (проверка её на демо).
                                 if (totalSec > 0) liveRemainSec = remainingEtaSec(path, cur, totalSec)
-                                simMap.move(CameraPosition(cur, simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.6f), null)
-                                kotlinx.coroutines.delay(200)
+                                simMap.move(CameraPosition(cur, simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.7f), null)
+                                kotlinx.coroutines.delay(300)   // медленнее: ~30с на весь маршрут (плавный круиз)
                             }
                         } finally {
                             runCatching { simMap.mapObjects.remove(line) }
@@ -1655,7 +1655,7 @@ private fun YandexMapCard(
                         }
                     }
                 },
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp).zIndex(8f),
+                modifier = Modifier.align(Alignment.BottomStart).padding(14.dp).zIndex(8f),
                 shape = RoundedCornerShape(13.dp),
                 color = CanonGreen2,
                 shadowElevation = 4.dp
