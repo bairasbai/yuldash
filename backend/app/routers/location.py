@@ -52,6 +52,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     role = "driver" if user_id == driver_id else "passenger"
     loc_key = -booking_id   # отдельный namespace от чата
     manager.register(loc_key, websocket)
+    msgs = 0
     try:
         while True:
             data = await websocket.receive_text()
@@ -64,6 +65,20 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                 lng = payload.get("lng")
                 if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
                     continue
+                # Перепроверка ~раз в ~2 мин: токен не отозван/не заблокирован И поездка ещё активна.
+                # Иначе стрим лил бы гео в завершённую/отменённую бронь или у заблокированного — утечка.
+                msgs += 1
+                if msgs % 15 == 0:
+                    with Session(engine) as s2:
+                        try:
+                            authenticate_ws(token or "", s2)
+                        except Exception:
+                            await websocket.close(code=1008, reason="Token revoked")
+                            break
+                        b2 = s2.get(Booking, booking_id)
+                        if not b2 or b2.status not in (BookingStatus.confirmed, BookingStatus.onboard):
+                            await websocket.close(code=1008, reason="Trip ended")
+                            break
                 await manager.broadcast(loc_key, {
                     "type": "loc",
                     "role": role,

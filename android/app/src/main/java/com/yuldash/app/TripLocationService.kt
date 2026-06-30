@@ -40,7 +40,12 @@ class TripLocationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val bookingId = intent?.getIntExtra(EXTRA_BOOKING, -1) ?: -1
-        if (bookingId <= 0) { stopSelf(); return START_NOT_STICKY }
+        // Нет брони ИЛИ нет гео-разрешения → не держим бесполезный foreground-сервис и ложную нотификацию
+        // «показываем вашу позицию» (если юзер отозвал гео — стрим всё равно не пойдёт).
+        if (bookingId <= 0 ||
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            stopSelf(); return START_NOT_STICKY
+        }
         ServiceCompat.startForeground(
             this, NOTIF_ID, buildNotification(),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0

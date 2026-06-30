@@ -93,6 +93,7 @@ def requests_near(
         except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк ниже
             print(f"[GEO] requests PostGIS prefilter skipped: {e}")
     reqs = session.exec(q.order_by(RideRequest.id.desc())).all()
+    pax = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.passenger_id for r in reqs}))).all()} if reqs else {}
     items: list = []
     for r in reqs:
         if user is not None and is_blocked(session, user.id, r.passenger_id):
@@ -104,14 +105,16 @@ def requests_near(
                 dist = round(haversine_km(lat, lng, c[0], c[1]), 1)
         if radius_km is not None and dist is not None and dist > radius_km:
             continue
-        passenger = session.get(User, r.passenger_id)
+        passenger = pax.get(r.passenger_id)
         items.append({
             "id": r.id,
             "passenger_name": (passenger.name if passenger else "") or "Пассажир",
             "from_city": r.from_city,
             "to_city": r.to_city,
-            "from_lat": r.from_lat,
-            "from_lng": r.from_lng,
+            # Приватность (152-ФЗ): отдаём ОКРУГЛённую точку (~1 км), не точный адрес пассажира.
+            # Достаточно для маркера/радиуса; точную точку встречи стороны согласуют в чате.
+            "from_lat": round(r.from_lat, 2) if r.from_lat is not None else None,
+            "from_lng": round(r.from_lng, 2) if r.from_lng is not None else None,
             "desired_at": r.desired_at,
             "seats": r.seats,
             "comment": r.comment,
