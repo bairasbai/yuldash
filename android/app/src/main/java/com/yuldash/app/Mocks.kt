@@ -519,7 +519,7 @@ internal val demoPopularRoutes = listOf(
 // ── Лента-карусель на карте ──────────────────────────────────────────────
 // MOCK: микс карточек — маршруты (тапаются на «Найти поездку») + живые цифры дня/недели/месяца + факты.
 // Всё про поездки. Реальные числа подставит бэкенд позже (один шов — mapFeedFrom).
-internal enum class FeedKind { Route, Live, Top, Fact, Community }
+internal enum class FeedKind { Route, Live, Top, Fact, Community, Donate }
 
 internal data class MapFeedCard(
     val kind: FeedKind,

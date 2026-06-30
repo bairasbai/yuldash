@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import AdEvent, Booking, Ride, User, UserRole
+from ..models import AdEvent, Booking, Payment, Ride, User, UserRole
 from ..security import current_user
 from ..services import (
     CHAT_DIR, VOICE_DIR, cache_get_json, cache_set_json,
@@ -40,8 +40,9 @@ def popular_routes(session: Session = Depends(get_session)):
 
 @router.get("/feed")
 def feed(session: Session = Depends(get_session)):
-    """Живая лента карты: счётчики поездок за период (день/неделя/месяц/год) + топ-маршрут недели. Из реальных данных. Кеш 60с."""
-    cached = cache_get_json("feed:v1")
+    """Живая лента карты: счётчики поездок за период (день/неделя/месяц/год) + топ-маршрут недели
+    + сумма донатов от пользователей за всё время. Из реальных данных. Кеш 60с."""
+    cached = cache_get_json("feed:v2")
     if cached is not None:
         return cached
     now = utcnow()
@@ -55,12 +56,19 @@ def feed(session: Session = Depends(get_session)):
     week_rides = [r for r in rides if r.created_at and r.created_at >= now - timedelta(days=7) and r.from_city and r.to_city]
     top = Counter((r.from_city, r.to_city) for r in week_rides).most_common(1)
     top_route = ({"from_city": top[0][0][0], "to_city": top[0][0][1], "count": top[0][1]} if top else None)
+    # Донаты пользователей за всё время — сумма подтверждённых (succeeded) платежей purpose=donate, в рублях.
+    donate_kop = sum(
+        p.amount_kop for p in session.exec(
+            select(Payment).where(Payment.purpose == "donate", Payment.status == "succeeded")
+        ).all()
+    )
     result = {
         "today": since(1), "week": since(7), "month": since(30), "year": since(365),
         "drivers": len({r.driver_id for r in rides}),
         "top_route": top_route,
+        "donations_total": donate_kop // 100,   # ₽, за всё время
     }
-    cache_set_json("feed:v1", result, 60)
+    cache_set_json("feed:v2", result, 60)
     return result
 
 

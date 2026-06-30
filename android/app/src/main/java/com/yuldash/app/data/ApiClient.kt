@@ -792,7 +792,8 @@ object ApiClient {
                 drivers = o.optInt("drivers"),
                 topFrom = tr?.optString("from_city").orEmpty(),
                 topTo = tr?.optString("to_city").orEmpty(),
-                topCount = tr?.optInt("count") ?: 0
+                topCount = tr?.optInt("count") ?: 0,
+                donationsTotal = o.optInt("donations_total")
             )
         }
 
@@ -1313,7 +1314,8 @@ data class PopularRouteDto(val from: String, val to: String, val count: Int)
 /** Живая лента карты: счётчики поездок за период + топ-маршрут недели. */
 data class FeedDto(
     val today: Int, val week: Int, val month: Int, val year: Int,
-    val drivers: Int, val topFrom: String, val topTo: String, val topCount: Int
+    val drivers: Int, val topFrom: String, val topTo: String, val topCount: Int,
+    val donationsTotal: Int = 0   // ₽ донатов от пользователей за всё время
 )
 data class NotifDto(val title: String, val text: String)
 

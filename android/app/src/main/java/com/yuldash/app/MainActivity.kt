@@ -573,6 +573,8 @@ internal fun mapFeedFrom(popular: List<PopularRoute>, feed: FeedDto? = null): Li
     val topTo = feed?.topTo?.takeIf { it.isNotBlank() } ?: r1.to
     val topCount = feed?.topCount?.takeIf { it > 0 } ?: 320
     val topRoute = routes.firstOrNull { it.from == topFrom && it.to == topTo } ?: r1
+    val donations = feed?.donationsTotal ?: 0   // ₽ донатов от пользователей за всё время (реальные, с /feed)
+    val donationsFmt = if (donations >= 1000) "%,d".format(donations).replace(',', ' ') else donations.toString()
     return listOf(
         MapFeedCard(FeedKind.Route, "Популярно", "Популяр",
             "${r0.from} → ${r0.to}", "${r0.from} → ${r0.to}",
@@ -597,7 +599,11 @@ internal fun mapFeedFrom(popular: List<PopularRoute>, feed: FeedDto? = null): Li
         MapFeedCard(FeedKind.Community, "За год", "Йылға",
             "$year ${ridesRu(year)}", "Йылына $year сәфәр",
             "Спасибо, что вы вместе ❤️", "Бергә булғанға рәхмәт ❤️",
-            "год", "йыл")
+            "год", "йыл"),
+        MapFeedCard(FeedKind.Donate, "Поддержка", "Ярҙам",
+            "$donationsFmt ₽ собрано", "$donationsFmt ₽ йыйылды",
+            "Спасибо за поддержку ❤️", "Ярҙам өсөн рәхмәт ❤️",
+            "за всё время", "бар ваҡыт")
     )
 }
 

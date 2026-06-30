@@ -803,6 +803,7 @@ private fun QuickSearchCard(
                     FeedKind.Top -> Icons.Default.EmojiEvents
                     FeedKind.Fact -> Icons.Default.Lightbulb
                     FeedKind.Community -> Icons.Default.Favorite
+                    FeedKind.Donate -> Icons.Default.VolunteerActivism
                 }
                 // Единый макет: бейдж+пилюля (верх) · заголовок фикс.высоты · подпись+точки (низ).
                 // Фикс. высота заголовка → все карточки ровно одного размера, карусель не «прыгает».
