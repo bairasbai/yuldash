@@ -1183,6 +1183,7 @@ private fun YandexMapCard(
     val nightMap = appIsDark()   // тёмная тема → ночной стиль карты
     // Свежие ссылки на активную поездку/тап, чтобы tap-listener не «застревал» на старых данных.
     val currentTrip by rememberUpdatedState(activeTrip)
+    val currentPreview by rememberUpdatedState(previewRide)
     val currentRides by rememberUpdatedState(rides)
     val currentRequests by rememberUpdatedState(requests)
     val currentOnTap by rememberUpdatedState(onRideTap)
@@ -1226,8 +1227,11 @@ private fun YandexMapCard(
         var prevZoom = map.cameraPosition.zoom
         val cl = CameraListener { _, pos, reason, finished ->
             // Щипок-зум пальцами → держим мою точку по центру (как кнопки зума). Панораму не трогаем.
+            // НО: когда на карте показан маршрут (preview/активная поездка) — не дёргаем камеру к себе,
+            // иначе зум уводит её от маршрута и он «исчезает». Тогда даём свободно рассматривать маршрут.
             if (reason == CameraUpdateReason.GESTURES && finished &&
-                LocationPrefs.sharingEnabled && kotlin.math.abs(pos.zoom - prevZoom) > 0.05f) {
+                LocationPrefs.sharingEnabled && currentTrip == null && currentPreview == null &&
+                kotlin.math.abs(pos.zoom - prevZoom) > 0.05f) {
                 lastUserPoint?.let { p -> map.move(CameraPosition(p, pos.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.2f), null) }
             }
             prevZoom = pos.zoom
