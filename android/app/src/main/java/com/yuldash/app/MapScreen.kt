@@ -293,7 +293,7 @@ internal fun MapScreen(
     // Сбрасываем страницу при смене маршрута/позиции (новый контекст → снова с начала).
     LaunchedEffect(focusFrom, focusTo, userLat, userLng) { nearbyLimit = NEARBY_PAGE }
     LaunchedEffect(focusFrom, focusTo, userLat, userLng, nearbyReload, nearbyLimit) {
-        nearbyLoading = true
+        if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
         // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
         ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit)
@@ -306,6 +306,21 @@ internal fun MapScreen(
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
         ApiClient.getNearbyRequests(userLat, userLng, radius)
             .onSuccess { nearbyRequests = it }
+    }
+    // Авто-обновление пинов: пока «Карта» открыта и на переднем плане — раз в ~25с тянем свежее (новые
+    // поездки/заявки появляются сами, исполненные/уехавшие исчезают). bump nearbyReload → перетягивает ОБА
+    // эффекта (поездки + заявки). В фоне — пауза (repeatOnLifecycle RESUMED), не жжём батарею/трафик.
+    val nearbyLifecycle = LocalLifecycleOwner.current
+    var skipFirstAuto by remember { mutableStateOf(true) }
+    LaunchedEffect(nearbyLifecycle) {
+        nearbyLifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            if (skipFirstAuto) skipFirstAuto = false   // первый показ грузят эффекты выше — не дублируем
+            else nearbyReload++                         // вернулись из фона на карту → сразу свежие
+            while (true) {
+                kotlinx.coroutines.delay(25_000)
+                nearbyReload++
+            }
+        }
     }
     // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
     // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
