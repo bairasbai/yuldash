@@ -13,9 +13,39 @@ from sqlmodel import Session
 from ..db import engine
 from ..models import Booking, BookingStatus, Ride
 from ..security import authenticate_ws
-from ..services import manager
+from ..services import MAP_FEED_KEY, manager
 
 router = APIRouter(tags=["location"])
+
+
+@router.websocket("/ws/map")
+async def map_feed(websocket: WebSocket):
+    """Лёгкий сигнальный канал карты: сервер шлёт {"type":"refresh"}, когда что-то меняется
+    (новая поездка/заявка, бронь, отмена, завершение) → клиент перетягивает /rides/near + /requests/near
+    мгновенно, не дожидаясь 25-сек опроса. Токен — первым сообщением (как в чате); анонимам остаётся polling.
+    В пинге НЕТ данных (только сигнал) → приватность не задета."""
+    await websocket.accept()
+    token = None
+    try:
+        first = json.loads(await websocket.receive_text())
+        if first.get("type") == "auth":
+            token = first.get("token")
+    except Exception:
+        token = None
+    with Session(engine) as s:
+        try:
+            authenticate_ws(token or "", s)   # существование + ревокация + блок (как REST)
+        except Exception:
+            await websocket.close(code=1008, reason="Invalid token")
+            return
+    manager.register(MAP_FEED_KEY, websocket)
+    try:
+        while True:
+            await websocket.receive_text()   # клиент осмысленного не шлёт; держим соединение до закрытия
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(MAP_FEED_KEY, websocket)
 
 
 @router.websocket("/ws/trip/{booking_id}/location")

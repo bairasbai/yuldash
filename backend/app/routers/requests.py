@@ -15,7 +15,7 @@ from ..models import (
 from ..security import current_user, current_user_optional, gen_otp
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
-    send_push, user_rating,
+    notify_map_changed, send_push, user_rating,
 )
 from ..timeutil import utcnow
 
@@ -51,6 +51,7 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
     session.add(req)
     session.commit()
     session.refresh(req)
+    notify_map_changed()   # новая заявка → оранжевый маркер появится на карте live
     # Срочно/помощь — сразу уведомляем админа, чтобы не упустить время (пожилому может быть нужно срочно).
     if body.assisted or req.category == RideCategory.urgent:
         notify_admin_telegram(
@@ -327,6 +328,7 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     session.add(resp)
     session.commit()   # атомарно: сбой не оставит «осиротевшую» поездку без брони и не даст принять отклик повторно
     session.refresh(booking)
+    notify_map_changed()   # заявка исполнена (matched) → её маркер уходит, новая поездка появляется — live
     pax = session.get(User, req.passenger_id)
     send_push(session, resp.driver_id, "Заявку приняли", f"{(pax.name if pax else 'Пассажир')}: {req.from_city} → {req.to_city}")
     return {"booking_id": booking.id}

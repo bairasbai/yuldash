@@ -13,7 +13,7 @@ from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
-    geocode_city, haversine_km, ride_out_with, rides_out,
+    geocode_city, haversine_km, notify_map_changed, ride_out_with, rides_out,
 )
 
 router = APIRouter(tags=["rides"])
@@ -56,6 +56,7 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
             made += 1
     session.commit()
     session.refresh(ride)
+    notify_map_changed()   # новая поездка → пины на карте у всех обновятся live (не дожидаясь 25с-опроса)
     return ride
 
 

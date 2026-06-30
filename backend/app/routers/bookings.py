@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models import Booking, BookingStatus, Ride, RideStatus, User
 from ..security import current_user, gen_otp
-from ..services import booking_and_ride_for_user, is_blocked, send_push, user_rating
+from ..services import booking_and_ride_for_user, is_blocked, notify_map_changed, send_push, user_rating
 
 router = APIRouter(tags=["bookings"])
 
@@ -53,6 +53,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     session.add(ride)
     session.commit()
     session.refresh(booking)
+    notify_map_changed()   # места убыли → если 0, поездка уходит с карты live
     # Push водителю о новой брони.
     send_push(session, ride.driver_id, "Новая бронь", f"{user.name or 'Пассажир'}: {ride.from_city} → {ride.to_city}, мест {body.seats}")
     return booking
@@ -136,6 +137,7 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
         session.add(ride)
         session.commit()
         session.refresh(booking)
+        notify_map_changed()   # места вернулись → поездка снова видна на карте live
     return booking
 
 

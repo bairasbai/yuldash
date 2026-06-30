@@ -322,6 +322,17 @@ internal fun MapScreen(
             }
         }
     }
+    // Live-сигнал через WS /ws/map: при изменении (новая поездка/заявка/бронь/отмена) сервер шлёт «refresh» →
+    // перетягиваем СРАЗУ, не дожидаясь 25-сек опроса. Дебаунс ~1.5с схлопывает пачку пингов. Закрывается с экраном.
+    val mapPingScope = rememberCoroutineScope()
+    DisposableEffect(Unit) {
+        var lastPing = 0L
+        val sock = com.yuldash.app.data.MapFeedSocket(onRefresh = {
+            val now = System.currentTimeMillis()
+            if (now - lastPing > 1500) { lastPing = now; mapPingScope.launch { nearbyReload++ } }
+        }).also { it.connect() }
+        onDispose { sock.close() }
+    }
     // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
     // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
     val shownNearby = remember(nearby, prefFilter, verifiedOnly) {

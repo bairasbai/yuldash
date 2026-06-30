@@ -511,6 +511,7 @@ def cache_set_json(key: str, value, ttl_sec: int) -> None:
 # своим локальным соединениям. Без Redis (один воркер/dev) — локальная доставка.
 _CHAT_CHANNEL = "yuldash:chat"
 _redis_pub = None   # async-клиент для publish (заполняется в init_chat_redis, если есть Redis)
+MAP_FEED_KEY = 2_000_000_000   # спец-ключ ConnectionManager для подписчиков /ws/map (не пересекается с booking_id/-booking_id)
 
 
 class ConnectionManager:
@@ -552,6 +553,20 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+def notify_map_changed():
+    """Сигнал «на карте что-то изменилось» подписчикам /ws/map (новая поездка/заявка, бронь, отмена, done).
+    SYNC — зовём из REST-хендлеров после commit; publish в общий чат-канал Redis, async-loop доставит
+    map-клиентам {"type":"refresh"} → клиент перетягивает /rides/near + /requests/near. Без Redis — no-op
+    (клиент и так опрашивает раз в ~25с). Падать на сбое Redis НЕЛЬЗЯ — это лишь «приятный» live-апдейт."""
+    client = _cache_client()
+    if client is None:
+        return
+    try:
+        client.publish(_CHAT_CHANNEL, json.dumps({"booking_id": MAP_FEED_KEY, "data": {"type": "refresh"}}))
+    except Exception:  # noqa: BLE001 — Redis недоступен → молча, polling подстрахует
+        pass
 
 
 async def _chat_subscribe_loop(redis_client):
