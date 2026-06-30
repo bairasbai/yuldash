@@ -1389,23 +1389,48 @@ private fun YandexMapCard(
         }
         onDispose { added.forEach { runCatching { map.mapObjects.remove(it) } } }
     }
-    // Live-позиция попутчика (из foreground-сервиса через TripLocationBus) — нав-стрелка курса, двигается
-    // и ПОВОРАЧИВАЕТСЯ по направлению движения (bearing), как в навигаторах.
-    // Глобальный state → эффект перерисует маркер при каждой новой точке. Снимается, когда поездка кончилась.
-    DisposableEffect(com.yuldash.app.data.TripLocationBus.peer) {
+    // Live-позиция попутчика (из foreground-сервиса через TripLocationBus) — ОДНА постоянная нав-стрелка,
+    // которая ПЛАВНО «догоняет» новую позицию каждый кадр (как навигаторы), а не телепортируется на каждый
+    // GPS-апдейт. Иначе при апдейте раз в ~7с (реальный GPS) или раз в ~0.4с (демо) были бы рывки.
+    // Курс (bearing) тоже плавно доводится по кратчайшему углу. Стрелка скрыта, когда позиции нет.
+    LaunchedEffect(Unit) {
         val map = mapView.mapWindow.map
-        val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
-        com.yuldash.app.data.TripLocationBus.peer?.let { p ->
-            runCatching {
-                added += map.mapObjects.addPlacemark().apply {
-                    geometry = Point(p.lat, p.lng)
-                    setIcon(ImageProvider.fromBitmap(peerArrowBitmap()))
-                    setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)).setRotationType(com.yandex.mapkit.map.RotationType.ROTATE))
-                    p.bearing?.let { setDirection(it.toFloat()) }   // стрелка смотрит туда, куда едет
-                }
-            }
+        val pm = map.mapObjects.addPlacemark().apply {
+            setIcon(ImageProvider.fromBitmap(peerArrowBitmap()))
+            setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)).setRotationType(com.yandex.mapkit.map.RotationType.ROTATE))
+            isVisible = false
         }
-        onDispose { added.forEach { runCatching { map.mapObjects.remove(it) } } }
+        try {
+            var curLat = 0.0; var curLng = 0.0; var curBrg = 0f
+            var has = false                       // уже есть отрисованная позиция (чтобы первую ставить без «подлёта» из 0,0)
+            while (true) {
+                val p = com.yuldash.app.data.TripLocationBus.peer
+                if (p == null) {                  // поездки нет → прячем стрелку, опрашиваем редко (не жжём кадры)
+                    if (has) { pm.isVisible = false; has = false }
+                    kotlinx.coroutines.delay(200)
+                    continue
+                }
+                if (!has) {                       // первая точка — ставим сразу
+                    curLat = p.lat; curLng = p.lng; curBrg = (p.bearing ?: 0.0).toFloat()
+                    pm.geometry = Point(curLat, curLng); pm.setDirection(curBrg); pm.isVisible = true
+                    has = true
+                    androidx.compose.runtime.withFrameNanos { }
+                    continue
+                }
+                val a = 0.18f                     // доля пути к цели за кадр → доводит за ~0.3с, плавно
+                curLat += (p.lat - curLat) * a
+                curLng += (p.lng - curLng) * a
+                pm.geometry = Point(curLat, curLng)
+                p.bearing?.let { tb ->            // курс — к целевому по кратчайшему углу (через 0/360 без «прокрутки»)
+                    var d = ((tb.toFloat() - curBrg) % 360f + 540f) % 360f - 180f
+                    curBrg = ((curBrg + d * a) % 360f + 360f) % 360f
+                    pm.setDirection(curBrg)
+                }
+                androidx.compose.runtime.withFrameNanos { }
+            }
+        } finally {
+            runCatching { map.mapObjects.remove(pm) }
+        }
     }
     // Маршрут до партнёра из рекламы — прямо на нашей карте (как активная поездка, но к точке магазина).
     // Есть геолокация → дорога от меня к магазину; нет → просто центрируем карту на магазине с флажком.
@@ -1579,7 +1604,7 @@ private fun YandexMapCard(
                     val b = previewRide?.let { cityPoint(it.to) } ?: activeTrip?.let { cityPoint(it.to) } ?: cityPoint("Сибай") ?: Point(52.6900, 58.6700)
                     simJob = tripScope.launch {
                         val raw = roadRoutePoints(a, b)
-                        val path = if (raw.size > 2) subsamplePath(raw, 60) else densifyPath(a, b, 60)
+                        val path = if (raw.size > 2) subsamplePath(raw, 100) else densifyPath(a, b, 100)
                         val line = simMap.mapObjects.addPolyline(Polyline(raw)).apply { setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f }
                         try {
                             simMap.move(CameraPosition(path.first(), 11.5f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
@@ -1587,8 +1612,8 @@ private fun YandexMapCard(
                                 val cur = path[i]
                                 val brg = if (i > 0) bearingBetween(path[i - 1], cur) else bearingBetween(cur, path.getOrElse(1) { cur })
                                 com.yuldash.app.data.TripLocationBus.peer = com.yuldash.app.data.LocationSocket.Peer("driver", cur.latitude, cur.longitude, brg, i.toLong())
-                                simMap.move(CameraPosition(cur, simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.35f), null)
-                                kotlinx.coroutines.delay(380)
+                                simMap.move(CameraPosition(cur, simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.6f), null)
+                                kotlinx.coroutines.delay(200)
                             }
                         } finally {
                             runCatching { simMap.mapObjects.remove(line) }
