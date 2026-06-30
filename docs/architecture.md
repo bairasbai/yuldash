@@ -1,8 +1,31 @@
 # 🗺️ Карта кода Юлдаш
 
-> Чтобы НЕ читать весь файл (~5500 строк). Иди сразу на нужную строку.
-> ⚠️ После сессии серверной интеграции (2026-06-23) номера строк сильно сдвинулись —
-> ищи функции через `grep`/`rg` по имени; числа ниже ориентировочные.
+> Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
+> ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
+
+## 🆕 АКТУАЛЬНАЯ карта файлов (2026-06-30) — UI разрезан на ~16 файлов
+
+`MainActivity.kt` (~664 строки) — ТОНКОЕ ядро: `onCreate`, `enum Screen/HomeTab/RideRole`, демо-сиды, `toUiRide`. Навигация — `YuldashApp.kt` (`enum Screen` + ветки `when` + старт-экран=КАРТА). Экраны в своих файлах:
+
+| Файл | Что внутри |
+|---|---|
+| `YuldashApp.kt` | Корень: навигация (`when(screen)`), старт-экран, lifecycle поездок, старт/стоп `TripLocationService`, push-разрешения |
+| `MapScreen.kt` (~1.7к строк) | Вкладка Карта: `YandexMapCard`, маршрут (`drawRoadRoute` + объездные), live-стрелка (chaser-эффект), ETA-чип, демо-симуляция, фильтры «Ближайшие», маркеры заявок + `RequestPreviewCard`, авто-refresh + WS `MapFeedSocket`, карусель `QuickSearchCard` (+ донаты) |
+| `BookingActiveTripScreen.kt` | `BookingScreen` (бронь) + `ActiveTripScreen` (чат, код посадки, статус-вотчер `getTripState`, live-баннер фазы, SOS) |
+| `RidesRequestsChatScreens.kt` | Вкладки Поездки/Заявки/Чат, `RideCard`, `RequestsFeedScreen` (чипы условий), `ResponsesScreen`, `ChatSocket`-чат |
+| `CreateRideScreen.kt` | Публикация поездки (маршрут, цена, удобства `PrefToggleRow`, повтор) |
+| `AccessibilityScreens.kt` | «Создать заявку» (+ карточка «Условия поездки», 7 предпочтений), Простой режим, голосовая заявка, за близкого, доверенные контакты, повтор маршрута |
+| `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии» |
+| `SecondaryScreens.kt` | Уведомления, Безопасность, Настройки, «Фильтры по умолчанию», правила, админ-экраны |
+| `SosVerifyScreens.kt` | SOS + проверка водителя (фото, OCR-баннер причин отказа) |
+| `SupportBoostScreen.kt` | Поддержка, Boost, Help |
+| `LoginScreen.kt` / `IntroScreen.kt` | Вход Telegram / брендовое интро |
+| `Domain.kt` / `Mocks.kt` / `CanonTokens.kt` | Модели · демо-фолбэк · цвета `Canon*` |
+| `data/ApiClient.kt` | REST + парсинг DTO; `data/ChatSocket.kt`, `data/LocationSocket.kt`, `data/MapFeedSocket.kt` — WS; `TripLocationService.kt` — foreground GPS |
+
+**Бэкенд** `backend/app/routers/`: `location.py` (WS `/ws/trip/{id}/location` реле + `/ws/map` сигнал), `requests.py` (заявка + prefs + `/near` округл. коорд + лента), `bookings.py` (бронь, `driver_phase`, статусы), `rides.py`, `discovery.py` (`/feed` + `donations_total`), `chat.py` (WS `/ws/bookings/{id}`), `drivers.py`, `payments.py` (донат/буст СБП «на доверии»), `ads.py`, `safety.py`, `family.py`. Деплой — `docs/server.md`.
+
+> Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
 
 ## Лендинг web/ — интерактивная версия 2026-06-29
 - Главная страница `web/app/page.tsx` стала тонкой оболочкой: `MotionConfig` → `LangProvider` → `DownloadProvider` → `YuldashLanding`.
