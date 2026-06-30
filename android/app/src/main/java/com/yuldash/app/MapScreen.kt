@@ -998,6 +998,25 @@ private fun requestPinBitmap(): Bitmap {
     return bmp.also { requestPinCache = it }
 }
 
+// Маркер другого участника в активной поездке (live-позиция) — синяя «машинка», отдельно от поездок/заявок.
+private var peerCarCache: Bitmap? = null
+private fun peerCarBitmap(): Bitmap {
+    peerCarCache?.let { return it }
+    val s = 48
+    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bmp)
+    val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#1565C0") }  // синий = попутчик
+    val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33000000 }
+    val cx = s / 2f; val cy = s / 2f
+    c.drawCircle(cx, cy + 2f, 19f, shadow)
+    c.drawCircle(cx, cy, 19f, white)
+    c.drawCircle(cx, cy, 15f, fill)
+    c.drawRoundRect(android.graphics.RectF(cx - 9f, cy - 3f, cx + 9f, cy + 6f), 3f, 3f, white)   // кузов
+    c.drawRoundRect(android.graphics.RectF(cx - 5f, cy - 8f, cx + 5f, cy - 1f), 2f, 2f, white)   // крыша
+    return bmp.also { peerCarCache = it }
+}
+
 // Ценник-маркер зависит только от (цена, boosted) → кешируем по ключу,
 // чтобы при перерисовке/смене поездки не лепить заново Bitmap+Paint каждый раз.
 private val ridePinCache = HashMap<String, Bitmap>()
@@ -1349,6 +1368,22 @@ private fun YandexMapCard(
                     setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)))
                     userData = "req-${req.id}"
                     addTapListener(tapListener)
+                }
+            }
+        }
+        onDispose { added.forEach { runCatching { map.mapObjects.remove(it) } } }
+    }
+    // Live-позиция попутчика (из foreground-сервиса через TripLocationBus) — синяя машинка, двигается.
+    // Глобальный state → эффект перерисует маркер при каждой новой точке. Снимается, когда поездка кончилась.
+    DisposableEffect(com.yuldash.app.data.TripLocationBus.peer) {
+        val map = mapView.mapWindow.map
+        val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
+        com.yuldash.app.data.TripLocationBus.peer?.let { p ->
+            runCatching {
+                added += map.mapObjects.addPlacemark().apply {
+                    geometry = Point(p.lat, p.lng)
+                    setIcon(ImageProvider.fromBitmap(peerCarBitmap()))
+                    setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)))
                 }
             }
         }

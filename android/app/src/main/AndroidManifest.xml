@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Push-уведомления (FCM). На Android 13+ запрашивается в рантайме. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Foreground-сервис live-позиции: слать GPS попутчику во время активной поездки (с погасшим экраном). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:name=".YuldashApplication"
@@ -40,5 +43,11 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="yuldash_default" />
+
+        <!-- Foreground-сервис live-позиции в активной поездке. -->
+        <service
+            android:name=".TripLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 </manifest>
