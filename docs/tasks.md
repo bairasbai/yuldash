@@ -830,3 +830,11 @@ Telegram-вход (+ все ветки ошибок, VK/WhatsApp чисто уб
 
 ### 🔤 Переводы на проверку — аудит-фиксы (2026-06-30)
 Новых видимых строк не добавлено (фиксы — бэкенд/приватность/сервис). BA не требуется.
+
+### ✅ Деплой аудит-фиксов на прод (2026-06-30, yulbash.ru / 85.239.52.55)
+- Бэкап: `/opt/yuldash/backups/app-pre-mapaudit-20260630-122834.tar.gz`.
+- Сверка дрейфа: прод `requests.py`/`location.py` == репо до-аудит (только LF/CRLF) → безопасно.
+- `scp app/routers/{requests,location}.py` → **import-check `from app.main import app` = IMPORT_OK ДО рестарта** → `chown yuldash:yuldash` → `systemctl restart yuldash-api`.
+- Проверено server-side: сервис `active`, `/health`→`{ok,prod,db:ok}`, `/rides`→200, журнал чист (только INFO-шум закрытия сокетов при рестарте воркеров).
+- Откат: `ssh root@85.239.52.55 "tar xzf /opt/yuldash/backups/app-pre-mapaudit-20260630-122834.tar.gz -C /opt/yuldash && systemctl restart yuldash-api"`.
+- Android-фиксы (TripLocationService само-стоп) — в релизном APK при следующей сборке.
