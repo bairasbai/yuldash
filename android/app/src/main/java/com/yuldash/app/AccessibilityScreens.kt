@@ -289,7 +289,8 @@ internal fun SimpleModeScreen(
             }
             if (latestRequests.isNotEmpty()) {
                 item { Text(appText("Последние заявки", "Һуңғы заявкалар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp) }
-                items(latest3, key = { it.route + it.time + it.passenger }) { request ->
+                // Индекс в ключе: повтор того же маршрута даёт одинаковый route+time+passenger → дубль ключа = краш.
+                itemsIndexed(latest3, key = { i, it -> it.route + it.time + it.passenger + "#" + i }) { _, request ->
                     LocalRequestCard(request)
                 }
             }
@@ -973,42 +974,164 @@ private fun TrustedContactCard(contact: TrustedContact) {
 internal fun RepeatTripScreen(
     contacts: List<TrustedContact>,
     onBack: () -> Unit,
+    onLoginRequired: () -> Unit,
     onRepeat: (LocalRequest) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val language = LocalAppLanguage.current
+    val loggedIn = ApiClient.isLoggedIn()
     val trusted = contacts.firstOrNull()
-    // Частые поездки — из истории юзера (сервер); демо, пока истории нет.
-    var frequent by remember { mutableStateOf(demoFrequentTrips) }
-    LaunchedEffect(Unit) {
-        ApiClient.getMyRoutes().onSuccess { srv ->
-            if (srv.isNotEmpty()) frequent = srv.map { s ->
-                FrequentTrip(title = "Частая поездка", titleBa = "Йыш сәфәр", from = s.from, to = s.to, timeHint = "", timeHintBa = "", categoryKey = "regular")
+    var frequent by remember { mutableStateOf<List<FrequentTrip>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf(false) }
+    var reload by remember { mutableIntStateOf(0) }
+    var submittingRoute by remember { mutableStateOf<String?>(null) }
+    val repeatStatus = appText("ищем водителя", "водитель эҙләйбеҙ")
+    val repeatNow = appText("сейчас", "хәҙер")
+    val sendError = appText("Не получилось создать заявку. Проверь сеть и повтори.", "Заявка булдырып булманы. Интернетте тикшереп ҡабатла.")
+
+    LaunchedEffect(reload, loggedIn) {
+        if (!loggedIn) {
+            frequent = emptyList()
+            loading = false
+            loadError = false
+            return@LaunchedEffect
+        }
+        loading = true
+        loadError = false
+        ApiClient.getMyRoutes()
+            .onSuccess { srv ->
+                frequent = srv.map { s ->
+                    FrequentTrip(
+                        title = repeatRouteTitleRu(s.count),
+                        titleBa = "${s.count} тапҡыр",
+                        from = s.from,
+                        to = s.to,
+                        timeHint = "из вашей истории",
+                        timeHintBa = "һеҙҙең тарихтан",
+                        categoryKey = "regular"
+                    )
+                }
             }
+            .onFailure { loadError = true }
+        loading = false
+    }
+
+    fun submitRepeat(trip: FrequentTrip) {
+        val from = trip.from.trim()
+        val to = trip.to.trim()
+        val route = "$from → $to"
+        if (from.isBlank() || submittingRoute != null) return
+        if (!loggedIn) {
+            onLoginRequired()
+            return
+        }
+        val request = LocalRequest(
+            title = appTextFor(language, "Повтор: ${trip.title}", "Ҡабатлау: ${trip.titleBa}"),
+            route = route,
+            time = appTextFor(language, trip.timeHint, trip.timeHintBa).ifBlank { repeatNow },
+            passenger = (ApiClient.cachedName() ?: "Я"),
+            status = repeatStatus,
+            trustedContact = trusted?.name
+        )
+        submittingRoute = route
+        scope.launch {
+            ApiClient.createRequest(from, to, 1, "regular", false, "", 0, assisted = true)
+                .onSuccess { onRepeat(request) }
+                .onFailure {
+                    submittingRoute = null
+                    Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
+                }
         }
     }
+
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Повторить поездку", "Сәфәрҙе ҡабатлау"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            item { Text(appText("Частые поездки", "Йыш сәфәрҙәр"), color = CanonGreen, fontSize = 28.sp, fontWeight = FontWeight.Black) }
-            itemsIndexed(frequent, key = { _, t -> t.from + "→" + t.to }) { index, trip ->
-                val repeatTitle = appText("Повтор: ${trip.title}", "Ҡабатлау: ${trip.titleBa}")
-                val repeatStatus = appText("создана", "булдырылды")
-                val repeatTime = trip.timeHintText()
-                Box(Modifier.appearIn(index)) {
-                FrequentTripCard(trip) {
-                    onRepeat(
-                        LocalRequest(
-                            title = repeatTitle,
-                            route = "${trip.from} → ${trip.to}",
-                            time = repeatTime,
-                            passenger = (ApiClient.cachedName() ?: "Я"),
-                            status = repeatStatus,
-                            trustedContact = trusted?.name
+            item {
+                SectionHeader(
+                    title = appText("Частые маршруты", "Йыш маршруттар"),
+                    subtitle = appText(
+                        "Выберите маршрут — Юлдаш сразу создаст заявку.",
+                        "Маршрутты һайлағыҙ — Юлдаш шунда уҡ заявка булдыра."
+                    )
+                )
+            }
+            when {
+                !loggedIn -> {
+                    item {
+                        AppEmptyState(
+                            title = appText("Нужно войти", "Инергә кәрәк"),
+                            text = appText(
+                                "Войди через Telegram, чтобы Юлдаш мог создать заявку и показать ответы водителей.",
+                                "Юлдаш заявка булдырып, водителдәр яуаптарын күрһәтһен өсөн Telegram аша инегеҙ."
+                            ),
+                            icon = Icons.Default.Person,
+                            actionLabel = appText("Войти", "Инеү"),
+                            onAction = onLoginRequired
                         )
+                    }
+                }
+                loading -> {
+                    items(3) { SkeletonCard(lines = 2) }
+                }
+                loadError -> {
+                    item {
+                        AppErrorState(
+                            onRetry = { reload++ },
+                            title = appText("Маршруты не загрузились", "Маршруттар тейәлмәне"),
+                            text = appText("Проверь интернет и попробуй ещё раз.", "Интернетте тикшереп тағы бер тапҡыр ҡара.")
+                        )
+                    }
+                }
+                frequent.isNotEmpty() -> {
+                    // Индекс в ключе: два реальных маршрута с одинаковым from→to иначе дают дубль ключа → краш LazyColumn.
+                    itemsIndexed(frequent, key = { index, t -> t.from + "→" + t.to + "#" + index }) { index, trip ->
+                        val route = "${trip.from} → ${trip.to}"
+                        Box(Modifier.appearIn(index)) {
+                            FrequentTripCard(
+                                trip = trip,
+                                loading = submittingRoute == route,
+                                enabled = submittingRoute == null,
+                                onClick = { submitRepeat(trip) }
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    item {
+                        AppEmptyState(
+                            title = appText("Истории пока нет", "Тарих әлегә юҡ"),
+                            text = appText(
+                                "После первой заявки частые маршруты появятся здесь.",
+                                "Беренсе заявканан һуң йыш маршруттар бында күренер."
+                            ),
+                            icon = Icons.Default.Route
+                        )
+                    }
+                }
+            }
+            if (loggedIn && !loading && (loadError || frequent.isEmpty())) {
+                item {
+                    SectionHeader(
+                        title = appText("Быстрые варианты", "Тиҙ варианттар"),
+                        subtitle = appText("Можно создать заявку по готовому маршруту.", "Әҙер маршрут буйынса заявка булдырырға була.")
                     )
                 }
+                itemsIndexed(demoFrequentTrips, key = { _, t -> t.from + "→" + t.to + t.categoryKey }) { index, trip ->
+                    val route = "${trip.from} → ${trip.to}"
+                    Box(Modifier.appearIn(index + 1)) {
+                        FrequentTripCard(
+                            trip = trip,
+                            loading = submittingRoute == route,
+                            enabled = submittingRoute == null,
+                            onClick = { submitRepeat(trip) }
+                        )
+                    }
                 }
             }
         }
@@ -1016,8 +1139,8 @@ internal fun RepeatTripScreen(
 }
 
 @Composable
-private fun FrequentTripCard(trip: FrequentTrip, onClick: () -> Unit) {
-    Card(modifier = Modifier.bounceClick(onClick).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+private fun FrequentTripCard(trip: FrequentTrip, loading: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Card(modifier = Modifier.bounceClick { if (enabled && !loading) onClick() }.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
                 Icon(if (trip.categoryKey == "hospital") Icons.Default.LocalHospital else Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(28.dp))
@@ -1028,9 +1151,23 @@ private fun FrequentTripCard(trip: FrequentTrip, onClick: () -> Unit) {
                 Text("${trip.from} → ${trip.to}", color = CanonGreen, fontWeight = FontWeight.Bold)
                 Text(trip.timeHintText(), color = CanonMuted, fontSize = 13.sp)
             }
-            Icon(Icons.Default.Refresh, contentDescription = null, tint = CanonGreen2)
+            if (loading) {
+                CircularProgressIndicator(color = CanonGreen2, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+            } else {
+                Icon(Icons.Default.Refresh, contentDescription = appText("Повторить маршрут", "Маршрутты ҡабатлау"), tint = CanonGreen2)
+            }
         }
     }
+}
+
+private fun repeatRouteTitleRu(count: Int): String {
+    val word = when {
+        count % 100 in 11..14 -> "раз"
+        count % 10 == 1 -> "раз"
+        count % 10 in 2..4 -> "раза"
+        else -> "раз"
+    }
+    return "$count $word"
 }
 
 @Composable

@@ -315,7 +315,9 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
                     )
                 }
             } else {
-                items(visibleNotifications, key = { it.second }) { (icon, title, subtitle) ->
+                // Индекс в ключе: у всех уведомлений title == «Новое сообщение» (бэк) → ключ по title давал
+                // дубликаты при 2+ уведомлениях → краш экрана. Индекс гарантирует уникальность.
+                itemsIndexed(visibleNotifications, key = { i, it -> it.second + "#" + i }) { _, (icon, title, subtitle) ->
                     NotificationRow(icon = icon, title = title, subtitle = subtitle, time = "", unread = true)
                 }
             }

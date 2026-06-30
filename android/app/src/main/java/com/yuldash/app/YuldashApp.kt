@@ -635,7 +635,10 @@ internal fun YuldashApp() {
                 onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
                 onSos = { screen = Screen.Sos }
             )
-            Screen.Sos -> SosScreen(onBack = { openHome(HomeTab.Map) })
+            Screen.Sos -> SosScreen(
+                onBack = { openHome(HomeTab.Map) },
+                onLoginRequired = { screen = Screen.Login }
+            )
             Screen.VerifyDriver -> VerifyDriverScreen(
                 onBack = { openHome(HomeTab.Profile) },
                 onSelectTab = { tab -> openHome(tab) }
@@ -724,13 +727,13 @@ internal fun YuldashApp() {
             Screen.SimpleMode -> SimpleModeScreen(
                 latestRequests = localRequests,
                 onBack = { openHome(HomeTab.Map) },
-                onVoiceRequest = { screen = Screen.VoiceRequest },
-                onFamilyOrder = { screen = Screen.FamilyOrder },
-                onTrustedContacts = { screen = Screen.TrustedContacts },
-                onRepeatTrip = { screen = Screen.RepeatTrip },
-                onCallbackHelp = { screen = Screen.CallbackHelp },
+                onVoiceRequest = { if (ApiClient.isLoggedIn()) screen = Screen.VoiceRequest else screen = Screen.Login },
+                onFamilyOrder = { if (ApiClient.isLoggedIn()) screen = Screen.FamilyOrder else screen = Screen.Login },
+                onTrustedContacts = { if (ApiClient.isLoggedIn()) screen = Screen.TrustedContacts else screen = Screen.Login },
+                onRepeatTrip = { if (ApiClient.isLoggedIn()) screen = Screen.RepeatTrip else screen = Screen.Login },
+                onCallbackHelp = { if (ApiClient.isLoggedIn()) screen = Screen.CallbackHelp else screen = Screen.Login },
                 onSos = { screen = Screen.Sos },
-                onChat = { openHome(HomeTab.Chat) }
+                onChat = { if (ApiClient.isLoggedIn()) openHome(HomeTab.Chat) else screen = Screen.Login }
             )
             Screen.VoiceRequest -> VoiceRequestScreen(
                 contacts = trustedContacts,
@@ -762,10 +765,9 @@ internal fun YuldashApp() {
             Screen.RepeatTrip -> RepeatTripScreen(
                 contacts = trustedContacts,
                 onBack = { screen = Screen.SimpleMode },
+                onLoginRequired = { screen = Screen.Login },
                 onRepeat = { request ->
                     localRequests.add(0, request)
-                    // Реальная серверная заявка по маршруту (раньше повтор оставался только в памяти).
-                    fireRequestFromRoute(request.route)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Йыш сәфәр ҡабатланды" else "Частая поездка повторена", Toast.LENGTH_SHORT).show()
                     screen = Screen.SimpleMode
                 }

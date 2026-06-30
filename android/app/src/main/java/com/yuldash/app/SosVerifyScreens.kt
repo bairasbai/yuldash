@@ -262,7 +262,7 @@ private data class SosService(
 )
 
 @Composable
-internal fun SosScreen(onBack: () -> Unit) {
+internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -286,6 +286,7 @@ internal fun SosScreen(onBack: () -> Unit) {
     var sending by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     var rateLimited by remember { mutableStateOf(false) }  // 429 — «слишком часто», не «нет сети»
+    val loggedIn = ApiClient.isLoggedIn()
 
     // Живая геолокация для ЧП — запрашиваем прямо здесь (а не ждём кеш с карты). Главное в SOS.
     var sosLat by remember { mutableStateOf(LocationPrefs.lastLat) }
@@ -478,7 +479,13 @@ internal fun SosScreen(onBack: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, textAlign = TextAlign.Center)
-                    Text(appText("SMS твоим доверенным контактам + сигнал поддержке Юлдаш с твоими координатами.", "Ышаныслы контакттарыңа SMS + Юлдаш ярҙамына координаталарың менән сигнал."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                    Text(
+                        if (loggedIn)
+                            appText("SMS твоим доверенным контактам + сигнал поддержке Юлдаш с твоими координатами.", "Ышаныслы контакттарыңа SMS + Юлдаш ярҙамына координаталарың менән сигнал.")
+                        else
+                            appText("Для SMS близким и сигнала поддержке нужно войти. Звонок 112 работает без входа.", "Яҡындарға SMS һәм ярҙамға сигнал өсөн инергә кәрәк. 112 шылтырауы инеүһеҙ эшләй."),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center
+                    )
                 }
             }
             if (sent) {
@@ -507,6 +514,10 @@ internal fun SosScreen(onBack: () -> Unit) {
                     text = if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"),
                     onClick = {
                         if (sending) return@AppButton
+                        if (!loggedIn) {
+                            onLoginRequired()
+                            return@AppButton
+                        }
                         failed = false
                         rateLimited = false
                         sent = false
