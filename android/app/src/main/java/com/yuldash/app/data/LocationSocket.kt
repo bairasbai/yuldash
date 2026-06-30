@@ -31,6 +31,7 @@ class LocationSocket(
     companion object {
         private const val MAX_ATTEMPTS = 10
         private const val MAX_DELAY_SEC = 30L
+        private const val SOFT_RETRY_SEC = 15L   // ретрай «поездка ещё не активна»
         private val client: OkHttpClient by lazy {
             OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
         }
@@ -73,7 +74,11 @@ class LocationSocket(
                 }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     onConnected(false)
-                    // 1008 / 4xxx = терминальный отказ (не участник, поездка не активна) → не долбимся в цикл.
+                    // Поездка ещё не активна (бронь pending/подтверждается) — сервер закрывает 1008 "Trip not active".
+                    // Это НЕ терминал: бронь станет confirmed → подключимся. Мягкий ретрай раз в 15с (сервис
+                    // живёт только во время поездки → не вечный цикл). Иначе сразу после брони стрим бы не запускался.
+                    if (code == 1008 && reason.contains("not active", ignoreCase = true)) { softReconnect(); return }
+                    // Forbidden / Invalid token / прочие 1008|4xxx — настоящий терминал, не долбимся.
                     if (code != 1008 && code !in 4000..4999) scheduleReconnect()
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -89,6 +94,13 @@ class LocationSocket(
         attempt++
         val delay = minOf(MAX_DELAY_SEC, 1L shl minOf(attempt - 1, 5))   // 1,2,4,8,16,30… cap 30
         scheduler.schedule({ openSocket() }, delay, TimeUnit.SECONDS)
+    }
+
+    /** Поездка ещё не активна → пробуем снова раз в 15с, БЕЗ счётчика попыток (станет confirmed — подключимся).
+     *  Цикл ограничен жизнью сервиса: он закрывает сокет, когда поездка кончилась. */
+    private fun softReconnect() {
+        if (closed) return
+        scheduler.schedule({ openSocket() }, SOFT_RETRY_SEC, TimeUnit.SECONDS)
     }
 
     /** Отправить свою позицию другому участнику. true — ушло. */
