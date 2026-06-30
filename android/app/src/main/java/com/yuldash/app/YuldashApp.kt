@@ -280,12 +280,12 @@ internal fun YuldashApp() {
     val voiceMessages = vm.voiceMessages
     // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
     val splashTarget = remember {
-        // Память режима: старт в последнем выбранном (водитель → кабинет водителя, пассажир → дом).
-        val startDriver = prefs.getString("preferred_role", "") == RideRole.Driver.name
+        // Старт ВСЕГДА на главном экране — КАРТА (Home). Раньше «помнили» режим и открывали кабинет
+        // водителя — но главный вход в приложение это карта; в кабинет водитель идёт сам кнопкой «Я водитель».
         when {
             !prefs.getBoolean("onboarding_completed", false) -> Screen.Intro  // ПЕРВЫЙ запуск → брендовое интро (даже в debug)
-            BuildConfig.DEBUG -> if (startDriver) Screen.DriverCabinet else Screen.Home   // DEV-обход входа (повторные запуски)
-            ApiClient.isLoggedIn() -> if (startDriver) Screen.DriverCabinet else Screen.Home   // уже вошёл → в последний режим
+            BuildConfig.DEBUG -> Screen.Home              // DEV-обход входа (повторные запуски) → карта
+            ApiClient.isLoggedIn() -> Screen.Home         // уже вошёл → карта
             else -> Screen.Login
         }
     }

@@ -671,6 +671,7 @@ internal fun DriverCabinetScreen(
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
+    val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет водителя", "Водитель кабинеты"), onBack) }
@@ -692,6 +693,11 @@ internal fun DriverCabinetScreen(
                         appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
                         online,
                     ) { v ->
+                        // Демо/без входа → не дёргаем API (там 401 → ложная «проверь сеть»), даём понятное «войдите».
+                        if (!ApiClient.isLoggedIn()) {
+                            Toast.makeText(ctx, onlineLoginMsg, Toast.LENGTH_SHORT).show()
+                            return@SettingSwitchRow
+                        }
                         val prev = online
                         online = v
                         rateScope.launch {
