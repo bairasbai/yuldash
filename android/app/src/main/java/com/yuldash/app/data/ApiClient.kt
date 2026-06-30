@@ -640,6 +640,13 @@ object ApiClient {
     suspend fun getBookingRole(bookingId: Int): Result<String> =
         call("GET", "/bookings/$bookingId/role", null, auth = true).map { it.optString("role") }
 
+    /** Состояние активной поездки (для live-баннера): роль + статус брони + подфаза водителя
+     *  (""/departed/arriving). Экран активной поездки опрашивает это раз в ~12с. */
+    suspend fun getTripState(bookingId: Int): Result<TripStateDto> =
+        call("GET", "/bookings/$bookingId/role", null, auth = true).map {
+            TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"))
+        }
+
     /** Водитель отмечает «выехал»/«подъезжаю» → push пассажиру. status: "departed"|"arriving". */
     suspend fun driverStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { }
@@ -1195,6 +1202,9 @@ data class RideDto(
 )
 
 /** Заявка пассажира рядом (/requests/near) — для маркера «ищет попутку» на карте. Без телефона. */
+/** Состояние активной поездки: роль + статус брони + подфаза водителя (""/departed/arriving). */
+data class TripStateDto(val role: String, val status: String, val driverPhase: String)
+
 data class RequestNearDto(
     val id: Int,
     val passengerName: String,

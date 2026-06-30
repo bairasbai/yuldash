@@ -505,7 +505,16 @@ internal fun ActiveTripScreen(
     val driverNotifiedMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
     // Роль в этой брони: водитель видит «Я выехал/Подъезжаю» (push пассажиру), пассажир — «сел/доехал/завершить».
     var role by remember { mutableStateOf("") }
-    LaunchedEffect(bookingId) { bookingId?.let { ApiClient.getBookingRole(it).onSuccess { r -> role = r } } }
+    var driverPhase by remember(bookingId) { mutableStateOf("") }   // ""/departed/arriving — для live-баннера пассажиру
+    // Опрос состояния поездки раз в ~12с: роль + подфаза водителя. Так пассажир видит «водитель выехал/
+    // подъезжает» LIVE (раньше это приходило только пушем — его легко пропустить, а UI не обновлялся).
+    LaunchedEffect(bookingId) {
+        val id = bookingId ?: return@LaunchedEffect
+        while (true) {
+            ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase }
+            kotlinx.coroutines.delay(12_000)
+        }
+    }
     var draft by remember { mutableStateOf("") }
     var editingId by remember { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
     var status by remember { mutableStateOf<String?>(null) }
@@ -625,6 +634,26 @@ internal fun ActiveTripScreen(
                             Spacer(Modifier.width(6.dp))
                             Text(ride?.driver ?: appText("Водитель", "Водитель"), color = CanonMuted)
                             ride?.time?.let { Spacer(Modifier.width(10.dp)); Text(it, color = CanonMuted) }
+                        }
+                    }
+                }
+            }
+            // Live-баннер пассажиру: водитель выехал/подъезжает (опрос статуса раз в ~12с, не только пуш).
+            if (role == "passenger" && (driverPhase == "departed" || driverPhase == "arriving")) {
+                item {
+                    val arriving = driverPhase == "arriving"
+                    Surface(
+                        modifier = Modifier.appearIn(1).fillMaxWidth(),
+                        color = if (arriving) CanonGreen2 else CanonMint,
+                        shape = CanonCardShape
+                    ) {
+                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = if (arriving) Color.White else CanonGreen2, modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                if (arriving) appText("Водитель подъезжает", "Водитель яҡынлаша") else appText("Водитель выехал к вам", "Водитель сыҡты"),
+                                color = if (arriving) Color.White else CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp
+                            )
                         }
                     }
                 }

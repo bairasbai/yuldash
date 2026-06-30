@@ -195,6 +195,7 @@ class Booking(SQLModel, table=True):
     seats: int = 1
     price: int = 0
     status: BookingStatus = BookingStatus.pending
+    driver_phase: str = ""           # подфаза активной поездки от водителя: "" / departed / arriving (для live-баннера пассажиру)
     boarding_code: str = ""
     created_at: datetime = Field(default_factory=utcnow)
 

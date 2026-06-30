@@ -70,8 +70,14 @@ def boarding_code(booking_id: int, user: User = Depends(current_user), session: 
 def booking_role(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Роль текущего юзера в брони — водитель/пассажир. Экран активной поездки показывает
     нужные кнопки статуса (водитель: «выехал/подъезжаю»; пассажир: «сел/доехал/завершить»)."""
-    _booking, ride = booking_and_ride_for_user(session, booking_id, user)
-    return {"role": "driver" if ride.driver_id == user.id else "passenger"}
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    # + статус и подфаза → экран активной поездки опрашивает это и показывает пассажиру live-баннер
+    # «водитель выехал/подъезжает» (раньше это приходило только пушем, в UI не обновлялось).
+    return {
+        "role": "driver" if ride.driver_id == user.id else "passenger",
+        "status": booking.status,
+        "driver_phase": booking.driver_phase,
+    }
 
 
 class DriverStatusIn(BaseModel):
@@ -92,13 +98,17 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
         # Идемпотентно: уже завершённую/отменённую бронь не трогаем.
         if booking.status not in (BookingStatus.done, BookingStatus.cancelled):
             booking.status = BookingStatus.done
+            booking.driver_phase = ""        # поездка кончилась — фазу сбрасываем
             session.add(booking)
             session.commit()
         send_push(session, booking.passenger_id, "Поездка завершена", f"{ride.from_city} → {ride.to_city}")
         return {"ok": True, "status": "done"}
+    booking.driver_phase = body.status       # сохраняем «выехал/подъезжает» → пассажир увидит live, не только пушем
+    session.add(booking)
+    session.commit()
     title = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
     send_push(session, booking.passenger_id, title, f"{ride.from_city} → {ride.to_city}")
-    return {"ok": True}
+    return {"ok": True, "driver_phase": body.status}
 
 
 @router.post("/bookings/{booking_id}/confirm", response_model=Booking)
