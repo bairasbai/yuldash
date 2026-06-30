@@ -1566,6 +1566,49 @@ private fun YandexMapCard(
                 onClose = { selectedRequest = null }
             )
         }
+        // DEBUG-ТОЛЬКО: симуляция движущегося попутчика — посмотреть, как едет нав-стрелка без 2-го
+        // телефона. В релизе кнопки нет (BuildConfig.DEBUG=false). Тапни поездку → ▶ Симуляция: фейк-машина
+        // едет по дорожному маршруту, стрелка крутится по направлению, камера следом.
+        if (BuildConfig.DEBUG) {
+            var simJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+            val simMap = mapView.mapWindow.map
+            Surface(
+                onClick = {
+                    simJob?.let { it.cancel(); simJob = null; com.yuldash.app.data.TripLocationBus.peer = null; return@Surface }
+                    val a = previewRide?.let { cityPoint(it.from) } ?: activeTrip?.let { cityPoint(it.from) } ?: cityPoint("Уфа") ?: Point(54.7388, 55.9721)
+                    val b = previewRide?.let { cityPoint(it.to) } ?: activeTrip?.let { cityPoint(it.to) } ?: cityPoint("Сибай") ?: Point(52.6900, 58.6700)
+                    simJob = tripScope.launch {
+                        val raw = roadRoutePoints(a, b)
+                        val path = if (raw.size > 2) subsamplePath(raw, 60) else densifyPath(a, b, 60)
+                        val line = simMap.mapObjects.addPolyline(Polyline(raw)).apply { setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f }
+                        try {
+                            simMap.move(CameraPosition(path.first(), 11.5f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
+                            for (i in path.indices) {
+                                val cur = path[i]
+                                val brg = if (i > 0) bearingBetween(path[i - 1], cur) else bearingBetween(cur, path.getOrElse(1) { cur })
+                                com.yuldash.app.data.TripLocationBus.peer = com.yuldash.app.data.LocationSocket.Peer("driver", cur.latitude, cur.longitude, brg, i.toLong())
+                                simMap.move(CameraPosition(cur, simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.35f), null)
+                                kotlinx.coroutines.delay(380)
+                            }
+                        } finally {
+                            runCatching { simMap.mapObjects.remove(line) }
+                            com.yuldash.app.data.TripLocationBus.peer = null
+                            simJob = null
+                        }
+                    }
+                },
+                modifier = Modifier.align(Alignment.BottomStart).padding(14.dp).zIndex(7f),
+                shape = RoundedCornerShape(13.dp),
+                color = CanonGreen2,
+                shadowElevation = 4.dp
+            ) {
+                Text(
+                    if (simJob != null) appText("⏹ Стоп", "⏹ Туҡта") else appText("▶ Симуляция", "▶ Демо"),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp
+                )
+            }
+        }
     }
 }
 
@@ -1655,6 +1698,53 @@ private fun RequestPreviewCard(
         )
     }
 }
+
+// --- DEBUG-симуляция движущегося попутчика (демо нав-стрелки без 2-го телефона) ---
+// Азимут (куда «носом» едет машинка) между двумя гео-точками, 0..360°.
+private fun bearingBetween(a: Point, b: Point): Double {
+    val lat1 = Math.toRadians(a.latitude); val lat2 = Math.toRadians(b.latitude)
+    val dLon = Math.toRadians(b.longitude - a.longitude)
+    val y = Math.sin(dLon) * Math.cos(lat2)
+    val x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+    return (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
+}
+
+// Прорядить плотную линию маршрута до n шагов (чтобы анимация не была слишком долгой).
+private fun subsamplePath(pts: List<Point>, n: Int): List<Point> {
+    if (pts.size <= n) return pts
+    val step = (pts.size - 1).toDouble() / (n - 1)
+    return (0 until n).map { pts[(it * step).toInt()] }
+}
+
+// Запасной путь (если роутинг не дал маршрут) — прямая, разбитая на n точек.
+private fun densifyPath(a: Point, b: Point, n: Int): List<Point> =
+    (0..n).map { i -> val t = i.toDouble() / n; Point(a.latitude + (b.latitude - a.latitude) * t, a.longitude + (b.longitude - a.longitude) * t) }
+
+// Точки дорожного маршрута A→B (для демо-движения). Ошибка/квота → прямая [from,to].
+private suspend fun roadRoutePoints(from: Point, to: Point): List<Point> =
+    kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+        val done = java.util.concurrent.atomic.AtomicBoolean(false)
+        val session = runCatching {
+            val router = com.yandex.mapkit.directions.DirectionsFactory.getInstance()
+                .createDrivingRouter(com.yandex.mapkit.directions.driving.DrivingRouterType.COMBINED)
+            val reqPoints = listOf(
+                com.yandex.mapkit.RequestPoint(from, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
+                com.yandex.mapkit.RequestPoint(to, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
+            )
+            router.requestRoutes(
+                reqPoints, com.yandex.mapkit.directions.driving.DrivingOptions(), com.yandex.mapkit.directions.driving.VehicleOptions(),
+                object : com.yandex.mapkit.directions.driving.DrivingSession.DrivingRouteListener {
+                    override fun onDrivingRoutes(routes: MutableList<com.yandex.mapkit.directions.driving.DrivingRoute>) {
+                        if (done.compareAndSet(false, true)) cont.resumeWith(Result.success(routes.firstOrNull()?.geometry?.points ?: listOf(from, to)))
+                    }
+                    override fun onDrivingRoutesError(error: com.yandex.runtime.Error) {
+                        if (done.compareAndSet(false, true)) cont.resumeWith(Result.success(listOf(from, to)))
+                    }
+                }
+            )
+        }.getOrNull()
+        cont.invokeOnCancellation { runCatching { session?.cancel() } }
+    }
 
 // Дистанция между городами по координатам (для превью маршрута). null — если город неизвестен.
 internal fun cityDistanceText(from: String, to: String): String? {
