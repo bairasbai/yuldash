@@ -838,3 +838,16 @@ Telegram-вход (+ все ветки ошибок, VK/WhatsApp чисто уб
 - Проверено server-side: сервис `active`, `/health`→`{ok,prod,db:ok}`, `/rides`→200, журнал чист (только INFO-шум закрытия сокетов при рестарте воркеров).
 - Откат: `ssh root@85.239.52.55 "tar xzf /opt/yuldash/backups/app-pre-mapaudit-20260630-122834.tar.gz -C /opt/yuldash && systemctl restart yuldash-api"`.
 - Android-фиксы (TripLocationService само-стоп) — в релизном APK при следующей сборке.
+
+### ✅ Статус-вотчер активной поездки — СДЕЛАНО + ДЕПЛОЙ (2026-06-30)
+Закрыт топ-🔴 бэклога. Пассажир видит «водитель выехал/подъезжает» LIVE (опрос `/role` раз в 12с), не только пушем.
+- backend: `Booking.driver_phase`; `driver-status` сохраняет/сбрасывает; `/bookings/{id}/role` → `{role,status,driver_phase}`. Миграция `migrate_driver_phase.sql`.
+- android: `getTripState` + поллинг в `ActiveTripScreen` → двуязычный live-баннер (Canon-цвета, анимация появления, само-скрытие на done).
+- **Деплой:** бэкап `app-pre-statuswatcher-*`; сверка дрейфа (чисто); scp models/bookings + `ALTER TABLE` (миграция ДО рестарта); import-check `IMPORT_OK`; restart. Проверено: `active`, колонка `driver_phase` есть, `/health` ok, `/rides` 200, журнал чист.
+- Откат: `tar xzf /opt/yuldash/backups/app-pre-statuswatcher-*.tar.gz -C /opt/yuldash` (+ колонка инертна, дроп не нужен) → restart.
+
+### ⏸ Пересчёт маршрута при отклонении — ОСОЗНАННО отложено
+Юлдаш показывает маршрут как ВИЗУАЛ (где едет + ETA), а не ведёт turn-by-turn (водитель юзает Яндекс Навигатор). Для попуток recalc — низкая ценность при высокой сложности (триггер по отклонению, дебаунс, троттл re-request, риск на рабочем экране). Не таксопарк-навигатор. Вернуться при реальной потребности.
+
+### 🔤 Переводы на проверку — статус-вотчер (2026-06-30)
+- «Водитель сыҡты» (Водитель выехал к вам), «Водитель яҡынлаша» (Водитель подъезжает).
