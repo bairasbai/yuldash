@@ -673,6 +673,8 @@ internal fun FiltersScreen(onBack: () -> Unit) {
                     SettingSwitchRow(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), appText("Есть детское кресло или бустер", "Балалар ултырғысы бар"), "child" in sel) { toggle("child") }
                     SettingSwitchRow(Icons.Default.Pets, appText("С животным", "Хайуан менән"), appText("Можно ехать с питомцем", "Хайуан менән барырға мөмкин"), "pets" in sel) { toggle("pets") }
                     SettingSwitchRow(Icons.Default.Luggage, appText("Багаж", "Багаж"), appText("Есть место под багаж", "Багаж өсөн урын бар"), "baggage" in sel) { toggle("baggage") }
+                    SettingSwitchRow(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), appText("Есть кондиционер в салоне", "Салонда кондиционер бар"), "ac" in sel) { toggle("ac") }
+                    SettingSwitchRow(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"), appText("Курение в поездке разрешено", "Сәфәрҙә тартырға рөхсәт"), "smoking" in sel) { toggle("smoking") }
                 }
             }
         }
