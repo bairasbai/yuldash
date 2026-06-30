@@ -343,7 +343,7 @@ internal fun MapScreen(
                 ("pets" !in prefFilter || d.petsAllowed) &&
                 ("baggage" !in prefFilter || d.baggage) &&
                 ("ac" !in prefFilter || d.airConditioner) &&
-                ("smoking" !in prefFilter || d.smoking)
+                ("nosmoke" !in prefFilter || !d.smoking)   // некурящий = поездки, где курить нельзя
         }
     }
     // Пины-ценники на карте = те же «Ближайшие» (реальные поездки), макс 20 чтобы не захламлять.
@@ -418,7 +418,7 @@ internal fun MapScreen(
                             NearbyFilterChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"), "pets" in prefFilter) { prefFilter = if ("pets" in prefFilter) prefFilter - "pets" else prefFilter + "pets" }
                             NearbyFilterChip(Icons.Default.Luggage, appText("Багаж", "Багаж"), "baggage" in prefFilter) { prefFilter = if ("baggage" in prefFilter) prefFilter - "baggage" else prefFilter + "baggage" }
                             NearbyFilterChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), "ac" in prefFilter) { prefFilter = if ("ac" in prefFilter) prefFilter - "ac" else prefFilter + "ac" }
-                            NearbyFilterChip(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"), "smoking" in prefFilter) { prefFilter = if ("smoking" in prefFilter) prefFilter - "smoking" else prefFilter + "smoking" }
+                            NearbyFilterChip(Icons.Default.Block, appText("Некурящий", "Тартмаусы"), "nosmoke" in prefFilter) { prefFilter = if ("nosmoke" in prefFilter) prefFilter - "nosmoke" else prefFilter + "nosmoke" }
                         }
                     }
                 }
