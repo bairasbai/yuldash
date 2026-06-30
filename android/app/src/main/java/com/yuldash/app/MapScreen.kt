@@ -1177,6 +1177,7 @@ private fun YandexMapCard(
     // Геолокация управляется из Профиль → Конфиденциальность (общий LocationPrefs); FAB «к себе» тоже включает.
     var lastUserPoint by remember { mutableStateOf<Point?>(null) }
     var routeEta by remember { mutableStateOf<String?>(null) }   // время в пути из DrivingRoute → чип на карте
+    var liveRemainSec by remember { mutableStateOf<Int?>(null) } // живой остаток «сколько ехать» по ходу движения (демо/трекинг)
     val locationPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) LocationPrefs.sharingEnabled = true
     }
@@ -1507,8 +1508,21 @@ private fun YandexMapCard(
             .border(1.dp, Color(0x1A000000), RoundedCornerShape(24.dp))
     ) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
-        // ETA: время в пути по маршруту (≈), слева сверху — пока есть активная или выбранная поездка.
-        if ((activeTrip != null || previewRide != null) && routeEta != null) {
+        // ETA-чип (слева сверху): при движении — «≈ … осталось» (живой остаток до конца), иначе общее «≈ … в пути».
+        val liveSec = liveRemainSec
+        val etaText: String? = when {
+            liveSec != null -> {
+                val h = liveSec / 3600; val m = (liveSec % 3600) / 60
+                when {
+                    h > 0 -> appText("≈ $h ч $m мин осталось", "≈ $h сәғ $m мин ҡалды")
+                    m > 0 -> appText("≈ $m мин осталось", "≈ $m мин ҡалды")
+                    else -> appText("почти на месте", "етеп килә")
+                }
+            }
+            (activeTrip != null || previewRide != null) && routeEta != null -> appText("≈ $routeEta в пути", "≈ $routeEta юлда")
+            else -> null
+        }
+        if (etaText != null) {
             Surface(
                 modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                 color = CanonSurface,
@@ -1517,7 +1531,7 @@ private fun YandexMapCard(
                 border = BorderStroke(1.dp, CanonHairlineGreen)
             ) {
                 Text(
-                    appText("≈ $routeEta в пути", "≈ $routeEta юлда"),
+                    etaText,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1
                 )
@@ -1603,7 +1617,7 @@ private fun YandexMapCard(
                     val a = previewRide?.let { cityPoint(it.from) } ?: activeTrip?.let { cityPoint(it.from) } ?: cityPoint("Уфа") ?: Point(54.7388, 55.9721)
                     val b = previewRide?.let { cityPoint(it.to) } ?: activeTrip?.let { cityPoint(it.to) } ?: cityPoint("Сибай") ?: Point(52.6900, 58.6700)
                     simJob = tripScope.launch {
-                        val raw = roadRoutePoints(a, b)
+                        val (raw, totalSec) = roadRoutePoints(a, b)
                         val path = if (raw.size > 2) subsamplePath(raw, 100) else densifyPath(a, b, 100)
                         val line = simMap.mapObjects.addPolyline(Polyline(raw)).apply { setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f }
                         try {
@@ -1612,12 +1626,15 @@ private fun YandexMapCard(
                                 val cur = path[i]
                                 val brg = if (i > 0) bearingBetween(path[i - 1], cur) else bearingBetween(cur, path.getOrElse(1) { cur })
                                 com.yuldash.app.data.TripLocationBus.peer = com.yuldash.app.data.LocationSocket.Peer("driver", cur.latitude, cur.longitude, brg, i.toLong())
+                                // Остаток пути → живой ETA «осталось». Доля оставшихся точек × полное время маршрута.
+                                if (totalSec > 0) liveRemainSec = (totalSec * (path.size - i).toDouble() / path.size).toInt()
                                 simMap.move(CameraPosition(cur, simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.6f), null)
                                 kotlinx.coroutines.delay(200)
                             }
                         } finally {
                             runCatching { simMap.mapObjects.remove(line) }
                             com.yuldash.app.data.TripLocationBus.peer = null
+                            liveRemainSec = null
                             simJob = null
                         }
                     }
@@ -1745,8 +1762,9 @@ private fun subsamplePath(pts: List<Point>, n: Int): List<Point> {
 private fun densifyPath(a: Point, b: Point, n: Int): List<Point> =
     (0..n).map { i -> val t = i.toDouble() / n; Point(a.latitude + (b.latitude - a.latitude) * t, a.longitude + (b.longitude - a.longitude) * t) }
 
-// Точки дорожного маршрута A→B (для демо-движения). Ошибка/квота → прямая [from,to].
-private suspend fun roadRoutePoints(from: Point, to: Point): List<Point> =
+// Точки дорожного маршрута A→B + полное время в пути (сек). Для демо-движения и живого ETA.
+// Ошибка/квота → прямая [from,to] и время 0 (тогда ETA не показываем).
+private suspend fun roadRoutePoints(from: Point, to: Point): Pair<List<Point>, Double> =
     kotlinx.coroutines.suspendCancellableCoroutine { cont ->
         val done = java.util.concurrent.atomic.AtomicBoolean(false)
         val session = runCatching {
@@ -1760,10 +1778,11 @@ private suspend fun roadRoutePoints(from: Point, to: Point): List<Point> =
                 reqPoints, com.yandex.mapkit.directions.driving.DrivingOptions(), com.yandex.mapkit.directions.driving.VehicleOptions(),
                 object : com.yandex.mapkit.directions.driving.DrivingSession.DrivingRouteListener {
                     override fun onDrivingRoutes(routes: MutableList<com.yandex.mapkit.directions.driving.DrivingRoute>) {
-                        if (done.compareAndSet(false, true)) cont.resumeWith(Result.success(routes.firstOrNull()?.geometry?.points ?: listOf(from, to)))
+                        val r = routes.firstOrNull()
+                        if (done.compareAndSet(false, true)) cont.resumeWith(Result.success(Pair(r?.geometry?.points ?: listOf(from, to), r?.metadata?.weight?.time?.value ?: 0.0)))
                     }
                     override fun onDrivingRoutesError(error: com.yandex.runtime.Error) {
-                        if (done.compareAndSet(false, true)) cont.resumeWith(Result.success(listOf(from, to)))
+                        if (done.compareAndSet(false, true)) cont.resumeWith(Result.success(Pair(listOf(from, to), 0.0)))
                     }
                 }
             )
