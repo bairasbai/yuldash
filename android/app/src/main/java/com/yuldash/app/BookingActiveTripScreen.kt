@@ -167,6 +167,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -508,11 +511,15 @@ internal fun ActiveTripScreen(
     var driverPhase by remember(bookingId) { mutableStateOf("") }   // ""/departed/arriving — для live-баннера пассажиру
     // Опрос состояния поездки раз в ~12с: роль + подфаза водителя. Так пассажир видит «водитель выехал/
     // подъезжает» LIVE (раньше это приходило только пушем — его легко пропустить, а UI не обновлялся).
-    LaunchedEffect(bookingId) {
+    // На паузе в фоне (repeatOnLifecycle RESUMED) — не дёргаем сервер и батарею, когда приложение свёрнуто.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(bookingId, lifecycleOwner) {
         val id = bookingId ?: return@LaunchedEffect
-        while (true) {
-            ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase }
-            kotlinx.coroutines.delay(12_000)
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase }
+                kotlinx.coroutines.delay(12_000)
+            }
         }
     }
     var draft by remember { mutableStateOf("") }
