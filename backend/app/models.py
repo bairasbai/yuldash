@@ -180,6 +180,13 @@ class RideRequest(SQLModel, table=True):
     category: RideCategory = RideCategory.regular
     with_kids: bool = False
     baggage: bool = False
+    # Предпочтения/условия пассажира (что нужно/с чем едет) — водитель видит и подбирает поездку.
+    women_only: bool = False        # только женщины-водители/салон
+    child_seat: bool = False        # нужно детское кресло
+    pets: bool = False              # еду с животным
+    wheelchair: bool = False        # нужна доступность для инвалидной коляски
+    non_smoking: bool = False       # некурящий салон
+    air_conditioner: bool = False   # нужен кондиционер
     comment: str = ""
     for_relative_name: Optional[str] = None
     voice_url: Optional[str] = None

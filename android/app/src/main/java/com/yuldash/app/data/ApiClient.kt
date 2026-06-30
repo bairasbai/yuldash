@@ -420,6 +420,13 @@ object ApiClient {
         transcript: String? = null,
         assisted: Boolean = false,
         relativeName: String? = null,
+        womenOnly: Boolean = false,
+        childSeat: Boolean = false,
+        pets: Boolean = false,
+        wheelchair: Boolean = false,
+        nonSmoking: Boolean = false,
+        airConditioner: Boolean = false,
+        baggage: Boolean = false,
     ): Result<Unit> = call(
         "POST", "/requests",
         JSONObject()
@@ -428,6 +435,13 @@ object ApiClient {
             .put("seats", seats)
             .put("category", category)
             .put("with_kids", withKids)
+            .put("baggage", baggage)
+            .put("women_only", womenOnly)
+            .put("child_seat", childSeat)
+            .put("pets", pets)
+            .put("wheelchair", wheelchair)
+            .put("non_smoking", nonSmoking)
+            .put("air_conditioner", airConditioner)
             .put("max_price", maxPrice)
             .put("comment", comment)
             .put("assisted", assisted)
@@ -513,7 +527,9 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"))
+                val pa = o.optJSONArray("prefs")
+                val prefs = if (pa != null) (0 until pa.length()).map { pa.optString(it) } else emptyList()
+                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"), prefs)
             }
         }
 
@@ -1281,7 +1297,7 @@ data class ReportableUserDto(val id: Int, val name: String)
 data class PendingDriverDto(val userId: Int, val name: String, val phone: String, val car: String, val licenseUrl: String, val carPhotoUrl: String,
     val autocheckResult: String = "", val autocheckScore: Double = 0.0, val autocheckData: String = "")
 data class AdminReportDto(val id: Int, val reporterName: String, val targetName: String, val targetPhone: String, val reason: String, val createdAt: String)
-data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "")
+data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList())
 data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String, val driverAvatar: String = "")
 
 data class ContactDto(

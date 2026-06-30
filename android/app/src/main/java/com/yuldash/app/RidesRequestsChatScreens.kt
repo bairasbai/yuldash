@@ -1378,6 +1378,22 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                                 Text("${r.passengerName} · " + appText("${r.seats} мест", "${r.seats} урын"), color = CanonMuted, fontSize = 13.sp)
                             }
                             if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
+                            if (r.prefs.isNotEmpty()) {
+                                // Условия пассажира → водитель видит, подходит ли поездка.
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    items(r.prefs, key = { it }) { key ->
+                                        when (key) {
+                                            "women" -> PrefChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
+                                            "child" -> PrefChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"))
+                                            "pets" -> PrefChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"))
+                                            "wheelchair" -> PrefChip(Icons.Default.Person, appText("Коляска", "Коляска"))
+                                            "baggage" -> PrefChip(Icons.Default.Luggage, appText("Багаж", "Багаж"))
+                                            "nosmoke" -> PrefChip(Icons.Default.Block, appText("Не курить", "Тартмаҫҡа"))
+                                            "ac" -> PrefChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"))
+                                        }
+                                    }
+                                }
+                            }
                             if (r.responded) Text(appText("Вы откликнулись", "Яуап бирҙегеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             else Button(onClick = { target = r; price = ""; comment = "" }, modifier = Modifier.align(Alignment.End), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), fontWeight = FontWeight.Bold) }
                         }

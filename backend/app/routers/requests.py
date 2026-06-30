@@ -31,6 +31,12 @@ class RequestIn(BaseModel):
     category: RideCategory = RideCategory.regular
     with_kids: bool = False
     baggage: bool = False
+    women_only: bool = False        # предпочтения пассажира (условия поездки)
+    child_seat: bool = False
+    pets: bool = False
+    wheelchair: bool = False
+    non_smoking: bool = False
+    air_conditioner: bool = False
     comment: str = Field("", max_length=2000)
     for_relative_name: Optional[str] = Field(None, max_length=120)
     voice_url: Optional[str] = None
@@ -178,6 +184,19 @@ def my_requests(
 
 # ---------------- Заявки ↔ водители: лента, отклики, принятие ----------------
 
+def request_prefs(r) -> list:
+    """Активные условия/предпочтения заявки → список ключей (клиент рисует чипы). Порядок стабилен."""
+    out = []
+    if getattr(r, "women_only", False): out.append("women")
+    if getattr(r, "child_seat", False): out.append("child")
+    if getattr(r, "pets", False): out.append("pets")
+    if getattr(r, "wheelchair", False): out.append("wheelchair")
+    if getattr(r, "baggage", False): out.append("baggage")
+    if getattr(r, "non_smoking", False): out.append("nosmoke")
+    if getattr(r, "air_conditioner", False): out.append("ac")
+    return out
+
+
 class RequestFeedOut(BaseModel):
     id: int
     passenger_name: str
@@ -188,6 +207,7 @@ class RequestFeedOut(BaseModel):
     seats: int
     comment: str
     responded: bool                          # уже откликался ли текущий водитель
+    prefs: list = []                          # условия заявки (women/child/pets/wheelchair/baggage/nosmoke/ac)
 
 
 @router.get("/requests/feed", response_model=List[RequestFeedOut])
@@ -220,6 +240,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
             passenger_avatar=(p.avatar_url if p else ""),
             from_city=r.from_city, to_city=r.to_city, desired_at=r.desired_at,
             seats=r.seats, comment=r.comment, responded=(r.id in mine),
+            prefs=request_prefs(r),
         ))
     return out
 

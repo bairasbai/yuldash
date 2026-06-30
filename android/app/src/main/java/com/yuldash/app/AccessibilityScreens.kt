@@ -621,6 +621,14 @@ internal fun CreatePassengerRequestScreen(
     var category by remember { mutableStateOf("regular") }
     var price by remember { mutableStateOf("350") }
     var comment by remember { mutableStateOf("") }
+    // Условия/предпочтения пассажира — водитель видит и подбирает подходящую поездку.
+    var womenOnly by remember { mutableStateOf(false) }
+    var childSeat by remember { mutableStateOf(false) }
+    var pets by remember { mutableStateOf(false) }
+    var wheelchair by remember { mutableStateOf(false) }
+    var baggage by remember { mutableStateOf(false) }
+    var nonSmoking by remember { mutableStateOf(false) }
+    var airConditioner by remember { mutableStateOf(false) }
     val categories = listOf(
         "regular" to LocalizedText("Обычная", "Ғәҙәти"),
         "urgent" to LocalizedText("Срочно", "Ашығыс"),
@@ -717,6 +725,20 @@ internal fun CreatePassengerRequestScreen(
                 }
             }
             item {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.padding(vertical = 6.dp)) {
+                        Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                        PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly) { womenOnly = it }
+                        PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), childSeat) { childSeat = it }
+                        PrefToggleRow(Icons.Default.Pets, appText("Еду с животным", "Хайуан менән"), pets) { pets = it }
+                        PrefToggleRow(Icons.Default.Person, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair) { wheelchair = it }
+                        PrefToggleRow(Icons.Default.Luggage, appText("Есть багаж", "Багаж бар"), baggage) { baggage = it }
+                        PrefToggleRow(Icons.Default.Block, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking) { nonSmoking = it }
+                        PrefToggleRow(Icons.Default.AcUnit, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner) { airConditioner = it }
+                    }
+                }
+            }
+            item {
                 OutlinedTextField(
                     value = comment,
                     onValueChange = { comment = it },
@@ -762,6 +784,9 @@ internal fun CreatePassengerRequestScreen(
                                 seats.toIntOrNull() ?: 1,
                                 apiCat, withKids, comment.trim(), priceVal,
                                 assisted = true,   // заявка за близкого → уведомить админа
+                                womenOnly = womenOnly, childSeat = childSeat, pets = pets,
+                                wheelchair = wheelchair, nonSmoking = nonSmoking,
+                                airConditioner = airConditioner, baggage = baggage,
                             )
                                 .onSuccess {
                                     onCreateRequest(
