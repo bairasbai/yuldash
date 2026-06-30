@@ -1641,18 +1641,32 @@ private fun YandexMapCard(
                     val b = previewRide?.let { cityPoint(it.to) } ?: activeTrip?.let { cityPoint(it.to) } ?: cityPoint("Сибай") ?: Point(52.6900, 58.6700)
                     simJob = tripScope.launch {
                         val (raw, totalSec) = roadRoutePoints(a, b)
-                        val path = if (raw.size > 2) subsamplePath(raw, 100) else densifyPath(a, b, 100)
-                        val line = simMap.mapObjects.addPolyline(Polyline(raw)).apply { setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f }
+                        val road = if (raw.size >= 2) raw else listOf(a, b)   // ПОЛНАЯ геометрия дороги — без прорежения
+                        // Длины сегментов + полная длина → едем с ПОСТОЯННОЙ скоростью по длине (а не по вершинам).
+                        val seg = DoubleArray(road.size - 1) { geoMeters(road[it], road[it + 1]) }
+                        val total = seg.sum().coerceAtLeast(1.0)
+                        val line = simMap.mapObjects.addPolyline(Polyline(road)).apply { setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f }
                         try {
-                            simMap.move(CameraPosition(path.first(), 11.5f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
-                            for (i in path.indices) {
-                                val cur = path[i]
-                                val brg = if (i > 0) bearingBetween(path[i - 1], cur) else bearingBetween(cur, path.getOrElse(1) { cur })
-                                com.yuldash.app.data.TripLocationBus.peer = com.yuldash.app.data.LocationSocket.Peer("driver", cur.latitude, cur.longitude, brg, i.toLong())
-                                // Остаток пути → живой ETA «осталось». Та же функция, что у реальной поездки (проверка её на демо).
-                                if (totalSec > 0) liveRemainSec = remainingEtaSec(path, cur, totalSec)
-                                simMap.move(CameraPosition(cur, simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.7f), null)
-                                kotlinx.coroutines.delay(300)   // медленнее: ~30с на весь маршрут (плавный круиз)
+                            simMap.move(CameraPosition(road.first(), 11.5f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
+                            val durMs = 30000.0      // весь маршрут ~30с (спокойный круиз)
+                            val stepMs = 40L         // подача ~25 точек/с, chaser догладит до 60fps
+                            var elapsed = 0.0; var tick = 0
+                            while (elapsed <= durMs) {
+                                val frac = (elapsed / durMs).coerceIn(0.0, 1.0)
+                                val targetDist = frac * total
+                                // Найти сегмент по пройденной длине + точную точку НА дороге (интерполяция вдоль сегмента).
+                                var acc = 0.0; var si = 0
+                                while (si < seg.size - 1 && acc + seg[si] < targetDist) { acc += seg[si]; si++ }
+                                val pA = road[si]; val pB = road[si + 1]
+                                val t = if (seg[si] > 0.0) ((targetDist - acc) / seg[si]).coerceIn(0.0, 1.0) else 0.0
+                                val lat = pA.latitude + (pB.latitude - pA.latitude) * t
+                                val lng = pA.longitude + (pB.longitude - pA.longitude) * t
+                                val brg = bearingBetween(pA, pB)   // нос — строго по касательной дороги (направление сегмента)
+                                com.yuldash.app.data.TripLocationBus.peer = com.yuldash.app.data.LocationSocket.Peer("driver", lat, lng, brg, elapsed.toLong())
+                                if (totalSec > 0) liveRemainSec = (totalSec * (1.0 - frac)).toInt()
+                                if (tick % 8 == 0) simMap.move(CameraPosition(Point(lat, lng), simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.45f), null)
+                                tick++
+                                kotlinx.coroutines.delay(stepMs); elapsed += stepMs
                             }
                         } finally {
                             runCatching { simMap.mapObjects.remove(line) }
@@ -1774,16 +1788,15 @@ private fun bearingBetween(a: Point, b: Point): Double {
     return (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
 }
 
-// Прорядить плотную линию маршрута до n шагов (чтобы анимация не была слишком долгой).
-private fun subsamplePath(pts: List<Point>, n: Int): List<Point> {
-    if (pts.size <= n) return pts
-    val step = (pts.size - 1).toDouble() / (n - 1)
-    return (0 until n).map { pts[(it * step).toInt()] }
+// Расстояние между двумя гео-точками в метрах (haversine) — для движения с постоянной скоростью по длине маршрута.
+private fun geoMeters(a: Point, b: Point): Double {
+    val r = 6371000.0
+    val dLat = Math.toRadians(b.latitude - a.latitude)
+    val dLon = Math.toRadians(b.longitude - a.longitude)
+    val la1 = Math.toRadians(a.latitude); val la2 = Math.toRadians(b.latitude)
+    val h = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    return 2 * r * Math.asin(Math.min(1.0, Math.sqrt(h)))
 }
-
-// Запасной путь (если роутинг не дал маршрут) — прямая, разбитая на n точек.
-private fun densifyPath(a: Point, b: Point, n: Int): List<Point> =
-    (0..n).map { i -> val t = i.toDouble() / n; Point(a.latitude + (b.latitude - a.latitude) * t, a.longitude + (b.longitude - a.longitude) * t) }
 
 // Точки дорожного маршрута A→B + полное время в пути (сек). Для демо-движения и живого ETA.
 // Ошибка/квота → прямая [from,to] и время 0 (тогда ETA не показываем).
