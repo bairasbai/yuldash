@@ -1425,23 +1425,37 @@ private fun YandexMapCard(
         try {
             var curLat = 0.0; var curLng = 0.0; var curBrg = 0f
             var has = false                       // уже есть отрисованная позиция (чтобы первую ставить без «подлёта» из 0,0)
+            var prevLat = Double.NaN; var prevLng = 0.0
+            var lastChangeNanos = 0L; var intervalMs = 1000f   // как часто приходят новые точки (плотность подачи)
             while (true) {
+                val now = androidx.compose.runtime.withFrameNanos { it }   // ждём кадр (60fps) + берём время кадра
                 val p = com.yuldash.app.data.TripLocationBus.peer
                 if (p == null) {                  // поездки нет → прячем стрелку, опрашиваем редко (не жжём кадры)
-                    if (has) { pm.isVisible = false; has = false }
+                    if (has) { pm.isVisible = false; has = false; prevLat = Double.NaN; lastChangeNanos = 0L }
                     kotlinx.coroutines.delay(200)
                     continue
+                }
+                // Новая цель? Замеряем интервал между обновлениями (это и есть «плотность подачи»).
+                if (p.lat != prevLat || p.lng != prevLng) {
+                    if (lastChangeNanos != 0L) intervalMs = ((now - lastChangeNanos) / 1_000_000.0).toFloat().coerceIn(8f, 8000f)
+                    lastChangeNanos = now; prevLat = p.lat; prevLng = p.lng
                 }
                 if (!has) {                       // первая точка — ставим сразу
                     curLat = p.lat; curLng = p.lng; curBrg = (p.bearing ?: 0.0).toFloat()
                     pm.geometry = Point(curLat, curLng); pm.setDirection(curBrg); pm.isVisible = true
                     has = true
-                    androidx.compose.runtime.withFrameNanos { }
                     continue
                 }
-                // Зум-адаптив: приближаешь карту → стрелка тянется к цели резвее и плавнее (на крупном плане),
-                // отдаляешь → мягче и спокойнее. Так глаза не разбегаются на любом масштабе. zoom ~3..18 → α 0.07..0.22.
-                val a = (map.cameraPosition.zoom / 90f).coerceIn(0.07f, 0.22f)
+                // α от ПЛОТНОСТИ: точки часто (демо/быстрый GPS, <80мс) → тянемся жёстко = строго на дороге без отставания;
+                // редко (реальный GPS ~7с) → мягко глайдим через паузу, чтобы не было рывка-телепорта.
+                val dens = when {
+                    intervalMs < 80f -> 0.5f
+                    intervalMs > 1500f -> 0.10f
+                    else -> 0.10f + (0.5f - 0.10f) * ((1500f - intervalMs) / (1500f - 80f))
+                }
+                // Масштаб: приближаешь → отзывчивее (на крупном плане глаз держит стрелку), отдаляешь → мягче.
+                val zf = (map.cameraPosition.zoom / 13f).coerceIn(0.85f, 1.2f)
+                val a = (dens * zf).coerceIn(0.08f, 0.6f)
                 curLat += (p.lat - curLat) * a
                 curLng += (p.lng - curLng) * a
                 pm.geometry = Point(curLat, curLng)
@@ -1450,7 +1464,6 @@ private fun YandexMapCard(
                     curBrg = ((curBrg + d * a) % 360f + 360f) % 360f
                     pm.setDirection(curBrg)
                 }
-                androidx.compose.runtime.withFrameNanos { }
             }
         } finally {
             runCatching { map.mapObjects.remove(pm) }
@@ -1664,7 +1677,7 @@ private fun YandexMapCard(
                                 val brg = bearingBetween(pA, pB)   // нос — строго по касательной дороги (направление сегмента)
                                 com.yuldash.app.data.TripLocationBus.peer = com.yuldash.app.data.LocationSocket.Peer("driver", lat, lng, brg, elapsed.toLong())
                                 if (totalSec > 0) liveRemainSec = (totalSec * (1.0 - frac)).toInt()
-                                if (tick % 8 == 0) simMap.move(CameraPosition(Point(lat, lng), simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.45f), null)
+                                if (tick % 4 == 0) simMap.move(CameraPosition(Point(lat, lng), simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.32f), null)   // следование чаще+мягче
                                 tick++
                                 kotlinx.coroutines.delay(stepMs); elapsed += stepMs
                             }
