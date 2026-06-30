@@ -1,5 +1,12 @@
 # ✅ Задачи Юлдаш
 
+## ✅ Live-трекинг Инкремент 1: заявки на карте — backend задеплоен на прод (2026-06-30)
+- [x] `RideRequest` +координаты `from_lat/lng`,`to_lat/lng`; `POST /requests` геокодит концы (как `/rides`).
+- [x] Новый `GET /requests/near` — зеркало `/rides/near` (PostGIS `ST_DWithin` + haversine-фоллбэк), приватность: город/точка отправления + имя, **без телефона**.
+- [x] Миграция `backend/migrate_request_coords.sql` (ALTER TABLE **riderequest** — имя таблицы lowercase-класс, НЕ snake_case! Урок: `RideRequest`→`riderequest`, `Ride`→`ride`).
+- [x] **Задеплоено на `yulbash.ru` + проверено:** service active, `/requests/near` (плейн + PostGIS-путь) отдаёт валид JSON без ошибок. Безопасный деплой: бэкап → заливка → миграция → **импорт-чек ДО рестарта** → рестарт.
+- [ ] **Осталось (Android):** `getNearbyRequests` + маркеры заявок «ищет попутку» на карте.
+
 ## ✅ Финализация: краш-фиксы + маршруты Фаза 1 + синк backend 1:1 с продом (2026-06-30)
 
 **Краш-фиксы дубль-ключей LazyColumn + null-safety (5 правок из Codex-сессии, проверены и применены):**

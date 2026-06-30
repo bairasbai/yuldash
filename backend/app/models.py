@@ -166,6 +166,11 @@ class RideRequest(SQLModel, table=True):
     passenger_id: int = Field(index=True, foreign_key="user.id")
     from_city: str = Field(index=True)
     to_city: str = Field(index=True)
+    # Координаты концов маршрута (геокодятся при создании, как у Ride) — для карты и радиус-поиска заявок.
+    from_lat: Optional[float] = None
+    from_lng: Optional[float] = None
+    to_lat: Optional[float] = None
+    to_lng: Optional[float] = None
     desired_at: Optional[datetime] = None
     seats: int = 1
     max_price: Optional[int] = None

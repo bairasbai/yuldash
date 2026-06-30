@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -12,8 +12,11 @@ from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
 )
-from ..security import current_user, gen_otp
-from ..services import is_blocked, notify_admin_telegram, send_push, user_rating
+from ..security import current_user, current_user_optional, gen_otp
+from ..services import (
+    CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
+    send_push, user_rating,
+)
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["requests"])
@@ -37,7 +40,14 @@ class RequestIn(BaseModel):
 
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    req = RideRequest(passenger_id=user.id, **body.model_dump(exclude={"assisted"}))
+    # Геокодим концы маршрута (для карты водителя и радиус-поиска заявок) — как у POST /rides.
+    frm = geocode_city(body.from_city) or (None, None)
+    to = geocode_city(body.to_city) or (None, None)
+    req = RideRequest(
+        passenger_id=user.id,
+        **body.model_dump(exclude={"assisted"}),
+        from_lat=frm[0], from_lng=frm[1], to_lat=to[0], to_lng=to[1],
+    )
     session.add(req)
     session.commit()
     session.refresh(req)
@@ -49,6 +59,68 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
             f"{req.comment or '—'}\n→ Кабинет админа → Отклики по заявке #{req.id}"
         )
     return req
+
+
+@router.get("/requests/near")
+def requests_near(
+    from_city: Optional[str] = None,
+    to_city: Optional[str] = None,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    radius_km: Optional[float] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+    user: Optional[User] = Depends(current_user_optional),
+    session: Session = Depends(get_session),
+):
+    """Активные заявки пассажиров рядом — водитель видит, кто ищет попутку на его маршруте (зеркало /rides/near).
+    Координаты клиента (lat/lng) → дистанция до точки отправления заявки + опц. фильтр радиуса.
+    Приватность: отдаём только город/точку отправления + имя, без телефона/точного адреса."""
+    q = select(RideRequest).where(RideRequest.status == "active")
+    if from_city:
+        q = q.where(RideRequest.from_city.contains(from_city))
+    if to_city:
+        q = q.where(RideRequest.to_city.contains(to_city))
+    # PostGIS-префильтр по радиусу (postgres + координаты) — как у /rides/near; иначе Python-haversine ниже.
+    if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
+        try:
+            ids = [row[0] for row in session.execute(text(
+                "SELECT id FROM riderequest WHERE from_lat IS NULL OR "
+                "ST_DWithin(ST_MakePoint(from_lng, from_lat)::geography, "
+                "ST_MakePoint(:lng, :lat)::geography, :r)"
+            ), {"lng": lng, "lat": lat, "r": radius_km * 1000.0}).all()]
+            q = q.where(RideRequest.id.in_(ids)) if ids else q.where(RideRequest.id.is_(None))
+        except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк ниже
+            print(f"[GEO] requests PostGIS prefilter skipped: {e}")
+    reqs = session.exec(q.order_by(RideRequest.id.desc())).all()
+    items: list = []
+    for r in reqs:
+        if user is not None and is_blocked(session, user.id, r.passenger_id):
+            continue
+        dist = None
+        if lat is not None and lng is not None:
+            c = (r.from_lat, r.from_lng) if r.from_lat is not None and r.from_lng is not None else CITY_COORDS.get(r.from_city)
+            if c:
+                dist = round(haversine_km(lat, lng, c[0], c[1]), 1)
+        if radius_km is not None and dist is not None and dist > radius_km:
+            continue
+        passenger = session.get(User, r.passenger_id)
+        items.append({
+            "id": r.id,
+            "passenger_name": (passenger.name if passenger else "") or "Пассажир",
+            "from_city": r.from_city,
+            "to_city": r.to_city,
+            "from_lat": r.from_lat,
+            "from_lng": r.from_lng,
+            "desired_at": r.desired_at,
+            "seats": r.seats,
+            "comment": r.comment,
+            "distance_km": dist,
+        })
+    total = len(items)
+    if limit is not None:
+        items = items[max(0, offset):max(0, offset) + max(1, min(limit, 200))]
+    return {"count": total, "items": items}
 
 
 class AdminRequestIn(BaseModel):
