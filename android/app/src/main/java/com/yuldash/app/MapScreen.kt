@@ -998,23 +998,30 @@ private fun requestPinBitmap(): Bitmap {
     return bmp.also { requestPinCache = it }
 }
 
-// Маркер другого участника в активной поездке (live-позиция) — синяя «машинка», отдельно от поездок/заявок.
-private var peerCarCache: Bitmap? = null
-private fun peerCarBitmap(): Bitmap {
-    peerCarCache?.let { return it }
-    val s = 48
+// Маркер другого участника (live-позиция) — нав-стрелка курса (как в навигаторах). Остриё = направление
+// движения; MapKit поворачивает её по bearing. Синяя с белой обводкой (контраст на карте).
+private var peerArrowCache: Bitmap? = null
+private fun peerArrowBitmap(): Bitmap {
+    peerArrowCache?.let { return it }
+    val s = 54
     val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
-    val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
-    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#1565C0") }  // синий = попутчик
-    val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33000000 }
-    val cx = s / 2f; val cy = s / 2f
-    c.drawCircle(cx, cy + 2f, 19f, shadow)
-    c.drawCircle(cx, cy, 19f, white)
-    c.drawCircle(cx, cy, 15f, fill)
-    c.drawRoundRect(android.graphics.RectF(cx - 9f, cy - 3f, cx + 9f, cy + 6f), 3f, 3f, white)   // кузов
-    c.drawRoundRect(android.graphics.RectF(cx - 5f, cy - 8f, cx + 5f, cy - 1f), 2f, 2f, white)   // крыша
-    return bmp.also { peerCarCache = it }
+    val cx = s / 2f
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#1565C0") }
+    val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 5f; strokeJoin = Paint.Join.ROUND
+    }
+    // Стрелка вверх: остриё сверху, крылья вниз, вырез снизу (классический «курс»).
+    val p = android.graphics.Path().apply {
+        moveTo(cx, 7f)              // остриё (направление)
+        lineTo(s - 11f, s - 9f)     // правое крыло
+        lineTo(cx, s - 19f)         // вырез (вогнутый низ)
+        lineTo(11f, s - 9f)         // левое крыло
+        close()
+    }
+    c.drawPath(p, outline)   // белая обводка под заливкой
+    c.drawPath(p, fill)
+    return bmp.also { peerArrowCache = it }
 }
 
 // Ценник-маркер зависит только от (цена, boosted) → кешируем по ключу,
@@ -1376,7 +1383,8 @@ private fun YandexMapCard(
         }
         onDispose { added.forEach { runCatching { map.mapObjects.remove(it) } } }
     }
-    // Live-позиция попутчика (из foreground-сервиса через TripLocationBus) — синяя машинка, двигается.
+    // Live-позиция попутчика (из foreground-сервиса через TripLocationBus) — нав-стрелка курса, двигается
+    // и ПОВОРАЧИВАЕТСЯ по направлению движения (bearing), как в навигаторах.
     // Глобальный state → эффект перерисует маркер при каждой новой точке. Снимается, когда поездка кончилась.
     DisposableEffect(com.yuldash.app.data.TripLocationBus.peer) {
         val map = mapView.mapWindow.map
@@ -1385,8 +1393,9 @@ private fun YandexMapCard(
             runCatching {
                 added += map.mapObjects.addPlacemark().apply {
                     geometry = Point(p.lat, p.lng)
-                    setIcon(ImageProvider.fromBitmap(peerCarBitmap()))
-                    setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)))
+                    setIcon(ImageProvider.fromBitmap(peerArrowBitmap()))
+                    setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)).setRotationType(com.yandex.mapkit.map.RotationType.ROTATE))
+                    p.bearing?.let { setDirection(it.toFloat()) }   // стрелка смотрит туда, куда едет
                 }
             }
         }
