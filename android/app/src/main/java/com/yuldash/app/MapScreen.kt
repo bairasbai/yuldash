@@ -1127,7 +1127,7 @@ private fun drawRoadRoute(
         )
         router.requestRoutes(
             reqPoints,
-            com.yandex.mapkit.directions.driving.DrivingOptions(),
+            com.yandex.mapkit.directions.driving.DrivingOptions().apply { routesCount = 3 },   // основной + до 2 объездных/альтернативных
             com.yandex.mapkit.directions.driving.VehicleOptions(),
             object : com.yandex.mapkit.directions.driving.DrivingSession.DrivingRouteListener {
                 override fun onDrivingRoutes(routes: MutableList<com.yandex.mapkit.directions.driving.DrivingRoute>) {
@@ -1135,6 +1135,11 @@ private fun drawRoadRoute(
                     runCatching {
                         map.mapObjects.remove(straightLine)
                         added.remove(straightLine)
+                        // Объездные/альтернативные маршруты — бледно-серым, ПОД основным (как в навигаторах).
+                        routes.drop(1).take(2).forEach { alt ->
+                            runCatching { added += map.mapObjects.addPolyline(alt.geometry).apply { setStrokeColor(0x55757575.toInt()); strokeWidth = 4f } }
+                        }
+                        // Основной (оптимальный по Яндексу — он сам учитывает пробки и закрытия дорог) — зелёным, поверх.
                         added += map.mapObjects.addPolyline(r.geometry).apply {
                             setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
                         }
@@ -1434,7 +1439,9 @@ private fun YandexMapCard(
                     androidx.compose.runtime.withFrameNanos { }
                     continue
                 }
-                val a = 0.12f                     // доля пути к цели за кадр → мягкий глайд ~0.4с (плавнее, без рывков)
+                // Зум-адаптив: приближаешь карту → стрелка тянется к цели резвее и плавнее (на крупном плане),
+                // отдаляешь → мягче и спокойнее. Так глаза не разбегаются на любом масштабе. zoom ~3..18 → α 0.07..0.22.
+                val a = (map.cameraPosition.zoom / 90f).coerceIn(0.07f, 0.22f)
                 curLat += (p.lat - curLat) * a
                 curLng += (p.lng - curLng) * a
                 pm.geometry = Point(curLat, curLng)
