@@ -5,7 +5,7 @@
 - [x] Новый `GET /requests/near` — зеркало `/rides/near` (PostGIS `ST_DWithin` + haversine-фоллбэк), приватность: город/точка отправления + имя, **без телефона**.
 - [x] Миграция `backend/migrate_request_coords.sql` (ALTER TABLE **riderequest** — имя таблицы lowercase-класс, НЕ snake_case! Урок: `RideRequest`→`riderequest`, `Ride`→`ride`).
 - [x] **Задеплоено на `yulbash.ru` + проверено:** service active, `/requests/near` (плейн + PostGIS-путь) отдаёт валид JSON без ошибок. Безопасный деплой: бэкап → заливка → миграция → **импорт-чек ДО рестарта** → рестарт.
-- [ ] **Осталось (Android):** `getNearbyRequests` + маркеры заявок «ищет попутку» на карте.
+- [x] **Android (готово + проверено e2e):** `ApiClient.getNearbyRequests` + `RequestNearDto`; на карте оранжевые маркеры-человечки «ищет попутку» (`requestPinBitmap`, отличаются от ценников поездок); тап → Toast «имя · from→to» (без телефона). Проверка: вставил тест-заявку в прод → маркер у Сибая + тап-Toast «Ильдар: Сибай → Баймаҡ» → тест-заявку удалил, прод чист.
 
 ## ✅ Финализация: краш-фиксы + маршруты Фаза 1 + синк backend 1:1 с продом (2026-06-30)
 

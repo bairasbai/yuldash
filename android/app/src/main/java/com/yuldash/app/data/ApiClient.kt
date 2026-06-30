@@ -322,6 +322,24 @@ object ApiClient {
         }
     }
 
+    /** Заявки пассажиров рядом (для карты водителя — кто ищет попутку). Приватность: без телефона. */
+    suspend fun getNearbyRequests(
+        lat: Double? = null,
+        lng: Double? = null,
+        radiusKm: Double? = null,
+    ): Result<List<RequestNearDto>> {
+        val params = buildList {
+            lat?.let { add("lat=$it") }
+            lng?.let { add("lng=$it") }
+            radiusKm?.let { add("radius_km=$it") }
+        }
+        val path = "/requests/near" + if (params.isEmpty()) "" else "?" + params.joinToString("&")
+        return call("GET", path, null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toRequestNearDto() }
+        }
+    }
+
     /** Ориентир цены по маршруту (среднее прошлых поездок). count=0 → данных нет. */
     suspend fun getPriceHint(fromCity: String, toCity: String): Result<PriceHintDto> {
         val params = buildList {
@@ -1128,6 +1146,18 @@ private fun JSONObject.toRideDto() = RideDto(
     boosted = optBoolean("boosted"),
 )
 
+private fun JSONObject.toRequestNearDto() = RequestNearDto(
+    id = optInt("id"),
+    passengerName = optString("passenger_name").ifBlank { "Пассажир" },
+    fromCity = optString("from_city"),
+    toCity = optString("to_city"),
+    fromLat = if (isNull("from_lat")) null else optDouble("from_lat"),
+    fromLng = if (isNull("from_lng")) null else optDouble("from_lng"),
+    seats = optInt("seats", 1),
+    comment = optString("comment"),
+    distanceKm = if (isNull("distance_km")) null else optDouble("distance_km"),
+)
+
 data class RideDto(
     val id: Int,
     val fromCity: String,
@@ -1154,6 +1184,19 @@ data class RideDto(
     val pickupLng: Double? = null,
     val distanceKm: Double? = null,   // дистанция клиент→точка выезда (только из /rides/near с координатами)
     val boosted: Boolean = false,     // активный Boost (подсветка/бейдж)
+)
+
+/** Заявка пассажира рядом (/requests/near) — для маркера «ищет попутку» на карте. Без телефона. */
+data class RequestNearDto(
+    val id: Int,
+    val passengerName: String,
+    val fromCity: String,
+    val toCity: String,
+    val fromLat: Double?,
+    val fromLng: Double?,
+    val seats: Int,
+    val comment: String,
+    val distanceKm: Double?,
 )
 
 /** Статус проверки водителя (с бэкенда /driver/status). */

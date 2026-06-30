@@ -277,6 +277,7 @@ internal fun MapScreen(
     var adRoute by remember { mutableStateOf<PartnerAd?>(null) }   // «Маршрут» из рекламы → рисуем на нашей карте
     // Ближайшие поездки: маршрут клиента (активная поездка → её маршрут) + сортировка по времени выезда + гео-дистанция.
     var nearby by remember { mutableStateOf<List<com.yuldash.app.data.RideDto>>(emptyList()) }
+    var nearbyRequests by remember { mutableStateOf<List<com.yuldash.app.data.RequestNearDto>>(emptyList()) }  // заявки рядом → маркеры на карте
     var nearbyLoading by remember { mutableStateOf(true) }
     var nearbyError by remember { mutableStateOf(false) }   // отличаем «нет сети» от «нет поездок»
     var nearbyReload by remember { mutableStateOf(0) }
@@ -299,6 +300,12 @@ internal fun MapScreen(
             .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false }
             .onFailure { nearbyError = true }
         nearbyLoading = false
+    }
+    // Заявки пассажиров рядом → маркеры на карте (кто ищет попутку). Радиус — когда знаем позицию.
+    LaunchedEffect(userLat, userLng, nearbyReload) {
+        val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
+        ApiClient.getNearbyRequests(userLat, userLng, radius)
+            .onSuccess { nearbyRequests = it }
     }
     // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
     // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
@@ -337,7 +344,8 @@ internal fun MapScreen(
                         onDriver = onDriver,
                         adRoute = adRoute,
                         onClearRoute = { adRoute = null },
-                        previewRide = selectedRide
+                        previewRide = selectedRide,
+                        requests = nearbyRequests
                     )
                 }
                 // Закреплённый зазор кнопки → «Ближайшие поездки»: держится и на скролле
@@ -479,7 +487,8 @@ private fun MapHero(
     onDriver: () -> Unit,
     adRoute: PartnerAd? = null,        // активный «Маршрут до партнёра» (из рекламы) → показываем на карте
     onClearRoute: () -> Unit = {},
-    previewRide: Ride? = null          // выбранная поездка → её маршрут на карте
+    previewRide: Ride? = null,         // выбранная поездка → её маршрут на карте
+    requests: List<com.yuldash.app.data.RequestNearDto> = emptyList()  // заявки рядом → маркеры на карте
 ) {
     // Популярные маршруты — порядок с сервера (из реальных поездок); демо для богатого вида.
     // Поллинг ставится на паузу, когда приложение уходит в фон (repeatOnLifecycle RESUMED):
@@ -526,6 +535,7 @@ private fun MapHero(
                     onRideTap = onRideTap,
                     adRoutePoint = adRoutePoint,
                     previewRide = previewRide,
+                    requests = requests,
                     showPrivacyNotice = false
                 )
             } else {
@@ -968,6 +978,26 @@ private fun destFlagBitmap(): Bitmap {
     return bmp.also { destFlagCache = it }
 }
 
+// Маркер заявки пассажира («ищет попутку») — оранжевый человечек, визуально отличается от ценников поездок.
+private var requestPinCache: Bitmap? = null
+private fun requestPinBitmap(): Bitmap {
+    requestPinCache?.let { return it }
+    val s = 46
+    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bmp)
+    val accent = android.graphics.Color.parseColor("#E07B00")   // оранжевый = заявка (не поездка)
+    val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
+    val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22000000 }
+    val cx = s / 2f; val cy = s / 2f
+    c.drawCircle(cx, cy + 2f, 18f, shadow)
+    c.drawCircle(cx, cy, 18f, white)        // белая кайма
+    c.drawCircle(cx, cy, 14f, fill)         // оранжевый круг
+    c.drawCircle(cx, cy - 3f, 4.5f, white)  // голова человечка
+    c.drawRoundRect(android.graphics.RectF(cx - 6f, cy + 1f, cx + 6f, cy + 10f), 4f, 4f, white)  // тело
+    return bmp.also { requestPinCache = it }
+}
+
 // Ценник-маркер зависит только от (цена, boosted) → кешируем по ключу,
 // чтобы при перерисовке/смене поездки не лепить заново Bitmap+Paint каждый раз.
 private val ridePinCache = HashMap<String, Bitmap>()
@@ -1112,6 +1142,7 @@ private fun YandexMapCard(
     onRideTap: (Ride) -> Unit = {},
     adRoutePoint: Point? = null,   // «Маршрут» из рекламы → строим дорогу к этой точке прямо на нашей карте
     previewRide: Ride? = null,     // выбранная поездка (тап по пину/карточке) → показать её маршрут на карте
+    requests: List<com.yuldash.app.data.RequestNearDto> = emptyList(),  // заявки рядом → маркеры «ищет попутку»
     showPrivacyNotice: Boolean = true
 ) {
     val context = LocalContext.current
@@ -1124,10 +1155,18 @@ private fun YandexMapCard(
     // Свежие ссылки на активную поездку/тап, чтобы tap-listener не «застревал» на старых данных.
     val currentTrip by rememberUpdatedState(activeTrip)
     val currentRides by rememberUpdatedState(rides)
+    val currentRequests by rememberUpdatedState(requests)
     val currentOnTap by rememberUpdatedState(onRideTap)
     val tapListener = remember {
         MapObjectTapListener { obj, _ ->
             val id = obj.userData as? String
+            // Заявка пассажира: userData = "req-{id}" → кто ищет попутку (имя + маршрут, БЕЗ телефона).
+            if (id != null && id.startsWith("req-")) {
+                currentRequests.firstOrNull { "req-${it.id}" == id }?.let { req ->
+                    Toast.makeText(context, "${req.passengerName}: ${req.fromCity} → ${req.toCity}", Toast.LENGTH_SHORT).show()
+                    return@MapObjectTapListener true
+                }
+            }
             val ride = currentTrip?.takeIf { it.id == id } ?: currentRides.firstOrNull { it.id == id }
             if (ride != null) currentOnTap(ride)
             ride != null
@@ -1289,6 +1328,26 @@ private fun YandexMapCard(
                     setIcon(ImageProvider.fromBitmap(ridePinBitmap("${ride.price} ₽", ride.boosted)))
                     setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0f)))
                     userData = ride.id
+                    addTapListener(tapListener)
+                }
+            }
+        }
+        onDispose { added.forEach { runCatching { map.mapObjects.remove(it) } } }
+    }
+    // Заявки пассажиров рядом («ищет попутку») — оранжевые маркеры. Координаты заявки (from_lat/lng) или город.
+    // userData="req-{id}" → тап показывает кто ищет (имя+маршрут, без телефона).
+    DisposableEffect(requests) {
+        val map = mapView.mapWindow.map
+        val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
+        requests.forEach { req ->
+            val pt = if (req.fromLat != null && req.fromLng != null) Point(req.fromLat, req.fromLng)
+                     else cityPoint(req.fromCity) ?: return@forEach
+            runCatching {
+                added += map.mapObjects.addPlacemark().apply {
+                    geometry = pt
+                    setIcon(ImageProvider.fromBitmap(requestPinBitmap()))
+                    setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0.5f)))
+                    userData = "req-${req.id}"
                     addTapListener(tapListener)
                 }
             }
