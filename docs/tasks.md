@@ -855,3 +855,10 @@ Telegram-вход (+ все ветки ошибок, VK/WhatsApp чисто уб
 ### ✅ Авто-обновление пинов карты (2026-06-30)
 Закрыл часть гэпа «новые поездки/заявки не появляются сами». `MapScreen`: пока карта открыта и на переднем плане — раз в ~25с бампим `nearbyReload` → перетягиваются ОБА эффекта (поездки `/rides/near` + заявки `/requests/near`). Новые появляются сами, исполненные/уехавшие (seats=0 / status≠active) исчезают. Молча — спиннер только когда данных нет (`if (nearby.isEmpty())`), без мигания. В фоне пауза (`repeatOnLifecycle RESUMED`). На возврат из фона — сразу свежие (skipFirstAuto-гард против дубль-фетча на первом показе). Build green, смоук на эмуляторе ОК.
 - ⏳ Остаётся (бэклог): true live-push новых пинов через WS (как `/ws/bookings`) — сейчас polling 25с, не мгновенно. Для попуток 25с достаточно; WS — когда будет нужно «секунда-в-секунду».
+
+### ✅ Live-push новых пинов карты (WS) — СДЕЛАНО + ДЕПЛОЙ (2026-06-30)
+Закрыт последний бэклог-пункт карты. Новые поездки/заявки появляются на карте МГНОВЕННО (не 25с-опросом).
+- backend: канал-сигнал `/ws/map` (токен первым сообщением, авторизация как REST; в пинге нет данных). `notify_map_changed()` (sync, publish в общий чат-канал Redis через `_cache` → существующий `_chat_subscribe_loop` доставляет подписчикам `{type:refresh}` под ключом `MAP_FEED_KEY`). Зовём после commit: publish ride, create request, accept response, book, cancel (когда пины появляются/исчезают). Без Redis — no-op (polling подстрахует).
+- android: `MapFeedSocket` (OkHttp WS, auth-first, backoff-реконнект). `MapScreen` подписан пока экран открыт; «refresh» → bump `nearbyReload` (дебаунс 1.5с) → перетягивает `/rides/near`+`/requests/near`. 25с-опрос + lifecycle-пауза остаются.
+- **Деплой:** бэкап `app-pre-mapws-*`; сверка дрейфа 5 файлов (чисто; «дрейф» location.py был пустым pull-блипом ТСПУ); scp; `IMPORT_OK`; restart. Проверено: `/ws/map` отбивает плохой токен `CLOSED 1008` (маршрут жив), `notify_map_changed` publish OK, `/health` ok, `/rides` 200, журнал чист. nginx уже проксит `/ws/*`.
+- Откат: `tar xzf /opt/yuldash/backups/app-pre-mapws-*.tar.gz -C /opt/yuldash` → restart.
