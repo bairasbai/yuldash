@@ -1430,7 +1430,6 @@ internal fun HomeScreen(
                     onTrustedContacts = onTrustedContacts,
                     onCallbackHelp = onCallbackHelp,
                     onAdsCabinet = onAdsCabinet,
-                    onHospitalTrips = { openRides(to = "Больница") },
                     onToggleLanguage = onToggleLanguage,
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick

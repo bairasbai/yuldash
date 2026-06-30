@@ -104,7 +104,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Inventory2
-import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
@@ -268,7 +267,6 @@ internal fun ProfileScreen(
     onTrustedContacts: () -> Unit,
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
-    onHospitalTrips: () -> Unit,
     onToggleLanguage: () -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit
@@ -495,7 +493,6 @@ internal fun ProfileScreen(
             item { Box(Modifier.appearIn(2)) { ProfileActionCard(appText("Кабинет водителя", "Водитель кабинеты"), appText("Маршруты, проверка и поднятие", "Маршруттар, тикшереү һәм күтәреү"), Icons.Default.DirectionsCar, onDriverCabinet) } }
             item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
             item { Box(Modifier.appearIn(4)) { ProfileActionCard(appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото авто", "Права, машина, авто фотоһы"), Icons.Default.Verified, onVerifyDriver) } }
-            item { Box(Modifier.appearIn(5)) { ProfileActionCard(appText("Поездки в больницу", "Больницаға сәфәрҙәр"), appText("Быстрый фильтр для важных поездок", "Мөһим сәфәрҙәр өсөн тиҙ фильтр"), Icons.Default.LocalHospital, onHospitalTrips) } }
             item { Box(Modifier.appearIn(6)) { ProfileActionCard(appText("Безопасность", "Хәүефһеҙлек"), appText("SOS, скрытый телефон, подтверждённые участники", "SOS, йәшерен телефон, раҫланған ҡатнашыусылар"), Icons.Default.Shield, onSafety) } }
             item { Box(Modifier.appearIn(7)) { ProfileActionCard(appText("Поддержать Юлдаш", "Юлдашҡа ярҙам итеү"), appText("Серверы, карты, SMS и поддержка", "Серверҙар, карталар, SMS һәм ярҙам"), Icons.Default.VolunteerActivism, onSupport) } }
             item {
