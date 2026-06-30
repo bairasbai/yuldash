@@ -152,6 +152,51 @@ def test_ws_rejects_token_revoked_by_logout(client, user_factory):
             ws.receive_text()
 
 
+def test_ws_location_relay(client, user_factory):
+    """E2E live-трекинг БЕЗ устройств: 2 WS-клиента (водитель+пассажир) в подтверждённой брони,
+    каждый шлёт свою позицию → сервер ретранслирует ДРУГОМУ с правильным role. Формат ответа —
+    тот, что парсит LocationSocket на клиенте ({type:loc,role,lat,lng,bearing,ts})."""
+    import json
+    import time
+    drv = user_factory("RelayDrv", role=UserRole.driver)
+    rid = _ride(client, drv, seats=1)
+    pax = user_factory("RelayPax")
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
+    # Live-позиция разрешена только в активной поездке → подтверждаем бронь.
+    assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    with client.websocket_connect(f"/ws/trip/{bid}/location") as ws_d:
+        ws_d.send_text(json.dumps({"type": "auth", "token": drv["token"]}))
+        with client.websocket_connect(f"/ws/trip/{bid}/location") as ws_p:
+            ws_p.send_text(json.dumps({"type": "auth", "token": pax["token"]}))
+            time.sleep(0.3)   # дать серверу зарегистрировать ОБА соединения до первого loc
+            # водитель → пассажир
+            ws_d.send_text(json.dumps({"type": "loc", "lat": 54.01, "lng": 58.02, "bearing": 90}))
+            m = json.loads(ws_p.receive_text())
+            assert m["type"] == "loc" and m["role"] == "driver"
+            assert abs(m["lat"] - 54.01) < 1e-6 and abs(m["lng"] - 58.02) < 1e-6 and m["bearing"] == 90
+            # пассажир → водитель
+            ws_p.send_text(json.dumps({"type": "loc", "lat": 53.05, "lng": 59.06}))
+            m2 = json.loads(ws_d.receive_text())
+            assert m2["type"] == "loc" and m2["role"] == "passenger"
+            assert abs(m2["lat"] - 53.05) < 1e-6 and abs(m2["lng"] - 59.06) < 1e-6
+
+
+def test_ws_location_rejects_unconfirmed(client, user_factory):
+    """Приватность: до подтверждения брони (pending) live-позиция НЕ ретранслируется (close 1008)."""
+    import json
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+    drv = user_factory("LocPendDrv", role=UserRole.driver)
+    rid = _ride(client, drv, seats=1)
+    pax = user_factory("LocPendPax")
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
+    # бронь pending (не подтверждена) → WS локаций должен отбить
+    with pytest.raises((WebSocketDisconnect, Exception)):
+        with client.websocket_connect(f"/ws/trip/{bid}/location") as ws:
+            ws.send_text(json.dumps({"type": "auth", "token": pax["token"]}))
+            ws.receive_text()
+
+
 def test_app_review_submit_moderation_and_public(client, user_factory):
     u = user_factory("Гульназ")
     # слишком короткий — 400

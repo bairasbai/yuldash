@@ -80,8 +80,12 @@ async def trip_location(websocket: WebSocket, booking_id: int):
         passenger_id, driver_id = booking.passenger_id, ride.driver_id
 
     role = "driver" if user_id == driver_id else "passenger"
-    loc_key = -booking_id   # отдельный namespace от чата
-    manager.register(loc_key, websocket)
+    # Два ключа-НАПРАВЛЕНИЯ, чтобы НЕ возвращать отправителю его же позицию (эхо → стрелка попутчика
+    # мигала бы на своей точке). Каждый слушает свой inbox, шлёт в inbox ДРУГОГО.
+    # -bid*2 = inbox водителя (туда шлёт пассажир), -bid*2-1 = inbox пассажира (туда шлёт водитель).
+    recv_key = (-booking_id * 2) if role == "driver" else (-booking_id * 2 - 1)
+    send_key = (-booking_id * 2 - 1) if role == "driver" else (-booking_id * 2)
+    manager.register(recv_key, websocket)
     msgs = 0
     try:
         while True:
@@ -109,7 +113,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                         if not b2 or b2.status not in (BookingStatus.confirmed, BookingStatus.onboard):
                             await websocket.close(code=1008, reason="Trip ended")
                             break
-                await manager.broadcast(loc_key, {
+                await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
                     "type": "loc",
                     "role": role,
                     "lat": lat,
@@ -120,4 +124,4 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     except WebSocketDisconnect:
         pass
     finally:
-        manager.disconnect(loc_key, websocket)   # снятие регистрации при любом выходе
+        manager.disconnect(recv_key, websocket)   # снятие регистрации при любом выходе
