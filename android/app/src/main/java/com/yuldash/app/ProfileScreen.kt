@@ -1043,6 +1043,8 @@ internal fun InlinePartnerAdCard(
     LaunchedEffect(ad.id) {
         onImpression(ad)
     }
+    val context = LocalContext.current
+    val adLabel = ad.titleText()
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -1076,12 +1078,39 @@ internal fun InlinePartnerAdCard(
                     Text(ad.titleText(), color = CanonText, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(ad.descriptionText(), color = CanonMuted, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                TextButton(onClick = { onClick(ad) }) {
+                TextButton(onClick = { openAdTarget(context, ad, adLabel); onClick(ad) }) {
                     Text(ad.primaryButtonText(), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                 }
             }
         }
     }
+}
+
+// «Открыть» партнёра: сайт магазина (если задана ссылка) → иначе звонок партнёру → иначе подсказка.
+internal fun openAdTarget(context: Context, ad: PartnerAd, label: String) {
+    val link = ad.linkUrl.trim()
+    val phoneDigits = ad.contact.filter { it.isDigit() || it == '+' }
+    runCatching {
+        when {
+            link.startsWith("http://") || link.startsWith("https://") ->
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            phoneDigits.count { it.isDigit() } >= 10 ->
+                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phoneDigits")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            else -> Toast.makeText(context, label, Toast.LENGTH_SHORT).show()
+        }
+    }.onFailure { Toast.makeText(context, label, Toast.LENGTH_SHORT).show() }
+}
+
+// «Маршрут» до партнёра: дорога на авто (Яндекс.Карты; нет приложения → откроется в браузере).
+internal fun routeToAd(context: Context, ad: PartnerAd, label: String) {
+    val pt = ad.mapPoint.replace(" ", "")
+    val uri = if (pt.isNotBlank())
+        Uri.parse("https://yandex.ru/maps/?rtext=~$pt&rtt=auto")              // ~ = «от меня», rtt=auto → на авто
+    else
+        Uri.parse("https://yandex.ru/maps/?text=" + Uri.encode(ad.address))   // нет координат → поиск по адресу
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }.onFailure { Toast.makeText(context, label, Toast.LENGTH_SHORT).show() }
 }
 
 @Composable
@@ -1093,12 +1122,15 @@ internal fun PartnerAdCard(
     label: String? = null,
     showAdminDetails: Boolean = false,
     onImpression: (PartnerAd) -> Unit,
-    onClick: (PartnerAd) -> Unit
+    onClick: (PartnerAd) -> Unit,
+    onRoute: ((PartnerAd) -> Unit)? = null   // задан (экран с картой) → «Маршрут» рисуем в приложении; иначе внешние карты
 ) {
     LaunchedEffect(ad.id) {
         onImpression(ad)
     }
     val labelText = label ?: appText("Партнёр рядом", "Яҡындағы партнёр")
+    val context = LocalContext.current
+    val adLabel = ad.titleText()   // язык резолвим тут (в @Composable), чтобы отдать в действие-хелпер
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -1157,7 +1189,7 @@ internal fun PartnerAdCard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
-                    onClick = { onClick(ad) },
+                    onClick = { openAdTarget(context, ad, adLabel); onClick(ad) },   // «Открыть» → сайт/звонок партнёра
                     modifier = Modifier.weight(1f).height(44.dp),
                     shape = RoundedCornerShape(15.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
@@ -1166,7 +1198,7 @@ internal fun PartnerAdCard(
                 }
                 ad.secondaryButtonText()?.let { button ->
                     OutlinedButton(
-                        onClick = { onClick(ad) },
+                        onClick = { if (onRoute != null) onRoute(ad) else routeToAd(context, ad, adLabel); onClick(ad) },   // «Маршрут»: в приложении (если есть карта) или внешние карты
                         modifier = Modifier.weight(1f).height(44.dp),
                         shape = RoundedCornerShape(15.dp),
                         border = BorderStroke(1.dp, CanonGreen2)

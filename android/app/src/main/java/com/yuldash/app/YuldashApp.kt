@@ -373,33 +373,9 @@ internal fun YuldashApp() {
     fun trackAdClick(ad: PartnerAd) {
         val current = adStats[ad.id] ?: AdStats()
         adStats[ad.id] = current.copy(clicks = current.clicks + 1)
-        ApiClient.fireAdEvent(ad.id, "click")        // реальный клик на сервер
-        val title = if (language == AppLanguage.Ba) ad.titleBa ?: ad.title else ad.title
-        // Реальное действие по клику: ссылка → браузер; телефон → звонилка; координаты → карта; иначе подсказка.
-        val phoneDigits = ad.contact.filter { it.isDigit() || it == '+' }
-        val isPhone = phoneDigits.count { it.isDigit() } >= 10
-        val mapPt = ad.mapPoint.replace(" ", "")
-        val link = ad.linkUrl.trim()
-        val isLink = link.startsWith("http://") || link.startsWith("https://")
-        try {
-            when {
-                isLink -> context.startActivity(
-                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-                isPhone -> context.startActivity(
-                    Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phoneDigits"))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-                mapPt.isNotBlank() -> context.startActivity(
-                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse("geo:$mapPt?q=$mapPt"))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-                else -> Toast.makeText(context, title, Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            Toast.makeText(context, title, Toast.LENGTH_SHORT).show()
-        }
+        ApiClient.fireAdEvent(ad.id, "click")        // реальный клик на сервер (только учёт)
+        // Само действие выполняет карточка по конкретной кнопке: «Открыть» → сайт/звонок (openAdTarget),
+        // «Маршрут» → дорога до партнёра (routeToAd). Так две кнопки ведут в разные места, а не в одно.
     }
 
     // Поездки — с сервера. Стартуем с демо (мгновенно), при ответе заменяем на серверные.
@@ -1397,7 +1373,6 @@ internal fun HomeScreen(
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick,
                     onSos = onSos,
-                    onSimpleMode = onSimpleMode,
                     onOpenPopular = { route -> openRides(to = route.to, today = true) },
                     onDriver = onCreateRide,
                     onBoost = onBoost

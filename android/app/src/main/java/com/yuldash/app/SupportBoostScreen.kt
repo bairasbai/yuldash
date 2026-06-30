@@ -473,7 +473,7 @@ internal fun BoostScreen(onBack: () -> Unit) {
                             fontWeight = FontWeight.Black, fontSize = 15.sp, color = CanonText,
                             modifier = Modifier.padding(top = 4.dp))
                     }
-                    items(plans, key = { it.tier }) { plan ->
+                    itemsIndexed(plans, key = { i, it -> "${it.tier}#$i" }) { i, plan ->
                         BoostPlanCard(plan, selected = plan.tier == selectedTier,
                             onClick = { selectedTier = plan.tier; result = null; error = null })
                     }
@@ -615,17 +615,25 @@ private fun BoostResultCard(res: BoostResultDto, clipboard: androidx.compose.ui.
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(appText("Переведи ${res.amount} ₽ по СБП", "СБП аша ${res.amount} ₽ күсер"),
                     fontWeight = FontWeight.Black, fontSize = 16.sp, color = CanonText)
-                res.payeePhone?.let { phone ->
+                val payPhone = res.payeePhone?.takeIf { it.isNotBlank() }
+                if (payPhone != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(phone, fontWeight = FontWeight.Bold, color = CanonText, fontSize = 17.sp)
+                            Text(payPhone, fontWeight = FontWeight.Bold, color = CanonText, fontSize = 17.sp)
                             Text(listOfNotNull(res.payeeBank, res.payeeName).joinToString(" · "),
                                 fontSize = 13.sp, color = CanonMuted)
                         }
-                        OutlinedButton(onClick = { clipboard.setText(AnnotatedString(phone)) }) {
+                        OutlinedButton(onClick = { clipboard.setText(AnnotatedString(payPhone)) }) {
                             Text(appText("Скопировать", "Күсереп алыу"))
                         }
                     }
+                } else {
+                    // Реквизиты не пришли с сервера → не оставляем юзера без инструкции (фолбэк вместо пустоты).
+                    Text(
+                        appText("Реквизиты для перевода ещё не подгрузились — напиши в поддержку, поможем перевести.",
+                                "Күсереү реквизиттары әле килмәне — ярҙам хеҙмәтенә яҙ, күсерергә ярҙам итәбеҙ."),
+                        fontSize = 13.sp, color = CanonMuted
+                    )
                 }
                 Text(
                     appText("После перевода поднятие включим вручную — обычно быстро. Чек придёт от самозанятого.",

@@ -47,6 +47,8 @@ class User(SQLModel, table=True):
     verified: bool = False
     # OAuth / Социальные сети
     telegram_id: Optional[str] = Field(default=None, index=True, unique=True)
+    vk_id: Optional[str] = Field(default=None, index=True, unique=True)
+    whatsapp_verified: bool = False
     # Выход/ревокация: токены, выпущенные ДО этого момента, считаются недействительными
     # (logout «со всех устройств», смена/угон телефона). Сравнивается с `iat` токена.
     tokens_valid_from: Optional[datetime] = None
@@ -318,7 +320,7 @@ class Ad(SQLModel, table=True):
     Видно в приложении только active + в периоде. founder = место навсегда (ends_at=null), лимит 10."""
     id: Optional[int] = Field(default=None, primary_key=True)
     partner_name: str = ""                   # рекламодатель (показывается «Реклама · …»)
-    partner_contact: str = ""                # ПУБЛИЧНЫЙ контакт партнёра (tg/телефон/ссылка): отдаётся в /ads, клик по рекламе ведёт сюда. НЕ класть приватные заметки.
+    partner_contact: str = ""                # tg/телефон (для админа, не публично)
     title: str = ""
     text: str = ""
     button: str = ""                         # текст кнопки

@@ -18,6 +18,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.togetherWith
@@ -48,6 +51,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.zIndex
@@ -89,6 +93,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Flag
@@ -109,6 +114,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.NearMeDisabled
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
@@ -260,14 +266,15 @@ internal fun MapScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
     onSos: () -> Unit,
-    onSimpleMode: () -> Unit,
     onOpenPopular: (PopularRoute) -> Unit,
     onDriver: () -> Unit,
     onBoost: () -> Unit
 ) {
     val nearbyAd = ads.forPlacement(AdPlacement.Nearby).firstOrNull { it.city == "Баймаҡ" }
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
-    val sheetState = rememberModalBottomSheetState()
+    var lastPreview by remember { mutableStateOf<Ride?>(null) }   // держим поездку во время анимации скрытия карточки
+    LaunchedEffect(selectedRide) { if (selectedRide != null) lastPreview = selectedRide }
+    var adRoute by remember { mutableStateOf<PartnerAd?>(null) }   // «Маршрут» из рекламы → рисуем на нашей карте
     // Ближайшие поездки: маршрут клиента (активная поездка → её маршрут) + сортировка по времени выезда + гео-дистанция.
     var nearby by remember { mutableStateOf<List<com.yuldash.app.data.RideDto>>(emptyList()) }
     var nearbyLoading by remember { mutableStateOf(true) }
@@ -306,7 +313,11 @@ internal fun MapScreen(
     }
     // Пины-ценники на карте = те же «Ближайшие» (реальные поездки), макс 20 чтобы не захламлять.
     val mapPins = remember(shownNearby) { shownNearby.take(20).map { it.toUiRide() } }
-    Scaffold(containerColor = CanonBg) { padding ->
+    // Box-обёртка: Scaffold + не-модальная карточка выбранной поездки поверх (чтобы карта с маршрутом была видна).
+    Box(Modifier.fillMaxSize()) {
+    // Карта вложена в HomeScreen-Scaffold (он уже даёт отступ под меню и статус-бар).
+    // Свой Scaffold НЕ должен добавлять системные инсеты второй раз → contentWindowInsets = 0.
+    Scaffold(containerColor = CanonBg, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -323,9 +334,15 @@ internal fun MapScreen(
                         rides = mapPins,
                         onRideTap = { selectedRide = it },
                         onFind = onOpenPopular,
-                        onDriver = onDriver
+                        onDriver = onDriver,
+                        adRoute = adRoute,
+                        onClearRoute = { adRoute = null },
+                        previewRide = selectedRide
                     )
                 }
+                // Закреплённый зазор кнопки → «Ближайшие поездки»: держится и на скролле
+                // (contentPadding ниже «съедается» прокруткой, поэтому воздух ставим тут, в пине).
+                Spacer(Modifier.height(10.dp))
             }
             // Прокручиваемый низ: простой режим, ближайшие поездки, реклама.
             LazyColumn(
@@ -334,16 +351,12 @@ internal fun MapScreen(
                     .weight(1f)
                     .padding(horizontal = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(11.dp),
-                contentPadding = PaddingValues(top = 11.dp, bottom = 8.dp)
+                contentPadding = PaddingValues(top = 11.dp, bottom = 10.dp)   // низ потеснее (просьба: внизу было много места)
             ) {
-                // Карточка «Простой режим» для пожилых: крупные кнопки + голос (ведёт в Simple Mode).
                 item {
-                    Box(Modifier.appearIn(2)) { SeniorAccessCard(onSimpleMode = onSimpleMode) }
-                }
-                item {
-                    Box(Modifier.appearIn(3)) {
+                    Box(Modifier.appearIn(2)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),   // маленькая пауза заголовок → карточка
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(Modifier.weight(1f)) {
@@ -372,7 +385,7 @@ internal fun MapScreen(
                     }
                 }
                 item {
-                    Box(Modifier.appearIn(4)) {
+                    Box(Modifier.appearIn(3)) {
                         when {
                             nearbyLoading && nearby.isEmpty() -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 NearbySkeletonCard(); NearbySkeletonCard()
@@ -383,7 +396,7 @@ internal fun MapScreen(
                                 color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
                             )
                             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                itemsIndexed(shownNearby, key = { _, dto -> dto.id }) { i, dto ->
+                                itemsIndexed(shownNearby, key = { i, dto -> "${dto.id}#$i" }) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
                                 }
                                 // «Показать ещё» — когда сервер сообщил, что есть ещё (и фильтр не активен).
@@ -398,13 +411,14 @@ internal fun MapScreen(
                 }
                 nearbyAd?.let { ad ->
                     item {
-                        Box(Modifier.appearIn(5)) {
+                        Box(Modifier.appearIn(4)) {
                             PartnerAdCard(
                                 ad = ad,
                                 stats = adStats[ad.id] ?: AdStats(),
                                 label = appText("Партнёр рядом", "Яҡындағы партнёр"),
                                 onImpression = onAdImpression,
-                                onClick = onAdClick
+                                onClick = onAdClick,
+                                onRoute = { selected -> adRoute = selected }   // «Маршрут» → на нашей карте, не во внешних
                             )
                         }
                     }
@@ -412,24 +426,47 @@ internal fun MapScreen(
             }
         }
     }
-    // Тап по маркеру поездки → карточка снизу с деталями и действиями.
-    selectedRide?.let { ride ->
-        ModalBottomSheet(
-            onDismissRequest = { selectedRide = null },
-            sheetState = sheetState,
-            containerColor = CanonSurface
-        ) {
-            Column(Modifier.padding(horizontal = 14.dp).padding(bottom = 24.dp)) {
-                RideCard(
-                    ride = ride,
-                    compact = true,
-                    fullWidth = true,
-                    onBook = { selectedRide = null; onBookRide(ride) },
-                    onShare = { onShareRide(ride) },
-                    onBoost = { selectedRide = null; onBoost() }
-                )
+    // Тап по маркеру/карточке поездки → карта показывает её маршрут (выше), детали — карточкой снизу.
+    // Не модалка (нет затемнения карты): тап мимо карточки закрывает; карта с линией маршрута видна.
+    if (selectedRide != null) {
+        Box(
+            Modifier.fillMaxSize().clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { selectedRide = null }
+        )
+    }
+    AnimatedVisibility(
+        visible = selectedRide != null,
+        enter = slideInVertically { it } + fadeIn(),
+        exit = slideOutVertically { it } + fadeOut(),
+        modifier = Modifier.align(Alignment.BottomCenter)
+    ) {
+        lastPreview?.let { ride ->
+            Surface(
+                color = CanonSurface,
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                shadowElevation = 16.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.navigationBarsPadding().padding(horizontal = 14.dp).padding(top = 10.dp, bottom = 16.dp)) {
+                    Box(
+                        Modifier.align(Alignment.CenterHorizontally).width(40.dp).height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(CanonBorder)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    RideCard(
+                        ride = ride,
+                        compact = true,
+                        fullWidth = true,
+                        onBook = { selectedRide = null; onBookRide(ride) },
+                        onShare = { onShareRide(ride) },
+                        onBoost = { selectedRide = null; onBoost() }
+                    )
+                }
             }
         }
+    }
     }
 }
 
@@ -439,7 +476,10 @@ private fun MapHero(
     rides: List<Ride> = emptyList(),
     onRideTap: (Ride) -> Unit,
     onFind: (PopularRoute) -> Unit,
-    onDriver: () -> Unit
+    onDriver: () -> Unit,
+    adRoute: PartnerAd? = null,        // активный «Маршрут до партнёра» (из рекламы) → показываем на карте
+    onClearRoute: () -> Unit = {},
+    previewRide: Ride? = null          // выбранная поездка → её маршрут на карте
 ) {
     // Популярные маршруты — порядок с сервера (из реальных поездок); демо для богатого вида.
     // Поллинг ставится на паузу, когда приложение уходит в фон (repeatOnLifecycle RESUMED):
@@ -471,6 +511,7 @@ private fun MapHero(
     }
     var cardCollapsed by remember { mutableStateOf(false) }
     var activeRoute by remember { mutableStateOf<PopularRoute?>(null) }
+    val adRoutePoint = remember(adRoute) { adRoute?.let { parseMapPoint(it.mapPoint) } }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(
             modifier = Modifier
@@ -483,10 +524,43 @@ private fun MapHero(
                     activeTrip = activeTrip,
                     rides = rides,
                     onRideTap = onRideTap,
+                    adRoutePoint = adRoutePoint,
+                    previewRide = previewRide,
                     showPrivacyNotice = false
                 )
             } else {
                 MapPreview(Modifier.matchParentSize())
+            }
+            // Плашка активного маршрута до партнёра + крестик «сбросить» (как в навигаторах).
+            if (adRoute != null) {
+                Surface(
+                    modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                    color = CanonSurface,
+                    shape = RoundedCornerShape(14.dp),
+                    shadowElevation = 4.dp,
+                    border = BorderStroke(1.dp, CanonHairlineGreen)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.Directions, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                        Text(
+                            appText("Маршрут · ${adRoute.title}", "Маршрут · ${adRoute.titleBa ?: adRoute.title}"),
+                            color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp)
+                        )
+                        Surface(
+                            onClick = onClearRoute,
+                            shape = CircleShape,
+                            color = CanonMint,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = appText("Сбросить маршрут", "Маршрутты бетереү"), tint = CanonGreen2, modifier = Modifier.padding(6.dp))
+                        }
+                    }
+                }
             }
             // Подсказка-маршрут плавает в нижней части карты: свайп вправо → язычок, тап → назад.
             Box(
@@ -963,12 +1037,81 @@ private fun ensureMapKit(context: Context) {
     MapKitFactory.initialize(context)
 }
 
+// "53.9306, 58.3142" → Point(lat, lon). Кривой формат → null (маршрут просто не построится, без краша).
+internal fun parseMapPoint(raw: String): Point? {
+    val parts = raw.split(",").map { it.trim() }
+    if (parts.size != 2) return null
+    val lat = parts[0].toDoubleOrNull() ?: return null
+    val lon = parts[1].toDoubleOrNull() ?: return null
+    return Point(lat, lon)
+}
+
+// Маршрут по дорогам from→to на карте. Общий рисователь для активной поездки И превью выбранной.
+// Сразу кладёт прямую линию (мгновенный фидбэк), затем DrivingRouter заменяет её реальной дорожной геометрией;
+// + флажок назначения. Все объекты — в `added` (вызывающий снимет при dispose). Возвращает сессию роутинга (отменить).
+// Ошибка/нет квоты роутинга → остаётся прямая линия (фоллбэк, карта не ломается).
+private fun drawRoadRoute(
+    map: com.yandex.mapkit.map.Map,
+    from: Point,
+    to: Point,
+    added: MutableList<com.yandex.mapkit.map.MapObject>
+): com.yandex.mapkit.directions.driving.DrivingSession? {
+    val straightLine = map.mapObjects.addPolyline(Polyline(listOf(from, to))).apply {
+        setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 4f
+    }
+    added += straightLine
+    val session = runCatching {
+        val router = com.yandex.mapkit.directions.DirectionsFactory.getInstance()
+            .createDrivingRouter(com.yandex.mapkit.directions.driving.DrivingRouterType.COMBINED)
+        val reqPoints = listOf(
+            com.yandex.mapkit.RequestPoint(from, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
+            com.yandex.mapkit.RequestPoint(to, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
+        )
+        router.requestRoutes(
+            reqPoints,
+            com.yandex.mapkit.directions.driving.DrivingOptions(),
+            com.yandex.mapkit.directions.driving.VehicleOptions(),
+            object : com.yandex.mapkit.directions.driving.DrivingSession.DrivingRouteListener {
+                override fun onDrivingRoutes(routes: MutableList<com.yandex.mapkit.directions.driving.DrivingRoute>) {
+                    val r = routes.firstOrNull() ?: return
+                    runCatching {
+                        map.mapObjects.remove(straightLine)
+                        added.remove(straightLine)
+                        added += map.mapObjects.addPolyline(r.geometry).apply {
+                            setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
+                        }
+                    }
+                }
+                override fun onDrivingRoutesError(error: com.yandex.runtime.Error) { /* фоллбэк: прямая остаётся */ }
+            }
+        )
+    }.getOrNull()
+    added += map.mapObjects.addPlacemark().apply {
+        geometry = to
+        setIcon(ImageProvider.fromBitmap(destFlagBitmap()))
+        setIconStyle(IconStyle().setAnchor(PointF(0.24f, 0.9f)))
+    }
+    return session
+}
+
+// Камера, охватывающая весь маршрут from→to (как навигатор показывает поездку целиком), с небольшим запасом.
+private fun fitRouteCamera(map: com.yandex.mapkit.map.Map, from: Point, to: Point): CameraPosition? = runCatching {
+    val bbox = com.yandex.mapkit.geometry.BoundingBox(
+        Point(minOf(from.latitude, to.latitude), minOf(from.longitude, to.longitude)),
+        Point(maxOf(from.latitude, to.latitude), maxOf(from.longitude, to.longitude))
+    )
+    val fit = map.cameraPosition(com.yandex.mapkit.geometry.Geometry.fromBoundingBox(bbox))
+    CameraPosition(fit.target, (fit.zoom - 0.5f).coerceIn(3f, 16f), 0f, 0f)   // -0.5 = запас по краям
+}.getOrNull()
+
 @Composable
 private fun YandexMapCard(
     modifier: Modifier = Modifier,
     activeTrip: Ride? = null,
     rides: List<Ride> = emptyList(),
     onRideTap: (Ride) -> Unit = {},
+    adRoutePoint: Point? = null,   // «Маршрут» из рекламы → строим дорогу к этой точке прямо на нашей карте
+    previewRide: Ride? = null,     // выбранная поездка (тап по пину/карточке) → показать её маршрут на карте
     showPrivacyNotice: Boolean = true
 ) {
     val context = LocalContext.current
@@ -1088,47 +1231,8 @@ private fun YandexMapCard(
             val fromPt = resolve(trip.from) ?: return@launch
             val toPt = resolve(trip.to)
             if (toPt != null) {
-                val straightLine = map.mapObjects.addPolyline(Polyline(listOf(fromPt, toPt))).apply {
-                    setStrokeColor(0xCC0B6B3A.toInt())
-                    strokeWidth = 4f
-                }
-                added += straightLine
-                // Маршрут ПО ДОРОГАМ (full SDK + DrivingRouter). Ошибка/нет квоты роутинга → остаётся прямая линия (фоллбэк, без поломки карты).
-                roadSession = runCatching {
-                    val router = com.yandex.mapkit.directions.DirectionsFactory.getInstance()
-                        .createDrivingRouter(com.yandex.mapkit.directions.driving.DrivingRouterType.COMBINED)
-                    val reqPoints = listOf(
-                        com.yandex.mapkit.RequestPoint(fromPt, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
-                        com.yandex.mapkit.RequestPoint(toPt, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
-                    )
-                    router.requestRoutes(
-                        reqPoints,
-                        com.yandex.mapkit.directions.driving.DrivingOptions(),
-                        com.yandex.mapkit.directions.driving.VehicleOptions(),
-                        object : com.yandex.mapkit.directions.driving.DrivingSession.DrivingRouteListener {
-                            override fun onDrivingRoutes(routes: MutableList<com.yandex.mapkit.directions.driving.DrivingRoute>) {
-                                val r = routes.firstOrNull() ?: return
-                                runCatching {
-                                    map.mapObjects.remove(straightLine)
-                                    added.remove(straightLine)
-                                    added += map.mapObjects.addPolyline(r.geometry).apply {
-                                        setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
-                                    }
-                                }
-                            }
-                            override fun onDrivingRoutesError(error: com.yandex.runtime.Error) { /* фоллбэк: прямая остаётся */ }
-                        }
-                    )
-                }.getOrNull()
-                added += map.mapObjects.addPlacemark().apply {
-                    geometry = toPt
-                    setIcon(ImageProvider.fromBitmap(destFlagBitmap()))
-                    setIconStyle(IconStyle().setAnchor(PointF(0.24f, 0.9f)))
-                }
-                map.move(
-                    CameraPosition(Point((fromPt.latitude + toPt.latitude) / 2, (fromPt.longitude + toPt.longitude) / 2), 9.5f, 0f, 0f),
-                    Animation(Animation.Type.SMOOTH, 0.5f), null
-                )
+                roadSession = drawRoadRoute(map, fromPt, toPt, added)   // линия по дорогам + флажок (общий рисователь)
+                fitRouteCamera(map, fromPt, toPt)?.let { map.move(it, Animation(Animation.Type.SMOOTH, 0.5f), null) }  // показать весь маршрут
             }
             added += map.mapObjects.addPlacemark().apply {
                 geometry = fromPt
@@ -1137,6 +1241,33 @@ private fun YandexMapCard(
                 userData = trip.id
                 addTapListener(tapListener)
             }
+        }
+        onDispose {
+            job.cancel()
+            runCatching { roadSession?.cancel() }
+            added.forEach { runCatching { map.mapObjects.remove(it) } }
+        }
+    }
+    // Превью маршрута ВЫБРАННОЙ поездки (тап по пину/карточке) — линия по дорогам + флажок, камера фитит весь путь.
+    // Снимается, когда карточку закрыли (previewRide=null). Активную не дублируем — её рисует эффект выше.
+    DisposableEffect(previewRide) {
+        val map = mapView.mapWindow.map
+        val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
+        var roadSession: com.yandex.mapkit.directions.driving.DrivingSession? = null
+        val job = tripScope.launch {
+            val ride = previewRide ?: return@launch
+            if (ride.id == activeTrip?.id) return@launch
+            suspend fun resolve(city: String): Point? {
+                val k = city.trim()
+                cityPoint(k)?.let { return it }
+                cityCache[k]?.let { return it }
+                val hit = GeocoderClient.suggest(k).firstOrNull() ?: return null
+                return Point(hit.lat, hit.lon).also { cityCache[k] = it }
+            }
+            val fromPt = resolve(ride.from) ?: return@launch
+            val toPt = resolve(ride.to) ?: return@launch
+            roadSession = drawRoadRoute(map, fromPt, toPt, added)
+            fitRouteCamera(map, fromPt, toPt)?.let { map.move(it, Animation(Animation.Type.SMOOTH, 0.45f), null) }
         }
         onDispose {
             job.cancel()
@@ -1163,6 +1294,65 @@ private fun YandexMapCard(
             }
         }
         onDispose { added.forEach { runCatching { map.mapObjects.remove(it) } } }
+    }
+    // Маршрут до партнёра из рекламы — прямо на нашей карте (как активная поездка, но к точке магазина).
+    // Есть геолокация → дорога от меня к магазину; нет → просто центрируем карту на магазине с флажком.
+    DisposableEffect(adRoutePoint, lastUserPoint) {
+        val map = mapView.mapWindow.map
+        val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
+        var roadSession: com.yandex.mapkit.directions.driving.DrivingSession? = null
+        val dest = adRoutePoint
+        if (dest != null) {
+            added += map.mapObjects.addPlacemark().apply {
+                geometry = dest
+                setIcon(ImageProvider.fromBitmap(destFlagBitmap()))
+                setIconStyle(IconStyle().setAnchor(PointF(0.24f, 0.9f)))
+            }
+            val origin = lastUserPoint
+            if (origin != null) {
+                val straightLine = map.mapObjects.addPolyline(Polyline(listOf(origin, dest))).apply {
+                    setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 4f
+                }
+                added += straightLine
+                // Дорога по дорогам (DrivingRouter). Нет квоты/ошибка → остаётся прямая линия (фоллбэк).
+                roadSession = runCatching {
+                    val router = com.yandex.mapkit.directions.DirectionsFactory.getInstance()
+                        .createDrivingRouter(com.yandex.mapkit.directions.driving.DrivingRouterType.COMBINED)
+                    val reqPoints = listOf(
+                        com.yandex.mapkit.RequestPoint(origin, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
+                        com.yandex.mapkit.RequestPoint(dest, com.yandex.mapkit.RequestPointType.WAYPOINT, null, null, null),
+                    )
+                    router.requestRoutes(
+                        reqPoints,
+                        com.yandex.mapkit.directions.driving.DrivingOptions(),
+                        com.yandex.mapkit.directions.driving.VehicleOptions(),
+                        object : com.yandex.mapkit.directions.driving.DrivingSession.DrivingRouteListener {
+                            override fun onDrivingRoutes(routes: MutableList<com.yandex.mapkit.directions.driving.DrivingRoute>) {
+                                val r = routes.firstOrNull() ?: return
+                                runCatching {
+                                    map.mapObjects.remove(straightLine)
+                                    added.remove(straightLine)
+                                    added += map.mapObjects.addPolyline(r.geometry).apply {
+                                        setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
+                                    }
+                                }
+                            }
+                            override fun onDrivingRoutesError(error: com.yandex.runtime.Error) { /* прямая остаётся */ }
+                        }
+                    )
+                }.getOrNull()
+                map.move(
+                    CameraPosition(Point((origin.latitude + dest.latitude) / 2, (origin.longitude + dest.longitude) / 2), 9.5f, 0f, 0f),
+                    Animation(Animation.Type.SMOOTH, 0.5f), null
+                )
+            } else {
+                map.move(CameraPosition(dest, 13f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
+            }
+        }
+        onDispose {
+            runCatching { roadSession?.cancel() }
+            added.forEach { runCatching { map.mapObjects.remove(it) } }
+        }
     }
     // Жизненный цикл карты привязан к появлению/скрытию экрана «Карта».
     DisposableEffect(Unit) {
@@ -1208,15 +1398,17 @@ private fun YandexMapCard(
                     else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                 }
             },
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 14.dp).size(48.dp).zIndex(6f),  // тач-цель ≥48dp
+            // top=120: зум-стек (2×48dp + делитель ≈97dp от top=14 → низ ~111dp); ставим «где я» ниже с зазором ~9dp.
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 120.dp, end = 14.dp).size(48.dp).zIndex(6f),  // тач-цель ≥48dp
             shape = RoundedCornerShape(13.dp),
             color = Color.White,
             shadowElevation = 4.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    Icons.Default.NearMe,
-                    contentDescription = appText("Где я", "Мин ҡайҙа"),
+                    // Запрет геолокации → зачёркнутая стрелка; включил в Профиль→Конфиденциальность → обычная.
+                    if (LocationPrefs.sharingEnabled) Icons.Default.NearMe else Icons.Default.NearMeDisabled,
+                    contentDescription = if (LocationPrefs.sharingEnabled) appText("Где я", "Мин ҡайҙа") else appText("Геолокация выключена", "Геолокация һүнгән"),
                     tint = if (LocationPrefs.sharingEnabled) CanonGreen2 else CanonMuted,
                     modifier = Modifier.size(22.dp)
                 )

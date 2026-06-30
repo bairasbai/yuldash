@@ -959,7 +959,7 @@ internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> U
                 }
             }
         } else {
-            items(requests, key = { r -> if (r.serverId != 0) "id-${r.serverId}" else r.route + r.time + r.title }) { req ->
+            itemsIndexed(requests, key = { i, r -> (if (r.serverId != 0) "id-${r.serverId}" else r.route + r.time + r.title) + "#$i" }) { i, req ->
                 Box(Modifier.appearIn(0)) {
                     RequestSummaryCard(
                         icon = if (req.title.contains("больниц", ignoreCase = true)) Icons.Default.LocalHospital else Icons.Default.DirectionsCar,
