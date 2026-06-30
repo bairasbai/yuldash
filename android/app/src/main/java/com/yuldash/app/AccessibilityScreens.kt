@@ -731,7 +731,12 @@ internal fun CreatePassengerRequestScreen(
                     title = appText("Проверка заявки", "Заявканы тикшереү"),
                     lines = listOf(
                         "$from → $to",
-                        "$time · $seats ${appText("место", "урын")} · $selectedCategoryText",
+                        // Собираем из НЕпустых частей через « · » — иначе пустое время давало ведущую точку «· 1 место».
+                        listOfNotNull(
+                            time.takeIf { it.isNotBlank() },
+                            "$seats ${appText("место", "урын")}",
+                            selectedCategoryText.takeIf { it.isNotBlank() },
+                        ).joinToString(" · "),
                         appText("Готовая сумма: $price ₽", "Әҙер сумма: $price ₽")
                     )
                 )
