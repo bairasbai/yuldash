@@ -1103,7 +1103,8 @@ private fun drawRoadRoute(
     map: com.yandex.mapkit.map.Map,
     from: Point,
     to: Point,
-    added: MutableList<com.yandex.mapkit.map.MapObject>
+    added: MutableList<com.yandex.mapkit.map.MapObject>,
+    onEta: (String) -> Unit = {}   // время в пути из метаданных маршрута (если пришло)
 ): com.yandex.mapkit.directions.driving.DrivingSession? {
     val straightLine = map.mapObjects.addPolyline(Polyline(listOf(from, to))).apply {
         setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 4f
@@ -1130,6 +1131,7 @@ private fun drawRoadRoute(
                             setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
                         }
                     }
+                    runCatching { onEta(r.metadata.weight.time.text) }   // «45 мин» — время в пути
                 }
                 override fun onDrivingRoutesError(error: com.yandex.runtime.Error) { /* фоллбэк: прямая остаётся */ }
             }
@@ -1167,6 +1169,7 @@ private fun YandexMapCard(
     val context = LocalContext.current
     // Геолокация управляется из Профиль → Конфиденциальность (общий LocationPrefs); FAB «к себе» тоже включает.
     var lastUserPoint by remember { mutableStateOf<Point?>(null) }
+    var routeEta by remember { mutableStateOf<String?>(null) }   // время в пути из DrivingRoute → чип на карте
     val locationPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) LocationPrefs.sharingEnabled = true
     }
@@ -1289,7 +1292,7 @@ private fun YandexMapCard(
             val fromPt = resolve(trip.from) ?: return@launch
             val toPt = resolve(trip.to)
             if (toPt != null) {
-                roadSession = drawRoadRoute(map, fromPt, toPt, added)   // линия по дорогам + флажок (общий рисователь)
+                roadSession = drawRoadRoute(map, fromPt, toPt, added, onEta = { routeEta = it })   // линия + флажок + ETA
                 fitRouteCamera(map, fromPt, toPt)?.let { map.move(it, Animation(Animation.Type.SMOOTH, 0.5f), null) }  // показать весь маршрут
             }
             added += map.mapObjects.addPlacemark().apply {
@@ -1324,7 +1327,7 @@ private fun YandexMapCard(
             }
             val fromPt = resolve(ride.from) ?: return@launch
             val toPt = resolve(ride.to) ?: return@launch
-            roadSession = drawRoadRoute(map, fromPt, toPt, added)
+            roadSession = drawRoadRoute(map, fromPt, toPt, added, onEta = { routeEta = it })
             fitRouteCamera(map, fromPt, toPt)?.let { map.move(it, Animation(Animation.Type.SMOOTH, 0.45f), null) }
         }
         onDispose {
@@ -1464,6 +1467,22 @@ private fun YandexMapCard(
             .border(1.dp, Color(0x1A000000), RoundedCornerShape(24.dp))
     ) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+        // ETA: время в пути по маршруту (≈), слева сверху — пока есть активная или выбранная поездка.
+        if ((activeTrip != null || previewRide != null) && routeEta != null) {
+            Surface(
+                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                color = CanonSurface,
+                shape = RoundedCornerShape(14.dp),
+                shadowElevation = 4.dp,
+                border = BorderStroke(1.dp, CanonHairlineGreen)
+            ) {
+                Text(
+                    appText("≈ $routeEta в пути", "≈ $routeEta юлда"),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1
+                )
+            }
+        }
         // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
         MapZoomControls(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp),
