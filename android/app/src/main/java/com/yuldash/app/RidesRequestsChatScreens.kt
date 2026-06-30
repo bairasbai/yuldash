@@ -746,6 +746,16 @@ internal fun RideCard(
                     BoostBadge()
                 }
             }
+            // Посылка: кому отдать + габарит/вес (показываем только если заполнено).
+            if (ride.receiverName.isNotBlank() || ride.parcelSize.isNotBlank()) {
+                Text(
+                    "📦 " + listOfNotNull(
+                        ride.receiverName.takeIf { it.isNotBlank() }?.let { appText("кому: $it", "кемгә: $it") },
+                        ride.parcelSize.takeIf { it.isNotBlank() }
+                    ).joinToString(" · "),
+                    color = CanonGreen2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(5.dp))

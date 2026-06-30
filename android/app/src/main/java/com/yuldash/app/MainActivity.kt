@@ -456,6 +456,8 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     pickup = pickup,
     pickupLat = pickupLat,
     pickupLng = pickupLng,
+    receiverName = receiverName,
+    parcelSize = parcelSize,
 )
 
 /** Километры коротко: «2.3 км» вблизи, «243 км» вдали. */

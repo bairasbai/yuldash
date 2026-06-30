@@ -30,6 +30,8 @@ class RideIn(BaseModel):
     baggage: bool = False
     air_conditioner: bool = False
     recurrence: str = "none"          # none / daily / weekdays / weekly
+    receiver_name: Optional[str] = Field(None, max_length=120)   # посылка: кому отдать
+    parcel_size: Optional[str] = Field(None, max_length=80)      # посылка: габарит/вес
 
 
 class RideOut(BaseModel):
@@ -47,6 +49,8 @@ class RideOut(BaseModel):
     pickup: str = ""
     pickup_lat: Optional[float] = None
     pickup_lng: Optional[float] = None
+    receiver_name: Optional[str] = None   # посылка: кому отдать
+    parcel_size: Optional[str] = None     # посылка: габарит/вес
     pets_allowed: bool = False
     child_seat: bool = False
     women_only: bool = False

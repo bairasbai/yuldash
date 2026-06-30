@@ -27,7 +27,9 @@ internal data class Ride(
     val airConditioner: Boolean = false,
     val pickup: String = "",
     val pickupLat: Double? = null,
-    val pickupLng: Double? = null
+    val pickupLng: Double? = null,
+    val receiverName: String = "",   // посылка: кому отдать
+    val parcelSize: String = ""      // посылка: габарит/вес
 )
 
 internal data class PopularRoute(

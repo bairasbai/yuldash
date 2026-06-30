@@ -371,6 +371,8 @@ object ApiClient {
         pickup: String = "",
         pickupLat: Double? = null,
         pickupLng: Double? = null,
+        receiverName: String = "",   // посылка: кому отдать
+        parcelSize: String = "",     // посылка: габарит/вес
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -390,7 +392,9 @@ object ApiClient {
             .put("recurrence", recurrence)
             .put("pickup", pickup)
             .put("pickup_lat", pickupLat ?: JSONObject.NULL)
-            .put("pickup_lng", pickupLng ?: JSONObject.NULL),
+            .put("pickup_lng", pickupLng ?: JSONObject.NULL)
+            .put("receiver_name", receiverName)
+            .put("parcel_size", parcelSize),
         auth = true,
     ).map { }.onSuccess { Analytics.log("publish_ride") }
 
@@ -1144,6 +1148,8 @@ private fun JSONObject.toRideDto() = RideDto(
     pickupLng = if (isNull("pickup_lng")) null else optDouble("pickup_lng"),
     distanceKm = if (isNull("distance_km")) null else optDouble("distance_km"),
     boosted = optBoolean("boosted"),
+    receiverName = optString("receiver_name"),
+    parcelSize = optString("parcel_size"),
 )
 
 private fun JSONObject.toRequestNearDto() = RequestNearDto(
@@ -1184,6 +1190,8 @@ data class RideDto(
     val pickupLng: Double? = null,
     val distanceKm: Double? = null,   // дистанция клиент→точка выезда (только из /rides/near с координатами)
     val boosted: Boolean = false,     // активный Boost (подсветка/бейдж)
+    val receiverName: String = "",    // посылка: кому отдать
+    val parcelSize: String = "",      // посылка: габарит/вес
 )
 
 /** Заявка пассажира рядом (/requests/near) — для маркера «ищет попутку» на карте. Без телефона. */

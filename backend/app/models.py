@@ -140,6 +140,9 @@ class Ride(SQLModel, table=True):
     pickup: str = ""                  # где водитель забирает (точка сбора, текст)
     pickup_lat: Optional[float] = None  # координаты точки сбора (пин на карте)
     pickup_lng: Optional[float] = None
+    # Посылка (category=parcel): кому отдать на месте + габарит/вес. Только для parcel-поездок.
+    receiver_name: Optional[str] = None
+    parcel_size: Optional[str] = None
     # Гео-координаты концов маршрута (геокодятся из from_city/to_city при публикации).
     # Нужны для радиус-поиска: PostGIS на проде, haversine-фолбэк на sqlite/без координат.
     from_lat: Optional[float] = None

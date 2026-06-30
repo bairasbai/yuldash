@@ -264,6 +264,8 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var airConditioner by remember { mutableStateOf(false) }
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
+    var receiverName by remember { mutableStateOf("") }   // посылка: кому отдать
+    var parcelSize by remember { mutableStateOf("") }     // посылка: габарит/вес
     var pickup by remember { mutableStateOf("") }
     var pickupLat by remember { mutableStateOf<Double?>(null) }
     var pickupLng by remember { mutableStateOf<Double?>(null) }
@@ -423,6 +425,31 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                     shape = RoundedCornerShape(16.dp)
                 )
             }
+            // Посылка: получатель + габарит/вес (только parcel/cargo).
+            if (category == "parcel" || category == "cargo") {
+                item {
+                    OutlinedTextField(
+                        value = receiverName,
+                        onValueChange = { receiverName = it },
+                        label = { Text(appText("Кому передать (имя)", "Кемгә тапшырырға (исем)")) },
+                        placeholder = { Text(appText("Напр.: Айгуль, заберёт на автовокзале", "Мәҫәлән: Айгүл, автовокзалда алыр")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = parcelSize,
+                        onValueChange = { parcelSize = it },
+                        label = { Text(appText("Габарит / вес", "Үлсәм / ауырлыҡ")) },
+                        placeholder = { Text(appText("Напр.: до 5 кг, коробка 40×30", "Мәҫәлән: 5 кг ҡәҙәр, ҡумта 40×30")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                }
+            }
             item {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.padding(vertical = 6.dp)) {
@@ -477,7 +504,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                         publishing = true
                         // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                         publishScope.launch {
-                            ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng)
+                            ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim())
                                 .onSuccess { publishing = false; onPublish(ride) }
                                 .onFailure { publishing = false; publishError = errPublish }
                         }
