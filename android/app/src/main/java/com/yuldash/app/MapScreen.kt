@@ -1187,13 +1187,15 @@ private fun YandexMapCard(
     val currentRides by rememberUpdatedState(rides)
     val currentRequests by rememberUpdatedState(requests)
     val currentOnTap by rememberUpdatedState(onRideTap)
+    // Тап по заявке пассажира → открыть карточку (имя, маршрут, коммент) + кнопка «Откликнуться».
+    var selectedRequest by remember { mutableStateOf<com.yuldash.app.data.RequestNearDto?>(null) }
     val tapListener = remember {
         MapObjectTapListener { obj, _ ->
             val id = obj.userData as? String
             // Заявка пассажира: userData = "req-{id}" → кто ищет попутку (имя + маршрут, БЕЗ телефона).
             if (id != null && id.startsWith("req-")) {
                 currentRequests.firstOrNull { "req-${it.id}" == id }?.let { req ->
-                    Toast.makeText(context, "${req.passengerName}: ${req.fromCity} → ${req.toCity}", Toast.LENGTH_SHORT).show()
+                    selectedRequest = req
                     return@MapObjectTapListener true
                 }
             }
@@ -1540,7 +1542,7 @@ private fun YandexMapCard(
                 )
             }
         }
-        if (showPrivacyNotice) {
+        if (showPrivacyNotice && selectedRequest == null) {
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -1556,6 +1558,101 @@ private fun YandexMapCard(
                 }
             }
         }
+        // Карточка заявки попутчика (тап по оранжевому маркеру) — кто ищет попутку + «Откликнуться».
+        selectedRequest?.let { req ->
+            RequestPreviewCard(
+                req = req,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp),
+                onClose = { selectedRequest = null }
+            )
+        }
+    }
+}
+
+// Карточка заявки попутчика (тап по маркеру «ищет попутку» на карте): имя, маршрут, места, комментарий.
+// «Откликнуться» → диалог с ценой/комментом → respondToRequest. Телефон пассажира не показываем (приватность).
+@Composable
+private fun RequestPreviewCard(
+    req: com.yuldash.app.data.RequestNearDto,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var respondOpen by remember { mutableStateOf(false) }
+    var price by remember { mutableStateOf("") }
+    var comment by remember { mutableStateOf("") }
+    // Тексты тостов считаем заранее — appText @Composable, внутри scope.launch его звать нельзя.
+    val sentMsg = appText("Отклик отправлен", "Яуап ебәрелде")
+    val failMsg = appText("Не удалось отправить. Повтори.", "Ебәреп булманы. Ҡабатла.")
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(req.passengerName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(appText("ищет попутку", "юлдаш эҙләй"), color = CanonMuted, fontSize = 12.sp)
+            }
+            Text("${req.fromCity}  →  ${req.toCity}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            val meta = buildList {
+                if (req.seats > 0) add(appText("${req.seats} мест", "${req.seats} урын"))
+                req.distanceKm?.let { add(appText("≈ ${it.toInt()} км рядом", "≈ ${it.toInt()} км яҡын")) }
+            }.joinToString("  ·  ")
+            if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
+            if (req.comment.isNotBlank()) Text(req.comment, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 3)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { respondOpen = true },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                    shape = RoundedCornerShape(14.dp)
+                ) { Text(appText("Откликнуться", "Яуап бирергә"), fontWeight = FontWeight.Bold) }
+                TextButton(onClick = onClose) { Text(appText("Закрыть", "Ябырға"), color = CanonMuted) }
+            }
+        }
+    }
+
+    if (respondOpen) {
+        AlertDialog(
+            onDismissRequest = { respondOpen = false },
+            title = { Text(appText("Отклик на заявку", "Заявкаға яуап")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("${req.fromCity} → ${req.toCity}", color = CanonMuted, fontSize = 14.sp)
+                    OutlinedTextField(
+                        value = price,
+                        onValueChange = { v -> price = v.filter { it.isDigit() }.take(7) },
+                        label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                    )
+                    OutlinedTextField(
+                        value = comment,
+                        onValueChange = { comment = it },
+                        label = { Text(appText("Комментарий (необяз.)", "Аңлатма (мәжбүри түгел)")) },
+                        minLines = 2
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val rid = req.id; val p = price.toIntOrNull() ?: 0; val c = comment.trim()
+                    scope.launch {
+                        ApiClient.respondToRequest(rid, p, c)
+                            .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                    }
+                    respondOpen = false; onClose()
+                }) { Text(appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { respondOpen = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } }
+        )
     }
 }
 
