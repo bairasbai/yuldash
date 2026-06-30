@@ -1111,7 +1111,8 @@ private fun drawRoadRoute(
     from: Point,
     to: Point,
     added: MutableList<com.yandex.mapkit.map.MapObject>,
-    onEta: (String) -> Unit = {}   // время в пути из метаданных маршрута (если пришло)
+    onEta: (String) -> Unit = {},   // время в пути из метаданных маршрута (если пришло)
+    onRoutePoints: (List<Point>, Double) -> Unit = { _, _ -> }   // геометрия маршрута + полное время (сек) — для живого ETA
 ): com.yandex.mapkit.directions.driving.DrivingSession? {
     val straightLine = map.mapObjects.addPolyline(Polyline(listOf(from, to))).apply {
         setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 4f
@@ -1139,6 +1140,7 @@ private fun drawRoadRoute(
                         }
                     }
                     runCatching { onEta(r.metadata.weight.time.text) }   // «45 мин» — время в пути
+                    runCatching { onRoutePoints(r.geometry.points, r.metadata.weight.time.value) }   // точки+сек для живого «осталось»
                 }
                 override fun onDrivingRoutesError(error: com.yandex.runtime.Error) { /* фоллбэк: прямая остаётся */ }
             }
@@ -1178,6 +1180,8 @@ private fun YandexMapCard(
     var lastUserPoint by remember { mutableStateOf<Point?>(null) }
     var routeEta by remember { mutableStateOf<String?>(null) }   // время в пути из DrivingRoute → чип на карте
     var liveRemainSec by remember { mutableStateOf<Int?>(null) } // живой остаток «сколько ехать» по ходу движения (демо/трекинг)
+    var activeRoutePts by remember { mutableStateOf<List<Point>>(emptyList()) } // геометрия маршрута активной поездки (для живого ETA от моей позиции)
+    var activeRouteSec by remember { mutableStateOf(0.0) }                       // полное время этого маршрута, сек
     val locationPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) LocationPrefs.sharingEnabled = true
     }
@@ -1306,7 +1310,8 @@ private fun YandexMapCard(
             val fromPt = resolve(trip.from) ?: return@launch
             val toPt = resolve(trip.to)
             if (toPt != null) {
-                roadSession = drawRoadRoute(map, fromPt, toPt, added, onEta = { routeEta = it })   // линия + флажок + ETA
+                roadSession = drawRoadRoute(map, fromPt, toPt, added, onEta = { routeEta = it },
+                    onRoutePoints = { pts, sec -> activeRoutePts = pts; activeRouteSec = sec })   // + точки/время для живого «осталось»
                 fitRouteCamera(map, fromPt, toPt)?.let { map.move(it, Animation(Animation.Type.SMOOTH, 0.5f), null) }  // показать весь маршрут
             }
             added += map.mapObjects.addPlacemark().apply {
@@ -1321,6 +1326,17 @@ private fun YandexMapCard(
             job.cancel()
             runCatching { roadSession?.cancel() }
             added.forEach { runCatching { map.mapObjects.remove(it) } }
+            // Поездка кончилась/сменилась → убираем живой ETA и маршрут (демо-симуляция ведёт liveRemainSec сама).
+            activeRoutePts = emptyList(); activeRouteSec = 0.0; liveRemainSec = null
+        }
+    }
+    // Живой ETA реальной поездки: пока активна и есть мой GPS + дорожный маршрут — считаем, сколько ОСТАЛОСЬ ехать
+    // (доля непройденного пути × полное время). Обновляется на каждый мой GPS-фикс. Пишем только при активной поездке,
+    // чтобы не затирать демо-симуляцию (она пишет liveRemainSec, когда поездки нет).
+    LaunchedEffect(activeTrip, lastUserPoint, activeRoutePts) {
+        val pos = lastUserPoint
+        if (activeTrip != null && pos != null && activeRoutePts.size >= 2 && activeRouteSec > 0) {
+            liveRemainSec = remainingEtaSec(activeRoutePts, pos, activeRouteSec)
         }
     }
     // Превью маршрута ВЫБРАННОЙ поездки (тап по пину/карточке) — линия по дорогам + флажок, камера фитит весь путь.
@@ -1626,8 +1642,8 @@ private fun YandexMapCard(
                                 val cur = path[i]
                                 val brg = if (i > 0) bearingBetween(path[i - 1], cur) else bearingBetween(cur, path.getOrElse(1) { cur })
                                 com.yuldash.app.data.TripLocationBus.peer = com.yuldash.app.data.LocationSocket.Peer("driver", cur.latitude, cur.longitude, brg, i.toLong())
-                                // Остаток пути → живой ETA «осталось». Доля оставшихся точек × полное время маршрута.
-                                if (totalSec > 0) liveRemainSec = (totalSec * (path.size - i).toDouble() / path.size).toInt()
+                                // Остаток пути → живой ETA «осталось». Та же функция, что у реальной поездки (проверка её на демо).
+                                if (totalSec > 0) liveRemainSec = remainingEtaSec(path, cur, totalSec)
                                 simMap.move(CameraPosition(cur, simMap.cameraPosition.zoom, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.6f), null)
                                 kotlinx.coroutines.delay(200)
                             }
@@ -1639,7 +1655,7 @@ private fun YandexMapCard(
                         }
                     }
                 },
-                modifier = Modifier.align(Alignment.BottomStart).padding(14.dp).zIndex(7f),
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp).zIndex(8f),
                 shape = RoundedCornerShape(13.dp),
                 color = CanonGreen2,
                 shadowElevation = 4.dp
@@ -1789,6 +1805,19 @@ private suspend fun roadRoutePoints(from: Point, to: Point): Pair<List<Point>, D
         }.getOrNull()
         cont.invokeOnCancellation { runCatching { session?.cancel() } }
     }
+
+// Остаток времени (сек) от позиции pos до конца пути: ближайшая точка маршрута → доля непройденного × полное время.
+// Одна функция для демо-симуляции и реальной поездки (живой ETA «осталось»).
+internal fun remainingEtaSec(path: List<Point>, pos: Point, totalSec: Double): Int {
+    if (path.size < 2 || totalSec <= 0) return 0
+    var bestI = 0; var bestD = Double.MAX_VALUE
+    for (i in path.indices) {
+        val dLat = path[i].latitude - pos.latitude; val dLng = path[i].longitude - pos.longitude
+        val d = dLat * dLat + dLng * dLng
+        if (d < bestD) { bestD = d; bestI = i }
+    }
+    return Math.max(0.0, totalSec * (path.size - bestI).toDouble() / path.size).toInt()
+}
 
 // Дистанция между городами по координатам (для превью маршрута). null — если город неизвестен.
 internal fun cityDistanceText(from: String, to: String): String? {
