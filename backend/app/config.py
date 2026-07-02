@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./yuldash.db"
     jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_expire_min: int = 60 * 24 * 30  # 30 дней (legacy-дефолт; access ниже короче)
-    access_expire_min: int = 60 * 24 * 7   # access-токен живёт 7 дней (refresh обновляет)
+    access_expire_min: int = 60 * 12   # access-токен живёт 12ч (было 7 дней — ужали окно кражи ~14x; refresh молча обновляет)
     refresh_expire_days: int = 90          # refresh-токен живёт 90 дней (ротируется при каждом refresh)
     otp_ttl_sec: int = 300              # код жив 5 минут
     sms_provider: str = "mock"          # mock | smsru | smsdar

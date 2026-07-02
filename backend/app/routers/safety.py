@@ -90,7 +90,7 @@ def request_callback(body: CallbackIn, user: User = Depends(current_user)):
 
 class ReportIn(BaseModel):
     target_user_id: int
-    reason: str = ""
+    reason: str = Field("", max_length=1000)   # анти-раздувание таблицы: авторизованный не льёт мегабайты
 
 
 class ReportOut(BaseModel):

@@ -47,6 +47,12 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
     contact = session.get(TrustedContact, body.contact_id)
     if not contact or contact.user_id != user.id:
         raise HTTPException(404, "Контакт не найден")
+    # QA-DEDUP-SHARETRIP: повторный share тем же контактом не плодит дубли (иначе дубли SMS-статусов).
+    existing = session.exec(
+        select(TripShare).where(TripShare.booking_id == booking_id, TripShare.contact_id == body.contact_id)
+    ).first()
+    if existing:
+        return existing
     share = TripShare(booking_id=booking_id, contact_id=body.contact_id)
     session.add(share)
     session.commit()

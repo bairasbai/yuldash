@@ -72,3 +72,6 @@ promo/.remotion/
 
 # QA-скриншоты эмулятора (папка)
 /android/screenshots/
+
+# QA-артефакты тестирования (скриншоты, отчёты сборки)
+test_artifacts/
