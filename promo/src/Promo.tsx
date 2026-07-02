@@ -29,14 +29,16 @@ const RoadBg: React.FC<{ opacity?: number }> = ({ opacity = 1 }) => (
 );
 
 // Логотип-знак без «блюдца»: сам пин + мягкое свечение-ореол за ним + тень.
-const Logo: React.FC<{ size?: number }> = ({ size = 230 }) => {
+// size = ВЫСОТА знака. Знак читается на тёмном сам (жирный контур) — за ним лишь
+// лёгкий подсвет для отделения от фона.
+const Logo: React.FC<{ size?: number }> = ({ size = 330 }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const s = spring({ frame: f, fps, config: { damping: 12, mass: 0.7 } });
   return (
     <div style={{ position: 'relative', transform: `scale(${s})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ position: 'absolute', width: size * 1.9, height: size * 1.9, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.62) 0%, rgba(255,255,255,0.18) 36%, rgba(255,255,255,0) 66%)', filter: 'blur(16px)' }} />
-      <Img src={staticFile('logo.png')} style={{ position: 'relative', width: size, height: size, objectFit: 'contain', filter: 'drop-shadow(0 10px 26px rgba(0,0,0,0.45))' }} />
+      <div style={{ position: 'absolute', width: size * 1.25, height: size * 1.25, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.12) 42%, rgba(255,255,255,0) 68%)', filter: 'blur(22px)' }} />
+      <Img src={staticFile('logo.png')} style={{ position: 'relative', height: size, width: 'auto', filter: 'drop-shadow(0 12px 30px rgba(0,0,0,0.5))' }} />
     </div>
   );
 };
@@ -102,7 +104,7 @@ const SceneCTA: React.FC = () => {
     <AbsoluteFill>
       <RoadBg opacity={0.3} />
       <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 26 }}>
-        <Logo size={190} />
+        <Logo size={260} />
         <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 92, color: C.white, letterSpacing: -2, opacity: s }}>Доедем вместе</div>
         <div style={{ fontFamily: BODY, fontWeight: 500, fontSize: 42, color: C.mint, opacity: s }}>Скачай Юлдаш — присоединяйся к своим</div>
         <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 16, background: C.green, borderRadius: 44, padding: '28px 56px', opacity: btn, transform: `scale(${interpolate(btn, [0, 1], [0.85, 1])})`, boxShadow: `0 20px 60px ${C.green}66` }}>
