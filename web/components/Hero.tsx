@@ -13,7 +13,7 @@ import { useLang } from "./lang";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { Typewriter } from "./Typewriter";
 import { DownloadButton } from "./DownloadButton";
-import { PhoneMockup } from "./PhoneMockup";
+import { HeroPhone } from "./HeroPhone";
 import { Counter } from "./Counter";
 import { APK_SIZE } from "./config";
 
@@ -189,7 +189,7 @@ export function Hero() {
 
         {/* Правая колонка — телефон (параллакс) */}
         <motion.div style={{ y: yPhone }} className="flex justify-center">
-          <PhoneMockup />
+          <HeroPhone />
         </motion.div>
       </motion.div>
     </section>
