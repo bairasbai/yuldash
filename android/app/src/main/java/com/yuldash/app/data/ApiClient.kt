@@ -956,6 +956,54 @@ object ApiClient {
     suspend fun deleteAd(id: String): Result<Unit> =
         call("DELETE", "/admin/ads/$id", null, auth = true).map { }
 
+    // ---------- Реклама: кабинет ПАРТНЁРА (self-serve) ----------
+    private fun parseMyAd(a: JSONObject): MyAdDto {
+        fun arrCsv(key: String): String {
+            val arr = a.optJSONArray(key) ?: return ""
+            return (0 until arr.length()).joinToString(",") { arr.optString(it) }
+        }
+        return MyAdDto(
+            id = a.optString("id"), title = a.optString("title"), text = a.optString("text"),
+            button = a.optString("button"), target = a.optString("target"), erid = a.optString("erid"),
+            status = a.optString("status"), rejectReason = a.optString("reject_reason"),
+            pkg = a.optString("package"), pkgTitle = a.optString("package_title"),
+            budgetKop = a.optInt("budget_kop"), periodDays = a.optInt("period_days"),
+            placements = arrCsv("placements"), cities = arrCsv("cities"),
+            paid = a.optBoolean("paid"), submittedAt = a.optString("submitted_at").ifBlank { null },
+        )
+    }
+
+    /** Тарифы размещения (из конфига сервера) — для кабинета/витрины. Без входа. */
+    suspend fun getAdPackages(): Result<List<AdPackageDto>> =
+        call("GET", "/ad-packages", null, auth = false).map { o ->
+            val arr = o.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val a = arr.getJSONObject(i)
+                AdPackageDto(a.optString("code"), a.optString("title"), a.optString("title_ba"), a.optInt("amount_kop"), a.optInt("period_days"))
+            }
+        }
+
+    /** Мои объявления (владелец = я), все статусы + причина отказа + оплата. */
+    suspend fun getMyAds(): Result<List<MyAdDto>> =
+        call("GET", "/ads/mine", null, auth = true).map { o ->
+            val arr = o.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> parseMyAd(arr.getJSONObject(i)) }
+        }
+
+    /** Создать своё объявление (черновик). */
+    suspend fun createMyAd(title: String, text: String, button: String, target: String, pkg: String, cities: String): Result<MyAdDto> =
+        call("POST", "/ads", JSONObject().put("title", title).put("text", text).put("button", button)
+            .put("target", target).put("package", pkg).put("cities", cities), auth = true).map { parseMyAd(it) }
+
+    /** Правка своего черновика/отклонённого. */
+    suspend fun updateMyAd(id: String, title: String, text: String, button: String, target: String, pkg: String, cities: String): Result<MyAdDto> =
+        call("POST", "/ads/$id", JSONObject().put("title", title).put("text", text).put("button", button)
+            .put("target", target).put("package", pkg).put("cities", cities), auth = true).map { parseMyAd(it) }
+
+    /** Отправить своё объявление на модерацию. */
+    suspend fun submitMyAd(id: String): Result<MyAdDto> =
+        call("POST", "/ads/$id/submit", null, auth = true).map { parseMyAd(it) }
+
     // ---------- Активная поездка: поделиться / статус ----------
 
     suspend fun shareTrip(bookingId: Int, contactId: Int): Result<Unit> =
@@ -1455,3 +1503,13 @@ data class AdminAdDto(
     val button: String = "", val target: String = "", val cities: String = "",  // для предзаполнения формы при редактировании
 )
 data class AdminAdsDto(val founderUsed: Int, val founderLimit: Int, val items: List<AdminAdDto>)
+
+/** Объявление в кабинете ПАРТНЁРА (своё): статус модерации, причина отказа, тариф, оплата. */
+data class MyAdDto(
+    val id: String, val title: String, val text: String, val button: String, val target: String,
+    val erid: String, val status: String, val rejectReason: String,
+    val pkg: String, val pkgTitle: String, val budgetKop: Int, val periodDays: Int,
+    val placements: String, val cities: String, val paid: Boolean, val submittedAt: String?,
+)
+/** Тариф размещения (из конфига сервера). */
+data class AdPackageDto(val code: String, val title: String, val titleBa: String, val amountKop: Int, val periodDays: Int)

@@ -148,6 +148,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -234,6 +235,8 @@ import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.MyAdDto
+import com.yuldash.app.data.AdPackageDto
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
@@ -843,198 +846,310 @@ private fun CabinetMetric(label: String, value: String, modifier: Modifier = Mod
     }
 }
 
+// Кабинет рекламодателя (self-serve). Гейт по факту владения: грузим /ads/mine —
+// пусто → витрина «стать партнёром», есть → мои объявления со статусами модерации.
 @Composable
 internal fun AdsCabinetScreen(
-    ads: List<PartnerAd>,
-    adStats: Map<String, AdStats>,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onCreateAd: () -> Unit,
+    onEditAd: (MyAdDto) -> Unit,
 ) {
-    // Реальная статистика с сервера (/ads/stats) перекрывает локальные счётчики сессии.
-    var serverStats by remember { mutableStateOf<Map<String, AdStats>>(emptyMap()) }
-    LaunchedEffect(Unit) {
-        ApiClient.getAdStats().onSuccess { s -> serverStats = s.mapValues { AdStats(it.value.impressions, it.value.clicks) } }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var ads by remember { mutableStateOf<List<MyAdDto>>(emptyList()) }
+    var packages by remember { mutableStateOf<List<AdPackageDto>>(emptyList()) }
+    var reloadKey by remember { mutableStateOf(0) }
+    var submittingId by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    val errLoad = appText("Не удалось загрузить кабинет", "Кабинетты йөкләп булманы")
+    val errSubmit = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
+    LaunchedEffect(reloadKey) {
+        loading = true; error = null
+        ApiClient.getAdPackages().onSuccess { packages = it }
+        ApiClient.getMyAds()
+            .onSuccess { ads = it; loading = false }
+            .onFailure { error = errLoad; loading = false }
     }
-    val stats = adStats + serverStats
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет рекламы", "Реклама кабинеты"), onBack) }
     ) { padding ->
+        when {
+            loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = CanonGreen2)
+            }
+            error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                ListedError(error!!) { reloadKey++ }
+            }
+            ads.isEmpty() -> AdsShowcase(packages, Modifier.padding(padding), onCreateAd)
+            else -> LazyColumn(
+                modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(vertical = 16.dp)
+            ) {
+                item {
+                    Button(
+                        onClick = onCreateAd,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                    ) {
+                        Icon(Icons.Default.AddBox, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text(appText("Новое объявление", "Яңы иғлан"), fontWeight = FontWeight.Black, color = Color.White)
+                    }
+                }
+                items(ads, key = { it.id }) { ad ->
+                    MyAdCard(
+                        ad = ad,
+                        submitting = submittingId == ad.id,
+                        onEdit = { onEditAd(ad) },
+                        onSubmit = {
+                            submittingId = ad.id
+                            scope.launch {
+                                ApiClient.submitMyAd(ad.id)
+                                    .onSuccess { submittingId = null; reloadKey++ }
+                                    .onFailure {
+                                        submittingId = null
+                                        Toast.makeText(ctx, errSubmit, Toast.LENGTH_SHORT).show()
+                                    }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdStatusBadge(status: String) {
+    val (label, fg, bg) = when (status) {
+        "active" -> Triple(appText("Активно", "Актив"), CanonGreen2, CanonMint)
+        "pending_review" -> Triple(appText("На модерации", "Тикшереүҙә"), CanonWarn, CanonWarnBg)
+        "rejected" -> Triple(appText("Отклонено", "Кире ҡағылды"), CanonRed, CanonRed.copy(alpha = 0.12f))
+        "paused" -> Triple(appText("На паузе", "Туҡталышта"), CanonMuted, CanonMint)
+        "draft" -> Triple(appText("Черновик", "Ҡаралама"), CanonMuted, CanonMint)
+        else -> Triple(appText("Завершено", "Тамамланды"), CanonMuted, CanonMint)
+    }
+    Surface(color = bg, shape = RoundedCornerShape(999.dp)) {
+        Text(label, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), color = fg, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSubmit: () -> Unit) {
+    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    ad.title.ifBlank { appText("Без названия", "Исемһеҙ") },
+                    modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Black,
+                    fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.width(8.dp))
+                AdStatusBadge(ad.status)
+            }
+            if (ad.text.isNotBlank()) {
+                Text(ad.text, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            if (ad.pkgTitle.isNotBlank()) {
+                Text(
+                    appText("Тариф: ${ad.pkgTitle} · ${ad.budgetKop / 100} ₽ / ${ad.periodDays} дн",
+                            "Тариф: ${ad.pkgTitle} · ${ad.budgetKop / 100} ₽ / ${ad.periodDays} көн"),
+                    color = CanonMuted, fontSize = 12.sp
+                )
+            }
+            if (ad.status == "rejected" && ad.rejectReason.isNotBlank()) {
+                Surface(color = CanonRed.copy(alpha = 0.10f), shape = RoundedCornerShape(12.dp)) {
+                    Text(
+                        appText("Причина отказа: ${ad.rejectReason}", "Кире ҡағыу сәбәбе: ${ad.rejectReason}"),
+                        modifier = Modifier.padding(10.dp), color = CanonRed, fontSize = 12.sp, lineHeight = 16.sp
+                    )
+                }
+            }
+            if (ad.status == "active" && !ad.paid) {
+                Text(appText("Ждём подтверждение оплаты.", "Түләүҙе раҫлауҙы көтәбеҙ."), color = CanonWarn, fontSize = 12.sp)
+            }
+            if (ad.status == "draft" || ad.status == "rejected") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
+                        Text(appText("Изменить", "Үҙгәртергә"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = onSubmit, enabled = !submitting && ad.pkg.isNotBlank(),
+                        modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                    ) {
+                        if (submitting) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                        else Text(appText("На модерацию", "Модерацияға"), fontWeight = FontWeight.Black, color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Витрина «рекламируйся у нас» — когда своих объявлений ещё нет.
+@Composable
+private fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCreate: () -> Unit) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
+    ) {
+        item {
+            Text(appText("Реклама в Юлдаше", "Юлдашта реклама"), color = CanonGreen, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                appText("Покажи своё дело землякам по маршрутам и городам. Создай объявление, пройди модерацию и оплати размещение.",
+                        "Эшеңде яҡташтарға маршруттар һәм ҡалалар буйынса күрһәт. Иғлан төҙө, модерация үт һәм урынлаштырыуҙы түлә."),
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
+            )
+        }
+        item { Text(appText("Тарифы", "Тарифтар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp) }
+        items(packages, key = { it.code }) { p ->
+            Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CanonBorder)) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(appText(p.title, p.titleBa.ifBlank { p.title }), color = CanonText, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                        Text(appText("${p.periodDays} дней показов", "${p.periodDays} көн күрһәтеү"), color = CanonMuted, fontSize = 12.sp)
+                    }
+                    Text("${p.amountKop / 100} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                }
+            }
+        }
+        item {
+            Text(appText("Цены — стартовая гипотеза, обсуждаемо.", "Хаҡтар — башланғыс фараз, һөйләшеп була."), color = CanonMuted, fontSize = 11.sp)
+        }
+        item {
+            Button(
+                onClick = onCreate,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+            ) {
+                Text(appText("Разместить рекламу", "Реклама урынлаштырырға"), fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+            }
+        }
+    }
+}
+
+// Редактор объявления партнёра: создание (initial=null) или правка своего draft/rejected.
+@Composable
+internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -> Unit) {
+    var title by remember { mutableStateOf(initial?.title ?: "") }
+    var text by remember { mutableStateOf(initial?.text ?: "") }
+    var button by remember { mutableStateOf(initial?.button ?: "") }
+    var target by remember { mutableStateOf(initial?.target ?: "") }
+    var cities by remember { mutableStateOf(initial?.cities ?: "") }
+    var pkg by remember { mutableStateOf(initial?.pkg ?: "") }
+    var packages by remember { mutableStateOf<List<AdPackageDto>>(emptyList()) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    val errNet = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сеткәне тикшер, ҡабатла.")
+    val needTitle = appText("Впиши заголовок", "Башлыҡ яҙ")
+    val needPkg = appText("Выбери тариф", "Тариф һайла")
+    LaunchedEffect(Unit) { ApiClient.getAdPackages().onSuccess { packages = it } }
+
+    fun save(submit: Boolean) {
+        if (title.isBlank()) { Toast.makeText(ctx, needTitle, Toast.LENGTH_SHORT).show(); return }
+        if (submit && pkg.isBlank()) { Toast.makeText(ctx, needPkg, Toast.LENGTH_SHORT).show(); return }
+        busy = true
+        scope.launch {
+            val res = if (initial == null) ApiClient.createMyAd(title, text, button, target, pkg, cities)
+                      else ApiClient.updateMyAd(initial.id, title, text, button, target, pkg, cities)
+            res.onSuccess { saved ->
+                if (submit) {
+                    ApiClient.submitMyAd(saved.id)
+                        .onSuccess { busy = false; onSaved() }
+                        .onFailure { busy = false; Toast.makeText(ctx, errNet, Toast.LENGTH_SHORT).show() }
+                } else { busy = false; onSaved() }
+            }.onFailure { busy = false; Toast.makeText(ctx, errNet, Toast.LENGTH_SHORT).show() }
+        }
+    }
+
+    Scaffold(
+        containerColor = CanonBg,
+        topBar = { ScreenTopBar(appText(if (initial == null) "Новое объявление" else "Изменить объявление", if (initial == null) "Яңы иғлан" else "Иғланды үҙгәртергә"), onBack) }
+    ) { padding ->
         LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
         ) {
+            item { AdField(appText("Заголовок", "Башлыҡ"), title, { title = it }) }
+            item { AdField(appText("Описание", "Аңлатма"), text, { text = it }, singleLine = false) }
+            item { AdField(appText("Текст кнопки (напр. «Позвонить»)", "Төймә тексты (мәҫ. «Шылтыратырға»)"), button, { button = it }) }
+            item { AdField(appText("Ссылка или телефон", "Һылтанма йәки телефон"), target, { target = it }) }
+            item { AdField(appText("Город(а) через запятую — пусто = все", "Ҡала(лар) өтөр аша — буш = бөтәһе"), cities, { cities = it }) }
+            item { Text(appText("Тариф", "Тариф"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp) }
+            items(packages, key = { it.code }) { p ->
+                val selected = pkg == p.code
+                Surface(
+                    color = if (selected) CanonMint else CanonSurface,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
+                    modifier = Modifier.fillMaxWidth().clickable { pkg = p.code }
+                ) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                            contentDescription = null, tint = if (selected) CanonGreen2 else CanonMuted
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(appText(p.title, p.titleBa.ifBlank { p.title }), modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("${p.amountKop / 100} ₽ / ${p.periodDays}${appText(" дн", " көн")}", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    }
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { save(submit = false) }, enabled = !busy, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                        Text(appText("Сохранить", "Һаҡларға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = { save(submit = true) }, enabled = !busy,
+                        modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                    ) {
+                        if (busy) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                        else Text(appText("На модерацию", "Модерацияға"), fontWeight = FontWeight.Black, color = Color.White)
+                    }
+                }
+            }
             item {
                 Text(
-                    appText("Партнёрские объявления Юлдаш", "Юлдаш партнёр иғландары"),
-                    color = CanonGreen,
-                    fontSize = 24.sp,
-                    lineHeight = 27.sp,
-                    fontWeight = FontWeight.Black
-                )
-                Text(
-                    appText("Создание, сроки, erid, показы и клики собраны отдельно от профиля пользователя.", "Иғлан, ваҡыт, erid, күрһәтеү һәм баҫыу айырым кабинетта."),
-                    color = CanonMuted,
-                    fontSize = 14.sp,
-                    lineHeight = 19.sp
+                    appText("После отправки объявление проверит модератор. Затем оплатишь размещение — и оно пойдёт в показы.",
+                            "Ебәргәс, иғланды модератор тикшерә. Аҙаҡ урынлаштырыуҙы түләйһең — һәм ул күрһәтелә башлай."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp
                 )
             }
-            item { AdsAdminPreview(ads = ads, adStats = stats) }
         }
     }
 }
 
 @Composable
-private fun AdsAdminPreview(ads: List<PartnerAd>, adStats: Map<String, AdStats>) {
-    val activeCount = ads.count { it.status == AdStatus.Active }
-    val moderationCount = ads.count { it.status == AdStatus.Moderation }
-    val totalImpressions = ads.sumOf { adStats[it.id]?.impressions ?: 0 }
-    val totalClicks = ads.sumOf { adStats[it.id]?.clicks ?: 0 }
-    Card(
-        colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, CanonHairlineGreen)
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-                    Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(appText("Кабинет рекламы", "Реклама кабинеты"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                    Text(appText("Создание, сроки, erid, показы и клики", "Булдырыу, ваҡыт, erid, күрһәтеү һәм баҫыу"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AdSummaryMetric(appText("Активно", "Актив"), activeCount.toString(), Modifier.weight(1f))
-                AdSummaryMetric(appText("Модерация", "Модерация"), moderationCount.toString(), Modifier.weight(1f))
-                AdSummaryMetric(appText("Клики", "Баҫыу"), totalClicks.toString(), Modifier.weight(1f))
-            }
-            Text(
-                appText("Всего показов: $totalImpressions · общий CTR: ${if (totalImpressions == 0) 0 else (totalClicks * 100) / totalImpressions}%", "Бөтә күрһәтеү: $totalImpressions · дөйөм CTR: ${if (totalImpressions == 0) 0 else (totalClicks * 100) / totalImpressions}%"),
-                color = CanonMuted,
-                fontSize = 12.sp
-            )
-            Text(appText("Пакеты размещения", "Урынлаштырыу пакеттары"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-            AdPackageRow(appText("Город", "Ҡала"), appText("Показы в одном городе", "Бер ҡалала күрһәтеү"), "1 000–3 000 ₽ / мес")
-            AdPackageRow(appText("Маршрут", "Маршрут"), appText("Показы на выбранном направлении", "Һайланған йүнәлештә күрһәтеү"), "2 000–5 000 ₽ / мес")
-            AdPackageRow(appText("Главный партнёр", "Төп партнёр"), appText("Выше обычных партнёров маршрута", "Маршрут партнёрҙарынан юғарыраҡ"), "5 000–15 000 ₽ / мес")
-            Text(
-                appText("Цены — стартовая гипотеза, не рыночный факт.", "Хаҡтар — башланғыс фараз, баҙар факты түгел."),
-                color = CanonMuted,
-                fontSize = 11.sp
-            )
-            Text(appText("Запуск рекламы", "Рекламаны башлау"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-            AdsLaunchChecklist()
-            // Оплата размещения партнёром: QR раскрывается по нажатию (не висит всегда — экран чище).
-            var showAdPay by remember { mutableStateOf(false) }
-            Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, CanonBorder)) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth().clickable { showAdPay = !showAdPay },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(appText("Оплатить размещение", "Урынлаштырыуҙы түләү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                            Text(appText("QR и перевод в Сбербанк по пакету", "Пакет буйынса QR һәм Сбербанкка күсереү"), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
-                        }
-                        Icon(
-                            if (showAdPay) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
-                            contentDescription = if (showAdPay) appText("Свернуть", "Йый") else appText("Показать", "Күрһәт"),
-                            tint = CanonMuted
-                        )
-                    }
-                    AnimatedVisibility(showAdPay) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(appText("Переведи сумму по пакету — потом напиши нам, подтвердим запуск.", "Пакет буйынса сумманы күсер — аҙаҡ беҙгә яҙ, башлауҙы раҫлайбыҙ."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
-                            SberPayBlock(SBP_PHONE_DIGITS)
-                        }
-                    }
-                }
-            }
-            Text(appText("Объявления", "Иғландар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-            val topAds = remember(ads) { ads.take(4) }
-            topAds.forEach { ad ->
-                val stats = adStats[ad.id] ?: AdStats()
-                Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(ad.titleText(), modifier = Modifier.weight(1f), color = CanonText, fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Surface(color = ad.status.color().copy(alpha = 0.12f), shape = RoundedCornerShape(999.dp)) {
-                                Text(ad.status.label(), modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = ad.status.color(), fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                            }
-                        }
-                        Text("erid: ${ad.eridText()} · ${ad.advertiserName}", color = CanonMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            appText(
-                                "Пакет: ${ad.packageText()} · бюджет: ${ad.budgetText()}",
-                                "Пакет: ${ad.packageText()} · бюджет: ${ad.budgetText()}"
-                            ),
-                            color = CanonMuted,
-                            fontSize = 11.sp,
-                            lineHeight = 14.sp
-                        )
-                        Text(appText("Показы: ${ad.placementsLabel()}", "Күрһәтә: ${ad.placementsLabel()}"), color = CanonMuted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(appText("Точка: ${ad.mapPoint} · ${ad.contact}", "Нөктә: ${ad.mapPoint} · ${ad.contact}"), color = CanonMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${ad.startDate} — ${ad.endDate} · impressions_count ${stats.impressions} · clicks_count ${stats.clicks}", color = CanonMuted, fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AdSummaryMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
-            Text(label, color = CanonMuted, fontSize = 10.sp, maxLines = 1)
-        }
-    }
-}
-
-@Composable
-private fun AdsLaunchChecklist() {
-    SettingsGroup {
-        AdChecklistRow(appText("Креатив", "Креатив"), appText("Название, описание, адрес, кнопка", "Исем, аңлатма, адрес, төймә"), true)
-        AdChecklistRow(appText("Таргетинг", "Таргетинг"), appText("Город, маршрут или категория", "Ҡала, маршрут йәки категория"), true)
-        AdChecklistRow(appText("Маркировка", "Билдәләү"), appText("Рекламодатель и erid", "Реклама биреүсе һәм erid"), true)
-        AdChecklistRow(appText("Модерация", "Модерация"), appText("Проверка перед показами", "Күрһәткәнгә тиклем тикшереү"), false)
-    }
-}
-
-@Composable
-private fun AdChecklistRow(title: String, subtitle: String, done: Boolean) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Surface(color = if (done) CanonMint else CanonWarnBg, shape = CircleShape) {
-            Icon(if (done) Icons.Default.CheckCircle else Icons.Default.Schedule, contentDescription = null, tint = if (done) CanonGreen2 else CanonWarn, modifier = Modifier.padding(9.dp).size(18.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 14.sp)
-            Text(subtitle, color = CanonMuted, fontSize = 12.sp, lineHeight = 15.sp)
-        }
-    }
-}
-
-@Composable
-private fun AdPackageRow(title: String, subtitle: String, price: String) {
-    Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CanonBorder)) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(9.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 13.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 11.sp, lineHeight = 14.sp)
-            }
-            Text(price, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 12.sp)
-        }
-    }
+private fun AdField(label: String, value: String, onValueChange: (String) -> Unit, singleLine: Boolean = true) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = singleLine,
+        minLines = if (singleLine) 1 else 3,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = CanonGreen2,
+            unfocusedBorderColor = CanonBorder,
+            focusedLabelColor = CanonGreen2,
+            cursorColor = CanonGreen2,
+            focusedTextColor = CanonText,
+            unfocusedTextColor = CanonText,
+        )
+    )
 }
 
 @Composable

@@ -317,7 +317,8 @@ internal enum class Screen {
     CallbackHelp,
     AppReview,
     AdminReviews,
-    AdminAds
+    AdminAds,
+    AdEditor
 }
 
 internal enum class HomeTab {

@@ -327,6 +327,8 @@ internal fun YuldashApp() {
     }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by vm.partnerAds
+    // Объявление, открытое в редакторе кабинета партнёра (null = создание нового).
+    var adEditorTarget by remember { mutableStateOf<com.yuldash.app.data.MyAdDto?>(null) }
     LaunchedEffect(Unit) {
         ApiClient.getAds().onSuccess { srv ->
             val tmpl = demoPartnerAds.firstOrNull()
@@ -773,9 +775,14 @@ internal fun YuldashApp() {
                 onAccepted = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip }
             )
             Screen.AdsCabinet -> AdsCabinetScreen(
-                ads = partnerAds,
-                adStats = adStats,
-                onBack = { openHome(HomeTab.Profile) }
+                onBack = { openHome(HomeTab.Profile) },
+                onCreateAd = { adEditorTarget = null; screen = Screen.AdEditor },
+                onEditAd = { dto -> adEditorTarget = dto; screen = Screen.AdEditor },
+            )
+            Screen.AdEditor -> AdEditorScreen(
+                initial = adEditorTarget,
+                onBack = { screen = Screen.AdsCabinet },
+                onSaved = { screen = Screen.AdsCabinet },
             )
             Screen.SimpleMode -> SimpleModeScreen(
                 latestRequests = localRequests,
