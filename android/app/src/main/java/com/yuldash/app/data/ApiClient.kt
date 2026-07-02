@@ -145,6 +145,25 @@ object ApiClient {
     /** Имя вошедшего клиента (для приветствия и профиля). null → не вошёл (демо). */
     fun cachedName(): String? = userName?.takeIf { it.isNotBlank() }
 
+    // ---------- Кеш GET-ответов (TTL) ----------
+    // Статику/редкие данные не дёргаем на каждом открытии экрана и в поллинге. Живое (поездки/near/
+    // брони/статус/чат) НЕ кешируем. Инвалидация: точечно на мутациях + всё на logout.
+    private const val TTL_STATIC = 30 * 60_000L   // ad-packages, boost-plans (меняются лишь при редеплое бэка)
+    private const val TTL_SLOW = 5 * 60_000L      // popular-routes, my-routes (обновляются медленно)
+    private const val TTL_FEED = 3 * 60_000L      // feed (счётчики дня)
+    private const val TTL_PERSONAL = 90_000L      // me, referral, contacts (+ инвалидация на мутациях)
+    private class CacheEntry(val ts: Long, val value: Any?)
+    private val respCache = java.util.concurrent.ConcurrentHashMap<String, CacheEntry>()
+    private fun invalidate(vararg keys: String) { keys.forEach { respCache.remove(it) } }
+
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun <T : Any> cachedGet(key: String, ttlMs: Long, fetch: suspend () -> Result<T>): Result<T> {
+        respCache[key]?.let { c ->
+            if (System.currentTimeMillis() - c.ts < ttlMs && c.value != null) return Result.success(c.value as T)
+        }
+        return fetch().onSuccess { respCache[key] = CacheEntry(System.currentTimeMillis(), it) }
+    }
+
     fun saveName(n: String) {
         if (n.isBlank()) return
         userName = n
@@ -185,6 +204,7 @@ object ApiClient {
         userName = null
         cachedUserId = null
         cachedUserIdForToken = null
+        respCache.clear()   // выход → сбросить весь кеш ответов (иначе следующий юзер увидит чужой /me/referral/contacts)
         prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.apply()
     }
 
@@ -228,11 +248,11 @@ object ApiClient {
 
     /** Редактирование профиля: имя для показа. При успехе обновляем кеш имени. */
     suspend fun updateName(name: String): Result<Unit> =
-        call("POST", "/me/update", JSONObject().put("name", name), auth = true).onSuccess { saveName(name) }.map { }
+        call("POST", "/me/update", JSONObject().put("name", name), auth = true).onSuccess { saveName(name); invalidate("me") }.map { }
 
     /** Сохранить аватар (публичный URL из uploadChatPhoto). */
     suspend fun updateAvatar(url: String): Result<Unit> =
-        call("POST", "/me/update", JSONObject().put("avatar_url", url), auth = true).map { }
+        call("POST", "/me/update", JSONObject().put("avatar_url", url), auth = true).onSuccess { invalidate("me") }.map { }
 
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
     // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
@@ -259,8 +279,10 @@ object ApiClient {
         ).onSuccess { it.applyAuth(); Analytics.log("login", mapOf("method" to "telegram")) }
 
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
-    suspend fun me(): Result<JSONObject> = call("GET", "/me", null, auth = true)
-        .onSuccess { o -> o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName) }
+    suspend fun me(): Result<JSONObject> = cachedGet("me", TTL_PERSONAL) {
+        call("GET", "/me", null, auth = true)
+            .onSuccess { o -> o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName) }
+    }
 
     // ---------- Поездки ----------
 
@@ -512,9 +534,9 @@ object ApiClient {
             "POST", "/trusted-contacts",
             JSONObject().put("name", name).put("relation", relation).put("phone", phone).put("notify_by_default", notifyByDefault),
             auth = true,
-        ).map { }
+        ).onSuccess { invalidate("contacts") }.map { }   // добавили контакт → следующий getContacts тянет свежий список
 
-    suspend fun getContacts(): Result<List<ContactDto>> =
+    suspend fun getContacts(): Result<List<ContactDto>> = cachedGet("contacts", TTL_PERSONAL) {
         call("GET", "/trusted-contacts", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
@@ -528,6 +550,7 @@ object ApiClient {
                 )
             }
         }
+    }
 
     suspend fun sos(category: String, note: String): Result<Unit> =
         call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }.onSuccess { Analytics.log("sos") }
@@ -703,18 +726,21 @@ object ApiClient {
         call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { }
 
     /** Мой реферал: код, сколько привёл, бонусы, вводил ли чей-то код. */
-    suspend fun getReferral(): Result<ReferralDto> =
+    suspend fun getReferral(): Result<ReferralDto> = cachedGet("referral", TTL_PERSONAL) {
         call("GET", "/referral/me", null, auth = true).map { o ->
             ReferralDto(o.optString("code"), o.optInt("invited"), o.optInt("credits"), o.optBoolean("redeemed"))
         }
+    }
 
     /** Ввести код друга → оба получают бонус. Возвращает новый баланс бонусов. */
     suspend fun redeemReferral(code: String): Result<Int> =
-        call("POST", "/referral/redeem", JSONObject().put("code", code), auth = true).map { it.optInt("credits") }
+        call("POST", "/referral/redeem", JSONObject().put("code", code), auth = true)
+            .onSuccess { invalidate("referral") }.map { it.optInt("credits") }   // бонусы изменились → сбросить кеш
 
     /** Поднять свою поездку бесплатно за бонус. Возвращает остаток бонусов. */
     suspend fun boostFree(rideId: Int): Result<Int> =
-        call("POST", "/boost/free", JSONObject().put("ride_id", rideId), auth = true).map { it.optInt("credits") }
+        call("POST", "/boost/free", JSONObject().put("ride_id", rideId), auth = true)
+            .onSuccess { invalidate("referral") }.map { it.optInt("credits") }   // потратили бонус → сбросить кеш
 
     suspend fun getMessages(bookingId: Int): Result<List<MessageDto>> =
         call("GET", "/bookings/$bookingId/messages", null, auth = true).map { obj ->
@@ -811,7 +837,7 @@ object ApiClient {
         }
 
     // Популярные маршруты — считаются из реальных поездок на сервере.
-    suspend fun getPopularRoutes(): Result<List<PopularRouteDto>> =
+    suspend fun getPopularRoutes(): Result<List<PopularRouteDto>> = cachedGet("popular-routes", TTL_SLOW) {
         call("GET", "/popular-routes", null, auth = false).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
@@ -819,9 +845,10 @@ object ApiClient {
                 PopularRouteDto(o.optString("from_city"), o.optString("to_city"), o.optInt("count"))
             }
         }
+    }
 
     // Частые поездки пользователя — из истории его броней.
-    suspend fun getMyRoutes(): Result<List<PopularRouteDto>> =
+    suspend fun getMyRoutes(): Result<List<PopularRouteDto>> = cachedGet("my-routes", TTL_SLOW) {
         call("GET", "/my-routes", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
@@ -829,9 +856,10 @@ object ApiClient {
                 PopularRouteDto(o.optString("from_city"), o.optString("to_city"), o.optInt("count"))
             }
         }
+    }
 
     // Живая лента карты: счётчики поездок за период + топ-маршрут недели (из реальных данных).
-    suspend fun getFeed(): Result<FeedDto> =
+    suspend fun getFeed(): Result<FeedDto> = cachedGet("feed", TTL_FEED) {
         call("GET", "/feed", null, auth = false).map { o ->
             val tr = o.optJSONObject("top_route")
             FeedDto(
@@ -846,6 +874,7 @@ object ApiClient {
                 donationsTotal = o.optInt("donations_total")
             )
         }
+    }
 
     // Лента событий (входящие сообщения по броням).
     suspend fun getNotifications(): Result<List<NotifDto>> =
@@ -984,7 +1013,7 @@ object ApiClient {
     }
 
     /** Тарифы размещения (из конфига сервера) — для кабинета/витрины. Без входа. */
-    suspend fun getAdPackages(): Result<List<AdPackageDto>> =
+    suspend fun getAdPackages(): Result<List<AdPackageDto>> = cachedGet("ad-packages", TTL_STATIC) {
         call("GET", "/ad-packages", null, auth = false).map { o ->
             val arr = o.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
@@ -992,6 +1021,7 @@ object ApiClient {
                 AdPackageDto(a.optString("code"), a.optString("title"), a.optString("title_ba"), a.optInt("amount_kop"), a.optInt("period_days"))
             }
         }
+    }
 
     /** Мои объявления (владелец = я), все статусы + причина отказа + оплата. */
     suspend fun getMyAds(): Result<List<MyAdDto>> =
@@ -1038,7 +1068,7 @@ object ApiClient {
     // ---------- Boost (поднятие объявления, оплата) ----------
 
     /** Тарифы поднятия (цены с бэкенда). */
-    suspend fun getBoostPlans(): Result<List<BoostPlanDto>> =
+    suspend fun getBoostPlans(): Result<List<BoostPlanDto>> = cachedGet("boost-plans", TTL_STATIC) {
         call("GET", "/boost/plans", null, auth = false).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
@@ -1046,6 +1076,7 @@ object ApiClient {
                 BoostPlanDto(o.optString("tier"), o.optString("title"), o.optInt("price"), o.optInt("hours"))
             }
         }
+    }
 
     /** Мои активные поездки (для выбора, какую поднять). */
     suspend fun getDriverRides(): Result<List<RideDto>> =
