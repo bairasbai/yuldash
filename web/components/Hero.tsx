@@ -15,7 +15,6 @@ import { Typewriter } from "./Typewriter";
 import { DownloadButton } from "./DownloadButton";
 import { HeroPhone } from "./HeroPhone";
 import { Counter } from "./Counter";
-import { APK_SIZE } from "./config";
 
 const container = {
   hidden: {},
@@ -137,7 +136,7 @@ export function Hero() {
             variants={item}
             className="mt-9 flex flex-col items-center gap-4 sm:flex-row lg:justify-start"
           >
-            <DownloadButton label={tr("hero_cta")} sub={`${tr("hero_cta_sub")}`.replace("~12 МБ", APK_SIZE)} />
+            <DownloadButton label={tr("hero_cta")} sub={tr("hero_cta_sub")} />
             <a
               href="#how"
               className="rounded-canon border border-white/15 px-7 py-4 text-base font-semibold text-white/80 transition-all hover:-translate-y-0.5 hover:border-green-glow hover:bg-green-bright/10 hover:text-white"
