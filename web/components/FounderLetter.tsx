@@ -84,6 +84,8 @@ export function FounderLetter() {
                 alt={FOUNDER.alt[lang]}
                 width={800}
                 height={1000}
+                loading="lazy"
+                decoding="async"
                 className="h-auto w-full"
               />
               <BorderBeam />

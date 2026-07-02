@@ -20,17 +20,20 @@ const container = {
   hidden: {},
   show: { transition: { staggerChildren: 0.12, delayChildren: 0.1 } },
 };
+// ВАЖНО (перф): hidden БЕЗ opacity:0 — иначе hero-текст (LCP) скрыт в SSG-HTML
+// и появляется только после гидрации framer → LCP ~15с на мобиле. Оставляем
+// лишь сдвиг: контент виден сразу (LCP на первом кадре), анимация — доезд.
 const item = {
-  hidden: { opacity: 0, y: 22 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] } },
+  hidden: { y: 22 },
+  show: { y: 0, transition: { duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] } },
 };
 const wordWrap = {
   hidden: {},
   show: { transition: { staggerChildren: 0.07, delayChildren: 0.15 } },
 };
 const word = {
-  hidden: { opacity: 0, y: "0.5em", filter: "blur(6px)" },
-  show: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.6, ease: [0.21, 0.47, 0.32, 0.98] } },
+  hidden: { y: "0.4em" },
+  show: { y: 0, transition: { duration: 0.6, ease: [0.21, 0.47, 0.32, 0.98] } },
 };
 
 export function Hero() {

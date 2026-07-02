@@ -4,9 +4,8 @@ const nextConfig = {
   output: "export",
   images: { unoptimized: true },
   trailingSlash: true,
-  // Вшиваем CSS прямо в HTML — нет отдельного render-blocking запроса CSS.
-  // Критично для зажатых/флаки мобильных сетей (ТСПУ): стили приходят одним
-  // запросом с HTML, страница не висит чёрной в ожидании отдельного CSS-файла.
+  // Вшиваем CSS в HTML — один запрос, стили не render-blocking отдельным файлом.
+  // (Тест без inlineCss дал LCP хуже — отдельный CSS блокировал рендер сильнее.)
   experimental: { inlineCss: true },
 };
 

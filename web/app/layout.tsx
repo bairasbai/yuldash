@@ -18,7 +18,7 @@ const inter = Inter({
 // выглядели неровно/непривычно. Montserrat даёт аккуратные RU/BA-заголовки.
 const montserrat = Montserrat({
   subsets: ["latin", "cyrillic", "cyrillic-ext"],
-  weight: ["600", "700", "800", "900"],
+  weight: ["700", "800", "900"], // убрал 600 (на display почти не используется) — минус вес шрифтов
   variable: "--font-display",
   display: "swap",
 });
@@ -94,7 +94,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {METRIKA_ID && (
           <>
             <Script id="ym" strategy="afterInteractive">
-              {`(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");ym(${METRIKA_ID},"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true,webvisor:true});`}
+              {`(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");ym(${METRIKA_ID},"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true,webvisor:false,defer:true});`}
             </Script>
             {/* фолбэк без JS */}
             <noscript>

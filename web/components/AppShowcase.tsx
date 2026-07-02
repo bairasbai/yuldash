@@ -35,6 +35,8 @@ function PhoneShot({ src, label, delay, float }: { src: string; label: string; d
           alt={`Юлдаш — экран «${label}»`}
           width={232}
           height={500}
+          loading="lazy"
+          decoding="async"
           className="h-[500px] w-auto rounded-[34px] object-contain drop-shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
         />
       </motion.div>
