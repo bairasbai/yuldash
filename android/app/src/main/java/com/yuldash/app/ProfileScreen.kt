@@ -291,7 +291,9 @@ internal fun ProfileScreen(
                 o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
                 role = o.optString("role")
             }
-            .onFailure { profileConfirmed = false }
+            // Сбой /me: сеть упала (таймаут/нет связи) — НЕ роняем залогиненного в «демо».
+            // Не подтверждён только если реально не вошёл ИЛИ токен отвергнут (401).
+            .onFailure { e -> profileConfirmed = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401 }
     }
     val editCtx = LocalContext.current
     val editScope = rememberCoroutineScope()
