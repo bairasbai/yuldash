@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { motion, useReducedMotion } from "framer-motion";
 import { useLang, type DictKey } from "./lang";
 import { Reveal } from "./Reveal";
@@ -28,12 +27,14 @@ function PhoneShot({ src, label, delay, float }: { src: string; label: string; d
       >
         {/* мягкое свечение под телефоном */}
         <div className="pointer-events-none absolute inset-4 -z-10 rounded-[48px] bg-green-bright/20 blur-3xl" />
-        <Image
+        {/* Обычный <img> eager: внутри motion-контейнера (парение) next/image
+            lazy глючит на iOS Safari → битая картинка. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
           src={src}
           alt={`Юлдаш — экран «${label}»`}
           width={232}
           height={500}
-          sizes="232px"
           className="h-[500px] w-auto rounded-[34px] object-contain drop-shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
         />
       </motion.div>

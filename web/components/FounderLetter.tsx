@@ -76,13 +76,15 @@ export function FounderLetter() {
               style={reduce ? undefined : { x: imgX, y: imgY }}
               className="relative overflow-hidden rounded-[28px] border border-white/10 will-change-transform"
             >
-              <Image
+              {/* Обычный <img> eager: внутри параллакс-motion.div next/image
+                  lazy глючит на iOS Safari (фото не грузилось). */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src="/founder.jpg"
                 alt={FOUNDER.alt[lang]}
                 width={800}
                 height={1000}
                 className="h-auto w-full"
-                priority={false}
               />
               <BorderBeam />
             </motion.div>

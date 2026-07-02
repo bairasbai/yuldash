@@ -110,9 +110,8 @@ export function CoverageMap() {
                     d={CONTOUR}
                     fill="none"
                     stroke="#F4D98B"
-                    strokeWidth="2.6"
+                    strokeWidth="3"
                     strokeLinecap="round"
-                    filter="url(#covGlow)"
                     pathLength={1}
                     strokeDasharray="0.05 0.95"
                     className="coverage-runner"
@@ -121,9 +120,8 @@ export function CoverageMap() {
                     d={CONTOUR}
                     fill="none"
                     stroke="#9CF0C2"
-                    strokeWidth="2.2"
+                    strokeWidth="2.4"
                     strokeLinecap="round"
-                    filter="url(#covGlow)"
                     pathLength={1}
                     strokeDasharray="0.04 0.96"
                     className="coverage-runner coverage-runner-2"
@@ -153,7 +151,7 @@ export function CoverageMap() {
               {/* сигналы-импульсы, летящие от Уфы к городам */}
               {!reduce &&
                 NODES.slice(1).map((n, i) => (
-                  <circle key={`p${i}`} r="2.8" fill="#F4D98B" filter="url(#covGlow)">
+                  <circle key={`p${i}`} r="3" fill="#F4D98B">
                     <animateMotion
                       dur="2.6s"
                       begin={`${(i * 0.24).toFixed(2)}s`}
