@@ -381,8 +381,17 @@ internal fun YuldashApp() {
     }
 
     fun openHome(tab: HomeTab = HomeTab.Map) {
+        navHistory.clear()          // Home = корень: сбрасываем трейл, чтобы «Назад» не возвращал в завершённые под-потоки
+        navPopping = true           // сам переход-на-Home в историю не пишем
         startHomeTab = tab
         screen = Screen.Home
+    }
+    // Единый пошаговый «Назад» (верхняя стрелка И аппаратная кнопка): снимаем последний экран трейла.
+    // Дошли до Home / трейл пуст → Home на ПОСЛЕДНЕЙ вкладке (startHomeTab синхронён с активной вкладкой Home).
+    fun goBack() {
+        val prev = navHistory.removeLastOrNull()
+        if (prev != null && prev != screen && prev != Screen.Home) { navPopping = true; screen = prev }
+        else openHome(startHomeTab)
     }
     fun openCreateRide(returnScreen: Screen = Screen.Home, returnHomeTab: HomeTab = HomeTab.Request) {
         createRideReturnScreen = returnScreen
@@ -488,10 +497,7 @@ internal fun YuldashApp() {
             }
         }
         BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash) {
-            // Возврат по трейлу (если есть), иначе — на Home. Гард-редирект (выше) защитит
-            // дата-экраны без транзитных данных. navPopping глушит запись pop'а в историю.
-            val prev = navHistory.removeLastOrNull()
-            if (prev != null && prev != screen) { navPopping = true; screen = prev } else screen = Screen.Home
+            goBack()   // единый пошаговый возврат по трейлу — та же логика, что верхняя стрелка «Назад»
         }
         AnimatedContent(
             targetState = screen,
@@ -541,6 +547,7 @@ internal fun YuldashApp() {
                 adStats = adStats,
                 voiceMessages = voiceMessages,
                 initialTab = startHomeTab,
+                onTabChange = { startHomeTab = it },   // «Назад» с под-экранов вернётся на активную вкладку Home
                 onCreateRide = { openCreateRide(returnScreen = Screen.Home, returnHomeTab = HomeTab.Request) },
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onSupport = { screen = Screen.Support },
@@ -631,7 +638,7 @@ internal fun YuldashApp() {
                 }
             )
             Screen.CreateRide -> CreateRideScreen(
-                onBack = { closeCreateRide() },
+                onBack = { goBack() },
                 onPublish = { ride ->
                     rides.add(0, ride)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Сәфәр баҫтырылды" else "Поездка опубликована", Toast.LENGTH_SHORT).show()
@@ -639,21 +646,21 @@ internal fun YuldashApp() {
                 }
             )
             Screen.CreateRequest -> CreatePassengerRequestScreen(
-                onBack = { openHome(HomeTab.Request) },
+                onBack = { goBack() },
                 onCreateRequest = { request ->
                     localRequests.add(0, request)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка булдырылды" else "Заявка создана", Toast.LENGTH_SHORT).show()
                     openHome(HomeTab.Request)
                 }
             )
-            Screen.Support -> SupportScreen(onBack = { openHome(HomeTab.Profile) })
-            Screen.Boost -> BoostScreen(onBack = { openHome(HomeTab.Rides) })
+            Screen.Support -> SupportScreen(onBack = { goBack() })
+            Screen.Boost -> BoostScreen(onBack = { goBack() })
             Screen.Booking -> BookingScreen(
                 ride = selectedRide ?: rides.firstOrNull() ?: demoRides.first(),   // фоллбэк вместо краша на пустом списке
                 bookingId = activeBookingId,
                 ads = partnerAds,
                 adStats = adStats,
-                onBack = { openHome(HomeTab.Rides) },
+                onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) },
                 onMessage = { openHome(HomeTab.Chat) },
                 onAdImpression = ::trackAdImpression,
@@ -679,30 +686,30 @@ internal fun YuldashApp() {
                 ride = selectedRide,
                 contacts = trustedContacts,
                 bookingId = activeBookingId,
-                onBack = { openHome(HomeTab.Rides) },
+                onBack = { goBack() },
                 onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
                 onSos = { screen = Screen.Sos }
             )
             Screen.Sos -> SosScreen(
-                onBack = { openHome(HomeTab.Map) },
+                onBack = { goBack() },
                 onLoginRequired = { screen = Screen.Login }
             )
             Screen.VerifyDriver -> VerifyDriverScreen(
-                onBack = { openHome(HomeTab.Profile) },
+                onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) }
             )
             Screen.Notifications -> NotificationsScreen(
-                onBack = { openHome(HomeTab.Chat) },
+                onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) }
             )
-            Screen.Privacy -> PrivacyScreen(onBack = { openHome(HomeTab.Profile) })
-            Screen.Rules -> RulesScreen(onBack = { screen = Screen.Safety })
-            Screen.PaymentInfo -> PaymentInfoScreen(onBack = { screen = Screen.Settings })
-            Screen.Blocklist -> BlocklistScreen(onBack = { screen = Screen.Safety })
-            Screen.Report -> ReportScreen(onBack = { screen = Screen.Safety })
-            Screen.Filters -> FiltersScreen(onBack = { screen = Screen.Settings })
+            Screen.Privacy -> PrivacyScreen(onBack = { goBack() })
+            Screen.Rules -> RulesScreen(onBack = { goBack() })
+            Screen.PaymentInfo -> PaymentInfoScreen(onBack = { goBack() })
+            Screen.Blocklist -> BlocklistScreen(onBack = { goBack() })
+            Screen.Report -> ReportScreen(onBack = { goBack() })
+            Screen.Filters -> FiltersScreen(onBack = { goBack() })
             Screen.Safety -> SafetyScreen(
-                onBack = { openHome(HomeTab.Profile) },
+                onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) },
                 onSos = { screen = Screen.Sos },
                 onShareTrip = { openTrustedContacts(returnScreen = Screen.Safety) },
@@ -711,7 +718,7 @@ internal fun YuldashApp() {
                 onReport = { screen = Screen.Report }
             )
             Screen.Settings -> SettingsScreen(
-                onBack = { openHome(HomeTab.Profile) },
+                onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) },
                 onToggleLanguage = {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
@@ -724,7 +731,7 @@ internal fun YuldashApp() {
                 onLogout = { ApiClient.logout(); isAdmin = false; screen = Screen.Login }
             )
             Screen.AdminCabinet -> AdminCabinetScreen(
-                onBack = { screen = Screen.Settings },
+                onBack = { goBack() },
                 onAdminRequest = { screen = Screen.AdminRequest },
                 onAdminResponses = { screen = Screen.AdminResponses },
                 onAds = { screen = Screen.AdsCabinet },
@@ -732,15 +739,15 @@ internal fun YuldashApp() {
                 onReports = { screen = Screen.AdminReports },
                 onPaymentRequests = { screen = Screen.AdminPaymentRequests }
             )
-            Screen.AdminDrivers -> AdminDriversScreen(onBack = { screen = Screen.AdminCabinet })
-            Screen.AdminReports -> AdminReportsScreen(onBack = { screen = Screen.AdminCabinet })
-            Screen.AdminPaymentRequests -> AdminPaymentRequestsScreen(onBack = { screen = Screen.AdminCabinet })
-            Screen.AdminRequest -> AdminRequestScreen(onBack = { screen = Screen.AdminCabinet })
-            Screen.AdminResponses -> AdminResponsesScreen(onBack = { screen = Screen.AdminCabinet })
+            Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
+            Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
+            Screen.AdminPaymentRequests -> AdminPaymentRequestsScreen(onBack = { goBack() })
+            Screen.AdminRequest -> AdminRequestScreen(onBack = { goBack() })
+            Screen.AdminResponses -> AdminResponsesScreen(onBack = { goBack() })
             Screen.Help -> HelpScreen(
                 ads = partnerAds,
                 adStats = adStats,
-                onBack = { openHome(HomeTab.Profile) },
+                onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) },
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick
@@ -748,7 +755,7 @@ internal fun YuldashApp() {
             Screen.PassengerCabinet -> PassengerCabinetScreen(
                 rides = rides,
                 requests = localRequests,
-                onBack = { openHome(HomeTab.Profile) },
+                onBack = { goBack() },
                 onMyTrips = { openHome(HomeTab.Rides) },
                 onOpenBooking = { ride, status ->
                     selectedRide = ride
@@ -762,31 +769,31 @@ internal fun YuldashApp() {
             )
             Screen.DriverCabinet -> DriverCabinetScreen(
                 rides = rides,
-                onBack = { openHome(HomeTab.Profile) },
+                onBack = { goBack() },
                 onCreateRide = { openCreateRide(returnScreen = Screen.DriverCabinet) },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onBoost = { screen = Screen.Boost },
                 onRequestsFeed = { screen = Screen.RequestsFeed }
             )
-            Screen.RequestsFeed -> RequestsFeedScreen(onBack = { screen = Screen.DriverCabinet })
+            Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
             Screen.RequestResponses -> ResponsesScreen(
                 requestId = responsesRequestId,
-                onBack = { openHome(HomeTab.Chat) },
+                onBack = { goBack() },
                 onAccepted = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip }
             )
             Screen.AdsCabinet -> AdsCabinetScreen(
-                onBack = { openHome(HomeTab.Profile) },
+                onBack = { goBack() },
                 onCreateAd = { adEditorTarget = null; screen = Screen.AdEditor },
                 onEditAd = { dto -> adEditorTarget = dto; screen = Screen.AdEditor },
             )
             Screen.AdEditor -> AdEditorScreen(
                 initial = adEditorTarget,
-                onBack = { screen = Screen.AdsCabinet },
-                onSaved = { screen = Screen.AdsCabinet },
+                onBack = { goBack() },
+                onSaved = { goBack() },   // сохранил → назад в кабинет (не оставляем редактор в трейле)
             )
             Screen.SimpleMode -> SimpleModeScreen(
                 latestRequests = localRequests,
-                onBack = { openHome(HomeTab.Map) },
+                onBack = { goBack() },
                 onVoiceRequest = { if (ApiClient.isLoggedIn()) screen = Screen.VoiceRequest else screen = Screen.Login },
                 onFamilyOrder = { if (ApiClient.isLoggedIn()) screen = Screen.FamilyOrder else screen = Screen.Login },
                 onTrustedContacts = { if (ApiClient.isLoggedIn()) openTrustedContacts(returnScreen = Screen.SimpleMode) else screen = Screen.Login },
@@ -797,25 +804,25 @@ internal fun YuldashApp() {
             )
             Screen.VoiceRequest -> VoiceRequestScreen(
                 contacts = trustedContacts,
-                onBack = { screen = Screen.SimpleMode },
+                onBack = { goBack() },
                 onCreateRequest = { request ->
                     localRequests.add(0, request)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка булдырылды" else "Заявка создана", Toast.LENGTH_SHORT).show()
-                    screen = Screen.SimpleMode
+                    goBack()
                 }
             )
             Screen.FamilyOrder -> FamilyOrderScreen(
                 contacts = trustedContacts,
-                onBack = { screen = Screen.SimpleMode },
+                onBack = { goBack() },
                 onCreateRequest = { request ->
                     localRequests.add(0, request)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Яҡын кеше өсөн сәфәр булдырылды" else "Поездка за близкого создана", Toast.LENGTH_SHORT).show()
-                    screen = Screen.SimpleMode
+                    goBack()
                 }
             )
             Screen.TrustedContacts -> TrustedContactsScreen(
                 contacts = trustedContacts,
-                onBack = { closeTrustedContacts() },
+                onBack = { goBack() },
                 onAddContact = { contact ->
                     // Безопасность: контакт получает статус поездки/SOS — успех показываем ПО ФАКТУ сервера,
                     // при сбое откатываем (иначе fire-and-forget = «добавлен» на экране, а на сервере нет).
@@ -832,17 +839,17 @@ internal fun YuldashApp() {
             )
             Screen.RepeatTrip -> RepeatTripScreen(
                 contacts = trustedContacts,
-                onBack = { screen = Screen.SimpleMode },
+                onBack = { goBack() },
                 onLoginRequired = { screen = Screen.Login },
                 onRepeat = { request ->
                     localRequests.add(0, request)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Йыш сәфәр ҡабатланды" else "Частая поездка повторена", Toast.LENGTH_SHORT).show()
-                    screen = Screen.SimpleMode
+                    goBack()
                 }
             )
             Screen.CallbackHelp -> CallbackHelpScreen(
                 requested = callbackRequested,
-                onBack = { screen = Screen.SimpleMode },
+                onBack = { goBack() },
                 onRequest = { note ->
                     // Ждём ответ сервера: «заявка создана» показываем по факту, при сбое — честная ошибка (не ложный успех).
                     callbackRequested = true
@@ -856,9 +863,9 @@ internal fun YuldashApp() {
                     }
                 }
             )
-            Screen.AppReview -> AppReviewScreen(onBack = { openHome(HomeTab.Profile) })
-            Screen.AdminReviews -> AdminReviewsScreen(onBack = { openHome(HomeTab.Profile) })
-            Screen.AdminAds -> AdminAdsScreen(onBack = { openHome(HomeTab.Profile) })
+            Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
+            Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
+            Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
         }
         }
     }
@@ -1421,9 +1428,12 @@ internal fun HomeScreen(
     onTrustedContacts: () -> Unit,
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
-    onToggleLanguage: () -> Unit
+    onToggleLanguage: () -> Unit,
+    onTabChange: (HomeTab) -> Unit = {}
 ) {
     var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
+    // Текущую вкладку Home прокидываем наверх (startHomeTab) → «Назад» из под-экранов вернётся НА НЕЁ, а не на Карту.
+    LaunchedEffect(selectedTab) { onTabChange(selectedTab) }
     var ridesPresetTo by remember { mutableStateOf("") }
     var ridesPresetToday by remember { mutableStateOf(false) }
 
