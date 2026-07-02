@@ -18,10 +18,12 @@
 | `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии» |
 | `SecondaryScreens.kt` | Уведомления, Безопасность, Настройки, «Фильтры по умолчанию», правила, админ-экраны |
 | `SosVerifyScreens.kt` | SOS + проверка водителя (фото, OCR-баннер причин отказа) |
-| `SupportBoostScreen.kt` | Поддержка, Boost, Help |
+| `SupportBoostScreen.kt` | Поддержка, Boost, Help (буст-оплата — общий `SberPayBlock`) |
 | `LoginScreen.kt` / `IntroScreen.kt` | Вход Telegram / брендовое интро |
 | `Domain.kt` / `Mocks.kt` / `CanonTokens.kt` | Модели · демо-фолбэк · цвета `Canon*` |
 | `data/ApiClient.kt` | REST + парсинг DTO (`BookingDetailsDto`, `RideDto`, заявки, чат); `data/ChatSocket.kt`, `data/LocationSocket.kt`, `data/MapFeedSocket.kt` — WS; `TripLocationService.kt` — foreground GPS |
+
+**💳 Оплата (СБП/Сбербанк, единый компонент):** `SberPayBlock(phone)` в `MainActivity.kt` (рядом с `SbpTransferSheet`) — QR + кнопка «Оплатить в Сбербанке». QR генерит **ZXing** (`com.google.zxing:core:3.5.3`) на клиенте: `sberQrBitmap()`; ссылка `sberPayLink()` = `https://www.sberbank.com/sms/pbpn?requisiteNumber=<цифры SBP_PHONE_DIGITS>`. Переиспользован в 4 местах: донат (`SbpTransferSheet`), буст (`BoostResultCard`), кабинет рекламы/партнёр (`ProfileScreen.kt`), админ «Заявки на оплату» (`SecondaryScreens.kt`). Эквайринг/фискальный чек (54-ФЗ) — пока НЕ реализован (приём «на доверии» + QR).
 
 **Бэкенд** `backend/app/routers/`: `location.py` (WS `/ws/trip/{id}/location` реле + `/ws/map` сигнал), `requests.py` (заявка + prefs + `/near` округл. коорд + лента), `bookings.py` (бронь, приватные детали `/bookings/{id}/details`, `driver_phase`, статусы), `rides.py`, `discovery.py` (`/feed` + `donations_total`), `chat.py` (WS `/ws/bookings/{id}`, REST-история, `/conversations` показывает активные брони даже до первого сообщения), `drivers.py`, `payments.py` (донат/буст СБП «на доверии»), `ads.py`, `safety.py`, `family.py`. Деплой — `docs/server.md`.
 

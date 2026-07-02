@@ -883,6 +883,31 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заявки на оплату", "Түләү заявкалары"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Сверь свою карту по сумме и имени, потом подтверди — буст запустится. Донаты просто засчитываются.", "Картаңды сумма һәм исем буйынса тикшер, аҙаҡ раҫла — буст эшләй. Донаттар иҫәпләнә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+            // Оплата от партнёров: QR раскрывается по нажатию (не висит всегда над списком заявок).
+            item {
+                var showPartnerPay by remember { mutableStateOf(false) }
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { showPartnerPay = !showPartnerPay },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(appText("Оплата от партнёра", "Партнёр түләүе"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                Text(appText("QR/номер для оплаты рекламы — показать партнёру", "Реклама түләүе өсөн QR/номер — партнёрға күрһәт"), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                            }
+                            Icon(
+                                if (showPartnerPay) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                                contentDescription = if (showPartnerPay) appText("Свернуть", "Йый") else appText("Показать", "Күрһәт"),
+                                tint = CanonMuted
+                            )
+                        }
+                        AnimatedVisibility(showPartnerPay) {
+                            SberPayBlock(SBP_PHONE_DIGITS)
+                        }
+                    }
+                }
+            }
             summary?.let { s ->
                 item {
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {

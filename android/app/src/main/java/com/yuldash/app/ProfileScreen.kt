@@ -930,6 +930,32 @@ private fun AdsAdminPreview(ads: List<PartnerAd>, adStats: Map<String, AdStats>)
             )
             Text(appText("Запуск рекламы", "Рекламаны башлау"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
             AdsLaunchChecklist()
+            // Оплата размещения партнёром: QR раскрывается по нажатию (не висит всегда — экран чище).
+            var showAdPay by remember { mutableStateOf(false) }
+            Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, CanonBorder)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showAdPay = !showAdPay },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(appText("Оплатить размещение", "Урынлаштырыуҙы түләү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Text(appText("QR и перевод в Сбербанк по пакету", "Пакет буйынса QR һәм Сбербанкка күсереү"), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                        }
+                        Icon(
+                            if (showAdPay) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                            contentDescription = if (showAdPay) appText("Свернуть", "Йый") else appText("Показать", "Күрһәт"),
+                            tint = CanonMuted
+                        )
+                    }
+                    AnimatedVisibility(showAdPay) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(appText("Переведи сумму по пакету — потом напиши нам, подтвердим запуск.", "Пакет буйынса сумманы күсер — аҙаҡ беҙгә яҙ, башлауҙы раҫлайбыҙ."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                            SberPayBlock(SBP_PHONE_DIGITS)
+                        }
+                    }
+                }
+            }
             Text(appText("Объявления", "Иғландар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
             val topAds = remember(ads) { ads.take(4) }
             topAds.forEach { ad ->

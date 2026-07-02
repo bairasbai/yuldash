@@ -629,6 +629,8 @@ private fun BoostResultCard(res: BoostResultDto, clipboard: androidx.compose.ui.
                             Text(appText("Скопировать", "Күсереп алыу"))
                         }
                     }
+                    // Быстрая оплата: QR + «Оплатить в Сбербанке».
+                    SberPayBlock(payPhone, Modifier.padding(top = 4.dp))
                 } else {
                     // Реквизиты не пришли с сервера → не оставляем юзера без инструкции (фолбэк вместо пустоты).
                     Text(

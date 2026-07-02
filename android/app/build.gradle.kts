@@ -173,6 +173,8 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics-ktx")   // метрики: DAU/удержание/воронка событий (активно при google-services.json)
     // Шифрованное хранилище JWT (вместо открытого SharedPreferences).
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // ZXing core (только генерация QR-матрицы, без Android-модуля) — QR оплаты Сбербанка (СБП по номеру).
+    implementation("com.google.zxing:core:3.5.3")
     // Lifecycle-aware корутины в Compose (LocalLifecycleOwner + repeatOnLifecycle):
     // поллинг ленты/ближайших ставится на паузу, когда приложение в фоне (не дёргаем сервер зря).
     // Версия = уже резолвящаяся в графе lifecycle 2.9.4 → без конфликта версий.

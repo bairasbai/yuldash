@@ -184,6 +184,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -384,7 +386,7 @@ internal data class OnboardingItem(
 // Дизайн-токены (Canon*, формы, ThemePrefs, appIsDark) вынесены в CanonTokens.kt (Фаза 0).
 // СБП-перевод по номеру телефона (донат/boost) — P2P, без мерчант-аккаунта. Позже вынести в конфиг/бэкенд.
 private const val SBP_PHONE_DISPLAY = "+7 (999) 134-82-75"
-private const val SBP_PHONE_DIGITS = "+79991348275"
+internal const val SBP_PHONE_DIGITS = "+79991348275"
 private const val SBP_NAME = "Байрас Байбулов"
 private const val SBP_BANK = "Сбербанк"
 
@@ -674,9 +676,65 @@ internal fun SbpTransferSheet(amountRub: Int, onPaid: () -> Unit, onDismiss: () 
             ) {
                 Text(appText("Скопировать номер", "Номерҙы күсереү"), fontWeight = FontWeight.Black)
             }
+            // Быстрая оплата: QR + кнопка «Оплатить в Сбербанке» (открывает перевод по номеру).
+            SberPayBlock(phone)
             OutlinedButton(onClick = onPaid, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp)) {
                 Text(appText("Я перевёл", "Күсерҙем"))
             }
+        }
+    }
+}
+
+/** Ссылка Сбербанка «перевод по номеру телефона» (СБП): открывает предзаполненный перевод получателю. */
+internal fun sberPayLink(phone: String): String =
+    "https://www.sberbank.com/sms/pbpn?requisiteNumber=" + phone.filter { it.isDigit() }
+
+/** QR-матрица ссылки → Bitmap (ZXing core). Чёрное на белом — читается сканером в любой теме. */
+private fun sberQrBitmap(link: String, sizePx: Int): android.graphics.Bitmap? = runCatching {
+    val hints = mapOf(com.google.zxing.EncodeHintType.MARGIN to 1)
+    val matrix = com.google.zxing.qrcode.QRCodeWriter()
+        .encode(link, com.google.zxing.BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
+    val bmp = android.graphics.Bitmap.createBitmap(sizePx, sizePx, android.graphics.Bitmap.Config.ARGB_8888)
+    for (x in 0 until sizePx) for (y in 0 until sizePx) {
+        bmp.setPixel(x, y, if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+    }
+    bmp
+}.getOrNull()
+
+/** Реальная оплата Сбербанком: QR (навести камеру) + кнопка «Оплатить в Сбербанке» (Intent).
+ *  Альтернатива ручному «перевёл по номеру». Получатель — тот же телефон СБП. */
+@Composable
+internal fun SberPayBlock(phone: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val link = remember(phone) { sberPayLink(phone) }
+    val sizePx = with(LocalDensity.current) { 170.dp.roundToPx() }
+    val qr = remember(link, sizePx) { sberQrBitmap(link, sizePx) }
+    val noAppMsg = appText("Не удалось открыть Сбербанк. Отсканируй QR или переведи по номеру.",
+                           "Сбербанкты асып булманы. QR-ҙы сканерла йәки номер буйынса күсер.")
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        qr?.let { bmp ->
+            Surface(color = androidx.compose.ui.graphics.Color.White, shape = RoundedCornerShape(14.dp)) {
+                Image(
+                    bmp.asImageBitmap(),
+                    contentDescription = appText("QR для оплаты Сбербанком", "Сбербанк аша түләү QR-ы"),
+                    modifier = Modifier.padding(10.dp).size(150.dp)
+                )
+            }
+            Text(appText("Наведи камеру телефона — откроется Сбербанк", "Телефон камераһын төҙә — Сбербанк асыла"),
+                color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp, textAlign = TextAlign.Center)
+        }
+        Button(
+            onClick = {
+                val ok = runCatching {
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link)))
+                }.isSuccess
+                if (!ok) Toast.makeText(context, noAppMsg, Toast.LENGTH_LONG).show()
+            },
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+        ) {
+            Text(appText("Оплатить в Сбербанке", "Сбербанкта түләү"), fontWeight = FontWeight.Black)
         }
     }
 }
