@@ -109,6 +109,9 @@ object ApiClient {
         token = p.getString("token", null)
         refreshToken = p.getString("refresh_token", null)
         userName = p.getString("user_name", null)
+        // Прогрев кеша статики из prefs → цены пакетов/буста видны мгновенно на холодном старте (сеть освежит по TTL).
+        seedStatic("ad-packages", ::parseAdPackages)
+        seedStatic("boost-plans", ::parseBoostPlans)
     }
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
@@ -162,6 +165,25 @@ object ApiClient {
             if (System.currentTimeMillis() - c.ts < ttlMs && c.value != null) return Result.success(c.value as T)
         }
         return fetch().onSuccess { respCache[key] = CacheEntry(System.currentTimeMillis(), it) }
+    }
+
+    // Персист публичной статики (цены пакетов/буста) в prefs → на холодном старте цены видны
+    // мгновенно и работают оффлайн; сеть освежит по TTL. Приватности нет (данные публичные).
+    private fun parseAdPackages(arr: JSONArray): List<AdPackageDto> =
+        (0 until arr.length()).map { i ->
+            val a = arr.getJSONObject(i)
+            AdPackageDto(a.optString("code"), a.optString("title"), a.optString("title_ba"), a.optInt("amount_kop"), a.optInt("period_days"))
+        }
+    private fun parseBoostPlans(arr: JSONArray): List<BoostPlanDto> =
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            BoostPlanDto(o.optString("tier"), o.optString("title"), o.optInt("price"), o.optInt("hours"))
+        }
+    private fun persistStatic(key: String, arr: JSONArray) { prefs?.edit()?.putString("static_$key", arr.toString())?.apply() }
+    private fun seedStatic(key: String, parse: (JSONArray) -> Any) {
+        prefs?.getString("static_$key", null)?.let { s ->
+            runCatching { JSONArray(s) }.getOrNull()?.let { respCache[key] = CacheEntry(System.currentTimeMillis(), parse(it)) }
+        }
     }
 
     fun saveName(n: String) {
@@ -1016,10 +1038,8 @@ object ApiClient {
     suspend fun getAdPackages(): Result<List<AdPackageDto>> = cachedGet("ad-packages", TTL_STATIC) {
         call("GET", "/ad-packages", null, auth = false).map { o ->
             val arr = o.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val a = arr.getJSONObject(i)
-                AdPackageDto(a.optString("code"), a.optString("title"), a.optString("title_ba"), a.optInt("amount_kop"), a.optInt("period_days"))
-            }
+            persistStatic("ad-packages", arr)   // сохранить → переживёт перезапуск, работает оффлайн
+            parseAdPackages(arr)
         }
     }
 
@@ -1071,10 +1091,8 @@ object ApiClient {
     suspend fun getBoostPlans(): Result<List<BoostPlanDto>> = cachedGet("boost-plans", TTL_STATIC) {
         call("GET", "/boost/plans", null, auth = false).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                BoostPlanDto(o.optString("tier"), o.optString("title"), o.optInt("price"), o.optInt("hours"))
-            }
+            persistStatic("boost-plans", arr)   // сохранить → мгновенно на холодном старте
+            parseBoostPlans(arr)
         }
     }
 
