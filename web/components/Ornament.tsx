@@ -141,7 +141,6 @@ export function OrnamentBand({ className = "" }: { className?: string }) {
             viewport={{ once: true }}
             transition={{ duration: 0.7, delay: 0.15, ease: [0.34, 1.56, 0.64, 1] }}
           >
-            <span className="absolute inset-0 -m-2 rounded-full bg-gold/20 blur-md" />
             <KuraiBloom size={30} className="relative" />
           </motion.span>
         </span>

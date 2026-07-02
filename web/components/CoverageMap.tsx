@@ -98,8 +98,7 @@ export function CoverageMap() {
                 strokeLinecap="round"
                 filter="url(#covGlow)"
                 initial={{ pathLength: reduce ? 1 : 0, opacity: reduce ? 0.55 : 0 }}
-                whileInView={{ pathLength: 1, opacity: 0.55 }}
-                viewport={{ once: true }}
+                animate={{ pathLength: 1, opacity: 0.55 }}
                 transition={{ duration: 2.2, ease: "easeInOut" }}
               />
 
@@ -142,8 +141,7 @@ export function CoverageMap() {
                   strokeWidth="1.6"
                   strokeDasharray="3 4"
                   initial={{ pathLength: 0, opacity: 0 }}
-                  whileInView={{ pathLength: 1, opacity: 1 }}
-                  viewport={{ once: true }}
+                  animate={{ pathLength: 1, opacity: 1 }}
                   transition={{ duration: 0.9, delay: 0.25 + i * 0.06, ease: "easeOut" }}
                 />
               ))}
@@ -176,8 +174,7 @@ export function CoverageMap() {
                   <motion.g
                     key={`n${i}`}
                     initial={{ scale: 0, opacity: 0 }}
-                    whileInView={{ scale: 1, opacity: 1 }}
-                    viewport={{ once: true }}
+                    animate={{ scale: 1, opacity: 1 }}
                     transition={{ delay: 0.3 + i * 0.05, type: "spring", stiffness: 300, damping: 18 }}
                     className="cursor-pointer"
                     onMouseEnter={() => setHovered(i)}
