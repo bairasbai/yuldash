@@ -729,6 +729,7 @@ internal fun ActiveTripScreen(
             }
             item {
                 var myStars by remember { mutableStateOf(0) }
+                var rating by remember { mutableStateOf(false) }   // запрос в полёте — блок повторных тапов, откат при сбое
                 val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
                 val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
                 Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
@@ -742,13 +743,16 @@ internal fun ActiveTripScreen(
                                     tint = if (n <= myStars) CanonStar else CanonBorder,
                                     modifier = Modifier
                                         .size(38.dp)
-                                        .clickable {
+                                        .clickable(enabled = !rating) {
+                                            val prev = myStars
                                             myStars = n
-                                            bookingId?.let { id ->
+                                            val id = bookingId
+                                            if (id != null) {
+                                                rating = true
                                                 voiceScope.launch {
                                                     ApiClient.rateBooking(id, n)
-                                                        .onSuccess { Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show() }
-                                                        .onFailure { Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                                                        .onSuccess { rating = false; Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show() }
+                                                        .onFailure { rating = false; myStars = prev; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }   // откат: не показываем «оценено», если не сохранилось
                                                 }
                                             }
                                         }

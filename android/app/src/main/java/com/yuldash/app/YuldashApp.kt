@@ -435,7 +435,8 @@ internal fun YuldashApp() {
                         LocalRequest(
                             title = apiCategoryToUiFor(language, r.category, r.withKids),
                             route = "${r.fromCity} → ${r.toCity}",
-                            time = reqByAgreement,
+                            // Показываем выбранное время (если пассажир его задал), иначе «по договорённости».
+                            time = r.desiredAt?.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: reqByAgreement,
                             passenger = r.forRelativeName ?: ApiClient.cachedName() ?: "Я",
                             status = reqWaitingStatus,
                             price = r.maxPrice,
@@ -559,6 +560,20 @@ internal fun YuldashApp() {
                     screen = Screen.ActiveTrip
                 },
                 onOpenResponses = { id -> responsesRequestId = id; screen = Screen.RequestResponses },
+                onCancelRequest = { id ->
+                    // Отмена заявки: успех — по факту сервера (убираем из списка), при сбое — серверная причина
+                    // (matched-заявку нельзя отменить тут → бэк вернёт понятный текст).
+                    appScope.launch {
+                        ApiClient.cancelRequest(id)
+                            .onSuccess {
+                                localRequests.removeAll { it.serverId == id }
+                                Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка кире алынды" else "Заявка отменена", Toast.LENGTH_SHORT).show()
+                            }
+                            .onFailure { e ->
+                                Toast.makeText(context, (e as? com.yuldash.app.data.ApiException)?.message ?: if (language == AppLanguage.Ba) "Булманы. Ҡабатла" else "Не получилось. Повтори", Toast.LENGTH_LONG).show()
+                            }
+                    }
+                },
                 onSafety = { screen = Screen.Safety },
                 onSettings = { screen = Screen.Settings },
                 onPrivacy = { screen = Screen.Privacy },
@@ -741,9 +756,17 @@ internal fun YuldashApp() {
                 contacts = trustedContacts,
                 onBack = { screen = Screen.SimpleMode },
                 onAddContact = { contact ->
+                    // Безопасность: контакт получает статус поездки/SOS — успех показываем ПО ФАКТУ сервера,
+                    // при сбое откатываем (иначе fire-and-forget = «добавлен» на экране, а на сервере нет).
                     trustedContacts.add(contact)
-                    ApiClient.fireAddContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault)
-                    Toast.makeText(context, if (language == AppLanguage.Ba) "Контакт өҫтәлде" else "Контакт добавлен", Toast.LENGTH_SHORT).show()
+                    appScope.launch {
+                        ApiClient.addContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault)
+                            .onSuccess { Toast.makeText(context, if (language == AppLanguage.Ba) "Контакт өҫтәлде" else "Контакт добавлен", Toast.LENGTH_SHORT).show() }
+                            .onFailure {
+                                trustedContacts.remove(contact)
+                                Toast.makeText(context, if (language == AppLanguage.Ba) "Булманы. Сетте тикшереп ҡабатла" else "Не получилось. Проверь сеть и повтори", Toast.LENGTH_SHORT).show()
+                            }
+                    }
                 }
             )
             Screen.RepeatTrip -> RepeatTripScreen(
@@ -1322,6 +1345,7 @@ internal fun HomeScreen(
     onNotifications: () -> Unit,
     onOpenChat: (Int, String, String) -> Unit,
     onOpenResponses: (Int) -> Unit = {},
+    onCancelRequest: (Int) -> Unit = {},
     onSafety: () -> Unit,
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
@@ -1403,7 +1427,8 @@ internal fun HomeScreen(
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,
                     onCreateNew = onCreateRequest,
-                    onViewResponses = onOpenResponses   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
+                    onViewResponses = onOpenResponses,   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
+                    onCancel = onCancelRequest
                 )
                 HomeTab.Chat -> ChatScreen(
                     voiceMessages = voiceMessages,

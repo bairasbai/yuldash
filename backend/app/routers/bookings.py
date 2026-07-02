@@ -117,6 +117,9 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if ride.driver_id != user.id:
         raise HTTPException(403, "Подтвердить бронь может только водитель")
+    # Нельзя «подтвердить» уже отменённую/завершённую бронь (места уже возвращены/поездка закрыта).
+    if booking.status in (BookingStatus.cancelled, BookingStatus.done):
+        raise HTTPException(400, "Эту бронь уже нельзя подтвердить")
     booking.status = BookingStatus.confirmed
     session.add(booking)
     session.commit()
