@@ -33,8 +33,8 @@ export function HeroPhone() {
       <div className="pointer-events-none absolute inset-6 -z-10 rounded-[60px] bg-green-bright/20 blur-3xl" />
       <motion.div style={reduce ? undefined : { rotateX, rotateY, transformStyle: "preserve-3d" }}>
         <Image
-          src="/screens/app-map.png"
-          alt="Юлдаш — карта поездок в приложении"
+          src="/screens/app-map.webp"
+          alt="Экран приложения Юлдаш: карта поездок по Башкортостану с ценами"
           width={272}
           height={614}
           priority

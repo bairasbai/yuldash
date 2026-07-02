@@ -11,9 +11,9 @@ import { OrnamentKicker } from "./Ornament";
 // Премиум-анимация: reveal, мягкое парение. Уважает reduced-motion.
 
 const SCREENS: { src: string; label: DictKey }[] = [
-  { src: "/screens/app-map.png", label: "sc_s1" },       // Карта поездок
-  { src: "/screens/app-form.png", label: "sc_s2" },      // Заявка и условия
-  { src: "/screens/app-request.png", label: "sc_s3" },   // Заявки и отклики
+  { src: "/screens/app-map.webp", label: "sc_s1" },       // Карта поездок
+  { src: "/screens/app-form.webp", label: "sc_s2" },      // Заявка и условия
+  { src: "/screens/app-request.webp", label: "sc_s3" },   // Заявки и отклики
 ];
 
 function PhoneShot({ src, label, delay, float }: { src: string; label: string; delay: number; float: number }) {
@@ -30,7 +30,7 @@ function PhoneShot({ src, label, delay, float }: { src: string; label: string; d
         <div className="pointer-events-none absolute inset-4 -z-10 rounded-[48px] bg-green-bright/20 blur-3xl" />
         <Image
           src={src}
-          alt={label}
+          alt={`Юлдаш — экран «${label}»`}
           width={232}
           height={500}
           sizes="232px"

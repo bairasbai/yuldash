@@ -48,6 +48,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm"
             role="dialog"
             aria-modal="true"
+            aria-label={tr("cs_title")}
           >
             <motion.div
               initial={{ scale: 0.92, opacity: 0, y: 16 }}
