@@ -54,9 +54,10 @@ export function AppShowcase() {
         </Reveal>
 
         <div className="flex flex-wrap items-start justify-center gap-8 lg:gap-6">
+          {/* float=0 у всех → парят синхронно, одинаково (не волной) */}
           <PhoneShot src={SCREENS[0].src} label={tr(SCREENS[0].label)} delay={0} float={0} />
-          <PhoneShot src={SCREENS[1].src} label={tr(SCREENS[1].label)} delay={0.12} float={1.2} />
-          <PhoneShot src={SCREENS[2].src} label={tr(SCREENS[2].label)} delay={0.24} float={2.4} />
+          <PhoneShot src={SCREENS[1].src} label={tr(SCREENS[1].label)} delay={0.12} float={0} />
+          <PhoneShot src={SCREENS[2].src} label={tr(SCREENS[2].label)} delay={0.24} float={0} />
         </div>
       </div>
     </section>
