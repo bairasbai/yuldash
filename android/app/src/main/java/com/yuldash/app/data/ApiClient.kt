@@ -806,7 +806,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"), o.optString("peer_avatar"))
+                ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"), o.optString("peer_avatar"), o.optString("depart_at").ifBlank { null })
             }
         }
 
@@ -1407,6 +1407,7 @@ data class ConversationDto(
     val route: String,
     val lastMessage: String,
     val peerAvatar: String = "",
+    val departAt: String? = null,   // ISO времени выезда — различать треды одного маршрута
 )
 
 data class PopularRouteDto(val from: String, val to: String, val count: Int)

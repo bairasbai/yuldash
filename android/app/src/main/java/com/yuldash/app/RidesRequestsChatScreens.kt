@@ -1318,7 +1318,7 @@ internal fun ChatScreen(
                             name = c.peerName,
                             subtitle = c.route,
                             message = c.lastMessage,
-                            time = "",
+                            time = c.departAt?.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: "",   // время выезда — различать треды
                             unread = 0,
                             verified = true,
                             onClick = { onOpenChat(c.bookingId, c.peerName, c.route) },
@@ -1508,9 +1508,9 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
 @Composable
 internal fun OnlineBadge() {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(7.dp).background(Color(0xFF2FB36E), CircleShape))
+        Box(Modifier.size(7.dp).background(CanonGreen2, CircleShape))
         Spacer(Modifier.width(3.dp))
-        Text(appText("на линии", "эштә"), color = Color(0xFF2FB36E), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(appText("на линии", "эштә"), color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 

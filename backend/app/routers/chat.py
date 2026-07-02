@@ -1,6 +1,7 @@
 """Чат по броне: REST (история/отправка), WebSocket (реальное время),
 инбокс диалогов, лента уведомлений."""
 import json
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -186,6 +187,7 @@ class ConversationOut(BaseModel):
     peer_avatar: str = ""
     route: str
     last_message: str
+    depart_at: Optional[datetime] = None   # время выезда — различать треды одного маршрута в инбоксе
 
 
 def _message_preview(m: Message) -> str:
@@ -236,6 +238,7 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
             peer_avatar=(peer.avatar_url if peer else ""),
             route=(f"{ride.from_city} → {ride.to_city}" if ride else ""),
             last_message=("Чат открыт" if last is None else _message_preview(last)),
+            depart_at=(ride.depart_at if ride else None),
         ))
     return out
 
