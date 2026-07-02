@@ -1103,9 +1103,12 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
         }
     }
 
+    // Пока идёт сохранение — не отпускаем «Назад»: иначе create успеет, а submit нет → застрянет черновиком.
+    BackHandler(busy) {}
+
     Scaffold(
         containerColor = CanonBg,
-        topBar = { ScreenTopBar(appText(if (initial == null) "Новое объявление" else "Изменить объявление", if (initial == null) "Яңы иғлан" else "Иғланды үҙгәртергә"), onBack) }
+        topBar = { ScreenTopBar(appText(if (initial == null) "Новое объявление" else "Изменить объявление", if (initial == null) "Яңы иғлан" else "Иғланды үҙгәртергә")) { if (!busy) onBack() } }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),

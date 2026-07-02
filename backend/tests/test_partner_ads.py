@@ -166,6 +166,30 @@ def test_ad_pay_gates_visibility(client, user_factory):
     assert next(x for x in client.get("/ads/mine", headers=owner["auth"]).json() if x["id"] == ad["id"])["paid"] is True
 
 
+def test_ad_pay_reanchors_window_from_payment(client, user_factory):
+    """Срок показа — от ОПЛАТЫ, не от одобрения: даже если окно от одобрения истекло
+    до оплаты, подтверждение оплаты даёт свежий период и объявление выходит в эфир."""
+    from datetime import timedelta
+    from app.timeutil import utcnow
+    owner = user_factory(name="Партнёр")
+    admin = user_factory(name="Админ", role=UserRole.admin)
+    ad = client.post("/ads", headers=owner["auth"], json={"title": "Кафе Срок", "package": "city"}).json()
+    client.post(f"/ads/{ad['id']}/submit", headers=owner["auth"])
+    client.post(f"/admin/ads/{ad['id']}/approve", headers=admin["auth"], json={"erid": "2Ru-T"})
+    # «Партнёр оплатил поздно»: окно от одобрения уже в прошлом.
+    with Session(engine) as s:
+        row = s.get(Ad, int(ad["id"]))
+        row.starts_at = utcnow() - timedelta(days=40)
+        row.ends_at = utcnow() - timedelta(days=10)
+        s.add(row); s.commit()
+    pid = client.post(f"/ads/{ad['id']}/pay", headers=owner["auth"]).json()["payment_id"]
+    assert client.post(f"/admin/payments/{pid}/confirm", headers=admin["auth"]).status_code == 200
+    # В эфире: оплата переставила окно на «сейчас + период» (без фикса окно осталось бы в прошлом → не видно).
+    assert any(x["id"] == ad["id"] for x in client.get("/ads").json())
+    with Session(engine) as s:
+        assert s.get(Ad, int(ad["id"])).ends_at > utcnow()
+
+
 def test_ad_pay_before_approval_409(client, user_factory):
     owner = user_factory()
     ad = client.post("/ads", headers=owner["auth"], json={"title": "Рано", "package": "city"}).json()

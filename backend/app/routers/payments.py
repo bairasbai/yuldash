@@ -48,6 +48,12 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         ad = session.get(Ad, payment.ad_id)
         if ad:
             ad.status = "active"        # реклама публикуется после подтверждения оплаты
+            # Срок показа отсчитываем от ОПЛАТЫ (go-live), а не от одобрения модерацией:
+            # партнёр получает полный оплаченный период, даже если оплатил не сразу
+            # (и если окно от одобрения успело истечь — оплата даёт свежий период).
+            if ad.period_days > 0:
+                ad.starts_at = utcnow()
+                ad.ends_at = utcnow() + timedelta(days=ad.period_days)
             session.add(ad)
     session.commit()
 

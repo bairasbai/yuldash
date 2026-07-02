@@ -419,9 +419,9 @@ def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(current
     ad.reviewed_at = utcnow()
     if body.erid.strip():
         ad.erid = body.erid.strip()
-    if ad.period_days > 0:            # период показа считаем от одобрения
-        ad.starts_at = utcnow()
-        ad.ends_at = utcnow() + timedelta(days=ad.period_days)
+    if ad.period_days > 0:            # провизорное окно (объявление скрыто до оплаты);
+        ad.starts_at = utcnow()       # реальный отсчёт срока — от подтверждения оплаты
+        ad.ends_at = utcnow() + timedelta(days=ad.period_days)  # (_activate_payment переставит)
     session.add(ad)
     session.commit()
     session.refresh(ad)
