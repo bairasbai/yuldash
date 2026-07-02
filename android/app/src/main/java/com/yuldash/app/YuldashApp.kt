@@ -458,7 +458,9 @@ internal fun YuldashApp() {
             ApiClient.getMyRequests().onSuccess { reqs ->
                 localRequests.clear()
                 localRequests.addAll(
-                    reqs.map { r ->
+                    // Только активные: отменённые (cancelled) и принятые (matched — уже в «Поездках») здесь не показываем,
+                    // иначе отменённая висела бы с ложным «ждём отклики».
+                    reqs.filter { it.status == "active" }.map { r ->
                         LocalRequest(
                             title = apiCategoryToUiFor(language, r.category, r.withKids),
                             route = "${r.fromCity} → ${r.toCity}",

@@ -798,7 +798,7 @@ internal fun CreatePassengerRequestScreen(
                                 wheelchair = wheelchair, nonSmoking = nonSmoking,
                                 airConditioner = airConditioner, baggage = baggage,
                             )
-                                .onSuccess {
+                                .onSuccess { newId ->
                                     onCreateRequest(
                                         LocalRequest(
                                             title = selectedCategoryText,
@@ -807,7 +807,8 @@ internal fun CreatePassengerRequestScreen(
                                             passenger = (ApiClient.cachedName() ?: "Я"),
                                             status = waitingStatus,
                                             price = priceVal,
-                                            trustedContact = comment.ifBlank { null }
+                                            trustedContact = comment.ifBlank { null },
+                                            serverId = newId   // сразу с id → кнопка «Отменить» без ожидания reload
                                         )
                                     )
                                 }

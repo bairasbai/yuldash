@@ -1298,7 +1298,7 @@ internal fun ChatScreen(
                         ChatCard(
                             initial = r.fromCity.firstOrNull()?.uppercase() ?: "З",
                             name = "${r.fromCity} → ${r.toCity}",
-                            subtitle = appText("Заявка · ${r.seats} мест", "Заявка · ${r.seats} урын"),
+                            subtitle = "Заявка · " + seatsText(r.seats),
                             message = appText("Смотреть отклики водителей", "Водитель яуаптарын ҡарау"),
                             time = "",
                             unread = 0,
@@ -1418,7 +1418,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 SmallAvatar(r.passengerAvatar, r.passengerName, 34)
                                 Spacer(Modifier.width(8.dp))
-                                Text("${r.passengerName} · " + appText("${r.seats} мест", "${r.seats} урын"), color = CanonMuted, fontSize = 13.sp)
+                                Text("${r.passengerName} · " + seatsText(r.seats), color = CanonMuted, fontSize = 13.sp)
                             }
                             if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
                             if (r.prefs.isNotEmpty()) {

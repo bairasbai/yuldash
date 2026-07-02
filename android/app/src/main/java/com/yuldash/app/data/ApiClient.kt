@@ -456,7 +456,7 @@ object ApiClient {
         nonSmoking: Boolean = false,
         airConditioner: Boolean = false,
         baggage: Boolean = false,
-    ): Result<Unit> = call(
+    ): Result<Int> = call(
         "POST", "/requests",
         JSONObject()
             .put("from_city", fromCity)
@@ -481,7 +481,7 @@ object ApiClient {
                 desiredAt?.takeIf { it.isNotBlank() }?.let { put("desired_at", it) }
             },
         auth = true,
-    ).map { }.onSuccess { Analytics.log("create_request") }
+    ).map { it.optInt("id") }.onSuccess { Analytics.log("create_request") }   // id → оптимистичный LocalRequest.serverId (кнопка отмены сразу)
 
     /** Мои заявки (для вкладки «Заявка»). */
     suspend fun getMyRequests(): Result<List<RequestDto>> =
