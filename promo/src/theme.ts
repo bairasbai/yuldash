@@ -14,8 +14,8 @@ export const C = {
 } as const;
 
 // Шрифты (совпадают с лендингом): Unbounded — заголовки, Inter — текст.
-import { loadFont as loadDisplay } from '@remotion/google-fonts/Unbounded';
+import { loadFont as loadDisplay } from '@remotion/google-fonts/Montserrat';
 import { loadFont as loadBody } from '@remotion/google-fonts/Inter';
 
-export const DISPLAY = loadDisplay('normal', { weights: ['700', '800'], subsets: ['cyrillic', 'latin'] }).fontFamily;
+export const DISPLAY = loadDisplay('normal', { weights: ['800', '900'], subsets: ['cyrillic', 'latin'] }).fontFamily;
 export const BODY = loadBody('normal', { weights: ['400', '500', '600', '700'], subsets: ['cyrillic', 'latin'] }).fontFamily;

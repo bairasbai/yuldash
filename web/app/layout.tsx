@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Unbounded } from "next/font/google";
+import { Inter, Montserrat } from "next/font/google";
 import Script from "next/script";
 import { SITE_URL, METRIKA_ID } from "@/components/config";
 import { StructuredData } from "@/components/StructuredData";
@@ -13,12 +13,12 @@ const inter = Inter({
   display: "swap",
 });
 
-// Display — Unbounded: трендовый геометрик, ПОЛНОСТЬЮ покрывает башкирский
-// (cyrillic + cyrillic-ext). Прошлый Sora не имел кириллицы вовсе → все
-// RU/BA-заголовки рендерились системным фолбэком (баг типографики).
-const unbounded = Unbounded({
+// Display — Montserrat: чистый геометрик с ПОЛНЫМ башкирским (cyrillic-ext
+// U+0460-052F: ҡ ғ ҙ һ ә ө ү ң). Заменил Unbounded — у того башкирские глифы
+// выглядели неровно/непривычно. Montserrat даёт аккуратные RU/BA-заголовки.
+const montserrat = Montserrat({
   subsets: ["latin", "cyrillic", "cyrillic-ext"],
-  weight: ["600", "700", "800"],
+  weight: ["600", "700", "800", "900"],
   variable: "--font-display",
   display: "swap",
 });
@@ -75,7 +75,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={`${inter.variable} ${unbounded.variable}`}>
+    <html lang="ru" className={`${inter.variable} ${montserrat.variable}`}>
       <head>
         <StructuredData />
       </head>
