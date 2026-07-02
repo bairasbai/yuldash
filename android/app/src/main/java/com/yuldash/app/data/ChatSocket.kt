@@ -55,9 +55,14 @@ class ChatSocket(
         openSocket()
     }
 
+    @Synchronized
     private fun openSocket() {
         if (closed) return
         val token = ApiClient.currentToken() ?: return
+        // Закрываем предыдущий сокет ПЕРЕД созданием нового: при гонке reconnect↔connect иначе оставались
+        // бы два живых WS на один канал → дубли сообщений. Код 4999 (терминальный диапазон) → его onClosed
+        // НЕ запустит реконнект (без churn). @Synchronized сериализует параллельные openSocket.
+        ws?.close(4999, "replaced")
         val url = "${ApiClient.wsBase()}/ws/bookings/$bookingId"   // токен НЕ в URL — шлём первым сообщением
         ws = client.newWebSocket(
             Request.Builder().url(url).build(),

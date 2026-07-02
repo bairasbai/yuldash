@@ -27,11 +27,13 @@ class LocationSocket(
     private var ws: WebSocket? = null
     @Volatile private var closed = false
     @Volatile private var attempt = 0
+    @Volatile private var softAttempt = 0        // мягкий ретрай «поездка не активна» — с потолком MAX_SOFT_ATTEMPTS
 
     companion object {
         private const val MAX_ATTEMPTS = 10
         private const val MAX_DELAY_SEC = 30L
         private const val SOFT_RETRY_SEC = 15L   // ретрай «поездка ещё не активна»
+        private const val MAX_SOFT_ATTEMPTS = 40 // ~10 мин по 15с — потолок мягкого ретрая (не долбим сервер вечно, если поездка так и не стала активной)
         private val client: OkHttpClient by lazy {
             OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
         }
@@ -42,18 +44,20 @@ class LocationSocket(
         }
     }
 
-    fun connect() { closed = false; attempt = 0; openSocket() }
+    fun connect() { closed = false; attempt = 0; softAttempt = 0; openSocket() }
 
+    @Synchronized
     private fun openSocket() {
         if (closed) return
         val token = ApiClient.currentToken() ?: return
+        ws?.close(4999, "replaced")   // закрываем старый сокет перед новым (гонка reconnect↔connect → двойной GPS-канал); 4999 = терминал, без churn
         val url = "${ApiClient.wsBase()}/ws/trip/$bookingId/location"   // токен НЕ в URL — первым сообщением
         ws = client.newWebSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
-                    attempt = 0
+                    attempt = 0; softAttempt = 0
                     onConnected(true)
                 }
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -99,7 +103,8 @@ class LocationSocket(
     /** Поездка ещё не активна → пробуем снова раз в 15с, БЕЗ счётчика попыток (станет confirmed — подключимся).
      *  Цикл ограничен жизнью сервиса: он закрывает сокет, когда поездка кончилась. */
     private fun softReconnect() {
-        if (closed) return
+        if (closed || softAttempt >= MAX_SOFT_ATTEMPTS) return
+        softAttempt++
         scheduler.schedule({ openSocket() }, SOFT_RETRY_SEC, TimeUnit.SECONDS)
     }
 

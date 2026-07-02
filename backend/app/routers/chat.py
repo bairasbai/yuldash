@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from ..db import engine, get_session
 from ..models import Booking, BookingStatus, Message, Ride, User
 from ..security import authenticate_ws, current_user
-from ..services import booking_and_ride_for_user, is_blocked, manager, send_push, user_bookings
+from ..services import booking_and_ride_for_user, is_blocked, manager, public_media_url, send_push, user_bookings
 
 router = APIRouter(tags=["chat"])
 
@@ -101,6 +101,10 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     other_party = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
     if is_blocked(session, user.id, other_party):
         raise HTTPException(403, "Переписка недоступна")
+    # voice_url — ТОЛЬКО наш медиа-URL (из /upload-voice). Иначе участник подсунул бы внешнюю ссылку,
+    # и приложение собеседника её подгрузило бы (утечка IP / трекинг / чужой контент).
+    if body.voice_url and not body.voice_url.startswith(public_media_url("")):
+        raise HTTPException(422, "Недопустимая ссылка на медиа")
     msg = Message(booking_id=booking_id, sender_id=user.id, **body.model_dump())
     session.add(msg)
     session.commit()

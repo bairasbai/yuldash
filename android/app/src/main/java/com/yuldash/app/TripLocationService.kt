@@ -32,6 +32,7 @@ import com.yuldash.app.data.TripLocationBus
  */
 class TripLocationService : Service() {
     private var socket: LocationSocket? = null
+    private var currentBookingId = -1          // какой брони сейчас служит сокет (для смены поездки)
     private var lm: LocationManager? = null
     private var listener: LocationListener? = null
     private var lastSent = 0L
@@ -51,10 +52,14 @@ class TripLocationService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
         )
         TripLocationBus.bookingId = bookingId
-        if (socket == null) {
+        // Смена брони (поездка A кончилась, тут же началась B) при переиспользовании живого сервиса:
+        // пересоздаём канал. Иначе мой GPS продолжил бы литься в WS-канал СТАРОЙ брони A (приватность + не та поездка).
+        if (currentBookingId != bookingId) {
+            socket?.close()
+            currentBookingId = bookingId
             socket = LocationSocket(bookingId, onPeer = { TripLocationBus.peer = it }).also { it.connect() }
-            startLocationUpdates()
         }
+        if (listener == null) startLocationUpdates()   // GPS-слушатель один на сервис (шлёт в текущий socket)
         return START_STICKY
     }
 
@@ -108,6 +113,7 @@ class TripLocationService : Service() {
         listener?.let { runCatching { lm?.removeUpdates(it) } }
         socket?.close()
         socket = null
+        currentBookingId = -1
         TripLocationBus.peer = null
         TripLocationBus.bookingId = null
         super.onDestroy()

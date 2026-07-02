@@ -1149,7 +1149,10 @@ object ApiClient {
                 // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
                 conn.disconnect(); conn = null
                 if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
-                else Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
+                else {
+                    logout()   // refresh мёртв → чистим локальную сессию, иначе isLoggedIn() врёт true и юзер «залипает» с 401 на каждом запросе
+                    Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
+                }
             } else {
                 val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
                 Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)"))

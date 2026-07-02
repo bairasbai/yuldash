@@ -73,18 +73,21 @@ class BoostFreeIn(BaseModel):
 @router.post("/boost/free")
 def boost_free(body: BoostFreeIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Поднять СВОЮ поездку бесплатно за реферальный бонус (1 бонус = 24ч поднятия)."""
-    if user.referral_credits < 1:
-        raise HTTPException(400, "Нет бонусов")
     ride = session.get(Ride, body.ride_id)
     if not ride or ride.driver_id != user.id:
         raise HTTPException(403, "Это не ваша поездка")
+    # Списание бонуса под row-lock (как book()): два параллельных free-boost не потратят
+    # один и тот же бонус дважды (иначе гонка read-modify-write → 2 бесплатных подъёма, кредиты в минус).
+    locked = session.exec(select(User).where(User.id == user.id).with_for_update()).one()
+    if locked.referral_credits < 1:
+        raise HTTPException(400, "Нет бонусов")
+    locked.referral_credits -= 1
     ride.boosted_until = utcnow() + timedelta(hours=24)
     ride.boost_tier = "free"
-    user.referral_credits -= 1
     session.add(ride)
-    session.add(user)
+    session.add(locked)
     session.commit()
-    return {"ok": True, "credits": user.referral_credits}
+    return {"ok": True, "credits": locked.referral_credits}
 
 
 class BoostIn(BaseModel):

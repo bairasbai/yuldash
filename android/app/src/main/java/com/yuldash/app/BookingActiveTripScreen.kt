@@ -758,6 +758,8 @@ internal fun ActiveTripScreen(
     val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшерегеҙ.")
     val shareErrMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшерегеҙ.")
     val driverNotifiedMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
+    val chatSendFailMsg = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
+    val chatActionFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     // Роль в этой брони: водитель видит «Я выехал/Подъезжаю» (push пассажиру), пассажир — «сел/доехал/завершить».
     var role by remember { mutableStateOf("") }
     var driverPhase by remember(bookingId) { mutableStateOf("") }   // ""/departed/arriving — для live-баннера пассажиру
@@ -957,7 +959,10 @@ internal fun ActiveTripScreen(
                                             ApiClient.driverStatus(bid, st)
                                                 .onSuccess {
                                                     if (st == "done") onTripEnd()   // уходим с экрана только при реальном закрытии брони
-                                                    else Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
+                                                    else {
+                                                        Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
+                                                        ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
+                                                    }
                                                 }
                                                 .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
                                         }
@@ -967,7 +972,10 @@ internal fun ActiveTripScreen(
                                         else voiceScope.launch {
                                             ApiClient.setTripStatus(bid, st)
                                                 // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
-                                                .onSuccess { if (st == "done") onTripEnd() }
+                                                .onSuccess {
+                                                    if (st == "done") onTripEnd()
+                                                    else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним статус/код посадки
+                                                }
                                                 .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
                                         }
                                     }
@@ -1151,9 +1159,9 @@ internal fun ActiveTripScreen(
                     onEdit = { editingId = m.id; draft = m.text },
                     onDelete = { scope ->
                         if (bookingId != null) voiceScope.launch {
-                            ApiClient.deleteMessage(bookingId, m.id, scope).onSuccess {
-                                ApiClient.getMessages(bookingId).onSuccess { messages = it }
-                            }
+                            ApiClient.deleteMessage(bookingId, m.id, scope)
+                                .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
+                                .onFailure { Toast.makeText(context, chatActionFailMsg, Toast.LENGTH_SHORT).show() }
                         }
                     },
                 )
@@ -1184,9 +1192,9 @@ internal fun ActiveTripScreen(
                             val eid = editingId
                             if (eid != null) {
                                 voiceScope.launch {
-                                    ApiClient.editMessage(bookingId, eid, t).onSuccess {
-                                        ApiClient.getMessages(bookingId).onSuccess { messages = it }
-                                    }
+                                    ApiClient.editMessage(bookingId, eid, t)
+                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
+                                        .onFailure { Toast.makeText(context, chatActionFailMsg, Toast.LENGTH_SHORT).show() }
                                 }
                                 editingId = null
                             } else {
@@ -1199,18 +1207,24 @@ internal fun ActiveTripScreen(
                         Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show()
                         if (bookingId != null) voiceScope.launch {
                             val bytes = runCatching { File(path).readBytes() }.getOrNull()
-                            if (bytes != null) ApiClient.uploadVoice(bytes).onSuccess { url ->
-                                ApiClient.sendVoiceMessage(bookingId, url)
-                                ApiClient.getMessages(bookingId).onSuccess { messages = it }
-                            }
+                            if (bytes != null) ApiClient.uploadVoice(bytes)
+                                .onSuccess { url ->
+                                    ApiClient.sendVoiceMessage(bookingId, url)   // результат больше НЕ выброшен: сбой = «не отправилось», не молчим
+                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
+                                        .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                }
+                                .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
                         }
                     },
                     onPhotoPicked = { bytes ->
                         if (bookingId != null) voiceScope.launch {
-                            ApiClient.uploadChatPhoto(bytes).onSuccess { url ->
-                                ApiClient.sendPhotoMessage(bookingId, url)
-                                ApiClient.getMessages(bookingId).onSuccess { messages = it }
-                            }
+                            ApiClient.uploadChatPhoto(bytes)
+                                .onSuccess { url ->
+                                    ApiClient.sendPhotoMessage(bookingId, url)   // результат больше НЕ выброшен
+                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
+                                        .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
+                                }
+                                .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
                         }
                     }
                 )

@@ -26,8 +26,8 @@ class RequestIn(BaseModel):
     from_city: str
     to_city: str
     desired_at: Optional[datetime] = None
-    seats: int = 1
-    max_price: Optional[int] = None
+    seats: int = Field(1, ge=1, le=8)                       # ≥1 место, разумный потолок (защита от мусора/минуса)
+    max_price: Optional[int] = Field(None, ge=0, le=1_000_000)
     category: RideCategory = RideCategory.regular
     with_kids: bool = False
     baggage: bool = False
@@ -139,7 +139,7 @@ class AdminRequestIn(BaseModel):
     from_city: str
     to_city: str
     desired_at: Optional[datetime] = None
-    seats: int = 1
+    seats: int = Field(1, ge=1, le=8)
     comment: str = Field("", max_length=2000)
 
 
@@ -180,6 +180,28 @@ def my_requests(
     if limit is not None:   # порядок добавляем только при пагинации (дефолт — как было)
         q = q.order_by(RideRequest.id.desc()).offset(max(0, offset)).limit(max(1, min(limit, 200)))
     return session.exec(q).all()
+
+
+@router.post("/requests/{request_id}/cancel", response_model=RideRequest)
+def cancel_request(request_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пассажир отменяет свою заявку → статус `cancelled`. Отменённая уходит из ленты
+    водителей (/requests/feed и /requests/near отдают только active). Только владелец (или админ)."""
+    req = session.get(RideRequest, request_id)
+    if not req:
+        raise HTTPException(404, "Заявка не найдена")
+    if req.passenger_id != user.id and user.role != UserRole.admin:
+        raise HTTPException(403, "Можно отменить только свою заявку")
+    if req.status == "cancelled":
+        return req   # идемпотентно — повторная отмена не ошибка (двойной тап/ретрай)
+    if req.status != "active":
+        # matched (уже создана поездка+бронь) отменяется через отмену брони, не тут.
+        raise HTTPException(400, "Заявку уже нельзя отменить")
+    req.status = "cancelled"
+    session.add(req)
+    session.commit()
+    session.refresh(req)
+    notify_map_changed()   # оранжевый маркер заявки уходит с карты live
+    return req
 
 
 # ---------------- Заявки ↔ водители: лента, отклики, принятие ----------------
@@ -246,7 +268,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
 
 
 class RespondIn(BaseModel):
-    price: int = 0
+    price: int = Field(0, ge=0, le=1_000_000)              # цена ≥0, потолок — защита от отрицательной/мусорной суммы в брони
     comment: str = Field("", max_length=500)
 
 

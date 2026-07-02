@@ -74,7 +74,7 @@ def test_chat_rejects_empty_edit_deleted_edit_and_voice_edit(client, user_factor
     voice_message = client.post(
         f"/bookings/{booking_id}/messages",
         headers=passenger["auth"],
-        json={"voice_url": "https://example.test/voice.ogg", "transcript": "voice text"},
+        json={"voice_url": "https://yulbash.ru/media/voice/test.ogg", "transcript": "voice text"},
     ).json()
     edit_voice = client.post(
         f"/bookings/{booking_id}/messages/{voice_message['id']}/edit",
@@ -82,6 +82,17 @@ def test_chat_rejects_empty_edit_deleted_edit_and_voice_edit(client, user_factor
         json={"text": "typed text"},
     )
     assert edit_voice.status_code == 400
+
+
+def test_chat_rejects_external_voice_url(client, user_factory):
+    """voice_url — только наш медиа-URL; внешнюю ссылку не принимаем (утечка IP / трекинг собеседника)."""
+    _driver, passenger, _ride, booking = _trip(client, user_factory, "Ext")
+    bad = client.post(f"/bookings/{booking['id']}/messages", headers=passenger["auth"],
+                      json={"voice_url": "https://example.test/voice.ogg"})
+    assert bad.status_code == 422
+    ok = client.post(f"/bookings/{booking['id']}/messages", headers=passenger["auth"],
+                     json={"voice_url": "https://yulbash.ru/media/voice/x.ogg"})
+    assert ok.status_code == 200
 
 
 def test_chat_message_must_belong_to_booking(client, user_factory):
@@ -116,7 +127,7 @@ def test_conversations_and_notifications_empty_and_voice_fallback(client, user_f
     client.post(
         f"/bookings/{booking_id}/messages",
         headers=passenger["auth"],
-        json={"voice_url": "https://example.test/voice.ogg"},
+        json={"voice_url": "https://yulbash.ru/media/voice/test.ogg"},
     )
 
     conversations = client.get("/conversations", headers=driver["auth"]).json()
@@ -139,7 +150,7 @@ def test_conversations_ignore_messages_hidden_for_current_user(client, user_fact
     voice_message = client.post(
         f"/bookings/{booking_id}/messages",
         headers=passenger["auth"],
-        json={"voice_url": "https://example.test/voice.ogg"},
+        json={"voice_url": "https://yulbash.ru/media/voice/test.ogg"},
     ).json()
     client.delete(
         f"/bookings/{booking_id}/messages/{text_message['id']}?scope=me",

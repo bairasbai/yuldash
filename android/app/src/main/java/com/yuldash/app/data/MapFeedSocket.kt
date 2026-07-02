@@ -36,9 +36,11 @@ class MapFeedSocket(private val onRefresh: () -> Unit) {
 
     fun connect() { closed = false; attempt = 0; openSocket() }
 
+    @Synchronized
     private fun openSocket() {
         if (closed) return
         val token = ApiClient.currentToken() ?: return   // только залогиненные; аноним — на 25-сек опросе
+        ws?.close(4999, "replaced")   // закрываем старый сокет перед новым (гонка reconnect↔connect); 4999 = терминал, без churn
         ws = client.newWebSocket(
             Request.Builder().url("${ApiClient.wsBase()}/ws/map").build(),   // токен НЕ в URL — первым сообщением
             object : WebSocketListener() {
