@@ -72,8 +72,7 @@ export function Comparison() {
                     <motion.div
                       className={`h-full rounded-full ${b.bar}`}
                       initial={{ width: 0 }}
-                      whileInView={{ width: `${(b.val / PRICE_MAX) * 100}%` }}
-                      viewport={{ once: true, margin: "-10% 0px" }}
+                      animate={{ width: `${(b.val / PRICE_MAX) * 100}%` }}
                       transition={{ duration: 1, delay: 0.15 + i * 0.12, ease: [0.21, 0.47, 0.32, 0.98] }}
                     />
                   </div>

@@ -137,7 +137,7 @@ export function FounderLetter() {
                 {FOUNDER.problems.map((p, i) => (
                   <motion.li
                     key={i}
-                    initial={{ opacity: 0, x: -10 }}
+                    initial={{ x: -10 }}
                     whileInView={{ opacity: 1, x: 0 }}
                     viewport={{ once: true }}
                     transition={{ delay: Math.min(i * 0.07, 0.35), duration: 0.45, ease: [0.21, 0.47, 0.32, 0.98] }}

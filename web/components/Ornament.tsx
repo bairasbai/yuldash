@@ -82,8 +82,8 @@ export function OrnamentKicker() {
     <div className="mb-5 flex items-center justify-center gap-4 text-gold-light/80" aria-hidden="true">
       <span className="h-px w-12 bg-gradient-to-r from-transparent to-gold-light/40 sm:w-20" />
       <motion.span
-        initial={{ y: 8, opacity: 0, scale: 0.8 }}
-        whileInView={{ y: 0, opacity: 1, scale: 1 }}
+        initial={{ y: 8, scale: 0.8 }}
+        whileInView={{ y: 0, scale: 1 }}
         viewport={{ once: true }}
         transition={{ duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
       >
@@ -112,7 +112,7 @@ export function OrnamentBand({ className = "" }: { className?: string }) {
           viewBox="0 0 800 40"
           preserveAspectRatio="xMidYMid meet"
           className="h-8 w-full max-w-2xl text-gold-light/35 [mask-image:linear-gradient(to_right,transparent_0%,#000_15%,#000_43%,transparent_47%,transparent_53%,#000_57%,#000_85%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,transparent_0%,#000_15%,#000_43%,transparent_47%,transparent_53%,#000_57%,#000_85%,transparent_100%)]"
-          initial={{ opacity: 0, scaleX: 0.9 }}
+          initial={{ scaleX: 0.9 }}
           whileInView={{ opacity: 1, scaleX: 1 }}
           viewport={{ once: true }}
           transition={{ duration: 1, ease: [0.21, 0.47, 0.32, 0.98] }}
@@ -136,7 +136,7 @@ export function OrnamentBand({ className = "" }: { className?: string }) {
         <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
           <motion.span
             className="relative flex items-center justify-center text-gold-light/90"
-            initial={{ opacity: 0, scale: 0.6, rotate: -20 }}
+            initial={{ scale: 0.6, rotate: -20 }}
             whileInView={{ opacity: 1, scale: 1, rotate: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.7, delay: 0.15, ease: [0.34, 1.56, 0.64, 1] }}

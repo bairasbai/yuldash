@@ -51,6 +51,30 @@ body {
   overflow-x: hidden;
 }
 
+/* ===== CSS-появление секций (вместо framer whileInView) =====
+   КРИТИЧНО для LTE/мобилы: контент виден сразу из SSG-HTML и проявляется чистым
+   CSS (не ждёт ~275КБ JS-гидрации). Раньше framer opacity:0 держал страницу
+   белой на медленном JS. Анимация стартует на парсе элемента — контент виден
+   за ~0.7с, без зависимости от JS/IntersectionObserver. */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.reveal-in {
+  animation: reveal-up 0.7s cubic-bezier(0.21, 0.47, 0.32, 0.98) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal-in {
+    animation: none;
+  }
+}
+
 /* Заголовки не оставляют «висячее» слово в последней строке (премиум-мелочь).
    text-wrap: balance трогает только перенос — вёрстку не ломает. */
 h1,
