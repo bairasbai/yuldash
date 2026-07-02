@@ -18,7 +18,7 @@ export function HeroPhone() {
         {/* Обычный <img> (не next/image): next/image lazy глючил на iOS. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/screens/app-map.webp"
+          src="/screens/app-map.jpg"
           alt="Экран приложения Юлдаш: карта поездок по Башкортостану с ценами"
           width={272}
           height={614}

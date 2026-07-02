@@ -10,7 +10,7 @@ import { OrnamentKicker } from "./Ornament";
 // Премиум-анимация: reveal, мягкое парение. Уважает reduced-motion.
 
 const SCREENS: { src: string; label: DictKey }[] = [
-  { src: "/screens/app-map.webp", label: "sc_s1" },       // Карта поездок
+  { src: "/screens/app-map.jpg", label: "sc_s1" },        // Карта поездок (JPEG — webp этой сложной карты не грузился на iOS)
   { src: "/screens/app-form.webp", label: "sc_s2" },      // Заявка и условия
   { src: "/screens/app-request.webp", label: "sc_s3" },   // Заявки и отклики
 ];
