@@ -53,11 +53,9 @@ export function AppShowcase() {
           <p className="mt-4 text-lg text-white/60">{tr("showcase_sub")}</p>
         </Reveal>
 
-        <div className="flex flex-wrap items-center justify-center gap-8 lg:gap-6">
+        <div className="flex flex-wrap items-start justify-center gap-8 lg:gap-6">
           <PhoneShot src={SCREENS[0].src} label={tr(SCREENS[0].label)} delay={0} float={0} />
-          <div className="lg:-mt-8">
-            <PhoneShot src={SCREENS[1].src} label={tr(SCREENS[1].label)} delay={0.12} float={1.2} />
-          </div>
+          <PhoneShot src={SCREENS[1].src} label={tr(SCREENS[1].label)} delay={0.12} float={1.2} />
           <PhoneShot src={SCREENS[2].src} label={tr(SCREENS[2].label)} delay={0.24} float={2.4} />
         </div>
       </div>
