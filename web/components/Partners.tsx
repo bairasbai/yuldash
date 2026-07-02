@@ -103,7 +103,7 @@ export function Partners() {
               >
                 {pp.months} {tr("partner_mo_short")}
                 {pp.off > 0 && (
-                  <span className={`ml-1 text-xs font-bold ${i === periodIdx ? "text-night/70" : "text-gold-light"}`}>
+                  <span className={`ml-1 text-xs font-bold ${i === periodIdx ? "text-night/90" : "text-gold-light"}`}>
                     −{Math.round(pp.off * 100)}%
                   </span>
                 )}

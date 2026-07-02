@@ -59,7 +59,7 @@ export function DownloadButton({
         </svg>
         {label}
       </span>
-      {subLabel && <span className="mt-0.5 text-xs font-semibold text-night/70">{subLabel}</span>}
+      {subLabel && <span className="mt-0.5 text-xs font-semibold text-night/90">{subLabel}</span>}
     </motion.button>
   );
 }

@@ -19,8 +19,8 @@ export const STORE_LINKS = {
 export const QR_SRC = "/qr-download.svg";
 
 // Размер для подписи под кнопкой (поправь под реальный вес сборки).
-// Релиз с MapKit+Firebase ≈ 49 МБ (docs/tasks.md).
-export const APK_SIZE = "~49 МБ";
+// Релиз с MapKit+Firebase ≈ 43–45 МБ (реальные сборки 2026-06-30).
+export const APK_SIZE = "~45 МБ";
 
 // Базовый URL сайта (для OG/robots/sitemap). Поменяй, если лендинг на поддомене.
 export const SITE_URL = "https://yulbash.ru";
