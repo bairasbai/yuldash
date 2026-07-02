@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..security import current_user
+from ..services import notify_admin_telegram, send_push
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["ads"])
@@ -32,6 +33,8 @@ AD_PACKAGES = {
 }
 # Статусы объявления, которые партнёр может редактировать (черновик / после отказа).
 AD_EDITABLE_STATUSES = ("draft", "rejected")
+# Анти-спам: не даём одному владельцу плодить бесконечно объявлений.
+MAX_ADS_PER_OWNER = 20
 
 
 def _csv(s: str) -> List[str]:
@@ -115,6 +118,165 @@ def ad_stats(user: User = Depends(current_user), session: Session = Depends(get_
     for ad_id, etype, cnt in rows:
         (clk if etype == "click" else imp)[ad_id] = cnt
     return {aid: {"impressions": imp.get(aid, 0), "clicks": clk.get(aid, 0)} for aid in (set(imp) | set(clk))}
+
+
+# ---------- Партнёр (self-serve кабинет) ----------
+
+def _ad_mine(ad: Ad, paid: bool) -> dict:
+    """Сериализация СВОЕГО объявления для кабинета партнёра (в отличие от _ad_public —
+    здесь статус, причина отказа, тариф, оплата: то, что видит владелец, но не публика)."""
+    pkg = AD_PACKAGES.get(ad.package)
+    return {
+        "id": str(ad.id),
+        "title": ad.title,
+        "text": ad.text,
+        "button": ad.button,
+        "target": ad.target,
+        "erid": ad.erid,
+        "status": ad.status,
+        "reject_reason": ad.reject_reason,
+        "package": ad.package,
+        "package_title": pkg["title"] if pkg else "",
+        "budget_kop": ad.budget_kop,
+        "period_days": ad.period_days,
+        "placements": _csv(ad.placements),
+        "cities": _csv(ad.cities),
+        "paid": paid,
+        "created_at": ad.created_at.isoformat() if ad.created_at else None,
+        "submitted_at": ad.submitted_at.isoformat() if ad.submitted_at else None,
+        "starts_at": ad.starts_at.isoformat() if ad.starts_at else None,
+        "ends_at": ad.ends_at.isoformat() if ad.ends_at else None,
+    }
+
+
+@router.get("/ad-packages")
+def ad_packages():
+    """Тарифы размещения (из конфига AD_PACKAGES) — для кабинета/витрины. Без авторизации: это просто прайс."""
+    return [
+        {"code": code, "title": p["title"], "title_ba": p["title_ba"],
+         "amount_kop": p["amount_kop"], "period_days": p["period_days"]}
+        for code, p in AD_PACKAGES.items()
+    ]
+
+
+@router.get("/ads/mine")
+def ads_mine(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мои объявления (владелец = я), ВСЕ статусы + причина отказа + оплачено/нет.
+    Приватность: строго owner_id == я (чужие объявления недоступны — IDOR закрыт)."""
+    rows = session.exec(
+        select(Ad).where(Ad.owner_id == user.id).order_by(Ad.created_at.desc())
+    ).all()
+    if not rows:
+        return []
+    ad_ids = [a.id for a in rows]
+    paid_ids = set(session.exec(
+        select(Payment.ad_id).where(
+            Payment.purpose == "ad",
+            Payment.ad_id.in_(ad_ids),
+            Payment.status == "succeeded",
+        )
+    ).all())
+    return [_ad_mine(a, a.id in paid_ids) for a in rows]
+
+
+def _is_paid(session: Session, ad_id: int) -> bool:
+    row = session.exec(
+        select(Payment.id).where(
+            Payment.purpose == "ad", Payment.ad_id == ad_id, Payment.status == "succeeded"
+        )
+    ).first()
+    return row is not None
+
+
+def _apply_package(ad: Ad, code: str) -> None:
+    """Проставить тариф из конфига (места показа/цена/срок фиксируются при выборе пакета)."""
+    pkg = AD_PACKAGES.get(code)
+    if not pkg:
+        return
+    ad.package = code
+    ad.placements = pkg["placements"]
+    ad.budget_kop = pkg["amount_kop"]
+    ad.period_days = pkg["period_days"]
+
+
+class AdCreateIn(BaseModel):
+    title: str = ""
+    text: str = ""
+    button: str = ""
+    target: str = ""
+    package: str = ""       # код тарифа из AD_PACKAGES
+    cities: str = ""        # CSV городов таргета; пусто = все
+
+
+@router.post("/ads")
+def ad_create(body: AdCreateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Партнёр создаёт своё объявление (черновик). Анти-спам: лимит на владельца."""
+    count = session.exec(select(func.count()).select_from(Ad).where(Ad.owner_id == user.id)).one()
+    if count >= MAX_ADS_PER_OWNER:
+        raise HTTPException(429, "Слишком много объявлений — удали лишние")
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(422, "Заголовок обязателен")
+    ad = Ad(
+        owner_id=user.id, created_by=user.id, status="draft",
+        title=title, text=body.text.strip(), button=body.button.strip(),
+        target=body.target.strip(), cities=body.cities.strip(),
+    )
+    _apply_package(ad, body.package)
+    session.add(ad)
+    if not user.is_advertiser:            # первый созданный объявлением делает юзера рекламодателем
+        user.is_advertiser = True
+        session.add(user)
+    session.commit()
+    session.refresh(ad)
+    return _ad_mine(ad, False)
+
+
+def _own_editable_ad(ad_id: int, user: User, session: Session) -> Ad:
+    """Достать СВОЁ редактируемое объявление или бросить понятную ошибку.
+    404 (а не 403) на чужое — чтобы не раскрывать существование чужих объявлений."""
+    ad = session.get(Ad, ad_id)
+    if not ad or ad.owner_id != user.id:
+        raise HTTPException(404, "Объявление не найдено")
+    if ad.status not in AD_EDITABLE_STATUSES:
+        raise HTTPException(409, "Редактировать можно только черновик или отклонённое")
+    return ad
+
+
+@router.patch("/ads/{ad_id}")
+def ad_update(ad_id: int, body: AdCreateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Партнёр правит СВОЙ черновик/отклонённое."""
+    ad = _own_editable_ad(ad_id, user, session)
+    if body.title.strip():
+        ad.title = body.title.strip()
+    ad.text = body.text.strip()
+    ad.button = body.button.strip()
+    ad.target = body.target.strip()
+    ad.cities = body.cities.strip()
+    _apply_package(ad, body.package)
+    session.add(ad)
+    session.commit()
+    session.refresh(ad)
+    return _ad_mine(ad, _is_paid(session, ad.id))
+
+
+@router.post("/ads/{ad_id}/submit")
+def ad_submit(ad_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отправить своё объявление на модерацию (draft/rejected → pending_review)."""
+    ad = _own_editable_ad(ad_id, user, session)
+    if not ad.title.strip() or ad.package not in AD_PACKAGES:
+        raise HTTPException(422, "Заполни заголовок и выбери тариф")
+    ad.status = "pending_review"
+    ad.reject_reason = ""
+    ad.submitted_at = utcnow()
+    session.add(ad)
+    session.commit()
+    session.refresh(ad)
+    try:  # уведомление админа — best-effort, не роняем сабмит если Telegram недоступен
+        notify_admin_telegram(f"🆕 Новое объявление на модерации: «{ad.title}» от {user.name or 'партнёра'}. Проверь в кабинете.")
+    except Exception:
+        pass
+    return _ad_mine(ad, _is_paid(session, ad.id))
 
 
 # ---------- Админ ----------
