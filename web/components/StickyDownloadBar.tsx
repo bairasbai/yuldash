@@ -14,17 +14,20 @@ export function StickyDownloadBar() {
   const [cookieDone, setCookieDone] = useState(true);
 
   useEffect(() => {
-    try {
-      setCookieDone(!!localStorage.getItem("yuldash_cookie_ok"));
-    } catch {
-      setCookieDone(true);
-    }
+    const timer = window.setTimeout(() => {
+      try {
+        setCookieDone(!!localStorage.getItem("yuldash_cookie_ok"));
+      } catch {
+        setCookieDone(true);
+      }
+    }, 0);
     const onScroll = () => setScrolledPast(window.scrollY > 700);
     const onCookie = () => setCookieDone(true);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("yuldash-cookie-ok", onCookie);
     return () => {
+      window.clearTimeout(timer);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("yuldash-cookie-ok", onCookie);
     };

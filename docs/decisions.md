@@ -221,3 +221,210 @@
 - **Миграции БД — Alembic** (не raw SQL). Новая колонка → новая alembic-ревизия + `alembic upgrade head` на сервере.
 - **Навигацию НЕ переписываем на Navigation-Compose/ViewModel** пока ~26 экранов: `enum Screen + when` работает, rewrite на задеплоенной бете = риск регрессии > выгода (46 мутаций `screen`). Защита состояния — точечно `rememberSaveable` + гард-редирект дата-экранов. Полный переход — при 50+ экранах.
 - **N+1 в выдаче поездок** — батч водителей/профилей/рейтингов (`_drivers_bundle`), не запрос-на-поездку.
+
+## 2026-06-30 — Приватные детали поездки
+- **Решение:** телефон водителя и точная точка встречи открываются не из публичной витрины поездки, а только через приватный `GET /bookings/{id}/details`.
+- **Правило доступа:** endpoint доступен только участникам брони; поля `driver_phone`, `pickup`, `pickup_lat/lng` пустые до статусов `confirmed/onboard/done`.
+- **Почему:** публичная карточка нужна для выбора поездки, но номер и точная геолокация — чувствительные данные. Раскрытие только после подтверждения сохраняет доверие «между своими» и соответствует правилу проекта «геолокация скрыта до подтверждения».
+- **Android:** `BookingScreen` показывает locked-состояние до брони/подтверждения, loading/error при загрузке приватных деталей, и только после серверного `contact_unlocked=true` даёт звонок и кнопку открытия точки на карте.
+
+## 2026-06-30 — Публичная витрина поездок без точки встречи
+- **Проблема, найденная при расширенном аудите:** публичный `GET /rides/{ride_id}` возвращал модель `Ride`, а публичные выдачи `/rides` и `/rides/near` использовали `RideOut` с полями `pickup`, `pickup_lat`, `pickup_lng`. Для поездок с заполненной точкой встречи это могло раскрыть точное место до подтверждения брони.
+- **Решение:** добавлен `public_ride_payload()` / `public_rides_payload()` в `backend/app/services.py`; публичные endpoints `/rides`, `/rides/near`, `/rides/{ride_id}` теперь принудительно отдают `pickup=""`, `pickup_lat=null`, `pickup_lng=null`.
+- **Что не меняли:** водительский `/driver/rides` и приватный `/bookings/{id}/details` сохраняют полные данные там, где пользователь имеет право их видеть.
+- **Проверка:** backend pytest → `76 passed, 1 skipped`; прод после деплоя: `/rides/1`, `/rides?limit=5`, `/rides/near?limit=5` → утечек `pickup*` не найдено, `/bookings/1/details` без токена → `401`.
+
+## 2026-06-30 — `/requests/near` только для авторизованных
+- **Проблема, найденная при расширенном аудите:** `/requests/near` принимал optional-токен и без авторизации отдавал активные заявки пассажиров с именем и комментарием. Телефона там не было, но для сервиса «между своими» заявки пассажиров не должны быть публичным каталогом.
+- **Решение:** заменить `current_user_optional` на обязательный `current_user` в `backend/app/routers/requests.py`.
+- **Что сохраняется:** авторизованный пользователь по-прежнему видит заявки рядом, без телефона; `/requests/feed` уже требовал токен и не менялся.
+- **Проверка:** backend pytest → `77 passed, 1 skipped`; прод после деплоя: `/requests/near` без токена → `401`, сервис `active`, `/health` → ok.
+## 2026-06-30 — Web dependency hardening до чистого npm audit
+
+Решение: обновить лендинг `web/` с Next `14.2.35` до `16.2.9` и принудительно поднять PostCSS до безопасной ветки через `overrides.postcss`.
+
+Почему: текущий `npm audit --omit=dev` показывал уязвимости Next/PostCSS. Предыдущая позиция «лендинг статический, Next runtime не запущен» снижала эксплуатационный риск на проде, но не закрывала supply-chain/audit риск в репозитории. В рамках production-аудита оставлять падающий audit нельзя.
+
+Что проверено: локальный Node `v25.9.0` подходит под `next@16.2.9` (`engines.node >=20.9.0`); `npm install` → 0 vulnerabilities; `npm run build` → успешный статический экспорт; fresh `web/out` задеплоен в `/var/www/yuldash-landing`; `https://yulbash.ru/` и `/health` с сервера вернули 200.
+## 2026-07-01 — Документы водителя привязаны к загрузившему пользователю
+
+**Проблема:** `POST /driver/verify` раньше доверял строкам `license_url` и `car_photo_url`. Если чужой `/secure/docs/...` URL становился известен, пользователь мог записать его в свой `DriverProfile`, после чего проверка `/secure/docs/{name}` считала документ его собственным.
+
+**Решение:** новые приватные документы, загруженные через `/upload/photo`, получают имя с префиксом `user_id_`. `/secure/docs/{name}` и `/driver/verify` проверяют владение по этому префиксу или точному совпадению с уже записанным документом текущего профиля. Проверка через `safe in url` удалена.
+
+**Почему так:** не добавляем новую таблицу и миграцию ради ownership, но закрываем IDOR одним швом. Точное совпадение с уже записанным профилем оставлено для обратной совместимости со старыми файлами без префикса, которые уже были отправлены на модерацию.
+
+**Проверка:** backend pytest `78 passed, 1 skipped`; прод-smoke: владелец документа `200`, чужой пользователь `403`, чужой `/driver/verify` с украденными URL `403`, владелец со своими URL `200`.
+## 2026-07-01 — Кинематографичный видео-герой лендинга (Higgsfield)
+
+**Что:** поднял hero лендинга `web/` до премиум-уровня. Фон героя — дрон-кадр дороги через башкирские холмы на закате (16:9, 8с, 720p), сгенерён через Higgsfield (`cinematic_studio_3_0`, genre=epic, без звука).
+
+**Реализация:**
+- `web/components/HeroBackdrop.tsx` — видео `<video autoPlay muted loop playsInline poster>` с маской-затуханием в тёмный фон + бренд-тонировка (зелёно-золотой radial) для читаемости. При `prefers-reduced-motion` — статичный постер вместо видео.
+- Ассеты в `web/public/`: `hero.mp4` (≈5MB), `hero-poster.webp` (160K, LCP/постер) + `hero-poster.jpg` фолбэк.
+- OG-картинка `og.png` пересобрана из того же кинокадра + лого + слоган «Доедем вместе» (sharp-композит, 1200×630, 300K). Метатеги уже ссылались на `/og.png`.
+- Ключевой кадр `hero-fade-in` (Ken Burns 1.06→1) в `globals.css`.
+
+**Почему:** существующий лендинг уже добротный (Aurora, framer-motion, мультиязык), но «вау за $20k» даёт именно живой кинематографичный фон. Видео секционное (только hero), Aurora-фон страницы сохранён — видео мягко затухает в его свечения.
+
+**Проверка:** `npm run build` зелёный, статический экспорт ок; локальный preview `out/` — видео отдаёт 200, консоль без ошибок от нового кода (404 `/reviews/public` и `ym` — предсуществующие, только прод/локалка). Постер и OG проверены глазами.
+
+**Открыто:** Instagram-reel из ТЗ открыть не удалось (блок ботов) — взято направление «кинолендинг с видео-героем»; если reel про другой стиль, направление меняется. Видео 5MB можно ужать ffmpeg-ом (сейчас в окружении нет ffmpeg).
+
+**✅ ЗАДЕПЛОЕНО на прод (2026-07-01):** бэкап старого сайта → `/root/landing-pre-hero-20260701.tar.gz` (1.3M); заливка tar `web/out` → распаковка в `/var/www/yuldash-landing` (чистка+extract+chmod a+rX). Проверка server-side (домен с Windows блокирует ТСПУ, потому `curl` по loopback с `Host: yulbash.ru`): index 200, `hero.mp4` 200 `video/mp4` 5096644b, `hero-poster.webp` 200, `og.png` 200, HTML ссылается на `hero.mp4`. ffmpeg на сервере нет → видео 5MB как есть.
+
+## 2026-07-01 — Кинематографичный редизайн лендинга (CSS-движение, без тяжёлого видео)
+
+**Запрос:** «как Higgsfield-видео», ощущение дороги/движения; явно — не тяжёлые видео-фоны, CSS-анимации, respect prefers-reduced-motion.
+
+**Архитектура:** НЕ переписывал в один index.html — сайт на Next/React с обязательным двуязычием (tr()), SEO, юр-страницами, аналитикой; голый html убил бы двуязычие (жёсткое правило). Апгрейд внутри существующих компонентов.
+
+**Сделано:**
+- Видео-герой 5MB → CSS-движение: постер дороги (160K) + световые следы (hero-streaks/hero-flare) + Ken Burns. hero.mp4 удалён из public/ и с прода (404).
+- components/Typewriter.tsx — печатающаяся строка (цикл + once), каретка .tw-caret, гаснет при reduced-motion.
+- Hero: typewriter-подзаголовок (hero_tw1..3), glow-pulse на акцентном слове.
+- FounderLetter: фон ночной дороги (nightroad.webp 60K, Higgsfield), depth-параллакс фото по мыши, цитата печатается при доскролле (useInView + Typewriter once).
+
+**Проверка:** build зелёный; preview hero+founder сняты, консоль без новых ошибок. Задеплоено на yulbash.ru (бэкап /root/landing-pre-redesign-20260701.tar.gz): index/poster/nightroad/og 200, старое hero.mp4 404. Архив 1.8MB.
+
+**Phase 2 (отложено):** граф-столбцы в Сравнении, hover-карточка направлений на карте, живая trip-карточка (ripple-аватар/звёзды).
+
+## 2026-07-01 — Кинофон возвращён (lazy) + Phase 2 лендинга
+
+**Кинофон вернул, но без удара по перфу:** постер = LCP, видео `hero.mp4` грузится в простое (`requestIdleCallback`, фолбэк setTimeout) и плавно проявляется (opacity 0→0.5 по onLoadedData). CSS-световые следы остались. При reduced-motion видео не грузится — только постер.
+
+**Phase 2 (всё задеплоено, проверено скринами):**
+- Граф «Сколько стоит доехать» в Comparison — растущие столбцы при скролле (whileInView width): Юлдаш ≈700₽ / Автобус ≈1100₽ / Такси ≈5500₽ (ориентир Уфа→Сибай, помечено «примерные»). Матрица галочек сохранена.
+- Карта: hover/tap по городу → карточка «Популярные направления» = 2 ближайших города (data-driven по координатам, без ручных данных). Координаты узла → проценты контейнера через VB-пересчёт; tooltip pointer-events-none (без фликера).
+- Живая trip-карточка в PhoneMockup: ripple-кольцо аватара (CSS), 5 звёзд с поштучным pop-ин (stagger), «Поехали» с бегущим бликом (go-shine) + дыханием тени (go-breathe). Всё гаснет при reduced-motion.
+
+**Проверка:** build зелёный; preview — hero(видео+карточка), граф, hover-карта сняты и работают; консоль без новых ошибок. Прод yulbash.ru: /, hero.mp4(video/mp4), poster, nightroad, og → 200; в HTML star-pop/Популярные/«Сколько стоит». Бэкап `/root/landing-pre-phase2-20260701.tar.gz`.
+
+## 2026-07-01 — Фиксы по фидбэку: цена такси и разделитель секций
+
+- **Savings:** убран `line-through` на цене такси (в кропе читался как баг-«полоска»). Теперь цена приглушена + плашка «↑ ×3.6 дороже» — сравнение понятно без зачёркивания. Ключ `save_pricier`.
+- **OrnamentBand:** вместо одинокой полосы узора — кускар, расходящийся от центрального светящегося курая (mask с прозрачным центром под цветком), мягкий шов-градиент и золотое свечение. Читается как дорогой разделитель секций. `useId` для уникального pattern-id (компонент используется дважды).
+
+Проверка: build зелёный, оба фикса сняты скринами и работают; прод yulbash.ru index 200, в HTML «дороже», `line-through` отсутствует. Бэкап `/root/landing-pre-fixes-20260701.tar.gz`.
+
+## 2026-07-01 — Фикс флэша загрузки + двойного фона героя
+
+- **Флэш при первом заходе** (постер → лоадер → сайт): причина — Loader стартовал `useState(false)` и включался эффектом ПОСЛЕ первого кадра → контент успевал мигнуть. Фикс: `useState(true)` — шторка рендерится в статичном HTML и видна с первого кадра; JS прячет её после загрузки (1200мс), а для «уже видел сессию»/reduced-motion — сразу. Теперь: открыл → шторка → сайт, без мигания контента.
+- **Двойной фон** (постер + видео оба по opacity 0.5 → двоились): сделал крестфейд — постер гаснет в opacity 0, когда видео `readyState`=4 (videoReady). Проверено замером: poster opacity 0, video 0.5 → виден один фон.
+
+Проверка: build зелёный, прод index 200, шторка в HTML (`fixed inset-0 z-[100]`), крестфейд замером ок. Бэкап `/root/landing-pre-loaderfix-20260701.tar.gz`.
+
+## 2026-07-01 — Диагностика «долго грузит/ошибка» + облегчение мобилки
+
+Сервер здоров: nginx active, index 200 TTFB ~4мс/489KB, hero.mp4 5MB локально за 10мс, cert до 20.09.2026, error.log пуст, load 0.02. → Проблема не серверная, а сетевая: ТСПУ/DPI российских провайдеров троттлит домен + тяжёлое видео 5MB по такому каналу = долгий старт/таймаут на телефоне.
+
+Фикс: кинофон-видео грузится ТОЛЬКО на десктопе (`min-width:1024`) И быстром соединении (`navigator.connection`: не save-data, не 2g/3g). Мобилка/медленно → только постер ~160K. Проверено: 390px → нет `<video>`, постер 0.5; 1440px → видео readyState 4. Мобильный вес 5MB→~160K.
+
+Осталось опц.: ffmpeg-сжатие видео для десктопа (5MB→~1.5MB) — ffmpeg ни локально, ни на сервере нет, поставить `apt install ffmpeg` при желании.
+
+## 2026-07-01 — Корень «голой страницы на телефоне»: nginx не жал CSS/JS
+Телефон показывал лендинг без стилей (сырые SVG курая). Причина: `gzip on` был, но `gzip_types` закомментирован → nginx жал только text/html, а CSS 52KB и JS шли несжато и на зажатой LTE (ТСПУ) не доезжали. Добавил `/etc/nginx/conf.d/gzip.conf` (gzip_types для css/js/svg/json + comp_level 6 + min_length 256 + vary). `nginx -t` ok, reload. Проверено: CSS 52KB→11KB (Content-Encoding: gzip), JS 226KB→71KB. Файлы лендинга не менялись — только серверный конфиг.
+
+## 2026-07-01 — Чёрный экран на телефоне (4 мин): сайт был JS-gated
+
+Симптом: на зажатой LTE сайт висел чёрным экраном минутами. Причина: (1) Loader-шторку (`useState(true)`, в статичном HTML) снимал только JS — на медленном JS она висела вечно; (2) 102 элемента framer имеют inline `opacity:0` до гидрации → без JS контент невидим. На троттлящейся сети JS почти не доходил → чёрный экран.
+
+Фикс (сайт работает БЕЗ ожидания JS):
+- Убрал `<Loader/>` совсем (это и был чёрный оверлей-ловушка).
+- CSS fail-safe в globals.css: `[style*="opacity:0;"]:not(video):not(img)` через 3с проявляется анимацией `ssr-failsafe` (CSS перебивает inline-стиль). Контент виден даже если JS не пришёл; когда JS дойдёт — framer всё равно ставит opacity:1, конфликта нет. img/video исключены (свой крестфейд).
+- (вместе с gzip из прошлого шага и video-off на мобиле).
+
+Проверено: build зелёный, лоадер ушёл из HTML (0), failsafe в CSS, мобильный рендер чистый. Прод index 200. Бэкап `/root/landing-pre-failsafe-20260701.tar.gz`.
+
+## 2026-07-01 — inlineCss: убираем отдельный render-blocking CSS-запрос
+Чёрный экран на флаки-LTE повторялся: отдельный CSS-файл (render-blocking) иногда зависал на зажатой сети → страница чёрная пока не дойдёт. Включил `experimental.inlineCss: true` (Next 16) → CSS вшит в HTML. Теперь страница = ОДИН gzip-запрос (67KB на проводе) со стилями внутри; нет второго ресурса-точки-отказа. Failsafe-CSS тоже инлайн → контент проявляется без JS. Шрифты самохостятся (next/font), внешнее только Метрика. Проверено: `<style>` в HTML, 0 stylesheet-линков, index 200, HTML gzip 67KB. Остаток — чистая сеть (ТСПУ может рвать соединение); это уже вне кода.
+
+## 2026-07-01 — Web lint после перехода на Next 16
+
+**Проблема:** после обновления лендинга до Next.js 16 скрипт `next lint` больше не является рабочей проверкой. Команда падала до анализа исходников: Next воспринимал `lint` как путь проекта.
+
+**Решение:** перейти на явный ESLint CLI: `web/package.json` → `eslint . --max-warnings=0`, добавить `web/eslint.config.mjs` с `eslint-config-next/core-web-vitals` и `eslint-config-next/typescript`.
+
+**Проверка:** `npm run lint` → OK; `npm run build` → OK; `npm audit` → 0 vulnerabilities.
+
+## 2026-07-01 — Android coverage включён только для debug
+
+**Решение:** в `android/app/build.gradle.kts` включить `enableUnitTestCoverage` и `enableAndroidTestCoverage` только в `buildTypes.debug`.
+
+**Почему:** теперь можно получать JaCoCo-отчёты штатными задачами AGP (`createDebugUnitTestCoverageReport`, `createDebugAndroidTestCoverageReport`) без влияния на release-сборку.
+
+**Проверка:** unit coverage, androidTest coverage и `assembleRelease` прошли зелёно. Текущий объединённый Android line coverage по JaCoCo: `424 / 11793 = 3.60%`.
+
+## 2026-07-01 — Формат чисел в Android должен быть стабильным
+
+**Проблема:** unit-тесты показали две мелкие UI-регрессии: `fmtKm(9.95)` отдавал `10.0`, а форматирование донатов в `mapFeedFrom` зависело от системной locale.
+
+**Решение:** `fmtKm` нормализует граничное `10.0` в `10`; донаты форматируются через `String.format(Locale.US, "%,d", amount).replace(',', ' ')`.
+
+**Проверка:** Android unit-тесты расширены до 15 и проходят; debug/release сборки проходят.
+## 2026-07-01 — Dormant backend router removed instead of counting it as coverage debt
+
+**Decision:** remove `backend/app/routers/content.py`.
+
+**Reason:** local verification showed no imports and no `include_router` path for this router. `backend/app/routers/__init__.py` is the router registry and does not include `content`; the active content/discovery endpoints are implemented in `discovery.py` and `ads.py`. Keeping a dormant duplicate made coverage and future maintenance misleading.
+
+**Verification:** backend tests pass after removal and follow-up suites: `148 passed, 1 skipped`; backend coverage is now `91%`.
+
+## 2026-07-01 — Backend coverage should prioritize active business contracts first
+
+**Decision:** add regression tests around active user/business contracts before testing infrastructure wrappers.
+
+**Covered now:** payments/admin flows, payment provider adapter, passenger request matching, safety/report/block flows, driver document autocheck, ride filters/cache/recurrence, REST chat edge cases, ad admin/payment lifecycle, auth/Telegram/OTP edge cases, and shared service helpers.
+
+**Remaining:** lower coverage is mostly integration-heavy/infrastructure: `services.py` external branches, `db.py`, `middleware.py`, and WebSocket internals in `chat.py`.
+
+## 2026-07-01 — Android coverage grows from pure contracts first
+
+**Decision:** add JVM unit tests around pure Android contracts before Compose UI tests: `RideDto.toUiRide()`, `mapFeedFrom`, `PartnerAd` filters/matching, and `YuldashViewModel` state.
+
+**Reason:** these tests are fast, deterministic, do not need emulator/network, and protect backend↔Android data contracts. Compose screen tests remain useful but are slower and should be added around final user flows.
+
+**Verification:** `:app:testDebugUnitTest` → `21 tests, 0 failures`; `:app:createDebugUnitTestCoverageReport` → Android unit line coverage `546 / 11794 = 4.63%`; `:app:assembleDebug` → green.
+
+## 2026-07-01 — «Мои поездки» opens bookings by lifecycle state
+
+**Decision:** split passenger booking navigation by status. `pending` bookings open `BookingScreen` with `bookingId`, because private phone/pickup can still be locked; `confirmed` and `onboard` bookings open `ActiveTripScreen`, because chat, boarding code, status watcher and live trip controls belong there.
+
+**Reason:** the old path treated every my-trip card like a generic booking/details card. That made confirmed trips one tap away from the wrong screen and left the passenger cabinet CTA pointing to “find similar” instead of the actual booking.
+
+**Verification:** `:app:assembleDebug` passed; `:app:testDebugUnitTest` passed with `21 tests, 0 failures`. Fresh `app-debug.apk` installed on `emulator-5554` and launched; UI reached login screen. Full manual passenger flow on emulator was not completed because current emulator session is not authenticated and Telegram login requires a real bot code.
+
+## 2026-07-01 — Booking details map must be real, not a mock preview
+
+**Decision:** remove the mock `MapPreview(... cityDistanceText(...))` from `BookingScreen` and use a real Yandex `MapView` fed by route endpoint coordinates from `/bookings/{id}/details`.
+
+**Privacy boundary:** exact pickup coordinates stay locked until booking confirmation. Route endpoint coordinates are returned before confirmation because they describe the route/cities, not the private meeting point.
+
+**Verification:** backend `tests/test_flows.py -k booking_details` → `2 passed`; full backend suite → `148 passed, 1 skipped`; Android `:app:assembleDebug` and `:app:testDebugUnitTest` passed. Deployed `backend/app/routers/bookings.py` to prod with backup `/opt/yuldash/backups/bookings-mapfix-20260701/bookings.py.bak`; prod health is `{"status":"ok","env":"prod","db":"ok"}`.
+
+**Follow-up fix:** screenshot showed the honest fallback on an old prod booking with null route coordinates. Added lazy-backfill in `/bookings/{id}/details`: if `ride.from_lat/lng` or `ride.to_lat/lng` are missing, server geocodes by city, persists the result, and returns coordinates in the same response. Verification: focused backend now `3 passed`, full backend `149 passed, 1 skipped`; prod backup `/opt/yuldash/backups/bookings-lazygeo-20260701/bookings.py.bak`, health `ok/db:ok`.
+
+## 2026-07-01 — Chat inbox must include active bookings before first message
+
+**Decision:** `/conversations` returns active bookings (`pending`, `confirmed`, `onboard`) even when there is no `Message` row yet. The placeholder last text is `Чат открыт`.
+
+**Reason:** the Android `Написать` action from booking details routes to the chat inbox. If the inbox only returned bookings with existing messages, the passenger could not send the first message and saw an empty state despite having an active booking.
+
+**Boundary:** completed/cancelled bookings without any message history remain hidden, so the inbox does not fill with dead empty dialogs.
+
+**Verification:** `tests/test_chat_edges.py` covers the no-message active booking; backend focused `4 passed`, full backend `149 passed, 1 skipped`. Deployed `chat.py` to prod; prod `/conversations` for test passenger user `28` returned booking `14`, `Айгуль`, `Темясово → Уфа`, `Чат открыт`. Emulator E2E sent `Codex_test_message`; prod `/bookings/14/messages` returned message `id=8`.
+## 2026-07-01 — Доверенные контакты не должны сидеть в ViewModel как демо-данные
+
+**Decision:** `YuldashViewModel.trustedContacts` стартует пустым и наполняется только результатом `/trusted-contacts`.
+
+**Reason:** доверенные контакты — чувствительный пользовательский список. Если сервер вернул `[]`, UI обязан показать пустое состояние, а не демо-персон `Айгуль`/`Рамиль`, иначе пользователь видит несуществующих близких и может подумать, что поездка реально отправится им.
+
+**Verification:** в эмуляторе bottom sheet `Кому отправить поездку` показывает `Сначала добавьте доверенный контакт в профиле`; моковые отношения `Дочь`/`Сосед` отсутствуют. `YuldashViewModelTest` проверяет пустой стартовый список.
+
+## 2026-07-01 — Серверные даты брони форматируем до передачи в карточку
+
+**Decision:** карточки моих поездок и пассажирского кабинета получают `formatDepart(departAt)`, а не сырой `depart_at` из API.
+
+**Reason:** backend отдаёт ISO-строку, в том числе с дробными секундами (`2026-07-03T12:44:19.838345`). Это контракт обмена между сервером и приложением, но не пользовательский текст.
+
+**Verification:** `CoreLogicTest` проверяет `2026-07-03T12:44:19.838345` → `03.07, 12:44`; эмулятор на вкладке `Поездки` показал `03.07, 12:44` и не показал сырой ISO.

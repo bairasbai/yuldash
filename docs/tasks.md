@@ -894,3 +894,495 @@ Telegram-вход (+ все ветки ошибок, VK/WhatsApp чисто уб
 - **Финальный APK:** `gradlew clean :app:assembleDebug` → **BUILD SUCCESSFUL**, `app-debug.apk` (~166 МБ, MapKit `.so` не страйпятся — норм). Все правки сессии внутри.
 - **Доки обновлены ОТ КОДА** (read-only агент-инвентаризатор + сверка): `00-INDEX.md` — новый блок «СТАТУС РЕАЛИЗАЦИИ 2026-06-30» (актуальное, старые блоки = история); `architecture.md` — актуальная карта файлов (~16 .kt вместо «MainActivity по строкам») + новые фичи карты/поездок/WS. `tasks.md`/`lessons.md`/`decisions.md` — журналы, уже содержат записи сессии.
 - Релизный (подписанный) APK — отдельно при выкатке в стор (нужен keystore из `local.properties`/`.jks`, не в git).
+
+## ✅ Вкладка «Детали поездки» production-ready (2026-06-30)
+- [x] Backend: добавлен приватный `/bookings/{id}/details`, который отдаёт участникам брони маршрут, водителя, авто, статус, место встречи, телефон и координаты только после подтверждения.
+- [x] Android data: добавлены `BookingDetailsDto` + `ApiClient.getBookingDetails()`.
+- [x] Android UI: `BookingScreen` теперь показывает loading/error/locked/unlocked, звонок и кнопку карты только после `contact_unlocked=true`; активная карточка из «Мои поездки» открывает эту вкладку с `bookingId`.
+- [x] QA: `backend/.venv/Scripts/python -m pytest` → **75 passed, 1 skipped**; `gradlew :app:assembleDebug --no-daemon --console=plain` → **BUILD SUCCESSFUL**.
+
+### 🔤 Переводы на проверку — детали поездки (2026-06-30)
+«Сәфәр раҫланыуын яңыртабыҙ» (Обновляем подтверждение поездки), «Ентекле мәғлүмәтте яңыртып булманы» (Не удалось обновить детали), «Сервер рөхсәтте раҫлағансы, телефон һәм осрашыу урыны ябыҡ ҡала» (Телефон и точка встречи останутся закрытыми, пока сервер не подтвердит доступ), «Водитель раҫлағас асыла» (Откроется после подтверждения водителем), «Нөктәне чатта асыҡлағыҙ» (Уточните точку в чате), «Водителдең телефоны асылды» (Телефон водителя открыт), «Телефон водитель раҫлағас асыла» (Телефон откроется после подтверждения водителем), «Шулай итеп номерҙы һәм теүәл геолокацияны ике яҡ ризалығына тиклем һаҡлайбыҙ» (Так мы защищаем номер и точную геолокацию до взаимного согласия).
+
+### ✅ Новый release APK из main (2026-06-30)
+- База: `main` (самая свежая Claude-цепочка уже внутри `main`, включая `claude/rm-hospital`).
+- Сборка: `gradlew :app:assembleRelease --no-daemon --console=plain` → **BUILD SUCCESSFUL**.
+- Артефакт: `yuldash-release-2026-06-30-trip-details.apk` (44 812 334 байт), копия из `android/app/build/outputs/apk/release/app-release.apk`.
+- SHA-256 APK: `A865AB89BFEAF923A7D23C9D20DCA9D61B3B334361D72023E395519AAECB6E21`.
+- Подпись: `apksigner verify` → **Verifies**, v2 signature true, signer `CN=Yuldash`.
+
+### ✅ Деплой backend для деталей поездки на прод (2026-06-30)
+- Деплой нужен был для нового APK: экран вызывает `GET /bookings/{id}/details`.
+- Сверка дрейфа: продовый `/opt/yuldash/app/routers/bookings.py` совпал с `HEAD` до правок (только после этого залит новый файл).
+- Бэкап: `/opt/yuldash/backups/app-pre-booking-details-20260630-185235.tar.gz`.
+- Залито: только `backend/app/routers/bookings.py` → `/opt/yuldash/app/routers/bookings.py`; миграции не нужны.
+- Проверено до рестарта: `python -c 'import app.main; print(123)'` → `123`.
+- Restart: `systemctl restart yuldash-api`; проверено `active`, `/health` → `{"status":"ok","env":"prod","db":"ok"}`.
+- Новый endpoint жив и закрыт auth-гейтом: `GET /bookings/1/details` без токена → `401`.
+- Журнал после рестарта чистый: workers поднялись, `Application startup complete`, traceback нет.
+- Откат: `tar xzf /opt/yuldash/backups/app-pre-booking-details-20260630-185235.tar.gz -C /opt/yuldash && systemctl restart yuldash-api`.
+## 🔍 Production-аудит всего проекта — 2026-06-30
+План текущей сессии: проверяю фактическое состояние репозитория после правок по деталям поездки и прод-деплоя. Цель — не обещать абстрактное «всё готово», а найти и закрыть реальные production-блокеры, которые можно подтвердить кодом, тестами и сборкой.
+
+- [x] Android: проверены рабочее дерево, критичные заглушки/моки, секреты, строки, сборки debug/release.
+- [x] Backend: проверены auth/privacy endpoint деталей брони, тесты, прод-деплой после правок.
+- [x] Web/promo: проверены сборка web, npm-аудит web/promo; найден и закрыт audit-риск Next/PostCSS.
+- [x] Docs/release: журнал обновлён по фактам текущих проверок.
+- [x] Честно отмечены внешние проверки, которые нельзя подтвердить в этой среде: физическое устройство, реальные push/Telegram/SMS/сторы/платежные ключи.
+
+Факты проверки:
+- Backend: `backend/.venv/Scripts/python.exe -m pytest` → **75 passed, 1 skipped, 1 warning**.
+- Android debug: `gradlew :app:assembleDebug --no-daemon --console=plain` → **BUILD SUCCESSFUL**.
+- Android release: `gradlew :app:assembleRelease --no-daemon --console=plain` → **BUILD SUCCESSFUL**, `lintVitalRelease` прошёл.
+- APK подпись: `apksigner verify --verbose --print-certs` → **Verifies**, v2 signature true, signer `CN=Yuldash`.
+- APK SHA-256: `A865AB89BFEAF923A7D23C9D20DCA9D61B3B334361D72023E395519AAECB6E21`.
+- Web: `npm run build` в `web/` → **Next.js 16.2.9 build OK**; `npm audit --omit=dev` → **0 vulnerabilities**.
+- Promo: `npm audit --omit=dev` в `promo/` → **0 vulnerabilities**.
+- Whitespace: `git diff --check` → ошибок нет, только предупреждения Git про будущую замену LF→CRLF.
+- Secrets scan: `git ls-files android backend web promo docs .github | rg ...` → совпадений по tracked secret-файлам нет.
+- Деплой web: свежий `web/out` залит в `/var/www/yuldash-landing`; бэкап перед заменой: `/var/www/yuldash-landing-pre-web-audit-20260630-160341.tar.gz`; проверка с сервера: `https://yulbash.ru/` → **200**, `https://yulbash.ru/health` → **200**.
+
+Исправлено в аудите:
+- `web/package.json`/`package-lock.json`: Next обновлён `14.2.35 → 16.2.9`, PostCSS `8.4.x → 8.5.x`, добавлен `overrides.postcss`, потому `npm audit --omit=dev` больше не падает.
+- `web/tsconfig.json` и `web/next-env.d.ts`: приняты автоматические изменения Next 16 (`jsx=react-jsx`, `.next/dev/types`, typed routes import), сборка подтверждает совместимость.
+
+Не могу подтвердить в этой среде:
+- доставку FCM на реальное Android-устройство;
+- реальный Telegram/SMS вход на боевых внешних аккаунтах;
+- оплату ЮKassa/СБП реальными деньгами без боевых ключей/реквизитов и ручной банковской сверки;
+- публикацию/прохождение модерации в сторах.
+
+## ✅ Полный QA-прогон приложения — 2026-06-30
+Проверено по фактическим командам и Android runtime на `emulator-5554` (`Pixel_5`). Это не заменяет тест на физическом телефоне, но подтверждает сборку, базовую навигацию, ключевые экраны и прод-smoke.
+
+Автоматические проверки:
+- Backend: `backend/.venv/Scripts/python.exe -m pytest` → **75 passed, 1 skipped, 1 warning**.
+- Web: `npm ci` → **0 vulnerabilities**, `npm run build` → **Next.js 16.2.9 build OK**, `npm audit --omit=dev` → **0 vulnerabilities**.
+- Promo: `npm audit --omit=dev` → **0 vulnerabilities**.
+- Android debug: `gradlew :app:assembleDebug --no-daemon --console=plain` → **BUILD SUCCESSFUL**.
+- Android release: `gradlew :app:assembleRelease --no-daemon --console=plain` → **BUILD SUCCESSFUL**, `lintVitalRelease` прошёл.
+- Release APK: `apksigner verify --verbose --print-certs` → **Verifies**, v2 signature true, signer `CN=Yuldash`; SHA-256 `A865AB89BFEAF923A7D23C9D20DCA9D61B3B334361D72023E395519AAECB6E21`.
+- Whitespace: `git diff --check` → ошибок нет, только предупреждения Git про будущую замену LF→CRLF.
+- Secrets scan: `git grep -n -I -i -E "(api[_-]?key|secret|token|password|BEGIN (RSA|OPENSSH|PRIVATE) KEY|service_account|firebase_adminsdk|yookassa|telegram|smtp)" -- android backend web promo docs .github` → реальные секреты не найдены; совпадения относятся к именам полей, коду хранения токенов, публичным ссылкам и шаблонам документации.
+
+Android runtime smoke:
+- `adb devices` → `emulator-5554 device`; `sys.boot_completed` → `1`.
+- Release APK на этот эмулятор не поставился из-за уже установленной debug-версии с другой подписью: `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Release отдельно подтверждён сборкой и `apksigner`; runtime проверен на `app-debug.apk`.
+- `adb install -r android/app/build/outputs/apk/debug/app-debug.apk` → **Success**.
+- Запуск: `adb shell monkey -p com.yuldash.app 1`; `dumpsys window` → текущий фокус `com.yuldash.app/.MainActivity`.
+- Главный экран: видны «Добрый день, друг», карта, «Найти поездку», «Я водитель», ближайшие поездки и нижние вкладки.
+- Вкладка/экран «Детали поездки»: видны маршрут `Темясово → Уфа`, водитель, авто, место встречи/геолокация/телефон скрыты до подтверждения.
+- «Заявка»: пустое состояние и кнопка «Создать новую» открывают форму «Заявка пассажира» с маршрутом, местами, ценой, типом и условиями.
+- «Чат»: пустое состояние активных чатов отображается корректно.
+- «Профиль»: демо-профиль, кабинет пассажира/водителя, язык и проверка водителя отображаются корректно.
+- «Я водитель»: форма «Маршрут для своих» открывается, поля маршрута/типа/повтора/мест/цены/места встречи видны.
+- `logcat` после прохода по экранам: по шаблонам `FATAL EXCEPTION|E/AndroidRuntime|ANR in|Application Not Responding|Fatal signal` совпадений нет.
+
+Prod-smoke:
+- SSH prod `root@85.239.52.55`: `systemctl is-active yuldash-api` → `active`.
+- `http://127.0.0.1:8000/health` → `{"status":"ok","env":"prod","db":"ok"}`.
+- `GET /bookings/1/details` без токена → `401`, auth-гейт работает.
+- `https://yulbash.ru/` → `200`; `https://yulbash.ru/health` → `200`.
+- `journalctl -u yuldash-api --since '2026-06-30 16:00:00'` по `traceback|exception|critical|failed|ERROR` → совпадений нет.
+
+Не могу подтвердить в этой среде:
+- доставку FCM на реальное Android-устройство;
+- реальный Telegram/SMS вход на боевых внешних аккаунтах;
+- реальную оплату ЮKassa/СБП и банковскую сверку;
+- публикацию и модерацию в Google Play/RuStore;
+- поведение release APK на чистом физическом устройстве после удаления debug-версии.
+
+## ✅ Расширенная симуляция пользователей и UI-кнопок — 2026-06-30
+
+Проверено после установки свежего release APK на `emulator-5554`. Вход выполнен через серверную Telegram-попытку для эмулятора, потому что Telegram-клиент на эмуляторе не установлен; реальный клик в Telegram-клиенте этим прогоном не подтверждён.
+
+Факты автоматической проверки:
+- Backend: `backend/.venv/Scripts/python.exe -m pytest` → **75 passed, 1 skipped, 1 warning**.
+- Мульти-пользовательская API-симуляция на локальной тестовой БД → **29 PASS**: водитель, второй водитель, пассажир, чужой пользователь и админ. Проверены публикация поездки, поиск, бронь, защита от брони своей поездки, идемпотентная повторная бронь, подтверждение водителем, скрытие телефона/гео до подтверждения, запрет чужого доступа к деталям/чату/коду посадки, чат, доверенный контакт, SOS/share, завершение поездки, рейтинг, заявка пассажира, отклик водителя, accept-ответа, block/report, boost, Telegram-flow и отказ плохого upload.
+- Android release: `gradlew :app:assembleRelease --no-daemon` → **BUILD SUCCESSFUL**.
+- Web: `npm run build` в `web/` → **Next.js 16.2.9 build OK**; `npm audit --omit=dev` → **0 vulnerabilities**.
+- Prod-smoke: `systemctl is-active yuldash-api` → `active`; `/health` → `{"status":"ok","env":"prod","db":"ok"}`; `/bookings/1/details` без токена → `401`.
+- Android logcat после UI-прогона: по шаблонам `E/AndroidRuntime`, `FATAL EXCEPTION`, `ANR in`, `Application Not Responding`, `Fatal signal` совпадений по текущему проходу не найдено.
+- `git diff --check` → ошибок whitespace нет; только предупреждения Git про будущую замену LF→CRLF.
+
+Факты UI-проверки на эмуляторе:
+- Главное меню открывается после входа: видны приветствие пользователя, карта, `Найти поездку`, `Я водитель`, ближайшие поездки и нижние вкладки.
+- `Найти поездку` открывает вкладку поездок; `Подробнее` по активной поездке открывает `Детали поездки` с маршрутом, водителем, авто и закрытыми до подтверждения полями телефона/гео/места встречи.
+- `Заявка` показывает пустое состояние и открывает форму пассажирской заявки с маршрутом, местами, ценой, типом и условиями поездки.
+- `Я водитель` и `Кабинет водителя` открывают рабочий экран с `Я на линии`, статистикой, пустым состоянием маршрутов, `Опубликовать маршрут`, `Заявки пассажиров`, `Создать поездку`, `Проверка водителя`.
+- `Заявки пассажиров` открываются и корректно показывают пустое состояние.
+- `Создать поездку` открывает форму маршрута с полями откуда/куда, типом поездки, повтором, местами, ценой и местом встречи. Submit на проде не нажимался, чтобы не создавать мусорный маршрут; submit-путь проверен API-симуляцией.
+- `Проверка водителя` открывает экран с подтверждённым профилем, полями авто и загрузкой фото. Нажатие на фото водительских прав открывает системный Android Photo Picker.
+- `Безопасность` открывает экран с SOS, настройками скрытия телефона, проверенных участников, шарингом поездки, чёрным списком и жалобой. SOS из этого экрана открывает SOS-flow; на момент проверки Android-разрешение гео было `granted=true`, поэтому экран показал координаты.
+- `Поддержать Юлдаш` открывает экран доната с суммами 10/30/50/100 ₽, собственной суммой и кнопкой оплаты. Платёж на проде не создавался.
+- Переключение языка RU↔BA работает; после проверки язык возвращён на русский.
+
+Честные ограничения этого прогона:
+- Не нажимались реальные звонки 112/102/101/103.
+- Не создавались реальные prod-поездки, prod-заявки, prod-платежи и prod-жалобы, чтобы не загрязнять боевые данные.
+- Не подтверждён настоящий Telegram-клиент на эмуляторе: клиента Telegram нет, вход был проведён через серверную запись попытки.
+- Не подтверждены FCM push на физическом устройстве, реальная оплата ЮKassa/СБП и публикация в Google Play/RuStore.
+
+## ✅ Privacy-фикс публичной витрины поездок — 2026-06-30
+
+При дальнейшем аудите найден и закрыт реальный privacy-риск: публичные endpoints поездок могли отдать точное место встречи (`pickup`, `pickup_lat`, `pickup_lng`) до подтверждения брони.
+
+Что исправлено:
+- `backend/app/services.py`: добавлены `public_ride_payload()` и `public_rides_payload()` — единый фильтр публичной витрины.
+- `backend/app/routers/rides.py`: `/rides`, `/rides/near`, `/rides/{ride_id}` теперь принудительно обнуляют `pickup`, `pickup_lat`, `pickup_lng`.
+- `backend/tests/test_flows.py`: добавлен регрессионный тест `test_public_ride_outputs_hide_pickup_until_booking_confirmed`.
+
+Проверка:
+- Локально: `backend/.venv/Scripts/python.exe -m pytest` → **76 passed, 1 skipped, 1 warning**.
+- Локально: `python -m py_compile app/services.py app/routers/rides.py` → OK.
+- Прод-деплой: залиты только `/opt/yuldash/app/services.py` и `/opt/yuldash/app/routers/rides.py`.
+- Бэкап перед деплоем: `/opt/yuldash/backups/privacy-ride-public-20260630-235918/`.
+- Прод после рестарта: `systemctl is-active yuldash-api` → `active`; `/health` → `{"status":"ok","env":"prod","db":"ok"}`.
+- Прод privacy-smoke: `/rides/1`, `/rides?limit=5`, `/rides/near?limit=5` → утечек `pickup`, `pickup_lat`, `pickup_lng` не найдено.
+- Auth-smoke: `/bookings/1/details` без токена → `401`.
+
+## ✅ Privacy-фикс `/requests/near` — 2026-06-30
+
+При продолжении аудита найдено: `/requests/near` без токена отдавал активные заявки пассажиров с именем и комментарием. Телефон endpoint не отдавал, но для продукта «между своими» список пассажирских заявок должен быть доступен только вошедшим пользователям.
+
+Что исправлено:
+- `backend/app/routers/requests.py`: `current_user_optional` заменён на обязательный `current_user`.
+- `backend/tests/test_flows.py`: добавлен `test_requests_near_requires_auth`.
+
+Проверка:
+- Локально: `backend/.venv/Scripts/python.exe -m pytest` → **77 passed, 1 skipped, 1 warning**.
+- Локально: `python -m py_compile app/routers/requests.py` → OK.
+- Прод-деплой: залит только `/opt/yuldash/app/routers/requests.py`.
+- Бэкап перед деплоем: `/opt/yuldash/backups/privacy-requests-near-20260701-000234/`.
+- Прод после рестарта: `systemctl is-active yuldash-api` → `active`; `/health` → `{"status":"ok","env":"prod","db":"ok"}`.
+- Прод auth-smoke: `/requests/near` без токена → `401`; `/rides/1` → `200`; `/bookings/1/details` без токена → `401`.
+- Журнал после рестарта: workers поднялись, `Application startup complete`, критичных ошибок/traceback не видно.
+## ✅ Privacy-фикс документов водителя — 2026-07-01
+
+При продолжении аудита найден реальный IDOR-риск в водительских документах: `POST /driver/verify` принимал любые строки `license_url` и `car_photo_url`. Если чужой URL защищённого документа становился известен, пользователь мог записать его в свой профиль и затем пройти проверку доступа как “владелец”.
+
+Что исправлено:
+- `backend/app/routers/drivers.py`: новые загрузки `/upload/photo` получают имя с префиксом `user_id_...`, то есть файл привязан к загрузившему пользователю.
+- `backend/app/routers/drivers.py`: `/secure/docs/{name}` больше не проверяет владение через `safe in url`; теперь доступ разрешён только если имя файла принадлежит текущему пользователю по префиксу или уже точно записано в его профиле.
+- `backend/app/routers/drivers.py`: `/driver/verify` принимает только свои загруженные файлы и проверяет существование файла до записи в профиль.
+- `backend/tests/test_flows.py`: добавлен регресс `test_driver_verify_rejects_foreign_secure_docs`; существующий тест проверки водителя теперь идёт через реальную загрузку документов.
+
+Проверка:
+- Локально: `backend/.venv/Scripts/python.exe -m pytest tests/test_flows.py -q -k "driver_profile_verify_moderate or driver_verify_rejects_foreign_secure_docs or upload_photo"` → **3 passed, 53 deselected, 1 warning**.
+- Локально: `backend/.venv/Scripts/python.exe -m pytest tests -q` → **78 passed, 1 skipped, 1 warning**.
+- Локально: `backend/.venv/Scripts/python.exe -m py_compile app/routers/drivers.py app/routers/requests.py app/routers/rides.py app/services.py` → OK.
+- Локальный route-аудит на временной SQLite-БД: публичные `/health`, `/version`, `/boost/plans`, `/feed`, `/popular-routes`, `/reviews/public`, `/ads`, `/geocode`, `/rides/price_hint`, `/rides/{id}`, `/rides`, `/rides/near` не отдали чувствительные поля; защищённые GET без токена вернули `401`; админские GET/POST/DELETE обычному пользователю вернули `403`; админу открылись.
+- Прод-деплой: залит только `/opt/yuldash/app/routers/drivers.py`.
+- Бэкап перед деплоем: `/opt/yuldash/backups/privacy-driver-docs-20260701-001056/`.
+- Прод после рестарта: `systemctl is-active yuldash-api` → `active`; `https://yulbash.ru/health` → `{"status":"ok","env":"prod","db":"ok"}`.
+- Прод auth-smoke: `/telegram/webhook` без секрета → `403`; `/requests/near` без токена → `401`; `/bookings/1/details` без токена → `401`.
+- Прод privacy-smoke с временными пользователями и очисткой данных: владелец документа `/secure/docs/{name}` → `200`; чужой пользователь → `403`; чужой `/driver/verify` с украденными URL → `403`; владелец `/driver/verify` со своими URL → `200`.
+- Журнал после рестарта: сервис поднят, workers дошли до `Application startup complete`; критического падения после старта не видно. `Bad file descriptor` был только в фазе штатного shutdown при restart.
+
+## Переводы на проверку (лендинг, typewriter-фразы героя, 2026-07-01)
+Черновой башкирский (модель) — подтвердить как носитель:
+- hero_tw1: «Уфа → Сибай. И дальше.» → «Өфө → Сибай. Артабан да.»
+- hero_tw2: «Дорога теплее, когда вместе.» → «Юл бергә йылыраҡ.»
+- hero_tw3: «Свои за рулём — спокойнее.» → «Үҙебеҙҙекеләр рулдә — тынысыраҡ.»
+
+## Переводы на проверку (лендинг Phase 2, 2026-07-01)
+- cmp_price_title: «Сколько стоит доехать» → «Барып етеү күпме тора»
+- cmp_price_sub: «Ориентир: Уфа → Сибай, ~370 км. Цены примерные, для наглядности.» → «Сама: Өфө → Сибай, ~370 км. Хаҡтар яҡынса, күрһәтмә өсөн.»
+- cov_pop: «Популярные направления» → «Популяр йүнәлештәр»
+
+## Перевод на проверку (2026-07-01)
+- save_pricier: «дороже» → «ҡиммәтерәк»
+
+## Аудит башкирского лендинга (2026-07-01) — носитель: подтверди/поправь
+
+### Исправил сам (объективные ошибки)
+- **safety-content.ts** «һорал**a**» → «һорал**а**» — последняя буква была ЛАТИНСКАЯ `a` (скан всего сайта: это была единственная такая опечатка).
+- **lang.tsx save_*** «янау» → «экономия» (3 места: save_title «Күпме экономиялайһың», save_sub «…экономияңды баһала», save_save «Юлдаш менән экономия»). Причина: словари (веб) дают «янау» = «угрожать/гореть», не «экономить» — на заметном заголовке секции читалось неверно. Взял безопасное заимствование «экономия» (как уже «комиссия/сервис/такси»). Хочешь живее по-башкирски — скажи слово, поменяю.
+
+### На твоё решение (носитель) — НЕ трогал
+- **lang.tsx nf_home/nf_sub**: «Баш **битькә**» — аудитор: лишний ь, по правилам напр. падеж «бит»→«**биткә**». Низкая видимость (страница 404). Подтверди.
+- **lang.tsx save_yuldash**: «Юлдаш · **юлдаш**» — «попутка» переведена тем же словом «юлдаш» (тавтология). Вариант: «Юлдаш · уртаҡ юл» / «юлдаш машинаһы».
+- **lang.tsx cov_title**: «**Ҡаплау** — бөтә республика» — «ҡаплау»=накрывать, для охвата калька. Вариант: «Бөтә республикала» / «иңләү».
+- **lang.tsx trust_3_d / safety SOS**: «тап» (касание) → «тейеү». Можно единообразно «баҫыу» (нажатие). Стилистика.
+- **lang.tsx how_tab_pass** «юлсы» vs founder/hero «юлдаш» для «пассажир» — закрепить одно слово.
+- **founder-content** closing «Һына» (попробуй) — двусмысленно; вариант «Һынап ҡара».
+- «Водитель» везде русским словом (осознанное заимствование) — ок, если так задумано.
+
+## ✅ Тестовый прогон и coverage — 2026-07-01
+
+Факты:
+- Backend: `backend/.venv/Scripts/python.exe -m coverage run --source=app -m pytest tests -q` → `78 passed, 1 skipped`; `coverage report -m` → **71%** по `backend/app` (`3280` statements, `946` missed).
+- Android unit: `gradlew :app:testDebugUnitTest` → **5 tests, 0 failed, 0 skipped**.
+- Android instrumented: `gradlew :app:connectedDebugAndroidTest` → **5 tests, 0 failed, 1 skipped**. Skipped — `BilingualComposeTest`, причина уже в коде: API 37 / Espresso 3.6.1 compatibility.
+- Android coverage включён для debug (`enableUnitTestCoverage`, `enableAndroidTestCoverage`) и отчёты сгенерированы:
+  - unit coverage: **7 / 11793 lines = 0.06%**;
+  - androidTest coverage: **421 / 11793 lines = 3.57%**;
+  - объединение unit + androidTest по строкам JaCoCo: **424 / 11793 lines = 3.60%**.
+- Web: `npm run lint` → OK; `npm run build` → OK; `npm audit` и `npm audit --omit=dev` → **0 vulnerabilities**.
+- Android release: `gradlew :app:assembleRelease` → OK.
+- Эмулятор `emulator-5554`: установлен и запущен свежий debug APK `com.yuldash.app`, `versionName=0.1.0`, `lastUpdateTime=2026-07-01 03:19:40`; `pidof` вернул живой процесс; logcat по `FATAL EXCEPTION|E/AndroidRuntime|ANR in|Application Not Responding|Fatal signal` после запуска пустой.
+
+Честный статус покрытия:
+- Точно подтверждённый backend coverage: **71%**.
+- Точно подтверждённый Android automated line coverage: **3.60%**.
+- Точный общий процент “всего кода” пока нельзя подтвердить как одну корректную метрику: backend считает Python statements, Android считает JaCoCo lines, web TypeScript coverage не настроен.
+
+Следующие технические долги:
+- Добавить web unit/component tests с coverage.
+- Расширить Android UI-тесты ключевых сценариев и снять/заменить skipped `BilingualComposeTest`.
+- Поднять Android automated coverage хотя бы на бизнес-логику ViewModel/API parsing перед релизным freeze.
+
+## ✅ Продолжение тестирования Android-логики — 2026-07-01
+
+Что добавлено:
+- `android/app/src/test/java/com/yuldash/app/YuldashViewModelTest.kt`: JVM-тесты survival-состояния (`screen`, `language`, `startHomeTab`) и начальных коллекций VM.
+- `android/app/src/test/java/com/yuldash/app/CoreLogicTest.kt`: регрессии для `formatDepart`, `fmtKm`, `apiCategoryToUiFor`, `mapFeedFrom`, фильтров `PartnerAd`.
+
+Что исправлено по найденным тестами фактам:
+- `fmtKm(9.95)` больше не показывает `10.0`; теперь на границе возвращает `10`.
+- `mapFeedFrom` форматирует донаты через `Locale.US` + замену `,` на пробел, чтобы строка `12 500 ₽` не зависела от системной locale.
+
+Проверка:
+- Android unit: `gradlew :app:testDebugUnitTest` → **15 tests, 0 failed, 0 skipped**.
+- Android unit coverage: **546 / 11794 lines = 4.63%**.
+- Android unit + androidTest line union: последний пересчитанный факт **510 / 11823 lines = 4.31%**; после новых unit-тестов instrumented union ещё не пересчитан.
+- Android debug: `gradlew :app:assembleDebug` → OK.
+- Android release: `gradlew :app:assembleRelease` → OK.
+- Backend: `pytest tests -q` → **78 passed, 1 skipped, 1 warning**.
+
+## ✅ Продолжение Android unit-тестов — 2026-07-01
+
+- Добавлены проверки `RideDto.toUiRide()`, fallback-ленты `mapFeedFrom(emptyList())`, маршрутизации `PartnerAd.matchesRoute()`, transient-состояния `YuldashViewModel`, пользовательских локальных заявок/голосовых сообщений и nav-history.
+- Проверка: `android/gradlew.bat :app:testDebugUnitTest --no-daemon` → **21 tests, 0 failures** (`CoreLogicTest` 13, `YuldashViewModelTest` 8).
+- Coverage: `:app:createDebugUnitTestCoverageReport` → **4.63% line coverage** (`546 / 11794`), instruction coverage **1.73%** (`3107 / 179873`).
+- Сборка: `:app:assembleDebug` → **BUILD SUCCESSFUL**.
+- Web: `npm run lint` → OK; `npm run build` → OK; `npm audit` → 0 vulnerabilities.
+- Эмулятор: свежий debug APK установлен (`lastUpdateTime=2026-07-01 06:09:42`), процесс живой, критичных `FATAL/ANR` в logcat после запуска нет.
+## ✅ Продолжение backend-аудита и покрытия — 2026-07-01
+
+Факты по последнему прогону:
+- Удалён неактивный `backend/app/routers/content.py`: по `rg` нет импортов/`include_router`, в `backend/app/routers/__init__.py` он не входит в `all_routers`; реальные `/popular-routes`, `/feed`, `/geocode`, `/voice` живут в `discovery.py`.
+- Добавлены backend-тесты:
+  - `backend/tests/test_payments_edges.py` — границы донатов, SBP reject, admin confirm, ad activation, webhook no-op.
+  - `backend/tests/test_payment_provider.py` — mock/YooKassa adapter без реальной сети.
+  - `backend/tests/test_requests_edges.py` — заявки пассажира, отклики, принятие водителя, блокировки, приватность `/requests/near`.
+  - `backend/tests/test_safety_edges.py` — SOS, callback, reports, blocks, reportable-users.
+  - `backend/tests/test_driver_check.py` — автопроверка водительских документов без реального OCR.
+  - `backend/tests/test_location_edges.py` — edge-сценарии map/live-location WebSocket.
+- 2-й проход покрытия добавил:
+  - `backend/tests/test_rides_edges.py` — recurrence, cache+block filter, price_hint empty, фильтры поездок.
+  - `backend/tests/test_chat_edges.py` — REST chat edge-сценарии, voice fallback, notifications.
+  - `backend/tests/test_services_edges.py` — upload quota, blocks helpers, driver bundle, Firebase push mock.
+  - `backend/tests/test_ads_edges.py` — paid ad payment, admin update/status/delete, missing ad event.
+  - `backend/tests/test_auth_edges.py` — OTP/TG edge-сценарии, admin promotion, push token reassignment, profile update.
+- Проверка: `backend/.venv/Scripts/python.exe -m pytest tests -q` → **148 passed, 1 skipped, 1 warning**.
+- Backend coverage: `coverage run --source=app -m pytest tests -q` + `coverage report -m` → **91%** по `backend/app` (`3186` statements, `300` missed).
+
+Следующий подтверждённый долг:
+- `app/services.py` — 53%, много внешних интеграций/инфраструктуры: SMS, FCM, Telegram, Redis/WebSocket manager.
+- `app/routers/discovery.py` — 62%, контент/геокод/voice/feed.
+- Основной оставшийся backend-долг: `app/services.py` (78%, внешние интеграции/SMS/Redis), `app/db.py` и `app/middleware.py` (инфраструктура), WebSocket-ветка `chat.py`.
+
+## ✅ Android: кнопка «Мои поездки» доведена end-to-end — 2026-07-01
+
+Что сделано:
+- `PassengerCabinetScreen`: добавлен явный вход «Мои поездки»; ближайшая бронь больше не ведёт в «найти похожую», а открывает реальную бронь/активную поездку.
+- `PassengerCabinetScreen`: добавлены loading/error/retry-состояния для `/bookings/mine`.
+- `RidesScreen`: `pending` открывает `BookingScreen` с `bookingId`; `confirmed/onboard` открывают `ActiveTripScreen`; история оставлена как повтор маршрута.
+- `YuldashApp/HomeScreen`: разведены callbacks `onOpenBookingDetails` и `onOpenActiveTrip`, чтобы не путать детали брони и активную поездку.
+
+Проверка:
+- Android debug: `gradlew :app:assembleDebug --no-daemon` → OK.
+- Android unit: `gradlew :app:testDebugUnitTest --no-daemon` → `BUILD SUCCESSFUL`, `21 tests, 0 failures`.
+- Эмулятор: `adb install -r android/app/build/outputs/apk/debug/app-debug.apk` → `Success`; `monkey -p com.yuldash.app ...` запустил `com.yuldash.app/.MainActivity`.
+- UI-dump эмулятора показал `LoginScreen` с кнопкой «Войти через Telegram». Полный ручной проход до кабинета пассажира на этом эмуляторе не подтверждён: нет авторизованной Telegram-сессии/кода, токен вручную не подделывался.
+
+## ✅ Детали поездки: мок-карта заменена на реальную — 2026-07-01
+
+Что исправлено:
+- `BookingScreen`: убран моковый `MapPreview(... cityDistanceText(...))` из блока деталей поездки.
+- Новый `BookingRouteMapPreview`: показывает настоящий Yandex `MapView`, линию маршрута и метки `from/to` по координатам с сервера.
+- Если координат нет, показывается честная карточка «Карта маршрута загружается», без фейковых километров и рисованной карты.
+- `/bookings/{id}/details`: добавлены `from_lat/from_lng/to_lat/to_lng`. `pickup_lat/pickup_lng` остаются закрытыми до подтверждения, как и раньше.
+- Для старых поездок без координат добавлен lazy-backfill: `/bookings/{id}/details` сам геокодит `from/to`, сохраняет координаты и возвращает их сразу, поэтому экран не зависает на честной заглушке.
+
+Проверка:
+- Android: `gradlew :app:assembleDebug --no-daemon` → OK.
+- Android unit: `gradlew :app:testDebugUnitTest --no-daemon` → OK.
+- Backend focused: `pytest tests/test_flows.py -q -k "booking_details"` → `3 passed, 54 deselected`.
+- Backend full: `pytest tests -q` → `149 passed, 1 skipped, 1 warning`.
+- Эмулятор: свежий `app-debug.apk` установлен (`adb install -r` → `Success`), `com.yuldash.app/.MainActivity` запущен, критичных `FATAL/ANR` в logcat нет.
+- Прод: залит `/opt/yuldash/app/routers/bookings.py`, бэкапы `/opt/yuldash/backups/bookings-mapfix-20260701/bookings.py.bak` и `/opt/yuldash/backups/bookings-lazygeo-20260701/bookings.py.bak`, `systemctl is-active yuldash-api` → `active`, `/health` → `{"status":"ok","env":"prod","db":"ok"}`.
+
+Переводы на проверку:
+- «Точная точка встречи откроется после подтверждения» → «Теүәл осрашыу урыны раҫланғандан һуң асыла».
+- «Карта маршрута загружается» → «Маршрут картаһы йөкләнә».
+- «Покажем реальный маршрут, когда сервер вернёт координаты.» → «Сервер координаталарҙы биргәс, ысын маршрутты күрһәтербеҙ.»
+
+## ✅ Эмулятор: кнопка «Подробнее» в деталях поездки — 2026-07-01
+
+Проверено end-to-end на `emulator-5554`:
+- Добавлен тестовый инструментальный helper `SeedAuthInstrumentedTest`, который кладёт валидный JWT в штатное `EncryptedSharedPreferences` приложения через `commit()`; обычный APK не меняется, helper живёт только в `androidTest`.
+- Prod-тестовые данные: пассажир `Codex Passenger`, бронь `booking_id=14`, поездка `ride_id=12`, маршрут `Темясово → Уфа`, статус `pending`.
+- Серверный `/bookings/14/details` с токеном вернул реальные координаты маршрута: `from_lat=52.972`, `from_lng=58.16`, `to_lat=54.735`, `to_lng=55.958`; БД после открытия экрана содержит те же координаты.
+- UI-путь пройден руками через `adb`: запуск приложения → вкладка `Поездки` → карточка активной брони → кнопка `Подробнее`.
+- UI-dump после нажатия подтвердил экран `Детали поездки`, маршрут `Темясово → Уфа`, водителя `Айгуль`, авто `Kia Rio`, `SurfaceView` реальной карты и подписи `Темясово`/`Уфа`.
+- Текст заглушки `Карта маршрута загружается` после исправленной серверной записи отсутствует.
+- Скриншот проверки: `C:\Users\Bayra\AppData\Local\Temp\yuldash-trip-details-button-test.png`.
+- Logcat после прохода: критичных `FATAL EXCEPTION` / `ANR` по приложению не найдено.
+
+## ✅ Эмулятор: кнопка «Написать» и первый чат по поездке — 2026-07-01
+
+Найдено и исправлено:
+- До фикса кнопка `Написать` из деталей поездки открывала вкладку `Чат`, но активная бронь без сообщений не попадала в `/conversations`; пользователь видел пустое состояние и не мог начать первый диалог.
+- Backend `backend/app/routers/chat.py`: `/conversations` теперь возвращает активные брони (`pending`, `confirmed`, `onboard`) даже без сообщений, с честным последним текстом `Чат открыт`; завершённые/отменённые брони без истории не показываются.
+- Добавлен regression-тест в `backend/tests/test_chat_edges.py`: активная бронь до первого сообщения должна быть видна в инбоксе.
+
+Проверка:
+- Backend focused: `backend/.venv/Scripts/python.exe -m pytest tests/test_chat_edges.py -q` → `4 passed`.
+- Backend full: `backend/.venv/Scripts/python.exe -m pytest -q` → `149 passed, 1 skipped, 1 warning`.
+- Прод: залит `/opt/yuldash/app/routers/chat.py`, `systemctl restart yuldash-api`, `/health` → `{"status":"ok","env":"prod","db":"ok"}`.
+- Prod API с токеном пользователя `28`: `/conversations` → `booking_id=14`, `peer_name=Айгуль`, `route=Темясово → Уфа`, `last_message=Чат открыт`.
+- Эмулятор: `SeedAuthInstrumentedTest` заново записал свежий JWT пользователя `28` в `EncryptedSharedPreferences` → `OK (1 test)`.
+- UI-путь: запуск приложения → вкладка `Чат` → карточка `Айгуль / Темясово → Уфа / Чат открыт` появилась; тап по карточке открыл `Моя поездка` с кодом посадки и блоком `Чат по поездке`.
+- UI-отправка первого сообщения: введено `Codex_test_message`, кнопка `Отправить` сработала; prod `/bookings/14/messages` вернул сообщение `id=8`, `sender_id=28`, `text=Codex_test_message`.
+- Повторная вкладка `Чат`: карточка диалога показывает последний текст `Codex_test_message`.
+- Скриншот результата: `C:\Users\Bayra\AppData\Local\Temp\yuldash-chat-e2e-fixed.png`.
+- Logcat: критичных `FATAL EXCEPTION` / `ANR` по приложению не найдено; серверные логи после деплоя без traceback/critical.
+- Android build: `android/gradlew.bat :app:assembleDebug --no-daemon` → `BUILD SUCCESSFUL`.
+
+## ✅ Финальный контроль после прохода по вкладкам — 2026-07-01
+
+Итог текущего круга:
+- Проверен сквозной путь по ключевым вкладкам: `Карта` → поиск/поездки, `Поездки` → активная бронь → `Детали поездки`, `Заявка` → форма пассажирской заявки, `Чат` → первый диалог по активной брони, `Профиль/кабинеты` → вход в «Мои поездки».
+- Подтверждено, что важные действия не являются муляжами: детали брони идут через `/bookings/{id}/details`, чат через `/conversations` и `/bookings/{id}/messages`, мои поездки через `/bookings/mine`, заявки/поездки завязаны на реальные серверные endpoints.
+- Найденные в процессе реальные дефекты уже закрыты: мок-карта в деталях заменена на Yandex `MapView`; старые поездки без координат получают lazy-backfill; активная бронь без сообщений теперь появляется в чате, чтобы можно было начать первый диалог.
+- Данные по приватности приведены к правильной логике: точное место встречи и чувствительные данные открываются только после подтверждения; публичные выдачи не должны отдавать лишнее.
+
+Проверка:
+- Backend full: `backend/.venv\Scripts\python.exe -m pytest tests -q` → **149 passed, 1 skipped, 1 warning**.
+- Android: `:app:testDebugUnitTest :app:assembleDebug --no-daemon --console=plain` → **BUILD SUCCESSFUL**.
+- Эмуляторные проверки из предыдущих пунктов подтвердили: детали поездки с реальной картой, старт чата из активной брони, отправку первого сообщения и отсутствие критичных `FATAL EXCEPTION` / `ANR`.
+
+Оставшиеся честные ограничения:
+- Live-трекинг и FCM-пуши нужно финально проверить на двух физических телефонах: эмулятор не доказывает доставку пушей и движение второго участника в реальной поездке.
+- Внешние платежи остаются бизнес-ограничением: СБП/Boost сейчас ручной сценарий, ЮKassa полноценно включается после публикации/юридических шагов.
+- Башкирские строки, помеченные в разделах «Переводы на проверку», остаются черновыми до подтверждения носителем.
+## ✅ Продолжение проверки Android: вкладки «Чат», «Поездки», «Заявка», «Профиль» — 2026-07-01
+
+Найдено и исправлено:
+- `YuldashViewModel.trustedContacts` больше не стартует с `demoTrustedContacts`. Реальные доверенные контакты приходят только из сервера; если `/trusted-contacts` пустой, в поездке показывается пустое состояние, а не моковые `Айгуль`/`Рамиль`.
+- В карточках брони на вкладке `Поездки` и в пассажирском кабинете дата `depart_at` теперь форматируется через `formatDepart(...)`. Сырая строка вида `2026-07-03T12:44:19.838345` больше не выходит в UI.
+- `CoreLogicTest` расширен проверкой ISO-даты с дробными секундами: `2026-07-03T12:44:19.838345` → `03.07, 12:44`.
+- `YuldashViewModelTest` закрепляет правило: доверенные контакты в живом ViewModel по умолчанию пустые, пока сервер не вернул данные.
+
+Проверка:
+- Android: `gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --console=plain` → `BUILD SUCCESSFUL`.
+- Unit XML: `CoreLogicTest` — `13 tests, 0 failures`; `YuldashViewModelTest` — `8 tests, 0 failures`.
+- Эмулятор `emulator-5554`: свежий `app-debug.apk` установлен через `adb install -r` → `Success`.
+- Эмулятор: `Чат` → активный диалог `Айгуль / Темясово → Уфа / Codex_test_message` открывает `Моя поездка`.
+- Эмулятор: `Моя поездка` → `Поделиться поездкой с близким` при пустом серверном списке контактов показывает `Сначала добавьте доверенный контакт в профиле`; строк `Дочь`, `Сосед`, `Рамиль` в bottom sheet нет.
+- Эмулятор: `Поездки` → активная бронь показывает дату `03.07, 12:44`, статус `Ожидает`, кнопки `Подробнее` и `Написать`; сырой ISO-текст отсутствует.
+- Эмулятор: `Поездки` → `Подробнее` открывает `Детали поездки` с реальной `SurfaceView` карты, маршрутом `Темясово → Уфа`, водителем `Айгуль`, авто `Kia Rio`, скрытым местом встречи и форматированной датой.
+- Эмулятор: `Заявка` показывает честное пустое состояние и кнопка `Создать новую` открывает форму `Создать заявку`; тестовую заявку не публиковал, чтобы не засорять prod-данные.
+- Эмулятор: `Профиль` открылся как `Codex Passenger`, телефон скрыт до подтверждения поездки; при прокрутке моковые доверенные контакты не появились.
+- Logcat после проверок: критичных `FATAL EXCEPTION` / `ANR` по приложению не найдено.
+
+Ограничение:
+- FCM и live-трекинг второго участника по-прежнему требуют проверки на двух физических устройствах; один эмулятор не подтверждает доставку пушей и реальное движение второго участника.
+
+## ✅ Продолжение проверки Android: кабинет водителя и форма поездки — 2026-07-01
+
+Найдено и исправлено:
+- До фикса путь `Кабинет водителя → Создать поездку → Назад/Отмена` возвращал пользователя во вкладку `Заявка / Мои заявки`, потому что `Screen.CreateRide` всегда делал `openHome(HomeTab.Request)`.
+- В `YuldashApp.kt` добавлен источник возврата для формы поездки: `openCreateRide(returnScreen, returnHomeTab)` и `closeCreateRide()`. Если форма открыта из `DriverCabinet`, возврат и успешная публикация ведут обратно в `DriverCabinet`; если форма открыта с главной карты, прежний возврат во вкладку `Заявка` сохранён.
+
+Проверка:
+- Android: `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --no-daemon --console=plain` → Gradle завершился с кодом `0`.
+- Unit XML: `CoreLogicTest` — `13 tests, 0 failures, 0 errors`; `YuldashViewModelTest` — `8 tests, 0 failures, 0 errors`.
+- Новый APK `android/app/build/outputs/apk/debug/app-debug.apk` установлен в `emulator-5554` через `adb install -r` → `Success`.
+- Эмулятор: `Карта → Я водитель → Создать поездку → Назад` по-прежнему возвращает в обычный пользовательский поток.
+- Эмулятор: `Профиль → Кабинет водителя → Создать поездку → Назад` теперь возвращает в `Кабинет водителя`; UI-dump показывает `Маршруты и проверка`, `Ваших маршрутов пока нет`, `Заявки пассажиров`, `Создать поездку`, `Проверка водителя`, а не `Мои заявки`.
+- Эмулятор: `Заявки пассажиров` открывает пустое серверное состояние `Заявок пока нет`; `Проверка водителя` открывает форму с полями авто, карточками фото и отключённой кнопкой `Отправить на проверку` без документов.
+- Logcat после прогона: критических `FATAL EXCEPTION` / `ANR in` не найдено.
+
+Честное ограничение:
+- После ранее отклонённого разрешения геолокации MapKit пишет внутренний `SecurityException` при попытке получить системную геопозицию. В коде Юлдаша явного включения `UserLocationLayer` не найдено; приложение не падает, собственные GPS-запросы защищены проверкой `ACCESS_FINE_LOCATION`. Это не закрываю как исправленный дефект без подтверждённого API MapKit, чтобы не гадать и не сломать карту.
+
+## ✅ Продолжение проверки Android: безопасность и доверенные контакты — 2026-07-01
+
+Найдено и исправлено:
+- До фикса путь `Безопасность → Поделиться поездкой с близким → Доверенные контакты → Назад` возвращал пользователя в `Простой режим` / `Повторить поездку`, потому что `Screen.TrustedContacts` всегда делал `onBack = { screen = Screen.SimpleMode }`.
+- В `YuldashApp.kt` добавлен источник возврата для доверенных контактов: `openTrustedContacts(returnScreen, returnHomeTab)` и `closeTrustedContacts()`. Из `Safety` возврат теперь ведёт в `Safety`, из `SimpleMode` — в `SimpleMode`, из профиля — обратно на вкладку `Профиль`.
+- В `SecondaryScreens.kt` экран `SafetyScreen` получил явную верхнюю панель `ScreenTopBar` с кнопкой `Назад`; раньше параметр `onBack` передавался, но не использовался.
+
+Проверка:
+- Android: `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --no-daemon --console=plain` → `BUILD SUCCESSFUL`.
+- Unit XML: `CoreLogicTest` — `13 tests, 0 failures, 0 errors`; `YuldashViewModelTest` — `8 tests, 0 failures, 0 errors`.
+- Новый APK установлен в `emulator-5554` через `adb install -r` → `Success`.
+- Эмулятор: `Профиль → Безопасность` открывает экран с верхней кнопкой `Назад`, SOS, переключателями приватности, `Поделиться поездкой с близким`, `Чёрный список`.
+- Эмулятор: `Безопасность → Поделиться поездкой с близким → Доверенные контакты → Назад` теперь возвращает в `Безопасность`; UI-dump подтверждает заголовок `Безопасность` и пункты `Поделиться поездкой с близким`, `Чёрный список`.
+- Свежий `logcat` после финального сценария: `created ANR`, `Application Not Responding`, `FATAL EXCEPTION` не найдены.
+
+Честное ограничение:
+- Реально добавлять доверенный контакт не стал, потому что это меняет данные прод-пользователя. Проверены пустое состояние и кнопка `Добавить контакт`.
+- При холодном возврате на вкладку карты после kill процесса один раз появился системный ANR-диалог. В `logcat` есть `HWUI Davey! duration=14168ms`; после закрытия старого диалога новый запуск карты дал тяжёлый кадр `Davey! duration=8226ms`, но без нового `created ANR`. По логам рядом создаётся `SurfaceView` Яндекс.Карт. Это отдельный perf-риск холодной инициализации карты, нужен отдельный проход.
+
+## ✅ Продолжение проверки Android: холодный запуск карты и кнопка «Подробнее» — 2026-07-01
+
+Найдено и исправлено:
+- До фикса свежий холодный запуск главной карты на эмуляторе давал тяжёлые кадры рядом с созданием `SurfaceView` Яндекс.Карт: `Skipped 259 frames`, `Davey! duration=4667ms` и `Davey! duration=4701ms`. ANR в этом проходе не повторился, но лаг был подтверждён `logcat`.
+- В `MapScreen.kt` создание тяжёлого `YandexMapCard` отложено до первого кадра интерфейса и короткой паузы. Первый экран теперь успевает отрисовать лёгкое превью, затем поднимается настоящий `MapView`.
+
+Проверка:
+- Android: `.\gradlew.bat :app:clean :app:testDebugUnitTest :app:assembleDebug --no-daemon --console=plain` → `BUILD SUCCESSFUL`.
+- Unit XML: `CoreLogicTest` — `13 tests, 0 failures, 0 errors`; `YuldashViewModelTest` — `8 tests, 0 failures, 0 errors`.
+- Новый APK установлен в `emulator-5554` через `adb install -r` → `Success`.
+- Повторный холодный запуск после фикса: `created ANR`, `Application Not Responding`, `FATAL EXCEPTION` не найдены. Максимальные тяжёлые кадры в сохранённом фрагменте лога снизились до `Davey! duration=2501ms`; создание `SurfaceView` прошло без новых 4-5 секундных кадров.
+- Скриншот главной карты после фикса: `C:\Users\Bayra\AppData\Local\Temp\yuldash_lazy_map.png`.
+- Проверены базовые касания карты/навигации: переход на вкладку `Поездки` сработал, критичных ошибок в `logcat` нет.
+- Проверена кнопка `Мои поездки → Подробнее`: открывает `Детали поездки` с реальной картой маршрута `Темясово → Уфа`, водителем `Айгуль`, авто `Kia Rio`, скрытым местом встречи и форматированной датой `03.07, 12:44`.
+- Скриншот деталей после фикса: `C:\Users\Bayra\AppData\Local\Temp\yuldash_my_trips_details_after_map_fix.png`.
+- Проверен возврат `Детали поездки → Назад`: возвращает во вкладку `Мои поездки`, активная бронь остаётся на месте; критичных `ANR` / `FATAL EXCEPTION` не найдено.
+- Скриншот возврата: `C:\Users\Bayra\AppData\Local\Temp\yuldash_details_back_to_trips.png`.
+
+Честное ограничение:
+- Оставшиеся `Davey` около 0.7-2.5 секунды относятся к холодному старту Compose/приложения на debug-сборке и эмуляторе. По текущему `logcat` я не могу подтвердить, что это всё ещё именно MapKit: `SurfaceView` создаётся позже, без повторения прежних 4-5 секундных кадров.
+
+## ✅ Продолжение проверки Android: pending-бронь не открывает активную поездку — 2026-07-02
+
+Найдено и исправлено:
+- До фикса бронь со статусом `pending` / UI `Ожидает` могла попасть в `Моя поездка` через `Детали поездки → Открыть`. Это показывало код посадки и кнопки статуса до подтверждения водителем, хотя на том же экране телефон и точная точка встречи были честно закрыты.
+- В `YuldashApp.kt` добавлены правила `bookingStatusAllowsActiveTrip(...)` и `bookingStatusAllowsBoarding(...)`.
+- `RidesScreen` теперь передаёт статус брони в навигацию, а `BookingScreen` блокирует основную кнопку для `pending`: вместо `Открыть` показывает отключённую кнопку `Ждём водителя`.
+- `ActiveTripScreen` дополнительно защищён изнутри: код посадки, кнопки статуса, sharing и отмена показываются только для подходящих live-статусов; оценка водителя показывается только при `done`.
+- `CoreLogicTest` закрепил правила статусов: `pending/cancelled/""` не открывают active trip; boarding доступен только для `confirmed/onboard`.
+
+Проверка:
+- Android: `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --no-daemon --console=plain` → `BUILD SUCCESSFUL`.
+- Новый APK установлен в `emulator-5554` через `adb install -r` → `Success`.
+- Эмулятор: `Мои поездки` показывает серверную бронь `Темясово → Уфа`, статус `Ожидает`, кнопки `Подробнее` и `Написать`.
+- Эмулятор: `Подробнее` открывает `Детали поездки`; место встречи и телефон закрыты до подтверждения водителем, карта маршрута рендерится через `SurfaceView`.
+- Эмулятор: после прокрутки кнопка справа стала `Ждём водителя` и в `uiautomator` имеет `enabled=false`.
+- Контрольный тап по отключённой кнопке не открыл `Моя поездка`: строки `Моя поездка`, `Код посадки`, `Статус поездки` в UI-dump не появились.
+- Свежий `logcat` после сценария: `FATAL EXCEPTION`, `ANR in com.yuldash.app`, `Application Not Responding` не найдены.
+- Скриншот проверки кнопки: `C:\Users\Bayra\AppData\Local\Temp\yuldash_after_fix_details_button.png`.
+
+Переводы на проверку:
+- `Ждём водителя` → `Водителде көтәбеҙ` (черновик модели, нужна проверка Александра как носителя).
+
+## ✅ Продолжение проверки Android: чат pending-брони без ложного «Голосовое» — 2026-07-02
+
+Найдено и исправлено:
+- После перехода `Детали поездки → Написать` список диалогов показывал правильный preview `Codex_test_message`, но внутри диалога сообщение отображалось как `Голосовое`.
+- Проверка продовой БД через `/opt/yuldash` подтвердила факт: у пользователя `Codex Passenger` (`user_id=28`) бронь `14` имеет только сообщение `(id=8, text='Codex_test_message', voice_url=None)`.
+- Причина была в Android-парсере: `JSONObject.optString("voice_url")` для JSON `null` превращал значение в строку `"null"`, а UI считал это непустым `voiceUrl`.
+- `ApiClient.getMessages()` теперь парсит сообщения через `parseMessageDto(...)` и `normalizeOptionalJsonString(...)`: JSON `null`, отсутствующее поле и пустая строка становятся Kotlin `null`, настоящий URL сохраняется.
+- `CoreLogicTest` добавил регрессию `normalizeOptionalJsonString_treatsJsonNullVoiceUrlAsNoVoiceMessage`.
+
+Проверка:
+- Android: `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:installDebug --no-daemon --console=plain` → `BUILD SUCCESSFUL`.
+- Эмулятор: тестовый вход восстановлен через серверный `make_token(28)` и `SeedAuthInstrumentedTest`; токен в документы/вывод не сохранялся.
+- Эмулятор: `Чат → Айгуль / Темясово → Уфа` теперь показывает внутри диалога `Codex_test_message`.
+- Контрольный `uiautomator` после фикса: `has_codex_message=True`, `has_voice_label=False`, `has_boarding_code=False`, `has_trip_status=False`, `has_cancel=False`.
+- Logcat после сценария: `FATAL EXCEPTION` и `ANR` по `com.yuldash.app` не найдены; видимые системные строки относились к `uiautomator`/эмулятору.

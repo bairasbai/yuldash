@@ -39,8 +39,8 @@ export function Testimonials() {
 
   useEffect(() => {
     if (!TESTIMONIALS_API) {
-      setItems(fromConfig(LIVE_TESTIMONIALS, lang));
-      return;
+      const timer = window.setTimeout(() => setItems(fromConfig(LIVE_TESTIMONIALS, lang)), 0);
+      return () => window.clearTimeout(timer);
     }
     let alive = true;
     fetch(TESTIMONIALS_API, { cache: "no-store" })

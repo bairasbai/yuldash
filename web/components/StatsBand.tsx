@@ -21,9 +21,10 @@ function AnimatedValue({ raw }: { raw: string }) {
 
   useEffect(() => {
     if (target === null) return;
-    if (!inView || reduce) {
-      setVal(target);
-      return;
+    if (!inView) return;
+    if (reduce) {
+      const raf = requestAnimationFrame(() => setVal(target));
+      return () => cancelAnimationFrame(raf);
     }
     let raf = 0;
     let start = 0;

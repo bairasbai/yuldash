@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { motion } from "framer-motion";
 
 // ===== Цветок курая — символ Башкортостана (с герба/флага) =====
@@ -93,31 +94,58 @@ export function OrnamentKicker() {
   );
 }
 
-// ===== Орнаментальный бордюр (кускар: ромбы + S-завитки) =====
+// ===== Орнаментальный разделитель секций (кускар, расходящийся от курая) =====
+// Узор «вытекает» из центрального цветка курая в обе стороны и гаснет к краям;
+// под ним — тонкий золотой шов-градиент и мягкое свечение. Читается как
+// дорогой декоративный переход между секциями, а не «одинокая полоска».
 export function OrnamentBand({ className = "" }: { className?: string }) {
+  const pid = useId().replace(/[:]/g, "");
   return (
-    <div className={`relative mx-auto my-2 max-w-6xl px-6 ${className}`} aria-hidden="true">
-      <motion.svg
-        viewBox="0 0 800 40"
-        preserveAspectRatio="xMidYMid meet"
-        className="mx-auto h-7 w-full max-w-2xl text-gold-light/30"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 1 }}
-      >
-        <defs>
-          <pattern id="kuskar" x="0" y="0" width="80" height="40" patternUnits="userSpaceOnUse">
-            <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M40 8 L52 20 L40 32 L28 20 Z" />
-              <path d="M28 20 C 16 20 14 10 4 12 C 0 13 1 18 6 17" />
-              <path d="M52 20 C 64 20 66 30 76 28 C 80 27 79 22 74 23" />
-              <circle cx="40" cy="20" r="2.4" fill="currentColor" stroke="none" />
-            </g>
-          </pattern>
-        </defs>
-        <rect width="800" height="40" fill="url(#kuskar)" />
-      </motion.svg>
+    <div className={`relative mx-auto my-12 max-w-4xl px-6 ${className}`} aria-hidden="true">
+      {/* тонкий шов, гаснущий к краям — сшивает соседние секции */}
+      <div className="absolute inset-x-6 top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-transparent via-gold-light/20 to-transparent" />
+      {/* мягкое золотое свечение по центру */}
+      <div className="pointer-events-none absolute left-1/2 top-1/2 h-20 w-80 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gold/10 blur-3xl" />
+
+      <div className="relative flex items-center justify-center">
+        <motion.svg
+          viewBox="0 0 800 40"
+          preserveAspectRatio="xMidYMid meet"
+          className="h-8 w-full max-w-2xl text-gold-light/35 [mask-image:linear-gradient(to_right,transparent_0%,#000_15%,#000_43%,transparent_47%,transparent_53%,#000_57%,#000_85%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,transparent_0%,#000_15%,#000_43%,transparent_47%,transparent_53%,#000_57%,#000_85%,transparent_100%)]"
+          initial={{ opacity: 0, scaleX: 0.9 }}
+          whileInView={{ opacity: 1, scaleX: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 1, ease: [0.21, 0.47, 0.32, 0.98] }}
+        >
+          <defs>
+            <pattern id={pid} x="0" y="0" width="80" height="40" patternUnits="userSpaceOnUse">
+              <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M40 8 L52 20 L40 32 L28 20 Z" />
+                <path d="M28 20 C 16 20 14 10 4 12 C 0 13 1 18 6 17" />
+                <path d="M52 20 C 64 20 66 30 76 28 C 80 27 79 22 74 23" />
+                <circle cx="40" cy="20" r="2.4" fill="currentColor" stroke="none" />
+              </g>
+            </pattern>
+          </defs>
+          <rect width="800" height="40" fill={`url(#${pid})`} />
+        </motion.svg>
+
+        {/* центральный цветок курая со свечением.
+            Центрирование (-translate-1/2) держим на статичном span — иначе
+            framer перезаписывает transform своими scale/rotate и центр уезжает. */}
+        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+          <motion.span
+            className="relative flex items-center justify-center text-gold-light/90"
+            initial={{ opacity: 0, scale: 0.6, rotate: -20 }}
+            whileInView={{ opacity: 1, scale: 1, rotate: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.7, delay: 0.15, ease: [0.34, 1.56, 0.64, 1] }}
+          >
+            <span className="absolute inset-0 -m-2 rounded-full bg-gold/20 blur-md" />
+            <KuraiBloom size={30} className="relative" />
+          </motion.span>
+        </span>
+      </div>
     </div>
   );
 }

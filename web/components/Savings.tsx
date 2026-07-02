@@ -58,8 +58,12 @@ export function Savings() {
               </div>
               <div className="rounded-canon bg-white/5 p-5 text-center">
                 <div className="text-xs font-semibold text-white/50">{tr("save_taxi")}</div>
-                <div className="mt-1 font-display text-3xl font-extrabold text-white/55 line-through decoration-white/30">
-                  {fmt(taxi)} ₽
+                <div className="mt-1 font-display text-3xl font-extrabold text-white/45">{fmt(taxi)} ₽</div>
+                <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2 py-0.5 text-[11px] font-semibold text-white/45">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 19V5M6 11l6-6 6 6" />
+                  </svg>
+                  ×{(taxi / yul).toFixed(1)} {tr("save_pricier")}
                 </div>
               </div>
               <div className="rounded-canon bg-gradient-to-br from-gold/20 to-transparent p-5 text-center ring-1 ring-gold/25">

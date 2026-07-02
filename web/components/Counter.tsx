@@ -23,8 +23,8 @@ export function Counter({
   useEffect(() => {
     if (!inView) return;
     if (reduce) {
-      setVal(value);
-      return;
+      const raf = requestAnimationFrame(() => setVal(value));
+      return () => cancelAnimationFrame(raf);
     }
     let raf = 0;
     let start = 0;

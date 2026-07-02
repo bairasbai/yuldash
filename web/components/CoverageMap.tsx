@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import { useLang } from "./lang";
 import { Reveal } from "./Reveal";
 import { OrnamentKicker } from "./Ornament";
@@ -26,10 +28,23 @@ const NODES: Node[] = [
   { x: 308, y: 436, ru: "Баймак", ba: "Баймаҡ" },
 ];
 
+// ViewBox карты (см. svg ниже) — для пересчёта координат узла в проценты контейнера
+const VB = { minX: -14, minY: -16, w: 453, h: 581 };
+// Два ближайших города — «популярные направления» для всплывающей карточки
+function nearestTwo(i: number) {
+  return NODES.map((n, j) => ({ j, d: (n.x - NODES[i].x) ** 2 + (n.y - NODES[i].y) ** 2 }))
+    .filter((o) => o.j !== i)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 2)
+    .map((o) => NODES[o.j]);
+}
+
 export function CoverageMap() {
   const { tr, lang } = useLang();
   const reduce = useReducedMotion();
   const hub = NODES[0];
+  const [hovered, setHovered] = useState<number | null>(null);
+  const name = (n: Node) => (lang === "ba" ? n.ba : n.ru);
 
   return (
     <section id="coverage" className="relative px-6 py-24">
@@ -43,7 +58,8 @@ export function CoverageMap() {
         <Reveal>
           <div className="glass relative mx-auto max-w-xl overflow-hidden rounded-canon p-6 sm:p-10">
             <div className="pointer-events-none absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-green-bright/15 blur-[100px]" />
-            <svg viewBox="-14 -16 453 581" className="relative mx-auto w-full max-w-md">
+            <div className="relative mx-auto w-full max-w-md">
+            <svg viewBox="-14 -16 453 581" className="block w-full">
               <defs>
                 {/* мягкое свечение для контура и сигналов */}
                 <filter id="covGlow" x="-30%" y="-30%" width="160%" height="160%">
@@ -156,7 +172,13 @@ export function CoverageMap() {
                     whileInView={{ scale: 1, opacity: 1 }}
                     viewport={{ once: true }}
                     transition={{ delay: 0.3 + i * 0.05, type: "spring", stiffness: 300, damping: 18 }}
+                    className="cursor-pointer"
+                    onMouseEnter={() => setHovered(i)}
+                    onMouseLeave={() => setHovered(null)}
+                    onClick={() => setHovered((h) => (h === i ? null : i))}
                   >
+                    {/* увеличенная зона наведения */}
+                    <circle cx={n.x} cy={n.y} r={16} fill="transparent" />
                     {/* пульс-кольцо на каждом узле */}
                     {!reduce && (
                       <circle cx={n.x} cy={n.y} r={n.hub ? 7 : 4.5} fill="none" stroke={n.hub ? "#E8C36B" : "#7FE3AB"} strokeWidth="1.4">
@@ -183,6 +205,40 @@ export function CoverageMap() {
                 );
               })}
             </svg>
+
+            {/* Всплывающая карточка популярных направлений */}
+            <AnimatePresence>
+              {hovered !== null && (
+                <motion.div
+                  key={hovered}
+                  initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 6, scale: 0.96 }}
+                  transition={{ duration: 0.18, ease: [0.21, 0.47, 0.32, 0.98] }}
+                  className="glass pointer-events-none absolute z-20 w-44 -translate-x-1/2 -translate-y-[115%] rounded-2xl px-3.5 py-3 text-left shadow-card"
+                  style={{
+                    left: `${((NODES[hovered].x - VB.minX) / VB.w) * 100}%`,
+                    top: `${((NODES[hovered].y - VB.minY) / VB.h) * 100}%`,
+                  }}
+                >
+                  <div className="font-display text-sm font-extrabold text-white">{name(NODES[hovered])}</div>
+                  <div className="mt-1.5 text-[11px] font-semibold uppercase tracking-wide text-green-glow/80">
+                    {tr("cov_pop")}
+                  </div>
+                  <div className="mt-1 space-y-1">
+                    {nearestTwo(hovered).map((d) => (
+                      <div key={d.ru} className="flex items-center gap-1.5 text-xs text-white/75">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-bright">
+                          <path d="M5 12h14M13 6l6 6-6 6" />
+                        </svg>
+                        {name(d)}
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            </div>
           </div>
         </Reveal>
       </div>

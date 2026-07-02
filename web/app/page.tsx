@@ -18,7 +18,6 @@ import { DownloadProvider } from "@/components/DownloadProvider";
 import { OrnamentBand } from "@/components/Ornament";
 import { Marquee } from "@/components/Marquee";
 import { StatsBand } from "@/components/StatsBand";
-import { Loader } from "@/components/Loader";
 import { ScrollTop } from "@/components/ScrollTop";
 import { Trust } from "@/components/Trust";
 import { FounderLetter } from "@/components/FounderLetter";
@@ -36,7 +35,6 @@ export default function Page() {
     <MotionConfig reducedMotion="user">
       <LangProvider>
         <DownloadProvider>
-          <Loader />
           <ScrollProgress />
           <main className="relative min-h-screen">
             <Aurora />

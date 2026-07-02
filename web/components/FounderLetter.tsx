@@ -1,10 +1,19 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useRef, useState } from "react";
+import {
+  AnimatePresence,
+  motion,
+  useMotionValue,
+  useSpring,
+  useTransform,
+  useReducedMotion,
+  useInView,
+} from "framer-motion";
 import { useLang } from "./lang";
 import { Reveal } from "./Reveal";
+import { Typewriter } from "./Typewriter";
 import { DownloadButton } from "./DownloadButton";
 import { FOUNDER } from "./founder-content";
 import { BorderBeam } from "./BorderBeam";
@@ -14,15 +23,59 @@ import { track } from "./analytics";
 export function FounderLetter() {
   const { lang, tr } = useLang();
   const [contactOpen, setContactOpen] = useState(false);
+  const reduce = useReducedMotion();
+
+  // Depth-параллакс фото по движению мыши (слои едут с разной скоростью)
+  const mx = useMotionValue(0);
+  const my = useMotionValue(0);
+  const sx = useSpring(mx, { stiffness: 120, damping: 18 });
+  const sy = useSpring(my, { stiffness: 120, damping: 18 });
+  const imgX = useTransform(sx, (v) => v * 10);
+  const imgY = useTransform(sy, (v) => v * 10);
+  const glowX = useTransform(sx, (v) => v * -26);
+  const glowY = useTransform(sy, (v) => v * -20);
+  const plateX = useTransform(sx, (v) => v * 18);
+  const plateY = useTransform(sy, (v) => v * 14);
+  const onMove = (e: React.MouseEvent) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    mx.set((e.clientX - r.left) / r.width - 0.5);
+    my.set((e.clientY - r.top) / r.height - 0.5);
+  };
+  const onLeave = () => {
+    mx.set(0);
+    my.set(0);
+  };
+
+  // Цитата печатается, когда доскроллили до неё
+  const pullRef = useRef<HTMLQuoteElement>(null);
+  const pullInView = useInView(pullRef, { once: true, margin: "-20% 0px" });
 
   return (
-    <section id="founder" className="relative px-6 py-24">
+    <section id="founder" className="relative overflow-hidden px-6 py-24">
+      {/* Кинематографичный фон: размытые огни ночной дороги (Higgsfield, ~60K) */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 opacity-[0.16] [mask-image:radial-gradient(120%_80%_at_50%_40%,#000_0%,transparent_75%)]"
+      >
+        <Image src="/nightroad.webp" alt="" fill sizes="100vw" className="object-cover object-center" />
+      </div>
+
       <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16">
         {/* Фото создателя */}
         <Reveal className="lg:sticky lg:top-28 lg:self-start">
-          <div className="relative mx-auto max-w-sm">
-            <div className="pointer-events-none absolute -inset-4 -z-10 rounded-[34px] bg-green-bright/15 blur-3xl" />
-            <div className="relative overflow-hidden rounded-[28px] border border-white/10">
+          <div
+            className="relative mx-auto max-w-sm [perspective:1000px]"
+            onMouseMove={reduce ? undefined : onMove}
+            onMouseLeave={reduce ? undefined : onLeave}
+          >
+            <motion.div
+              style={reduce ? undefined : { x: glowX, y: glowY }}
+              className="pointer-events-none absolute -inset-4 -z-10 rounded-[34px] bg-green-bright/15 blur-3xl"
+            />
+            <motion.div
+              style={reduce ? undefined : { x: imgX, y: imgY }}
+              className="relative overflow-hidden rounded-[28px] border border-white/10 will-change-transform"
+            >
               <Image
                 src="/founder.jpg"
                 alt={FOUNDER.alt[lang]}
@@ -32,9 +85,11 @@ export function FounderLetter() {
                 priority={false}
               />
               <BorderBeam />
-            </div>
+            </motion.div>
             {/* плашка с именем */}
-            <div className="glass absolute bottom-3 left-3 right-3 flex items-center gap-3 rounded-2xl px-4 py-3">
+            <motion.div
+              style={reduce ? undefined : { x: plateX, y: plateY }}
+              className="glass absolute bottom-3 left-3 right-3 flex items-center gap-3 rounded-2xl px-4 py-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-green-bright/20 text-green-glow">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
@@ -45,7 +100,7 @@ export function FounderLetter() {
                 <div className="font-display text-sm font-extrabold leading-tight">{FOUNDER.name}</div>
                 <div className="text-xs text-white/55">{FOUNDER.role[lang]}</div>
               </div>
-            </div>
+            </motion.div>
           </div>
         </Reveal>
 
@@ -106,13 +161,15 @@ export function FounderLetter() {
           </div>
 
           {/* Цитата-акцент */}
-          <Reveal>
-            <blockquote className="my-8 border-l-2 border-green-bright pl-5">
-              <p className="font-display text-xl font-extrabold text-gradient sm:text-2xl">
-                {FOUNDER.pull[lang]}
-              </p>
-            </blockquote>
-          </Reveal>
+          <blockquote ref={pullRef} className="my-8 border-l-2 border-green-bright pl-5">
+            <p className="font-display text-xl font-extrabold text-gradient sm:text-2xl">
+              {pullInView ? (
+                <Typewriter key={lang} once phrases={[FOUNDER.pull[lang]]} startDelayMs={200} typeMs={38} />
+              ) : (
+                <span className="opacity-0">{FOUNDER.pull[lang]}</span>
+              )}
+            </p>
+          </blockquote>
 
           <Reveal>
             <p className="leading-relaxed text-white/70">{FOUNDER.closing[lang]}</p>

@@ -7,25 +7,29 @@ import { KuraiBloom } from "./Ornament";
 // Модульный флаг — переживает двойной монтаж React StrictMode (dev).
 let started = false;
 
-// Короткий брендовый загрузчик (один раз за сессию). Курай раскрывается → шторка уходит.
+// Брендовый загрузчик. Видим С ПЕРВОГО КАДРА (рендерится в статичном HTML) —
+// поэтому контент сайта не «мигает» под ним. JS прячет шторку после загрузки;
+// если сессию уже видели или включён reduced-motion — убираем сразу.
 export function Loader() {
   const reduce = useReducedMotion();
-  const [show, setShow] = useState(false);
+  const [show, setShow] = useState(true);
 
   useEffect(() => {
-    if (reduce || started) return;
+    if (started) return;
+    started = true;
     let seen = false;
     try {
       seen = !!sessionStorage.getItem("yuldash_loaded");
     } catch {}
-    if (seen) return;
-    started = true;
+    if (reduce || seen) {
+      setTimeout(() => setShow(false), 0);
+      return;
+    }
     try {
       sessionStorage.setItem("yuldash_loaded", "1");
     } catch {}
-    setShow(true);
     // намеренно НЕ чистим таймер в cleanup — иначе StrictMode-cleanup гасит его и шторка зависает
-    setTimeout(() => setShow(false), 1400);
+    setTimeout(() => setShow(false), 1200);
   }, [reduce]);
 
   return (

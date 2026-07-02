@@ -12,11 +12,14 @@ export function CookieConsent() {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    try {
-      if (!localStorage.getItem(KEY)) setShow(true);
-    } catch {
-      /* приватный режим — просто не показываем повторно в рамках сессии */
-    }
+    const timer = window.setTimeout(() => {
+      try {
+        if (!localStorage.getItem(KEY)) setShow(true);
+      } catch {
+        /* приватный режим — просто не показываем повторно в рамках сессии */
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const accept = () => {

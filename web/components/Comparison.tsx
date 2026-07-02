@@ -1,8 +1,17 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useLang, type DictKey } from "./lang";
 import { Reveal } from "./Reveal";
 import { OrnamentKicker } from "./Ornament";
+
+// Граф-сравнение примерной цены поездки (Уфа → Сибай)
+const PRICE: { key: DictKey; val: number; bar: string; tone: string }[] = [
+  { key: "cmp_col_app", val: 700, bar: "bg-gradient-to-r from-green-deep via-green to-green-bright", tone: "text-green-glow" },
+  { key: "cmp_col_bus", val: 1100, bar: "bg-white/25", tone: "text-white/60" },
+  { key: "cmp_col_taxi", val: 5500, bar: "bg-gradient-to-r from-gold/70 to-gold-light", tone: "text-gold-light" },
+];
+const PRICE_MAX = 5500;
 
 type Mark = "yes" | "no" | "partial";
 const rows: { label: DictKey; vals: [Mark, Mark, Mark] }[] = [
@@ -43,6 +52,35 @@ export function Comparison() {
           <OrnamentKicker />
           <h2 className="font-display text-4xl font-extrabold tracking-tight sm:text-5xl">{tr("cmp_title")}</h2>
           <p className="mt-4 text-lg text-white/60">{tr("cmp_sub")}</p>
+        </Reveal>
+
+        {/* Граф: примерная цена поездки — столбцы растут при скролле */}
+        <Reveal>
+          <div className="glass mb-8 rounded-canon p-6 sm:p-8">
+            <h3 className="font-display text-lg font-extrabold text-white sm:text-xl">{tr("cmp_price_title")}</h3>
+            <p className="mt-1 text-sm text-white/50">{tr("cmp_price_sub")}</p>
+            <div className="mt-6 space-y-4">
+              {PRICE.map((b, i) => (
+                <div key={b.key}>
+                  <div className="mb-1.5 flex items-baseline justify-between text-sm">
+                    <span className="font-semibold text-white/85">{tr(b.key)}</span>
+                    <span className={`font-display font-extrabold ${b.tone}`}>
+                      ≈ {b.val.toLocaleString("ru-RU")} ₽
+                    </span>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-white/5">
+                    <motion.div
+                      className={`h-full rounded-full ${b.bar}`}
+                      initial={{ width: 0 }}
+                      whileInView={{ width: `${(b.val / PRICE_MAX) * 100}%` }}
+                      viewport={{ once: true, margin: "-10% 0px" }}
+                      transition={{ duration: 1, delay: 0.15 + i * 0.12, ease: [0.21, 0.47, 0.32, 0.98] }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </Reveal>
 
         <Reveal>

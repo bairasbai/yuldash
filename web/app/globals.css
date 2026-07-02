@@ -55,6 +55,200 @@ body {
   background: rgba(47, 179, 110, 0.35);
 }
 
+/* ===== Кинематографичный герой: Ken Burns + световые следы ===== */
+@keyframes hero-kenburns {
+  from {
+    transform: scale(1.05) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.12) translate3d(-1.5%, -1%, 0);
+  }
+}
+
+/* Полосы-световые следы, бегущие вбок — ощущение скорости */
+.hero-streaks {
+  position: absolute;
+  inset: -20% -30%;
+  background-repeat: repeat;
+  opacity: 0.5;
+  will-change: transform;
+}
+.hero-streaks-1 {
+  background-image: repeating-linear-gradient(
+    115deg,
+    transparent 0 38px,
+    rgba(127, 227, 171, 0.16) 38px 39px,
+    transparent 39px 84px,
+    rgba(232, 195, 107, 0.12) 84px 85px
+  );
+  animation: streak-run 9s linear infinite;
+}
+.hero-streaks-2 {
+  background-image: repeating-linear-gradient(
+    115deg,
+    transparent 0 120px,
+    rgba(244, 217, 139, 0.14) 120px 121px,
+    transparent 121px 230px
+  );
+  opacity: 0.35;
+  animation: streak-run 5.5s linear infinite;
+}
+@keyframes streak-run {
+  to {
+    transform: translate3d(18%, 0, 0);
+  }
+}
+
+/* Яркие «фары», проносящиеся по горизонту */
+.hero-flare {
+  position: absolute;
+  top: 40%;
+  left: -25%;
+  height: 2px;
+  width: 42%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), rgba(127, 227, 171, 0.4), transparent);
+  filter: blur(1px);
+  opacity: 0;
+}
+.hero-flare-a {
+  animation: flare-run 7s cubic-bezier(0.5, 0, 0.4, 1) infinite;
+}
+.hero-flare-b {
+  top: 52%;
+  width: 32%;
+  animation: flare-run 7s cubic-bezier(0.5, 0, 0.4, 1) 3.4s infinite;
+}
+@keyframes flare-run {
+  0% {
+    transform: translate3d(0, 0, 0) scaleX(0.7);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  60% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate3d(330%, -90%, 0) scaleX(1.3);
+    opacity: 0;
+  }
+}
+
+/* Пульсирующее свечение акцентного слова */
+.glow-pulse {
+  animation: glow-pulse 3.6s ease-in-out infinite;
+}
+@keyframes glow-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 10px rgba(127, 227, 171, 0.28));
+  }
+  50% {
+    filter: drop-shadow(0 0 22px rgba(127, 227, 171, 0.55));
+  }
+}
+
+/* Каретка typewriter */
+.tw-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: #7fe3ab;
+  border-radius: 2px;
+  animation: tw-blink 1s steps(1) infinite;
+}
+@keyframes tw-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ===== Живая карточка поездки (мокап) ===== */
+.avatar-ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid rgba(127, 227, 171, 0.6);
+  animation: avatar-ripple 2.4s ease-out infinite;
+}
+@keyframes avatar-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    transform: scale(1.85);
+    opacity: 0;
+  }
+}
+
+.star-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: star-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes star-pop {
+  from {
+    transform: scale(0) rotate(-30deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+
+.go-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-130%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: go-shine 3.4s ease-in-out infinite;
+}
+@keyframes go-shine {
+  0% {
+    transform: translateX(-130%);
+  }
+  55%,
+  100% {
+    transform: translateX(130%);
+  }
+}
+.go-breathe {
+  animation: go-breathe 3.6s ease-in-out infinite;
+}
+@keyframes go-breathe {
+  0%,
+  100% {
+    box-shadow: 0 8px 24px -8px rgba(47, 179, 110, 0.6);
+  }
+  50% {
+    box-shadow: 0 10px 30px -6px rgba(47, 179, 110, 0.85);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-streaks,
+  .hero-flare,
+  .glow-pulse,
+  .tw-caret,
+  .avatar-ripple,
+  .star-pop,
+  .go-breathe {
+    animation: none !important;
+  }
+  .go-shine::after {
+    animation: none !important;
+    display: none;
+  }
+}
+
 /* ===== Border Beam (21st/MagicUI-стиль): бегущий свет по рамке ===== */
 @property --beam-a {
   syntax: "<angle>";
@@ -229,4 +423,20 @@ body {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ===== Fail-safe для слабых/зажатых сетей (ТСПУ/троттлинг) =====
+   framer прячет элементы inline-стилем opacity:0 до гидрации JS. Если JS долго
+   не доходит, сайт висел бы невидимым. Через 3с показываем контент чистым CSS.
+   Когда JS дойдёт — framer всё равно выставит opacity:1, конфликта нет.
+   img/video исключены — у них своя логика крестфейда постер↔видео. */
+@keyframes ssr-failsafe {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+[style*="opacity:0;"]:not(video):not(img),
+[style$="opacity:0"]:not(video):not(img) {
+  animation: ssr-failsafe 0.5s ease 3s forwards;
 }

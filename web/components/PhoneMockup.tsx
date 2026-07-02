@@ -30,7 +30,8 @@ export function PhoneMockup() {
   const L = {
     eta_min: "12 мин",
     eta_km: "· 8 км",
-    driver: lang === "ru" ? "Айгуль · 4.9 ★" : "Айгөл · 4.9 ★",
+    name: lang === "ru" ? "Айгуль" : "Айгөл",
+    rating: "4.9",
     verified: lang === "ru" ? "Проверена" : "Тикшерелгән",
     from: lang === "ru" ? "Уфа, Гагарина" : "Өфө, Гагарин",
     to: lang === "ru" ? "Стерлитамак" : "Стәрлетамаҡ",
@@ -207,17 +208,37 @@ export function PhoneMockup() {
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/15" />
 
             <div className="mb-4 flex items-center gap-3">
-              <div className="relative">
-                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-green-bright/30 to-green-deep/40 font-display text-base font-extrabold text-green-glow ring-1 ring-green-bright/20">
-                  {L.driver.charAt(0)}
+              <div className="relative h-11 w-11">
+                {!reduce && <span className="avatar-ripple" />}
+                <div className="relative flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-green-bright/30 to-green-deep/40 font-display text-base font-extrabold text-green-glow ring-1 ring-green-bright/20">
+                  {L.name.charAt(0)}
                 </div>
-                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-green-bright ring-2 ring-[#141d19]" />
+                <span className="absolute -bottom-0.5 -right-0.5 z-10 h-3 w-3 rounded-full bg-green-bright ring-2 ring-[#141d19]" />
               </div>
               <div className="flex-1">
-                <div className="text-sm font-bold text-white">{L.driver}</div>
-                <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-green-bright/15 px-2 py-0.5 text-[10px] font-semibold text-green-glow">
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="m5 13 4 4L19 7" /></svg>
-                  {L.verified}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-bold text-white">{L.name}</span>
+                  <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-bright/20 text-green-glow" title={L.verified}>
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="m5 13 4 4L19 7" /></svg>
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="flex items-center gap-0.5">
+                    {[0, 1, 2, 3, 4].map((s) => (
+                      <svg
+                        key={s}
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="#E8C36B"
+                        className={reduce ? "" : "star-pop"}
+                        style={reduce ? undefined : { animationDelay: `${0.5 + s * 0.12}s` }}
+                      >
+                        <path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 18.6 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z" />
+                      </svg>
+                    ))}
+                  </span>
+                  <span className="text-[11px] font-semibold text-white/55">{L.rating}</span>
                 </div>
               </div>
               <div className="text-right">
@@ -239,8 +260,8 @@ export function PhoneMockup() {
               </div>
             </div>
 
-            <div className="rounded-full bg-gradient-to-r from-green-bright to-green py-2.5 text-center text-sm font-bold text-night shadow-[0_8px_24px_-8px_rgba(47,179,110,0.6)]">
-              {L.go}
+            <div className={`relative overflow-hidden rounded-full bg-gradient-to-r from-green-bright to-green py-2.5 text-center text-sm font-bold text-night shadow-[0_8px_24px_-8px_rgba(47,179,110,0.6)] ${reduce ? "" : "go-shine go-breathe"}`}>
+              <span className="relative z-10">{L.go}</span>
             </div>
           </div>
         </div>

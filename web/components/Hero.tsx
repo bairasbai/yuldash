@@ -10,6 +10,8 @@ import {
   useReducedMotion,
 } from "framer-motion";
 import { useLang } from "./lang";
+import { HeroBackdrop } from "./HeroBackdrop";
+import { Typewriter } from "./Typewriter";
 import { DownloadButton } from "./DownloadButton";
 import { PhoneMockup } from "./PhoneMockup";
 import { Counter } from "./Counter";
@@ -33,7 +35,7 @@ const word = {
 };
 
 export function Hero() {
-  const { tr } = useLang();
+  const { tr, lang } = useLang();
   const reduce = useReducedMotion();
   const ref = useRef<HTMLElement>(null);
 
@@ -61,6 +63,9 @@ export function Hero() {
       onMouseMove={reduce ? undefined : onMove}
       className="relative overflow-hidden px-6 pt-36 pb-10 sm:pt-44 lg:pb-12"
     >
+      {/* кинематографичный видео-фон (Higgsfield) */}
+      <HeroBackdrop />
+
       {/* спотлайт за курсором */}
       {!reduce && (
         <motion.div
@@ -103,14 +108,27 @@ export function Hero() {
                 {w}
               </motion.span>
             ))}
-            <motion.span variants={word} className="text-gradient animate-shimmer inline-block">
+            <motion.span variants={word} className="text-gradient animate-shimmer glow-pulse inline-block">
               {tr("hero_title_2")}
             </motion.span>
           </motion.h1>
 
+          {/* Печатающаяся кинематографичная строка */}
+          <motion.div
+            variants={item}
+            className="mt-5 flex min-h-[1.7em] items-center justify-center gap-2 lg:justify-start"
+          >
+            <span className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-green-bright shadow-[0_0_10px_2px_rgba(127,227,171,0.6)]" />
+            <Typewriter
+              key={lang}
+              phrases={[tr("hero_tw1"), tr("hero_tw2"), tr("hero_tw3")]}
+              className="font-display text-lg font-bold text-green-glow sm:text-xl"
+            />
+          </motion.div>
+
           <motion.p
             variants={item}
-            className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-white/70 lg:mx-0"
+            className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-white/70 lg:mx-0"
           >
             {tr("hero_sub")}
           </motion.p>

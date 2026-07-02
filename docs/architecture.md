@@ -11,8 +11,8 @@
 |---|---|
 | `YuldashApp.kt` | Корень: навигация (`when(screen)`), старт-экран, lifecycle поездок, старт/стоп `TripLocationService`, push-разрешения |
 | `MapScreen.kt` (~1.7к строк) | Вкладка Карта: `YandexMapCard`, маршрут (`drawRoadRoute` + объездные), live-стрелка (chaser-эффект), ETA-чип, демо-симуляция, фильтры «Ближайшие», маркеры заявок + `RequestPreviewCard`, авто-refresh + WS `MapFeedSocket`, карусель `QuickSearchCard` (+ донаты) |
-| `BookingActiveTripScreen.kt` | `BookingScreen` (бронь) + `ActiveTripScreen` (чат, код посадки, статус-вотчер `getTripState`, live-баннер фазы, SOS) |
-| `RidesRequestsChatScreens.kt` | Вкладки Поездки/Заявки/Чат, `RideCard`, `RequestsFeedScreen` (чипы условий), `ResponsesScreen`, `ChatSocket`-чат |
+| `BookingActiveTripScreen.kt` | `BookingScreen` (детали поездки/бронь: public locked → private unlocked через `/bookings/{id}/details`; pending-бронь не открывает active trip) + `ActiveTripScreen` (чат, код посадки только для `confirmed/onboard`, статус-вотчер `getTripState`, live-баннер фазы, SOS, оценка только при `done`) |
+| `RidesRequestsChatScreens.kt` | Вкладки Поездки/Заявки/Чат, `RideCard`, `RequestsFeedScreen` (чипы условий), `ResponsesScreen`, `ChatSocket`-чат; вкладка `Мои поездки` передаёт статус брони в навигацию |
 | `CreateRideScreen.kt` | Публикация поездки (маршрут, цена, удобства `PrefToggleRow`, повтор) |
 | `AccessibilityScreens.kt` | «Создать заявку» (+ карточка «Условия поездки», 7 предпочтений), Простой режим, голосовая заявка, за близкого, доверенные контакты, повтор маршрута |
 | `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии» |
@@ -21,13 +21,14 @@
 | `SupportBoostScreen.kt` | Поддержка, Boost, Help |
 | `LoginScreen.kt` / `IntroScreen.kt` | Вход Telegram / брендовое интро |
 | `Domain.kt` / `Mocks.kt` / `CanonTokens.kt` | Модели · демо-фолбэк · цвета `Canon*` |
-| `data/ApiClient.kt` | REST + парсинг DTO; `data/ChatSocket.kt`, `data/LocationSocket.kt`, `data/MapFeedSocket.kt` — WS; `TripLocationService.kt` — foreground GPS |
+| `data/ApiClient.kt` | REST + парсинг DTO (`BookingDetailsDto`, `RideDto`, заявки, чат); `data/ChatSocket.kt`, `data/LocationSocket.kt`, `data/MapFeedSocket.kt` — WS; `TripLocationService.kt` — foreground GPS |
 
-**Бэкенд** `backend/app/routers/`: `location.py` (WS `/ws/trip/{id}/location` реле + `/ws/map` сигнал), `requests.py` (заявка + prefs + `/near` округл. коорд + лента), `bookings.py` (бронь, `driver_phase`, статусы), `rides.py`, `discovery.py` (`/feed` + `donations_total`), `chat.py` (WS `/ws/bookings/{id}`), `drivers.py`, `payments.py` (донат/буст СБП «на доверии»), `ads.py`, `safety.py`, `family.py`. Деплой — `docs/server.md`.
+**Бэкенд** `backend/app/routers/`: `location.py` (WS `/ws/trip/{id}/location` реле + `/ws/map` сигнал), `requests.py` (заявка + prefs + `/near` округл. коорд + лента), `bookings.py` (бронь, приватные детали `/bookings/{id}/details`, `driver_phase`, статусы), `rides.py`, `discovery.py` (`/feed` + `donations_total`), `chat.py` (WS `/ws/bookings/{id}`, REST-история, `/conversations` показывает активные брони даже до первого сообщения), `drivers.py`, `payments.py` (донат/буст СБП «на доверии»), `ads.py`, `safety.py`, `family.py`. Деплой — `docs/server.md`.
 
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
 
 ## Лендинг web/ — интерактивная версия 2026-06-29
+- **Production-hardening 2026-06-30:** `web/` обновлён до Next.js 16.2.9, PostCSS поднят до 8.5.x через `overrides`, потому `npm audit --omit=dev` теперь 0 vulnerabilities. Build остаётся статическим (`output: "export"`) и деплоится как `web/out/` в `/var/www/yuldash-landing`.
 - Главная страница `web/app/page.tsx` стала тонкой оболочкой: `MotionConfig` → `LangProvider` → `DownloadProvider` → `YuldashLanding`.
 - Новый основной файл: `web/components/YuldashLanding.tsx`. Внутри: Lenis smooth scroll, живой hero с H1 «Юлдаш ведёт по республике красиво», видеофоном `/yuldash-promo.mp4`, анимированной маршрутной сценой, телефонным mockup, секции `#how`, `#map`, `#reviews`, `#download`, footer.
 - Двуязычие лендинга осталось через `useLang()` и локальные пары RU/BA в `YuldashLanding.tsx`. BA-строки этой итерации — черновик модели, вынесены в `docs/tasks.md` как требующие проверки носителем.
@@ -62,6 +63,9 @@
 - **Автоадмин:** вход через Telegram-id (`ADMIN_TELEGRAM_CHAT_ID`) ИЛИ телефон (`ADMIN_PHONES`) → роль admin сама (`_maybe_promote_admin` в auth.py).
 
 **Профиль/доверие** (`ProfileScreen.kt`): имя редактируется (карандаш, `updateName`→`/me/update`); аватар (пикер→`uploadChatPhoto`→`updateAvatar`, Coil) — везде через `SmallAvatar`; онлайн-водитель — тумблер в `DriverCabinetScreen` (`setOnline`→`/driver/online`), бейдж `OnlineBadge`, `RideOut.driver_online`.
+`PassengerCabinetScreen` теперь даёт прямой вход в «Мои поездки», показывает loading/error для `/bookings/mine`, а ближайшая бронь открывает реальный booking-flow: `pending` → `BookingScreen`, `confirmed/onboard` → `ActiveTripScreen`.
+
+**Вкладка «Мои поездки»** (`RidesRequestsChatScreens.kt`): список берётся из `ApiClient.getMyBookingsDetailed()` (`/bookings/mine`). `pending` открывает приватные детали брони через `BookingScreen` + `bookingId`; `confirmed/onboard` открывают активную поездку/чат через `ActiveTripScreen`; история (`done/cancelled`) ведёт на повтор маршрута через создание заявки. `BookingScreen` больше не использует моковую карту деталей: `/bookings/{id}/details` отдаёт координаты концов маршрута (`from_lat/from_lng/to_lat/to_lng`), а если старая поездка без координат — endpoint сам lazy-backfill-ит их через `geocode_city` и сохраняет; Android рисует настоящий `MapView`. Точная точка встречи (`pickup_lat/lng`) всё ещё закрыта до подтверждения.
 
 **Прочие новые** (`SecondaryScreens.kt`): `RulesScreen`, `PaymentInfoScreen` (СБП), `BlocklistScreen` (`/blocks`), `ReportScreen`, `FiltersScreen` (`FilterPrefs` в SharedPreferences), `ThemePickerDialog`. Код посадки — карточка в `BookingActiveTripScreen` (`getBoardingCode`). Аналитика — `data/Analytics.kt` (Firebase).
 
@@ -74,7 +78,7 @@
 
 ## Лендинг для скачивания (`web/`) — добавлено 2026-06-27
 - **Отдельная веб-зона**, не Android. Премиум-лендинг для скачивания APK напрямую.
-- **Стек:** Next.js 14 (App Router) + framer-motion + Tailwind. `output: "export"` → чистая статика (`web/out/`), раздаётся Nginx на yulbash.ru (Node в проде НЕ нужен).
+- **Стек:** Next.js 16 (App Router) + framer-motion + Tailwind. `output: "export"` → чистая статика (`web/out/`), раздаётся Nginx на yulbash.ru (Node в проде НЕ нужен).
 - **Цвета** синхронизированы с приложением (`Theme.kt`) через `web/tailwind.config.ts` (green #0B6B3A/#2FB36E, gold #D89B12, тёмный фон).
 - **Двуязычие:** RU/БА через контекст `web/components/lang.tsx` (`dict` + `useLang`), переключатель в шапке. БА — черновик, на проверке (tasks.md → «Переводы на проверку»).
 - **Структура:** `app/page.tsx` (обёрнут в `MotionConfig reducedMotion="user"`) собирает `Hero`/`Features`/`HowItWorks`/`Testimonials`/`Trust`/`FAQ`/`Download`/`Footer` + `Aurora` (фон) + `Header` + `StickyDownloadBar`. Появления — `Reveal.tsx` (whileInView). Мокап телефона — `PhoneMockup.tsx` (живая карта со слоями + едущая машина на CSS `offset-path`, анимации в `globals.css` `.mockup-*`; координаты маршрута SVG = offset-path машины).
@@ -153,11 +157,11 @@
 ### Вкладка «Карта»
 - `MapScreen` — структура: `Column` { ФИКС: шапка + `MapHero` (карта вне прокрутки!) ; `LazyColumn(weight 1f)`: «Ближайшие поездки» + реклама }. Карта закреплена, чтобы её жесты не конфликтовали со скроллом. `selectedRide` + `ModalBottomSheet` (`RideCard fullWidth`) при тапе по маркеру.
 - **«Ближайшие поездки»** — реальные данные с сервера (`ApiClient.getNearbyRides` → `/rides/near`). Фокус-маршрут = `activeTrip` (если едет — показываем альтернативы на ЕГО маршруте, сценарий «водитель сломался»), иначе все. Сортировка по времени выезда ↑ (самая ранняя — первой, помечена «ближайшая»). Гео: `LocationPrefs.lastLat/lng` (из карты) → дистанция «N км» в карточке. Карточки `NearbyRideCard` строго 1-в-1 (фикс 290×190dp: маршрут+проверен · время+«ближайшая» · водитель+рейтинг · дистанция+цена+«Поехать»). Состояния: `NearbySkeletonCard` (загрузка), `NearbyEmptyCard` (пусто+Обновить). Хелперы `RideDto.toUiRide()`, `fmtKm()`.
-- `MapHero` — `Column { Box(карта 350dp: `YandexMapCard`/`MapPreview` + плавающая снизу **лента** `QuickSearchCard` — свайп вправо→язычок `cardCollapsed`, тап→назад) ; Row **кнопки** «Найти поездку»/«Я водитель» ОТДЕЛЬНЫМ блоком ПОД картой (не плавают, как Яндекс; «Найти» берёт `activeRoute` ленты) }`. Зум `+/-` и FAB «к себе» — в верхнем правом углу карты.
+- `MapHero` — `Column { Box(карта 350dp: `YandexMapCard`/`MapPreview` + плавающая снизу **лента** `QuickSearchCard` — свайп вправо→язычок `cardCollapsed`, тап→назад) ; Row **кнопки** «Найти поездку»/«Я водитель» ОТДЕЛЬНЫМ блоком ПОД картой (не плавают, как Яндекс; «Найти» берёт `activeRoute` ленты) }`. На холодном старте сначала рисуется лёгкий `MapPreview`, настоящий `YandexMapCard` создаётся после первого кадра и короткой паузы, чтобы `MapView` не блокировал первый экран. Зум `+/-` и FAB «к себе» — в верхнем правом углу карты.
 - `QuickSearchCard` — лента-карусель из **6 карточек** (`mapFeedFrom(popular, liveFeed)` → `List<MapFeedCard>`). **Единый макет** у всех: бейдж+пилюля (верх) · заголовок ФИКС.высоты (2 строки) · подпись+точки (низ) → карточки одного размера, карусель не прыгает. Типы (`FeedKind`): Route (маршрут, тапается→`activeRoute`), Live (поездок за день), Top (хит недели — топ-маршрут), Fact (факт), Community ×2 (за месяц / за год). Периоды день/неделя/месяц/год. Авто-прокрутка 4.5с, бесконечная. **Числа реальные с сервера** — `MapHero` тянет `ApiClient.getFeed()` (`/feed`) раз в 60с; офлайн → демо-значения (142/4700/38500), чтоб лента не пустовала. Русский плурал — `plRu()`/`ridesRu()`.
 - `cityPoint(city)` — 1824 ← город→`Point` (mock-геоданные: Баймаҡ/Сибай/Темясово/Уфа/Учалы/Магнитогорск). `ridePinBitmap(price, boosted)` — 1836 ← маркер-«ценник» (белая пилюля + цена, золото для boosted), рисуется на Android Canvas.
 - **`YandexMapCard`** ← НАСТОЯЩАЯ Яндекс-карта (MapKit). `MapKitFactory.initialize` + `MapView` через `AndroidView`, ЖЦ через `DisposableEffect`. **Маркеры-ценники поездок** (`addPlacemark`+`MapObjectTapListener`→`onRideTap`; координаты `cityPoint` + Яндекс-геокодер с кэшем). **Контролы:** зум `＋/−` (`MapZoomControls`), FAB «к себе» (`NearMe`, `zIndex(6)` — выше хит-таргетов). **Геолокация «я тут»:** СВОЙ `PlacemarkMapObject` (зелёный кружок `userPuckBitmap`) через android `LocationManager` (GPS+NETWORK) — НЕ `UserLocationLayer` (его стрелку-курс lite-SDK не перекрасить → тёмный треугольник). Флаг `LocationPrefs.sharingEnabled` (Профиль→Конфиденциальность ↔ карта), дефолт ВЫКЛ; при включении центрируем (цель чуть южнее → точка над плашкой). `view.setOnTouchListener`→`requestDisallowInterceptTouchEvent` (чтобы `LazyColumn` не съедал жесты).
-- `MapPreview` — 1998 ← рисованный **фолбэк**, показывается только если ключ MapKit пустой (`BuildConfig.YANDEX_MAPKIT_KEY.isBlank()`).
+- `MapPreview` — 1998 ← рисованный **фолбэк**: показывается если ключ MapKit пустой (`BuildConfig.YANDEX_MAPKIT_KEY.isBlank()`), а на главной карте ещё используется как короткий лёгкий каркас перед созданием тяжёлого `MapView`.
 
 ### Вкладка «Поездки»
 - `RidesScreen` — 2081 · `SegmentedTabs` — ~2350 · `MyTripCard` — ~2620 · `RideCard` — ~2200 · `FullRideCard` — ~2650. Табы: `Активные / История / Все`; при пустом списке используется `EmptyStateCard`.
@@ -288,3 +292,43 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - Дорожная карта (Q3 2026 — Q2 2027+)
 
 Это — ваш blueprint. MainActivity.kt детали → в [architecture.md](architecture.md), стратегия → в [system-design.md](system-design.md).
+## 2026-07-01 — приватные документы водителя
+
+`backend/app/routers/drivers.py`: `/upload/photo` сохраняет приватные документы в `private/docs` с префиксом `user_id_...`; `/secure/docs/{name}` отдаёт файл только админу или владельцу; `/driver/verify` принимает только собственные загруженные файлы. Это закрывает IDOR-сценарий с подстановкой чужого `license_url`/`car_photo_url`.
+
+## 2026-07-01 — тесты, lint и coverage
+
+- Backend coverage измеряется через `coverage run --source=app -m pytest tests`; последний факт: **91%** по `backend/app`.
+- Android debug coverage включён в `android/app/build.gradle.kts` для unit и instrumented tests; отчёты: `android/app/build/reports/coverage/test/debug/` и `android/app/build/reports/coverage/androidTest/debug/connected/`. Последний Android unit line coverage: **4.63%** (`546 / 11794`).
+- Web lint после Next 16 работает через ESLint CLI: `web/eslint.config.mjs` + `npm run lint`.
+
+## 2026-07-01 — Android unit-тесты бизнес-логики
+
+- `CoreLogicTest.kt`: appText, CTR рекламы, дата поездки, километры, backend-категория → UI, live-feed карты, фильтры рекламы.
+- `YuldashViewModelTest.kt`: survival-состояние навигации/языка/вкладки и начальные коллекции.
+- Последний факт: **21 unit-тест**, Android unit coverage **4.63%**. Последний объединённый Android line coverage после instrumented run пока не пересчитан.
+
+## 2026-07-02 — чат pending-брони и nullable voice URL
+
+- `BookingActiveTripScreen.kt`: `messages` хранится с ключом `remember(bookingId)`, чтобы история одной брони не протекала в другую; pending-бронь может открыть чат, но live-действия (`Код посадки`, статусы, отмена, share) остаются скрыты до подходящего статуса.
+- `data/ApiClient.kt`: `getMessages()` использует `parseMessageDto(...)`; `voice_url: null` / отсутствующее поле / пустая строка нормализуются в `null` через `normalizeOptionalJsonString(...)`. Это убирает ложное отображение текстового сообщения как `Голосовое`.
+- `CoreLogicTest.kt`: добавлена регрессия `normalizeOptionalJsonString_treatsJsonNullVoiceUrlAsNoVoiceMessage`.
+- Последняя проверка Android: `:app:testDebugUnitTest :app:assembleDebug :app:installDebug` → `BUILD SUCCESSFUL`; ручной эмуляторный сценарий `Чат → Айгуль / Темясово → Уфа` показывает `Codex_test_message`, без `Голосовое`.
+## 2026-07-01 — backend test coverage after audit pass
+
+- `backend/app/routers/content.py` removed as dead duplicate router. Source verification: it was not imported in `backend/app/routers/__init__.py` and not included in `all_routers`; product endpoints are served by `discovery.py`/`ads.py`.
+- New regression suites:
+  - `test_payments_edges.py`
+  - `test_payment_provider.py`
+  - `test_requests_edges.py`
+  - `test_safety_edges.py`
+  - `test_driver_check.py`
+  - `test_location_edges.py`
+  - `test_rides_edges.py`
+  - `test_chat_edges.py`
+  - `test_services_edges.py`
+  - `test_ads_edges.py`
+  - `test_auth_edges.py`
+- Latest backend verification: `pytest tests -q` → `148 passed, 1 skipped`; coverage for `backend/app` → `91%` (`3186` statements, `300` missed).
+- High-covered active modules after this pass: `routers/ads.py` 99%, `routers/auth.py` 98%, `payments.py` 100%, `routers/payments.py` 95%, `routers/requests.py` 95%, `routers/safety.py` 99%, `driver_check.py` 96%, `routers/rides.py` 93%.
+- Remaining lower areas are mostly integration-heavy/infrastructure: `services.py`, `db.py`, `middleware.py`, and WebSocket internals in `routers/chat.py`.
