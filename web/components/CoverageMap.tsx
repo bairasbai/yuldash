@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { AnimatePresence } from "framer-motion";
@@ -47,7 +48,15 @@ export function CoverageMap() {
   const name = (n: Node) => (lang === "ba" ? n.ba : n.ru);
 
   return (
-    <section id="coverage" className="relative px-6 py-24">
+    <section id="coverage" className="relative overflow-hidden px-6 py-24">
+      {/* Реальная география Башкортостана (Higgsfield: деревня, дорога, минарет,
+          золотой час) — тускло за интерактивной картой, края растворяются в фоне. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
+        <Image src="/coverage-bg.webp" alt="" fill sizes="100vw" className="object-cover opacity-[0.15]" />
+        <div className="absolute inset-0 bg-[radial-gradient(120%_95%_at_50%_45%,transparent_0%,rgba(10,20,16,0.55)_66%,#0a1410_100%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-night via-transparent to-night" />
+      </div>
+
       <div className="mx-auto max-w-5xl">
         <Reveal className="mx-auto mb-12 max-w-2xl text-center">
           <OrnamentKicker />
