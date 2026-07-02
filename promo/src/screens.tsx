@@ -2,34 +2,6 @@ import React from 'react';
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { C, DISPLAY, BODY } from './theme';
 
-// ===== Рамка телефона (островок + скруглённый экран) =====
-export const Phone: React.FC<{ children: React.ReactNode; scale?: number }> = ({ children, scale = 1 }) => {
-  const f = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const rise = spring({ frame: f, fps, config: { damping: 16, mass: 0.8 } });
-  const y = interpolate(rise, [0, 1], [120, 0]);
-  return (
-    <div style={{ transform: `translateY(${y}px) scale(${scale})`, opacity: rise }}>
-      <div style={{ position: 'absolute', inset: -60, borderRadius: 120, background: C.green, opacity: 0.18, filter: 'blur(80px)' }} />
-      <div
-        style={{
-          position: 'relative',
-          width: 520,
-          height: 1060,
-          borderRadius: 78,
-          border: `16px solid #1c2722`,
-          background: C.forest,
-          boxShadow: '0 60px 140px rgba(0,0,0,0.55)',
-          overflow: 'hidden',
-        }}
-      >
-        <div style={{ position: 'absolute', top: 22, left: '50%', transform: 'translateX(-50%)', width: 150, height: 34, borderRadius: 20, background: '#000', zIndex: 20 }} />
-        <div style={{ position: 'absolute', inset: 0, borderRadius: 62, overflow: 'hidden', background: '#0e1714' }}>{children}</div>
-      </div>
-    </div>
-  );
-};
-
 // Общий заголовок сцены (кинетический)
 export const Kicker: React.FC<{ title: string; sub: string; top?: number }> = ({ title, sub, top = 150 }) => {
   const f = useCurrentFrame();
@@ -43,22 +15,23 @@ export const Kicker: React.FC<{ title: string; sub: string; top?: number }> = ({
   );
 };
 
-// ===== Реальный скриншот приложения с лёгким Ken-Burns =====
-export const Shot: React.FC<{ src: string }> = ({ src }) => {
+// ===== Реальный скриншот-mockup (в готовой рамке телефона, прозрачный фон) =====
+// object-contain: показываем ЦЕЛИКОМ, без обрезки краёв. Лёгкий подъём + Ken-Burns.
+export const Mockup: React.FC<{ src: string; height?: number }> = ({ src, height = 1360 }) => {
   const f = useCurrentFrame();
-  const scale = interpolate(f, [0, 110], [1.06, 1.12], { extrapolateRight: 'clamp' });
-  const ty = interpolate(f, [0, 110], [0, -14], { extrapolateRight: 'clamp' });
+  const { fps } = useVideoConfig();
+  const rise = spring({ frame: f, fps, config: { damping: 16, mass: 0.8 } });
+  const y = interpolate(rise, [0, 1], [90, 0]);
+  const scale = interpolate(f, [0, 110], [1, 1.04], { extrapolateRight: 'clamp' });
   return (
-    <AbsoluteFill>
-      <Img
-        src={staticFile(src)}
-        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', transform: `scale(${scale}) translateY(${ty}px)` }}
-      />
-    </AbsoluteFill>
+    <div style={{ position: 'relative', opacity: rise, transform: `translateY(${y}px) scale(${scale})` }}>
+      <div style={{ position: 'absolute', inset: 40, borderRadius: 120, background: C.green, opacity: 0.22, filter: 'blur(90px)' }} />
+      <Img src={staticFile(src)} style={{ position: 'relative', height, width: 'auto', borderRadius: height * 0.047, filter: 'drop-shadow(0 50px 120px rgba(0,0,0,0.55))' }} />
+    </div>
   );
 };
 
-// Реальные экраны (снято с приложения, тёмная тема)
-export const ScreenMap: React.FC = () => <Shot src="app-map.png" />;
-export const ScreenForm: React.FC = () => <Shot src="app-form.png" />;
-export const ScreenRequest: React.FC = () => <Shot src="app-request.png" />;
+// Реальные экраны (mockup, светлая тема, снято с приложения)
+export const ScreenMap: React.FC = () => <Mockup src="app-map.png" />;
+export const ScreenForm: React.FC = () => <Mockup src="app-form.png" />;
+export const ScreenRequest: React.FC = () => <Mockup src="app-request.png" />;

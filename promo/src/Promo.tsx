@@ -11,7 +11,7 @@ import {
   useVideoConfig,
 } from 'remotion';
 import { C, DISPLAY, BODY } from './theme';
-import { Phone, Kicker, ScreenMap, ScreenForm, ScreenRequest } from './screens';
+import { Kicker, ScreenMap, ScreenForm, ScreenRequest } from './screens';
 
 // Плавное появление/уход сцены (frame внутри Sequence — относительный)
 const Fade: React.FC<{ dur: number; children: React.ReactNode }> = ({ dur, children }) => {
@@ -35,8 +35,8 @@ const Logo: React.FC<{ size?: number }> = ({ size = 300 }) => {
   return (
     <div style={{ transform: `scale(${s})` }}>
       <div style={{ position: 'absolute', inset: -40, borderRadius: '50%', background: C.green, opacity: 0.3, filter: 'blur(70px)' }} />
-      <div style={{ position: 'relative', width: size, height: size, borderRadius: '50%', background: C.forest, border: `3px solid ${C.green}55`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Img src={staticFile('logo.png')} style={{ width: size * 0.72, height: size * 0.72, objectFit: 'contain' }} />
+      <div style={{ position: 'relative', width: size, height: size, borderRadius: '50%', background: '#FFFFFF', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Img src={staticFile('logo.png')} style={{ width: size * 0.74, height: size * 0.74, objectFit: 'contain' }} />
       </div>
     </div>
   );
@@ -83,14 +83,12 @@ const SceneRoad: React.FC = () => {
   );
 };
 
-// Обёртка для сцен с телефоном
+// Обёртка для сцен с телефоном-mockup (у скриншота своя рамка → просто центрируем)
 const PhoneScene: React.FC<{ title: string; sub: string; children: React.ReactNode }> = ({ title, sub, children }) => (
   <AbsoluteFill style={{ background: `radial-gradient(120% 80% at 50% 0%, #14231b 0%, ${C.night} 70%)` }}>
     <Kicker title={title} sub={sub} top={130} />
-    <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 40 }}>
-      <div style={{ transform: 'scale(0.9)' }}>
-        <Phone>{children}</Phone>
-      </div>
+    <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 30 }}>
+      {children}
     </AbsoluteFill>
   </AbsoluteFill>
 );

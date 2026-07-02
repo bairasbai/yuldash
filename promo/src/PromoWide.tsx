@@ -11,7 +11,7 @@ import {
   useVideoConfig,
 } from 'remotion';
 import { C, DISPLAY, BODY } from './theme';
-import { Phone, ScreenMap, ScreenForm, ScreenRequest } from './screens';
+import { Mockup } from './screens';
 
 const Fade: React.FC<{ dur: number; children: React.ReactNode }> = ({ dur, children }) => {
   const f = useCurrentFrame();
@@ -33,8 +33,8 @@ const Logo: React.FC<{ size?: number }> = ({ size = 240 }) => {
   return (
     <div style={{ transform: `scale(${s})` }}>
       <div style={{ position: 'absolute', inset: -36, borderRadius: '50%', background: C.green, opacity: 0.3, filter: 'blur(60px)' }} />
-      <div style={{ position: 'relative', width: size, height: size, borderRadius: '50%', background: C.forest, border: `3px solid ${C.green}55`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Img src={staticFile('logo.png')} style={{ width: size * 0.72, height: size * 0.72, objectFit: 'contain' }} />
+      <div style={{ position: 'relative', width: size, height: size, borderRadius: '50%', background: '#FFFFFF', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Img src={staticFile('logo.png')} style={{ width: size * 0.74, height: size * 0.74, objectFit: 'contain' }} />
       </div>
     </div>
   );
@@ -81,19 +81,19 @@ const SceneShowcase: React.FC = () => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const title = spring({ frame: f - 2, fps, config: { damping: 18 } });
-  const phones = [<ScreenMap key="m" />, <ScreenForm key="f" />, <ScreenRequest key="r" />];
+  const srcs = ['app-map.png', 'app-form.png', 'app-request.png'];
   return (
     <AbsoluteFill style={{ background: `radial-gradient(100% 80% at 50% 0%, #14231b 0%, ${C.night} 70%)` }}>
-      <div style={{ position: 'absolute', top: 60, left: 0, right: 0, textAlign: 'center', opacity: title, transform: `translateY(${interpolate(title, [0, 1], [24, 0])}px)` }}>
+      <div style={{ position: 'absolute', top: 50, left: 0, right: 0, textAlign: 'center', opacity: title, transform: `translateY(${interpolate(title, [0, 1], [24, 0])}px)`, zIndex: 5 }}>
         <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 68, color: C.white }}>Юлдаш изнутри</div>
         <div style={{ fontFamily: BODY, fontWeight: 500, fontSize: 34, color: C.glow, marginTop: 10 }}>Карта · заявка · условия и отклики</div>
       </div>
-      <AbsoluteFill style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 70, paddingTop: 90 }}>
-        {phones.map((p, i) => {
+      <AbsoluteFill style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 60, paddingTop: 120 }}>
+        {srcs.map((src, i) => {
           const s = spring({ frame: f - 10 - i * 8, fps, config: { damping: 16 } });
           return (
-            <div key={i} style={{ opacity: s, transform: `translateY(${interpolate(s, [0, 1], [60, 0])}px) scale(0.62)`, marginTop: i === 1 ? -40 : 0 }}>
-              <Phone>{p}</Phone>
+            <div key={i} style={{ opacity: s, transform: `translateY(${interpolate(s, [0, 1], [60, 0])}px)`, marginTop: i === 1 ? -50 : 0 }}>
+              <Mockup src={src} height={760} />
             </div>
           );
         })}
