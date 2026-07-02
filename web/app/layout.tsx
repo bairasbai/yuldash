@@ -1,18 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Sora } from "next/font/google";
+import { Inter, Unbounded } from "next/font/google";
 import Script from "next/script";
 import { SITE_URL, METRIKA_ID } from "@/components/config";
 import { StructuredData } from "@/components/StructuredData";
 import "./globals.css";
 
+// Body — Inter: латиница + кириллица + расширенная кириллица (башкирские глифы
+// ҡ ғ ҙ һ ә ө ү ң живут в cyrillic-ext, U+0460-052F).
 const inter = Inter({
-  subsets: ["latin", "cyrillic"],
+  subsets: ["latin", "cyrillic", "cyrillic-ext"],
   variable: "--font-sans",
   display: "swap",
 });
 
-const sora = Sora({
-  subsets: ["latin"],
+// Display — Unbounded: трендовый геометрик, ПОЛНОСТЬЮ покрывает башкирский
+// (cyrillic + cyrillic-ext). Прошлый Sora не имел кириллицы вовсе → все
+// RU/BA-заголовки рендерились системным фолбэком (баг типографики).
+const unbounded = Unbounded({
+  subsets: ["latin", "cyrillic", "cyrillic-ext"],
   weight: ["600", "700", "800"],
   variable: "--font-display",
   display: "swap",
@@ -29,7 +34,14 @@ export const metadata: Metadata = {
   applicationName: "Юлдаш",
   authors: [{ name: "Юлдаш" }],
   keywords: ["Юлдаш", "попутки", "Башкортостан", "поездки", "Android", "Yuldash", "карпулинг"],
-  alternates: { canonical: SITE_URL },
+  alternates: {
+    canonical: SITE_URL,
+    languages: {
+      "ru-RU": SITE_URL,
+      "ba-RU": `${SITE_URL}/ba`,
+      "x-default": SITE_URL,
+    },
+  },
   openGraph: {
     title,
     description,
@@ -63,7 +75,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={`${inter.variable} ${sora.variable}`}>
+    <html lang="ru" className={`${inter.variable} ${unbounded.variable}`}>
       <head>
         <StructuredData />
       </head>

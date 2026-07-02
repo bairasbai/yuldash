@@ -14,16 +14,24 @@ export function HeroBackdrop() {
   const reduce = useReducedMotion();
   const [showVideo, setShowVideo] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  // На узком/портретном экране (телефон) landscape-видео пришлось бы сильно
+  // кропить по бокам — теряется дорога. Отдаём вертикальный дубль (Higgsfield,
+  // 720×1280, ~0.3 МБ). Определяем один раз на маунте.
+  const [portrait, setPortrait] = useState(false);
+  useEffect(() => {
+    setPortrait(window.matchMedia("(max-aspect-ratio: 3/4)").matches);
+  }, []);
+  const videoSrc = portrait ? "/hero-vertical.mp4" : "/hero.mp4";
 
-  // Кинофон-видео (5 МБ) — тяжёлое. Грузим ТОЛЬКО на десктопе и быстром
-  // соединении. На телефоне/медленном/save-data — остаётся лёгкий постер (~160K),
-  // чтобы сайт быстро открывался даже на троттлящихся (ТСПУ/DPI) мобильных сетях.
+  // Кинофон-видео сжато до ~0.6 МБ (было 5 МБ) → грузим и на телефоне тоже:
+  // кинематографичный фон на всех устройствах. Пропускаем только при явной
+  // экономии трафика (Save-Data) или медленной сети (2g/3g / ТСПУ-троттлинг) —
+  // там остаётся лёгкий постер (~160K), сайт открывается мгновенно.
   useEffect(() => {
     if (reduce) return;
-    const isDesktop = window.matchMedia("(min-width: 1024px)").matches;
     const conn = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
     const slow = !!conn && (conn.saveData === true || /(^|-)([23])g$/.test(conn.effectiveType || ""));
-    if (!isDesktop || slow) return; // только постер
+    if (slow) return; // только постер на экономном/медленном соединении
 
     const start = () => setShowVideo(true);
     const w = window as Window & {
@@ -64,7 +72,7 @@ export function HeroBackdrop() {
             poster="/hero-poster.jpg"
             onLoadedData={() => setVideoReady(true)}
           >
-            <source src="/hero.mp4" type="video/mp4" />
+            <source src={videoSrc} type="video/mp4" />
           </video>
         )}
       </div>

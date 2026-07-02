@@ -4,10 +4,38 @@
 
 :root {
   --bg: #0a1410;
+
+  /* ===== Дизайн-система v2: fluid-типографика (clamp: min → viewport → max) =====
+     Заголовки сами масштабируются от 360px до 4K без брейкпойнтов. */
+  --fs-display: clamp(2.75rem, 7vw + 1rem, 5rem); /* hero H1 */
+  --fs-h2: clamp(2rem, 4vw + 0.5rem, 3rem); /* заголовки секций */
+  --fs-h3: clamp(1.25rem, 1.5vw + 0.75rem, 1.75rem);
+  --fs-lead: clamp(1rem, 1vw + 0.75rem, 1.25rem);
+
+  /* Вертикальный ритм секций (мобайл → десктоп) */
+  --sp-section: clamp(4rem, 9vw, 7rem);
 }
 
 html {
   scroll-behavior: smooth;
+  /* iOS: не подпрыгивает высота при появлении/скрытии адресной строки */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Fluid-утилиты (подключаются точечно, не ломают текущую вёрстку) */
+.fluid-display {
+  font-size: var(--fs-display);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+}
+.fluid-h2 {
+  font-size: var(--fs-h2);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+}
+/* Красивый перенос заголовков — не оставляет «сироту» в последней строке */
+.text-balance {
+  text-wrap: balance;
 }
 
 /* Якорные секции не заезжают под фиксированную шапку */
@@ -21,6 +49,18 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
+}
+
+/* Заголовки не оставляют «висячее» слово в последней строке (премиум-мелочь).
+   text-wrap: balance трогает только перенос — вёрстку не ломает. */
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+/* Длинные абзацы — красивый ровный «клин» справа */
+p {
+  text-wrap: pretty;
 }
 
 /* Премиум-градиентный текст (зелёный → золото) */
@@ -39,6 +79,30 @@ body {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(127, 227, 171, 0.12);
+}
+
+/* ===== Мобильный перф-слой =====
+   backdrop-filter blur(20px) дорогой для GPU средних телефонов, а .glass-карточек
+   на странице много. На узких экранах режем радиус блюра вдвое — визуально почти
+   не отличается, но прокрутка/анимации остаются 60fps. */
+@media (max-width: 767px) {
+  .glass {
+    backdrop-filter: blur(11px);
+    -webkit-backdrop-filter: blur(11px);
+    background: rgba(25, 36, 32, 0.62); /* чуть плотнее — компенсируем меньший блюр */
+  }
+}
+
+/* Тач-устройства: курсор-эффекты бессмысленны (нет курсора) и тратят GPU.
+   Глушим spotlight-свечение и бегущую рамку — на телефоне их всё равно не видно. */
+@media (hover: none) {
+  .spotlight::before {
+    display: none;
+  }
+  .shine-border {
+    animation: none;
+    opacity: 0.5;
+  }
 }
 
 /* Тонкая зернистость поверх — «дорогой» матовый эффект */

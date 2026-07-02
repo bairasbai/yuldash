@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, ReactNode } from "react";
+import { track } from "./analytics";
 
 export type Lang = "ru" | "ba";
 
@@ -30,7 +31,7 @@ export const dict = {
     "Юлдаш — Башҡортостан буйлап үҙ-ара юлдаштар. Ышаныс, йылы юлдар һәм ғәҙел хаҡ."
   ),
   hero_cta: t("Скачать для Android", "Android өсөн йөкләргә"),
-  hero_cta_sub: t("Бесплатно · APK · ~12 МБ", "Бушлай · APK · ~12 МБ"),
+  hero_cta_sub: t("Бесплатно · APK · ~49 МБ", "Бушлай · APK · ~49 МБ"),
   hero_note: t(
     "После загрузки разреши установку «из этого источника» — это нормально для APK.",
     "Йөкләгәндән һуң «был сығанаҡтан» урынлаштырыуға рөхсәт ит — APK өсөн был ғәҙәти."
@@ -139,6 +140,15 @@ export const dict = {
   how_cta_pass: t("Найти поездку", "Юл табырға"),
   how_cta_driver: t("Стать водителем", "Водитель булырға"),
 
+  // Видео-промо (click-to-play)
+  promo_kicker: t("Смотри вживую", "Терелəй ҡара"),
+  promo_title: t("Юлдаш в движении", "Юлдаш хәрәкәттә"),
+  promo_sub: t(
+    "Полминуты — и видно, как это работает: лента, карта, чат и безопасность.",
+    "Ярты минут — һәм нисек эшләгәне күренә: таҫма, карта, чат һәм именлек."
+  ),
+  promo_play: t("Смотреть ролик", "Ролик ҡарарға"),
+
   // Витрина экранов приложения
   showcase_title: t("Юлдаш изнутри", "Юлдаш эстән"),
   showcase_sub: t(
@@ -200,6 +210,10 @@ export const dict = {
     "Юлдашты йөклә һәм үҙҙәреңә ҡушыл."
   ),
   dl_cta: t("Скачать APK", "APK йөкләргә"),
+  dl_rustore: t("Скачать в RuStore", "RuStore-ҙа йөкләргә"),
+  dl_gplay: t("Google Play", "Google Play"),
+  dl_qr_t: t("Наведи телефон", "Телефонды төҙә"),
+  dl_qr_d: t("Отсканируй код — откроется страница загрузки.", "Кодты сканла — йөкләү бите асыла."),
   dl_steps_t: t("Установка за минуту", "Бер минутта урынлаштырыу"),
   dl_step_1: t("Нажми «Скачать» — начнётся загрузка APK.", "«Йөкләргә» баҫ — APK йөкләнә башлай."),
   dl_step_2: t("Открой файл и разреши установку из этого источника.", "Файлды ас һәм был сығанаҡтан урынлаштырыуға рөхсәт ит."),
@@ -369,8 +383,12 @@ export type DictKey = keyof typeof dict;
 type Ctx = { lang: Lang; setLang: (l: Lang) => void; tr: (k: DictKey) => string };
 const LangCtx = createContext<Ctx | null>(null);
 
-export function LangProvider({ children }: { children: ReactNode }) {
-  const [lang, setLang] = useState<Lang>("ru");
+export function LangProvider({ children, initial = "ru" }: { children: ReactNode; initial?: Lang }) {
+  const [lang, setLangState] = useState<Lang>(initial);
+  const setLang = (l: Lang) => {
+    setLangState(l);
+    track(l === "ba" ? "lang_ba" : "lang_ru"); // цель Метрики: интерес к башкирскому
+  };
   const tr = (k: DictKey) => dict[k][lang];
   return <LangCtx.Provider value={{ lang, setLang, tr }}>{children}</LangCtx.Provider>;
 }

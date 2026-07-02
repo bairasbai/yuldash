@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import AdEvent, Booking, Payment, Ride, User, UserRole
+from ..models import AdEvent, AppReview, Booking, Payment, Ride, User, UserRole
 from ..security import current_user
 from ..services import (
     CHAT_DIR, VOICE_DIR, cache_get_json, cache_set_json,
@@ -69,6 +69,41 @@ def feed(session: Session = Depends(get_session)):
         "donations_total": donate_kop // 100,   # ₽, за всё время
     }
     cache_set_json("feed:v2", result, 60)
+    return result
+
+
+@router.get("/landing-stats")
+def landing_stats(session: Session = Depends(get_session)):
+    """Живые метрики для лендинга (StatsBand) в формате [{value, ru, ba}]. Кеш 300с.
+
+    Честность: пока реальных поездок мало (пре-запуск) — отдаём ПУСТО, и лендинг
+    сам показывает ценностные метрики (0₽ комиссия, 2 языка, SOS 24/7), а не
+    унылые «0 поездок». Как только пойдёт реальное использование (порог ≥15
+    поездок) — цифры сами станут живыми, без правки фронта."""
+    cached = cache_get_json("landing_stats:v1")
+    if cached is not None:
+        return cached
+    rides = session.exec(select(Ride).order_by(Ride.id.desc()).limit(SCAN_LIMIT)).all()
+    if len(rides) < 15:  # пре-запуск → пусть фронт покажет ценностные метрики
+        cache_set_json("landing_stats:v1", [], 300)
+        return []
+    now = utcnow()
+    bookings = session.exec(select(Booking).order_by(Booking.id.desc()).limit(SCAN_LIMIT)).all()
+    reviews = session.exec(select(AppReview).where(AppReview.published == True)).all()  # noqa: E712
+    month_trips = sum(1 for b in bookings if b.created_at and b.created_at >= now - timedelta(days=30))
+    drivers = len({r.driver_id for r in rides})
+    out = [
+        {"value": f"{len(rides)}+", "ru": "поездок опубликовано", "ba": "сәфәр баҫтырылған"},
+        {"value": f"{month_trips}+", "ru": "поездок за месяц", "ba": "айына сәфәр"},
+        {"value": f"{drivers}+", "ru": "водителей рядом", "ba": "янәшә водитель"},
+    ]
+    if reviews:
+        avg = round(sum(r.stars for r in reviews) / len(reviews), 1)
+        out.append({"value": f"{avg} ★", "ru": "средний рейтинг", "ba": "уртаса рейтинг"})
+    else:
+        out.append({"value": "0 ₽", "ru": "комиссия сервиса", "ba": "сервис комиссияһы"})
+    result = out[:4]
+    cache_set_json("landing_stats:v1", result, 300)
     return result
 
 

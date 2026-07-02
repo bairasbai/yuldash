@@ -6,8 +6,21 @@ export const APK_URL = "/yuldash.apk";
 // «скоро» (ловим спрос через Telegram). Положишь APK → поставь true → реальное скачивание.
 export const APP_READY = false;
 
-// Размер для подписи под кнопкой (поправь под реальный вес сборки)
-export const APK_SIZE = "~12 МБ";
+// Каналы скачивания. Пустая строка = канал скрыт (кнопка не показывается).
+// Прямой APK всегда есть (APK_URL). Магазины появятся после публикации —
+// впиши ссылку и кнопка возникнет сама, без правки кода.
+export const STORE_LINKS = {
+  rustore: "", // напр. "https://www.rustore.ru/catalog/app/com.yuldash.app"
+  googlePlay: "", // напр. "https://play.google.com/store/apps/details?id=com.yuldash.app"
+};
+
+// QR со ссылкой на страницу скачивания — для десктопа (навёл телефон → открыл сайт).
+// Сгенерирован в web/public/qr-download.svg (указывает на SITE_URL/#download).
+export const QR_SRC = "/qr-download.svg";
+
+// Размер для подписи под кнопкой (поправь под реальный вес сборки).
+// Релиз с MapKit+Firebase ≈ 49 МБ (docs/tasks.md).
+export const APK_SIZE = "~49 МБ";
 
 // Базовый URL сайта (для OG/robots/sitemap). Поменяй, если лендинг на поддомене.
 export const SITE_URL = "https://yulbash.ru";
@@ -51,8 +64,10 @@ export const METRIKA_ID = "110209427";
 // Бэкенд должен отдать JSON: [{ "value": "1 200+", "ru": "...", "ba": "..." }, ...]
 // (или { "items": [...] }). Числа форматируй на сервере; фронт сам сделает count-up.
 // Пусто → используется LIVE_STATS ниже, а если и он пуст — честные ценностные метрики.
-// Пример контракта: GET https://yulbash.ru/api/landing-stats
-export const STATS_API = "";
+// Эндпоинт бэкенда GET /landing-stats (backend/app/routers/content.py) отдаёт
+// [{value,ru,ba}]. Пре-запуск → пустой массив → фронт покажет ценностные метрики.
+// Относительный путь (nginx: статика + fallback на FastAPI). Fetch не удался → тоже фолбэк.
+export const STATS_API = "/landing-stats";
 
 // Живые отзысы о приложении с сервера (бэкенд-эндпоинт /reviews/public — только одобренные).
 // Отдаёт JSON-массив: [{ "name": "...", "city": "...", "stars": 5, "text": "..." }, ...]
