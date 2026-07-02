@@ -80,6 +80,12 @@ def ads(city: Optional[str] = None, placement: Optional[str] = None, session: Se
     now = utcnow()
     rows = session.exec(select(Ad).where(Ad.status == "active")).all()
     live = [a for a in rows if _is_live(a, now)]
+    # Гейт оплаты для партнёрских (self-serve) объявлений: показываем только оплаченные.
+    # Админские (owner_id=None) — как раньше (публикуются админом/подтверждением оплаты).
+    partner_ids = [a.id for a in live if a.owner_id is not None]
+    if partner_ids:
+        paid = _paid_ad_ids(session, partner_ids)
+        live = [a for a in live if a.owner_id is None or a.id in paid]
     if city:
         live = [a for a in live if not _csv(a.cities) or city in _csv(a.cities)]
     if placement:
@@ -188,6 +194,17 @@ def _is_paid(session: Session, ad_id: int) -> bool:
     return row is not None
 
 
+def _paid_ad_ids(session: Session, ad_ids: list) -> set:
+    """Множество ad_id с подтверждённой оплатой рекламы (батч, чтобы не дёргать БД по одному)."""
+    if not ad_ids:
+        return set()
+    return set(session.exec(
+        select(Payment.ad_id).where(
+            Payment.purpose == "ad", Payment.ad_id.in_(ad_ids), Payment.status == "succeeded"
+        )
+    ).all())
+
+
 def _apply_package(ad: Ad, code: str) -> None:
     """Проставить тариф из конфига (места показа/цена/срок фиксируются при выборе пакета)."""
     pkg = AD_PACKAGES.get(code)
@@ -279,6 +296,36 @@ def ad_submit(ad_id: int, user: User = Depends(current_user), session: Session =
     return _ad_mine(ad, _is_paid(session, ad.id))
 
 
+@router.post("/ads/{ad_id}/pay")
+def ad_pay(ad_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Партнёр создаёт заявку на оплату СВОЕГО размещения (СБП «на доверии», подтверждает админ).
+    Доступно после одобрения модерацией. В эфир объявление пойдёт, когда админ подтвердит оплату."""
+    ad = session.get(Ad, ad_id)
+    if not ad or ad.owner_id != user.id:
+        raise HTTPException(404, "Объявление не найдено")
+    if ad.status != "active":
+        raise HTTPException(409, "Оплата доступна после одобрения модерацией")
+    if ad.budget_kop <= 0:
+        raise HTTPException(422, "У объявления не выбран тариф")
+    if _is_paid(session, ad.id):
+        raise HTTPException(409, "Уже оплачено")
+    # Идемпотентность: повторное нажатие «Оплатить» не плодит заявки — возвращаем существующую pending.
+    existing = session.exec(
+        select(Payment).where(Payment.purpose == "ad", Payment.ad_id == ad.id, Payment.status == "pending")
+    ).first()
+    if existing:
+        return {"payment_id": existing.id, "amount_kop": existing.amount_kop, "status": "pending"}
+    payment = Payment(user_id=user.id, purpose="ad", ad_id=ad.id, amount_kop=ad.budget_kop, status="pending")
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    try:
+        notify_admin_telegram(f"💳 Оплата рекламы: «{ad.title}» {ad.budget_kop // 100} ₽ от {user.name or 'партнёра'}. Сверь карту → подтверди.")
+    except Exception:
+        pass
+    return {"payment_id": payment.id, "amount_kop": ad.budget_kop, "status": "pending"}
+
+
 # ---------- Админ ----------
 
 def _require_admin(user: User) -> None:
@@ -313,8 +360,10 @@ def _founder_slots_used(session: Session) -> int:
     return len(rows)
 
 
-def _admin_view(ad: Ad, now: datetime) -> dict:
+def _admin_view(ad: Ad, now: datetime, paid: bool = False) -> dict:
     d = _ad_public(ad)
+    # партнёрское объявление живо только оплаченным; админское (owner_id=None) — как раньше
+    live = _is_live(ad, now) and (ad.owner_id is None or paid)
     d.update({
         "partner_contact": ad.partner_contact,
         "founder_lock": ad.founder_lock,
@@ -323,7 +372,8 @@ def _admin_view(ad: Ad, now: datetime) -> dict:
         "reject_reason": ad.reject_reason,      # для админ-UI (что писали при отказе)
         "owner_id": ad.owner_id,                # чьё объявление (партнёр-самосервис или админское null)
         "package": ad.package,
-        "live": _is_live(ad, now),
+        "paid": paid,
+        "live": live,
         "expired": ad.ends_at is not None and ad.ends_at <= now,
         "starts_at": ad.starts_at.isoformat() if ad.starts_at else None,
         "ends_at": ad.ends_at.isoformat() if ad.ends_at else None,
@@ -339,10 +389,11 @@ def admin_ads(user: User = Depends(current_user), session: Session = Depends(get
     now = utcnow()
     rows = session.exec(select(Ad).where(Ad.status != "archived")).all()
     rows.sort(key=lambda a: a.created_at or now, reverse=True)
+    paid = _paid_ad_ids(session, [a.id for a in rows])
     return {
         "founder_used": _founder_slots_used(session),
         "founder_limit": FOUNDER_LIMIT,
-        "items": [_admin_view(a, now) for a in rows],
+        "items": [_admin_view(a, now, a.id in paid) for a in rows],
     }
 
 

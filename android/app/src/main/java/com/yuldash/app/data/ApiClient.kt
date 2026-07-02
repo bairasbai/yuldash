@@ -1014,6 +1014,10 @@ object ApiClient {
     suspend fun submitMyAd(id: String): Result<MyAdDto> =
         call("POST", "/ads/$id/submit", null, auth = true).map { parseMyAd(it) }
 
+    /** Создать заявку на оплату своего размещения (после одобрения). Возвращает сумму в копейках. */
+    suspend fun payAd(id: String): Result<Int> =
+        call("POST", "/ads/$id/pay", null, auth = true).map { it.optInt("amount_kop") }
+
     // ---------- Активная поездка: поделиться / статус ----------
 
     suspend fun shareTrip(bookingId: Int, contactId: Int): Result<Unit> =

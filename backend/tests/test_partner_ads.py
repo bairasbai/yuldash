@@ -141,3 +141,39 @@ def test_moderation_admin_only(client, user_factory):
     # обычный юзер не модерирует
     assert client.post(f"/admin/ads/{ad_id}/approve", headers=owner["auth"], json={}).status_code == 403
     assert client.post(f"/admin/ads/{ad_id}/reject", headers=owner["auth"], json={"reason": "x"}).status_code == 403
+
+
+# ---------- Ф4: оплата своего размещения ----------
+
+def test_ad_pay_gates_visibility(client, user_factory):
+    owner = user_factory(name="Партнёр")
+    admin = user_factory(name="Админ", role=UserRole.admin)
+    ad = client.post("/ads", headers=owner["auth"], json={"title": "Кафе Плюс", "package": "city"}).json()
+    client.post(f"/ads/{ad['id']}/submit", headers=owner["auth"])
+    client.post(f"/admin/ads/{ad['id']}/approve", headers=admin["auth"], json={"erid": "2Ru-X"})
+    # одобрено, но НЕ оплачено → в публичной выдаче /ads НЕТ
+    assert all(x["id"] != ad["id"] for x in client.get("/ads").json())
+    assert next(x for x in client.get("/ads/mine", headers=owner["auth"]).json() if x["id"] == ad["id"])["paid"] is False
+    # партнёр создаёт заявку на оплату
+    pay = client.post(f"/ads/{ad['id']}/pay", headers=owner["auth"])
+    assert pay.status_code == 200 and pay.json()["amount_kop"] > 0
+    pid = pay.json()["payment_id"]
+    # пока не подтверждено — всё ещё не видно
+    assert all(x["id"] != ad["id"] for x in client.get("/ads").json())
+    # админ подтверждает оплату → объявление в эфире
+    assert client.post(f"/admin/payments/{pid}/confirm", headers=admin["auth"]).status_code == 200
+    assert any(x["id"] == ad["id"] for x in client.get("/ads").json())
+    assert next(x for x in client.get("/ads/mine", headers=owner["auth"]).json() if x["id"] == ad["id"])["paid"] is True
+
+
+def test_ad_pay_before_approval_409(client, user_factory):
+    owner = user_factory()
+    ad = client.post("/ads", headers=owner["auth"], json={"title": "Рано", "package": "city"}).json()
+    assert client.post(f"/ads/{ad['id']}/pay", headers=owner["auth"]).status_code == 409  # ещё draft
+
+
+def test_ad_pay_others_404(client, user_factory):
+    a = user_factory()
+    b = user_factory()
+    ad = client.post("/ads", headers=a["auth"], json={"title": "Чужое", "package": "city"}).json()
+    assert client.post(f"/ads/{ad['id']}/pay", headers=b["auth"]).status_code == 404

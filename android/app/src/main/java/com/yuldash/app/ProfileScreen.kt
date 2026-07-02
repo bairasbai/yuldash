@@ -860,10 +860,12 @@ internal fun AdsCabinetScreen(
     var packages by remember { mutableStateOf<List<AdPackageDto>>(emptyList()) }
     var reloadKey by remember { mutableStateOf(0) }
     var submittingId by remember { mutableStateOf<String?>(null) }
+    var payingAd by remember { mutableStateOf<MyAdDto?>(null) }
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     val errLoad = appText("Не удалось загрузить кабинет", "Кабинетты йөкләп булманы")
     val errSubmit = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
+    val errPay = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сеткәне тикшер, ҡабатла.")
     LaunchedEffect(reloadKey) {
         loading = true; error = null
         ApiClient.getAdPackages().onSuccess { packages = it }
@@ -916,10 +918,25 @@ internal fun AdsCabinetScreen(
                                     }
                             }
                         },
+                        onPay = {
+                            scope.launch {
+                                ApiClient.payAd(ad.id)
+                                    .onSuccess { payingAd = ad }
+                                    .onFailure { Toast.makeText(ctx, errPay, Toast.LENGTH_SHORT).show() }
+                            }
+                        },
                     )
                 }
             }
         }
+    }
+    // Лист СБП для оплаты своего размещения (переиспользуем общий SbpTransferSheet с QR).
+    payingAd?.let { ad ->
+        SbpTransferSheet(
+            amountRub = ad.budgetKop / 100,
+            onPaid = { payingAd = null; reloadKey++ },
+            onDismiss = { payingAd = null },
+        )
     }
 }
 
@@ -939,7 +956,7 @@ private fun AdStatusBadge(status: String) {
 }
 
 @Composable
-private fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSubmit: () -> Unit) {
+private fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSubmit: () -> Unit, onPay: () -> Unit) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -970,7 +987,20 @@ private fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSub
                 }
             }
             if (ad.status == "active" && !ad.paid) {
-                Text(appText("Ждём подтверждение оплаты.", "Түләүҙе раҫлауҙы көтәбеҙ."), color = CanonWarn, fontSize = 12.sp)
+                Text(appText("Одобрено! Оплати размещение — и объявление пойдёт в показы.", "Раҫланды! Урынлаштырыуҙы түлә — иғлан күрһәтелә башлай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                Button(
+                    onClick = onPay,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                ) {
+                    Icon(Icons.Default.Payments, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(appText("Оплатить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы түләү · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Black, color = Color.White)
+                }
+            }
+            if (ad.status == "active" && ad.paid) {
+                Text(appText("Оплачено · объявление показывается.", "Түләнде · иғлан күрһәтелә."), color = CanonGreen2, fontSize = 12.sp)
             }
             if (ad.status == "draft" || ad.status == "rejected") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
