@@ -34,7 +34,7 @@ function PhoneShot({ src, label, delay, float }: { src: string; label: string; d
           width={232}
           height={500}
           sizes="232px"
-          className="h-[500px] w-auto rounded-[30px] object-contain drop-shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
+          className="h-[500px] w-auto rounded-[22px] object-contain drop-shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
         />
       </motion.div>
       <div className="mt-5 text-sm font-semibold text-white/70">{label}</div>
