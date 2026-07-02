@@ -26,16 +26,15 @@ const RoadBg: React.FC<{ opacity?: number }> = ({ opacity = 1 }) => (
   </AbsoluteFill>
 );
 
+// Логотип-знак без «блюдца»: сам пин + мягкое свечение-ореол + тень.
 const Logo: React.FC<{ size?: number }> = ({ size = 200 }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const s = spring({ frame: f, fps, config: { damping: 12, mass: 0.7 } });
   return (
-    <div style={{ transform: `scale(${s})` }}>
-      <div style={{ position: 'absolute', inset: -36, borderRadius: '50%', background: C.green, opacity: 0.3, filter: 'blur(60px)' }} />
-      <div style={{ position: 'relative', width: size, height: size, borderRadius: '50%', background: '#FFFFFF', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Img src={staticFile('logo.png')} style={{ width: size * 0.84, height: size * 0.84, objectFit: 'contain' }} />
-      </div>
+    <div style={{ position: 'relative', transform: `scale(${s})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'absolute', width: size * 1.9, height: size * 1.9, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.62) 0%, rgba(255,255,255,0.18) 36%, rgba(255,255,255,0) 66%)', filter: 'blur(16px)' }} />
+      <Img src={staticFile('logo.png')} style={{ position: 'relative', width: size, height: size, objectFit: 'contain', filter: 'drop-shadow(0 10px 26px rgba(0,0,0,0.45))' }} />
     </div>
   );
 };
