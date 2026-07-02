@@ -1,0 +1,10 @@
+[Unit]
+Description=Yuldash retention cleanup (chat messages+media, tokens, old trips)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=yuldash
+WorkingDirectory=/opt/yuldash
+ExecStart=/opt/yuldash/.venv/bin/python -m app.cleanup
+Nice=10

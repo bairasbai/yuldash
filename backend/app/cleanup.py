@@ -1,0 +1,126 @@
+# -*- coding: utf-8 -*-
+"""Ретеншен-чистка: убираем ЭФЕМЕРНОЕ (сообщения+медиа, коды входа, протухшие токены,
+события рекламы, старые завершённые поездки), БЕРЕЖЁМ важное (аккаунты, профили водителей,
+доверенные контакты, блок-лист, рейтинги, отзывы, рекламу, платежи, открытые SOS).
+
+Запуск:
+    python -m app.cleanup            # реальная чистка
+    python -m app.cleanup --dry-run  # только показать, сколько удалилось бы (ничего не трогает)
+
+Свойства: идемпотентно (можно гонять хоть каждый день), безопасно по внешним ключам
+(дети раньше родителей + NOT EXISTS-гарды, чтобы не осиротить рейтинги/платежи/SOS),
+кросс-диалектно (даты — параметром, работает и на Postgres, и на sqlite)."""
+import os
+import sys
+import time
+from datetime import timedelta
+
+from sqlalchemy import text
+
+from .db import engine
+from .services import CHAT_DIR, VOICE_DIR
+from .timeutil import utcnow
+
+DRY = "--dry-run" in sys.argv
+
+# Окна хранения (дни). Аккаунты/репутация/финансы/безопасность-контакты НЕ входят — они вечны.
+MSG_DAYS = 30        # сообщения чата (главный объём)
+MEDIA_DAYS = 35      # файлы фото/голос на диске (запас к сообщениям)
+OTP_DAYS = 1         # коды входа (живут минуты)
+TG_DAYS = 1          # telegram-сессии входа
+UPLOAD_DAYS = 2      # события загрузки (квота 24ч)
+TOKEN_DAYS = 1       # протухшие/отозванные refresh-токены
+ADEVENT_DAYS = 90    # показы/клики рекламы (поштучно потом не нужны)
+SOS_DAYS = 180       # ТОЛЬКО закрытые (handled) SOS; открытые не трогаем
+REPORT_DAYS = 180    # жалобы (история модерации)
+TRIP_DAYS = 180      # старые завершённые поездки/заявки — только без рейтингов/платежей/SOS
+
+
+def _rules(now):
+    """Список (метка, таблица, WHERE, параметры). Порядок ВАЖЕН: дети раньше родителей."""
+    def cut(days):
+        return now - timedelta(days=days)
+    return [
+        # --- Фаза 1: эфемерное (безопасно, основной объём) ---
+        ("сообщения чата >30д", "message", "created_at < :c", {"c": cut(MSG_DAYS)}),
+        ("коды входа (OTP) >1д", "otpcode", "created_at < :c", {"c": cut(OTP_DAYS)}),
+        ("telegram-сессии >1д", "tgauth", "created_at < :c", {"c": cut(TG_DAYS)}),
+        ("события загрузок >2д", "uploadevent", "created_at < :c", {"c": cut(UPLOAD_DAYS)}),
+        ("протухшие refresh-токены",
+         "refreshtoken", "(revoked = true OR expires_at < :now) AND created_at < :c",
+         {"now": now, "c": cut(TOKEN_DAYS)}),
+        ("показы/клики рекламы >90д", "adevent", "created_at < :c", {"c": cut(ADEVENT_DAYS)}),
+        # --- Фаза 2: старое завершённое (осторожно, с гардами) ---
+        ("закрытые SOS >180д", "sosevent", "status = 'handled' AND created_at < :c", {"c": cut(SOS_DAYS)}),
+        ("жалобы >180д", "report", "created_at < :c", {"c": cut(REPORT_DAYS)}),
+        ("расшаренные поездки >180д", "tripshare", "created_at < :c", {"c": cut(TRIP_DAYS)}),
+        ("отклики на заявки >180д", "requestresponse", "created_at < :c", {"c": cut(TRIP_DAYS)}),
+        ("завершённые заявки >180д",
+         "riderequest",
+         "status <> 'active' AND created_at < :c "
+         "AND NOT EXISTS (SELECT 1 FROM requestresponse rr WHERE rr.request_id = riderequest.id)",
+         {"c": cut(TRIP_DAYS)}),
+        # Брони: только done/cancelled, старые, и БЕЗ рейтинга/SOS/шеринга/сообщений (репутацию/безопасность бережём).
+        ("завершённые брони >180д",
+         "booking",
+         "status IN ('done', 'cancelled') AND created_at < :c "
+         "AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.booking_id = booking.id) "
+         "AND NOT EXISTS (SELECT 1 FROM sosevent se WHERE se.booking_id = booking.id) "
+         "AND NOT EXISTS (SELECT 1 FROM tripshare ts WHERE ts.booking_id = booking.id) "
+         "AND NOT EXISTS (SELECT 1 FROM message m WHERE m.booking_id = booking.id)",
+         {"c": cut(TRIP_DAYS)}),
+        # Поездки: старые cancelled/done БЕЗ броней и платежей (финансы бережём; у done обычно есть брони → пропустятся).
+        ("старые поездки без броней/платежей >180д",
+         "ride",
+         "status IN ('cancelled', 'done') AND created_at < :c "
+         "AND NOT EXISTS (SELECT 1 FROM booking b WHERE b.ride_id = ride.id) "
+         "AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.ride_id = ride.id)",
+         {"c": cut(TRIP_DAYS)}),
+    ]
+
+
+def _clean_media():
+    """Удаляем файлы фото/голос старше MEDIA_DAYS (по времени модификации). Драйвер-доки НЕ трогаем."""
+    cutoff = time.time() - MEDIA_DAYS * 86400
+    removed, freed = 0, 0
+    for d in (VOICE_DIR, CHAT_DIR):
+        if not os.path.isdir(d):
+            continue
+        for name in os.listdir(d):
+            path = os.path.join(d, name)
+            try:
+                if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                    size = os.path.getsize(path)
+                    if not DRY:
+                        os.remove(path)
+                    removed += 1
+                    freed += size
+            except OSError:
+                pass
+    verb = "удалилось бы" if DRY else "удалено"
+    print(f"  медиа-файлы (фото/голос >35д): {verb} {removed} шт, {freed // (1024 * 1024)} МБ")
+
+
+def main():
+    now = utcnow()
+    mode = "СУХОЙ ПРОГОН (ничего не удаляется)" if DRY else "РЕАЛЬНАЯ чистка"
+    print(f"=== Ретеншен-чистка Юлдаш · {mode} · {now.isoformat()} ===")
+    total = 0
+    for label, table, where, params in _rules(now):
+        try:
+            with engine.begin() as conn:
+                if DRY:
+                    n = conn.execute(text(f"SELECT count(*) FROM {table} WHERE {where}"), params).scalar() or 0
+                    print(f"  {label}: удалилось бы {n}")
+                else:
+                    n = conn.execute(text(f"DELETE FROM {table} WHERE {where}"), params).rowcount
+                    print(f"  {label}: удалено {n}")
+                total += n
+        except Exception as e:  # одна таблица упала — не роняем всю чистку
+            print(f"  {label}: ОШИБКА {type(e).__name__}: {e}")
+    _clean_media()
+    print(f"=== Итог: строк {'к удалению' if DRY else 'удалено'} — {total} ===")
+
+
+if __name__ == "__main__":
+    main()
