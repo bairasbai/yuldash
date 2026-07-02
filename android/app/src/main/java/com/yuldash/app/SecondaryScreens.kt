@@ -129,7 +129,6 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Sos
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
@@ -381,7 +380,8 @@ internal fun SafetyScreen(
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = CanonDangerBg, shape = RoundedCornerShape(18.dp)) {
                             Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.Sos, contentDescription = null, tint = CanonRed, modifier = Modifier.size(34.dp))
+                                // Sos-иконка сама рисует «SOS» → с Text("SOS") был дубль. Щит (как кнопка SOS).
+                                Icon(Icons.Default.Shield, contentDescription = appText("Экстренный вызов", "Ашығыс саҡырыу"), tint = CanonRed, modifier = Modifier.size(34.dp))
                                 Text("SOS", color = CanonRed, fontWeight = FontWeight.Black)
                             }
                         }
