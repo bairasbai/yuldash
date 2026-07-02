@@ -22,6 +22,17 @@ router = APIRouter(tags=["ads"])
 FOUNDER_LIMIT = 10
 PLAN_PRIORITY = {"premium": 30, "standard": 20, "founder": 10}
 
+# Тарифы размещения рекламы (self-serve кабинет партнёра). Цены — стартовая гипотеза,
+# меняются ЗДЕСЬ без пересборки клиента. amount_kop — стоимость за period_days.
+# placements — куда крутится объявление (CSV, см. Ad.placements). Порядок = порядок показа в кабинете.
+AD_PACKAGES = {
+    "city":  {"title": "Город",           "title_ba": "Ҡала",        "amount_kop": 100_000, "period_days": 30, "placements": "nearby,profile"},
+    "route": {"title": "Маршрут",         "title_ba": "Маршрут",     "amount_kop": 300_000, "period_days": 30, "placements": "route,ridesList"},
+    "main":  {"title": "Главный партнёр", "title_ba": "Төп партнёр", "amount_kop": 800_000, "period_days": 30, "placements": "route,ridesList,nearby,tripDetails"},
+}
+# Статусы объявления, которые партнёр может редактировать (черновик / после отказа).
+AD_EDITABLE_STATUSES = ("draft", "rejected")
+
 
 def _csv(s: str) -> List[str]:
     return [x.strip() for x in (s or "").split(",") if x.strip()]

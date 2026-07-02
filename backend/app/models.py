@@ -45,10 +45,10 @@ class User(SQLModel, table=True):
     role: UserRole = UserRole.passenger
     language: str = "ru"
     verified: bool = False
+    is_advertiser: bool = False  # рекламодатель: владеет ≥1 объявлением → открывается кабинет партнёра
     # OAuth / Социальные сети
     telegram_id: Optional[str] = Field(default=None, index=True, unique=True)
-    vk_id: Optional[str] = Field(default=None, index=True, unique=True)
-    whatsapp_verified: bool = False
+    # (vk_id / whatsapp_verified удалены — мёртвые колонки, дропнуты миграцией 0002; вход через Telegram-код)
     # Выход/ревокация: токены, выпущенные ДО этого момента, считаются недействительными
     # (logout «со всех устройств», смена/угон телефона). Сравнивается с `iat` токена.
     tokens_valid_from: Optional[datetime] = None
@@ -350,6 +350,13 @@ class Ad(SQLModel, table=True):
     priority: int = Field(default=0, index=True)  # выше = раньше (premium больше)
     starts_at: datetime = Field(default_factory=utcnow)
     ends_at: Optional[datetime] = None       # null = бессрочно (founder)
-    status: str = Field(default="draft", index=True)  # draft/active/paused/expired/archived
-    created_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    status: str = Field(default="draft", index=True)  # draft/pending_review/active/paused/expired/archived/rejected
+    reject_reason: str = ""                   # причина отказа модерации (партнёр видит), если status=rejected
+    package: str = Field(default="")          # код тарифа: city/route/main (см. AD_PACKAGES); пусто = не выбран
+    budget_kop: int = 0                       # стоимость размещения в копейках (из пакета, фиксируется при сабмите)
+    period_days: int = 0                      # срок размещения в днях (из пакета)
+    owner_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)  # партнёр-владелец; null = ничьё (видит только админ)
+    created_by: Optional[int] = Field(default=None, foreign_key="user.id")  # кто создал запись (партнёр или админ)
+    submitted_at: Optional[datetime] = None   # когда отправлено на модерацию
+    reviewed_at: Optional[datetime] = None    # когда админ одобрил/отклонил
     created_at: datetime = Field(default_factory=utcnow)

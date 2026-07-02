@@ -43,7 +43,7 @@
 - Все состояния (skeleton/empty/error+retry), два языка через `appText` (черновой ба → раздел «Переводы на проверку»), тёмная тема, Canon-цвета/формы, анимации появления/статусов. Новый `enum Screen` + ветки в `YuldashApp()`.
 
 ### Фазы (каждая = зелёная сборка + деплой, не ломаем рабочее)
-- **Ф0 — Схема+идентичность (бэкенд):** поля `Ad.owner_id/reject_reason/package/budget_kop/period_days/submitted_at/reviewed_at`, статусы pending_review/rejected, `User.is_advertiser`, `AD_PACKAGES` конфиг, миграция. UI без изменений. pytest.
+- **✅ Ф0 — Схема+идентичность (бэкенд) — ГОТОВО 2026-07-02:** поля `Ad.owner_id/reject_reason/package/budget_kop/period_days/submitted_at/reviewed_at`, статусы pending_review/rejected, `User.is_advertiser`, `AD_PACKAGES`+`AD_EDITABLE_STATUSES` (ads.py), Alembic-ревизия `0003_partner_ads_columns` (идемпотентная). Попутно: убрал мёртвые `User.vk_id/whatsapp_verified` (модель рассинхронилась с миграцией 0002 → `alembic upgrade` падал на чистой SQLite; см. lessons). Проверка: pytest **150 passed / 1 skipped**, `alembic upgrade head` на чистой sqlite зелёный (0001→0002→0003). UI не трогал.
 - **Ф1 — Партнёрские read + гейт:** `GET /ads/mine`, `GET /ad-packages`; кабинет становится реальным для advertiser (свои объявления + статусы), для остальных — витрина; демо-список чужих убрать.
 - **Ф2 — Создать/редактировать/сабмит:** `POST /ads`, `PATCH /ads/{id}`, `/submit` + пуш админу; `AdEditorScreen`.
 - **Ф3 — Модерация с причиной:** admin approve/reject+reason + пуш партнёру; расширить `AdminAdsScreen`.
