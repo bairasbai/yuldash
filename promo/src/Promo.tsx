@@ -28,7 +28,7 @@ const RoadBg: React.FC<{ opacity?: number }> = ({ opacity = 1 }) => (
   </AbsoluteFill>
 );
 
-const Logo: React.FC<{ size?: number }> = ({ size = 300 }) => {
+const Logo: React.FC<{ size?: number }> = ({ size = 250 }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const s = spring({ frame: f, fps, config: { damping: 12, mass: 0.7 } });
@@ -36,7 +36,7 @@ const Logo: React.FC<{ size?: number }> = ({ size = 300 }) => {
     <div style={{ transform: `scale(${s})` }}>
       <div style={{ position: 'absolute', inset: -40, borderRadius: '50%', background: C.green, opacity: 0.3, filter: 'blur(70px)' }} />
       <div style={{ position: 'relative', width: size, height: size, borderRadius: '50%', background: '#FFFFFF', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Img src={staticFile('logo.png')} style={{ width: size * 0.74, height: size * 0.74, objectFit: 'contain' }} />
+        <Img src={staticFile('logo.png')} style={{ width: size * 0.84, height: size * 0.84, objectFit: 'contain' }} />
       </div>
     </div>
   );
@@ -103,7 +103,7 @@ const SceneCTA: React.FC = () => {
     <AbsoluteFill>
       <RoadBg opacity={0.3} />
       <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 26 }}>
-        <Logo size={220} />
+        <Logo size={190} />
         <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 92, color: C.white, letterSpacing: -2, opacity: s }}>Доедем вместе</div>
         <div style={{ fontFamily: BODY, fontWeight: 500, fontSize: 42, color: C.mint, opacity: s }}>Скачай Юлдаш — присоединяйся к своим</div>
         <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 16, background: C.green, borderRadius: 44, padding: '28px 56px', opacity: btn, transform: `scale(${interpolate(btn, [0, 1], [0.85, 1])})`, boxShadow: `0 20px 60px ${C.green}66` }}>

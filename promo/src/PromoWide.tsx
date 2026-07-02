@@ -26,7 +26,7 @@ const RoadBg: React.FC<{ opacity?: number }> = ({ opacity = 1 }) => (
   </AbsoluteFill>
 );
 
-const Logo: React.FC<{ size?: number }> = ({ size = 240 }) => {
+const Logo: React.FC<{ size?: number }> = ({ size = 200 }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const s = spring({ frame: f, fps, config: { damping: 12, mass: 0.7 } });
@@ -34,7 +34,7 @@ const Logo: React.FC<{ size?: number }> = ({ size = 240 }) => {
     <div style={{ transform: `scale(${s})` }}>
       <div style={{ position: 'absolute', inset: -36, borderRadius: '50%', background: C.green, opacity: 0.3, filter: 'blur(60px)' }} />
       <div style={{ position: 'relative', width: size, height: size, borderRadius: '50%', background: '#FFFFFF', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Img src={staticFile('logo.png')} style={{ width: size * 0.74, height: size * 0.74, objectFit: 'contain' }} />
+        <Img src={staticFile('logo.png')} style={{ width: size * 0.84, height: size * 0.84, objectFit: 'contain' }} />
       </div>
     </div>
   );
@@ -84,16 +84,16 @@ const SceneShowcase: React.FC = () => {
   const srcs = ['app-map.png', 'app-form.png', 'app-request.png'];
   return (
     <AbsoluteFill style={{ background: `radial-gradient(100% 80% at 50% 0%, #14231b 0%, ${C.night} 70%)` }}>
-      <div style={{ position: 'absolute', top: 50, left: 0, right: 0, textAlign: 'center', opacity: title, transform: `translateY(${interpolate(title, [0, 1], [24, 0])}px)`, zIndex: 5 }}>
-        <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 68, color: C.white }}>Юлдаш изнутри</div>
-        <div style={{ fontFamily: BODY, fontWeight: 500, fontSize: 34, color: C.glow, marginTop: 10 }}>Карта · заявка · условия и отклики</div>
+      <div style={{ position: 'absolute', top: 46, left: 0, right: 0, textAlign: 'center', opacity: title, transform: `translateY(${interpolate(title, [0, 1], [24, 0])}px)`, zIndex: 5 }}>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 66, color: C.white }}>Юлдаш изнутри</div>
+        <div style={{ fontFamily: BODY, fontWeight: 500, fontSize: 33, color: C.glow, marginTop: 10 }}>Карта · заявка · условия и отклики</div>
       </div>
-      <AbsoluteFill style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 60, paddingTop: 120 }}>
+      <AbsoluteFill style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 56, paddingTop: 250 }}>
         {srcs.map((src, i) => {
           const s = spring({ frame: f - 10 - i * 8, fps, config: { damping: 16 } });
           return (
-            <div key={i} style={{ opacity: s, transform: `translateY(${interpolate(s, [0, 1], [60, 0])}px)`, marginTop: i === 1 ? -50 : 0 }}>
-              <Mockup src={src} height={760} />
+            <div key={i} style={{ opacity: s, transform: `translateY(${interpolate(s, [0, 1], [60, 0])}px)` }}>
+              <Mockup src={src} height={700} />
             </div>
           );
         })}

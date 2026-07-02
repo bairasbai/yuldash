@@ -26,7 +26,7 @@ export const Mockup: React.FC<{ src: string; height?: number }> = ({ src, height
   return (
     <div style={{ position: 'relative', opacity: rise, transform: `translateY(${y}px) scale(${scale})` }}>
       <div style={{ position: 'absolute', inset: 40, borderRadius: 120, background: C.green, opacity: 0.22, filter: 'blur(90px)' }} />
-      <Img src={staticFile(src)} style={{ position: 'relative', height, width: 'auto', borderRadius: height * 0.04, filter: 'drop-shadow(0 50px 120px rgba(0,0,0,0.55))' }} />
+      <Img src={staticFile(src)} style={{ position: 'relative', height, width: 'auto', borderRadius: height * 0.052, filter: 'drop-shadow(0 50px 120px rgba(0,0,0,0.55))' }} />
     </div>
   );
 };
