@@ -1,38 +1,21 @@
 "use client";
 
-import { motion, useMotionValue, useSpring, useTransform, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 
-// Телефон в hero — РЕАЛЬНЫЙ скриншот главного экрана приложения (карта «Куда поедем?»)
-// в готовой рамке. Премиум-микроинтеракция: лёгкий 3D-тилт за курсором + свечение.
+// Телефон в hero — РЕАЛЬНЫЙ скриншот главного экрана приложения (карта «Куда поедем?»).
+// БЕЗ 3D (preserve-3d): на iOS Safari картинка внутри 3D-контекста не декодировалась
+// → app-map «терялся» (и в hero, и в витрине — тот же ресурс). Только 2D-подъём + свечение.
 export function HeroPhone() {
   const reduce = useReducedMotion();
-  const mx = useMotionValue(0);
-  const my = useMotionValue(0);
-  const spring = { stiffness: 150, damping: 18 };
-  const rotateX = useSpring(useTransform(my, [-0.5, 0.5], [6, -6]), spring);
-  const rotateY = useSpring(useTransform(mx, [-0.5, 0.5], [-8, 8]), spring);
-  const onMove = (e: React.MouseEvent) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    mx.set((e.clientX - r.left) / r.width - 0.5);
-    my.set((e.clientY - r.top) / r.height - 0.5);
-  };
-  const onLeave = () => {
-    mx.set(0);
-    my.set(0);
-  };
-
   return (
-    <div
-      onMouseMove={reduce ? undefined : onMove}
-      onMouseLeave={reduce ? undefined : onLeave}
-      style={{ perspective: 1100 }}
-      className="relative"
-    >
+    <div className="relative">
       {/* свечение под телефоном */}
       <div className="pointer-events-none absolute inset-6 -z-10 rounded-[60px] bg-green-bright/20 blur-3xl" />
-      <motion.div style={reduce ? undefined : { rotateX, rotateY, transformStyle: "preserve-3d" }}>
-        {/* Обычный <img> (не next/image): внутри трансформ-контейнера lazy-загрузка
-            next/image глючит на iOS Safari (IntersectionObserver не срабатывает). */}
+      <motion.div
+        whileHover={reduce ? undefined : { y: -10, scale: 1.015 }}
+        transition={{ type: "spring", stiffness: 260, damping: 22 }}
+      >
+        {/* Обычный <img> (не next/image): next/image lazy глючил на iOS. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/screens/app-map.webp"
