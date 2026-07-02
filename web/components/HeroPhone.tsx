@@ -39,7 +39,7 @@ export function HeroPhone() {
           height={614}
           priority
           sizes="(max-width: 1024px) 240px, 300px"
-          className="h-[500px] w-auto rounded-[26px] drop-shadow-[0_40px_80px_rgba(0,0,0,0.55)] sm:h-[560px]"
+          className="h-[500px] w-auto rounded-[38px] drop-shadow-[0_40px_80px_rgba(0,0,0,0.55)] sm:h-[560px]"
         />
       </motion.div>
     </div>
