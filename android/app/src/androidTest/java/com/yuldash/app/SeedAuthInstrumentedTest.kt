@@ -15,7 +15,9 @@ class SeedAuthInstrumentedTest {
     fun seedPassengerSession() {
         val args = InstrumentationRegistry.getArguments()
         val token = args.getString("token").orEmpty()
-        require(token.isNotBlank()) { "Instrumentation argument `token` is required" }
+        // Утилита сидинга сессии: запускается точечно с `-e token <JWT>`. Без аргумента в общем
+        // прогоне connectedCheck — ПРОПУСК (assumeTrue), а не провал всего набора.
+        org.junit.Assume.assumeTrue("Instrumentation argument `token` is required", token.isNotBlank())
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         ApiClient.init(context)
