@@ -11,7 +11,7 @@ import {
   useVideoConfig,
 } from 'remotion';
 import { C, DISPLAY, BODY } from './theme';
-import { Phone, Kicker, ScreenRides, ScreenMap, ScreenChat } from './screens';
+import { Phone, Kicker, ScreenMap, ScreenForm, ScreenRequest } from './screens';
 
 // Плавное появление/уход сцены (frame внутри Sequence — относительный)
 const Fade: React.FC<{ dur: number; children: React.ReactNode }> = ({ dur, children }) => {
@@ -123,9 +123,9 @@ export const Promo: React.FC = () => {
     <AbsoluteFill style={{ background: C.night }}>
       <Sequence durationInFrames={92}><Fade dur={92}><SceneIntro /></Fade></Sequence>
       <Sequence from={92} durationInFrames={120}><Fade dur={120}><SceneRoad /></Fade></Sequence>
-      <Sequence from={212} durationInFrames={120}><Fade dur={120}><PhoneScene title="Лента поездок" sub="Свои рядом — с рейтингом"><ScreenRides /></PhoneScene></Fade></Sequence>
-      <Sequence from={332} durationInFrames={110}><Fade dur={110}><PhoneScene title="Карта и маршрут" sub="Точный путь, честная цена"><ScreenMap /></PhoneScene></Fade></Sequence>
-      <Sequence from={442} durationInFrames={110}><Fade dur={110}><PhoneScene title="Чат и безопасность" sub="Проверенные · SOS под рукой"><ScreenChat /></PhoneScene></Fade></Sequence>
+      <Sequence from={212} durationInFrames={120}><Fade dur={120}><PhoneScene title="Карта поездок" sub="Земляки уже в пути · SOS рядом"><ScreenMap /></PhoneScene></Fade></Sequence>
+      <Sequence from={332} durationInFrames={110}><Fade dur={110}><PhoneScene title="Заявка и условия" sub="Телефон скрыт · условия поездки"><ScreenForm /></PhoneScene></Fade></Sequence>
+      <Sequence from={442} durationInFrames={110}><Fade dur={110}><PhoneScene title="Заявки и отклики" sub="Оставь заявку — свои откликнутся"><ScreenRequest /></PhoneScene></Fade></Sequence>
       <Sequence from={552} durationInFrames={96}><Fade dur={96}><SceneCTA /></Fade></Sequence>
     </AbsoluteFill>
   );

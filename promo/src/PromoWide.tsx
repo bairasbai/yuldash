@@ -11,7 +11,7 @@ import {
   useVideoConfig,
 } from 'remotion';
 import { C, DISPLAY, BODY } from './theme';
-import { Phone, ScreenRides, ScreenMap, ScreenChat } from './screens';
+import { Phone, ScreenMap, ScreenForm, ScreenRequest } from './screens';
 
 const Fade: React.FC<{ dur: number; children: React.ReactNode }> = ({ dur, children }) => {
   const f = useCurrentFrame();
@@ -81,12 +81,12 @@ const SceneShowcase: React.FC = () => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const title = spring({ frame: f - 2, fps, config: { damping: 18 } });
-  const phones = [<ScreenRides key="r" />, <ScreenMap key="m" />, <ScreenChat key="c" />];
+  const phones = [<ScreenMap key="m" />, <ScreenForm key="f" />, <ScreenRequest key="r" />];
   return (
     <AbsoluteFill style={{ background: `radial-gradient(100% 80% at 50% 0%, #14231b 0%, ${C.night} 70%)` }}>
       <div style={{ position: 'absolute', top: 60, left: 0, right: 0, textAlign: 'center', opacity: title, transform: `translateY(${interpolate(title, [0, 1], [24, 0])}px)` }}>
         <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 68, color: C.white }}>Юлдаш изнутри</div>
-        <div style={{ fontFamily: BODY, fontWeight: 500, fontSize: 34, color: C.glow, marginTop: 10 }}>Лента · карта · чат и безопасность</div>
+        <div style={{ fontFamily: BODY, fontWeight: 500, fontSize: 34, color: C.glow, marginTop: 10 }}>Карта · заявка · условия и отклики</div>
       </div>
       <AbsoluteFill style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 70, paddingTop: 90 }}>
         {phones.map((p, i) => {
