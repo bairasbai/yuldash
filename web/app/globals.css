@@ -129,6 +129,26 @@ p {
   }
 }
 
+/* Медленный «живой» дрейф фон-кадра секции покрытия (Ken-Burns, зациклено).
+   Масштаб ≥1.08 → при сдвиге края не оголяются. */
+@keyframes coverage-drift {
+  from {
+    transform: scale(1.08) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.16) translate3d(-2%, -1.5%, 0);
+  }
+}
+.coverage-ken {
+  animation: coverage-drift 46s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .coverage-ken {
+    animation: none;
+  }
+}
+
 /* Полосы-световые следы, бегущие вбок — ощущение скорости */
 .hero-streaks {
   position: absolute;
