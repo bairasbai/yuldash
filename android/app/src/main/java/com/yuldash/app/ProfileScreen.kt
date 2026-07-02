@@ -319,7 +319,8 @@ internal fun ProfileScreen(
                     editScope.launch {
                         ApiClient.redeemReferral(c)
                             .onSuccess { showRedeem = false; redeemCode = ""; referralReload++; Toast.makeText(editCtx, redeemOkMsg, Toast.LENGTH_SHORT).show() }
-                            .onFailure { Toast.makeText(editCtx, redeemErrMsg, Toast.LENGTH_SHORT).show() }
+                            // Серверная причина (свой код / уже активирован / нет такого) информативнее общего «код не подошёл».
+                            .onFailure { e -> Toast.makeText(editCtx, (e as? com.yuldash.app.data.ApiException)?.message ?: redeemErrMsg, Toast.LENGTH_LONG).show() }
                     }
                 }) { Text(appText("Применить", "Ҡулланыу"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },

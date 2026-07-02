@@ -68,6 +68,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
 import androidx.compose.material.icons.filled.Luggage
@@ -537,7 +538,7 @@ internal fun VoiceRequestScreen(
                 }
             }
             recognizedText?.let { text ->
-                item { VoiceParsedCard(title = appText("Распознано", "Танылды"), lines = listOf(text)) }
+                item { VoiceParsedCard(title = appText("Распознано", "Танылды"), lines = listOf(CheckLine(text))) }
                 item {
                     AppButton(
                         text = appText("Создать заявку", "Заявка булдырыу"),
@@ -752,14 +753,17 @@ internal fun CreatePassengerRequestScreen(
                 VoiceParsedCard(
                     title = appText("Проверка заявки", "Заявканы тикшереү"),
                     lines = listOf(
-                        "$from → $to",
-                        // Собираем из НЕпустых частей через « · » — иначе пустое время давало ведущую точку «· 1 место».
-                        listOfNotNull(
-                            time.takeIf { it.isNotBlank() },
-                            "$seats ${appText("место", "урын")}",
-                            selectedCategoryText.takeIf { it.isNotBlank() },
-                        ).joinToString(" · "),
-                        appText("Готовая сумма: $price ₽", "Әҙер сумма: $price ₽")
+                        CheckLine("$from → $to", from.isNotBlank() && to.isNotBlank()),
+                        // Дата/время — обязательное поле: пока не выбрано, показываем серой строкой (кнопка тоже неактивна).
+                        CheckLine(
+                            time.takeIf { it.isNotBlank() } ?: appText("Дата и время не выбраны", "Дата һәм ваҡыт һайланмаған"),
+                            time.isNotBlank()
+                        ),
+                        CheckLine(
+                            listOf("$seats ${appText("место", "урын")}", selectedCategoryText).joinToString(" · "),
+                            seats.isNotBlank()
+                        ),
+                        CheckLine(appText("Готовая сумма: $price ₽", "Әҙер сумма: $price ₽"), price.isNotBlank())
                     )
                 )
             }
@@ -776,6 +780,11 @@ internal fun CreatePassengerRequestScreen(
                             else -> "regular" to false
                         }
                         val priceVal = price.toIntOrNull() ?: 0
+                        // Выбранное «dd.MM.yyyy, HH:mm» → ISO для сервера (иначе желаемое время терялось).
+                        val desiredIso = runCatching {
+                            val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(time)
+                            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(picked!!)
+                        }.getOrNull()
                         submitting = true
                         scope.launch {
                             // Ждём ответ сервера: «создано» показываем только при реальном успехе POST.
@@ -784,6 +793,7 @@ internal fun CreatePassengerRequestScreen(
                                 seats.toIntOrNull() ?: 1,
                                 apiCat, withKids, comment.trim(), priceVal,
                                 assisted = true,   // заявка за близкого → уведомить админа
+                                desiredAt = desiredIso,
                                 womenOnly = womenOnly, childSeat = childSeat, pets = pets,
                                 wheelchair = wheelchair, nonSmoking = nonSmoking,
                                 airConditioner = airConditioner, baggage = baggage,
@@ -907,9 +917,15 @@ internal fun TrustedContactsScreen(
     var serverContacts by remember { mutableStateOf<List<TrustedContact>>(emptyList()) }
     val locallyAdded = remember { mutableStateListOf<TrustedContact>() }
     var loading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) {
+    // Экран безопасности: сбой сети НЕ должен выглядеть как «контактов нет» (иначе юзер решит, что близкие слетели).
+    var loadError by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableStateOf(0) }
+    val loadErr = appText("Не удалось загрузить контакты. Проверь интернет.", "Контакттарҙы йөкләп булманы. Интернетты тикшер.")
+    LaunchedEffect(reloadKey) {
+        loading = true; loadError = false
         ApiClient.getContacts()
             .onSuccess { list -> serverContacts = list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) } }
+            .onFailure { loadError = true }
         loading = false
     }
     // Слияние: затравка → сервер → добавленные локально; дубли убираем по телефону, порядок сохраняем.
@@ -958,6 +974,15 @@ internal fun TrustedContactsScreen(
                 loading && merged.isEmpty() -> item {
                     Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = CanonGreen2)
+                    }
+                }
+                loadError && merged.isEmpty() -> item {
+                    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(36.dp))
+                            Text(loadErr, color = CanonText, fontSize = 15.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
+                            AppButton(appText("Повторить", "Ҡабатларға"), onClick = { reloadKey++ }, style = AppButtonStyle.Secondary, fillWidth = false)
+                        }
                     }
                 }
                 merged.isEmpty() -> item {
@@ -1254,16 +1279,24 @@ internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onReques
     }
 }
 
+/** Строка чеклиста: [done]=false → серый кружок + приглушённый текст (обязательное поле ещё не заполнено). */
+internal data class CheckLine(val text: String, val done: Boolean = true)
+
 @Composable
-private fun VoiceParsedCard(title: String, lines: List<String>) {
+private fun VoiceParsedCard(title: String, lines: List<CheckLine>) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
             lines.forEach { line ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                    Icon(
+                        if (line.done) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = null,
+                        tint = if (line.done) CanonGreen2 else CanonMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Text(line, color = CanonText, fontSize = 15.sp, lineHeight = 19.sp)
+                    Text(line.text, color = if (line.done) CanonText else CanonMuted, fontSize = 15.sp, lineHeight = 19.sp)
                 }
             }
         }

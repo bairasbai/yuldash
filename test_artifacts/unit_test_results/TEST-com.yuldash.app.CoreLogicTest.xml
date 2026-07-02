@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yuldash.app.CoreLogicTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-07-02T10:27:15.584Z" hostname="DESKTOP-OMAMU75" time="0.014">
+  <properties/>
+  <testcase name="adStats_ctrPercent_isZeroWithoutImpressions" classname="com.yuldash.app.CoreLogicTest" time="0.004"/>
+  <testcase name="adStats_ctrPercent_computesPercent" classname="com.yuldash.app.CoreLogicTest" time="0.0"/>
+  <testcase name="appTextFor_picksRussianForRu" classname="com.yuldash.app.CoreLogicTest" time="0.008"/>
+  <testcase name="appTextFor_picksBashkirForBa" classname="com.yuldash.app.CoreLogicTest" time="0.0"/>
+  <testcase name="appTextFor_isTrulyBilingual_notOneSided" classname="com.yuldash.app.CoreLogicTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

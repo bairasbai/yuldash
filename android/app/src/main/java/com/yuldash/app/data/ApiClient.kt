@@ -448,6 +448,7 @@ object ApiClient {
         transcript: String? = null,
         assisted: Boolean = false,
         relativeName: String? = null,
+        desiredAt: String? = null,        // ISO "yyyy-MM-dd'T'HH:mm:ss" — желаемое время выезда (форма его требует)
         womenOnly: Boolean = false,
         childSeat: Boolean = false,
         pets: Boolean = false,
@@ -477,6 +478,7 @@ object ApiClient {
                 voiceUrl?.takeIf { it.isNotBlank() }?.let { put("voice_url", it) }
                 transcript?.takeIf { it.isNotBlank() }?.let { put("transcript", it) }
                 relativeName?.takeIf { it.isNotBlank() }?.let { put("for_relative_name", it) }
+                desiredAt?.takeIf { it.isNotBlank() }?.let { put("desired_at", it) }
             },
         auth = true,
     ).map { }.onSuccess { Analytics.log("create_request") }
@@ -498,6 +500,7 @@ object ApiClient {
                     comment = o.optString("comment"),
                     forRelativeName = o.optString("for_relative_name").ifBlank { null },
                     status = o.optString("status"),
+                    desiredAt = o.optString("desired_at").ifBlank { null },
                 )
             }
         }
@@ -563,6 +566,10 @@ object ApiClient {
 
     suspend fun respondToRequest(requestId: Int, price: Int, comment: String): Result<Unit> =
         call("POST", "/requests/$requestId/respond", JSONObject().put("price", price).put("comment", comment), auth = true).map { }.onSuccess { Analytics.log("respond_request") }
+
+    /** Пассажир отменяет свою заявку → сервер ставит status=cancelled (идемпотентно; matched → 400). */
+    suspend fun cancelRequest(requestId: Int): Result<Unit> =
+        call("POST", "/requests/$requestId/cancel", null, auth = true).map { }.onSuccess { Analytics.log("cancel_request") }
 
     suspend fun getRequestResponses(requestId: Int): Result<List<ResponseDto>> =
         call("GET", "/requests/$requestId/responses", null, auth = true).map { obj ->
@@ -1341,6 +1348,7 @@ data class RequestDto(
     val comment: String,
     val forRelativeName: String?,
     val status: String,
+    val desiredAt: String? = null,   // ISO желаемого выезда (может быть null у старых заявок)
 )
 
 /** Доверенный контакт с сервера. */

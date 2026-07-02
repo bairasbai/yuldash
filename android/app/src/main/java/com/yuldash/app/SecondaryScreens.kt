@@ -1056,6 +1056,7 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     val blockedMsg = appText("Добавлен в чёрный список", "Ҡара исемлеккә өҫтәлде")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     fun reload() {
         loading = true; error = null
         scope.launch {
@@ -1093,7 +1094,7 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
                     items(blocks.size) { i ->
                         val b = blocks[i]
                         PersonRow(b.name, appText("Разблокировать", "Блокты алыу"), danger = false) {
-                            scope.launch { ApiClient.unblockUser(b.blockedUserId).onSuccess { reload() } }
+                            scope.launch { ApiClient.unblockUser(b.blockedUserId).onSuccess { reload() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } }
                         }
                     }
                 }
@@ -1102,7 +1103,7 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
                     items(addable.size) { i ->
                         val p = addable[i]
                         PersonRow(p.name, appText("Заблокировать", "Блоклау"), danger = true) {
-                            scope.launch { ApiClient.blockUser(p.id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() } }
+                            scope.launch { ApiClient.blockUser(p.id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } }
                         }
                     }
                 }

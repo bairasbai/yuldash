@@ -955,10 +955,25 @@ private fun Metric(icon: androidx.compose.ui.graphics.vector.ImageVector, text: 
 }
 
 @Composable
-internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> Unit, onViewResponses: (Int) -> Unit) {
+internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> Unit, onViewResponses: (Int) -> Unit, onCancel: (Int) -> Unit) {
     // Один честный список заявок. Прежние вкладки «Отклики»/«Черновики» были вечными
     // заглушками (статичный текст + фейковый черновик «Баймак→Уфа 450₽») → убраны.
     // Отклики открываются с карточки заявки кнопкой «Посмотреть отклики».
+    var cancelTarget by remember { mutableStateOf<LocalRequest?>(null) }
+    cancelTarget?.let { ct ->
+        AlertDialog(
+            onDismissRequest = { cancelTarget = null },
+            containerColor = CanonSurface,
+            title = { Text(appText("Отменить заявку?", "Заявканы кире алабыҙмы?"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = { Text(appText("Водители больше не увидят её. Это действие нельзя отменить.", "Водителдәр уны күрмәҫ. Быны кире ҡайтарып булмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) },
+            confirmButton = {
+                TextButton(onClick = { onCancel(ct.serverId); cancelTarget = null }) {
+                    Text(appText("Отменить заявку", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { cancelTarget = null }) { Text(appText("Оставить", "Ҡалдырыу"), color = CanonMuted) } },
+        )
+    }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -992,7 +1007,8 @@ internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> U
                         price = if (req.price > 0) appText("${req.price} ₽ предлагаю", "${req.price} ₽ тәҡдим итәм") else appText("цена договорная", "хаҡ килешеү буйынса"),
                         badge = req.status,
                         action = appText("Посмотреть отклики", "Яуаптарҙы ҡарау"),
-                        onAction = { onViewResponses(req.serverId) }
+                        onAction = { onViewResponses(req.serverId) },
+                        onCancel = if (req.serverId != 0) ({ cancelTarget = req }) else null
                     )
                 }
             }
@@ -1022,7 +1038,8 @@ private fun RequestSummaryCard(
     price: String,
     badge: String,
     action: String,
-    onAction: () -> Unit
+    onAction: () -> Unit,
+    onCancel: (() -> Unit)? = null   // не null → показываем «Отменить заявку» (только для активных)
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
@@ -1065,6 +1082,13 @@ private fun RequestSummaryCard(
                 Text(action, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.weight(1f))
                 Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonGreen2)
+            }
+            onCancel?.let { doCancel ->
+                TextButton(onClick = doCancel, modifier = Modifier.fillMaxWidth().height(40.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(appText("Отменить заявку", "Заявканы кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
             }
         }
     }
@@ -1345,7 +1369,9 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
     var target by remember { mutableStateOf<com.yuldash.app.data.RequestFeedDto?>(null) }
     var price by remember { mutableStateOf("") }
     var comment by remember { mutableStateOf("") }
+    var responding by remember { mutableStateOf(false) }   // защита от двойного тапа + чтобы показать ошибку до закрытия диалога
     val sentMsg = appText("Отклик отправлен", "Яуап ебәрелде")
+    val respondErr = appText("Не удалось отправить отклик. Проверь сеть и повтори.", "Яуап ебәреп булманы. Сетте тикшереп ҡабатла.")
     // Сбой сети больше не маскируется под «заявок нет» — показываем ошибку с «Повторить».
     fun reload() { loading = true; error = false; scope.launch { ApiClient.getRequestsFeed().onSuccess { feed = it }.onFailure { error = true }; loading = false } }
     LaunchedEffect(Unit) { reload() }
@@ -1361,13 +1387,18 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
+                TextButton(enabled = !responding, onClick = {
                     val rid = t.id; val p = price.toIntOrNull() ?: 0; val c = comment.trim()
-                    scope.launch { ApiClient.respondToRequest(rid, p, c).onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show(); reload() } }
-                    target = null; price = ""; comment = ""
-                }) { Text(appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+                    responding = true
+                    // Не гасим диалог до ответа сервера — при сбое покажем ошибку, отклик не потеряется молча.
+                    scope.launch {
+                        ApiClient.respondToRequest(rid, p, c)
+                            .onSuccess { responding = false; target = null; price = ""; comment = ""; Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show(); reload() }
+                            .onFailure { responding = false; Toast.makeText(ctx, respondErr, Toast.LENGTH_LONG).show() }
+                    }
+                }) { Text(if (responding) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
-            dismissButton = { TextButton(onClick = { target = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+            dismissButton = { TextButton(enabled = !responding, onClick = { target = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заявки пассажиров", "Пассажир заявкалары"), onBack) }) { padding ->
