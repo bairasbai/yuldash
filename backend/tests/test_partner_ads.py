@@ -5,7 +5,7 @@
 from sqlmodel import Session
 
 from app.db import engine
-from app.models import Ad
+from app.models import Ad, UserRole
 
 
 def _make_ad(owner_id, title="Моя реклама", status="draft", package="city"):
@@ -80,10 +80,10 @@ def test_ad_update_own_only(client, user_factory):
     b = user_factory(name="Чужой")
     ad = client.post("/ads", headers=a["auth"], json={"title": "Черновик", "package": "city"}).json()
     # владелец правит
-    r = client.patch(f"/ads/{ad['id']}", headers=a["auth"], json={"title": "Обновлён", "package": "route"})
+    r = client.post(f"/ads/{ad['id']}", headers=a["auth"], json={"title": "Обновлён", "package": "route"})
     assert r.status_code == 200 and r.json()["title"] == "Обновлён" and r.json()["package"] == "route"
     # чужой не может — 404 (не раскрываем существование)
-    assert client.patch(f"/ads/{ad['id']}", headers=b["auth"], json={"title": "Взлом"}).status_code == 404
+    assert client.post(f"/ads/{ad['id']}", headers=b["auth"], json={"title": "Взлом"}).status_code == 404
 
 
 def test_ad_submit_flow(client, user_factory):
@@ -94,10 +94,50 @@ def test_ad_submit_flow(client, user_factory):
     # повторный сабмит уже на модерации → 409 (не редактируемо)
     assert client.post(f"/ads/{ad['id']}/submit", headers=u["auth"]).status_code == 409
     # редактировать на модерации нельзя
-    assert client.patch(f"/ads/{ad['id']}", headers=u["auth"], json={"title": "x"}).status_code == 409
+    assert client.post(f"/ads/{ad['id']}", headers=u["auth"], json={"title": "x"}).status_code == 409
 
 
 def test_ad_submit_requires_package(client, user_factory):
     u = user_factory()
     ad = client.post("/ads", headers=u["auth"], json={"title": "Без тарифа"}).json()
     assert client.post(f"/ads/{ad['id']}/submit", headers=u["auth"]).status_code == 422
+
+
+# ---------- Ф3: модерация (админ) ----------
+
+def _pending_ad(client, owner_auth):
+    ad = client.post("/ads", headers=owner_auth, json={"title": "Кафе", "package": "city"}).json()
+    client.post(f"/ads/{ad['id']}/submit", headers=owner_auth)
+    return ad["id"]
+
+
+def test_admin_approve(client, user_factory):
+    owner = user_factory(name="Партнёр")
+    admin = user_factory(name="Админ", role=UserRole.admin)
+    ad_id = _pending_ad(client, owner["auth"])
+    r = client.post(f"/admin/ads/{ad_id}/approve", headers=admin["auth"], json={"erid": "2Ru-TEST"})
+    assert r.status_code == 200 and r.json()["status"] == "active"
+    # владелец видит active
+    mine = client.get("/ads/mine", headers=owner["auth"]).json()
+    assert next(x for x in mine if x["id"] == str(ad_id))["status"] == "active"
+
+
+def test_admin_reject_with_reason(client, user_factory):
+    owner = user_factory(name="Партнёр")
+    admin = user_factory(name="Админ", role=UserRole.admin)
+    ad_id = _pending_ad(client, owner["auth"])
+    r = client.post(f"/admin/ads/{ad_id}/reject", headers=admin["auth"], json={"reason": "Нет маркировки erid"})
+    assert r.status_code == 200 and r.json()["status"] == "rejected"
+    # владелец видит причину и снова может редактировать
+    mine = client.get("/ads/mine", headers=owner["auth"]).json()
+    row = next(x for x in mine if x["id"] == str(ad_id))
+    assert row["status"] == "rejected" and row["reject_reason"] == "Нет маркировки erid"
+    assert client.post(f"/ads/{ad_id}", headers=owner["auth"], json={"title": "Исправлено", "package": "city"}).status_code == 200
+
+
+def test_moderation_admin_only(client, user_factory):
+    owner = user_factory(name="Партнёр")
+    ad_id = _pending_ad(client, owner["auth"])
+    # обычный юзер не модерирует
+    assert client.post(f"/admin/ads/{ad_id}/approve", headers=owner["auth"], json={}).status_code == 403
+    assert client.post(f"/admin/ads/{ad_id}/reject", headers=owner["auth"], json={"reason": "x"}).status_code == 403

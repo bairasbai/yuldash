@@ -4,7 +4,7 @@
 Видимость в приложении: status==active И starts_at<=now И (ends_at null ИЛИ ends_at>now).
 Маркировка (РФ закон): поле erid обязательно, в выдаче есть partner_name → «Реклама · …».
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -243,7 +243,7 @@ def _own_editable_ad(ad_id: int, user: User, session: Session) -> Ad:
     return ad
 
 
-@router.patch("/ads/{ad_id}")
+@router.post("/ads/{ad_id}")   # POST (не PATCH): единообразно с admin/ads и без сюрпризов HttpURLConnection
 def ad_update(ad_id: int, body: AdCreateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Партнёр правит СВОЙ черновик/отклонённое."""
     ad = _own_editable_ad(ad_id, user, session)
@@ -320,6 +320,9 @@ def _admin_view(ad: Ad, now: datetime) -> dict:
         "founder_lock": ad.founder_lock,
         "priority": ad.priority,
         "status": ad.status,
+        "reject_reason": ad.reject_reason,      # для админ-UI (что писали при отказе)
+        "owner_id": ad.owner_id,                # чьё объявление (партнёр-самосервис или админское null)
+        "package": ad.package,
         "live": _is_live(ad, now),
         "expired": ad.ends_at is not None and ad.ends_at <= now,
         "starts_at": ad.starts_at.isoformat() if ad.starts_at else None,
@@ -341,6 +344,57 @@ def admin_ads(user: User = Depends(current_user), session: Session = Depends(get
         "founder_limit": FOUNDER_LIMIT,
         "items": [_admin_view(a, now) for a in rows],
     }
+
+
+# ---------- Модерация партнёрских объявлений (self-serve) ----------
+
+class AdApproveIn(BaseModel):
+    erid: str = ""       # маркировка из ОРД (РФ закон): админ вставляет реальный erid при одобрении
+
+
+class AdRejectIn(BaseModel):
+    reason: str = ""
+
+
+@router.post("/admin/ads/{ad_id}/approve", response_model=Ad)
+def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Одобрить объявление (pending_review → active). В эфир пойдёт после оплаты (см. _is_live)."""
+    _require_admin(user)
+    ad = session.get(Ad, ad_id)
+    if not ad:
+        raise HTTPException(404, "Объявление не найдено")
+    ad.status = "active"
+    ad.reject_reason = ""
+    ad.reviewed_at = utcnow()
+    if body.erid.strip():
+        ad.erid = body.erid.strip()
+    if ad.period_days > 0:            # период показа считаем от одобрения
+        ad.starts_at = utcnow()
+        ad.ends_at = utcnow() + timedelta(days=ad.period_days)
+    session.add(ad)
+    session.commit()
+    session.refresh(ad)
+    if ad.owner_id:
+        send_push(session, ad.owner_id, "Реклама одобрена", f"«{ad.title}» прошла модерацию. Осталось оплатить размещение.")
+    return ad
+
+
+@router.post("/admin/ads/{ad_id}/reject", response_model=Ad)
+def admin_reject_ad(ad_id: int, body: AdRejectIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отклонить объявление (→ rejected) с причиной. Партнёр увидит причину и сможет исправить."""
+    _require_admin(user)
+    ad = session.get(Ad, ad_id)
+    if not ad:
+        raise HTTPException(404, "Объявление не найдено")
+    ad.status = "rejected"
+    ad.reject_reason = body.reason.strip()[:500]
+    ad.reviewed_at = utcnow()
+    session.add(ad)
+    session.commit()
+    session.refresh(ad)
+    if ad.owner_id:
+        send_push(session, ad.owner_id, "Реклама отклонена", (ad.reject_reason or "Проверь и отправь снова")[:120])
+    return ad
 
 
 @router.post("/admin/ads", response_model=Ad)

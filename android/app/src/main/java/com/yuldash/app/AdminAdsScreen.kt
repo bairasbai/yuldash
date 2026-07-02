@@ -152,6 +152,14 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                             scope.launch { ApiClient.deleteAd(ad.id).onSuccess { reload() }.onFailure { error = loadErr }; busyId = null }
                         },
                         onEdit = { editing = ad; showForm = false },
+                        onApprove = {
+                            busyId = ad.id
+                            scope.launch { ApiClient.approveAd(ad.id, ad.erid).onSuccess { reload() }.onFailure { error = loadErr }; busyId = null }
+                        },
+                        onReject = { reason ->
+                            busyId = ad.id
+                            scope.launch { ApiClient.rejectAd(ad.id, reason).onSuccess { reload() }.onFailure { error = loadErr }; busyId = null }
+                        },
                     )
                 }
                 item { Spacer(Modifier.height(24.dp)) }
@@ -161,8 +169,14 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun AdAdminCard(ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean, onPublish: () -> Unit, onPause: () -> Unit, onDelete: () -> Unit, onEdit: () -> Unit) {
+private fun AdAdminCard(
+    ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean,
+    onPublish: () -> Unit, onPause: () -> Unit, onDelete: () -> Unit, onEdit: () -> Unit,
+    onApprove: () -> Unit, onReject: (String) -> Unit,
+) {
     val statusColor = when {
+        ad.status == "pending_review" -> CanonGold
+        ad.status == "rejected" -> CanonRed
         ad.status == "active" && ad.live -> CanonGreen
         ad.status == "paused" -> CanonGold
         ad.expired -> CanonRed
@@ -170,10 +184,14 @@ private fun AdAdminCard(ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean, onPubl
     }
     val statusLabel = when (ad.status) {
         "active" -> if (ad.live) appText("Активно", "Актив") else if (ad.expired) appText("Истекло", "Бөттө") else appText("Запланировано", "Планлы")
+        "pending_review" -> appText("На модерации", "Тикшереүҙә")
+        "rejected" -> appText("Отклонено", "Кире ҡағылды")
         "paused" -> appText("Пауза", "Пауза")
         "draft" -> appText("Черновик", "Ҡаралама")
         else -> ad.status
     }
+    var showReject by remember(ad.id) { mutableStateOf(false) }
+    var reason by remember(ad.id) { mutableStateOf(ad.rejectReason) }
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -182,7 +200,7 @@ private fun AdAdminCard(ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean, onPubl
                     Text(statusLabel, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
             }
-            Text("${ad.partner.ifBlank { "—" }} · ${planLabel(ad.plan)}", color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("${ad.partner.ifBlank { if (ad.ownerId != null) appText("Партнёр", "Партнёр") else "—" }} · ${planLabel(ad.plan)}", color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             if (ad.text.isNotBlank()) Text(ad.text, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
             Text(
                 appText("Места: ${ad.placements.ifBlank { "—" }}", "Урын: ${ad.placements.ifBlank { "—" }}") +
@@ -193,12 +211,43 @@ private fun AdAdminCard(ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean, onPubl
                     ),
                 color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp,
             )
+            if (ad.status == "rejected" && ad.rejectReason.isNotBlank()) {
+                Text(appText("Причина отказа: ${ad.rejectReason}", "Кире ҡағыу сәбәбе: ${ad.rejectReason}"), color = CanonRed, fontSize = 12.sp, lineHeight = 16.sp)
+            }
+            // Модерация: pending_review → одобрить / отклонить (с причиной)
+            if (ad.status == "pending_review") {
+                if (showReject) {
+                    OutlinedTextField(
+                        value = reason, onValueChange = { reason = it },
+                        label = { Text(appText("Причина отказа (партнёр увидит)", "Кире ҡағыу сәбәбе (партнёр күрә)")) },
+                        modifier = Modifier.fillMaxWidth(), minLines = 2, shape = CanonCardShape,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { showReject = false }, enabled = !busy, modifier = Modifier.weight(1f), shape = CanonCardShape) {
+                            Text(appText("Отмена", "Кире"), fontSize = 13.sp)
+                        }
+                        Button(onClick = { onReject(reason) }, enabled = !busy && reason.isNotBlank(), modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = CanonRed, contentColor = CanonBg), shape = CanonCardShape) {
+                            Text(appText("Отклонить", "Кире ҡағырға"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onApprove, enabled = !busy, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {
+                            if (busy) CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            else Text(appText("Одобрить", "Раҫларға"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(onClick = { showReject = true }, enabled = !busy, modifier = Modifier.weight(1f), shape = CanonCardShape) {
+                            Text(appText("Отклонить", "Кире ҡағырға"), color = CanonRed, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (ad.status == "active") {
                     OutlinedButton(onClick = onPause, enabled = !busy, modifier = Modifier.weight(1f), shape = CanonCardShape) {
                         Text(appText("Пауза", "Пауза"), fontSize = 13.sp)
                     }
-                } else {
+                } else if (ad.status != "pending_review") {
                     Button(onClick = onPublish, enabled = !busy, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg), shape = CanonCardShape) {
                         if (busy) CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         else Text(appText("Опубликовать", "Баҫтырырға"), fontSize = 13.sp, fontWeight = FontWeight.Bold)

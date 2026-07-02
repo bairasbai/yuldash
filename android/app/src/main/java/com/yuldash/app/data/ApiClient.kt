@@ -915,6 +915,8 @@ object ApiClient {
                     button = a.optString("button"),
                     target = a.optString("target"),
                     cities = cities,
+                    rejectReason = a.optString("reject_reason"),
+                    ownerId = if (a.isNull("owner_id")) null else a.optInt("owner_id"),
                 )
             }
             AdminAdsDto(o.optInt("founder_used"), o.optInt("founder_limit", 10), items)
@@ -951,6 +953,14 @@ object ApiClient {
     /** Сменить статус: active / paused / draft / archived. */
     suspend fun setAdStatus(id: String, status: String): Result<Unit> =
         call("POST", "/admin/ads/$id/status", JSONObject().put("status", status), auth = true).map { }
+
+    /** Модерация партнёрского объявления: одобрить (→active, вставить erid из ОРД). */
+    suspend fun approveAd(id: String, erid: String): Result<Unit> =
+        call("POST", "/admin/ads/$id/approve", JSONObject().put("erid", erid), auth = true).map { }
+
+    /** Модерация: отклонить с причиной (партнёр увидит и исправит). */
+    suspend fun rejectAd(id: String, reason: String): Result<Unit> =
+        call("POST", "/admin/ads/$id/reject", JSONObject().put("reason", reason), auth = true).map { }
 
     /** Удалить (мягко в архив). */
     suspend fun deleteAd(id: String): Result<Unit> =
@@ -1501,6 +1511,7 @@ data class AdminAdDto(
     val plan: String, val status: String, val placements: String, val erid: String,
     val endsAt: String?, val live: Boolean, val expired: Boolean,
     val button: String = "", val target: String = "", val cities: String = "",  // для предзаполнения формы при редактировании
+    val rejectReason: String = "", val ownerId: Int? = null,  // модерация партнёрских: причина отказа, владелец
 )
 data class AdminAdsDto(val founderUsed: Int, val founderLimit: Int, val items: List<AdminAdDto>)
 
