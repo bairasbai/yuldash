@@ -255,6 +255,12 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+internal fun bookingStatusAllowsActiveTrip(status: String): Boolean =
+    status == "confirmed" || status == "onboard" || status == "done"
+
+internal fun bookingStatusAllowsBoarding(status: String): Boolean =
+    status == "confirmed" || status == "onboard"
+
 @Composable
 internal fun YuldashApp() {
     val context = LocalContext.current
@@ -297,6 +303,11 @@ internal fun YuldashApp() {
     var startHomeTab by vm.startHomeTab
     var callbackRequested by vm.callbackRequested
     var responsesRequestId by vm.responsesRequestId   // какую заявку открыть в «Откликах»
+    var createRideReturnScreen by rememberSaveable { mutableStateOf(Screen.Home) }
+    var createRideReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Request) }
+    var trustedContactsReturnScreen by rememberSaveable { mutableStateOf(Screen.SimpleMode) }
+    var trustedContactsReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Profile) }
+    var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
     LaunchedEffect(Unit) { ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" } }
@@ -370,6 +381,22 @@ internal fun YuldashApp() {
     fun openHome(tab: HomeTab = HomeTab.Map) {
         startHomeTab = tab
         screen = Screen.Home
+    }
+    fun openCreateRide(returnScreen: Screen = Screen.Home, returnHomeTab: HomeTab = HomeTab.Request) {
+        createRideReturnScreen = returnScreen
+        createRideReturnHomeTab = returnHomeTab
+        screen = Screen.CreateRide
+    }
+    fun closeCreateRide() {
+        if (createRideReturnScreen == Screen.Home) openHome(createRideReturnHomeTab) else screen = createRideReturnScreen
+    }
+    fun openTrustedContacts(returnScreen: Screen = Screen.SimpleMode, returnHomeTab: HomeTab = HomeTab.Profile) {
+        trustedContactsReturnScreen = returnScreen
+        trustedContactsReturnHomeTab = returnHomeTab
+        screen = Screen.TrustedContacts
+    }
+    fun closeTrustedContacts() {
+        if (trustedContactsReturnScreen == Screen.Home) openHome(trustedContactsReturnHomeTab) else screen = trustedContactsReturnScreen
     }
 
     fun trackAdImpression(ad: PartnerAd) {
@@ -509,7 +536,7 @@ internal fun YuldashApp() {
                 adStats = adStats,
                 voiceMessages = voiceMessages,
                 initialTab = startHomeTab,
-                onCreateRide = { screen = Screen.CreateRide },
+                onCreateRide = { openCreateRide(returnScreen = Screen.Home, returnHomeTab = HomeTab.Request) },
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onSupport = { screen = Screen.Support },
                 onReview = { screen = Screen.AppReview },
@@ -522,13 +549,23 @@ internal fun YuldashApp() {
                 },
                 onBookRide = { ride ->
                     selectedRide = ride
+                    activeBookingId = null
+                    selectedBookingStatus = ""
                     screen = Screen.Booking
                 },
-                onOpenActiveTrip = { ride ->
+                onOpenBookingDetails = { ride, status ->
                     selectedRide = ride
-                    activeTrip = ride
+                    activeTrip = null
                     activeBookingId = ride.id.toIntOrNull()
-                    screen = Screen.ActiveTrip
+                    selectedBookingStatus = status
+                    screen = Screen.Booking
+                },
+                onOpenActiveTrip = { ride, status ->
+                    selectedRide = ride
+                    activeTrip = null
+                    activeBookingId = ride.id.toIntOrNull()
+                    selectedBookingStatus = status
+                    screen = if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.Booking
                 },
                 onShareRide = { ride ->
                     val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time
@@ -556,6 +593,7 @@ internal fun YuldashApp() {
                     val parts = route.split("→").map { it.trim() }
                     selectedRide = Ride(id = bid.toString(), from = parts.getOrElse(0) { "" }, to = parts.getOrElse(1) { "" }, time = "", driver = peer, car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
                     activeBookingId = bid
+                    selectedBookingStatus = ""
                     screen = Screen.ActiveTrip
                 },
                 onOpenResponses = { id -> responsesRequestId = id; screen = Screen.RequestResponses },
@@ -566,7 +604,7 @@ internal fun YuldashApp() {
                 onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
                 onDriverCabinet = { prefs.edit().putString("preferred_role", RideRole.Driver.name).apply(); screen = Screen.DriverCabinet },
                 onSimpleMode = { screen = Screen.SimpleMode },
-                onTrustedContacts = { screen = Screen.TrustedContacts },
+                onTrustedContacts = { openTrustedContacts(returnScreen = Screen.Home, returnHomeTab = HomeTab.Profile) },
                 onCallbackHelp = { screen = Screen.CallbackHelp },
                 onAdsCabinet = { screen = Screen.AdsCabinet },
                 onToggleLanguage = {
@@ -574,11 +612,11 @@ internal fun YuldashApp() {
                 }
             )
             Screen.CreateRide -> CreateRideScreen(
-                onBack = { openHome(HomeTab.Request) },
+                onBack = { closeCreateRide() },
                 onPublish = { ride ->
                     rides.add(0, ride)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Сәфәр баҫтырылды" else "Поездка опубликована", Toast.LENGTH_SHORT).show()
-                    openHome(HomeTab.Rides)
+                    if (createRideReturnScreen == Screen.DriverCabinet) screen = Screen.DriverCabinet else openHome(HomeTab.Rides)
                 }
             )
             Screen.CreateRequest -> CreatePassengerRequestScreen(
@@ -593,6 +631,7 @@ internal fun YuldashApp() {
             Screen.Boost -> BoostScreen(onBack = { openHome(HomeTab.Rides) })
             Screen.Booking -> BookingScreen(
                 ride = selectedRide ?: rides.firstOrNull() ?: demoRides.first(),   // фоллбэк вместо краша на пустом списке
+                bookingId = activeBookingId,
                 ads = partnerAds,
                 adStats = adStats,
                 onBack = { openHome(HomeTab.Rides) },
@@ -600,13 +639,19 @@ internal fun YuldashApp() {
                 onMessage = { openHome(HomeTab.Chat) },
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
+                canOpenActiveTrip = activeBookingId == null || bookingStatusAllowsActiveTrip(selectedBookingStatus),
                 onConfirmRide = {
-                    val rid = selectedRide?.id?.toIntOrNull()
-                    if (rid != null) {
-                        appScope.launch {
-                            ApiClient.book(rid, 1)
-                                .onSuccess { bid -> activeBookingId = bid; activeTrip = selectedRide; screen = Screen.ActiveTrip }
-                                .onFailure { Toast.makeText(context, if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
+                    if (activeBookingId != null) {
+                        activeTrip = selectedRide
+                        screen = Screen.ActiveTrip
+                    } else {
+                        val rid = selectedRide?.id?.toIntOrNull()
+                        if (rid != null) {
+                            appScope.launch {
+                                ApiClient.book(rid, 1)
+                                    .onSuccess { bid -> activeBookingId = bid; selectedBookingStatus = "confirmed"; activeTrip = selectedRide; screen = Screen.ActiveTrip }
+                                    .onFailure { Toast.makeText(context, if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
+                            }
                         }
                     }
                 }
@@ -641,7 +686,7 @@ internal fun YuldashApp() {
                 onBack = { openHome(HomeTab.Profile) },
                 onSelectTab = { tab -> openHome(tab) },
                 onSos = { screen = Screen.Sos },
-                onShareTrip = { screen = Screen.TrustedContacts },
+                onShareTrip = { openTrustedContacts(returnScreen = Screen.Safety) },
                 onRules = { screen = Screen.Rules },
                 onBlocklist = { screen = Screen.Blocklist },
                 onReport = { screen = Screen.Report }
@@ -685,14 +730,21 @@ internal fun YuldashApp() {
                 rides = rides,
                 requests = localRequests,
                 onBack = { openHome(HomeTab.Profile) },
-                onFindRide = { openHome(HomeTab.Rides) },
+                onMyTrips = { openHome(HomeTab.Rides) },
+                onOpenBooking = { ride, status ->
+                    selectedRide = ride
+                    activeTrip = null
+                    activeBookingId = ride.id.toIntOrNull()
+                    screen = if (status == "confirmed" || status == "onboard") Screen.ActiveTrip else Screen.Booking
+                },
+                onFindRide = { openHome(HomeTab.Map) },
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onSafety = { screen = Screen.Safety }
             )
             Screen.DriverCabinet -> DriverCabinetScreen(
                 rides = rides,
                 onBack = { openHome(HomeTab.Profile) },
-                onCreateRide = { screen = Screen.CreateRide },
+                onCreateRide = { openCreateRide(returnScreen = Screen.DriverCabinet) },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onBoost = { screen = Screen.Boost },
                 onRequestsFeed = { screen = Screen.RequestsFeed }
@@ -713,7 +765,7 @@ internal fun YuldashApp() {
                 onBack = { openHome(HomeTab.Map) },
                 onVoiceRequest = { if (ApiClient.isLoggedIn()) screen = Screen.VoiceRequest else screen = Screen.Login },
                 onFamilyOrder = { if (ApiClient.isLoggedIn()) screen = Screen.FamilyOrder else screen = Screen.Login },
-                onTrustedContacts = { if (ApiClient.isLoggedIn()) screen = Screen.TrustedContacts else screen = Screen.Login },
+                onTrustedContacts = { if (ApiClient.isLoggedIn()) openTrustedContacts(returnScreen = Screen.SimpleMode) else screen = Screen.Login },
                 onRepeatTrip = { if (ApiClient.isLoggedIn()) screen = Screen.RepeatTrip else screen = Screen.Login },
                 onCallbackHelp = { if (ApiClient.isLoggedIn()) screen = Screen.CallbackHelp else screen = Screen.Login },
                 onSos = { screen = Screen.Sos },
@@ -739,7 +791,7 @@ internal fun YuldashApp() {
             )
             Screen.TrustedContacts -> TrustedContactsScreen(
                 contacts = trustedContacts,
-                onBack = { screen = Screen.SimpleMode },
+                onBack = { closeTrustedContacts() },
                 onAddContact = { contact ->
                     trustedContacts.add(contact)
                     ApiClient.fireAddContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault)
@@ -1312,7 +1364,8 @@ internal fun HomeScreen(
     onBoost: () -> Unit,
     onPublishRide: (Ride) -> Unit,
     onBookRide: (Ride) -> Unit,
-    onOpenActiveTrip: (Ride) -> Unit,
+    onOpenBookingDetails: (Ride, String) -> Unit,
+    onOpenActiveTrip: (Ride, String) -> Unit,
     onShareRide: (Ride) -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
@@ -1392,6 +1445,7 @@ internal fun HomeScreen(
                     presetTo = ridesPresetTo,
                     presetToday = ridesPresetToday,
                     onBookRide = onBookRide,
+                    onOpenBookingDetails = onOpenBookingDetails,
                     onOpenActiveTrip = onOpenActiveTrip,
                     onMessage = { selectedTab = HomeTab.Chat },
                     onShareRide = onShareRide,

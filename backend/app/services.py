@@ -379,6 +379,24 @@ def ride_out(ride: Ride, session: Session) -> RideOut:
     return rides_out([ride], session)[0]
 
 
+def public_ride_payload(item):
+    """Публичная витрина поездки без точного места встречи.
+
+    Телефон и точная точка сбора раскрываются только участникам подтверждённой
+    брони через `/bookings/{id}/details`.
+    """
+    patch = {"pickup": "", "pickup_lat": None, "pickup_lng": None}
+    if isinstance(item, RideOut):
+        return item.model_copy(update=patch)
+    data = dict(item)
+    data.update(patch)
+    return data
+
+
+def public_rides_payload(items: list):
+    return [public_ride_payload(item) for item in items]
+
+
 def boost_then_depart_order():
     """ORDER BY для выдачи поездок: с активным Boost — первыми, затем по времени выезда.
     Истёкший/отсутствующий boost (NULL) попадает в общий порядок."""

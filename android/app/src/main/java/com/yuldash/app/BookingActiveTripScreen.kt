@@ -122,6 +122,7 @@ import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhoneLocked
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Pin
@@ -265,6 +266,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun BookingScreen(
     ride: Ride,
+    bookingId: Int? = null,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
     onBack: () -> Unit,
@@ -272,10 +274,46 @@ internal fun BookingScreen(
     onMessage: () -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
+    canOpenActiveTrip: Boolean = true,
     onConfirmRide: () -> Unit
 ) {
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
+    var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
+    var detailsLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
+    var detailsError by remember(bookingId) { mutableStateOf(false) }
+    var detailsReload by remember(bookingId) { mutableIntStateOf(0) }
+    LaunchedEffect(bookingId, detailsReload) {
+        val bid = bookingId ?: return@LaunchedEffect
+        detailsLoading = true
+        ApiClient.getBookingDetails(bid)
+            .onSuccess { loaded -> details = loaded; detailsError = false }
+            .onFailure { detailsError = true }
+        detailsLoading = false
+    }
+    val displayRide = details?.let {
+        ride.copy(
+            id = it.rideId.toString(),
+            from = it.fromCity.ifBlank { ride.from },
+            to = it.toCity.ifBlank { ride.to },
+            time = formatDepart(it.departAt.ifBlank { ride.time }),
+            driver = it.driverName.ifBlank { ride.driver },
+            car = it.driverCar.ifBlank { ride.car },
+            price = if (it.price > 0) it.price else ride.price,
+            seats = it.seats,
+            verified = it.driverVerified || ride.verified,
+            pickup = it.pickup,
+            pickupLat = it.pickupLat,
+            pickupLng = it.pickupLng,
+        )
+    } ?: ride
+    val contactUnlocked = details?.contactUnlocked == true
+    val driverPhone = details?.driverPhone.orEmpty()
+    val exactPickup = if (contactUnlocked) displayRide.pickup else ""
+    val pickupLat = if (contactUnlocked) displayRide.pickupLat else null
+    val pickupLng = if (contactUnlocked) displayRide.pickupLng else null
+    val routeFromPoint = details?.let { d -> d.fromLat?.let { lat -> d.fromLng?.let { lng -> Point(lat, lng) } } }
+    val routeToPoint = details?.let { d -> d.toLat?.let { lat -> d.toLng?.let { lng -> Point(lat, lng) } } }
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Rides, onSelect = onSelectTab) }
@@ -298,8 +336,8 @@ internal fun BookingScreen(
                     Text(appText("Детали поездки", "Сәфәр тураһында"), modifier = Modifier.weight(1f), color = CanonGreen, fontSize = 26.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
                     val shareTitle = appText("Позвать соседа", "Күршене саҡырырға")
                     val shareText = appText(
-                        "Еду ${ride.from} → ${ride.to}, ${ride.timeText()}. ${ride.price} ₽. Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
-                        "${ride.from} → ${ride.to}, ${ride.timeText()}. ${ride.price} ₽. Әйҙә бергә — Юлдашта 👇\nhttps://yulbash.ru"
+                        "Еду ${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
+                        "${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Әйҙә бергә — Юлдашта 👇\nhttps://yulbash.ru"
                     )
                     IconButton(onClick = { shareRide(context, shareText, shareTitle) }) {
                         Icon(Icons.Default.Share, contentDescription = shareTitle, tint = CanonGreen2)
@@ -312,16 +350,37 @@ internal fun BookingScreen(
                         RouteMiniIcon()
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                            Text("${ride.from}  →  ${ride.to}", color = CanonText, fontSize = 19.sp, lineHeight = 21.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("${displayRide.from}  →  ${displayRide.to}", color = CanonText, fontSize = 19.sp, lineHeight = 21.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                DetailMeta(Icons.Default.CalendarMonth, ride.timeText(), modifier = Modifier.weight(1.45f))
-                    DetailMeta(Icons.Default.Person, seatsText(ride.seats), modifier = Modifier.weight(0.8f))
+                                DetailMeta(Icons.Default.CalendarMonth, displayRide.timeText(), modifier = Modifier.weight(1.45f))
+                                DetailMeta(Icons.Default.Person, seatsText(displayRide.seats), modifier = Modifier.weight(0.8f))
                             }
                         }
                         Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
-                            Text("${ride.price} ₽", modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                            Text("${displayRide.price} ₽", modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
                         }
                     }
+                }
+            }
+            if (detailsLoading) {
+                item {
+                    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
+                        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), color = CanonGreen2, strokeWidth = 2.dp)
+                            Text(appText("Обновляем подтверждение поездки", "Сәфәр раҫланыуын яңыртабыҙ"), color = CanonMuted, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+            if (detailsError) {
+                item {
+                    EmptyStateCard(
+                        title = appText("Не удалось обновить детали", "Ентекле мәғлүмәтте яңыртып булманы"),
+                        text = appText("Телефон и точка встречи останутся закрытыми, пока сервер не подтвердит доступ.", "Сервер рөхсәтте раҫлағансы, телефон һәм осрашыу урыны ябыҡ ҡала."),
+                        icon = Icons.Default.Refresh,
+                        action = appText("Повторить", "Ҡабатлау"),
+                        onAction = { detailsReload++ }
+                    )
                 }
             }
             item {
@@ -329,27 +388,43 @@ internal fun BookingScreen(
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(color = CanonMint, shape = CircleShape) {
-                                Text(ride.driver.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(22.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                                Text(displayRide.driver.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(22.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 22.sp)
                             }
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(ride.driver, color = CanonText, fontWeight = FontWeight.Black, fontSize = 21.sp)
-                                    if (ride.verified) {
+                                    Text(displayRide.driver, color = CanonText, fontWeight = FontWeight.Black, fontSize = 21.sp)
+                                    if (displayRide.verified) {
                                         Spacer(Modifier.width(6.dp))
                                         Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                                     }
                                 }
                                 Text(appText("Опытный водитель", "Тәжрибәле водитель"), color = CanonMuted, fontSize = 14.sp)
-                                DetailMeta(Icons.Default.DirectionsCar, ride.carText())
+                                DetailMeta(Icons.Default.DirectionsCar, displayRide.carText())
                             }
-                            Surface(color = CanonMint, shape = CircleShape) {
-                                Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
+                            Surface(
+                                color = CanonMint,
+                                shape = CircleShape,
+                                modifier = if (contactUnlocked && driverPhone.isNotBlank()) Modifier.bounceClick {
+                                    runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$driverPhone"))) }
+                                } else Modifier
+                            ) {
+                                Icon(if (contactUnlocked && driverPhone.isNotBlank()) Icons.Default.Phone else Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
                             }
                         }
-                        TripInfoRow(Icons.Default.LocationOn, appText("Место встречи", "Осрашыу урыны"), ride.pickup.ifBlank { appText("Уточнить у водителя", "Водителдән асыҡларға") })
-                        ride.pickupLat?.let { la ->
-                            val ln = ride.pickupLng ?: 0.0
+                        TripInfoRow(
+                            Icons.Default.LocationOn,
+                            appText("Место встречи", "Осрашыу урыны"),
+                            when {
+                                contactUnlocked && exactPickup.isNotBlank() -> exactPickup
+                                contactUnlocked -> appText("Уточните точку в чате", "Нөктәне чатта асыҡлағыҙ")
+                                bookingId != null -> appText("Откроется после подтверждения водителем", "Водитель раҫлағас асыла")
+                                else -> appText("Откроется после подтверждения поездки", "Сәфәр раҫланғас асыла")
+                            }
+                        )
+                        if (pickupLat != null && pickupLng != null) {
+                            val la = pickupLat
+                            val ln = pickupLng
                             val meet = appText("Место встречи", "Осрашыу урыны")
                             OutlinedButton(
                                 onClick = {
@@ -365,7 +440,18 @@ internal fun BookingScreen(
                                 Text(appText("Открыть точку на карте", "Нөктәне картала асырға"), color = CanonGreen2)
                             }
                         }
-                        MapPreview(Modifier.height(170.dp), from = ride.from, to = ride.to, distance = cityDistanceText(ride.from, ride.to))
+                        if (routeFromPoint != null && routeToPoint != null) {
+                            BookingRouteMapPreview(
+                                modifier = Modifier.height(170.dp),
+                                from = displayRide.from,
+                                to = displayRide.to,
+                                fromPoint = routeFromPoint,
+                                toPoint = routeToPoint,
+                                contactUnlocked = contactUnlocked
+                            )
+                        } else {
+                            RouteMapUnavailableCard(Modifier.height(170.dp))
+                        }
                         routeAd?.let { ad ->
                             PartnerAdCard(
                                 ad = ad,
@@ -376,11 +462,22 @@ internal fun BookingScreen(
                                 onClick = onAdClick
                             )
                         }
-                        InfoCard(
-                            title = appText("Телефон откроется после подтверждения поездки", "Телефон сәфәр раҫланғандан һуң асыла"),
-                            text = "",
-                            icon = Icons.Default.Lock
-                        )
+                        if (contactUnlocked && driverPhone.isNotBlank()) {
+                            InfoCard(
+                                title = appText("Телефон водителя открыт", "Водителдең телефоны асылды"),
+                                text = driverPhone,
+                                icon = Icons.Default.Phone
+                            )
+                        } else {
+                            InfoCard(
+                                title = if (bookingId != null)
+                                    appText("Телефон откроется после подтверждения водителем", "Телефон водитель раҫлағас асыла")
+                                else
+                                    appText("Телефон откроется после подтверждения поездки", "Телефон сәфәр раҫланғандан һуң асыла"),
+                                text = appText("Так мы защищаем номер и точную геолокацию до взаимного согласия.", "Шулай итеп номерҙы һәм теүәл геолокацияны ике яҡ ризалығына тиклем һаҡлайбыҙ."),
+                                icon = Icons.Default.Lock
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
                                 onClick = onMessage,
@@ -394,13 +491,28 @@ internal fun BookingScreen(
                             }
                             Button(
                                 onClick = onConfirmRide,
+                                enabled = bookingId == null || canOpenActiveTrip,
                                 modifier = Modifier.weight(1.15f).height(54.dp),
                                 shape = RoundedCornerShape(18.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = CanonGreen2,
+                                    disabledContainerColor = CanonMint,
+                                    disabledContentColor = CanonGreen2.copy(alpha = 0.68f)
+                                )
                             ) {
-                                Icon(Icons.Default.Route, contentDescription = null)
+                                Icon(if (bookingId != null && !canOpenActiveTrip) Icons.Default.Schedule else Icons.Default.Route, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
-                                Text(appText("Поехать", "Барырға"), fontWeight = FontWeight.Black)
+                                Text(
+                                    when {
+                                        bookingId == null -> appText("Поехать", "Барырға")
+                                        canOpenActiveTrip -> appText("Открыть", "Асырға")
+                                        else -> appText("Ждём водителя", "Водителде көтәбеҙ")
+                                    },
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
@@ -411,6 +523,147 @@ internal fun BookingScreen(
                     title = appText("Мы заботимся о вашей безопасности", "Беҙ һеҙҙең хәүефһеҙлек тураһында ҡайғыртабыҙ"),
                     text = appText("Все поездки защищены и отслеживаются службой поддержки Юлдаш.", "Бөтә сәфәрҙәр Юлдаш ярҙам хеҙмәте тарафынан күҙәтелә."),
                     icon = Icons.Default.Shield
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookingRouteMapPreview(
+    modifier: Modifier = Modifier,
+    from: String,
+    to: String,
+    fromPoint: Point,
+    toPoint: Point,
+    contactUnlocked: Boolean
+) {
+    val context = LocalContext.current
+    val mapView = remember(fromPoint, toPoint) {
+        runCatching { MapKitFactory.initialize(context) }
+        MapView(context).also { view ->
+            view.setOnTouchListener { v, event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                false
+            }
+        }
+    }
+    DisposableEffect(mapView) {
+        MapKitFactory.getInstance().onStart()
+        mapView.onStart()
+        onDispose {
+            mapView.onStop()
+            MapKitFactory.getInstance().onStop()
+        }
+    }
+    LaunchedEffect(mapView, fromPoint, toPoint) {
+        val map = mapView.mapWindow.map
+        fitBookingRouteCamera(map, fromPoint, toPoint)?.let { camera ->
+            map.move(camera, Animation(Animation.Type.SMOOTH, 0.25f), null)
+        }
+        map.mapObjects.addPolyline(Polyline(listOf(fromPoint, toPoint))).apply {
+            setStrokeColor(0xCC0B6B3A.toInt())
+            strokeWidth = 5f
+        }
+        map.mapObjects.addPlacemark().apply { geometry = fromPoint }
+        map.mapObjects.addPlacemark().apply { geometry = toPoint }
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .border(1.dp, CanonBorder, RoundedCornerShape(24.dp))
+    ) {
+        AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+        BookingMapLabel(from, Modifier.align(Alignment.TopStart).padding(14.dp))
+        BookingMapLabel(to, Modifier.align(Alignment.CenterEnd).padding(14.dp))
+        if (!contactUnlocked) {
+            Card(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp),
+                colors = CardDefaults.cardColors(containerColor = CanonSurface),
+                shape = RoundedCornerShape(18.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = CanonText)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        appText(
+                            "Точная точка встречи откроется после подтверждения",
+                            "Теүәл осрашыу урыны раҫланғандан һуң асыла"
+                        ),
+                        color = CanonText,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookingMapLabel(text: String, modifier: Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        color = CanonSurface,
+        shadowElevation = 3.dp
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            color = CanonText,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun fitBookingRouteCamera(map: com.yandex.mapkit.map.Map, from: Point, to: Point): CameraPosition? = runCatching {
+    val bbox = com.yandex.mapkit.geometry.BoundingBox(
+        Point(minOf(from.latitude, to.latitude), minOf(from.longitude, to.longitude)),
+        Point(maxOf(from.latitude, to.latitude), maxOf(from.longitude, to.longitude))
+    )
+    val fit = map.cameraPosition(com.yandex.mapkit.geometry.Geometry.fromBoundingBox(bbox))
+    CameraPosition(fit.target, (fit.zoom - 0.55f).coerceIn(3f, 16f), 0f, 0f)
+}.getOrNull()
+
+@Composable
+private fun RouteMapUnavailableCard(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(color = CanonMint, shape = CircleShape) {
+                Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    appText("Карта маршрута загружается", "Маршрут картаһы йөкләнә"),
+                    color = CanonText,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 16.sp
+                )
+                Text(
+                    appText(
+                        "Покажем реальный маршрут, когда сервер вернёт координаты.",
+                        "Сервер координаталарҙы биргәс, ысын маршрутты күрһәтербеҙ."
+                    ),
+                    color = CanonMuted,
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp
                 )
             }
         }
@@ -501,7 +754,7 @@ internal fun ActiveTripScreen(
     onSos: () -> Unit
 ) {
     val context = LocalContext.current
-    var messages by remember { mutableStateOf<List<MessageDto>>(emptyList()) }
+    var messages by remember(bookingId) { mutableStateOf<List<MessageDto>>(emptyList()) }
     val voiceScope = rememberCoroutineScope()
     val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшерегеҙ.")
     val shareErrMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшерегеҙ.")
@@ -509,6 +762,7 @@ internal fun ActiveTripScreen(
     // Роль в этой брони: водитель видит «Я выехал/Подъезжаю» (push пассажиру), пассажир — «сел/доехал/завершить».
     var role by remember { mutableStateOf("") }
     var driverPhase by remember(bookingId) { mutableStateOf("") }   // ""/departed/arriving — для live-баннера пассажиру
+    var bookingStatus by remember(bookingId) { mutableStateOf("") }
     // Опрос состояния поездки раз в ~12с: роль + подфаза водителя. Так пассажир видит «водитель выехал/
     // подъезжает» LIVE (раньше это приходило только пушем — его легко пропустить, а UI не обновлялся).
     // На паузе в фоне (repeatOnLifecycle RESUMED) — не дёргаем сервер и батарею, когда приложение свёрнуто.
@@ -517,7 +771,7 @@ internal fun ActiveTripScreen(
         val id = bookingId ?: return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
-                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase }
+                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; bookingStatus = st.status }
                 kotlinx.coroutines.delay(12_000)
             }
         }
@@ -622,6 +876,7 @@ internal fun ActiveTripScreen(
         failedIds = failedIds - tempId
         deliver(tempId, text)
     }
+    val visibleMessages = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
 
     Scaffold(
         containerColor = CanonBg,
@@ -665,7 +920,7 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
-            if (boardingCode.isNotBlank()) {
+            if (boardingCode.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus)) {
                 item {
                     Surface(modifier = Modifier.appearIn(1), color = CanonMint, shape = CanonCardShape) {
                         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -681,53 +936,56 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
-            item { Text(if (role == "driver") appText("Сообщить пассажиру", "Пассажирға хәбәр итеү") else appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(2)) }
-            item {
-                Row(modifier = Modifier.appearIn(2), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val statusButtons = if (role == "driver")
-                        // + «Завершить»: водитель тоже закрывает поездку. Раньше закрыть бронь мог ТОЛЬКО
-                        // пассажир → если он забывал, бронь висела активной, а места поездки не освобождались.
-                        listOf("departed" to appText("Я выехал", "Сыҡтым"), "arriving" to appText("Подъезжаю", "Яҡынлашам"), "done" to appText("Завершить", "Тамам"))
-                    else
-                        listOf("sat" to appText("Я сел", "Ултырҙым"), "arrived" to appText("Доехал", "Барып еттем"), "done" to appText("Завершить", "Тамам"))
-                    statusButtons.forEach { (st, label) ->
-                        FilledTonalButton(
-                            onClick = {
-                                val bid = bookingId
-                                if (role == "driver") {
-                                    // Водитель: «выехал/подъезжаю» → push пассажиру; «Завершить» → закрывает бронь на сервере.
-                                    if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем экран
-                                    else voiceScope.launch {
-                                        ApiClient.driverStatus(bid, st)
-                                            .onSuccess {
-                                                if (st == "done") onTripEnd()   // уходим с экрана только при реальном закрытии брони
-                                                else Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
-                                            }
-                                            .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+            val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
+            if (canChangeTripStatus) {
+                item { Text(if (role == "driver") appText("Сообщить пассажиру", "Пассажирға хәбәр итеү") else appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(2)) }
+                item {
+                    Row(modifier = Modifier.appearIn(2), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val statusButtons = if (role == "driver")
+                            // + «Завершить»: водитель тоже закрывает поездку. Раньше закрыть бронь мог ТОЛЬКО
+                            // пассажир → если он забывал, бронь висела активной, а места поездки не освобождались.
+                            listOf("departed" to appText("Я выехал", "Сыҡтым"), "arriving" to appText("Подъезжаю", "Яҡынлашам"), "done" to appText("Завершить", "Тамам"))
+                        else
+                            listOf("sat" to appText("Я сел", "Ултырҙым"), "arrived" to appText("Доехал", "Барып еттем"), "done" to appText("Завершить", "Тамам"))
+                        statusButtons.forEach { (st, label) ->
+                            FilledTonalButton(
+                                onClick = {
+                                    val bid = bookingId
+                                    if (role == "driver") {
+                                        // Водитель: «выехал/подъезжаю» → push пассажиру; «Завершить» → закрывает бронь на сервере.
+                                        if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем экран
+                                        else voiceScope.launch {
+                                            ApiClient.driverStatus(bid, st)
+                                                .onSuccess {
+                                                    if (st == "done") onTripEnd()   // уходим с экрана только при реальном закрытии брони
+                                                    else Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
+                                                }
+                                                .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                        }
+                                    } else {
+                                        status = st
+                                        if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем
+                                        else voiceScope.launch {
+                                            ApiClient.setTripStatus(bid, st)
+                                                // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
+                                                .onSuccess { if (st == "done") onTripEnd() }
+                                                .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                        }
                                     }
-                                } else {
-                                    status = st
-                                    if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем
-                                    else voiceScope.launch {
-                                        ApiClient.setTripStatus(bid, st)
-                                            // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
-                                            .onSuccess { if (st == "done") onTripEnd() }
-                                            .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
-                                    }
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(16.dp),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (role != "driver" && status == st) CanonMint else CanonSurface,
-                                contentColor = CanonText
-                            )
-                        ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(16.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = if (role != "driver" && status == st) CanonMint else CanonSurface,
+                                    contentColor = CanonText
+                                )
+                            ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        }
                     }
                 }
             }
-            item {
+            if (bookingStatus == "done") item {
                 var myStars by remember { mutableStateOf(0) }
                 val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
                 val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
@@ -758,7 +1016,7 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
-            item {
+            if (bookingId == null || bookingStatusAllowsBoarding(bookingStatus)) item {
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                     Row(
                         Modifier.appearIn(3).fillMaxWidth().clickable { showShare = true }.padding(16.dp),
@@ -776,7 +1034,7 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
-            item {
+            if (bookingId == null || bookingStatus == "confirmed") item {
                 var showCancel by remember { mutableStateOf(false) }
                 val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
                 val cancelFailMsg = appText("Не удалось отменить", "Кире алып булманы")
@@ -828,6 +1086,74 @@ internal fun ActiveTripScreen(
                         Text(appText("Соединение восстанавливается…", "Бәйләнеш тергеҙелә…"), color = CanonGreen2, fontSize = 13.sp)
                     }
                 }
+            }
+            // Состояния первой загрузки истории: спиннер / ошибка с «Повторить» / пусто.
+            // Оптимистично отправленное сообщение уже наполняет messages → состояния гаснут.
+            if (visibleMessages.isEmpty()) {
+                when {
+                    historyLoading -> item {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp, color = CanonGreen2)
+                        }
+                    }
+                    historyError -> item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                appText("Не удалось загрузить чат", "Чатты йөкләп булманы"),
+                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
+                            )
+                            OutlinedButton(
+                                onClick = { historyTick++ },
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, CanonGreen2)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    bookingId != null -> item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(30.dp))
+                            Text(
+                                appText("Пока нет сообщений. Напиши первым", "Әлегә хәбәрҙәр юҡ. Беренсе булып яҙ"),
+                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+            items(visibleMessages, key = { it.id }) { m ->
+                val saved = m.id > 0   // оптимистичные (id<0) ещё не на сервере — без меню
+                MessageBubble(
+                    text = m.text,
+                    voiceUrl = m.voiceUrl,
+                    mine = m.senderId == myId,
+                    failed = m.id in failedIds,
+                    deleted = m.deleted,
+                    edited = m.edited,
+                    canEdit = saved && m.senderId == myId && m.voiceUrl == null && !m.deleted,
+                    canDeleteAll = saved && m.senderId == myId && !m.deleted,
+                    canDeleteMine = saved && !m.deleted,
+                    onRetry = { retry(m.id, m.text) },
+                    onEdit = { editingId = m.id; draft = m.text },
+                    onDelete = { scope ->
+                        if (bookingId != null) voiceScope.launch {
+                            ApiClient.deleteMessage(bookingId, m.id, scope).onSuccess {
+                                ApiClient.getMessages(bookingId).onSuccess { messages = it }
+                            }
+                        }
+                    },
+                )
             }
             item {
                 val voiceSoon = appText("Голос записан", "Тауыш яҙылды")
@@ -884,74 +1210,6 @@ internal fun ActiveTripScreen(
                             }
                         }
                     }
-                )
-            }
-            // Состояния первой загрузки истории: спиннер / ошибка с «Повторить» / пусто.
-            // Оптимистично отправленное сообщение уже наполняет messages → состояния гаснут.
-            if (messages.isEmpty()) {
-                when {
-                    historyLoading -> item {
-                        Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp, color = CanonGreen2)
-                        }
-                    }
-                    historyError -> item {
-                        Column(
-                            Modifier.fillMaxWidth().padding(vertical = 20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text(
-                                appText("Не удалось загрузить чат", "Чатты йөкләп булманы"),
-                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
-                            )
-                            OutlinedButton(
-                                onClick = { historyTick++ },
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, CanonGreen2)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    bookingId != null -> item {
-                        Column(
-                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(30.dp))
-                            Text(
-                                appText("Пока нет сообщений. Напиши первым", "Әлегә хәбәрҙәр юҡ. Беренсе булып яҙ"),
-                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
-            }
-            items(messages, key = { it.id }) { m ->
-                val saved = m.id > 0   // оптимистичные (id<0) ещё не на сервере — без меню
-                MessageBubble(
-                    text = m.text,
-                    voiceUrl = m.voiceUrl,
-                    mine = m.senderId == myId,
-                    failed = m.id in failedIds,
-                    deleted = m.deleted,
-                    edited = m.edited,
-                    canEdit = saved && m.senderId == myId && m.voiceUrl == null && !m.deleted,
-                    canDeleteAll = saved && m.senderId == myId && !m.deleted,
-                    canDeleteMine = saved && !m.deleted,
-                    onRetry = { retry(m.id, m.text) },
-                    onEdit = { editingId = m.id; draft = m.text },
-                    onDelete = { scope ->
-                        if (bookingId != null) voiceScope.launch {
-                            ApiClient.deleteMessage(bookingId, m.id, scope).onSuccess {
-                                ApiClient.getMessages(bookingId).onSuccess { messages = it }
-                            }
-                        }
-                    },
                 )
             }
             item {

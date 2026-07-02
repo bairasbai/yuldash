@@ -551,13 +551,21 @@ private fun MapHero(
     var cardCollapsed by remember { mutableStateOf(false) }
     var activeRoute by remember { mutableStateOf<PopularRoute?>(null) }
     val adRoutePoint = remember(adRoute) { adRoute?.let { parseMapPoint(it.mapPoint) } }
+    var nativeMapVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
+            androidx.compose.runtime.withFrameNanos { }
+            delay(700)
+            nativeMapVisible = true
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(350.dp)
         ) {
-            if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
+            if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank() && nativeMapVisible) {
                 YandexMapCard(
                     modifier = Modifier.matchParentSize(),
                     activeTrip = activeTrip,

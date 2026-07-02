@@ -7,16 +7,63 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Booking, BookingStatus, Ride, RideStatus, User
+from ..models import Booking, BookingStatus, DriverProfile, Ride, RideStatus, User
 from ..security import current_user, gen_otp
-from ..services import booking_and_ride_for_user, is_blocked, notify_map_changed, send_push, user_rating
+from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, send_push, user_rating
 
 router = APIRouter(tags=["bookings"])
+
+
+def _ensure_route_coords(session: Session, ride: Ride) -> None:
+    """Lazy-backfill для старых поездок: детали брони не должны показывать пустую карту.
+
+    Новые поездки геокодятся при публикации, но на проде есть брони из старых версий.
+    При первом открытии деталей добиваем координаты концов маршрута и сохраняем.
+    """
+    changed = False
+    if ride.from_lat is None or ride.from_lng is None:
+        frm = geocode_city(ride.from_city)
+        if frm:
+            ride.from_lat, ride.from_lng = frm
+            changed = True
+    if ride.to_lat is None or ride.to_lng is None:
+        to = geocode_city(ride.to_city)
+        if to:
+            ride.to_lat, ride.to_lng = to
+            changed = True
+    if changed:
+        session.add(ride)
+        session.commit()
+        session.refresh(ride)
 
 
 class BookIn(BaseModel):
     ride_id: int
     seats: int = 1
+
+
+class BookingDetailsOut(BaseModel):
+    booking_id: int
+    ride_id: int
+    role: str
+    status: str
+    contact_unlocked: bool
+    from_city: str
+    to_city: str
+    depart_at: str
+    seats: int
+    price: int
+    driver_name: str
+    driver_verified: bool
+    driver_phone: str = ""
+    driver_car: str = ""
+    pickup: str = ""
+    pickup_lat: Optional[float] = None
+    pickup_lng: Optional[float] = None
+    from_lat: Optional[float] = None
+    from_lng: Optional[float] = None
+    to_lat: Optional[float] = None
+    to_lng: Optional[float] = None
 
 
 @router.post("/bookings", response_model=Booking)
@@ -57,6 +104,47 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # Push водителю о новой брони.
     send_push(session, ride.driver_id, "Новая бронь", f"{user.name or 'Пассажир'}: {ride.from_city} → {ride.to_city}, мест {body.seats}")
     return booking
+
+
+@router.get("/bookings/{booking_id}/details", response_model=BookingDetailsOut)
+def booking_details(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Приватные детали брони для экрана «Детали поездки».
+
+    Публичная карточка поездки не должна раскрывать телефон и точную точку встречи.
+    Здесь эти данные доступны только участникам брони и только после подтверждения
+    водителем (confirmed/onboard/done).
+    """
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    _ensure_route_coords(session, ride)
+    driver = session.get(User, ride.driver_id)
+    profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
+    driver_car = f"{profile.car_make} {profile.car_model}".strip() if profile else ""
+    unlocked = booking.status in (BookingStatus.confirmed, BookingStatus.onboard, BookingStatus.done)
+    return {
+        "booking_id": booking.id,
+        "ride_id": ride.id,
+        "role": "driver" if ride.driver_id == user.id else "passenger",
+        "status": booking.status.value if hasattr(booking.status, "value") else booking.status,
+        "contact_unlocked": unlocked,
+        "from_city": ride.from_city,
+        "to_city": ride.to_city,
+        "depart_at": ride.depart_at.isoformat() if ride.depart_at else "",
+        "seats": booking.seats,
+        "price": booking.price,
+        "driver_name": (driver.name if driver and driver.name else "Водитель"),
+        "driver_verified": bool(driver.verified) if driver else False,
+        "driver_phone": (driver.phone if (unlocked and driver) else ""),
+        "driver_car": driver_car,
+        "pickup": (ride.pickup if unlocked else ""),
+        "pickup_lat": (ride.pickup_lat if unlocked else None),
+        "pickup_lng": (ride.pickup_lng if unlocked else None),
+        # Координаты концов маршрута не раскрывают точную встречу: это город/маршрут,
+        # нужен Android-клиенту для настоящей карты вместо мок-превью.
+        "from_lat": ride.from_lat,
+        "from_lng": ride.from_lng,
+        "to_lat": ride.to_lat,
+        "to_lng": ride.to_lng,
+    }
 
 
 @router.get("/bookings/{booking_id}/boarding-code")

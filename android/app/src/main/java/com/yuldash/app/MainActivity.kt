@@ -461,8 +461,10 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
 )
 
 /** Километры коротко: «2.3 км» вблизи, «243 км» вдали. */
-internal fun fmtKm(d: Double): String =
-    if (d < 10) String.format(java.util.Locale.US, "%.1f", d) else Math.round(d).toString()
+internal fun fmtKm(d: Double): String {
+    val rounded = if (d < 10) String.format(java.util.Locale.US, "%.1f", d) else Math.round(d).toString()
+    return if (rounded == "10.0") "10" else rounded
+}
 
 /** Категория из UI → (enum бэкенда, признак «с детьми»). */
 private fun categoryToApi(ui: String): Pair<String, Boolean> = when (ui) {
@@ -574,7 +576,7 @@ internal fun mapFeedFrom(popular: List<PopularRoute>, feed: FeedDto? = null): Li
     val topCount = feed?.topCount?.takeIf { it > 0 } ?: 320
     val topRoute = routes.firstOrNull { it.from == topFrom && it.to == topTo } ?: r1
     val donations = feed?.donationsTotal ?: 0   // ₽ донатов от пользователей за всё время (реальные, с /feed)
-    val donationsFmt = if (donations >= 1000) "%,d".format(donations).replace(',', ' ') else donations.toString()
+    val donationsFmt = if (donations >= 1000) String.format(java.util.Locale.US, "%,d", donations).replace(',', ' ') else donations.toString()
     return listOf(
         MapFeedCard(FeedKind.Route, "Популярно", "Популяр",
             "${r0.from} → ${r0.to}", "${r0.from} → ${r0.to}",

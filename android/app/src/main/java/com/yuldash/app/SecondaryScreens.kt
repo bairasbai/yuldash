@@ -360,6 +360,7 @@ internal fun SafetyScreen(
     var verifiedOnly by remember { mutableStateOf(AppPrefs.verifiedOnly(ctx)) }
     Scaffold(
         containerColor = CanonBg,
+        topBar = { ScreenTopBar(appText("Безопасность", "Хәүефһеҙлек"), onBack) },
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
     ) { padding ->
         LazyColumn(
@@ -369,8 +370,11 @@ internal fun SafetyScreen(
         ) {
             item { Spacer(Modifier.height(10.dp)) }
             item {
-                Text(appText("Безопасность", "Хәүефһеҙлек"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-                Text(appText("Ваши данные и поездки под защитой", "Һеҙҙең мәғлүмәт һәм сәфәрҙәр һаҡланған"), color = CanonMuted, fontSize = 15.sp)
+                Text(
+                    appText("Ваши данные и поездки под защитой", "Һеҙҙең мәғлүмәт һәм сәфәрҙәр һаҡланған"),
+                    color = CanonMuted,
+                    fontSize = 15.sp
+                )
             }
             item {
                 Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {

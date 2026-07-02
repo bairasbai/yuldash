@@ -571,18 +571,27 @@ internal fun PassengerCabinetScreen(
     rides: List<Ride>,
     requests: List<LocalRequest>,
     onBack: () -> Unit,
+    onMyTrips: () -> Unit,
+    onOpenBooking: (Ride, String) -> Unit,
     onFindRide: () -> Unit,
     onCreateRequest: () -> Unit,
     onSafety: () -> Unit
 ) {
     // Реальные брони и заявки пользователя (раньше метрики и карточка брались из демо-списка).
     var bookings by remember { mutableStateOf<List<com.yuldash.app.data.BookingMineDto>>(emptyList()) }
+    var bookingsLoading by remember { mutableStateOf(true) }
+    var bookingsError by remember { mutableStateOf(false) }
+    var bookingsReload by remember { mutableIntStateOf(0) }
     var serverReqCount by remember { mutableStateOf<Int?>(null) }
     var myRating by remember { mutableStateOf<Double?>(null) }
-    LaunchedEffect(Unit) {
-        ApiClient.getMyBookingsDetailed().onSuccess { bookings = it }
+    LaunchedEffect(bookingsReload) {
+        bookingsLoading = true
+        ApiClient.getMyBookingsDetailed()
+            .onSuccess { bookings = it; bookingsError = false }
+            .onFailure { e -> bookingsError = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401 }
         ApiClient.getMyRequests().onSuccess { serverReqCount = it.size }
         ApiClient.me().onSuccess { o -> myRating = if (o.isNull("rating")) null else o.optDouble("rating") }
+        bookingsLoading = false
     }
     val activeBookings = bookings.filter { it.status == "pending" || it.status == "confirmed" || it.status == "onboard" }
     val activeBooking = activeBookings.firstOrNull()
@@ -606,29 +615,59 @@ internal fun PassengerCabinetScreen(
                     CabinetMetric(appText("Рейтинг", "Рейтинг"), myRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—", Modifier.weight(1f))
                 }
             }
+            item {
+                SettingsGroup {
+                    SettingsNavRow(
+                        Icons.Default.EventSeat,
+                        appText("Мои поездки", "Минең сәфәрҙәр"),
+                        appText("Активные брони, история и чат по поездке", "Актив брондәр, тарих һәм сәфәр чаты"),
+                        onClick = onMyTrips
+                    )
+                }
+            }
+            if (bookingsLoading) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        repeat(2) { SkeletonCard(lines = 3) }
+                    }
+                }
+            }
+            if (bookingsError) {
+                item {
+                    EmptyStateCard(
+                        title = appText("Не удалось загрузить поездки", "Сәфәрҙәрҙе йөкләп булманы"),
+                        text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
+                        icon = Icons.Default.Refresh,
+                        action = appText("Повторить", "Ҡабатлау"),
+                        onAction = { bookingsReload++ }
+                    )
+                }
+            }
             activeBooking?.let { b ->
                 item {
+                    val displayRide = Ride(
+                        id = b.id.toString(),
+                        from = b.fromCity.ifBlank { appText("Поездка", "Сәфәр") },
+                        to = b.toCity.ifBlank { "№${b.rideId}" },
+                        time = formatDepart(b.departAt),
+                        driver = b.driverName,
+                        car = "",
+                        price = b.price,
+                        seats = b.seats,
+                        rating = 0.0,
+                        verified = b.driverVerified,
+                        boosted = false
+                    )
+                    val opensActiveTrip = b.status == "confirmed" || b.status == "onboard"
                     MyTripCard(
-                        ride = Ride(
-                            id = b.id.toString(),
-                            from = b.fromCity.ifBlank { appText("Поездка", "Сәфәр") },
-                            to = b.toCity.ifBlank { "№${b.rideId}" },
-                            time = b.departAt,
-                            driver = b.driverName,
-                            car = "",
-                            price = b.price,
-                            seats = b.seats,
-                            rating = 0.0,
-                            verified = b.driverVerified,
-                            boosted = false
-                        ),
+                        ride = displayRide,
                         status = appText("Ближайшая", "Яҡындағы"),
                         statusColor = CanonMint,
                         icon = Icons.Default.EventSeat,
-                        primaryAction = appText("Найти похожую", "Оҡшашын табыу"),
-                        secondaryAction = appText("Безопасность", "Хәүефһеҙлек"),
-                        onPrimary = onFindRide,
-                        onSecondary = onSafety
+                        primaryAction = if (opensActiveTrip) appText("Открыть поездку", "Сәфәрҙе асыу") else appText("Подробнее", "Ентекле"),
+                        secondaryAction = appText("Все поездки", "Бөтә сәфәрҙәр"),
+                        onPrimary = { onOpenBooking(displayRide, b.status) },
+                        onSecondary = onMyTrips
                     )
                 }
             }

@@ -126,6 +126,8 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "YULDASH_API_BASE_URL", "\"$debugApiBaseUrl\"")
+            enableUnitTestCoverage = true
+            enableAndroidTestCoverage = true
         }
 
         release {

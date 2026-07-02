@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
 from ..db import engine, get_session
-from ..models import Booking, Message, Ride, User
+from ..models import Booking, BookingStatus, Message, Ride, User
 from ..security import authenticate_ws, current_user
 from ..services import booking_and_ride_for_user, is_blocked, manager, send_push, user_bookings
 
@@ -188,9 +188,19 @@ class ConversationOut(BaseModel):
     last_message: str
 
 
+def _message_preview(m: Message) -> str:
+    if m.deleted:
+        return "Сообщение удалено"
+    if m.text:
+        return m.text
+    if m.voice_url:
+        return "Голосовое"
+    return "Сообщение"
+
+
 @router.get("/conversations", response_model=List[ConversationOut])
 def conversations(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Инбокс: брони пользователя (как пассажир и как водитель), где есть сообщения."""
+    """Инбокс: активные брони пользователя и брони с историей сообщений."""
     bookings = user_bookings(session, user)
     if not bookings:
         return []
@@ -201,6 +211,8 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
     for m in session.exec(
         select(Message).where(Message.booking_id.in_(booking_ids)).order_by(Message.id.desc())
     ).all():
+        if user.id in _hidden_ids(m):
+            continue
         last_by_booking.setdefault(m.booking_id, m)
     # Поездки и собеседники — пачкой по id (вместо session.get в цикле).
     rides_by_id = {r.id: r for r in session.exec(select(Ride).where(Ride.id.in_({b.ride_id for b in bookings}))).all()}
@@ -212,7 +224,8 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
     out: list = []
     for b in bookings:
         last = last_by_booking.get(b.id)
-        if last is None:
+        active_without_messages = b.status in (BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)
+        if last is None and not active_without_messages:
             continue
         ride = rides_by_id.get(b.ride_id)
         peer_id = ride.driver_id if (ride and b.passenger_id == user.id) else b.passenger_id
@@ -222,7 +235,7 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
             peer_name=(peer.name if peer and peer.name else "Собеседник"),
             peer_avatar=(peer.avatar_url if peer else ""),
             route=(f"{ride.from_city} → {ride.to_city}" if ride else ""),
-            last_message=(last.text if last.text else "Голосовое"),
+            last_message=("Чат открыт" if last is None else _message_preview(last)),
         ))
     return out
 

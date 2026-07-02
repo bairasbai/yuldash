@@ -6,6 +6,10 @@
 """
 import base64
 
+from sqlmodel import Session
+
+from app.db import engine
+from app.models import Ride
 from app.models import UserRole
 
 
@@ -63,8 +67,47 @@ def test_rides_near_distance(client, user_factory):
     assert any(it.get("distance_km") is not None for it in body["items"])
 
 
+def test_requests_near_requires_auth(client, user_factory):
+    pax = user_factory("ReqNearPax")
+    client.post("/requests", headers=pax["auth"], json={"from_city": "Баймак", "to_city": "Сибай", "comment": "без телефона"})
+    assert client.get("/requests/near").status_code == 401
+    body = client.get("/requests/near", headers=pax["auth"]).json()
+    assert body["count"] >= 1
+    assert all("phone" not in item for item in body["items"])
+
+
 def test_get_ride_404(client):
     assert client.get("/rides/99999999").status_code == 404
+
+
+def test_public_ride_outputs_hide_pickup_until_booking_confirmed(client, user_factory):
+    drv = user_factory("PrivacyDrv", role=UserRole.driver)
+    ride = _publish(
+        client,
+        drv,
+        frm="ПриватГрад",
+        to="Уфа",
+        pickup="Подъезд 3, дом 12",
+        pickup_lat=52.12345,
+        pickup_lng=58.54321,
+    )
+
+    one = client.get(f"/rides/{ride['id']}").json()
+    assert one["pickup"] == ""
+    assert one["pickup_lat"] is None
+    assert one["pickup_lng"] is None
+
+    rows = client.get("/rides", params={"from_city": "ПриватГрад"}).json()
+    public_row = next(r for r in rows if r["id"] == ride["id"])
+    assert public_row["pickup"] == ""
+    assert public_row["pickup_lat"] is None
+    assert public_row["pickup_lng"] is None
+
+    near = client.get("/rides/near", params={"from_city": "ПриватГрад", "lat": 52.1, "lng": 58.5}).json()
+    near_row = next(r for r in near["items"] if r["id"] == ride["id"])
+    assert near_row["pickup"] == ""
+    assert near_row["pickup_lat"] is None
+    assert near_row["pickup_lng"] is None
 
 
 def test_rides_pagination(client, user_factory):
@@ -115,6 +158,74 @@ def test_confirm_only_by_driver(client, user_factory):
     # водитель — может
     r = client.post(f"/bookings/{booking['id']}/confirm", headers=drv["auth"])
     assert r.status_code == 200 and r.json()["status"] == "confirmed"
+
+
+def test_booking_details_unlock_after_confirm(client, user_factory):
+    drv = user_factory("DetailDrv", role=UserRole.driver)
+    pax = user_factory("DetailPax")
+    ride = _publish(
+        client,
+        drv,
+        frm="Темясово",
+        to="Уфа",
+        price=1400,
+        pickup="Автовокзал",
+        pickup_lat=52.972,
+        pickup_lng=58.160,
+    )
+    booking = _book(client, pax, ride["id"])
+
+    pending = client.get(f"/bookings/{booking['id']}/details", headers=pax["auth"])
+    assert pending.status_code == 200
+    assert pending.json()["contact_unlocked"] is False
+    assert pending.json()["driver_phone"] == ""
+    assert pending.json()["pickup"] == ""
+    assert pending.json()["pickup_lat"] is None
+    assert pending.json()["from_lat"] is not None
+    assert pending.json()["to_lat"] is not None
+
+    client.post(f"/bookings/{booking['id']}/confirm", headers=drv["auth"])
+    confirmed = client.get(f"/bookings/{booking['id']}/details", headers=pax["auth"]).json()
+    assert confirmed["contact_unlocked"] is True
+    assert confirmed["driver_phone"]
+    assert confirmed["pickup"] == "Автовокзал"
+    assert confirmed["pickup_lat"] == 52.972
+    assert confirmed["from_lat"] == pending.json()["from_lat"]
+    assert confirmed["to_lat"] == pending.json()["to_lat"]
+
+
+def test_booking_details_backfills_route_coords_for_old_rides(client, user_factory):
+    drv = user_factory("OldGeoDrv", role=UserRole.driver)
+    pax = user_factory("OldGeoPax")
+    ride = _publish(client, drv, frm="Темясово", to="Уфа", price=1400)
+    with Session(engine) as session:
+        db_ride = session.get(Ride, ride["id"])
+        db_ride.from_lat = None
+        db_ride.from_lng = None
+        db_ride.to_lat = None
+        db_ride.to_lng = None
+        session.add(db_ride)
+        session.commit()
+    booking = _book(client, pax, ride["id"])
+
+    details = client.get(f"/bookings/{booking['id']}/details", headers=pax["auth"])
+    assert details.status_code == 200
+    body = details.json()
+    assert body["from_lat"] is not None
+    assert body["from_lng"] is not None
+    assert body["to_lat"] is not None
+    assert body["to_lng"] is not None
+
+    with Session(engine) as session:
+        db_ride = session.get(Ride, ride["id"])
+        assert db_ride.from_lat is not None
+        assert db_ride.to_lat is not None
+
+
+def test_booking_details_forbidden_for_outsider(client, user_factory):
+    _drv, _pax, _ride, booking = _trip(client, user_factory)
+    outsider = user_factory("DetailOutsider")
+    assert client.get(f"/bookings/{booking['id']}/details", headers=outsider["auth"]).status_code == 403
 
 
 def test_cancel_returns_seats(client, user_factory):
@@ -297,7 +408,10 @@ def test_driver_profile_verify_moderate(client, user_factory):
     client.post("/driver/profile", headers=drv["auth"], json={"car_make": "Lada", "car_model": "Vesta", "seats": 4})
     # неполная заявка → 400
     assert client.post("/driver/verify", headers=drv["auth"], json={"license_url": "a"}).status_code == 400
-    ok = client.post("/driver/verify", headers=drv["auth"], json={"license_url": "l.jpg", "car_photo_url": "c.jpg"})
+    img = base64.b64encode(b"\xff\xd8\xfffake-jpeg").decode()
+    license_url = client.post("/upload/photo", headers=drv["auth"], json={"photo_b64": img, "ext": "jpg"}).json()["url"]
+    car_photo_url = client.post("/upload/photo", headers=drv["auth"], json={"photo_b64": img, "ext": "jpg"}).json()["url"]
+    ok = client.post("/driver/verify", headers=drv["auth"], json={"license_url": license_url, "car_photo_url": car_photo_url})
     assert ok.status_code == 200 and ok.json()["docs_status"] == "pending"
     assert client.get("/driver/status", headers=drv["auth"]).json()["docs_status"] == "pending"
     # модерация: обычный юзер не может
@@ -305,6 +419,26 @@ def test_driver_profile_verify_moderate(client, user_factory):
     admin = user_factory("Admin", role=UserRole.admin)
     m = client.post(f"/admin/drivers/{drv['id']}/moderate", headers=admin["auth"], json={"approve": True})
     assert m.status_code == 200 and m.json()["verified"] is True and m.json()["docs_status"] == "verified"
+
+
+def test_driver_verify_rejects_foreign_secure_docs(client, user_factory):
+    owner = user_factory("DocOwner", role=UserRole.driver)
+    attacker = user_factory("DocAttacker", role=UserRole.driver)
+    img = base64.b64encode(b"\xff\xd8\xfffake-jpeg").decode()
+    license_url = client.post("/upload/photo", headers=owner["auth"], json={"photo_b64": img, "ext": "jpg"}).json()["url"]
+    car_photo_url = client.post("/upload/photo", headers=owner["auth"], json={"photo_b64": img, "ext": "jpg"}).json()["url"]
+
+    stolen_name = license_url.rsplit("/", 1)[-1]
+    assert stolen_name.startswith(f"{owner['id']}_")
+    assert client.get(f"/secure/docs/{stolen_name}", headers=owner["auth"]).status_code == 200
+    assert client.get(f"/secure/docs/{stolen_name}", headers=attacker["auth"]).status_code == 403
+
+    stolen = client.post(
+        "/driver/verify",
+        headers=attacker["auth"],
+        json={"license_url": license_url, "car_photo_url": car_photo_url},
+    )
+    assert stolen.status_code == 403
 
 
 # ----------------------------- загрузки -----------------------------

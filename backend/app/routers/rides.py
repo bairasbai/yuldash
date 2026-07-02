@@ -13,7 +13,7 @@ from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
-    geocode_city, haversine_km, notify_map_changed, ride_out_with, rides_out,
+    geocode_city, haversine_km, notify_map_changed, public_ride_payload, public_rides_payload, ride_out, ride_out_with, rides_out,
 )
 
 router = APIRouter(tags=["rides"])
@@ -84,7 +84,7 @@ def search_rides(
     if no_filter:
         cached = cache_get_json("rides:active:v1")
         if cached is not None:
-            return _hide_blocked(cached, user, session)
+            return _hide_blocked(public_rides_payload(cached), user, session)
 
     q = select(Ride).where(Ride.status == RideStatus.active)
     if from_city:
@@ -106,9 +106,10 @@ def search_rides(
         q = q.offset(max(0, offset)).limit(max(1, min(limit, 200)))   # потолок 200/страница
     rides = session.exec(q).all()
     out = rides_out(rides, session)
+    public_out = public_rides_payload(out)
     if no_filter:
-        cache_set_json("rides:active:v1", [r.model_dump(mode="json") for r in out], 20)
-    return _hide_blocked(out, user, session)
+        cache_set_json("rides:active:v1", [r.model_dump(mode="json") for r in public_out], 20)
+    return _hide_blocked(public_out, user, session)
 
 
 @router.get("/rides/price_hint")
@@ -176,7 +177,7 @@ def rides_near(
                 dist = round(haversine_km(lat, lng, c[0], c[1]), 1)
         if radius_km is not None and dist is not None and dist > radius_km:
             continue
-        out = ride_out_with(r, users, profiles, rating_agg).model_dump()
+        out = public_ride_payload(ride_out_with(r, users, profiles, rating_agg)).model_dump()
         out["distance_km"] = dist
         items.append(out)
     items = _hide_blocked(items, user, session)   # прячем заблокированных до подсчёта total/пагинации
@@ -197,9 +198,9 @@ def my_driver_rides(user: User = Depends(current_user), session: Session = Depen
     return rides_out(rides, session)
 
 
-@router.get("/rides/{ride_id}", response_model=Ride)
+@router.get("/rides/{ride_id}", response_model=RideOut)
 def get_ride(ride_id: int, session: Session = Depends(get_session)):
     ride = session.get(Ride, ride_id)
     if not ride:
         raise HTTPException(404, "Поездка не найдена")
-    return ride
+    return public_ride_payload(ride_out(ride, session))

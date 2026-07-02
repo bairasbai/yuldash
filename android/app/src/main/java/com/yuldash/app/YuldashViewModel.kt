@@ -55,7 +55,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
 
     // --- Коллекции данных ---
     val rides = mutableStateListOf<Ride>().apply { addAll(demoRides) }
-    val trustedContacts = mutableStateListOf<TrustedContact>().apply { addAll(demoTrustedContacts) }
+    val trustedContacts = mutableStateListOf<TrustedContact>()
     val localRequests = mutableStateListOf<LocalRequest>()
     val voiceMessages = mutableStateListOf<LocalVoiceMessage>()
     val adStats = mutableStateMapOf<String, AdStats>().apply {

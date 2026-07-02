@@ -405,6 +405,34 @@ object ApiClient {
         auth = true,
     ).map { it.optInt("id") }.onSuccess { Analytics.log("booking") }
 
+    /** Приватные детали брони: телефон и точная встреча открываются только после подтверждения. */
+    suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =
+        call("GET", "/bookings/$bookingId/details", null, auth = true).map { o ->
+            BookingDetailsDto(
+                bookingId = o.optInt("booking_id"),
+                rideId = o.optInt("ride_id"),
+                role = o.optString("role"),
+                status = o.optString("status"),
+                contactUnlocked = o.optBoolean("contact_unlocked"),
+                fromCity = o.optString("from_city"),
+                toCity = o.optString("to_city"),
+                departAt = o.optString("depart_at"),
+                seats = o.optInt("seats", 1),
+                price = o.optInt("price"),
+                driverName = o.optString("driver_name"),
+                driverVerified = o.optBoolean("driver_verified"),
+                driverPhone = o.optString("driver_phone"),
+                driverCar = o.optString("driver_car"),
+                pickup = o.optString("pickup"),
+                pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
+                pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
+                fromLat = if (o.isNull("from_lat")) null else o.optDouble("from_lat"),
+                fromLng = if (o.isNull("from_lng")) null else o.optDouble("from_lng"),
+                toLat = if (o.isNull("to_lat")) null else o.optDouble("to_lat"),
+                toLng = if (o.isNull("to_lng")) null else o.optDouble("to_lng"),
+            )
+        }
+
     // ---------- Заявки ----------
 
     /** Создать заявку пассажира (требует входа). */
@@ -685,8 +713,7 @@ object ApiClient {
         call("GET", "/bookings/$bookingId/messages", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                MessageDto(o.optInt("id"), o.optString("text"), o.optInt("sender_id"), o.optString("voice_url").ifBlank { null }, o.optBoolean("deleted"), o.optBoolean("edited"))
+                parseMessageDto(arr.getJSONObject(i))
             }
         }
 
@@ -1277,6 +1304,31 @@ data class BookingMineDto(
     val driverVerified: Boolean,
 )
 
+/** Приватные детали брони для вкладки «Детали поездки». */
+data class BookingDetailsDto(
+    val bookingId: Int,
+    val rideId: Int,
+    val role: String,
+    val status: String,
+    val contactUnlocked: Boolean,
+    val fromCity: String,
+    val toCity: String,
+    val departAt: String,
+    val seats: Int,
+    val price: Int,
+    val driverName: String,
+    val driverVerified: Boolean,
+    val driverPhone: String,
+    val driverCar: String,
+    val pickup: String,
+    val pickupLat: Double?,
+    val pickupLng: Double?,
+    val fromLat: Double?,
+    val fromLng: Double?,
+    val toLat: Double?,
+    val toLng: Double?,
+)
+
 /** Заявка пассажира с сервера. */
 data class RequestDto(
     val id: Int,
@@ -1317,6 +1369,29 @@ data class MessageDto(
     val deleted: Boolean = false,
     val edited: Boolean = false,
 )
+
+internal fun parseMessageDto(o: JSONObject): MessageDto =
+    MessageDto(
+        id = o.optInt("id"),
+        text = o.optString("text"),
+        senderId = o.optInt("sender_id"),
+        voiceUrl = o.optNullableString("voice_url"),
+        deleted = o.optBoolean("deleted"),
+        edited = o.optBoolean("edited"),
+    )
+
+private fun JSONObject.optNullableString(key: String): String? {
+    return normalizeOptionalJsonString(
+        hasValue = has(key),
+        isJsonNull = isNull(key),
+        raw = optString(key),
+    )
+}
+
+internal fun normalizeOptionalJsonString(hasValue: Boolean, isJsonNull: Boolean, raw: String): String? {
+    if (!hasValue || isJsonNull) return null
+    return raw.takeIf { it.isNotBlank() && it != "null" }
+}
 
 data class ConversationDto(
     val bookingId: Int,

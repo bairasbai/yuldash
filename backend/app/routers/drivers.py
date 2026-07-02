@@ -20,6 +20,39 @@ from ..timeutil import utcnow
 router = APIRouter(tags=["drivers"])
 
 
+def _doc_name_from_url(url: str) -> str:
+    value = (url or "").strip().split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return os.path.basename(value)
+
+
+def _profile_doc_names(profile: DriverProfile | None) -> set[str]:
+    if not profile:
+        return set()
+    return {
+        name for name in (
+            _doc_name_from_url(profile.license_url),
+            _doc_name_from_url(profile.car_photo_url),
+        ) if name
+    }
+
+
+def _is_owned_doc_name(name: str, user_id: int, profile: DriverProfile | None) -> bool:
+    # New uploads are bound to the uploader by filename prefix. Exact profile match keeps
+    # old already-submitted documents readable after deploy.
+    return name.startswith(f"{user_id}_") or name in _profile_doc_names(profile)
+
+
+def _ensure_owned_doc_url(url: str, user: User, profile: DriverProfile | None) -> str:
+    name = _doc_name_from_url(url)
+    if not name:
+        raise HTTPException(400, "Нужен защищённый файл документа")
+    if not _is_owned_doc_name(name, user.id, profile):
+        raise HTTPException(403, "Можно отправить только свои загруженные документы")
+    if not os.path.isfile(os.path.join(DOC_DIR, name)):
+        raise HTTPException(404, "Файл документа не найден")
+    return url.strip()
+
+
 class OnlineIn(BaseModel):
     online: bool
 
@@ -43,7 +76,7 @@ async def upload_photo(request: Request, user: User = Depends(current_user), ses
     старым клиентом) → приватная папка → защищённый URL (только админ/владелец)."""
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
-    name = f"{uuid.uuid4().hex}.{ext}"
+    name = f"{user.id}_{uuid.uuid4().hex}.{ext}"
     with open(os.path.join(DOC_DIR, name), "wb") as f:
         f.write(data)
     return {"url": secure_docs_url(name)}
@@ -55,8 +88,7 @@ def secure_doc(name: str, user: User = Depends(current_user), session: Session =
     safe = os.path.basename(name)   # защита от path traversal
     if user.role != UserRole.admin:
         prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
-        owns = prof is not None and (safe in (prof.license_url or "") or safe in (prof.car_photo_url or ""))
-        if not owns:
+        if not _is_owned_doc_name(safe, user.id, prof):
             raise HTTPException(403, "Нет доступа к документу")
     path = os.path.join(DOC_DIR, safe)
     if not os.path.isfile(path):
@@ -142,8 +174,8 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     if not body.license_url or not body.car_photo_url:
         raise HTTPException(400, "Нужны фото прав и фото автомобиля")
     dp = _get_or_create_profile(session, user.id)
-    dp.license_url = body.license_url
-    dp.car_photo_url = body.car_photo_url
+    dp.license_url = _ensure_owned_doc_url(body.license_url, user, dp)
+    dp.car_photo_url = _ensure_owned_doc_url(body.car_photo_url, user, dp)
     dp.docs_status = "pending"
     dp.verify_submitted_at = utcnow()
     _run_autocheck(session, dp)   # может сменить статус на verified/rejected (если включено)

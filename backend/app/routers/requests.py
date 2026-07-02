@@ -12,7 +12,7 @@ from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
 )
-from ..security import current_user, current_user_optional, gen_otp
+from ..security import current_user, gen_otp
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
     notify_map_changed, send_push, user_rating,
@@ -77,7 +77,7 @@ def requests_near(
     radius_km: Optional[float] = None,
     limit: Optional[int] = None,
     offset: int = 0,
-    user: Optional[User] = Depends(current_user_optional),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     """Активные заявки пассажиров рядом — водитель видит, кто ищет попутку на его маршруте (зеркало /rides/near).

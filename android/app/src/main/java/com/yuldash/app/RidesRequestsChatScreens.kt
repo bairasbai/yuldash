@@ -270,7 +270,8 @@ internal fun RidesScreen(
     presetTo: String,
     presetToday: Boolean,
     onBookRide: (Ride) -> Unit,
-    onOpenActiveTrip: (Ride) -> Unit,
+    onOpenBookingDetails: (Ride, String) -> Unit,
+    onOpenActiveTrip: (Ride, String) -> Unit,
     onMessage: () -> Unit,
     onShareRide: (Ride) -> Unit,
     onBoost: () -> Unit,
@@ -373,8 +374,8 @@ internal fun RidesScreen(
                             id = b.id.toString(),   // id = booking_id → onOpenActiveTrip получит верный booking
                             from = b.fromCity.ifBlank { feed?.from ?: appText("Поездка", "Сәфәр") },
                             to = b.toCity.ifBlank { feed?.to ?: "№${b.rideId}" },
-                            time = b.departAt.ifBlank { feed?.time ?: "" },
-                            timeBa = b.departAt.ifBlank { feed?.timeBa ?: feed?.time ?: "" },
+                            time = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.time ?: ""),
+                            timeBa = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.timeBa ?: feed?.time ?: ""),
                             driver = b.driverName.ifBlank { feed?.driver ?: "" },
                             car = feed?.car ?: "",
                             carBa = feed?.carBa ?: feed?.car ?: "",
@@ -385,6 +386,7 @@ internal fun RidesScreen(
                             boosted = false
                         )
                         val isHist = b.status in historyStatuses
+                        val opensActiveTrip = bookingStatusAllowsActiveTrip(b.status)
                         val (statusLabel, statusColor, statusIcon) = when (b.status) {
                             "confirmed" -> Triple(appText("Подтверждена", "Раҫланды"), CanonMint, Icons.Default.DirectionsCar)
                             "onboard" -> Triple(appText("В пути", "Юлда"), CanonMint, Icons.Default.DirectionsCar)
@@ -398,10 +400,20 @@ internal fun RidesScreen(
                                 status = statusLabel,
                                 statusColor = statusColor,
                                 icon = statusIcon,
-                                primaryAction = if (isHist) appText("Повторить маршрут", "Маршрутты ҡабатлау") else appText("Подробнее", "Ентекле"),
-                                secondaryAction = appText("Написать", "Яҙыу"),
-                                onPrimary = { if (isHist) onCreateRequest() else onOpenActiveTrip(displayRide) },
-                                onSecondary = onMessage
+                                primaryAction = when {
+                                    isHist -> appText("Повторить маршрут", "Маршрутты ҡабатлау")
+                                    opensActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
+                                    else -> appText("Подробнее", "Ентекле")
+                                },
+                                secondaryAction = if (isHist) "" else if (opensActiveTrip) appText("Чат", "Чат") else appText("Написать", "Яҙыу"),
+                                onPrimary = {
+                                    when {
+                                        isHist -> onCreateRequest()
+                                        opensActiveTrip -> onOpenActiveTrip(displayRide, b.status)
+                                        else -> onOpenBookingDetails(displayRide, b.status)
+                                    }
+                                },
+                                onSecondary = { if (opensActiveTrip) onOpenActiveTrip(displayRide, b.status) else onMessage() }
                             )
                         }
                     }
