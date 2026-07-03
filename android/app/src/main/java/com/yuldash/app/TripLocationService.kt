@@ -36,11 +36,13 @@ class TripLocationService : Service() {
     private var lm: LocationManager? = null
     private var listener: LocationListener? = null
     private var lastSent = 0L
+    private var currentLang = AppLanguage.Ru   // язык нотификации; приходит из YuldashApp по текущему AppLanguage
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val bookingId = intent?.getIntExtra(EXTRA_BOOKING, -1) ?: -1
+        intent?.getStringExtra(EXTRA_LANG)?.let { currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru) }
         // Нет брони ИЛИ нет гео-разрешения → не держим бесполезный foreground-сервис и ложную нотификацию
         // «показываем вашу позицию» (если юзер отозвал гео — стрим всё равно не пойдёт).
         if (bookingId <= 0 ||
@@ -81,9 +83,13 @@ class TripLocationService : Service() {
             override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
         }
         listener = l
+        // GPS основной; NETWORK — только если GPS выключен (иначе двойной расход батареи от двух провайдеров).
         runCatching {
-            manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000L, 10f, l)
-            manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3000L, 10f, l)
+            if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000L, 10f, l)
+            } else if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3000L, 10f, l)
+            }
         }
     }
 
@@ -92,7 +98,7 @@ class TripLocationService : Service() {
             val nm = getSystemService(NotificationManager::class.java)
             if (nm.getNotificationChannel(CHANNEL) == null) {
                 nm.createNotificationChannel(
-                    NotificationChannel(CHANNEL, "Поездка", NotificationManager.IMPORTANCE_LOW)
+                    NotificationChannel(CHANNEL, appTextFor(currentLang, "Поездка", "Сәфәр"), NotificationManager.IMPORTANCE_LOW)
                 )
             }
         }
@@ -101,8 +107,8 @@ class TripLocationService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL)
-            .setContentTitle("Юлдаш — поездка идёт")
-            .setContentText("Показываем вашу позицию попутчику")
+            .setContentTitle(appTextFor(currentLang, "Юлдаш — поездка идёт", "Юлдаш — сәфәр бара"))
+            .setContentText(appTextFor(currentLang, "Показываем вашу позицию попутчику", "Урынығыҙҙы юлдашығыҙға күрһәтәбеҙ"))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .setContentIntent(open)
@@ -121,12 +127,15 @@ class TripLocationService : Service() {
 
     companion object {
         const val EXTRA_BOOKING = "booking_id"
+        const val EXTRA_LANG = "lang"
         private const val CHANNEL = "trip_location"
         private const val NOTIF_ID = 4711
         private const val MIN_INTERVAL_MS = 7000L
 
-        fun start(ctx: Context, bookingId: Int) {
-            val i = Intent(ctx, TripLocationService::class.java).putExtra(EXTRA_BOOKING, bookingId)
+        internal fun start(ctx: Context, bookingId: Int, lang: AppLanguage) {
+            val i = Intent(ctx, TripLocationService::class.java)
+                .putExtra(EXTRA_BOOKING, bookingId)
+                .putExtra(EXTRA_LANG, lang.name)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i) else ctx.startService(i)
         }
 

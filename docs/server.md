@@ -49,7 +49,8 @@
 4. Проверка: `curl https://yulbash.ru/` (с сервера, т.к. ТСПУ режет curl с ноута). nginx уже настроен — перезапуск НЕ нужен.
 
 ### Бэкенд (FastAPI) → прод
-- ⚠️ Прод = **рефакторённая** архитектура (`main.py`-фабрика + `app/routers/*`), деплоится с ветки `claude/quizzical-wescoff-bcdfd1` (НЕ из старых монолит-веток!). Отзывы там: коммит `fa12e39`, роутер `app/routers/reviews.py`.
+- 🟢 **ДЕПЛОЙ-ИСТИНА BACKEND = ветка `main` (обновлено 2026-07-03).** Проверено: `git diff --stat claude/brave-northcutt-2d3a59..main -- backend/` = только `auth.py`(+17) + `test_api.py`(+21) → backend `main` == прод + фикс `push_register` (`2e46bf6`) + регресс (`45b9bed`), скрытых изменений в бэке нет. Остальные коммиты `main` впереди — `fix(web)` (лендинг), бэкенд не трогают. **Деплоить backend-файлы из `main`**, НЕ из рабочих веток `claude/*` (они могут отставать от прода на фичи, напр. `admiring-ardinghelli` без удаления аккаунта). Упоминания других деплой-веток ниже — история.
+- ⚠️ Прод = **рефакторённая** архитектура (`main.py`-фабрика + `app/routers/*`), исторически деплоился с ветки `claude/quizzical-wescoff-bcdfd1` (НЕ из старых монолит-веток!). Отзывы там: коммит `fa12e39`, роутер `app/routers/reviews.py`.
 - Ручной деплой файла: `scp app/<file>.py root@85.239.52.55:/opt/yuldash/app/` → `ssh ... "chown -R yuldash:yuldash /opt/yuldash && systemctl restart yuldash-api"`. Новые таблицы создаёт сам `create_all` при старте.
 - Проверка: `ssh root@85.239.52.55 "curl -s http://127.0.0.1:8000/health"` и `curl https://yulbash.ru/reviews/public`.
 - ⚠️ Деплой монолита поверх рефакта = краш (разъезд импортов). Сверять архитектуру перед заливкой.

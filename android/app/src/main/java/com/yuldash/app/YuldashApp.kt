@@ -277,10 +277,10 @@ internal fun YuldashApp() {
     var activeTrip by vm.activeTrip   // подтверждённая поездка → маршрут на карте; исчезает при завершении
     // Live-позиция: foreground-сервис стримит мой GPS попутчику ТОЛЬКО в активной поездке и ТОЛЬКО при
     // выданном гео-разрешении (приватность). Поездка кончилась / нет разрешения → глушим стрим.
-    LaunchedEffect(activeBookingId, activeTrip) {
+    LaunchedEffect(activeBookingId, activeTrip, vm.language.value) {
         val bid = activeBookingId
         val hasLoc = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (bid != null && activeTrip != null && hasLoc) TripLocationService.start(context, bid)
+        if (bid != null && activeTrip != null && hasLoc) TripLocationService.start(context, bid, vm.language.value)
         else TripLocationService.stop(context)
     }
     val voiceMessages = vm.voiceMessages

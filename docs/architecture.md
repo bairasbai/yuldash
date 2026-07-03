@@ -10,7 +10,7 @@
 | Файл | Что внутри |
 |---|---|
 | `YuldashApp.kt` | Корень: навигация (`when(screen)`), старт-экран, lifecycle поездок, старт/стоп `TripLocationService`, push-разрешения |
-| `MapScreen.kt` (~1.7к строк) | Вкладка Карта: `YandexMapCard`, маршрут (`drawRoadRoute` + объездные), live-стрелка (chaser-эффект), ETA-чип, демо-симуляция, фильтры «Ближайшие», маркеры заявок + `RequestPreviewCard`, авто-refresh + WS `MapFeedSocket`, карусель `QuickSearchCard` (+ донаты) |
+| `MapScreen.kt` (~1.8к строк; иконки → `MapPins.kt`, гео-хелперы → `MapGeo.kt`, Спринт 3) | Вкладка Карта: `YandexMapCard`, маршрут (`drawRoadRoute` + объездные), live-стрелка (chaser-эффект), ETA-чип, демо-симуляция, фильтры «Ближайшие», маркеры заявок + `RequestPreviewCard`, авто-refresh + WS `MapFeedSocket`, карусель `QuickSearchCard` (+ донаты) |
 | `BookingActiveTripScreen.kt` | `BookingScreen` (детали поездки/бронь: public locked → private unlocked через `/bookings/{id}/details`; pending-бронь не открывает active trip) + `ActiveTripScreen` (чат, код посадки только для `confirmed/onboard`, статус-вотчер `getTripState`, live-баннер фазы, SOS, оценка только при `done`) |
 | `RidesRequestsChatScreens.kt` | Вкладки Поездки/Заявки/Чат, `RideCard`, `RequestsFeedScreen` (чипы условий), `ResponsesScreen`, `ChatSocket`-чат; вкладка `Мои поездки` передаёт статус брони в навигацию |
 | `CreateRideScreen.kt` | Публикация поездки (маршрут, цена, удобства `PrefToggleRow`, повтор) |

@@ -866,7 +866,7 @@ private fun BoostBadge() {
     Surface(
         color = CanonYellow,
         shape = RoundedCornerShape(999.dp),
-        border = BorderStroke(1.dp, Color(0xFFE2A11B).copy(alpha = 0.25f))
+        border = BorderStroke(1.dp, CanonGold.copy(alpha = 0.25f))
     ) {
         Row(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.TrendingUp, contentDescription = null, modifier = Modifier.size(15.dp), tint = CanonGreen2)
