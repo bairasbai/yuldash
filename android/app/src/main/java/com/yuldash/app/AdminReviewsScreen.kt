@@ -71,7 +71,7 @@ internal fun AdminReviewsScreen(onBack: () -> Unit) {
                     CircularProgressIndicator(color = CanonGreen)
                 }
                 error != null -> Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    Text(error!!, color = CanonRed, fontSize = 15.sp)
+                    Text(error ?: "", color = CanonRed, fontSize = 15.sp)
                     Spacer(Modifier.height(14.dp))
                     Button(onClick = { scope.launch { load() } }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg)) {
                         Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)

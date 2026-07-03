@@ -735,7 +735,7 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
+                item { ListedError(error ?: "") { reload() } }
             } else if (list.isEmpty()) {
                 item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән водителдәр күренер")) }
             } else {
@@ -811,7 +811,7 @@ internal fun AdminReportsScreen(onBack: () -> Unit) {
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
+                item { ListedError(error ?: "") { reload() } }
             } else if (list.isEmpty()) {
                 item { ListedEmpty(appText("Жалоб нет", "Ялыу юҡ"), appText("Хороший знак — пользователи довольны.", "Яҡшы билдә — ҡулланыусылар риза.")) }
             } else {
@@ -921,7 +921,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
+                item { ListedError(error ?: "") { reload() } }
             } else if (list.isEmpty()) {
                 item { ListedEmpty(appText("Нет заявок на оплату", "Түләү заявкалары юҡ"), appText("Здесь появятся оплаты буста и донаты на подтверждение.", "Бында буст түләүҙәре һәм донаттар раҫлауға күренер")) }
             } else {
@@ -1104,7 +1104,7 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
+                item { ListedError(error ?: "") { reload() } }
             } else {
                 if (blocks.isEmpty()) {
                     item {
@@ -1116,7 +1116,7 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
                         }
                     }
                 } else {
-                    items(blocks.size) { i ->
+                    items(blocks.size, key = { blocks[it].blockedUserId }) { i ->
                         val b = blocks[i]
                         PersonRow(b.name, appText("Разблокировать", "Блокты алыу"), danger = false) {
                             scope.launch { ApiClient.unblockUser(b.blockedUserId).onSuccess { reload() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } }
@@ -1125,7 +1125,7 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
                 }
                 if (addable.isNotEmpty()) {
                     item { Text(appText("Ваши попутчики", "Юлдаштарығыҙ"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp)) }
-                    items(addable.size) { i ->
+                    items(addable.size, key = { addable[it].id }) { i ->
                         val p = addable[i]
                         PersonRow(p.name, appText("Заблокировать", "Блоклау"), danger = true) {
                             scope.launch { ApiClient.blockUser(p.id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } }
@@ -1188,7 +1188,7 @@ internal fun ReportScreen(onBack: () -> Unit) {
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
+                item { ListedError(error ?: "") { reload() } }
             } else if (partners.isEmpty()) {
                 item {
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {

@@ -884,7 +884,7 @@ internal fun AdsCabinetScreen(
                 CircularProgressIndicator(color = CanonGreen2)
             }
             error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                ListedError(error!!) { reloadKey++ }
+                ListedError(error ?: "") { reloadKey++ }
             }
             ads.isEmpty() -> AdsShowcase(packages, Modifier.padding(padding), onCreateAd)
             else -> LazyColumn(
