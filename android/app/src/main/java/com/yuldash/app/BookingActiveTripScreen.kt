@@ -889,107 +889,67 @@ internal fun ActiveTripScreen(
             contentPadding = PaddingValues(bottom = 28.dp)
         ) {
             item {
-                Card(modifier = Modifier.appearIn(0), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("${ride?.from ?: "—"}  →  ${ride?.to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Black)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(ride?.driver ?: appText("Водитель", "Водитель"), color = CanonMuted)
-                            ride?.time?.let { Spacer(Modifier.width(10.dp)); Text(it, color = CanonMuted) }
-                        }
-                    }
-                }
+                TripRouteHeaderCard(
+                    from = ride?.from,
+                    to = ride?.to,
+                    driver = ride?.driver,
+                    time = ride?.time,
+                    modifier = Modifier.appearIn(0),
+                )
             }
             // Live-баннер пассажиру: водитель выехал/подъезжает (опрос статуса раз в ~12с, не только пуш).
             if (role == "passenger" && (driverPhase == "departed" || driverPhase == "arriving")) {
                 item {
-                    val arriving = driverPhase == "arriving"
-                    Surface(
-                        modifier = Modifier.appearIn(1).fillMaxWidth(),
-                        color = if (arriving) CanonGreen2 else CanonMint,
-                        shape = CanonCardShape
-                    ) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = if (arriving) Color.White else CanonGreen2, modifier = Modifier.size(24.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                if (arriving) appText("Водитель подъезжает", "Водитель яҡынлаша") else appText("Водитель выехал к вам", "Водитель сыҡты"),
-                                color = if (arriving) Color.White else CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp
-                            )
-                        }
-                    }
+                    DriverApproachingBanner(
+                        arriving = driverPhase == "arriving",
+                        modifier = Modifier.appearIn(1),
+                    )
                 }
             }
             if (boardingCode.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus)) {
                 item {
-                    Surface(modifier = Modifier.appearIn(1), color = CanonMint, shape = CanonCardShape) {
-                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Pin, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(28.dp))
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                                Text(appText("Назовите водителю — он сверит. Это та самая машина.", "Водителгә әйтегеҙ — ул тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Text(boardingCode, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 30.sp, letterSpacing = 4.sp)
-                        }
-                    }
+                    BoardingCodeCard(code = boardingCode, modifier = Modifier.appearIn(1))
                 }
             }
             val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
             if (canChangeTripStatus) {
                 item { Text(if (role == "driver") appText("Сообщить пассажиру", "Пассажирға хәбәр итеү") else appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(2)) }
                 item {
-                    Row(modifier = Modifier.appearIn(2), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val statusButtons = if (role == "driver")
-                            // + «Завершить»: водитель тоже закрывает поездку. Раньше закрыть бронь мог ТОЛЬКО
-                            // пассажир → если он забывал, бронь висела активной, а места поездки не освобождались.
-                            listOf("departed" to appText("Я выехал", "Сыҡтым"), "arriving" to appText("Подъезжаю", "Яҡынлашам"), "done" to appText("Завершить", "Тамам"))
-                        else
-                            listOf("sat" to appText("Я сел", "Ултырҙым"), "arrived" to appText("Доехал", "Барып еттем"), "done" to appText("Завершить", "Тамам"))
-                        statusButtons.forEach { (st, label) ->
-                            FilledTonalButton(
-                                onClick = {
-                                    val bid = bookingId
-                                    if (role == "driver") {
-                                        // Водитель: «выехал/подъезжаю» → push пассажиру; «Завершить» → закрывает бронь на сервере.
-                                        if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем экран
-                                        else voiceScope.launch {
-                                            ApiClient.driverStatus(bid, st)
-                                                .onSuccess {
-                                                    if (st == "done") onTripEnd()   // уходим с экрана только при реальном закрытии брони
-                                                    else {
-                                                        Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
-                                                        ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
-                                                    }
-                                                }
-                                                .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                    TripStatusButtons(
+                        role = role,
+                        selectedStatus = status,
+                        modifier = Modifier.appearIn(2),
+                        onStatus = { st ->
+                            val bid = bookingId
+                            if (role == "driver") {
+                                // Водитель: «выехал/подъезжаю» → push пассажиру; «Завершить» → закрывает бронь на сервере.
+                                if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем экран
+                                else voiceScope.launch {
+                                    ApiClient.driverStatus(bid, st)
+                                        .onSuccess {
+                                            if (st == "done") onTripEnd()   // уходим с экрана только при реальном закрытии брони
+                                            else {
+                                                Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
+                                                ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
+                                            }
                                         }
-                                    } else {
-                                        status = st
-                                        if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем
-                                        else voiceScope.launch {
-                                            ApiClient.setTripStatus(bid, st)
-                                                // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
-                                                .onSuccess {
-                                                    if (st == "done") onTripEnd()
-                                                    else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним статус/код посадки
-                                                }
-                                                .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                }
+                            } else {
+                                status = st
+                                if (bid == null) { if (st == "done") onTripEnd() }   // демо/нет брони → просто закрываем
+                                else voiceScope.launch {
+                                    ApiClient.setTripStatus(bid, st)
+                                        // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
+                                        .onSuccess {
+                                            if (st == "done") onTripEnd()
+                                            else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним статус/код посадки
                                         }
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(16.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = if (role != "driver" && status == st) CanonMint else CanonSurface,
-                                    contentColor = CanonText
-                                )
-                            ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        }
-                    }
+                                        .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                }
+                            }
+                        },
+                    )
                 }
             }
             if (bookingStatus == "done") item {
@@ -1028,22 +988,7 @@ internal fun ActiveTripScreen(
                 }
             }
             if (bookingId == null || bookingStatusAllowsBoarding(bookingStatus)) item {
-                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                    Row(
-                        Modifier.appearIn(3).fillMaxWidth().clickable { showShare = true }.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(color = CanonMint, shape = CircleShape) {
-                            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(appText("Поделиться поездкой с близким", "Сәфәрҙе яҡының менән уртаҡлашыу"), fontWeight = FontWeight.Bold)
-                            Text(appText("Близкий будет видеть статус поездки", "Яҡының сәфәр хәлен күреп торор"), color = CanonMuted, fontSize = 13.sp)
-                        }
-                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
-                    }
-                }
+                ShareTripRow(onClick = { showShare = true }, modifier = Modifier.appearIn(3))
             }
             if (bookingId == null || bookingStatus == "confirmed") item {
                 var showCancel by remember { mutableStateOf(false) }
@@ -1277,6 +1222,134 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+// ── Чистые карточки поездки/статуса (без карты/сокета/чата) ─────────────────────────────
+// Вынесены из ActiveTripScreen: берут примитивы/лямбды, рисуют только Text/Icon/Row/Column/
+// Surface/Card. Двуязычие считается внутри через appText (по LocalAppLanguage). Анимацию появления
+// (`appearIn`) экран навешивает снаружи через modifier — тела остаются без анимаций/эффектов, что
+// делает их покрываемыми на JVM (Robolectric). Поведение 1:1 с прежним инлайном.
+
+/** Шапка активной поездки: «откуда → куда», водитель, время. Пустые значения → «—». */
+@Composable
+internal fun TripRouteHeaderCard(
+    from: String?,
+    to: String?,
+    driver: String?,
+    time: String?,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${from ?: "—"}  →  ${to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Black)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(driver ?: appText("Водитель", "Водитель"), color = CanonMuted)
+                time?.let { Spacer(Modifier.width(10.dp)); Text(it, color = CanonMuted) }
+            }
+        }
+    }
+}
+
+/** Live-баннер пассажиру: водитель выехал / подъезжает. `arriving` → акцентная (зелёная) плашка. */
+@Composable
+internal fun DriverApproachingBanner(
+    arriving: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = if (arriving) CanonGreen2 else CanonMint,
+        shape = CanonCardShape
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = if (arriving) Color.White else CanonGreen2, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(
+                if (arriving) appText("Водитель подъезжает", "Водитель яҡынлаша") else appText("Водитель выехал к вам", "Водитель сыҡты"),
+                color = if (arriving) Color.White else CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp
+            )
+        }
+    }
+}
+
+/** Плашка кода посадки: пассажир называет код водителю для сверки машины. */
+@Composable
+internal fun BoardingCodeCard(
+    code: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(modifier = modifier, color = CanonMint, shape = CanonCardShape) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Pin, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(appText("Код посадки", "Ултырыу коды"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Text(appText("Назовите водителю — он сверит. Это та самая машина.", "Водителгә әйтегеҙ — ул тикшерер. Тап шул машина."), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(code, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 30.sp, letterSpacing = 4.sp)
+        }
+    }
+}
+
+/**
+ * Кнопки статуса поездки. Водитель: «Я выехал / Подъезжаю / Завершить»; пассажир: «Я сел /
+ * Доехал / Завершить». Клик отдаёт код статуса в [onStatus] — вся сеть/навигация снаружи.
+ * У пассажира выбранный статус подсвечен ([selectedStatus]); у водителя подсветки нет.
+ */
+@Composable
+internal fun TripStatusButtons(
+    role: String,
+    selectedStatus: String?,
+    onStatus: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val statusButtons = if (role == "driver")
+            // + «Завершить»: водитель тоже закрывает поездку. Раньше закрыть бронь мог ТОЛЬКО
+            // пассажир → если он забывал, бронь висела активной, а места поездки не освобождались.
+            listOf("departed" to appText("Я выехал", "Сыҡтым"), "arriving" to appText("Подъезжаю", "Яҡынлашам"), "done" to appText("Завершить", "Тамам"))
+        else
+            listOf("sat" to appText("Я сел", "Ултырҙым"), "arrived" to appText("Доехал", "Барып еттем"), "done" to appText("Завершить", "Тамам"))
+        statusButtons.forEach { (st, label) ->
+            FilledTonalButton(
+                onClick = { onStatus(st) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if (role != "driver" && selectedStatus == st) CanonMint else CanonSurface,
+                    contentColor = CanonText
+                )
+            ) { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+    }
+}
+
+/** Строка «Поделиться поездкой с близким» — открывает шит выбора контакта. */
+@Composable
+internal fun ShareTripRow(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+        Row(
+            modifier.fillMaxWidth().clickable { onClick() }.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(color = CanonMint, shape = CircleShape) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(appText("Поделиться поездкой с близким", "Сәфәрҙе яҡының менән уртаҡлашыу"), fontWeight = FontWeight.Bold)
+                Text(appText("Близкий будет видеть статус поездки", "Яҡының сәфәр хәлен күреп торор"), color = CanonMuted, fontSize = 13.sp)
+            }
+            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
         }
     }
 }

@@ -181,6 +181,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -825,6 +826,13 @@ internal fun CreatePassengerRequestScreen(
     }
 }
 
+/**
+ * Чистая валидация формы «Заказ за близкого»: обязательны имя пассажира и маршрут (откуда/куда).
+ * Без Compose/сети → тестируется прямым вызовом на JVM. «Плохие» кейсы: пустое имя/from/to → false.
+ */
+internal fun familyOrderValid(passenger: String, from: String, to: String): Boolean =
+    passenger.isNotBlank() && from.isNotBlank() && to.isNotBlank()
+
 @Composable
 internal fun FamilyOrderScreen(
     contacts: List<TrustedContact>,
@@ -845,60 +853,119 @@ internal fun FamilyOrderScreen(
     var toCity by remember { mutableStateOf("") }
     var notifyContact by remember { mutableStateOf(true) }
     var submitting by remember { mutableStateOf(false) }
+    var submitError by remember { mutableStateOf<String?>(null) }
     val trusted = contacts.firstOrNull()
-    val canSubmit = passenger.isNotBlank() && fromCity.isNotBlank() && toCity.isNotBlank()
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заказать за близкого", "Яҡын өсөн заказ"), onBack) }) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            item { Text(appText("Кто поедет?", "Кем бара?"), color = CanonGreen, fontSize = 28.sp, fontWeight = FontWeight.Black) }
-            item { OutlinedTextField(value = passenger, onValueChange = { passenger = it }, label = { Text(appText("Имя пассажира", "Пассажир исеме")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-            item { OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text(appText("Телефон пассажира", "Пассажир телефоны")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-            item { Text(appText("Маршрут", "Маршрут"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp) }
-            item { AddressSuggestField(fromCity, { fromCity = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) }
-            item { AddressSuggestField(toCity, { toCity = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
-            item {
-                SettingSwitchRow(
-                    Icons.Default.Notifications,
-                    appText("Уведомлять доверенного", "Ышаныслы кешегә хәбәр итеү"),
-                    appText("Статус поездки получит ${trusted?.name ?: "контакт"}", "Сәфәр статусын ${trusted?.name ?: "контакт"} ала"),
-                    notifyContact
-                ) { notifyContact = it }
-            }
-            item {
-                AppButton(
-                    text = appText("Создать заявку", "Заявка булдырыу"),
-                    enabled = canSubmit && !submitting,
-                    loading = submitting,
-                    onClick = {
-                        val f = fromCity.trim(); val t = toCity.trim()
-                        val comment = if (phone.isBlank()) commentLabel else "$commentLabel · ${phone.trim()}"
-                        submitting = true
-                        scope.launch {
-                            // Реальная серверная заявка: ждём ответ сервера — успех показываем только при удаче.
-                            ApiClient.createRequest(f, t, 1, "regular", false, comment, 0, assisted = true, relativeName = passenger.trim())
-                                .onSuccess {
-                                    onCreateRequest(
-                                        LocalRequest(
-                                            title = familyRequestTitle,
-                                            route = "$f → $t",
-                                            time = familyRequestTime,
-                                            passenger = passenger,
-                                            status = familyRequestStatus,
-                                            trustedContact = if (notifyContact) trusted?.name else null
-                                        )
-                                    )
-                                }
-                                .onFailure {
-                                    submitting = false
-                                    Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
-                                }
+        FamilyOrderFormContent(
+            passenger = passenger, phone = phone, from = fromCity, to = toCity,
+            notifyContact = notifyContact, trustedName = trusted?.name,
+            loading = submitting, error = submitError,
+            onPassengerChange = { passenger = it }, onPhoneChange = { phone = it },
+            onNotifyContactChange = { notifyContact = it },
+            onSubmit = {
+                if (submitting) return@FamilyOrderFormContent   // гард двойного нажатия
+                val f = fromCity.trim(); val t = toCity.trim()
+                val comment = if (phone.isBlank()) commentLabel else "$commentLabel · ${phone.trim()}"
+                submitError = null
+                submitting = true
+                scope.launch {
+                    // Реальная серверная заявка: ждём ответ сервера — успех показываем только при удаче.
+                    ApiClient.createRequest(f, t, 1, "regular", false, comment, 0, assisted = true, relativeName = passenger.trim())
+                        .onSuccess {
+                            onCreateRequest(
+                                LocalRequest(
+                                    title = familyRequestTitle,
+                                    route = "$f → $t",
+                                    time = familyRequestTime,
+                                    passenger = passenger,
+                                    status = familyRequestStatus,
+                                    trustedContact = if (notifyContact) trusted?.name else null
+                                )
+                            )
                         }
-                    }
-                )
+                        .onFailure {
+                            submitting = false
+                            submitError = sendError
+                            Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
+                        }
+                }
+            },
+            // Поля адреса с гео-подсказками (собственный эффект) — слотами, чтобы Content остался чистым.
+            fromField = { AddressSuggestField(fromCity, { fromCity = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
+            toField = { AddressSuggestField(toCity, { toCity = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер формы «Заказ за близкого»: весь стейт — параметрами, отправка — колбэком [onSubmit].
+ * Импур-поля адреса (гео-подсказки) приняты слотами [fromField]/[toField]; в тесте/фолбэке рисуются
+ * простые поля с тем же вводом. Кнопка «Создать заявку» блокируется при [loading] (гард двойного
+ * нажатия) и когда форма невалидна ([familyOrderValid]). Тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun FamilyOrderFormContent(
+    passenger: String,
+    phone: String,
+    from: String,
+    to: String,
+    notifyContact: Boolean,
+    trustedName: String?,
+    loading: Boolean,
+    error: String?,
+    onPassengerChange: (String) -> Unit,
+    onPhoneChange: (String) -> Unit,
+    onNotifyContactChange: (Boolean) -> Unit,
+    onSubmit: () -> Unit,
+    fromField: (@Composable () -> Unit)? = null,
+    toField: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item { Text(appText("Кто поедет?", "Кем бара?"), color = CanonGreen, fontSize = 28.sp, fontWeight = FontWeight.Black) }
+        item { OutlinedTextField(value = passenger, onValueChange = onPassengerChange, label = { Text(appText("Имя пассажира", "Пассажир исеме")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+        item { OutlinedTextField(value = phone, onValueChange = onPhoneChange, label = { Text(appText("Телефон пассажира", "Пассажир телефоны")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+        item { Text(appText("Маршрут", "Маршрут"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp) }
+        item {
+            if (fromField != null) fromField() else OutlinedTextField(
+                value = from, onValueChange = {},
+                label = { Text(appText("Откуда", "Ҡайҙан")) },
+                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+            )
+        }
+        item {
+            if (toField != null) toField() else OutlinedTextField(
+                value = to, onValueChange = {},
+                label = { Text(appText("Куда", "Ҡайҙа")) },
+                leadingIcon = { Icon(Icons.Default.NearMe, contentDescription = null) },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+            )
+        }
+        item {
+            SettingSwitchRow(
+                Icons.Default.Notifications,
+                appText("Уведомлять доверенного", "Ышаныслы кешегә хәбәр итеү"),
+                appText("Статус поездки получит ${trustedName ?: "контакт"}", "Сәфәр статусын ${trustedName ?: "контакт"} ала"),
+                notifyContact
+            ) { onNotifyContactChange(it) }
+        }
+        item {
+            error?.let {
+                Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(bottom = 8.dp))
             }
+            AppButton(
+                text = appText("Создать заявку", "Заявка булдырыу"),
+                enabled = !loading && familyOrderValid(passenger, from, to),
+                loading = loading,
+                onClick = onSubmit,
+                modifier = Modifier.testTag("family_submit_btn"),
+            )
         }
     }
 }
@@ -1291,48 +1358,74 @@ internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onReques
     val context = LocalContext.current
     val supportPhone = BuildConfig.YULDASH_SUPPORT_PHONE
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Помощь звонком", "Шылтыратыу ярҙамы"), onBack) }) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
+        CallbackHelpContent(
+            reason = reason,
+            requested = requested,
+            hasSupportPhone = supportPhone.isNotBlank(),
+            onReasonChange = { reason = it },
+            onPrimaryAction = {
+                // Есть телефон поддержки → набор номера; иначе → заявка «перезвоните мне».
+                if (supportPhone.isNotBlank()) {
+                    runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:$supportPhone"))) }
+                } else onRequest(reason)
+            },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер экрана «Помощь звонком»: текст причины — параметром, действие — колбэком.
+ * [requested] показывает карточку-подтверждение «звонок запрошен»; [hasSupportPhone] переключает
+ * подпись/иконку кнопки (набор номера vs просьба перезвонить). Импур (набор номера/сеть) живёт в
+ * умной обёртке [CallbackHelpScreen]. Тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun CallbackHelpContent(
+    reason: String,
+    requested: Boolean,
+    hasSupportPhone: Boolean,
+    onReasonChange: (String) -> Unit,
+    onPrimaryAction: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item {
+            InfoCard(
+                title = appText("Мы перезвоним", "Беҙ шылтыратырбыҙ"),
+                text = appText("Это не SOS. Помощник Юлдаш поможет создать заявку или найти поездку.", "Был SOS түгел. Юлдаш ярҙамсыһы заявка булдырырға йәки сәфәр табырға ярҙам итә."),
+                icon = Icons.Default.HeadsetMic
+            )
+        }
+        item { OutlinedTextField(value = reason, onValueChange = onReasonChange, label = { Text(appText("Что нужно?", "Нимә кәрәк?")) }, minLines = 3, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
+        if (requested) {
             item {
                 InfoCard(
-                    title = appText("Мы перезвоним", "Беҙ шылтыратырбыҙ"),
-                    text = appText("Это не SOS. Помощник Юлдаш поможет создать заявку или найти поездку.", "Был SOS түгел. Юлдаш ярҙамсыһы заявка булдырырға йәки сәфәр табырға ярҙам итә."),
-                    icon = Icons.Default.HeadsetMic
+                    title = appText("Звонок запрошен", "Шылтыратыу һоралды"),
+                    text = appText("Заявка ушла помощнику Юлдаш. Мы перезвоним — обычно в течение дня.", "Заявка Юлдаш ярҙамсыһына китте. Беҙ шылтыратырбыҙ — ғәҙәттә көн эсендә."),
+                    icon = Icons.Default.CheckCircle
                 )
             }
-            item { OutlinedTextField(value = reason, onValueChange = { reason = it }, label = { Text(appText("Что нужно?", "Нимә кәрәк?")) }, minLines = 3, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-            if (requested) {
-                item {
-                    InfoCard(
-                        title = appText("Звонок запрошен", "Шылтыратыу һоралды"),
-                        text = appText("Заявка ушла помощнику Юлдаш. Мы перезвоним — обычно в течение дня.", "Заявка Юлдаш ярҙамсыһына китте. Беҙ шылтыратырбыҙ — ғәҙәттә көн эсендә."),
-                        icon = Icons.Default.CheckCircle
-                    )
+        }
+        item {
+            Button(
+                onClick = onPrimaryAction,
+                modifier = Modifier.fillMaxWidth().height(58.dp).testTag("callback_btn"),
+                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+            ) {
+                if (hasSupportPhone) {
+                    Icon(Icons.Default.HeadsetMic, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
                 }
-            }
-            item {
-                Button(
-                    onClick = {
-                        if (supportPhone.isNotBlank()) {
-                            runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:$supportPhone"))) }
-                        } else onRequest(reason)
-                    },
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                ) {
-                    if (supportPhone.isNotBlank()) {
-                        Icon(Icons.Default.HeadsetMic, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text(
-                        if (supportPhone.isNotBlank()) appText("Позвонить в поддержку", "Ярҙамға шылтыратыу") else appText("Попросить звонок", "Шылтыратыу һорау"),
-                        fontWeight = FontWeight.Black, fontSize = 17.sp
-                    )
-                }
+                Text(
+                    if (hasSupportPhone) appText("Позвонить в поддержку", "Ярҙамға шылтыратыу") else appText("Попросить звонок", "Шылтыратыу һорау"),
+                    fontWeight = FontWeight.Black, fontSize = 17.sp
+                )
             }
         }
     }

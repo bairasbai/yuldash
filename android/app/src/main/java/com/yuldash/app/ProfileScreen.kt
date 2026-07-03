@@ -976,7 +976,7 @@ internal fun DriverCabinetScreen(
 }
 
 @Composable
-private fun CabinetMetric(label: String, value: String, modifier: Modifier = Modifier) {
+internal fun CabinetMetric(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, color = CanonSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
@@ -1130,7 +1130,7 @@ internal fun AdStatusBadge(status: String) {
 }
 
 @Composable
-private fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSubmit: () -> Unit, onPay: () -> Unit) {
+internal fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSubmit: () -> Unit, onPay: () -> Unit) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1197,7 +1197,7 @@ private fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSub
 
 // Витрина «рекламируйся у нас» — когда своих объявлений ещё нет.
 @Composable
-private fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCreate: () -> Unit) {
+internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCreate: () -> Unit) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1339,7 +1339,7 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
 }
 
 @Composable
-private fun AdField(label: String, value: String, onValueChange: (String) -> Unit, singleLine: Boolean = true) {
+internal fun AdField(label: String, value: String, onValueChange: (String) -> Unit, singleLine: Boolean = true) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
