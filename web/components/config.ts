@@ -4,7 +4,10 @@ export const APK_URL = "/yuldash.apk";
 
 // Приложение ещё не вышло. Пока false — кнопки «Скачать» открывают модалку
 // «скоро» (ловим спрос через Telegram). Положишь APK → поставь true → реальное скачивание.
-export const APP_READY = false;
+// 2026-07-03: APK (43 МБ, подписанный релиз main) лежит в public/yuldash.apk → включено
+// реальное скачивание для раздачи друзьям. ⚠️ до публичного/сторового релиза: e2e на 2
+// телефонах (P0) + чекбокс согласия ПД (P1, 152-ФЗ). См. docs/tasks.md.
+export const APP_READY = true;
 
 // Каналы скачивания. Пустая строка = канал скрыт (кнопка не показывается).
 // Прямой APK всегда есть (APK_URL). Магазины появятся после публикации —
@@ -19,8 +22,8 @@ export const STORE_LINKS = {
 export const QR_SRC = "/qr-download.svg";
 
 // Размер для подписи под кнопкой (поправь под реальный вес сборки).
-// Релиз с MapKit+Firebase ≈ 43–45 МБ (реальные сборки 2026-06-30).
-export const APK_SIZE = "~45 МБ";
+// Релиз с MapKit+Firebase = 43 МБ (реальная подписанная сборка main, 2026-07-03).
+export const APK_SIZE = "43 МБ";
 
 // Базовый URL сайта (для OG/robots/sitemap). Поменяй, если лендинг на поддомене.
 export const SITE_URL = "https://yulbash.ru";
