@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useInView, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
+import { useRevealOnce } from "./useRevealOnce";
 
 // Счётчик с count-up при появлении (0 → value). Уважает reduced-m.
 export function Counter({
@@ -16,7 +17,7 @@ export function Counter({
   duration?: number;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const inView = useInView(ref, { once: true, margin: "-60px" });
+  const inView = useRevealOnce(ref, { margin: "-60px" });
   const reduce = useReducedMotion();
   const [val, setVal] = useState(0);
 

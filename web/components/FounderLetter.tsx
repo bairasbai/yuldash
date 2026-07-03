@@ -9,9 +9,9 @@ import {
   useSpring,
   useTransform,
   useReducedMotion,
-  useInView,
 } from "framer-motion";
 import { useLang } from "./lang";
+import { useRevealOnce } from "./useRevealOnce";
 import { Reveal } from "./Reveal";
 import { Typewriter } from "./Typewriter";
 import { DownloadButton } from "./DownloadButton";
@@ -48,7 +48,7 @@ export function FounderLetter() {
 
   // Цитата печатается, когда доскроллили до неё
   const pullRef = useRef<HTMLQuoteElement>(null);
-  const pullInView = useInView(pullRef, { once: true, margin: "-20% 0px" });
+  const pullInView = useRevealOnce(pullRef, { margin: "-20% 0px" });
 
   return (
     <section id="founder" className="relative overflow-hidden px-6 py-24">

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useInView, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
+import { useRevealOnce } from "./useRevealOnce";
 import { useLang } from "./lang";
 import { Reveal } from "./Reveal";
 import { STATS_API, LIVE_STATS } from "./config";
@@ -11,7 +12,7 @@ type Stat = { value: string; ru: string; ba: string };
 // Count-up для числовой части значения ("1 200+" → бежит до 1 200, плюс суффикс).
 function AnimatedValue({ raw }: { raw: string }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const inView = useInView(ref, { once: true, margin: "-40px" });
+  const inView = useRevealOnce(ref, { margin: "-40px" });
   const reduce = useReducedMotion();
   const [val, setVal] = useState(0);
 
