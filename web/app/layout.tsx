@@ -3,6 +3,7 @@ import { Inter, Montserrat } from "next/font/google";
 import Script from "next/script";
 import { SITE_URL, METRIKA_ID } from "@/components/config";
 import { StructuredData } from "@/components/StructuredData";
+import { MotionProvider } from "@/components/MotionProvider";
 import "./globals.css";
 
 // Body — Inter: латиница + кириллица + расширенная кириллица (башкирские глифы
@@ -88,7 +89,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Перейти к содержимому
         </a>
 
-        {children}
+        <MotionProvider>{children}</MotionProvider>
 
         {/* Яндекс.Метрика — грузится только если задан METRIKA_ID */}
         {METRIKA_ID && (

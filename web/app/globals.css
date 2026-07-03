@@ -129,6 +129,38 @@ p {
   }
 }
 
+/* ===== Аврора-пятна: дрейф только на десктопе =====
+   На мобиле/при reduced-motion — статичны (см. ниже), чтобы GPU не грелся. */
+.aurora-blob {
+  will-change: transform;
+}
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+  .aurora-blob-1 {
+    animation: aurora-1 22s ease-in-out infinite;
+  }
+  .aurora-blob-2 {
+    animation: aurora-2 26s ease-in-out infinite;
+  }
+  .aurora-blob-3 {
+    animation: aurora-3 28s ease-in-out infinite;
+  }
+}
+@keyframes aurora-1 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(60px, 40px, 0) scale(1.12); }
+  66% { transform: translate3d(-20px, 10px, 0) scale(0.98); }
+}
+@keyframes aurora-2 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(-50px, 30px, 0) scale(1.08); }
+  66% { transform: translate3d(30px, -20px, 0) scale(1.04); }
+}
+@keyframes aurora-3 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(40px, -30px, 0) scale(1.1); }
+  66% { transform: translate3d(-30px, 20px, 0) scale(0.96); }
+}
+
 /* Тонкая зернистость поверх — «дорогой» матовый эффект */
 .grain::after {
   content: "";
@@ -176,6 +208,23 @@ p {
    анимации); картинка остаётся статичной, GPU разгружен. */
 @media (max-width: 767px) {
   .coverage-ken {
+    animation: none;
+  }
+}
+
+/* Линии маршрутов на карте РБ: пунктир «течёт» от Уфы к городам.
+   Чистый CSS (SVG stroke-dashoffset) — надёжно на iOS, где SMIL-импульсы
+   не запускались и садились в угол (0,0) лишней жёлтой точкой. */
+@keyframes route-flow {
+  to {
+    stroke-dashoffset: -80;
+  }
+}
+.route-flow {
+  animation: route-flow 3s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-flow {
     animation: none;
   }
 }
@@ -537,6 +586,57 @@ p {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ===== Мобильный анти-перегрев =====
+   На телефоне/планшете бесконечные декоративные анимации крутят GPU без
+   остановки → корпус греется, батарея садится, на LTE ещё и тормозит. Глушим
+   тяжёлые вечные эффекты — визуально сайт остаётся дорогим (пятна, тени,
+   статика на месте), но GPU отдыхает. Порог 1023px = совпадает с useIsMobile
+   (JS-гейт Aurora/параллакса), чтобы граница «мобайл/десктоп» была единой.
+   Одноразовые reveal-анимации не трогаем. */
+@media (max-width: 1023px) {
+  .hero-streaks,
+  .hero-flare,
+  .glow-pulse,
+  .avatar-ripple,
+  .go-breathe,
+  .mockup-car,
+  .mockup-ping,
+  .coverage-runner,
+  .route-flow,
+  .shine-border {
+    animation: none !important;
+  }
+  /* border-beam (conic-gradient @property) — самый дорогой вечный эффект;
+     глушим по ширине, не только по hover:none (часть Android врёт про hover) */
+  .shine-border {
+    opacity: 0.5;
+  }
+  .go-shine::after {
+    animation: none !important;
+    display: none;
+  }
+  /* постер героя не скейлим вечно (Ken-Burns) — полноэкранный repaint = жар */
+  .hero-poster-ken {
+    animation: none !important;
+  }
+  /* маршрут в мокапе сразу дорисован, машина — на месте (без вечного проезда) */
+  .mockup-route {
+    stroke-dashoffset: 0;
+  }
+  .mockup-car {
+    offset-distance: 58%;
+    opacity: 1;
+  }
+  .mockup-ping {
+    opacity: 0;
+  }
+  /* пятна-аврора и так статичны на мобиле (min-width:768 гейт), убираем will-change,
+     чтобы не держать лишние GPU-слои промотированными */
+  .aurora-blob {
+    will-change: auto;
   }
 }
 

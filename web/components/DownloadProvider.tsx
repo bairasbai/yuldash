@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, ReactNode } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { useLang } from "./lang";
 import { APP_READY, APK_URL, SOCIAL } from "./config";
 import { track } from "./analytics";
@@ -40,7 +40,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
       <AnimatePresence>
         {open && (
-          <motion.div
+          <m.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -50,7 +50,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             aria-modal="true"
             aria-label={tr("cs_title")}
           >
-            <motion.div
+            <m.div
               initial={{ scale: 0.92, opacity: 0, y: 16 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
@@ -89,8 +89,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                   {tr("cs_close")}
                 </button>
               </div>
-            </motion.div>
-          </motion.div>
+            </m.div>
+          </m.div>
         )}
       </AnimatePresence>
     </DownloadCtx.Provider>

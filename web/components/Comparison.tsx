@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { useLang, type DictKey } from "./lang";
 import { Reveal } from "./Reveal";
 import { OrnamentKicker } from "./Ornament";
@@ -69,7 +69,7 @@ export function Comparison() {
                     </span>
                   </div>
                   <div className="h-3 overflow-hidden rounded-full bg-white/5">
-                    <motion.div
+                    <m.div
                       className={`h-full rounded-full ${b.bar}`}
                       initial={{ width: 0 }}
                       animate={{ width: `${(b.val / PRICE_MAX) * 100}%` }}

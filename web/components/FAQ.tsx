@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { useLang, type DictKey } from "./lang";
 import { Reveal } from "./Reveal";
 import { OrnamentKicker } from "./Ornament";
@@ -41,7 +41,7 @@ export function FAQ() {
                     className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
                   >
                     <span className="font-display text-base font-bold sm:text-lg">{tr(item.q)}</span>
-                    <motion.span
+                    <m.span
                       animate={{ rotate: isOpen ? 45 : 0 }}
                       transition={{ duration: 0.25, ease: [0.21, 0.47, 0.32, 0.98] }}
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-green-bright/15 text-green-glow"
@@ -50,11 +50,11 @@ export function FAQ() {
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                         <path d="M12 5v14M5 12h14" />
                       </svg>
-                    </motion.span>
+                    </m.span>
                   </button>
                   <AnimatePresence initial={false}>
                     {isOpen && (
-                      <motion.div
+                      <m.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
@@ -63,7 +63,7 @@ export function FAQ() {
                         <p className="px-5 pb-5 text-sm leading-relaxed text-white/65">
                           {tr(item.a)}
                         </p>
-                      </motion.div>
+                      </m.div>
                     )}
                   </AnimatePresence>
                 </div>

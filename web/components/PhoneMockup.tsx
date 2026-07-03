@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useMotionValue, useSpring, useTransform, useReducedMotion } from "framer-motion";
+import { m, useMotionValue, useSpring, useTransform, useReducedMotion } from "framer-motion";
 import { useLang } from "./lang";
 
 // Стилизованный мокап экрана приложения: живая карта (кварталы, парк, река,
@@ -40,7 +40,7 @@ export function PhoneMockup() {
   };
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: 40 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 1, delay: 0.3, ease: [0.21, 0.47, 0.32, 0.98] }}
@@ -49,10 +49,10 @@ export function PhoneMockup() {
       onMouseLeave={reduce ? undefined : onLeave}
       className="relative"
     >
-      <motion.div
+      <m.div
         style={reduce ? undefined : { rotateX, rotateY, transformStyle: "preserve-3d" }}
       >
-      <motion.div
+      <m.div
         animate={{ y: [0, -14, 0] }}
         transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
         className="relative mx-auto h-[600px] w-[296px] rounded-[44px] border-[10px] border-[#1c2722] bg-forest shadow-card"
@@ -265,8 +265,8 @@ export function PhoneMockup() {
             </div>
           </div>
         </div>
-      </motion.div>
-      </motion.div>
-    </motion.div>
+      </m.div>
+      </m.div>
+    </m.div>
   );
 }

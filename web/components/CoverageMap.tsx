@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { m, useReducedMotion } from "framer-motion";
 import { AnimatePresence } from "framer-motion";
 import { useLang } from "./lang";
 import { Reveal } from "./Reveal";
@@ -89,7 +89,7 @@ export function CoverageMap() {
               <image href="/rb-map.png" x="0" y="0" width="425" height="549" opacity="0.85" />
 
               {/* обводка контура — прорисовка при появлении */}
-              <motion.path
+              <m.path
                 d={CONTOUR}
                 fill="none"
                 stroke="url(#covEdge)"
@@ -128,50 +128,30 @@ export function CoverageMap() {
                 </>
               )}
 
-              {/* линии маршрутов от Уфы */}
+              {/* Линии маршрутов от Уфы — пунктир «течёт» к городам чистым CSS
+                  (надёжно на мобиле; прежние SMIL-импульсы садились в угол (0,0)
+                  на iOS и давали лишнюю жёлтую точку без движения). */}
               {NODES.slice(1).map((n, i) => (
-                <motion.line
+                <line
                   key={`l${i}`}
                   x1={hub.x}
                   y1={hub.y}
                   x2={n.x}
                   y2={n.y}
                   stroke="#E8C36B"
-                  strokeOpacity="0.5"
-                  strokeWidth="1.6"
-                  strokeDasharray="3 4"
-                  initial={{ pathLength: 0, opacity: 0 }}
-                  animate={{ pathLength: 1, opacity: 1 }}
-                  transition={{ duration: 0.9, delay: 0.25 + i * 0.06, ease: "easeOut" }}
+                  strokeOpacity="0.55"
+                  strokeWidth="1.8"
+                  strokeDasharray="3 5"
+                  strokeLinecap="round"
+                  className={reduce ? undefined : "route-flow"}
                 />
               ))}
-
-              {/* сигналы-импульсы, летящие от Уфы к городам */}
-              {!reduce &&
-                NODES.slice(1).map((n, i) => (
-                  <circle key={`p${i}`} r="3" fill="#F4D98B">
-                    <animateMotion
-                      dur="2.6s"
-                      begin={`${(i * 0.24).toFixed(2)}s`}
-                      repeatCount="indefinite"
-                      path={`M${hub.x},${hub.y} L${n.x},${n.y}`}
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0;1;1;0"
-                      keyTimes="0;0.12;0.8;1"
-                      dur="2.6s"
-                      begin={`${(i * 0.24).toFixed(2)}s`}
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                ))}
 
               {/* узлы городов */}
               {NODES.map((n, i) => {
                 const rightSide = n.x > 230;
                 return (
-                  <motion.g
+                  <m.g
                     key={`n${i}`}
                     initial={{ scale: 0, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
@@ -205,7 +185,7 @@ export function CoverageMap() {
                     >
                       {lang === "ba" ? n.ba : n.ru}
                     </text>
-                  </motion.g>
+                  </m.g>
                 );
               })}
             </svg>
@@ -213,7 +193,7 @@ export function CoverageMap() {
             {/* Всплывающая карточка популярных направлений */}
             <AnimatePresence>
               {hovered !== null && (
-                <motion.div
+                <m.div
                   key={hovered}
                   initial={{ opacity: 0, y: 6, scale: 0.96 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -239,7 +219,7 @@ export function CoverageMap() {
                       </div>
                     ))}
                   </div>
-                </motion.div>
+                </m.div>
               )}
             </AnimatePresence>
             </div>

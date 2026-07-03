@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { useLang } from "./lang";
 import { Reveal } from "./Reveal";
 import { OrnamentKicker } from "./Ornament";
@@ -32,7 +32,7 @@ export function VideoPromo() {
         </Reveal>
 
         <Reveal>
-          <motion.div
+          <m.div
             whileHover={{ y: -6 }}
             transition={{ type: "spring", stiffness: 260, damping: 22 }}
             className="glass relative mx-auto overflow-hidden rounded-[28px] p-2 shadow-card"
@@ -77,7 +77,7 @@ export function VideoPromo() {
                 </video>
               )}
             </div>
-          </motion.div>
+          </m.div>
         </Reveal>
       </div>
     </section>

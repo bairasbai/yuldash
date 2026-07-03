@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useRef, useState } from "react";
 import {
   AnimatePresence,
-  motion,
+  m,
   useMotionValue,
   useSpring,
   useTransform,
@@ -68,15 +68,15 @@ export function FounderLetter() {
             onMouseMove={reduce ? undefined : onMove}
             onMouseLeave={reduce ? undefined : onLeave}
           >
-            <motion.div
+            <m.div
               style={reduce ? undefined : { x: glowX, y: glowY }}
               className="pointer-events-none absolute -inset-4 -z-10 rounded-[34px] bg-green-bright/15 blur-3xl"
             />
-            <motion.div
+            <m.div
               style={reduce ? undefined : { x: imgX, y: imgY }}
               className="relative overflow-hidden rounded-[28px] border border-white/10 will-change-transform"
             >
-              {/* Обычный <img> eager: внутри параллакс-motion.div next/image
+              {/* Обычный <img> eager: внутри параллакс-m.div next/image
                   lazy глючит на iOS Safari (фото не грузилось). */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -89,9 +89,9 @@ export function FounderLetter() {
                 className="h-auto w-full"
               />
               <BorderBeam />
-            </motion.div>
+            </m.div>
             {/* плашка с именем */}
-            <motion.div
+            <m.div
               style={reduce ? undefined : { x: plateX, y: plateY }}
               className="glass absolute bottom-3 left-3 right-3 flex items-center gap-3 rounded-2xl px-4 py-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-green-bright/20 text-green-glow">
@@ -104,7 +104,7 @@ export function FounderLetter() {
                 <div className="font-display text-sm font-extrabold leading-tight">{FOUNDER.name}</div>
                 <div className="text-xs text-white/55">{FOUNDER.role[lang]}</div>
               </div>
-            </motion.div>
+            </m.div>
           </div>
         </Reveal>
 
@@ -135,7 +135,7 @@ export function FounderLetter() {
               </h3>
               <ul className="mt-4 space-y-3.5">
                 {FOUNDER.problems.map((p, i) => (
-                  <motion.li
+                  <m.li
                     key={i}
                     initial={{ x: -10 }}
                     whileInView={{ opacity: 1, x: 0 }}
@@ -149,7 +149,7 @@ export function FounderLetter() {
                       </svg>
                     </span>
                     <span className="text-sm leading-relaxed text-white/70">{p[lang]}</span>
-                  </motion.li>
+                  </m.li>
                 ))}
               </ul>
             </div>
@@ -206,20 +206,20 @@ export function FounderLetter() {
                   className="inline-flex items-center gap-2 rounded-canon border border-white/15 px-6 py-3 text-sm font-semibold text-white/80 transition-all hover:-translate-y-0.5 hover:border-green-glow hover:text-white"
                 >
                   {FOUNDER.write[lang]}
-                  <motion.svg
+                  <m.svg
                     animate={{ rotate: contactOpen ? 180 : 0 }}
                     transition={{ duration: 0.3, ease: [0.21, 0.47, 0.32, 0.98] }}
                     width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"
                   >
                     <path d="m6 9 6 6 6-6" />
-                  </motion.svg>
+                  </m.svg>
                 </button>
               </div>
 
               {/* выбор канала связи — плавно по высоте */}
               <AnimatePresence initial={false}>
                 {contactOpen && (
-                  <motion.div
+                  <m.div
                     key="founder-channels"
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
@@ -228,7 +228,7 @@ export function FounderLetter() {
                     className="overflow-hidden"
                   >
                     <div className="flex flex-wrap gap-2 pt-3">
-                      <motion.a
+                      <m.a
                         href={SOCIAL.telegram}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -241,8 +241,8 @@ export function FounderLetter() {
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="text-green-glow" aria-hidden="true"><path d="M21.9 4.3 18.6 20c-.2 1.1-.9 1.4-1.8.9l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.3-5 9.1-8.2c.4-.4-.1-.6-.6-.2L6.3 13.9l-4.8-1.5c-1-.3-1-1 .2-1.5l18.8-7.2c.9-.3 1.6.2 1.4 1.6Z"/></svg>
                         Telegram
-                      </motion.a>
-                      <motion.a
+                      </m.a>
+                      <m.a
                         href={SOCIAL.vk}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -255,9 +255,9 @@ export function FounderLetter() {
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="text-blue-300" aria-hidden="true"><path d="M13.2 17c-5.3 0-8.5-3.7-8.6-9.8h2.7c.1 4.5 2.1 6.4 3.7 6.8V7.2h2.5v3.8c1.6-.2 3.2-2 3.8-3.8h2.5c-.4 2.2-2 4-3.2 4.7 1.2.6 3 2.2 3.7 4.9h-2.8c-.5-1.7-2-3-3.7-3.2V17h-.3Z"/></svg>
                         ВКонтакте
-                      </motion.a>
+                      </m.a>
                     </div>
-                  </motion.div>
+                  </m.div>
                 )}
               </AnimatePresence>
             </div>

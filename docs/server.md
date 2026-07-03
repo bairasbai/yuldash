@@ -126,3 +126,21 @@ ssh root@85.239.52.55 "systemctl restart yuldash-api"
 - [x] **Прод-харднинг конфига** (`config.py`): `env=dev|prod`; `validate_production()` (вызов на старте при prod) РУГАЕТСЯ и падает, если: `jwt_secret`=dev/<16 симв., `sms_provider=mock`, `media_base_url` не публичный HTTPS, `cors_origins=*`. Новые ключи `.env`: `MEDIA_BASE_URL`, `CORS_ORIGINS`, `SEED_DEMO`, `MAX_UPLOAD_MB`, `ALLOWED_IMAGE_EXT`, `ALLOWED_AUDIO_EXT`. Шаблон — `backend/.env.example` (секреты НЕ в git).
 - [x] **Базовый URL API — из конфигурации сборки** (Android): `build.gradle.kts` читает `local.properties` → `BuildConfig.YULDASH_API_BASE_URL`. Debug → `http://10.0.2.2:8000` (локальный бэк с эмулятора), release → `https://yulbash.ru`. `ApiClient.BASE` = `BuildConfig.YULDASH_API_BASE_URL`. Переопределяется `YULDASH_DEBUG_API_BASE_URL`/`YULDASH_RELEASE_API_BASE_URL` в `local.properties`.
 - ⚠️ **Windows-curl к `yulbash.ru` = `000`** (ТСПУ/клиентская сеть режет curl.exe с ноута) — сервер и приложение/эмулятор API видят. Прод-API проверять server-side: `ssh root@85.239.52.55 "curl -s http://127.0.0.1:8000/<path>"`.
+
+## 2026-07-03 — Кэш HTML: no-cache → короткий max-age (фикс «второй раз не грузит» на iPhone)
+
+**Симптом:** первый заход на yulbash.ru грузится, второй — виснет («грузится и стоит»), особенно iPhone + LTE.
+
+**Причина:** HTML отдавался с `Cache-Control: no-cache`. Это заставляет браузер ПРИ КАЖДОМ заходе перепроверять страницу на сервере. На флапающем LTE (ТСПУ) эта перепроверка виснет → белый/пустой экран, хотя копия в кэше есть. Safari не поддерживает `stale-while-revalidate`, поэтому фоновая ревалидация его не спасает — нужен именно положительный `max-age`.
+
+**Фикс (nginx `location = /` и `location /`):**
+```
+add_header Cache-Control "public, max-age=300, stale-while-revalidate=86400" always;
+```
+- iPhone держит HTML в кэше 5 мин → повторный заход мгновенный, без запроса к серверу.
+- Chrome/Android вдобавок обновляют в фоне (swr).
+- Контент обновляется максимум за 5 мин — для лендинга ок.
+
+**Обязательное следствие — накопление чанков при деплое.** Раз HTML кэшируется, старый HTML ещё несколько минут ссылается на чанки прошлой сборки. Если деплой стирает `_next/static` целиком → старый HTML ловит 404 на чанк → белый экран. Поэтому деплой теперь НЕ стирает `_next/static`, а НАКАПЛИВАЕТ (`cp -n` старых чанков в новую сборку) + чистит чанки старше 2 дней. Всё в скрипте **`web/deploy.sh`** — деплоить только им (`bash web/deploy.sh`).
+
+Бэкапы конфига: `/root/yuldash.nginx.bak.*`.

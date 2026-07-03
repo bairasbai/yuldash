@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import {
-  motion,
+  m,
   useScroll,
   useTransform,
   useMotionValue,
@@ -10,6 +10,7 @@ import {
   useReducedMotion,
 } from "framer-motion";
 import { useLang } from "./lang";
+import { useIsMobile } from "./useIsMobile";
 import { HeroBackdrop } from "./HeroBackdrop";
 import { Typewriter } from "./Typewriter";
 import { DownloadButton } from "./DownloadButton";
@@ -39,6 +40,9 @@ const word = {
 export function Hero() {
   const { tr, lang } = useLang();
   const reduce = useReducedMotion();
+  // На телефоне глушим скролл-параллакс и спотлайт: пересчёт transform на каждый
+  // кадр скролла = дёрганья/нагрев. Десктоп получает всё как прежде.
+  const isMobile = useIsMobile();
   const ref = useRef<HTMLElement>(null);
 
   // Scroll-parallax
@@ -62,34 +66,34 @@ export function Hero() {
     <section
       id="top"
       ref={ref}
-      onMouseMove={reduce ? undefined : onMove}
+      onMouseMove={reduce || isMobile ? undefined : onMove}
       className="relative overflow-hidden px-6 pt-36 pb-10 sm:pt-44 lg:pb-12"
     >
       {/* кинематографичный видео-фон (Higgsfield) */}
       <HeroBackdrop />
 
-      {/* спотлайт за курсором */}
-      {!reduce && (
-        <motion.div
+      {/* спотлайт за курсором — только десктоп */}
+      {!reduce && !isMobile && (
+        <m.div
           aria-hidden="true"
           className="pointer-events-none absolute -z-0 h-[420px] w-[420px] rounded-full bg-green-bright/10 blur-[100px]"
           style={{ left: sx, top: sy, x: "-50%", y: "-50%" }}
         />
       )}
 
-      <motion.div
-        style={{ opacity: fade }}
+      <m.div
+        style={{ opacity: isMobile ? 1 : fade }}
         className="relative z-10 mx-auto grid max-w-6xl items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]"
       >
         {/* Левая колонка — текст */}
-        <motion.div
+        <m.div
           variants={container}
           initial="hidden"
           animate="show"
-          style={{ y: yText }}
+          style={{ y: isMobile ? 0 : yText }}
           className="text-center lg:text-left"
         >
-          <motion.span
+          <m.span
             variants={item}
             className="glass inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold text-green-glow"
           >
@@ -98,25 +102,25 @@ export function Hero() {
               <span className="relative inline-flex h-2 w-2 rounded-full bg-green-bright" />
             </span>
             {tr("hero_badge")}
-          </motion.span>
+          </m.span>
 
           {/* Заголовок — пословное появление */}
-          <motion.h1
+          <m.h1
             variants={wordWrap}
             className="mt-6 flex flex-wrap justify-center gap-x-[0.28em] font-display text-5xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl lg:justify-start lg:text-7xl"
           >
             {titleWords.map((w, i) => (
-              <motion.span key={i} variants={word} className="inline-block">
+              <m.span key={i} variants={word} className="inline-block">
                 {w}
-              </motion.span>
+              </m.span>
             ))}
-            <motion.span variants={word} className="text-gradient animate-shimmer glow-pulse inline-block">
+            <m.span variants={word} className="text-gradient animate-shimmer glow-pulse inline-block">
               {tr("hero_title_2")}
-            </motion.span>
-          </motion.h1>
+            </m.span>
+          </m.h1>
 
           {/* Печатающаяся кинематографичная строка */}
-          <motion.div
+          <m.div
             variants={item}
             className="mt-5 flex min-h-[1.7em] items-center justify-center gap-2 lg:justify-start"
           >
@@ -126,16 +130,16 @@ export function Hero() {
               phrases={[tr("hero_tw1"), tr("hero_tw2"), tr("hero_tw3")]}
               className="font-display text-lg font-bold text-green-glow sm:text-xl"
             />
-          </motion.div>
+          </m.div>
 
-          <motion.p
+          <m.p
             variants={item}
             className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-white/70 lg:mx-0"
           >
             {tr("hero_sub")}
-          </motion.p>
+          </m.p>
 
-          <motion.div
+          <m.div
             variants={item}
             className="mt-9 flex flex-col items-center gap-4 sm:flex-row lg:justify-start"
           >
@@ -146,10 +150,10 @@ export function Hero() {
             >
               {tr("hero_cta2")}
             </a>
-          </motion.div>
+          </m.div>
 
           {/* Платформы */}
-          <motion.div
+          <m.div
             variants={item}
             className="mt-6 flex flex-wrap items-center justify-center gap-2.5 lg:justify-start"
           >
@@ -161,14 +165,14 @@ export function Hero() {
               <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.7 12.7c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .7 1.1 1.6 2.3 2.7 2.2 1.1 0 1.5-.7 2.8-.7s1.6.7 2.8.7c1.2 0 1.9-1.1 2.6-2.1.8-1.2 1.2-2.4 1.2-2.4s-2.2-.9-2.2-3.5Zm-2.3-6.4c.6-.7 1-1.7.9-2.8-.9 0-2 .6-2.6 1.3-.6.6-1.1 1.6-.9 2.6 1 .1 2-.5 2.6-1.1Z"/></svg>
               {tr("plat_ios")}
             </span>
-          </motion.div>
+          </m.div>
 
-          <motion.p variants={item} className="mt-5 max-w-md text-sm text-white/45 lg:mx-0 mx-auto">
+          <m.p variants={item} className="mt-5 max-w-md text-sm text-white/45 lg:mx-0 mx-auto">
             {tr("hero_note")}
-          </motion.p>
+          </m.p>
 
           {/* Мини-метрики */}
-          <motion.div
+          <m.div
             variants={item}
             className="mt-9 flex flex-wrap justify-center gap-x-8 gap-y-4 lg:justify-start"
           >
@@ -186,14 +190,14 @@ export function Hero() {
               <div className="font-display text-2xl font-extrabold text-gold-light">{tr("hero_s3_n")}</div>
               <div className="mt-0.5 text-sm text-white/45">{tr("hero_s3_l")}</div>
             </div>
-          </motion.div>
-        </motion.div>
+          </m.div>
+        </m.div>
 
-        {/* Правая колонка — телефон (параллакс) */}
-        <motion.div style={{ y: yPhone }} className="flex justify-center">
+        {/* Правая колонка — телефон (параллакс только на десктопе) */}
+        <m.div style={{ y: isMobile ? 0 : yPhone }} className="flex justify-center">
           <HeroPhone />
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
     </section>
   );
 }

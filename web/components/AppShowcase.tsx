@@ -1,13 +1,24 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { useEffect, useState } from "react";
+import { m, useReducedMotion } from "framer-motion";
 import { useLang, type DictKey } from "./lang";
 import { Reveal } from "./Reveal";
 import { OrnamentKicker } from "./Ornament";
 
+// На телефоне бесконечное «парение» телефонов (framer) двигает blur-слой каждый
+// кадр → GPU греется. Отдаём статичные карточки на мобиле, парение — десктоп.
+function useDesktopMotion() {
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    setOk(window.matchMedia("(min-width: 768px) and (pointer: fine)").matches);
+  }, []);
+  return ok;
+}
+
 // Витрина экранов приложения — РЕАЛЬНЫЕ скриншоты в готовой рамке телефона
 // (mockup, прозрачный фон). Показываем целиком (object-contain, без обрезки).
-// Премиум-анимация: reveal, мягкое парение. Уважает reduced-motion.
+// Премиум-анимация: reveal, мягкое парение. Уважает reduced-m.
 
 const SCREENS: { src: string; label: DictKey }[] = [
   { src: "/screens/app-map.jpg", label: "sc_s1" },        // Карта поездок (JPEG — webp этой сложной карты не грузился на iOS)
@@ -17,11 +28,13 @@ const SCREENS: { src: string; label: DictKey }[] = [
 
 function PhoneShot({ src, label, delay, float }: { src: string; label: string; delay: number; float: number }) {
   const reduce = useReducedMotion();
+  const desktop = useDesktopMotion();
+  const floats = desktop && !reduce;
   return (
     <Reveal delay={delay} className="flex flex-col items-center">
-      <motion.div
-        animate={reduce ? undefined : { y: [0, -10, 0] }}
-        transition={{ duration: 6, repeat: Infinity, ease: "easeInOut", delay: float }}
+      <m.div
+        animate={floats ? { y: [0, -10, 0] } : undefined}
+        transition={floats ? { duration: 6, repeat: Infinity, ease: "easeInOut", delay: float } : undefined}
         whileHover={reduce ? undefined : { y: -14, scale: 1.02 }}
         className="relative"
       >
@@ -39,7 +52,7 @@ function PhoneShot({ src, label, delay, float }: { src: string; label: string; d
           decoding="async"
           className="h-[500px] w-auto rounded-[34px] object-contain drop-shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
         />
-      </motion.div>
+      </m.div>
       <div className="mt-5 text-sm font-semibold text-white/70">{label}</div>
     </Reveal>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 
 // Кнопка «наверх» — появляется при долгом скролле (десктоп; на мобиле снизу sticky-бар).
 export function ScrollTop() {
@@ -16,7 +16,7 @@ export function ScrollTop() {
   return (
     <AnimatePresence>
       {show && (
-        <motion.button
+        <m.button
           initial={{ opacity: 0, scale: 0.8, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.8, y: 10 }}
@@ -28,7 +28,7 @@ export function ScrollTop() {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
             <path d="m6 15 6-6 6 6" />
           </svg>
-        </motion.button>
+        </m.button>
       )}
     </AnimatePresence>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { useLang, type DictKey } from "./lang";
 import { Reveal } from "./Reveal";
 import { BorderBeam } from "./BorderBeam";
@@ -56,7 +56,7 @@ export function Partners() {
               <div className="space-y-3">
                 {perks.map((p, i) => (
                   <Reveal key={p.k} delay={i * 0.08}>
-                    <motion.div
+                    <m.div
                       whileHover={{ x: 4 }}
                       transition={{ type: "spring", stiffness: 300, damping: 20 }}
                       className="glass flex items-center gap-3 rounded-canon p-4"
@@ -65,7 +65,7 @@ export function Partners() {
                         <p.Icon size={20} />
                       </span>
                       <span className="text-sm font-semibold text-white/85">{tr(p.k)}</span>
-                    </motion.div>
+                    </m.div>
                   </Reveal>
                 ))}
               </div>

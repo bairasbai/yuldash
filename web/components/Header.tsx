@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import Image from "next/image";
 import { useLang, type DictKey } from "./lang";
 
@@ -25,7 +25,7 @@ function LangToggle({ id = "lang-pill" }: { id?: string }) {
           aria-pressed={lang === l}
         >
           {lang === l && (
-            <motion.span
+            <m.span
               layoutId={id}
               className="absolute inset-0 -z-10 rounded-full bg-green-bright/90"
               transition={{ type: "spring", stiffness: 380, damping: 30 }}
@@ -81,7 +81,7 @@ export function Header() {
   }, [open]);
 
   return (
-    <motion.header
+    <m.header
       initial={{ y: -24 }}
       animate={{ y: 0 }}
       transition={{ duration: 0.6, ease: "easeOut" }}
@@ -114,7 +114,7 @@ export function Header() {
                 >
                   {tr(n.key)}
                   {isActive && (
-                    <motion.span
+                    <m.span
                       layoutId="nav-underline"
                       className="absolute -bottom-1.5 left-0 right-0 h-0.5 rounded-full bg-green-bright"
                       transition={{ type: "spring", stiffness: 380, damping: 30 }}
@@ -153,14 +153,14 @@ export function Header() {
       <AnimatePresence>
         {open && (
           <>
-            <motion.div
+            <m.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setOpen(false)}
               className="fixed inset-0 z-[58] bg-black/60 backdrop-blur-sm md:hidden"
             />
-            <motion.div
+            <m.div
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
@@ -183,7 +183,7 @@ export function Header() {
 
               <nav className="flex flex-col gap-1 text-lg font-semibold">
                 {NAV.map((n, i) => (
-                  <motion.a
+                  <m.a
                     key={n.href}
                     href={n.href}
                     onClick={() => setOpen(false)}
@@ -193,7 +193,7 @@ export function Header() {
                     className="rounded-2xl px-4 py-3 text-white/80 transition-colors hover:bg-white/5 hover:text-white"
                   >
                     {tr(n.key)}
-                  </motion.a>
+                  </m.a>
                 ))}
               </nav>
 
@@ -207,10 +207,10 @@ export function Header() {
                   {tr("nav_download")}
                 </a>
               </div>
-            </motion.div>
+            </m.div>
           </>
         )}
       </AnimatePresence>
-    </motion.header>
+    </m.header>
   );
 }
