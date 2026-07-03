@@ -4,7 +4,11 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.db import engine
-from app.models import DeviceToken, OtpCode, TgAuth, User, UserRole
+from app.models import (
+    AppReview, Block, Booking, DeviceToken, DriverProfile, Message, OtpCode,
+    Rating, RefreshToken, Report, Ride, RideRequest, SosEvent, TgAuth,
+    TrustedContact, UploadEvent, User, UserRole,
+)
 from app.timeutil import utcnow
 
 
@@ -170,3 +174,74 @@ def test_account_refresh_profile_and_push_edges(client, user_factory):
     assert updated.status_code == 200
     assert updated.json()["name"] == "PushSecond"
     assert updated.json()["avatar_url"] == "https://example.test/a.jpg"
+
+
+def test_delete_account_wipes_all_data(client, user_factory):
+    """POST /me/delete стирает аккаунт и ВСЕ его данные во всех таблицах,
+    отвязывает рефералов, а старый токен после этого получает 401."""
+    me = user_factory("ToDelete")
+    other = user_factory("Survivor")
+    uid, oid = me["id"], other["id"]
+
+    with Session(engine) as s:
+        u = s.get(User, uid)
+        phone = u.phone
+        # other приглашён мной → после удаления referred_by должен обнулиться, сам other остаться.
+        surv = s.get(User, oid)
+        surv.referred_by = uid
+        s.add(surv)
+
+        ride = Ride(driver_id=uid, from_city="Уфа", to_city="Баймаҡ", depart_at=utcnow())
+        s.add(ride)
+        s.commit()
+        s.refresh(ride)
+        booking = Booking(ride_id=ride.id, passenger_id=uid)
+        s.add(booking)
+        s.commit()
+        s.refresh(booking)
+
+        s.add(DriverProfile(user_id=uid, car_make="Lada"))
+        s.add(Message(booking_id=booking.id, sender_id=uid, text="привет"))
+        s.add(Rating(booking_id=booking.id, rater_id=uid, ratee_id=oid, stars=5))
+        s.add(TrustedContact(user_id=uid, name="Мама", phone="+70000000000"))
+        s.add(RideRequest(passenger_id=uid, from_city="Уфа", to_city="Сибай"))
+        s.add(RefreshToken(user_id=uid, token_hash=f"hash-{uid}", expires_at=utcnow() + timedelta(days=1)))
+        s.add(DeviceToken(user_id=uid, token=f"fcm-{uid}"))
+        s.add(OtpCode(phone=phone, code="123456", expires_at=utcnow() + timedelta(minutes=5)))
+        s.add(UploadEvent(user_id=uid))
+        s.add(AppReview(user_id=uid, name="ToDelete", stars=5, text="норм"))
+        s.add(SosEvent(user_id=uid, booking_id=booking.id))
+        s.add(Report(reporter_id=uid, target_user_id=oid))
+        s.add(Report(reporter_id=oid, target_user_id=uid))
+        s.add(Block(user_id=uid, blocked_user_id=oid))
+        s.commit()
+
+    assert client.post("/me/delete", headers=me["auth"]).status_code == 200
+
+    with Session(engine) as s:
+        assert s.get(User, uid) is None                       # аккаунт удалён
+        survivor = s.get(User, oid)
+        assert survivor is not None                           # чужой аккаунт цел
+        assert survivor.referred_by is None                   # реф-связь отвязана
+
+        def cnt(model, cond):
+            return len(s.exec(select(model).where(cond)).all())
+
+        assert cnt(DriverProfile, DriverProfile.user_id == uid) == 0
+        assert cnt(Ride, Ride.driver_id == uid) == 0
+        assert cnt(Booking, Booking.passenger_id == uid) == 0
+        assert cnt(Message, Message.sender_id == uid) == 0
+        assert cnt(Rating, (Rating.rater_id == uid) | (Rating.ratee_id == uid)) == 0
+        assert cnt(TrustedContact, TrustedContact.user_id == uid) == 0
+        assert cnt(RideRequest, RideRequest.passenger_id == uid) == 0
+        assert cnt(RefreshToken, RefreshToken.user_id == uid) == 0
+        assert cnt(DeviceToken, DeviceToken.user_id == uid) == 0
+        assert cnt(OtpCode, OtpCode.phone == phone) == 0
+        assert cnt(UploadEvent, UploadEvent.user_id == uid) == 0
+        assert cnt(AppReview, AppReview.user_id == uid) == 0
+        assert cnt(SosEvent, SosEvent.user_id == uid) == 0
+        assert cnt(Report, (Report.reporter_id == uid) | (Report.target_user_id == uid)) == 0
+        assert cnt(Block, (Block.user_id == uid) | (Block.blocked_user_id == uid)) == 0
+
+    # Старый токен больше не работает — юзера нет.
+    assert client.get("/me", headers=me["auth"]).status_code == 401

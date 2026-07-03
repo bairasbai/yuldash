@@ -271,6 +271,7 @@ internal fun ProfileScreen(
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
     onToggleLanguage: () -> Unit,
+    onAccountDeleted: () -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit
 ) {
@@ -370,6 +371,56 @@ internal fun ProfileScreen(
                 }) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { showEditName = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
+    // Удаление аккаунта (необратимо): подтверждение + лоадер + ошибка. Стирает данные и на сервере.
+    var showDeleteAccount by remember { mutableStateOf(false) }
+    var deletingAccount by remember { mutableStateOf(false) }
+    val deleteOkMsg = appText("Аккаунт удалён", "Иҫәп бөтөрөлдө")
+    val deleteErrMsg = appText("Не удалось удалить. Проверь сеть и попробуй снова.", "Бөтөрөп булманы. Селтәрҙе тикшереп ҡабатла.")
+    if (showDeleteAccount) {
+        AlertDialog(
+            onDismissRequest = { if (!deletingAccount) showDeleteAccount = false },
+            containerColor = CanonSurface,
+            icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = CanonRed) },
+            title = { Text(appText("Удалить аккаунт?", "Иҫәпте бөтөрәһегеҙме?"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Text(
+                    appText(
+                        "Это навсегда удалит твой профиль, поездки, заявки, брони, сообщения и рейтинг с наших серверов. Отменить нельзя.",
+                        "Был һинең профилде, сәфәрҙәрҙе, заявкаларҙы, брондәрҙе, хәбәрҙәрҙе һәм рейтингты серверҙарҙан бөтөнләй бөтөрә. Кире ҡайтарып булмай.",
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !deletingAccount,
+                    onClick = {
+                        deletingAccount = true
+                        editScope.launch {
+                            ApiClient.deleteAccount()
+                                .onSuccess {
+                                    Toast.makeText(editCtx, deleteOkMsg, Toast.LENGTH_SHORT).show()
+                                    showDeleteAccount = false
+                                    deletingAccount = false
+                                    onAccountDeleted()
+                                }
+                                .onFailure {
+                                    deletingAccount = false
+                                    Toast.makeText(editCtx, deleteErrMsg, Toast.LENGTH_LONG).show()
+                                }
+                        }
+                    },
+                ) {
+                    if (deletingAccount) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = CanonRed, strokeWidth = 2.dp)
+                    } else {
+                        Text(appText("Удалить навсегда", "Мәңгегә бөтөрөү"), color = CanonRed, fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = { TextButton(enabled = !deletingAccount, onClick = { showDeleteAccount = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
@@ -536,7 +587,50 @@ internal fun ProfileScreen(
                     }
                 }
             }
+            // Danger zone: удаление аккаунта. Только для залогиненных (в демо нечего удалять).
+            if (ApiClient.isLoggedIn()) {
+                item {
+                    Text(appText("Аккаунт", "Иҫәп"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                }
+                item {
+                    Box(Modifier.appearIn(14)) {
+                        DangerActionCard(
+                            title = appText("Удалить аккаунт", "Иҫәпте бөтөрөү"),
+                            text = appText("Навсегда удалить профиль и все данные", "Профилде һәм бөтә мәғлүмәтте мәңгегә бөтөрөү"),
+                            onClick = { showDeleteAccount = true },
+                        )
+                    }
+                }
+            }
             item { Spacer(Modifier.height(92.dp)) }
+        }
+    }
+}
+
+// Красная карточка опасного действия (удаление аккаунта). Отдельно от ProfileActionCard —
+// красный акцент + рамка, чтобы визуально отделить необратимое действие.
+@Composable
+private fun DangerActionCard(title: String, text: String, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.bounceClick(onClick).fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, CanonRed.copy(alpha = 0.35f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(color = CanonRed.copy(alpha = 0.12f), shape = RoundedCornerShape(16.dp)) {
+                Icon(Icons.Default.Delete, contentDescription = null, tint = CanonRed, modifier = Modifier.padding(9.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = CanonRed, fontWeight = FontWeight.Black, fontSize = 16.sp, lineHeight = 19.sp)
+                Text(text, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+            }
+            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
         }
     }
 }

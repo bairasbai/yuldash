@@ -221,14 +221,24 @@ object ApiClient {
             }
         }
         // Локальная очистка — синхронно, чтобы UI сразу видел «вышел».
+        clearLocalSession()
+    }
+
+    /** Локальная очистка сессии (токены, имя, кеши). Реюз: logout + deleteAccount. */
+    private fun clearLocalSession() {
         token = null
         refreshToken = null
         userName = null
         cachedUserId = null
         cachedUserIdForToken = null
-        respCache.clear()   // выход → сбросить весь кеш ответов (иначе следующий юзер увидит чужой /me/referral/contacts)
+        respCache.clear()   // сброс кеша ответов (иначе следующий юзер увидит чужой /me/referral/contacts)
         prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.apply()
     }
+
+    /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).
+     *  При успехе локально очищаем сессию — как при выходе. Ошибку прокидываем наверх. */
+    suspend fun deleteAccount(): Result<Unit> =
+        call("POST", "/me/delete", JSONObject(), auth = true).onSuccess { clearLocalSession() }.map { }
 
     // ---------- Push (FCM) ----------
     /** Зарегистрировать FCM-токен устройства на сервере (если вошли). Сохраняем, чтобы дослать после логина. */

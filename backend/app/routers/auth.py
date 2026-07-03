@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete
 from sqlmodel import Session, select
 
+from ..account import delete_user_account
 from ..config import settings
 from ..db import engine, get_session
 from ..models import DeviceToken, OtpCode, TgAuth, User, UserRole
@@ -320,6 +321,14 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
     session.commit()
     session.refresh(user)
     return {"ok": True, "name": user.name, "avatar_url": user.avatar_url}
+
+
+@router.post("/me/delete")
+def delete_me(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Необратимое удаление аккаунта и ВСЕХ персональных данных пользователя (152-ФЗ,
+    право на удаление). Каскад по всем таблицам — в app/account.py. После — токен 401."""
+    delete_user_account(session, user)
+    return {"ok": True}
 
 
 @router.post("/auth/logout")

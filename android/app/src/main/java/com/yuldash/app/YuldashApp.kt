@@ -635,7 +635,8 @@ internal fun YuldashApp() {
                 onAdsCabinet = { screen = Screen.AdsCabinet },
                 onToggleLanguage = {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
-                }
+                },
+                onAccountDeleted = { isAdmin = false; startHomeTab = HomeTab.Map; screen = Screen.Login }
             )
             Screen.CreateRide -> CreateRideScreen(
                 onBack = { goBack() },
@@ -1429,6 +1430,7 @@ internal fun HomeScreen(
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
     onToggleLanguage: () -> Unit,
+    onAccountDeleted: () -> Unit = {},
     onTabChange: (HomeTab) -> Unit = {}
 ) {
     var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
@@ -1529,6 +1531,7 @@ internal fun HomeScreen(
                     onCallbackHelp = onCallbackHelp,
                     onAdsCabinet = onAdsCabinet,
                     onToggleLanguage = onToggleLanguage,
+                    onAccountDeleted = onAccountDeleted,
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick
                 )
