@@ -16,7 +16,6 @@ import { Comparison } from "@/components/Comparison";
 import { Routes } from "@/components/Routes";
 import { Testimonials } from "@/components/Testimonials";
 import { DownloadProvider } from "@/components/DownloadProvider";
-import { OrnamentBand } from "@/components/Ornament";
 import { Marquee } from "@/components/Marquee";
 import { StatsBand } from "@/components/StatsBand";
 import { ScrollTop } from "@/components/ScrollTop";
@@ -51,13 +50,11 @@ export function LandingPage({ initialLang = "ru" }: { initialLang?: Lang }) {
             <VideoPromo />
             <AppShowcase />
             <CoverageMap />
-            <OrnamentBand />
             <Comparison />
             <Routes />
             <Savings />
             <Testimonials />
             <Trust />
-            <OrnamentBand />
             <FounderLetter />
             <FAQ />
             <Partners />
