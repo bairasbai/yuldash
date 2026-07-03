@@ -118,6 +118,27 @@ def test_push_register(client, user_factory):
     assert client.post("/push/register", headers=u["auth"], json={"token": "fake-token-123"}).status_code == 200
 
 
+def test_push_register_idempotent_and_reassign(client, user_factory):
+    """Регресс: повторная регистрация того же FCM-токена не падает (был UniqueViolation → 500),
+    токен идемпотентно перепривязывается к текущему юзеру, дубля строки не возникает."""
+    from sqlmodel import Session, select
+    from app.db import engine
+    from app.models import DeviceToken
+    a = user_factory("PushDupA")
+    b = user_factory("PushDupB")
+    t = "dup-token-xyz"
+    # тот же токен дважды одним юзером — оба 200, без 500 (главный кейс бага)
+    assert client.post("/push/register", headers=a["auth"], json={"token": t}).status_code == 200
+    assert client.post("/push/register", headers=a["auth"], json={"token": t}).status_code == 200
+    # другой юзер шлёт тот же токен — устройство сменило владельца, перепривязка
+    assert client.post("/push/register", headers=b["auth"], json={"token": t}).status_code == 200
+    # ровно одна строка на токен, владелец — последний (B); дубля нет
+    with Session(engine) as s:
+        rows = s.exec(select(DeviceToken).where(DeviceToken.token == t)).all()
+    assert len(rows) == 1
+    assert rows[0].user_id == b["id"]
+
+
 def test_ws_rejects_non_participant(client, user_factory):
     drv = user_factory("WsDrv", role=UserRole.driver)
     rid = _ride(client, drv)
