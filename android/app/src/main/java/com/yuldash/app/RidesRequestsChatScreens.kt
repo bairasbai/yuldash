@@ -1358,6 +1358,145 @@ internal fun ChatScreen(
     }
 }
 
+/**
+ * Чистый рендер ЛЕНТЫ СООБЩЕНИЙ чата по брони + поле ввода. Всё состояние — параметрами,
+ * а сокет/отправка/голос/фото — колбэками. Умная обёртка (WebSocket `ChatSocket`, история по REST,
+ * оптимистичная отправка, MediaPlayer) остаётся в `BookingActiveTripScreen` — сюда не тянем.
+ * Благодаря чистоте (без сети/эффектов/state) лента тестируется на JVM (Robolectric).
+ *
+ * Поведение ленты 1:1 с боевым экраном:
+ *  - loading (первая загрузка истории, сообщений ещё нет) → спиннер;
+ *  - пусто → дружелюбная заглушка «Пока нет сообщений. Напиши первым»;
+ *  - список → пузыри своих (справа, зелёный) и чужих (слева, светлый);
+ *  - поле ввода + кнопка «Отправить» с гардом: пустой ввод или идёт отправка → кнопка выключена
+ *    (нельзя слать пустое и нельзя дважды нажать во время отправки).
+ * Голос/фото и WebSocket — в умной обёртке; сюда прокидываются опционально (`onEmoji` — вставка эмодзи).
+ */
+@Composable
+internal fun ChatContent(
+    messages: List<MessageDto>,
+    input: String,
+    sending: Boolean,
+    loading: Boolean,
+    myId: Int,
+    onInputChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onEmoji: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    // Как на боевом экране: удалённые/голос/непустой текст видимы, «пустые» технические — нет.
+    val visibleMessages = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
+    val canSend = input.isNotBlank() && !sending   // гард: пустое не шлём, во время отправки — тоже
+    Column(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item { Spacer(Modifier.height(8.dp)) }
+            if (visibleMessages.isEmpty()) {
+                when {
+                    loading -> item {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp, color = CanonGreen2)
+                        }
+                    }
+                    else -> item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(30.dp))
+                            Text(
+                                appText("Пока нет сообщений. Напиши первым", "Әлегә хәбәрҙәр юҡ. Беренсе булып яҙ"),
+                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+            items(visibleMessages, key = { it.id }) { m ->
+                ChatFeedBubble(text = m.text, voiceUrl = m.voiceUrl, deleted = m.deleted, mine = m.senderId == myId)
+            }
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = CanonSurface),
+            shape = RoundedCornerShape(26.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (onEmoji != null) {
+                    IconButton(onClick = onEmoji, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.EmojiEmotions, contentDescription = appText("Эмодзи", "Эмодзи"), tint = CanonMuted, modifier = Modifier.size(22.dp))
+                    }
+                }
+                Row(
+                    modifier = Modifier.weight(1f).background(CanonMint, RoundedCornerShape(22.dp)).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.weight(1f).padding(vertical = 12.dp)) {
+                        if (input.isBlank()) Text(appText("Сообщение", "Хәбәр"), color = CanonMuted, fontSize = 15.sp)
+                        BasicTextField(
+                            value = input,
+                            onValueChange = { if (!sending) onInputChange(it) },   // во время отправки поле «заморожено»
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = CanonText, fontSize = 15.sp),
+                            cursorBrush = SolidColor(CanonGreen2),
+                            maxLines = 4
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onSend,
+                    enabled = canSend,   // пустой ввод / идёт отправка → нельзя (гард двойного тапа)
+                    modifier = Modifier.size(48.dp).background(if (canSend) CanonGreen2 else CanonBorder, CircleShape)
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = appText("Отправить", "Ебәреү"), tint = Color.White)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Один пузырь ленты (только рендер): удалённое / голос / фото / текст, свой справа-зелёный,
+ * чужой слева-светлый. Логика меню/повтора/плеера остаётся в умном `MessageBubble` боевого экрана.
+ */
+@Composable
+private fun ChatFeedBubble(text: String, voiceUrl: String?, deleted: Boolean, mine: Boolean) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+        Surface(
+            color = if (deleted) CanonSurface else if (mine) CanonGreen2 else CanonSurface,
+            shape = RoundedCornerShape(18.dp),
+            shadowElevation = 1.dp,
+            border = if (deleted) BorderStroke(1.dp, CanonBorder) else null
+        ) {
+            when {
+                deleted -> Text(
+                    appText("Сообщение удалено", "Хәбәр юйылды"),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = CanonMuted, fontSize = 14.sp
+                )
+                voiceUrl != null -> Text(
+                    appText("Голосовое", "Тауыш"),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = if (mine) Color.White else CanonText, fontSize = 14.sp
+                )
+                else -> Text(
+                    text,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = if (mine) Color.White else CanonText, fontSize = 15.sp
+                )
+            }
+        }
+    }
+}
+
 /** Лента заявок пассажиров — водитель откликается (цена/коммент). */
 @Composable
 internal fun RequestsFeedScreen(onBack: () -> Unit) {
