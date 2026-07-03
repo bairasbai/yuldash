@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..account import delete_user_account
@@ -354,7 +355,19 @@ def push_register(body: PushTokenIn, user: User = Depends(current_user), session
     if existing:
         existing.user_id = user.id
         session.add(existing)
-    else:
+        session.commit()
+        return {"ok": True}
+    # Нового токена ещё нет — вставляем. Клиент шлёт токен из 2 мест на старте (сохранённый + свежий FCM),
+    # оба запроса могут попасть на разные воркеры и одновременно пройти select-пусто → гонка на unique(token).
+    try:
         session.add(DeviceToken(user_id=user.id, token=body.token))
-    session.commit()
+        session.commit()
+    except IntegrityError:
+        # Параллельный запрос успел вставить тот же токен между select и commit → перепривязываем к текущему юзеру.
+        session.rollback()
+        row = session.exec(select(DeviceToken).where(DeviceToken.token == body.token)).first()
+        if row:
+            row.user_id = user.id
+            session.add(row)
+            session.commit()
     return {"ok": True}
