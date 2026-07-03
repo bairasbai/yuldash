@@ -78,38 +78,7 @@ internal fun AppReviewScreen(onBack: () -> Unit) {
 
             if (sent) {
                 // Состояние «спасибо» после отправки
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                    shape = CanonCardShape,
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                ) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen, modifier = Modifier.size(52.dp))
-                        Text(
-                            appText("Спасибо за отзыв!", "Фекерең өсөн рәхмәт!"),
-                            color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black,
-                        )
-                        Text(
-                            appText(
-                                "Мы прочитаем его лично. Лучшие отзывы попадут на сайт Юлдаша.",
-                                "Уны шәхсән уҡыйбыҙ. Иң яҡшы фекерҙәр Юлдаш сайтына эләгер.",
-                            ),
-                            color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp,
-                        )
-                        Button(
-                            onClick = onBack,
-                            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg),
-                            shape = CanonCardShape,
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                        ) {
-                            Text(appText("Готово", "Әҙер"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                    }
-                }
+                ReviewThanksCard(onDone = onBack)
                 return@Column
             }
 
@@ -122,27 +91,7 @@ internal fun AppReviewScreen(onBack: () -> Unit) {
             )
 
             // Звёзды
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                shape = CanonCardShape,
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    for (i in 1..5) {
-                        IconButton(onClick = { stars = i }) {
-                            Icon(
-                                if (i <= stars) Icons.Default.Star else Icons.Outlined.StarBorder,
-                                contentDescription = appText("$i звёзд", "$i йондоҙ"),
-                                tint = if (i <= stars) CanonGold else CanonMuted,
-                                modifier = Modifier.size(38.dp),
-                            )
-                        }
-                    }
-                }
-            }
+            ReviewStarsRow(selected = stars, onSelect = { stars = it })
 
             // Текст отзыва
             OutlinedTextField(
@@ -201,6 +150,76 @@ internal fun AppReviewScreen(onBack: () -> Unit) {
                 color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
             )
             Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+/**
+ * Ряд из 5 звёзд для оценки. Чистый под-компонент: без своего состояния и сети —
+ * выбранное число звёзд (`selected`) держит вызывающий, тап отдаётся через `onSelect`.
+ * Двуязычный `contentDescription` считается по `LocalAppLanguage`.
+ */
+@Composable
+internal fun ReviewStarsRow(selected: Int, onSelect: (Int) -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            for (i in 1..5) {
+                IconButton(onClick = { onSelect(i) }) {
+                    Icon(
+                        if (i <= selected) Icons.Default.Star else Icons.Outlined.StarBorder,
+                        contentDescription = appText("$i звёзд", "$i йондоҙ"),
+                        tint = if (i <= selected) CanonGold else CanonMuted,
+                        modifier = Modifier.size(38.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Карточка «Спасибо за отзыв» после успешной отправки. Чистый под-компонент:
+ * только текст (двуязычный через `appText`) + кнопка «Готово» с колбэком `onDone`.
+ */
+@Composable
+internal fun ReviewThanksCard(onDone: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen, modifier = Modifier.size(52.dp))
+            Text(
+                appText("Спасибо за отзыв!", "Фекерең өсөн рәхмәт!"),
+                color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black,
+            )
+            Text(
+                appText(
+                    "Мы прочитаем его лично. Лучшие отзывы попадут на сайт Юлдаша.",
+                    "Уны шәхсән уҡыйбыҙ. Иң яҡшы фекерҙәр Юлдаш сайтына эләгер.",
+                ),
+                color = CanonMuted, fontSize = 15.sp, lineHeight = 20.sp,
+            )
+            Button(
+                onClick = onDone,
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg),
+                shape = CanonCardShape,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) {
+                Text(appText("Готово", "Әҙер"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
         }
     }
 }

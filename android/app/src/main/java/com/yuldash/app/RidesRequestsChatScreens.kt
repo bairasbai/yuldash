@@ -1029,7 +1029,7 @@ internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> U
 }
 
 @Composable
-private fun RequestSummaryCard(
+internal fun RequestSummaryCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     from: String,
     to: String,
@@ -1358,6 +1358,145 @@ internal fun ChatScreen(
     }
 }
 
+/**
+ * Чистый рендер ЛЕНТЫ СООБЩЕНИЙ чата по брони + поле ввода. Всё состояние — параметрами,
+ * а сокет/отправка/голос/фото — колбэками. Умная обёртка (WebSocket `ChatSocket`, история по REST,
+ * оптимистичная отправка, MediaPlayer) остаётся в `BookingActiveTripScreen` — сюда не тянем.
+ * Благодаря чистоте (без сети/эффектов/state) лента тестируется на JVM (Robolectric).
+ *
+ * Поведение ленты 1:1 с боевым экраном:
+ *  - loading (первая загрузка истории, сообщений ещё нет) → спиннер;
+ *  - пусто → дружелюбная заглушка «Пока нет сообщений. Напиши первым»;
+ *  - список → пузыри своих (справа, зелёный) и чужих (слева, светлый);
+ *  - поле ввода + кнопка «Отправить» с гардом: пустой ввод или идёт отправка → кнопка выключена
+ *    (нельзя слать пустое и нельзя дважды нажать во время отправки).
+ * Голос/фото и WebSocket — в умной обёртке; сюда прокидываются опционально (`onEmoji` — вставка эмодзи).
+ */
+@Composable
+internal fun ChatContent(
+    messages: List<MessageDto>,
+    input: String,
+    sending: Boolean,
+    loading: Boolean,
+    myId: Int,
+    onInputChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onEmoji: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    // Как на боевом экране: удалённые/голос/непустой текст видимы, «пустые» технические — нет.
+    val visibleMessages = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
+    val canSend = input.isNotBlank() && !sending   // гард: пустое не шлём, во время отправки — тоже
+    Column(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item { Spacer(Modifier.height(8.dp)) }
+            if (visibleMessages.isEmpty()) {
+                when {
+                    loading -> item {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp, color = CanonGreen2)
+                        }
+                    }
+                    else -> item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(30.dp))
+                            Text(
+                                appText("Пока нет сообщений. Напиши первым", "Әлегә хәбәрҙәр юҡ. Беренсе булып яҙ"),
+                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+            items(visibleMessages, key = { it.id }) { m ->
+                ChatFeedBubble(text = m.text, voiceUrl = m.voiceUrl, deleted = m.deleted, mine = m.senderId == myId)
+            }
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = CanonSurface),
+            shape = RoundedCornerShape(26.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (onEmoji != null) {
+                    IconButton(onClick = onEmoji, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.EmojiEmotions, contentDescription = appText("Эмодзи", "Эмодзи"), tint = CanonMuted, modifier = Modifier.size(22.dp))
+                    }
+                }
+                Row(
+                    modifier = Modifier.weight(1f).background(CanonMint, RoundedCornerShape(22.dp)).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.weight(1f).padding(vertical = 12.dp)) {
+                        if (input.isBlank()) Text(appText("Сообщение", "Хәбәр"), color = CanonMuted, fontSize = 15.sp)
+                        BasicTextField(
+                            value = input,
+                            onValueChange = { if (!sending) onInputChange(it) },   // во время отправки поле «заморожено»
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(color = CanonText, fontSize = 15.sp),
+                            cursorBrush = SolidColor(CanonGreen2),
+                            maxLines = 4
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onSend,
+                    enabled = canSend,   // пустой ввод / идёт отправка → нельзя (гард двойного тапа)
+                    modifier = Modifier.size(48.dp).background(if (canSend) CanonGreen2 else CanonBorder, CircleShape)
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = appText("Отправить", "Ебәреү"), tint = Color.White)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Один пузырь ленты (только рендер): удалённое / голос / фото / текст, свой справа-зелёный,
+ * чужой слева-светлый. Логика меню/повтора/плеера остаётся в умном `MessageBubble` боевого экрана.
+ */
+@Composable
+private fun ChatFeedBubble(text: String, voiceUrl: String?, deleted: Boolean, mine: Boolean) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+        Surface(
+            color = if (deleted) CanonSurface else if (mine) CanonGreen2 else CanonSurface,
+            shape = RoundedCornerShape(18.dp),
+            shadowElevation = 1.dp,
+            border = if (deleted) BorderStroke(1.dp, CanonBorder) else null
+        ) {
+            when {
+                deleted -> Text(
+                    appText("Сообщение удалено", "Хәбәр юйылды"),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = CanonMuted, fontSize = 14.sp
+                )
+                voiceUrl != null -> Text(
+                    appText("Голосовое", "Тауыш"),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = if (mine) Color.White else CanonText, fontSize = 14.sp
+                )
+                else -> Text(
+                    text,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = if (mine) Color.White else CanonText, fontSize = 15.sp
+                )
+            }
+        }
+    }
+}
+
 /** Лента заявок пассажиров — водитель откликается (цена/коммент). */
 @Composable
 internal fun RequestsFeedScreen(onBack: () -> Unit) {
@@ -1402,44 +1541,67 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
         )
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заявки пассажиров", "Пассажир заявкалары"), onBack) }) { padding ->
-        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item { Text(appText("Пассажиры ищут поездку. Откликнись — предложи цену и время.", "Пассажирҙар сәфәр эҙләй. Яуап бир — хаҡ һәм ваҡыт тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
-            if (loading) {
-                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            } else if (error) {
-                item { ListedError(appText("Не удалось загрузить заявки. Проверь сеть.", "Заявкаларҙы йөкләп булманы. Сетте тикшер."), onRetry = { reload() }) }
-            } else if (feed.isEmpty()) {
-                item { ListedEmpty(appText("Заявок пока нет", "Әлегә заявкалар юҡ"), appText("Здесь появятся заявки пассажиров.", "Бында пассажир заявкалары күренер")) }
-            } else {
-                items(feed, key = { it.id }) { r ->
-                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("${r.from} → ${r.to}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                SmallAvatar(r.passengerAvatar, r.passengerName, 34)
-                                Spacer(Modifier.width(8.dp))
-                                Text("${r.passengerName} · " + seatsText(r.seats), color = CanonMuted, fontSize = 13.sp)
-                            }
-                            if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
-                            if (r.prefs.isNotEmpty()) {
-                                // Условия пассажира → водитель видит, подходит ли поездка.
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    items(r.prefs, key = { it }) { key ->
-                                        when (key) {
-                                            "women" -> PrefChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
-                                            "child" -> PrefChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"))
-                                            "pets" -> PrefChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"))
-                                            "wheelchair" -> PrefChip(Icons.Default.Person, appText("Коляска", "Коляска"))
-                                            "baggage" -> PrefChip(Icons.Default.Luggage, appText("Багаж", "Багаж"))
-                                            "nosmoke" -> PrefChip(Icons.Default.Block, appText("Не курить", "Тартмаҫҡа"))
-                                            "ac" -> PrefChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"))
-                                        }
+        RequestsFeedContent(
+            loading = loading,
+            error = error,
+            feed = feed,
+            onRetry = { reload() },
+            onRespond = { r -> target = r; price = ""; comment = "" },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер ленты заявок пассажиров: все состояния (загрузка / ошибка+повтор / пусто / список).
+ * Данные и колбэки приходят параметрами → без сети/стейта/эффектов → тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun RequestsFeedContent(
+    loading: Boolean,
+    error: Boolean,
+    feed: List<com.yuldash.app.data.RequestFeedDto>,
+    onRetry: () -> Unit,
+    onRespond: (com.yuldash.app.data.RequestFeedDto) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+        item { Text(appText("Пассажиры ищут поездку. Откликнись — предложи цену и время.", "Пассажирҙар сәфәр эҙләй. Яуап бир — хаҡ һәм ваҡыт тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        if (loading) {
+            item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+        } else if (error) {
+            item { ListedError(appText("Не удалось загрузить заявки. Проверь сеть.", "Заявкаларҙы йөкләп булманы. Сетте тикшер."), onRetry = onRetry) }
+        } else if (feed.isEmpty()) {
+            item { ListedEmpty(appText("Заявок пока нет", "Әлегә заявкалар юҡ"), appText("Здесь появятся заявки пассажиров.", "Бында пассажир заявкалары күренер")) }
+        } else {
+            items(feed, key = { it.id }) { r ->
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${r.from} → ${r.to}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SmallAvatar(r.passengerAvatar, r.passengerName, 34)
+                            Spacer(Modifier.width(8.dp))
+                            Text("${r.passengerName} · " + seatsText(r.seats), color = CanonMuted, fontSize = 13.sp)
+                        }
+                        if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
+                        if (r.prefs.isNotEmpty()) {
+                            // Условия пассажира → водитель видит, подходит ли поездка.
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(r.prefs, key = { it }) { key ->
+                                    when (key) {
+                                        "women" -> PrefChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
+                                        "child" -> PrefChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"))
+                                        "pets" -> PrefChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"))
+                                        "wheelchair" -> PrefChip(Icons.Default.Person, appText("Коляска", "Коляска"))
+                                        "baggage" -> PrefChip(Icons.Default.Luggage, appText("Багаж", "Багаж"))
+                                        "nosmoke" -> PrefChip(Icons.Default.Block, appText("Не курить", "Тартмаҫҡа"))
+                                        "ac" -> PrefChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"))
                                     }
                                 }
                             }
-                            if (r.responded) Text(appText("Вы откликнулись", "Яуап бирҙегеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            else Button(onClick = { target = r; price = ""; comment = "" }, modifier = Modifier.align(Alignment.End), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), fontWeight = FontWeight.Bold) }
                         }
+                        if (r.responded) Text(appText("Вы откликнулись", "Яуап бирҙегеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        else Button(onClick = { onRespond(r) }, modifier = Modifier.align(Alignment.End), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), fontWeight = FontWeight.Bold) }
                     }
                 }
             }
@@ -1447,7 +1609,9 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
     }
 }
 
-/** Отклики водителей на МОЮ заявку — пассажир выбирает → поездка+чат. */
+/** Отклики водителей на МОЮ заявку — пассажир выбирает → поездка+чат.
+ *  Умная обёртка: держит стейт, грузит отклики, ходит в ApiClient.
+ *  Рендер вынесен в чистый [ResponsesContent] → его покрывают Robolectric-тесты. */
 @Composable
 internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (Int) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -1461,42 +1625,67 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
     // Сбой загрузки откликов больше не выглядит как «откликов нет» — ошибка + «Повторить».
     LaunchedEffect(requestId, reloadTick) { loading = true; error = false; ApiClient.getRequestResponses(requestId).onSuccess { resps = it }.onFailure { error = true }; loading = false }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики водителей", "Водитель яуаптары"), onBack) }) { padding ->
-        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item { Text(appText("Выберите водителя — поездка начнётся, откроется чат.", "Водитель һайла — сәфәр башлана, чат асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
-            if (loading) {
-                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            } else if (error) {
-                item { ListedError(appText("Не удалось загрузить отклики. Проверь сеть.", "Яуаптарҙы йөкләп булманы. Сетте тикшер."), onRetry = { reloadTick++ }) }
-            } else if (resps.isEmpty()) {
-                item { ListedEmpty(appText("Откликов пока нет", "Әлегә яуап юҡ"), appText("Водители ещё не откликнулись. Загляни позже.", "Водителдәр яуап бирмәгән. Һуңыраҡ кер.")) }
-            } else {
-                items(resps, key = { it.id }) { r ->
-                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                SmallAvatar(r.driverAvatar, r.driverName, 42)
-                                Spacer(Modifier.width(10.dp))
-                                Text(r.driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                                r.driverRating?.let { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp)); Text(" $it", color = CanonMuted, fontSize = 13.sp) }
-                                Spacer(Modifier.weight(1f))
-                                if (r.price > 0) Text("${r.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
-                            }
-                            if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
-                            Button(
-                                onClick = {
-                                    if (accepting) return@Button
-                                    accepting = true; val id = r.id
-                                    scope.launch {
-                                        ApiClient.acceptResponse(id)
-                                            .onSuccess { bid -> onAccepted(bid) }
-                                            .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show(); accepting = false }
-                                    }
-                                },
-                                enabled = !accepting,
-                                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                            ) { Text(appText("Поехать с этим водителем", "Был водитель менән барырға"), fontWeight = FontWeight.Black) }
+        ResponsesContent(
+            loading = loading,
+            error = error,
+            responses = resps,
+            accepting = accepting,
+            onRetry = { reloadTick++ },
+            onAccept = { r ->
+                if (accepting) return@ResponsesContent
+                accepting = true; val id = r.id
+                scope.launch {
+                    ApiClient.acceptResponse(id)
+                        .onSuccess { bid -> onAccepted(bid) }
+                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show(); accepting = false }
+                }
+            },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер списка откликов водителей: все состояния (загрузка / ошибка+повтор / пусто / список).
+ * Данные и колбэки приходят параметрами → без сети/стейта/эффектов → тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun ResponsesContent(
+    loading: Boolean,
+    error: Boolean,
+    responses: List<com.yuldash.app.data.ResponseDto>,
+    accepting: Boolean,
+    onRetry: () -> Unit,
+    onAccept: (com.yuldash.app.data.ResponseDto) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+        item { Text(appText("Выберите водителя — поездка начнётся, откроется чат.", "Водитель һайла — сәфәр башлана, чат асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        if (loading) {
+            item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+        } else if (error) {
+            item { ListedError(appText("Не удалось загрузить отклики. Проверь сеть.", "Яуаптарҙы йөкләп булманы. Сетте тикшер."), onRetry = onRetry) }
+        } else if (responses.isEmpty()) {
+            item { ListedEmpty(appText("Откликов пока нет", "Әлегә яуап юҡ"), appText("Водители ещё не откликнулись. Загляни позже.", "Водителдәр яуап бирмәгән. Һуңыраҡ кер.")) }
+        } else {
+            items(responses, key = { it.id }) { r ->
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SmallAvatar(r.driverAvatar, r.driverName, 42)
+                            Spacer(Modifier.width(10.dp))
+                            Text(r.driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                            r.driverRating?.let { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp)); Text(" $it", color = CanonMuted, fontSize = 13.sp) }
+                            Spacer(Modifier.weight(1f))
+                            if (r.price > 0) Text("${r.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
                         }
+                        if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
+                        Button(
+                            onClick = { onAccept(r) },
+                            enabled = !accepting,
+                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                        ) { Text(appText("Поехать с этим водителем", "Был водитель менән барырға"), fontWeight = FontWeight.Black) }
                     }
                 }
             }
@@ -1552,7 +1741,7 @@ internal fun ListedError(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun ChatCard(initial: String, name: String, subtitle: String, message: String, time: String, unread: Int, verified: Boolean, support: Boolean = false, onClick: (() -> Unit)? = null, avatarUrl: String = "") {
+internal fun ChatCard(initial: String, name: String, subtitle: String, message: String, time: String, unread: Int, verified: Boolean, support: Boolean = false, onClick: (() -> Unit)? = null, avatarUrl: String = "") {
     Card(
         modifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -1726,7 +1915,7 @@ internal fun ChatComposer(
 
 // Дружелюбная заглушка «нет диалогов» — полноценная, сбалансированная (не «половина пустая»).
 @Composable
-private fun ChatEmptyState() {
+internal fun ChatEmptyState() {
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonCardShape,
@@ -1788,7 +1977,7 @@ private val CHAT_EMOJIS = listOf(
 )
 
 @Composable
-private fun EmojiPicker(onPick: (String) -> Unit) {
+internal fun EmojiPicker(onPick: (String) -> Unit) {
     Surface(
         color = CanonSurface,
         shape = RoundedCornerShape(20.dp),

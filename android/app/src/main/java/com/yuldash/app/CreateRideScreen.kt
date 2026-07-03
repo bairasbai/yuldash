@@ -179,6 +179,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -247,6 +248,22 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+// Диапазон цены поездки (₽): не бесплатно, но и не абсурд. Чистая константа → используется и в
+// хелпере валидации, и в UI-подсказке. Меняется в одном месте.
+internal const val RIDE_PRICE_MIN = 1
+internal const val RIDE_PRICE_MAX = 100_000
+
+/**
+ * Чистая валидация формы поездки: маршрут задан (откуда/куда не пусто) и цена — целое число
+ * в диапазоне [RIDE_PRICE_MIN..RIDE_PRICE_MAX]. Без Compose/сети → тестируется прямым вызовом на JVM.
+ * «Плохие» кейсы: пустой from/to → false; цена 0/отрицательная/пустая/нечисло/вне диапазона → false.
+ */
+internal fun createRideValid(from: String, to: String, price: String): Boolean {
+    if (from.isBlank() || to.isBlank()) return false
+    val p = price.trim().toIntOrNull() ?: return false
+    return p in RIDE_PRICE_MIN..RIDE_PRICE_MAX
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
@@ -283,241 +300,70 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
     val defaultCar = appText("Моя машина", "Минең машина")
     val dropPinLabel = appText("Точка на карте", "Картала нөктә")
+    val errPublish = appText("Не удалось опубликовать. Проверь сеть и повтори.", "Баҫтырып булманы. Селтәрҙе тикшереп ҡабатла.")
+    val ctxDt = LocalContext.current
     Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { ScreenTopBar(appText("Создать поездку", "Сәфәр булдырыу"), onBack) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Black)
-                Text(appText("Укажите путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            item { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) }
-            item { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    val rideTypeKeys = remember { listOf("regular", "parcel", "cargo", "urgent") }
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(rideTypeKeys, key = { it }) { key ->
-                            val (icon, ru, ba) = rideTypeMeta(key)
-                            FilledTonalButton(
-                                onClick = { category = key },
-                                shape = RoundedCornerShape(14.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = if (category == key) CanonMint else CanonSurface,
-                                    contentColor = if (category == key) CanonGreen2 else CanonText
-                                )
-                            ) {
-                                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(appText(ru, ba), fontSize = 13.sp, maxLines = 1)
-                            }
-                        }
-                    }
-                }
-            }
-            item {
-                val ctxDt = LocalContext.current
-                Box {
-                    OutlinedTextField(
-                        value = dateTime,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
-                        placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
-                        leadingIcon = { Icon(Icons.Default.Schedule, null) },
-                        trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                    Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt, "ru") { dateTime = it } })
-                }
-            }
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(appText("Повтор", "Ҡабатлау"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    val recOpts = listOf(
-                        "none" to appText("Разово", "Бер тапҡыр"),
-                        "weekdays" to appText("По будням", "Эш көндәрендә"),
-                        "daily" to appText("Каждый день", "Һәр көн"),
-                        "weekly" to appText("Еженедельно", "Аҙна һайын"),
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(recOpts, key = { it.first }) { (key, label) ->
-                            FilledTonalButton(
-                                onClick = { recurrence = key },
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = if (recurrence == key) CanonMint else CanonSurface,
-                                    contentColor = if (recurrence == key) CanonGreen2 else CanonText
-                                )
-                            ) { Text(label, fontSize = 13.sp, maxLines = 1) }
-                        }
-                    }
-                    if (recurrence != "none") Text(appText("Создадим ближайшие 4 рейса этой серии.", "Был серияның иң яҡын 4 рейсын булдырабыҙ."), color = CanonMuted, fontSize = 12.sp)
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(value = seats, onValueChange = { seats = it.filter(Char::isDigit) }, label = { Text(appText("Мест", "Урын")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
-                    OutlinedTextField(value = price, onValueChange = { price = it.filter(Char::isDigit) }, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
-                }
-            }
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (priceHint > 0) {
-                        Surface(
-                            color = CanonMint, shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.clickable { price = priceHint.toString() }
-                        ) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(appText("Обычно по маршруту ~$priceHint ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$priceHint ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp)
-                            }
-                        }
-                    }
-                    Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
-                }
-            }
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = pickup,
-                        onValueChange = { pickup = it },
-                        label = { Text(appText("Где встречаемся", "Ҡайҙа осрашабыҙ")) },
-                        placeholder = { Text(appText("Напр.: у автовокзала, АЗС на выезде", "Мәҫәлән: автовокзал янында, сығыштағы АЗС")) },
-                        leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                    val pinned = pickupLat != null
-                    OutlinedButton(
-                        onClick = { showPicker = true },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, if (pinned) CanonGreen2 else CanonBorder)
-                    ) {
-                        Icon(if (pinned) Icons.Default.CheckCircle else Icons.Default.Map, contentDescription = null, tint = if (pinned) CanonGreen2 else CanonText, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (pinned) appText("Точка на карте отмечена · изменить", "Картала билдәләнде · үҙгәртергә") else appText("Отметить на карте", "Картала билдәләргә"), color = if (pinned) CanonGreen2 else CanonText)
-                    }
-                }
-            }
-            item {
-                val isCargo = category == "parcel" || category == "cargo"
-                OutlinedTextField(
-                    value = comment,
-                    onValueChange = { comment = it },
-                    label = { Text(if (isCargo) appText("Что везёте", "Нимә алып бараһығыҙ") else appText("Комментарий", "Комментарий")) },
-                    placeholder = { Text(if (isCargo) appText("Напр.: диван и 2 коробки, хрупкое", "Мәҫәлән: диван һәм 2 ҡумта, һынғыс") else appText("Например: могу взять посылку, заеду через Темясово", "Мәҫәлән: посылка ала алам, Темясово аша инәм")) },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+        CreateRideFormContent(
+            from = from, to = to, dateText = dateTime, seats = seats, price = price, comment = comment,
+            typeKey = category, recurrence = recurrence,
+            receiverName = receiverName, parcelSize = parcelSize,
+            pickup = pickup, pinned = pickupLat != null,
+            womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
+            baggage = baggage, airConditioner = airConditioner, smoking = smoking,
+            priceHint = priceHint, loading = publishing, error = publishError,
+            onFromChange = { from = it }, onToChange = { to = it },
+            onSeatsChange = { seats = it.filter(Char::isDigit) },
+            onPriceChange = { price = it.filter(Char::isDigit) },
+            onCommentChange = { comment = it },
+            onSelectType = { category = it }, onSelectRecurrence = { recurrence = it },
+            onReceiverNameChange = { receiverName = it }, onParcelSizeChange = { parcelSize = it },
+            onPickupChange = { pickup = it }, onOpenPicker = { showPicker = true },
+            onOpenDatePicker = { openDateTimePicker(ctxDt, "ru") { dateTime = it } },
+            onUsePriceHint = { price = priceHint.toString() },
+            onWomenOnly = { womenOnly = it }, onChildSeat = { childSeat = it },
+            onPetsAllowed = { petsAllowed = it }, onBaggage = { baggage = it },
+            onAirConditioner = { airConditioner = it }, onSmoking = { smoking = it },
+            onPublish = {
+                if (publishing) return@CreateRideFormContent
+                val fromVal = from.ifBlank { "Баймаҡ" }
+                val toVal = to.ifBlank { "Сибай" }
+                val priceVal = price.toIntOrNull() ?: 300
+                val seatsVal = (seats.toIntOrNull() ?: 2).coerceAtLeast(1)   // мест не меньше 1
+                // Берём выбранную дату из пикера ("dd.MM.yyyy, HH:mm"); если пусто/не распарсилось — now+3ч.
+                val isoFmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                val departIso = runCatching {
+                    val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(dateTime)
+                    isoFmt.format(picked!!)
+                }.getOrElse { isoFmt.format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L)) }
+                val ride = Ride(
+                    id = "local-${System.currentTimeMillis()}",
+                    from = fromVal, to = toVal,
+                    time = dateTime.ifBlank { defaultTime }, timeBa = dateTime.ifBlank { defaultTime },
+                    driver = ApiClient.cachedName() ?: "Я",
+                    car = comment.ifBlank { defaultCar }, carBa = comment.ifBlank { defaultCar },
+                    price = priceVal, seats = seatsVal, rating = 5.0, verified = false, boosted = false,
+                    petsAllowed = petsAllowed, childSeat = childSeat, womenOnly = womenOnly,
+                    smoking = smoking, baggage = baggage, airConditioner = airConditioner,
                 )
-            }
-            // Посылка: получатель + габарит/вес (только parcel/cargo).
-            if (category == "parcel" || category == "cargo") {
-                item {
-                    OutlinedTextField(
-                        value = receiverName,
-                        onValueChange = { receiverName = it },
-                        label = { Text(appText("Кому передать (имя)", "Кемгә тапшырырға (исем)")) },
-                        placeholder = { Text(appText("Напр.: Айгуль, заберёт на автовокзале", "Мәҫәлән: Айгүл, автовокзалда алыр")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp)
-                    )
+                publishError = null
+                publishing = true
+                // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
+                publishScope.launch {
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim())
+                        .onSuccess { publishing = false; onPublish(ride) }
+                        .onFailure { publishing = false; publishError = errPublish }
                 }
-                item {
-                    OutlinedTextField(
-                        value = parcelSize,
-                        onValueChange = { parcelSize = it },
-                        label = { Text(appText("Габарит / вес", "Үлсәм / ауырлыҡ")) },
-                        placeholder = { Text(appText("Напр.: до 5 кг, коробка 40×30", "Мәҫәлән: 5 кг ҡәҙәр, ҡумта 40×30")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                }
-            }
-            item {
-                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.padding(vertical = 6.dp)) {
-                        Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
-                        PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ өсөн"), womenOnly) { womenOnly = it }
-                        PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло / бустер", "Балалар ултырғысы / бустер"), childSeat) { childSeat = it }
-                        PrefToggleRow(Icons.Default.Pets, appText("Можно с животным", "Хайуан менән"), petsAllowed) { petsAllowed = it }
-                        PrefToggleRow(Icons.Default.Luggage, appText("Есть место под багаж", "Багаж урыны бар"), baggage) { baggage = it }
-                        PrefToggleRow(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), airConditioner) { airConditioner = it }
-                        PrefToggleRow(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"), smoking) { smoking = it }
-                    }
-                }
-            }
-            item {
-                InfoCard(
-                    title = appText("Платное поднятие", "Түләүле күтәреү"),
-                    text = appText("Можно добавить после публикации. Обычные поездки остаются бесплатными.", "Баҫтырғандан һуң өҫтәп була. Ғәҙәти сәфәрҙәр бушлай ҡала."),
-                    icon = Icons.Default.TrendingUp
-                )
-            }
-            item {
-                val errPublish = appText("Не удалось опубликовать. Проверь сеть и повтори.", "Баҫтырып булманы. Селтәрҙе тикшереп ҡабатла.")
-                publishError?.let {
-                    Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(bottom = 8.dp))
-                }
-                AppButton(
-                    text = appText("Опубликовать", "Баҫтырыу"),
-                    loading = publishing,
-                    onClick = {
-                        if (publishing) return@AppButton
-                        val fromVal = from.ifBlank { "Баймаҡ" }
-                        val toVal = to.ifBlank { "Сибай" }
-                        val priceVal = price.toIntOrNull() ?: 300
-                        val seatsVal = (seats.toIntOrNull() ?: 2).coerceAtLeast(1)   // мест не меньше 1
-                        // Берём выбранную дату из пикера ("dd.MM.yyyy, HH:mm"); если пусто/не распарсилось — now+3ч.
-                        val isoFmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-                        val departIso = runCatching {
-                            val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(dateTime)
-                            isoFmt.format(picked!!)
-                        }.getOrElse { isoFmt.format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L)) }
-                        val ride = Ride(
-                            id = "local-${System.currentTimeMillis()}",
-                            from = fromVal, to = toVal,
-                            time = dateTime.ifBlank { defaultTime }, timeBa = dateTime.ifBlank { defaultTime },
-                            driver = ApiClient.cachedName() ?: "Я",
-                            car = comment.ifBlank { defaultCar }, carBa = comment.ifBlank { defaultCar },
-                            price = priceVal, seats = seatsVal, rating = 5.0, verified = false, boosted = false,
-                            petsAllowed = petsAllowed, childSeat = childSeat, womenOnly = womenOnly,
-                            smoking = smoking, baggage = baggage, airConditioner = airConditioner,
-                        )
-                        publishError = null
-                        publishing = true
-                        // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
-                        publishScope.launch {
-                            ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim())
-                                .onSuccess { publishing = false; onPublish(ride) }
-                                .onFailure { publishing = false; publishError = errPublish }
-                        }
-                    },
-                    enabled = !publishing && from.isNotBlank() && to.isNotBlank(),   // не публикуем без маршрута
-                )
-            }
-            item {
-                TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-                    Text(appText("Отмена", "Кире алыу"))
-                }
-            }
-        }
+            },
+            onCancel = onBack,
+            // «Умные» поля с собственными эффектами (гео-подсказки) — слотами, чтобы Content остался чистым.
+            fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
+            toField = { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
+            modifier = Modifier.padding(padding),
+        )
     }
         if (showPicker) {
             PickupPickerOverlay(
@@ -525,6 +371,254 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 onConfirm = { la, ln -> pickupLat = la; pickupLng = ln; if (pickup.isBlank()) pickup = dropPinLabel; showPicker = false },
                 onDismiss = { showPicker = false }
             )
+        }
+    }
+}
+
+/**
+ * Чистый рендер формы «Создать поездку»: весь стейт приходит параметрами, все действия — колбэками.
+ * Импур-куски (гео-подсказка адреса) приняты слотами [fromField]/[toField]; MapKit/пикер даты/оверлей
+ * точки живут в умной обёртке [CreateRideScreen]. Кнопка «Опубликовать» блокируется при [loading]
+ * (гард двойного нажатия) и когда маршрут/цена невалидны ([createRideValid]). Тестируется на JVM (Robolectric).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun CreateRideFormContent(
+    from: String,
+    to: String,
+    dateText: String,
+    seats: String,
+    price: String,
+    comment: String,
+    typeKey: String,
+    recurrence: String,
+    receiverName: String,
+    parcelSize: String,
+    pickup: String,
+    pinned: Boolean,
+    womenOnly: Boolean,
+    childSeat: Boolean,
+    petsAllowed: Boolean,
+    baggage: Boolean,
+    airConditioner: Boolean,
+    smoking: Boolean,
+    priceHint: Int,
+    loading: Boolean,
+    error: String?,
+    onFromChange: (String) -> Unit,
+    onToChange: (String) -> Unit,
+    onSeatsChange: (String) -> Unit,
+    onPriceChange: (String) -> Unit,
+    onCommentChange: (String) -> Unit,
+    onSelectType: (String) -> Unit,
+    onSelectRecurrence: (String) -> Unit,
+    onReceiverNameChange: (String) -> Unit,
+    onParcelSizeChange: (String) -> Unit,
+    onPickupChange: (String) -> Unit,
+    onOpenPicker: () -> Unit,
+    onOpenDatePicker: () -> Unit,
+    onUsePriceHint: () -> Unit,
+    onWomenOnly: (Boolean) -> Unit,
+    onChildSeat: (Boolean) -> Unit,
+    onPetsAllowed: (Boolean) -> Unit,
+    onBaggage: (Boolean) -> Unit,
+    onAirConditioner: (Boolean) -> Unit,
+    onSmoking: (Boolean) -> Unit,
+    onPublish: () -> Unit,
+    onCancel: () -> Unit,
+    fromField: (@Composable () -> Unit)? = null,
+    toField: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val isCargo = typeKey == "parcel" || typeKey == "cargo"
+    LazyColumn(
+        modifier = modifier.padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Black)
+            Text(appText("Укажите путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        // Поля адреса: если слот дан (реальный экран с гео-подсказками) — рисуем его; иначе (тест/фолбэк) —
+        // простое поле с тем же поведением ввода. Оба варианта поведенчески идентичны для пользователя.
+        item {
+            if (fromField != null) fromField() else OutlinedTextField(
+                value = from, onValueChange = onFromChange,
+                label = { Text(appText("Откуда", "Ҡайҙан")) },
+                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+            )
+        }
+        item {
+            if (toField != null) toField() else OutlinedTextField(
+                value = to, onValueChange = onToChange,
+                label = { Text(appText("Куда", "Ҡайҙа")) },
+                leadingIcon = { Icon(Icons.Default.NearMe, contentDescription = null) },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+            )
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                val rideTypeKeys = remember { listOf("regular", "parcel", "cargo", "urgent") }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(rideTypeKeys, key = { it }) { key ->
+                        val (icon, ru, ba) = rideTypeMeta(key)
+                        RideTypeChip(icon = icon, ru = ru, ba = ba, selected = typeKey == key) { onSelectType(key) }
+                    }
+                }
+            }
+        }
+        item {
+            Box {
+                OutlinedTextField(
+                    value = dateText,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
+                    placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
+                    leadingIcon = { Icon(Icons.Default.Schedule, null) },
+                    trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                Box(Modifier.matchParentSize().clickable { onOpenDatePicker() })
+            }
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(appText("Повтор", "Ҡабатлау"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                val recOpts = listOf(
+                    "none" to appText("Разово", "Бер тапҡыр"),
+                    "weekdays" to appText("По будням", "Эш көндәрендә"),
+                    "daily" to appText("Каждый день", "Һәр көн"),
+                    "weekly" to appText("Еженедельно", "Аҙна һайын"),
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(recOpts, key = { it.first }) { (key, label) ->
+                        FilledTonalButton(
+                            onClick = { onSelectRecurrence(key) },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = if (recurrence == key) CanonMint else CanonSurface,
+                                contentColor = if (recurrence == key) CanonGreen2 else CanonText
+                            )
+                        ) { Text(label, fontSize = 13.sp, maxLines = 1) }
+                    }
+                }
+                if (recurrence != "none") Text(appText("Создадим ближайшие 4 рейса этой серии.", "Был серияның иң яҡын 4 рейсын булдырабыҙ."), color = CanonMuted, fontSize = 12.sp)
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(value = seats, onValueChange = onSeatsChange, label = { Text(appText("Мест", "Урын")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
+                OutlinedTextField(value = price, onValueChange = onPriceChange, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp))
+            }
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (priceHint > 0) {
+                    PriceHintChip(price = priceHint) { onUsePriceHint() }
+                }
+                Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+            }
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = pickup,
+                    onValueChange = onPickupChange,
+                    label = { Text(appText("Где встречаемся", "Ҡайҙа осрашабыҙ")) },
+                    placeholder = { Text(appText("Напр.: у автовокзала, АЗС на выезде", "Мәҫәлән: автовокзал янында, сығыштағы АЗС")) },
+                    leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                OutlinedButton(
+                    onClick = onOpenPicker,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, if (pinned) CanonGreen2 else CanonBorder)
+                ) {
+                    Icon(if (pinned) Icons.Default.CheckCircle else Icons.Default.Map, contentDescription = null, tint = if (pinned) CanonGreen2 else CanonText, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (pinned) appText("Точка на карте отмечена · изменить", "Картала билдәләнде · үҙгәртергә") else appText("Отметить на карте", "Картала билдәләргә"), color = if (pinned) CanonGreen2 else CanonText)
+                }
+            }
+        }
+        item {
+            OutlinedTextField(
+                value = comment,
+                onValueChange = onCommentChange,
+                label = { Text(if (isCargo) appText("Что везёте", "Нимә алып бараһығыҙ") else appText("Комментарий", "Комментарий")) },
+                placeholder = { Text(if (isCargo) appText("Напр.: диван и 2 коробки, хрупкое", "Мәҫәлән: диван һәм 2 ҡумта, һынғыс") else appText("Например: могу взять посылку, заеду через Темясово", "Мәҫәлән: посылка ала алам, Темясово аша инәм")) },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+        // Посылка: получатель + габарит/вес (только parcel/cargo).
+        if (isCargo) {
+            item {
+                OutlinedTextField(
+                    value = receiverName,
+                    onValueChange = onReceiverNameChange,
+                    label = { Text(appText("Кому передать (имя)", "Кемгә тапшырырға (исем)")) },
+                    placeholder = { Text(appText("Напр.: Айгуль, заберёт на автовокзале", "Мәҫәлән: Айгүл, автовокзалда алыр")) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = parcelSize,
+                    onValueChange = onParcelSizeChange,
+                    label = { Text(appText("Габарит / вес", "Үлсәм / ауырлыҡ")) },
+                    placeholder = { Text(appText("Напр.: до 5 кг, коробка 40×30", "Мәҫәлән: 5 кг ҡәҙәр, ҡумта 40×30")) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
+        }
+        item {
+            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                    PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ өсөн"), womenOnly) { onWomenOnly(it) }
+                    PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло / бустер", "Балалар ултырғысы / бустер"), childSeat) { onChildSeat(it) }
+                    PrefToggleRow(Icons.Default.Pets, appText("Можно с животным", "Хайуан менән"), petsAllowed) { onPetsAllowed(it) }
+                    PrefToggleRow(Icons.Default.Luggage, appText("Есть место под багаж", "Багаж урыны бар"), baggage) { onBaggage(it) }
+                    PrefToggleRow(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), airConditioner) { onAirConditioner(it) }
+                    PrefToggleRow(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"), smoking) { onSmoking(it) }
+                }
+            }
+        }
+        item {
+            InfoCard(
+                title = appText("Платное поднятие", "Түләүле күтәреү"),
+                text = appText("Можно добавить после публикации. Обычные поездки остаются бесплатными.", "Баҫтырғандан һуң өҫтәп була. Ғәҙәти сәфәрҙәр бушлай ҡала."),
+                icon = Icons.Default.TrendingUp
+            )
+        }
+        item {
+            error?.let {
+                Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(bottom = 8.dp))
+            }
+            AppButton(
+                text = appText("Опубликовать", "Баҫтырыу"),
+                loading = loading,
+                onClick = onPublish,
+                enabled = !loading && createRideValid(from, to, price),   // маршрут задан + цена в диапазоне
+                modifier = Modifier.testTag("publish_btn"),
+            )
+        }
+        item {
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                Text(appText("Отмена", "Кире алыу"))
+            }
         }
     }
 }
@@ -569,6 +663,41 @@ internal fun PrivacyScreen(onBack: () -> Unit) {
                 text = appText("Точка видна только когда ползунок включён. Точный адрес — лишь после подтверждения поездки.", "Нөктә ползунок ҡабул булғанда ғына күренә. Теүәл адрес — сәфәр раҫланғандан һуң ғына."),
                 icon = Icons.Default.Lock
             )
+        }
+    }
+}
+
+// Чистый чип типа поездки: иконка + двуязычная подпись, подсветка выбранного. Стейт (какой выбран)
+// живёт в экране — сюда приходит `selected` + `onClick`. Без состояния/сети → покрыт Robolectric.
+@Composable
+internal fun RideTypeChip(icon: ImageVector, ru: String, ba: String, selected: Boolean, onClick: () -> Unit) {
+    FilledTonalButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = if (selected) CanonMint else CanonSurface,
+            contentColor = if (selected) CanonGreen2 else CanonText
+        )
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(appText(ru, ba), fontSize = 13.sp, maxLines = 1)
+    }
+}
+
+// Чистая подсказка цены: «обычно по маршруту ~N ₽ · нажми, чтобы подставить». Значение приходит
+// параметром (считается выше через API), клик подставляет цену. Без состояния/сети → покрыт Robolectric.
+@Composable
+internal fun PriceHintChip(price: Int, onClick: () -> Unit) {
+    Surface(
+        color = CanonMint, shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.clickable { onClick() }
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(appText("Обычно по маршруту ~$price ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$price ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp)
         }
     }
 }

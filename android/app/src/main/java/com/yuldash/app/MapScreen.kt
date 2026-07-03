@@ -1745,8 +1745,10 @@ private fun YandexMapCard(
 
 // Карточка заявки попутчика (тап по маркеру «ищет попутку» на карте): имя, маршрут, места, комментарий.
 // «Откликнуться» → диалог с ценой/комментом → respondToRequest. Телефон пассажира не показываем (приватность).
+// internal (не private): базовый рендер карточки чист (текст+колбэки), покрыт Robolectric.
+// Сеть (ApiClient) живёт ТОЛЬКО внутри диалога-отклика — тесты его не открывают.
 @Composable
-private fun RequestPreviewCard(
+internal fun RequestPreviewCard(
     req: com.yuldash.app.data.RequestNearDto,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -2026,8 +2028,9 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
     }
 }
 
+// Ярлык города на карте-заглушке — чистый (Surface+Text), internal → покрыт Robolectric.
 @Composable
-private fun MapLabel(text: String, modifier: Modifier) {
+internal fun MapLabel(text: String, modifier: Modifier) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
@@ -2039,8 +2042,9 @@ private fun MapLabel(text: String, modifier: Modifier) {
 }
 
 // Кнопки масштаба карты ＋/− (стек справа, как в Яндекс.Картах).
+// Чистые: сам зум делает вызывающий через колбэки (карта тут не упоминается) → internal, покрыто Robolectric.
 @Composable
-private fun MapZoomControls(modifier: Modifier = Modifier, onZoomIn: () -> Unit, onZoomOut: () -> Unit) {
+internal fun MapZoomControls(modifier: Modifier = Modifier, onZoomIn: () -> Unit, onZoomOut: () -> Unit) {
     Surface(modifier = modifier, color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(13.dp), shadowElevation = 3.dp) {
         Column {
             IconButton(onClick = onZoomIn, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp (a11y §4.5)

@@ -749,7 +749,7 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
 }
 
 @Composable
-private fun StatusBanner(icon: ImageVector, title: String, sub: String, bg: Color, fg: Color) {
+internal fun StatusBanner(icon: ImageVector, title: String, sub: String, bg: Color, fg: Color) {
     Surface(color = bg, shape = CanonItemShape) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
@@ -765,7 +765,7 @@ private fun StatusBanner(icon: ImageVector, title: String, sub: String, bg: Colo
 // Причина авто-проверки прав для ВОДИТЕЛЯ: что не так и что делать. Зеркало админского AutoCheckRow,
 // но человеческим языком и с действием. Показываем при отказе и когда авто-проверка нашла проблему.
 @Composable
-private fun DriverReasonBanner(docsStatus: String, autocheckResult: String, autocheckData: String) {
+internal fun DriverReasonBanner(docsStatus: String, autocheckResult: String, autocheckData: String) {
     val rejected = docsStatus == "rejected"
     // Показываем баннер если: заявку отклонили ИЛИ авто-проверка дала reject/needs_human (есть что объяснить).
     val hasAutocheck = autocheckResult == "reject" || autocheckResult == "needs_human"
@@ -838,7 +838,7 @@ private fun DriverReasonBanner(docsStatus: String, autocheckResult: String, auto
 
 // Инлайн-ошибка отправки заявки (в дополнение к Toast) — не теряется, если Toast пропустили.
 @Composable
-private fun SubmitErrorBanner() {
+internal fun SubmitErrorBanner() {
     Surface(color = CanonRed.copy(alpha = 0.10f), shape = CanonItemShape) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Info, contentDescription = null, tint = CanonRed, modifier = Modifier.size(22.dp))
@@ -855,7 +855,7 @@ private fun SubmitErrorBanner() {
 }
 
 @Composable
-private fun UploadTile(title: String, done: Boolean, loading: Boolean, onClick: () -> Unit) {
+internal fun UploadTile(title: String, done: Boolean, loading: Boolean, onClick: () -> Unit) {
     Surface(
         color = CanonSurface,
         shape = CanonItemShape,
@@ -893,7 +893,7 @@ private fun StepDot(done: Boolean) {
 }
 
 @Composable
-private fun DocumentRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, status: String, loaded: Boolean) {
+internal fun DocumentRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, status: String, loaded: Boolean) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp))

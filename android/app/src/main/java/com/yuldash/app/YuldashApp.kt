@@ -1020,7 +1020,7 @@ private fun OnboardingScreen(onFinish: (RideRole) -> Unit, language: AppLanguage
 }
 
 @Composable
-private fun OnboardingLangToggle(language: AppLanguage, onSelect: (AppLanguage) -> Unit) {
+internal fun OnboardingLangToggle(language: AppLanguage, onSelect: (AppLanguage) -> Unit) {
     Surface(
         shape = RoundedCornerShape(999.dp),
         color = CanonSurface,
@@ -1034,7 +1034,7 @@ private fun OnboardingLangToggle(language: AppLanguage, onSelect: (AppLanguage) 
 }
 
 @Composable
-private fun OnboardingLangChip(text: String, active: Boolean, onClick: () -> Unit) {
+internal fun OnboardingLangChip(text: String, active: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
@@ -1189,7 +1189,7 @@ private fun OnboardingFeatureCard(item: OnboardingItem, index: Int) {
 }
 
 @Composable
-private fun OnboardingRoleChooser(selected: RideRole, onSelect: (RideRole) -> Unit) {
+internal fun OnboardingRoleChooser(selected: RideRole, onSelect: (RideRole) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OnboardingRoleCard(
             icon = Icons.Default.Person,
@@ -1210,7 +1210,7 @@ private fun OnboardingRoleChooser(selected: RideRole, onSelect: (RideRole) -> Un
 }
 
 @Composable
-private fun OnboardingRoleCard(
+internal fun OnboardingRoleCard(
     icon: ImageVector,
     title: String,
     body: String,
@@ -1285,7 +1285,7 @@ private fun OnboardingIconBubble(icon: ImageVector, index: Int? = null) {
 }
 
 @Composable
-private fun OnboardingSafetyNote(text: String) {
+internal fun OnboardingSafetyNote(text: String) {
     Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonHairlineGreen)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2)

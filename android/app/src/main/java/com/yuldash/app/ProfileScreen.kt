@@ -610,7 +610,7 @@ internal fun ProfileScreen(
 // Красная карточка опасного действия (удаление аккаунта). Отдельно от ProfileActionCard —
 // красный акцент + рамка, чтобы визуально отделить необратимое действие.
 @Composable
-private fun DangerActionCard(title: String, text: String, onClick: () -> Unit) {
+internal fun DangerActionCard(title: String, text: String, onClick: () -> Unit) {
     Card(
         modifier = Modifier.bounceClick(onClick).fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -636,7 +636,7 @@ private fun DangerActionCard(title: String, text: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ProfileActionCard(
+internal fun ProfileActionCard(
     title: String,
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -695,88 +695,131 @@ internal fun PassengerCabinetScreen(
     }
     val activeBookings = bookings.filter { it.status == "pending" || it.status == "confirmed" || it.status == "onboard" }
     val activeBooking = activeBookings.firstOrNull()
+    // Готовим отображаемую поездку в @Composable-обёртке (тут доступен appText/язык), передаём в чистый Content.
+    val activeRide = activeBooking?.let { b ->
+        Ride(
+            id = b.id.toString(),
+            from = b.fromCity.ifBlank { appText("Поездка", "Сәфәр") },
+            to = b.toCity.ifBlank { "№${b.rideId}" },
+            time = formatDepart(b.departAt),
+            driver = b.driverName,
+            car = "",
+            price = b.price,
+            seats = b.seats,
+            rating = 0.0,
+            verified = b.driverVerified,
+            boosted = false
+        )
+    }
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет пассажира", "Пассажир кабинеты"), onBack) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
+        PassengerCabinetContent(
+            loading = bookingsLoading,
+            error = bookingsError,
+            activeCount = activeBookings.size,
+            requestCount = serverReqCount ?: requests.size,
+            ratingText = myRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
+            activeRide = activeRide,
+            activeStatus = activeBooking?.status,
+            onRetry = { bookingsReload++ },
+            onMyTrips = onMyTrips,
+            onOpenBooking = onOpenBooking,
+            onFindRide = onFindRide,
+            onCreateRequest = onCreateRequest,
+            onSafety = onSafety,
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер кабинета пассажира: все состояния (загрузка-скелетон / ошибка+повтор / пусто / активная поездка).
+ * Данные и колбэки приходят параметрами → без сети/стейта/эффектов → тестируется на JVM (Robolectric).
+ * Поведение 1-в-1 с обёрткой [PassengerCabinetScreen].
+ */
+@Composable
+internal fun PassengerCabinetContent(
+    loading: Boolean,
+    error: Boolean,
+    activeCount: Int,
+    requestCount: Int,
+    ratingText: String,
+    activeRide: Ride?,
+    activeStatus: String?,
+    onRetry: () -> Unit,
+    onMyTrips: () -> Unit,
+    onOpenBooking: (Ride, String) -> Unit,
+    onFindRide: () -> Unit,
+    onCreateRequest: () -> Unit,
+    onSafety: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item {
+            Text(appText("Ваши поездки и заявки", "Һеҙҙең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
+            Text(appText("Быстрый доступ к бронированиям, заявкам и защите поездки.", "Брондәргә, заявкаларға һәм хәүефһеҙлеккә тиҙ инеү."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CabinetMetric(appText("Активные", "Актив"), activeCount.toString(), Modifier.weight(1f))
+                CabinetMetric(appText("Заявки", "Заявкалар"), requestCount.toString(), Modifier.weight(1f))
+                CabinetMetric(appText("Рейтинг", "Рейтинг"), ratingText, Modifier.weight(1f))
+            }
+        }
+        item {
+            SettingsGroup {
+                SettingsNavRow(
+                    Icons.Default.EventSeat,
+                    appText("Мои поездки", "Минең сәфәрҙәр"),
+                    appText("Активные брони, история и чат по поездке", "Актив брондәр, тарих һәм сәфәр чаты"),
+                    onClick = onMyTrips
+                )
+            }
+        }
+        if (loading) {
             item {
-                Text(appText("Ваши поездки и заявки", "Һеҙҙең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
-                Text(appText("Быстрый доступ к бронированиям, заявкам и защите поездки.", "Брондәргә, заявкаларға һәм хәүефһеҙлеккә тиҙ инеү."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    repeat(2) { SkeletonCard(lines = 3) }
+                }
             }
+        }
+        if (error) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CabinetMetric(appText("Активные", "Актив"), activeBookings.size.toString(), Modifier.weight(1f))
-                    CabinetMetric(appText("Заявки", "Заявкалар"), (serverReqCount ?: requests.size).toString(), Modifier.weight(1f))
-                    CabinetMetric(appText("Рейтинг", "Рейтинг"), myRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—", Modifier.weight(1f))
-                }
+                EmptyStateCard(
+                    title = appText("Не удалось загрузить поездки", "Сәфәрҙәрҙе йөкләп булманы"),
+                    text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
+                    icon = Icons.Default.Refresh,
+                    action = appText("Повторить", "Ҡабатлау"),
+                    onAction = onRetry
+                )
             }
+        }
+        if (activeRide != null && activeStatus != null) {
             item {
-                SettingsGroup {
-                    SettingsNavRow(
-                        Icons.Default.EventSeat,
-                        appText("Мои поездки", "Минең сәфәрҙәр"),
-                        appText("Активные брони, история и чат по поездке", "Актив брондәр, тарих һәм сәфәр чаты"),
-                        onClick = onMyTrips
-                    )
-                }
+                val opensActiveTrip = activeStatus == "confirmed" || activeStatus == "onboard"
+                MyTripCard(
+                    ride = activeRide,
+                    status = appText("Ближайшая", "Яҡындағы"),
+                    statusColor = CanonMint,
+                    icon = Icons.Default.EventSeat,
+                    primaryAction = if (opensActiveTrip) appText("Открыть поездку", "Сәфәрҙе асыу") else appText("Подробнее", "Ентекле"),
+                    secondaryAction = appText("Все поездки", "Бөтә сәфәрҙәр"),
+                    onPrimary = { onOpenBooking(activeRide, activeStatus) },
+                    onSecondary = onMyTrips
+                )
             }
-            if (bookingsLoading) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        repeat(2) { SkeletonCard(lines = 3) }
-                    }
-                }
-            }
-            if (bookingsError) {
-                item {
-                    EmptyStateCard(
-                        title = appText("Не удалось загрузить поездки", "Сәфәрҙәрҙе йөкләп булманы"),
-                        text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
-                        icon = Icons.Default.Refresh,
-                        action = appText("Повторить", "Ҡабатлау"),
-                        onAction = { bookingsReload++ }
-                    )
-                }
-            }
-            activeBooking?.let { b ->
-                item {
-                    val displayRide = Ride(
-                        id = b.id.toString(),
-                        from = b.fromCity.ifBlank { appText("Поездка", "Сәфәр") },
-                        to = b.toCity.ifBlank { "№${b.rideId}" },
-                        time = formatDepart(b.departAt),
-                        driver = b.driverName,
-                        car = "",
-                        price = b.price,
-                        seats = b.seats,
-                        rating = 0.0,
-                        verified = b.driverVerified,
-                        boosted = false
-                    )
-                    val opensActiveTrip = b.status == "confirmed" || b.status == "onboard"
-                    MyTripCard(
-                        ride = displayRide,
-                        status = appText("Ближайшая", "Яҡындағы"),
-                        statusColor = CanonMint,
-                        icon = Icons.Default.EventSeat,
-                        primaryAction = if (opensActiveTrip) appText("Открыть поездку", "Сәфәрҙе асыу") else appText("Подробнее", "Ентекле"),
-                        secondaryAction = appText("Все поездки", "Бөтә сәфәрҙәр"),
-                        onPrimary = { onOpenBooking(displayRide, b.status) },
-                        onSecondary = onMyTrips
-                    )
-                }
-            }
-            item {
-                SettingsGroup {
-                    SettingsNavRow(Icons.Default.Search, appText("Найти поездку", "Сәфәр табыу"), appText("Открыть список ближайших маршрутов", "Яҡындағы маршруттарҙы асыу"), onClick = onFindRide)
-                    SettingsNavRow(Icons.Default.AddRoad, appText("Создать заявку", "Заявка булдырыу"), appText("Если готовой поездки нет", "Әҙер сәфәр булмаһа"), onClick = onCreateRequest)
-                    SettingsNavRow(Icons.Default.Shield, appText("Безопасность поездки", "Сәфәр хәүефһеҙлеге"), appText("SOS, скрытый номер и доверенные контакты", "SOS, йәшерен номер һәм ышаныслы контакттар"), onClick = onSafety)
-                }
+        }
+        item {
+            SettingsGroup {
+                SettingsNavRow(Icons.Default.Search, appText("Найти поездку", "Сәфәр табыу"), appText("Открыть список ближайших маршрутов", "Яҡындағы маршруттарҙы асыу"), onClick = onFindRide)
+                SettingsNavRow(Icons.Default.AddRoad, appText("Создать заявку", "Заявка булдырыу"), appText("Если готовой поездки нет", "Әҙер сәфәр булмаһа"), onClick = onCreateRequest)
+                SettingsNavRow(Icons.Default.Shield, appText("Безопасность поездки", "Сәфәр хәүефһеҙлеге"), appText("SOS, скрытый номер и доверенные контакты", "SOS, йәшерен номер һәм ышаныслы контакттар"), onClick = onSafety)
             }
         }
     }
@@ -933,7 +976,7 @@ internal fun DriverCabinetScreen(
 }
 
 @Composable
-private fun CabinetMetric(label: String, value: String, modifier: Modifier = Modifier) {
+internal fun CabinetMetric(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, color = CanonSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
@@ -973,16 +1016,75 @@ internal fun AdsCabinetScreen(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет рекламы", "Реклама кабинеты"), onBack) }
     ) { padding ->
+        AdsCabinetContent(
+            loading = loading,
+            error = error,
+            ads = ads,
+            packages = packages,
+            submittingId = submittingId,
+            onRetry = { reloadKey++ },
+            onCreateAd = onCreateAd,
+            onEditAd = onEditAd,
+            onSubmitAd = { ad ->
+                submittingId = ad.id
+                scope.launch {
+                    ApiClient.submitMyAd(ad.id)
+                        .onSuccess { submittingId = null; reloadKey++ }
+                        .onFailure {
+                            submittingId = null
+                            Toast.makeText(ctx, errSubmit, Toast.LENGTH_SHORT).show()
+                        }
+                }
+            },
+            onPayAd = { ad ->
+                scope.launch {
+                    ApiClient.payAd(ad.id)
+                        .onSuccess { payingAd = ad }
+                        .onFailure { Toast.makeText(ctx, errPay, Toast.LENGTH_SHORT).show() }
+                }
+            },
+            modifier = Modifier.padding(padding),
+        )
+    }
+    // Лист СБП для оплаты своего размещения (переиспользуем общий SbpTransferSheet с QR).
+    payingAd?.let { ad ->
+        SbpTransferSheet(
+            amountRub = ad.budgetKop / 100,
+            onPaid = { payingAd = null; reloadKey++ },
+            onDismiss = { payingAd = null },
+        )
+    }
+}
+
+/**
+ * Чистый рендер кабинета рекламы: все состояния (загрузка / ошибка+повтор / пусто-витрина / список объявлений).
+ * Данные и колбэки приходят параметрами → без сети/стейта/эффектов → тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun AdsCabinetContent(
+    loading: Boolean,
+    error: String?,
+    ads: List<MyAdDto>,
+    packages: List<AdPackageDto>,
+    submittingId: String?,
+    onRetry: () -> Unit,
+    onCreateAd: () -> Unit,
+    onEditAd: (MyAdDto) -> Unit,
+    onSubmitAd: (MyAdDto) -> Unit,
+    onPayAd: (MyAdDto) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier) {
         when {
-            loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = CanonGreen2)
             }
-            error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                ListedError(error!!) { reloadKey++ }
+            error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                ListedError(error) { onRetry() }
             }
-            ads.isEmpty() -> AdsShowcase(packages, Modifier.padding(padding), onCreateAd)
+            ads.isEmpty() -> AdsShowcase(packages, Modifier, onCreateAd)
             else -> LazyColumn(
-                modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+                modifier = Modifier.padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {
@@ -1003,41 +1105,17 @@ internal fun AdsCabinetScreen(
                         ad = ad,
                         submitting = submittingId == ad.id,
                         onEdit = { onEditAd(ad) },
-                        onSubmit = {
-                            submittingId = ad.id
-                            scope.launch {
-                                ApiClient.submitMyAd(ad.id)
-                                    .onSuccess { submittingId = null; reloadKey++ }
-                                    .onFailure {
-                                        submittingId = null
-                                        Toast.makeText(ctx, errSubmit, Toast.LENGTH_SHORT).show()
-                                    }
-                            }
-                        },
-                        onPay = {
-                            scope.launch {
-                                ApiClient.payAd(ad.id)
-                                    .onSuccess { payingAd = ad }
-                                    .onFailure { Toast.makeText(ctx, errPay, Toast.LENGTH_SHORT).show() }
-                            }
-                        },
+                        onSubmit = { onSubmitAd(ad) },
+                        onPay = { onPayAd(ad) },
                     )
                 }
             }
         }
     }
-    // Лист СБП для оплаты своего размещения (переиспользуем общий SbpTransferSheet с QR).
-    payingAd?.let { ad ->
-        SbpTransferSheet(
-            amountRub = ad.budgetKop / 100,
-            onPaid = { payingAd = null; reloadKey++ },
-            onDismiss = { payingAd = null },
-        )
-    }
 }
 
 @Composable
-private fun AdStatusBadge(status: String) {
+internal fun AdStatusBadge(status: String) {
     val (label, fg, bg) = when (status) {
         "active" -> Triple(appText("Активно", "Актив"), CanonGreen2, CanonMint)
         "pending_review" -> Triple(appText("На модерации", "Тикшереүҙә"), CanonWarn, CanonWarnBg)
@@ -1052,7 +1130,7 @@ private fun AdStatusBadge(status: String) {
 }
 
 @Composable
-private fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSubmit: () -> Unit, onPay: () -> Unit) {
+internal fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSubmit: () -> Unit, onPay: () -> Unit) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1119,7 +1197,7 @@ private fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSub
 
 // Витрина «рекламируйся у нас» — когда своих объявлений ещё нет.
 @Composable
-private fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCreate: () -> Unit) {
+internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCreate: () -> Unit) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1261,7 +1339,7 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
 }
 
 @Composable
-private fun AdField(label: String, value: String, onValueChange: (String) -> Unit, singleLine: Boolean = true) {
+internal fun AdField(label: String, value: String, onValueChange: (String) -> Unit, singleLine: Boolean = true) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -1535,7 +1613,7 @@ internal fun PartnerAdCard(
 }
 
 @Composable
-private fun AdChip(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
+internal fun AdChip(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, color = CanonSurface, shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, CanonBorder)) {
         Row(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
