@@ -16,7 +16,7 @@ type Route = {
 };
 const ROUTES: Route[] = [
   { from: { ru: "Уфа", ba: "Өфө" }, to: { ru: "Стерлитамак", ba: "Стәрлетамаҡ" }, price: 400, hours: 2, seats: 3 },
-  { from: { ru: "Уфа", ba: "Өфө" }, to: { ru: "Сибай", ba: "Сибай" }, price: 1500, hours: 6, seats: 2 },
+  { from: { ru: "Уфа", ba: "Өфө" }, to: { ru: "Сибай", ba: "Сибай" }, price: 900, hours: 6, seats: 2 },
   { from: { ru: "Уфа", ba: "Өфө" }, to: { ru: "Белорецк", ba: "Белорет" }, price: 800, hours: 4, seats: 3 },
   { from: { ru: "Уфа", ba: "Өфө" }, to: { ru: "Нефтекамск", ba: "Нефтекама" }, price: 700, hours: 3, seats: 3 },
   { from: { ru: "Уфа", ba: "Өфө" }, to: { ru: "Октябрьский", ba: "Октябрьский" }, price: 600, hours: 3, seats: 4 },

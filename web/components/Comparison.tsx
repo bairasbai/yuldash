@@ -7,7 +7,7 @@ import { OrnamentKicker } from "./Ornament";
 
 // Граф-сравнение примерной цены поездки (Уфа → Сибай)
 const PRICE: { key: DictKey; val: number; bar: string; tone: string }[] = [
-  { key: "cmp_col_app", val: 700, bar: "bg-gradient-to-r from-green-deep via-green to-green-bright", tone: "text-green-glow" },
+  { key: "cmp_col_app", val: 900, bar: "bg-gradient-to-r from-green-deep via-green to-green-bright", tone: "text-green-glow" },
   { key: "cmp_col_bus", val: 1100, bar: "bg-white/25", tone: "text-white/60" },
   { key: "cmp_col_taxi", val: 5500, bar: "bg-gradient-to-r from-gold/70 to-gold-light", tone: "text-gold-light" },
 ];
