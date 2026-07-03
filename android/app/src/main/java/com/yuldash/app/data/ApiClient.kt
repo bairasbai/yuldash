@@ -27,7 +27,13 @@ import java.net.URL
  * release — на публичный домен. Значения можно переопределить в local.properties.
  */
 object ApiClient {
-    private val BASE = BuildConfig.YULDASH_API_BASE_URL.trimEnd('/')
+    private val buildBase = BuildConfig.YULDASH_API_BASE_URL.trimEnd('/')
+
+    /** Тест-хук: в unit-тестах подменяем базовый URL на локальный MockWebServer.
+     *  В проде остаётся null → идём на buildBase из BuildConfig. Поведение приложения НЕ меняется. */
+    internal var testBaseUrl: String? = null
+
+    private val BASE: String get() = testBaseUrl ?: buildBase
 
     @Volatile private var token: String? = null
     @Volatile private var refreshToken: String? = null

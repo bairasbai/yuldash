@@ -604,7 +604,7 @@ private fun BookingRouteMapPreview(
 }
 
 @Composable
-private fun BookingMapLabel(text: String, modifier: Modifier) {
+internal fun BookingMapLabel(text: String, modifier: Modifier) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
@@ -632,7 +632,7 @@ private fun fitBookingRouteCamera(map: com.yandex.mapkit.map.Map, from: Point, t
 }.getOrNull()
 
 @Composable
-private fun RouteMapUnavailableCard(modifier: Modifier = Modifier) {
+internal fun RouteMapUnavailableCard(modifier: Modifier = Modifier) {
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),

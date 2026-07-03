@@ -325,7 +325,7 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
 }
 
 @Composable
-private fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, time: String, unread: Boolean) {
+internal fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, time: String, unread: Boolean) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
@@ -616,7 +616,7 @@ internal fun PaymentInfoScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun PaymentStepRow(n: String, text: String) {
+internal fun PaymentStepRow(n: String, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = RoundedCornerShape(10.dp)) {
             Text(n, Modifier.padding(horizontal = 11.dp, vertical = 6.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
@@ -686,7 +686,7 @@ internal fun FiltersScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun PersonRow(name: String, actionLabel: String, danger: Boolean, onAction: () -> Unit) {
+internal fun PersonRow(name: String, actionLabel: String, danger: Boolean, onAction: () -> Unit) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
@@ -714,7 +714,10 @@ private fun DocImage(url: String, token: String) {
     )
 }
 
-/** Админ: модерация водителей — права/фото авто, одобрить/отклонить. */
+/**
+ * Админ: модерация водителей — умная обёртка. Держит стейт, грузит список, ходит в ApiClient/Toast.
+ * Весь рендер вынесен в чистый [AdminDriversContent] → его покрывают Robolectric-тесты на JVM.
+ */
 @Composable
 internal fun AdminDriversScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -730,30 +733,57 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
     fun reload() { loading = true; error = null; scope.launch { ApiClient.getPendingDrivers().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
     LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Модерация водителей", "Водителдәрҙе модерациялау"), onBack) }) { padding ->
-        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item { Text(appText("Проверь права и фото авто. Одобри или отклони.", "Права һәм авто фотоһын тикшер. Раҫла йәки кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
-            if (loading) {
-                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
-            } else if (list.isEmpty()) {
-                item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән водителдәр күренер")) }
-            } else {
-                items(list.size) { i ->
-                    val d = list[i]
-                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(d.name, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                            Text((d.car.ifBlank { "—" }) + " · " + d.phone, color = CanonMuted, fontSize = 13.sp)
-                            AutoCheckRow(d.autocheckResult, d.autocheckData)
-                            Text(appText("Водительское удостоверение", "Водитель таныҡлығы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            DocImage(d.licenseUrl, token)
-                            Text(appText("Фото автомобиля", "Автомобиль фотоһы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            DocImage(d.carPhotoUrl, token)
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(onClick = { val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                                OutlinedButton(onClick = { val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
-                            }
+        AdminDriversContent(
+            loading = loading,
+            error = error,
+            drivers = list,
+            token = token,
+            onRetry = { reload() },
+            onApprove = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() } } },
+            onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() } } },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер экрана модерации водителей: все состояния (загрузка / ошибка+повтор / пусто / список).
+ * Данные и колбэки приходят параметрами → без сети/стейта/эффектов → тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun AdminDriversContent(
+    loading: Boolean,
+    error: String?,
+    drivers: List<com.yuldash.app.data.PendingDriverDto>,
+    token: String,
+    onRetry: () -> Unit,
+    onApprove: (com.yuldash.app.data.PendingDriverDto) -> Unit,
+    onReject: (com.yuldash.app.data.PendingDriverDto) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+        item { Text(appText("Проверь права и фото авто. Одобри или отклони.", "Права һәм авто фотоһын тикшер. Раҫла йәки кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        if (loading) {
+            item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+        } else if (error != null) {
+            item { ListedError(error) { onRetry() } }
+        } else if (drivers.isEmpty()) {
+            item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән водителдәр күренер")) }
+        } else {
+            items(drivers.size) { i ->
+                val d = drivers[i]
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(d.name, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                        Text((d.car.ifBlank { "—" }) + " · " + d.phone, color = CanonMuted, fontSize = 13.sp)
+                        AutoCheckRow(d.autocheckResult, d.autocheckData)
+                        Text(appText("Водительское удостоверение", "Водитель таныҡлығы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        DocImage(d.licenseUrl, token)
+                        Text(appText("Фото автомобиля", "Автомобиль фотоһы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        DocImage(d.carPhotoUrl, token)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(onClick = { onApprove(d) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                            OutlinedButton(onClick = { onReject(d) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                         }
                     }
                 }
@@ -794,7 +824,10 @@ private fun AutoCheckRow(result: String, dataJson: String) {
     }
 }
 
-/** Админ: жалобы пользователей — кто на кого, причина, дата. */
+/**
+ * Админ: жалобы пользователей — умная обёртка. Держит стейт, грузит список, ходит в ApiClient.
+ * Весь рендер вынесен в чистый [AdminReportsContent] → его покрывают Robolectric-тесты на JVM.
+ */
 @Composable
 internal fun AdminReportsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -806,24 +839,45 @@ internal fun AdminReportsScreen(onBack: () -> Unit) {
     fun reload() { loading = true; error = null; scope.launch { ApiClient.getAdminReports().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
     LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Жалобы", "Ялыуҙар"), onBack) }) { padding ->
-        LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item { Text(appText("Жалобы пользователей. Разберись — позвони, предупреди или отклони водителя в модерации.", "Ҡулланыусы ялыуҙары. Тикшер — шылтырат, иҫкәрт йәки модерацияла кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
-            if (loading) {
-                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
-            } else if (list.isEmpty()) {
-                item { ListedEmpty(appText("Жалоб нет", "Ялыу юҡ"), appText("Хороший знак — пользователи довольны.", "Яҡшы билдә — ҡулланыусылар риза.")) }
-            } else {
-                items(list.size) { i ->
-                    val r = list[i]
-                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("${r.reporterName}  →  ${r.targetName}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                            if (r.targetPhone.isNotBlank()) Text(r.targetPhone, color = CanonMuted, fontSize = 13.sp)
-                            Text(r.reason.ifBlank { appText("без причины", "сәбәпһеҙ") }, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
-                            if (r.createdAt.length >= 10) Text(r.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
-                        }
+        AdminReportsContent(
+            loading = loading,
+            error = error,
+            reports = list,
+            onRetry = { reload() },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер экрана жалоб: все состояния (загрузка / ошибка+повтор / пусто / список).
+ * Данные и колбэки приходят параметрами → без сети/стейта/эффектов → тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun AdminReportsContent(
+    loading: Boolean,
+    error: String?,
+    reports: List<com.yuldash.app.data.AdminReportDto>,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+        item { Text(appText("Жалобы пользователей. Разберись — позвони, предупреди или отклони водителя в модерации.", "Ҡулланыусы ялыуҙары. Тикшер — шылтырат, иҫкәрт йәки модерацияла кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        if (loading) {
+            item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+        } else if (error != null) {
+            item { ListedError(error) { onRetry() } }
+        } else if (reports.isEmpty()) {
+            item { ListedEmpty(appText("Жалоб нет", "Ялыу юҡ"), appText("Хороший знак — пользователи довольны.", "Яҡшы билдә — ҡулланыусылар риза.")) }
+        } else {
+            items(reports.size) { i ->
+                val r = reports[i]
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("${r.reporterName}  →  ${r.targetName}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                        if (r.targetPhone.isNotBlank()) Text(r.targetPhone, color = CanonMuted, fontSize = 13.sp)
+                        Text(r.reason.ifBlank { appText("без причины", "сәбәпһеҙ") }, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                        if (r.createdAt.length >= 10) Text(r.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
                     }
                 }
             }

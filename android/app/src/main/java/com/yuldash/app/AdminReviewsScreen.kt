@@ -40,6 +40,10 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ReviewItem
 import kotlinx.coroutines.launch
 
+/**
+ * Экран-обёртка («умная» часть): держит стейт, грузит данные, ходит в ApiClient.
+ * Весь рендер вынесен в чистый [AdminReviewsContent] → его покрывают Robolectric-тесты на JVM.
+ */
 @Composable
 internal fun AdminReviewsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -65,73 +69,98 @@ internal fun AdminReviewsScreen(onBack: () -> Unit) {
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Модерация отзывов", "Фекерҙәрҙе модерациялау"), onBack) },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            when {
-                loading -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator(color = CanonGreen)
+        AdminReviewsContent(
+            loading = loading,
+            error = error,
+            reviews = items,
+            publishingId = publishingId,
+            onRetry = { scope.launch { load() } },
+            onApprove = { r ->
+                if (publishingId != null) return@AdminReviewsContent
+                publishingId = r.id
+                scope.launch {
+                    ApiClient.publishReview(r.id, true)
+                        .onSuccess { items.remove(r) }
+                        .onFailure { error = loadErr }
+                    publishingId = null
                 }
-                error != null -> Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    Text(error!!, color = CanonRed, fontSize = 15.sp)
-                    Spacer(Modifier.height(14.dp))
-                    Button(onClick = { scope.launch { load() } }, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg)) {
-                        Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
-                    }
+            },
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        )
+    }
+}
+
+/**
+ * Чистый рендер экрана модерации отзывов: все состояния (загрузка / ошибка+повтор / пусто / список).
+ * Данные и колбэки приходят параметрами → без сети/стейта/эффектов → тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun AdminReviewsContent(
+    loading: Boolean,
+    error: String?,
+    reviews: List<ReviewItem>,
+    publishingId: Int?,
+    onRetry: () -> Unit,
+    onApprove: (ReviewItem) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        when {
+            loading -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                CircularProgressIndicator(color = CanonGreen)
+            }
+            error != null -> Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Text(error, color = CanonRed, fontSize = 15.sp)
+                Spacer(Modifier.height(14.dp))
+                Button(onClick = onRetry, colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg)) {
+                    Text(appText("Повторить", "Ҡабатларға"), fontWeight = FontWeight.Bold)
                 }
-                items.isEmpty() -> Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen, modifier = Modifier.size(48.dp))
-                    Spacer(Modifier.height(12.dp))
-                    Text(appText("Новых отзывов нет", "Яңы фекерҙәр юҡ"), color = CanonText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text(appText("Всё разобрано", "Барыһы ла ҡаралған"), color = CanonMuted, fontSize = 14.sp)
-                }
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    item { Spacer(Modifier.height(6.dp)) }
-                    items(items, key = { it.id }) { r ->
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                            shape = CanonCardShape,
-                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                        ) {
-                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    repeat(r.stars.coerceIn(0, 5)) {
-                                        Icon(Icons.Default.Star, contentDescription = null, tint = CanonGold, modifier = Modifier.size(16.dp))
-                                    }
+            }
+            reviews.isEmpty() -> Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen, modifier = Modifier.size(48.dp))
+                Spacer(Modifier.height(12.dp))
+                Text(appText("Новых отзывов нет", "Яңы фекерҙәр юҡ"), color = CanonText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(appText("Всё разобрано", "Барыһы ла ҡаралған"), color = CanonMuted, fontSize = 14.sp)
+            }
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item { Spacer(Modifier.height(6.dp)) }
+                items(reviews, key = { it.id }) { r ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+                        shape = CanonCardShape,
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                repeat(r.stars.coerceIn(0, 5)) {
+                                    Icon(Icons.Default.Star, contentDescription = null, tint = CanonGold, modifier = Modifier.size(16.dp))
                                 }
-                                Text("«${r.text}»", color = CanonText, fontSize = 15.sp, lineHeight = 20.sp)
-                                Text(
-                                    listOfNotNull(r.name.ifBlank { null }, r.city.ifBlank { null }).joinToString(", ").ifBlank { appText("Аноним", "Аноним") },
-                                    color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                                )
-                                Button(
-                                    onClick = {
-                                        if (publishingId != null) return@Button
-                                        publishingId = r.id
-                                        scope.launch {
-                                            ApiClient.publishReview(r.id, true)
-                                                .onSuccess { items.remove(r) }
-                                                .onFailure { error = loadErr }
-                                            publishingId = null
-                                        }
-                                    },
-                                    enabled = publishingId == null,
-                                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg),
-                                    shape = CanonCardShape,
-                                    modifier = Modifier.fillMaxWidth().height(46.dp),
-                                ) {
-                                    if (publishingId == r.id) {
-                                        CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                    } else {
-                                        Text(appText("Одобрить для сайта", "Сайт өсөн раҫларға"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    }
+                            }
+                            Text("«${r.text}»", color = CanonText, fontSize = 15.sp, lineHeight = 20.sp)
+                            Text(
+                                listOfNotNull(r.name.ifBlank { null }, r.city.ifBlank { null }).joinToString(", ").ifBlank { appText("Аноним", "Аноним") },
+                                color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            )
+                            Button(
+                                onClick = { onApprove(r) },
+                                enabled = publishingId == null,
+                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg),
+                                shape = CanonCardShape,
+                                modifier = Modifier.fillMaxWidth().height(46.dp),
+                            ) {
+                                if (publishingId == r.id) {
+                                    CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Text(appText("Одобрить для сайта", "Сайт өсөн раҫларға"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 }
                             }
                         }
                     }
-                    item { Spacer(Modifier.height(20.dp)) }
                 }
+                item { Spacer(Modifier.height(20.dp)) }
             }
         }
     }

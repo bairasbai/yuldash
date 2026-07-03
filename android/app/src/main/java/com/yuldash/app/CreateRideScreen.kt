@@ -307,19 +307,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(rideTypeKeys, key = { it }) { key ->
                             val (icon, ru, ba) = rideTypeMeta(key)
-                            FilledTonalButton(
-                                onClick = { category = key },
-                                shape = RoundedCornerShape(14.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = if (category == key) CanonMint else CanonSurface,
-                                    contentColor = if (category == key) CanonGreen2 else CanonText
-                                )
-                            ) {
-                                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(appText(ru, ba), fontSize = 13.sp, maxLines = 1)
-                            }
+                            RideTypeChip(icon = icon, ru = ru, ba = ba, selected = category == key) { category = key }
                         }
                     }
                 }
@@ -374,16 +362,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (priceHint > 0) {
-                        Surface(
-                            color = CanonMint, shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.clickable { price = priceHint.toString() }
-                        ) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(appText("Обычно по маршруту ~$priceHint ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$priceHint ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp)
-                            }
-                        }
+                        PriceHintChip(price = priceHint) { price = priceHint.toString() }
                     }
                     Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
                 }
@@ -569,6 +548,41 @@ internal fun PrivacyScreen(onBack: () -> Unit) {
                 text = appText("Точка видна только когда ползунок включён. Точный адрес — лишь после подтверждения поездки.", "Нөктә ползунок ҡабул булғанда ғына күренә. Теүәл адрес — сәфәр раҫланғандан һуң ғына."),
                 icon = Icons.Default.Lock
             )
+        }
+    }
+}
+
+// Чистый чип типа поездки: иконка + двуязычная подпись, подсветка выбранного. Стейт (какой выбран)
+// живёт в экране — сюда приходит `selected` + `onClick`. Без состояния/сети → покрыт Robolectric.
+@Composable
+internal fun RideTypeChip(icon: ImageVector, ru: String, ba: String, selected: Boolean, onClick: () -> Unit) {
+    FilledTonalButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = if (selected) CanonMint else CanonSurface,
+            contentColor = if (selected) CanonGreen2 else CanonText
+        )
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(appText(ru, ba), fontSize = 13.sp, maxLines = 1)
+    }
+}
+
+// Чистая подсказка цены: «обычно по маршруту ~N ₽ · нажми, чтобы подставить». Значение приходит
+// параметром (считается выше через API), клик подставляет цену. Без состояния/сети → покрыт Robolectric.
+@Composable
+internal fun PriceHintChip(price: Int, onClick: () -> Unit) {
+    Surface(
+        color = CanonMint, shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.clickable { onClick() }
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(appText("Обычно по маршруту ~$price ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$price ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp)
         }
     }
 }

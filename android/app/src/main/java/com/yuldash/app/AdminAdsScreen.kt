@@ -362,7 +362,7 @@ private fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCreat
 }
 
 @Composable
-private fun planLabel(p: String): String = when (p) {
+internal fun planLabel(p: String): String = when (p) {
     "founder" -> appText("Основатель", "Нигеҙләүсе")
     "premium" -> appText("Премиум", "Премиум")
     else -> appText("Стандарт", "Стандарт")

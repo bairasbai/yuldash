@@ -300,7 +300,7 @@ internal fun SimpleModeScreen(
 }
 
 @Composable
-private fun SeniorBigAction(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, danger: Boolean = false) {
+internal fun SeniorBigAction(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, danger: Boolean = false) {
     Card(
         modifier = Modifier.bounceClick(onClick).fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = if (danger) CanonDangerBg else CanonSurface),
@@ -322,7 +322,7 @@ private fun SeniorBigAction(icon: ImageVector, title: String, subtitle: String, 
 }
 
 @Composable
-private fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier.bounceClick(onClick),
         color = CanonSurface,
@@ -959,52 +959,78 @@ internal fun TrustedContactsScreen(
         )
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Доверенные контакты", "Ышаныслы контакттар"), onBack) }) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            item {
-                InfoCard(
-                    title = appText("Близкие видят статус поездки", "Яҡындар сәфәр статусын күрә"),
-                    text = appText("Можно отправить маршрут, время и статус без раскрытия лишних данных.", "Маршрут, ваҡыт һәм статусты артыҡ мәғлүмәтһеҙ ебәрергә була."),
-                    icon = Icons.Default.Shield
-                )
+        TrustedContactsContent(
+            loading = loading,
+            loadError = loadError,
+            contacts = merged,
+            loadErrorText = loadErr,
+            onRetry = { reloadKey++ },
+            onAddClick = { showAdd = true },
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        )
+    }
+}
+
+/**
+ * Чистый рендер экрана «Доверенные контакты»: все состояния (загрузка / ошибка+повтор / пусто /
+ * список). Данные и колбэки приходят параметрами → без сети/стейта/эффектов → тестируется на JVM
+ * (Robolectric). Диалог добавления и локальный ввод остаются в умной обёртке [TrustedContactsScreen].
+ */
+@Composable
+internal fun TrustedContactsContent(
+    loading: Boolean,
+    loadError: Boolean,
+    contacts: List<TrustedContact>,
+    loadErrorText: String,
+    onRetry: () -> Unit,
+    onAddClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item {
+            InfoCard(
+                title = appText("Близкие видят статус поездки", "Яҡындар сәфәр статусын күрә"),
+                text = appText("Можно отправить маршрут, время и статус без раскрытия лишних данных.", "Маршрут, ваҡыт һәм статусты артыҡ мәғлүмәтһеҙ ебәрергә була."),
+                icon = Icons.Default.Shield
+            )
+        }
+        when {
+            loading && contacts.isEmpty() -> item {
+                Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = CanonGreen2)
+                }
             }
-            when {
-                loading && merged.isEmpty() -> item {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = CanonGreen2)
+            loadError && contacts.isEmpty() -> item {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(36.dp))
+                        Text(loadErrorText, color = CanonText, fontSize = 15.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
+                        AppButton(appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Secondary, fillWidth = false)
                     }
                 }
-                loadError && merged.isEmpty() -> item {
-                    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(36.dp))
-                            Text(loadErr, color = CanonText, fontSize = 15.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
-                            AppButton(appText("Повторить", "Ҡабатларға"), onClick = { reloadKey++ }, style = AppButtonStyle.Secondary, fillWidth = false)
-                        }
+            }
+            contacts.isEmpty() -> item {
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(36.dp))
+                        Text(appText("Пока нет контактов", "Әлегә контакттар юҡ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, textAlign = TextAlign.Center)
+                        Text(appText("Добавь близкого — он сможет видеть статус твоей поездки.", "Яҡыныңды өҫтә — ул сәфәреңдең статусын күрә алыр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
                     }
                 }
-                merged.isEmpty() -> item {
-                    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(36.dp))
-                            Text(appText("Пока нет контактов", "Әлегә контакттар юҡ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, textAlign = TextAlign.Center)
-                            Text(appText("Добавь близкого — он сможет видеть статус твоей поездки.", "Яҡыныңды өҫтә — ул сәфәреңдең статусын күрә алыр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
-                        }
-                    }
-                }
-                else -> itemsIndexed(merged, key = { _, c -> c.phone }) { index, contact ->
-                    Box(Modifier.appearIn(index)) { TrustedContactCard(contact) }
-                }
             }
-            item {
-                AppButton(
-                    text = appText("Добавить контакт", "Контакт өҫтәү"),
-                    onClick = { showAdd = true }
-                )
+            else -> itemsIndexed(contacts, key = { _, c -> c.phone }) { index, contact ->
+                Box(Modifier.appearIn(index)) { TrustedContactCard(contact) }
             }
+        }
+        item {
+            AppButton(
+                text = appText("Добавить контакт", "Контакт өҫтәү"),
+                onClick = onAddClick
+            )
         }
     }
 }
@@ -1103,91 +1129,123 @@ internal fun RepeatTripScreen(
     }
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Повторить поездку", "Сәфәрҙе ҡабатлау"), onBack) }) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            item {
-                SectionHeader(
-                    title = appText("Частые маршруты", "Йыш маршруттар"),
-                    subtitle = appText(
-                        "Выберите маршрут — Юлдаш сразу создаст заявку.",
-                        "Маршрутты һайлағыҙ — Юлдаш шунда уҡ заявка булдыра."
-                    )
+        RepeatTripContent(
+            loggedIn = loggedIn,
+            loading = loading,
+            loadError = loadError,
+            frequentTrips = frequent,
+            demoTrips = demoFrequentTrips,
+            submittingRoute = submittingRoute,
+            onLoginRequired = onLoginRequired,
+            onRetry = { reload++ },
+            onRepeat = { trip -> submitRepeat(trip) },
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        )
+    }
+}
+
+/**
+ * Чистый рендер экрана «Повторить поездку»: все состояния (нужно войти / загрузка / ошибка+повтор /
+ * пусто / список частых маршрутов + быстрые варианты). Данные и колбэки приходят параметрами →
+ * без сети/стейта/эффектов → тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun RepeatTripContent(
+    loggedIn: Boolean,
+    loading: Boolean,
+    loadError: Boolean,
+    frequentTrips: List<FrequentTrip>,
+    demoTrips: List<FrequentTrip>,
+    submittingRoute: String?,
+    onLoginRequired: () -> Unit,
+    onRetry: () -> Unit,
+    onRepeat: (FrequentTrip) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item {
+            SectionHeader(
+                title = appText("Частые маршруты", "Йыш маршруттар"),
+                subtitle = appText(
+                    "Выберите маршрут — Юлдаш сразу создаст заявку.",
+                    "Маршрутты һайлағыҙ — Юлдаш шунда уҡ заявка булдыра."
                 )
-            }
-            when {
-                !loggedIn -> {
-                    item {
-                        AppEmptyState(
-                            title = appText("Нужно войти", "Инергә кәрәк"),
-                            text = appText(
-                                "Войди через Telegram, чтобы Юлдаш мог создать заявку и показать ответы водителей.",
-                                "Юлдаш заявка булдырып, водителдәр яуаптарын күрһәтһен өсөн Telegram аша инегеҙ."
-                            ),
-                            icon = Icons.Default.Person,
-                            actionLabel = appText("Войти", "Инеү"),
-                            onAction = onLoginRequired
-                        )
-                    }
-                }
-                loading -> {
-                    items(3) { SkeletonCard(lines = 2) }
-                }
-                loadError -> {
-                    item {
-                        AppErrorState(
-                            onRetry = { reload++ },
-                            title = appText("Маршруты не загрузились", "Маршруттар тейәлмәне"),
-                            text = appText("Проверь интернет и попробуй ещё раз.", "Интернетте тикшереп тағы бер тапҡыр ҡара.")
-                        )
-                    }
-                }
-                frequent.isNotEmpty() -> {
-                    // Индекс в ключе: два реальных маршрута с одинаковым from→to иначе дают дубль ключа → краш LazyColumn.
-                    itemsIndexed(frequent, key = { index, t -> t.from + "→" + t.to + "#" + index }) { index, trip ->
-                        val route = "${trip.from} → ${trip.to}"
-                        Box(Modifier.appearIn(index)) {
-                            FrequentTripCard(
-                                trip = trip,
-                                loading = submittingRoute == route,
-                                enabled = submittingRoute == null,
-                                onClick = { submitRepeat(trip) }
-                            )
-                        }
-                    }
-                }
-                else -> {
-                    item {
-                        AppEmptyState(
-                            title = appText("Истории пока нет", "Тарих әлегә юҡ"),
-                            text = appText(
-                                "После первой заявки частые маршруты появятся здесь.",
-                                "Беренсе заявканан һуң йыш маршруттар бында күренер."
-                            ),
-                            icon = Icons.Default.Route
-                        )
-                    }
-                }
-            }
-            if (loggedIn && !loading && (loadError || frequent.isEmpty())) {
+            )
+        }
+        when {
+            !loggedIn -> {
                 item {
-                    SectionHeader(
-                        title = appText("Быстрые варианты", "Тиҙ варианттар"),
-                        subtitle = appText("Можно создать заявку по готовому маршруту.", "Әҙер маршрут буйынса заявка булдырырға була.")
+                    AppEmptyState(
+                        title = appText("Нужно войти", "Инергә кәрәк"),
+                        text = appText(
+                            "Войди через Telegram, чтобы Юлдаш мог создать заявку и показать ответы водителей.",
+                            "Юлдаш заявка булдырып, водителдәр яуаптарын күрһәтһен өсөн Telegram аша инегеҙ."
+                        ),
+                        icon = Icons.Default.Person,
+                        actionLabel = appText("Войти", "Инеү"),
+                        onAction = onLoginRequired
                     )
                 }
-                itemsIndexed(demoFrequentTrips, key = { _, t -> t.from + "→" + t.to + t.categoryKey }) { index, trip ->
+            }
+            loading -> {
+                items(3) { SkeletonCard(lines = 2) }
+            }
+            loadError -> {
+                item {
+                    AppErrorState(
+                        onRetry = onRetry,
+                        title = appText("Маршруты не загрузились", "Маршруттар тейәлмәне"),
+                        text = appText("Проверь интернет и попробуй ещё раз.", "Интернетте тикшереп тағы бер тапҡыр ҡара.")
+                    )
+                }
+            }
+            frequentTrips.isNotEmpty() -> {
+                // Индекс в ключе: два реальных маршрута с одинаковым from→to иначе дают дубль ключа → краш LazyColumn.
+                itemsIndexed(frequentTrips, key = { index, t -> t.from + "→" + t.to + "#" + index }) { index, trip ->
                     val route = "${trip.from} → ${trip.to}"
-                    Box(Modifier.appearIn(index + 1)) {
+                    Box(Modifier.appearIn(index)) {
                         FrequentTripCard(
                             trip = trip,
                             loading = submittingRoute == route,
                             enabled = submittingRoute == null,
-                            onClick = { submitRepeat(trip) }
+                            onClick = { onRepeat(trip) }
                         )
                     }
+                }
+            }
+            else -> {
+                item {
+                    AppEmptyState(
+                        title = appText("Истории пока нет", "Тарих әлегә юҡ"),
+                        text = appText(
+                            "После первой заявки частые маршруты появятся здесь.",
+                            "Беренсе заявканан һуң йыш маршруттар бында күренер."
+                        ),
+                        icon = Icons.Default.Route
+                    )
+                }
+            }
+        }
+        if (loggedIn && !loading && (loadError || frequentTrips.isEmpty())) {
+            item {
+                SectionHeader(
+                    title = appText("Быстрые варианты", "Тиҙ варианттар"),
+                    subtitle = appText("Можно создать заявку по готовому маршруту.", "Әҙер маршрут буйынса заявка булдырырға була.")
+                )
+            }
+            itemsIndexed(demoTrips, key = { _, t -> t.from + "→" + t.to + t.categoryKey }) { index, trip ->
+                val route = "${trip.from} → ${trip.to}"
+                Box(Modifier.appearIn(index + 1)) {
+                    FrequentTripCard(
+                        trip = trip,
+                        loading = submittingRoute == route,
+                        enabled = submittingRoute == null,
+                        onClick = { onRepeat(trip) }
+                    )
                 }
             }
         }
@@ -1284,7 +1342,7 @@ internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onReques
 internal data class CheckLine(val text: String, val done: Boolean = true)
 
 @Composable
-private fun VoiceParsedCard(title: String, lines: List<CheckLine>) {
+internal fun VoiceParsedCard(title: String, lines: List<CheckLine>) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)

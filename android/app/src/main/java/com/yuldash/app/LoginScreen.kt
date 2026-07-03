@@ -622,7 +622,7 @@ private fun LoginFormCard(
 }
 
 @Composable
-private fun LoginDivider(currentLanguage: AppLanguage) {
+internal fun LoginDivider(currentLanguage: AppLanguage) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -747,7 +747,7 @@ private fun BrandHero(
 
 // Переключатель языка — тот же сегментированный стиль, что на онбординге (белая «таблетка», активный чип зелёный).
 @Composable
-private fun LoginHeroFeatures(currentLanguage: AppLanguage) {
+internal fun LoginHeroFeatures(currentLanguage: AppLanguage) {
     Column(verticalArrangement = Arrangement.spacedBy(15.dp)) {
         LoginHeroFeature(
             icon = Icons.Default.Lock,
@@ -794,7 +794,7 @@ private fun LoginHeroFeature(icon: ImageVector, title: String, body: String) {
 }
 
 @Composable
-private fun LoginLangToggle(
+internal fun LoginLangToggle(
     currentLanguage: AppLanguage,
     onToggleLanguage: () -> Unit,
     modifier: Modifier = Modifier
@@ -827,7 +827,7 @@ private fun LoginLangChip(text: String, active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Modifier) {
+internal fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,

@@ -250,10 +250,15 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/**
+ * Экран-обёртка («умная» часть): держит стейт доната, ходит в ApiClient за реквизитами СБП,
+ * показывает нижний лист перевода. Весь рендер вынесен в чистый [SupportContent].
+ * `SbpTransferSheet` тянет буфер обмена / QR / `LocalContext` (`SberPayBlock`) — он НЕ чистый,
+ * поэтому остаётся здесь и отдаётся в Content слотом `sbpSlot`.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SupportScreen(onBack: () -> Unit) {
-    val amounts = listOf(10, 30, 50, 100)
     val minAmount = 10
     val maxAmount = 100_000
     var selectedAmount by remember { mutableIntStateOf(30) }
@@ -265,7 +270,6 @@ internal fun SupportScreen(onBack: () -> Unit) {
     var donation by remember { mutableStateOf<com.yuldash.app.data.BoostResultDto?>(null) }
     var sending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf(false) }
-    val errMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
 
     // Сумма к отправке: либо пресет, либо введённая вручную (если режим «своя сумма»).
     val customAmount = customInput.toIntOrNull()
@@ -276,124 +280,47 @@ internal fun SupportScreen(onBack: () -> Unit) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { ScreenTopBar(appText("Поддержать Юлдаш", "Юлдашҡа ярҙам итеү"), onBack) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                    shape = RoundedCornerShape(24.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                ) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(appText("Добровольная поддержка", "Ирекле ярҙам"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-                        Text(appText("Помогает оплачивать серверы, карты, SMS и поддержку.", "Серверҙарҙы, карталарҙы, SMS һәм ярҙам хеҙмәтен түләргә ярҙам итә."), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+        SupportContent(
+            selectedAmount = selectedAmount,
+            customMode = customMode,
+            customInput = customInput,
+            completed = completed,
+            sending = sending,
+            sendError = sendError,
+            minAmount = minAmount,
+            effectiveAmount = effectiveAmount,
+            amountValid = amountValid,
+            onSelectAmount = { amount ->
+                selectedAmount = amount
+                customMode = false
+                completed = false
+                sendError = false
+            },
+            onToggleCustom = {
+                customMode = !customMode
+                completed = false
+                sendError = false
+            },
+            onCustomInputChange = { new ->
+                // Только цифры, максимум 6 знаков (до 100 000).
+                customInput = new.filter { it.isDigit() }.take(6)
+                completed = false
+                sendError = false
+            },
+            onDonate = {
+                val amount = effectiveAmount ?: return@SupportContent
+                sending = true
+                sendError = false
+                scope.launch {
+                    ApiClient.createDonation(amount)
+                        .onSuccess { donation = it; showSbp = true }
+                        .onFailure { sendError = true }
+                    sending = false
                 }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    amounts.forEach { amount ->
-                        FilledTonalButton(
-                            onClick = {
-                                selectedAmount = amount
-                                customMode = false
-                                completed = false
-                                sendError = false
-                            },
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (!customMode && selectedAmount == amount) MaterialTheme.colorScheme.primaryContainer else CanonSurface
-                            )
-                        ) {
-                            Text("$amount ₽")
-                        }
-                    }
-                }
-            }
-            item {
-                OutlinedButton(
-                    onClick = {
-                        customMode = !customMode
-                        completed = false
-                        sendError = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = if (customMode) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                             else ButtonDefaults.outlinedButtonColors()
-                ) {
-                    Text(appText("Своя сумма", "Үҙеңдең сумма"))
-                }
-            }
-            if (customMode) {
-                item {
-                    OutlinedTextField(
-                        value = customInput,
-                        onValueChange = { new ->
-                            // Только цифры, максимум 6 знаков (до 100 000).
-                            customInput = new.filter { it.isDigit() }.take(6)
-                            completed = false
-                            sendError = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        label = { Text(appText("Сумма, ₽", "Сумма, ₽")) },
-                        placeholder = { Text(appText("Например, 200", "Мәҫәлән, 200")) },
-                        suffix = { Text("₽") },
-                        isError = customInput.isNotEmpty() && !amountValid,
-                        supportingText = {
-                            if (customInput.isNotEmpty() && !amountValid)
-                                Text(appText("От $minAmount до 100 000 ₽", "$minAmount‑дан 100 000 ₽‑ҡа тиклем"))
-                        }
-                    )
-                }
-            }
-            item {
-                AppButton(
-                    text = if (amountValid) appText("Поддержать на $effectiveAmount ₽", "$effectiveAmount ₽ менән ярҙам итеү")
-                           else appText("Поддержать", "Ярҙам итеү"),
-                    onClick = {
-                        val amount = effectiveAmount ?: return@AppButton
-                        sending = true
-                        sendError = false
-                        scope.launch {
-                            ApiClient.createDonation(amount)
-                                .onSuccess { donation = it; showSbp = true }
-                                .onFailure { sendError = true }
-                            sending = false
-                        }
-                    },
-                    style = AppButtonStyle.Accent,
-                    icon = Icons.Default.Payments,
-                    loading = sending,
-                    enabled = amountValid && !sending,
-                )
-            }
-            if (sendError) {
-                item {
-                    Text(errMsg, color = CanonRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth())
-                }
-            }
-            if (completed) {
-                item {
-                    InfoCard(
-                        // Нейтральный заголовок: карточка появляется по нажатию «Я перевёл» ДО подтверждения перевода —
-                        // «Спасибо за поддержку» читалось как «оплата прошла». Честно: перевод ещё ждём.
-                        title = appText("Ждём перевод", "Күсереүҙе көтәбеҙ"),
-                        text = appText("Когда админ увидит перевод — донат засчитается. Спасибо! Деньги идут на серверы, карты и SMS.", "Админ күсереүҙе күргәс — донат иҫәпләнә. Рәхмәт! Аҡса серверҙарға, карталарға һәм SMS-ҡа китә."),
-                        icon = Icons.Default.VolunteerActivism
-                    )
-                }
-            }
-            item {
-                TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-                    Text(appText("Не сейчас", "Хәҙер түгел"))
-                }
-            }
-        }
+            },
+            onBack = onBack,
+            modifier = Modifier.padding(padding),
+        )
         if (showSbp) SbpTransferSheet(
             donation?.amount ?: effectiveAmount ?: selectedAmount,
             onPaid = { showSbp = false; completed = true },
@@ -403,6 +330,131 @@ internal fun SupportScreen(onBack: () -> Unit) {
     }
 }
 
+/**
+ * Чистый рендер экрана поддержки: суммы-пресеты, «своя сумма», кнопка доната, ошибка, «ждём перевод».
+ * Стейт и действия — параметрами/колбэками → без сети/эффектов → тестируется на JVM (Robolectric).
+ * Нижний лист перевода (`SbpTransferSheet` с QR/буфером) живёт в обёртке [SupportScreen], не тут.
+ */
+@Composable
+internal fun SupportContent(
+    selectedAmount: Int,
+    customMode: Boolean,
+    customInput: String,
+    completed: Boolean,
+    sending: Boolean,
+    sendError: Boolean,
+    minAmount: Int,
+    effectiveAmount: Int?,
+    amountValid: Boolean,
+    onSelectAmount: (Int) -> Unit,
+    onToggleCustom: () -> Unit,
+    onCustomInputChange: (String) -> Unit,
+    onDonate: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val amounts = listOf(10, 30, 50, 100)
+    val errMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
+    LazyColumn(
+        modifier = modifier.padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CanonSurface),
+                shape = RoundedCornerShape(24.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(appText("Добровольная поддержка", "Ирекле ярҙам"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    Text(appText("Помогает оплачивать серверы, карты, SMS и поддержку.", "Серверҙарҙы, карталарҙы, SMS һәм ярҙам хеҙмәтен түләргә ярҙам итә."), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                amounts.forEach { amount ->
+                    FilledTonalButton(
+                        onClick = { onSelectAmount(amount) },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = if (!customMode && selectedAmount == amount) MaterialTheme.colorScheme.primaryContainer else CanonSurface
+                        )
+                    ) {
+                        Text("$amount ₽")
+                    }
+                }
+            }
+        }
+        item {
+            OutlinedButton(
+                onClick = onToggleCustom,
+                modifier = Modifier.fillMaxWidth(),
+                colors = if (customMode) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                         else ButtonDefaults.outlinedButtonColors()
+            ) {
+                Text(appText("Своя сумма", "Үҙеңдең сумма"))
+            }
+        }
+        if (customMode) {
+            item {
+                OutlinedTextField(
+                    value = customInput,
+                    onValueChange = onCustomInputChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    label = { Text(appText("Сумма, ₽", "Сумма, ₽")) },
+                    placeholder = { Text(appText("Например, 200", "Мәҫәлән, 200")) },
+                    suffix = { Text("₽") },
+                    isError = customInput.isNotEmpty() && !amountValid,
+                    supportingText = {
+                        if (customInput.isNotEmpty() && !amountValid)
+                            Text(appText("От $minAmount до 100 000 ₽", "$minAmount‑дан 100 000 ₽‑ҡа тиклем"))
+                    }
+                )
+            }
+        }
+        item {
+            AppButton(
+                text = if (amountValid) appText("Поддержать на $effectiveAmount ₽", "$effectiveAmount ₽ менән ярҙам итеү")
+                       else appText("Поддержать", "Ярҙам итеү"),
+                onClick = onDonate,
+                style = AppButtonStyle.Accent,
+                icon = Icons.Default.Payments,
+                loading = sending,
+                enabled = amountValid && !sending,
+            )
+        }
+        if (sendError) {
+            item {
+                Text(errMsg, color = CanonRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth())
+            }
+        }
+        if (completed) {
+            item {
+                InfoCard(
+                    // Нейтральный заголовок: карточка появляется по нажатию «Я перевёл» ДО подтверждения перевода —
+                    // «Спасибо за поддержку» читалось как «оплата прошла». Честно: перевод ещё ждём.
+                    title = appText("Ждём перевод", "Күсереүҙе көтәбеҙ"),
+                    text = appText("Когда админ увидит перевод — донат засчитается. Спасибо! Деньги идут на серверы, карты и SMS.", "Админ күсереүҙе күргәс — донат иҫәпләнә. Рәхмәт! Аҡса серверҙарға, карталарға һәм SMS-ҡа китә."),
+                    icon = Icons.Default.VolunteerActivism
+                )
+            }
+        }
+        item {
+            TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+                Text(appText("Не сейчас", "Хәҙер түгел"))
+            }
+        }
+    }
+}
+
+/**
+ * Экран-обёртка («умная» часть): держит стейт, грузит планы/поездки/бонусы, ходит в ApiClient,
+ * дёргает Toast/Intent. Весь рендер вынесен в чистый [BoostContent].
+ * `BoostResultCard` тянет QR/буфер обмена (`SberPayBlock` + `LocalClipboardManager`) — он НЕ чистый,
+ * поэтому остаётся здесь и передаётся в Content слотом `resultSlot`.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BoostScreen(onBack: () -> Unit) {
@@ -441,101 +493,149 @@ internal fun BoostScreen(onBack: () -> Unit) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { ScreenTopBar(appText("Поднять объявление", "Иғланды өҫкә күтәреү"), onBack) }
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            when {
-                loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = CanonGreen)
-                loadError -> StateMessage(
-                    icon = Icons.Default.Refresh,
-                    title = appText("Не удалось загрузить", "Йөкләп булманы"),
-                    text = appText("Проверь соединение и попробуй снова.", "Бәйләнеште тикшереп, ҡабат ҡара."),
-                    actionText = appText("Повторить", "Ҡабатлау"),
-                    onAction = { reload() },
-                )
-                rides.isEmpty() -> StateMessage(
-                    icon = Icons.Default.AddRoad,
-                    title = appText("Нет активных поездок", "Әүҙем сәфәрҙәр юҡ"),
-                    text = appText("Сначала опубликуй поездку — потом её можно поднять выше в списке.", "Башта сәфәр бастыр — һуңынан уны исемлектә өҫкә күтәреп була."),
-                    actionText = appText("Понятно", "Аңлашыла"),
-                    onAction = onBack,
-                )
-                else -> LazyColumn(
-                    modifier = Modifier.padding(16.dp).fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    item {
-                        Text(appText("Какую поездку поднять", "Ҡайһы сәфәрҙе күтәрергә"),
-                            fontWeight = FontWeight.Black, fontSize = 15.sp, color = CanonText)
-                    }
-                    items(rides, key = { it.id }) { ride ->
-                        BoostRideRow(ride, selected = ride.id == selectedRideId,
-                            onClick = { selectedRideId = ride.id; result = null; error = null })
-                    }
-                    item {
-                        Text(appText("Тариф поднятия", "Күтәреү тарифы"),
-                            fontWeight = FontWeight.Black, fontSize = 15.sp, color = CanonText,
-                            modifier = Modifier.padding(top = 4.dp))
-                    }
-                    itemsIndexed(plans, key = { i, it -> "${it.tier}#$i" }) { i, plan ->
-                        BoostPlanCard(plan, selected = plan.tier == selectedTier,
-                            onClick = { selectedTier = plan.tier; result = null; error = null })
-                    }
-                    error?.let { msg ->
-                        item { Text(msg, color = CanonRed, fontSize = 14.sp) }
-                    }
-                    if (credits > 0) {
-                        item {
-                            AppButton(
-                                text = appText("Поднять бесплатно ($credits бонус.)", "Бушлай күтәреү ($credits бонус)"),
-                                onClick = {
-                                    val rid = selectedRideId ?: return@AppButton
-                                    submitting = true; error = null
-                                    scope.launch {
-                                        ApiClient.boostFree(rid)
-                                            .onSuccess { left -> credits = left; Toast.makeText(context, freeBoostOkMsg, Toast.LENGTH_SHORT).show(); reload() }
-                                            .onFailure { e -> error = (e as? ApiException)?.message ?: failText }
-                                        submitting = false
-                                    }
-                                },
-                                style = AppButtonStyle.Secondary,
-                                icon = Icons.Default.TrendingUp,
-                                enabled = selectedRideId != null && !submitting,
-                            )
+        BoostContent(
+            loading = loading,
+            loadError = loadError,
+            rides = rides,
+            plans = plans,
+            selectedRideId = selectedRideId,
+            selectedTier = selectedTier,
+            submitting = submitting,
+            error = error,
+            credits = credits,
+            result = result,
+            onRetry = { reload() },
+            onEmptyAction = onBack,
+            onSelectRide = { rid -> selectedRideId = rid; result = null; error = null },
+            onSelectTier = { tier -> selectedTier = tier; result = null; error = null },
+            onBoostFree = {
+                val rid = selectedRideId ?: return@BoostContent
+                submitting = true; error = null
+                scope.launch {
+                    ApiClient.boostFree(rid)
+                        .onSuccess { left -> credits = left; Toast.makeText(context, freeBoostOkMsg, Toast.LENGTH_SHORT).show(); reload() }
+                        .onFailure { e -> error = (e as? ApiException)?.message ?: failText }
+                    submitting = false
+                }
+            },
+            onPay = {
+                val rid = selectedRideId ?: return@BoostContent
+                val tier = selectedTier ?: return@BoostContent
+                submitting = true; error = null; result = null
+                scope.launch {
+                    ApiClient.createBoost(rid, tier)
+                        .onSuccess { res ->
+                            result = res
+                            if (res.method == "yookassa" && !res.confirmationUrl.isNullOrBlank()) {
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(res.confirmationUrl))) }
+                            }
+                            if (res.status == "succeeded") reload()
                         }
-                    }
+                        .onFailure { e -> error = (e as? ApiException)?.message ?: failText }
+                    submitting = false
+                }
+            },
+            resultSlot = { res -> BoostResultCard(res, clipboard) },
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        )
+    }
+}
+
+/**
+ * Чистый рендер экрана поднятия: все состояния (загрузка / ошибка+повтор / пусто / список тарифов+поездок).
+ * Данные и колбэки — параметрами. Сеть/стейт/Toast/Intent живут в обёртке [BoostScreen].
+ * `resultSlot` — слот под результат оплаты (там QR/буфер обмена, поэтому рисуется снаружи, не тут).
+ */
+@Composable
+internal fun BoostContent(
+    loading: Boolean,
+    loadError: Boolean,
+    rides: List<RideDto>,
+    plans: List<BoostPlanDto>,
+    selectedRideId: Int?,
+    selectedTier: String?,
+    submitting: Boolean,
+    error: String?,
+    credits: Int,
+    result: BoostResultDto?,
+    onRetry: () -> Unit,
+    onEmptyAction: () -> Unit,
+    onSelectRide: (Int) -> Unit,
+    onSelectTier: (String) -> Unit,
+    onBoostFree: () -> Unit,
+    onPay: () -> Unit,
+    resultSlot: @Composable (BoostResultDto) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier) {
+        when {
+            loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = CanonGreen)
+            loadError -> StateMessage(
+                icon = Icons.Default.Refresh,
+                title = appText("Не удалось загрузить", "Йөкләп булманы"),
+                text = appText("Проверь соединение и попробуй снова.", "Бәйләнеште тикшереп, ҡабат ҡара."),
+                actionText = appText("Повторить", "Ҡабатлау"),
+                onAction = onRetry,
+            )
+            rides.isEmpty() -> StateMessage(
+                icon = Icons.Default.AddRoad,
+                title = appText("Нет активных поездок", "Әүҙем сәфәрҙәр юҡ"),
+                text = appText("Сначала опубликуй поездку — потом её можно поднять выше в списке.", "Башта сәфәр бастыр — һуңынан уны исемлектә өҫкә күтәреп була."),
+                actionText = appText("Понятно", "Аңлашыла"),
+                onAction = onEmptyAction,
+            )
+            else -> LazyColumn(
+                modifier = Modifier.padding(16.dp).fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Text(appText("Какую поездку поднять", "Ҡайһы сәфәрҙе күтәрергә"),
+                        fontWeight = FontWeight.Black, fontSize = 15.sp, color = CanonText)
+                }
+                items(rides, key = { it.id }) { ride ->
+                    BoostRideRow(ride, selected = ride.id == selectedRideId,
+                        onClick = { onSelectRide(ride.id) })
+                }
+                item {
+                    Text(appText("Тариф поднятия", "Күтәреү тарифы"),
+                        fontWeight = FontWeight.Black, fontSize = 15.sp, color = CanonText,
+                        modifier = Modifier.padding(top = 4.dp))
+                }
+                itemsIndexed(plans, key = { i, it -> "${it.tier}#$i" }) { i, plan ->
+                    BoostPlanCard(plan, selected = plan.tier == selectedTier,
+                        onClick = { onSelectTier(plan.tier) })
+                }
+                error?.let { msg ->
+                    item { Text(msg, color = CanonRed, fontSize = 14.sp) }
+                }
+                if (credits > 0) {
                     item {
-                        val plan = plans.firstOrNull { it.tier == selectedTier }
                         AppButton(
-                            text = if (plan != null) appText("Оплатить ${plan.price} ₽", "${plan.price} ₽ түләү")
-                                   else appText("Выбери тариф", "Тариф һайла"),
-                            onClick = {
-                                val rid = selectedRideId ?: return@AppButton
-                                val tier = selectedTier ?: return@AppButton
-                                submitting = true; error = null; result = null
-                                scope.launch {
-                                    ApiClient.createBoost(rid, tier)
-                                        .onSuccess { res ->
-                                            result = res
-                                            if (res.method == "yookassa" && !res.confirmationUrl.isNullOrBlank()) {
-                                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(res.confirmationUrl))) }
-                                            }
-                                            if (res.status == "succeeded") reload()
-                                        }
-                                        .onFailure { e -> error = (e as? ApiException)?.message ?: failText }
-                                    submitting = false
-                                }
-                            },
-                            style = AppButtonStyle.Accent,
-                            icon = Icons.Default.Payments,
-                            enabled = selectedTier != null && selectedRideId != null && !submitting,
+                            text = appText("Поднять бесплатно ($credits бонус.)", "Бушлай күтәреү ($credits бонус)"),
+                            onClick = onBoostFree,
+                            style = AppButtonStyle.Secondary,
+                            icon = Icons.Default.TrendingUp,
+                            enabled = selectedRideId != null && !submitting,
                         )
                     }
-                    result?.let { res -> item { BoostResultCard(res, clipboard) } }
-                    item {
-                        Text(
-                            appText("Поднятие не гарантирует бронирование и влияет только на релевантные результаты.", "Күтәреү бронде гарантияламай һәм тик тура килгән һөҙөмтәләргә генә йоғонто яһай."),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp
-                        )
-                    }
+                }
+                item {
+                    val plan = plans.firstOrNull { it.tier == selectedTier }
+                    AppButton(
+                        text = if (plan != null) appText("Оплатить ${plan.price} ₽", "${plan.price} ₽ түләү")
+                               else appText("Выбери тариф", "Тариф һайла"),
+                        onClick = onPay,
+                        style = AppButtonStyle.Accent,
+                        icon = Icons.Default.Payments,
+                        enabled = selectedTier != null && selectedRideId != null && !submitting,
+                    )
+                }
+                result?.let { res -> item { resultSlot(res) } }
+                item {
+                    Text(
+                        appText("Поднятие не гарантирует бронирование и влияет только на релевантные результаты.", "Күтәреү бронде гарантияламай һәм тик тура килгән һөҙөмтәләргә генә йоғонто яһай."),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp
+                    )
                 }
             }
         }
@@ -543,7 +643,7 @@ internal fun BoostScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun BoostRideRow(ride: RideDto, selected: Boolean, onClick: () -> Unit) {
+internal fun BoostRideRow(ride: RideDto, selected: Boolean, onClick: () -> Unit) {
     val border by animateColorAsState(if (selected) CanonGreen else Color.Transparent, label = "rideBorder")
     Card(
         modifier = Modifier.fillMaxWidth().bounceClick(onClick).border(2.dp, border, RoundedCornerShape(18.dp)),
@@ -572,7 +672,7 @@ private fun BoostRideRow(ride: RideDto, selected: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-private fun BoostPlanCard(plan: BoostPlanDto, selected: Boolean, onClick: () -> Unit) {
+internal fun BoostPlanCard(plan: BoostPlanDto, selected: Boolean, onClick: () -> Unit) {
     val border by animateColorAsState(if (selected) CanonGreen else Color.Transparent, label = "planBorder")
     val sub = when (plan.tier) {
         "quick" -> appText("${plan.hours} часа выше в списке", "${plan.hours} сәғәт исемлектә өҫтәрәк")
@@ -656,7 +756,7 @@ private fun BoostResultCard(res: BoostResultDto, clipboard: androidx.compose.ui.
 }
 
 @Composable
-private fun StateMessage(icon: ImageVector, title: String, text: String, actionText: String, onAction: () -> Unit) {
+internal fun StateMessage(icon: ImageVector, title: String, text: String, actionText: String, onAction: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

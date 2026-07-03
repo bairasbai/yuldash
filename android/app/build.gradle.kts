@@ -4,6 +4,19 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    jacoco   // QA: отчёт покрытия JVM unit-тестов (worktree-локально, в git не коммитим)
+}
+
+jacoco { toolVersion = "0.8.12" }
+
+// JaCoCo + Robolectric: без этого код, выполненный в sandbox-classloader Robolectric,
+// не засчитывается в покрытие (пробы не совпадают с classDirectories). includeNoLocationClasses
+// включает такие классы, jdk.internal.* исключаем (иначе JaCoCo падает на лямбдах JDK).
+tasks.withType<Test>().configureEach {
+    extensions.configure<org.gradle.testing.jacoco.plugins.JacocoTaskExtension> {
+        isIncludeNoLocationClasses = true
+        excludes = listOf("jdk.internal.*")
+    }
 }
 
 // FCM (push): google-services применяем ТОЛЬКО когда есть app/google-services.json.
@@ -107,6 +120,13 @@ android {
         buildConfig = true
     }
 
+    // Robolectric: JVM unit-тесты, которым нужны Android-ресурсы/манифест (Compose-компоненты, Context).
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -184,6 +204,17 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     // JVM unit-тесты (каркас «с нуля»): чистая логика без Android-фреймворка. Запуск: gradlew :app:testDebugUnitTest
     testImplementation("junit:junit:4.13.2")
+    // Реальный org.json в unit-classpath: Android-стаб в JVM-тестах бросает "not mocked",
+    // с этой либой JSONObject работает → можно тестировать парсинг DTO (parseMessageDto и др.).
+    testImplementation("org.json:json:20240303")
+    // Robolectric: гоняем Compose-компоненты и Android-логику на JVM (без эмулятора, обходит краш
+    // Espresso на API 37). BOM в test-classpath → версии compose-test берутся из него.
+    testImplementation(platform("androidx.compose:compose-bom:2026.06.00"))
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.compose.ui:ui-test-manifest")
+    // MockWebServer: локальный HTTP-сервер для тестов сетевого слоя ApiClient (парсинг ответов + ошибки).
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     // Инструментальные Compose-тесты (на устройстве/эмуляторе). Запуск: gradlew :app:connectedDebugAndroidTest
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
@@ -192,4 +223,28 @@ dependencies {
     // Espresso 3.6.1: старые версии падают на новых API (NoSuchMethodException InputManager.getInstance).
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+// --- QA: JaCoCo отчёт покрытия по debug unit-тестам ---
+// AGP кладёт .exec (enableUnitTestCoverage=true) → build/outputs/unit_test_code_coverage/...
+// Отчёт по чистой логике (UI/сеть/сгенерированное исключаем — их покрывают инструментальные тесты).
+tasks.register<JacocoReport>("jacocoTestReport") {
+    dependsOn("testDebugUnitTest")
+    group = "verification"
+    reports {
+        html.required.set(true)
+        xml.required.set(true)
+    }
+    // Исключаем ТОЛЬКО сгенерированное (R/BuildConfig/Manifest/тесты) — число честное, по всему приложению.
+    // UI-экраны НЕ исключаем: они реально имеют ~0% (нужны инструментальные тесты) и это часть правды.
+    val excludes = listOf(
+        "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*", "**/*Test*.*",
+    )
+    val kotlinClasses = fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) { exclude(excludes) }
+    val javaClasses = fileTree(layout.buildDirectory.dir("intermediates/javac/debug/classes")) { exclude(excludes) }
+    classDirectories.setFrom(files(kotlinClasses, javaClasses))
+    sourceDirectories.setFrom(files("$projectDir/src/main/java"))
+    // Сужаем до папки unit-покрытия (не весь build/) — иначе Gradle видит пересечение входов
+    // с выходами assembleDebug-тасок (dex/assets) и падает на валидации при общем прогоне.
+    executionData.setFrom(fileTree(layout.buildDirectory.dir("outputs/unit_test_code_coverage")) { include("**/*.exec") })
 }
