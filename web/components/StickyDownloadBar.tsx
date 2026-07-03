@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { useLang } from "./lang";
 import { useDownload } from "./DownloadProvider";
 
@@ -38,7 +38,7 @@ export function StickyDownloadBar() {
   return (
     <AnimatePresence>
       {show && (
-        <motion.div
+        <m.div
           initial={{ y: 90, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 90, opacity: 0 }}
@@ -56,7 +56,7 @@ export function StickyDownloadBar() {
             </svg>
             {tr("sticky_cta")} Юлдаш
           </button>
-        </motion.div>
+        </m.div>
       )}
     </AnimatePresence>
   );

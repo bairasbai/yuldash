@@ -1,7 +1,6 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
-import { KuraiBloom } from "./Ornament";
+import { m, useReducedMotion } from "framer-motion";
 import { useLang } from "./lang";
 
 // Все города республиканского значения + райцентры 54 районов Башкортостана.
@@ -84,22 +83,22 @@ export function Marquee() {
       <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-r from-night to-transparent" />
       <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-gradient-to-l from-night to-transparent" />
 
-      <motion.div
+      <m.div
         className="flex w-max items-center gap-10"
         animate={reduce ? undefined : { x: ["0%", "-50%"] }}
         transition={{ duration: 240, repeat: Infinity, ease: "linear" }}
       >
+        {/* Разделитель — простая золотая точка (не SVG-курай): 148 SVG-курая
+            давали ~3000 DOM-узлов (половина страницы) и тормозили рендер/гидрацию. */}
         {row.map((city, i) => (
           <div key={i} className="flex items-center gap-10">
             <span className="whitespace-nowrap font-display text-xl font-bold text-white/45 transition-colors hover:text-white/80 sm:text-2xl">
               {city}
             </span>
-            <span className="text-gold-light/40">
-              <KuraiBloom size={20} />
-            </span>
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gold-light/40" aria-hidden="true" />
           </div>
         ))}
-      </motion.div>
+      </m.div>
     </section>
   );
 }

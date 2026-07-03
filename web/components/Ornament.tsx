@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 
 // ===== Цветок курая — символ Башкортостана (с герба/флага) =====
 // Настоящая форма: зонтик-соцветие — центр-втулка + лучи-стебельки с шариками
@@ -81,14 +81,14 @@ export function OrnamentKicker() {
   return (
     <div className="mb-5 flex items-center justify-center gap-4 text-gold-light/80" aria-hidden="true">
       <span className="h-px w-12 bg-gradient-to-r from-transparent to-gold-light/40 sm:w-20" />
-      <motion.span
-        initial={{ y: 8, opacity: 0, scale: 0.8 }}
-        whileInView={{ y: 0, opacity: 1, scale: 1 }}
+      <m.span
+        initial={{ y: 8, scale: 0.8 }}
+        whileInView={{ y: 0, scale: 1 }}
         viewport={{ once: true }}
         transition={{ duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
       >
         <KuraiBloom size={34} />
-      </motion.span>
+      </m.span>
       <span className="h-px w-12 bg-gradient-to-l from-transparent to-gold-light/40 sm:w-20" />
     </div>
   );
@@ -108,13 +108,12 @@ export function OrnamentBand({ className = "" }: { className?: string }) {
       <div className="pointer-events-none absolute left-1/2 top-1/2 h-20 w-80 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gold/10 blur-3xl" />
 
       <div className="relative flex items-center justify-center">
-        <motion.svg
+        <m.svg
           viewBox="0 0 800 40"
           preserveAspectRatio="xMidYMid meet"
           className="h-8 w-full max-w-2xl text-gold-light/35 [mask-image:linear-gradient(to_right,transparent_0%,#000_15%,#000_43%,transparent_47%,transparent_53%,#000_57%,#000_85%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,transparent_0%,#000_15%,#000_43%,transparent_47%,transparent_53%,#000_57%,#000_85%,transparent_100%)]"
-          initial={{ opacity: 0, scaleX: 0.9 }}
-          whileInView={{ opacity: 1, scaleX: 1 }}
-          viewport={{ once: true }}
+          initial={{ scaleX: 0.9 }}
+          animate={{ opacity: 1, scaleX: 1 }}
           transition={{ duration: 1, ease: [0.21, 0.47, 0.32, 0.98] }}
         >
           <defs>
@@ -128,22 +127,20 @@ export function OrnamentBand({ className = "" }: { className?: string }) {
             </pattern>
           </defs>
           <rect width="800" height="40" fill={`url(#${pid})`} />
-        </motion.svg>
+        </m.svg>
 
         {/* центральный цветок курая со свечением.
             Центрирование (-translate-1/2) держим на статичном span — иначе
             framer перезаписывает transform своими scale/rotate и центр уезжает. */}
         <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <motion.span
+          <m.span
             className="relative flex items-center justify-center text-gold-light/90"
-            initial={{ opacity: 0, scale: 0.6, rotate: -20 }}
-            whileInView={{ opacity: 1, scale: 1, rotate: 0 }}
-            viewport={{ once: true }}
+            initial={{ scale: 0.85 }}
+            animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.7, delay: 0.15, ease: [0.34, 1.56, 0.64, 1] }}
           >
-            <span className="absolute inset-0 -m-2 rounded-full bg-gold/20 blur-md" />
             <KuraiBloom size={30} className="relative" />
-          </motion.span>
+          </m.span>
         </span>
       </div>
     </div>

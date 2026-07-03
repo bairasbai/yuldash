@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { useLang, type DictKey } from "./lang";
 import { Reveal } from "./Reveal";
 import { OrnamentKicker } from "./Ornament";
@@ -78,7 +78,7 @@ export function HowItWorks() {
                 className="relative z-10 rounded-full px-6 py-2.5 transition-colors"
               >
                 {tab === key && (
-                  <motion.span
+                  <m.span
                     layoutId="how-tab"
                     className="absolute inset-0 -z-10 rounded-full bg-green-bright"
                     transition={{ type: "spring", stiffness: 380, damping: 30 }}
@@ -95,9 +95,9 @@ export function HowItWorks() {
           <div className="pointer-events-none absolute left-0 right-0 top-7 hidden h-px bg-gradient-to-r from-transparent via-green-bright/30 to-transparent md:block" />
 
           <AnimatePresence mode="wait">
-            <motion.div
+            <m.div
               key={tab}
-              initial={{ opacity: 0, y: 14 }}
+              initial={{ y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.35, ease: [0.21, 0.47, 0.32, 0.98] }}
@@ -105,7 +105,7 @@ export function HowItWorks() {
             >
               {steps.map((s, i) => (
                 <div key={s.t} className="relative text-center">
-                  <motion.div
+                  <m.div
                     whileHover={{ y: -6 }}
                     transition={{ type: "spring", stiffness: 300, damping: 20 }}
                     className="flex flex-col items-center"
@@ -118,16 +118,16 @@ export function HowItWorks() {
                     </div>
                     <h3 className="font-display text-xl font-bold">{tr(s.t)}</h3>
                     <p className="mt-2 max-w-xs text-sm leading-relaxed text-white/60">{tr(s.d)}</p>
-                  </motion.div>
+                  </m.div>
                 </div>
               ))}
-            </motion.div>
+            </m.div>
           </AnimatePresence>
         </div>
 
         {/* CTA под шагами — меняется по вкладке */}
         <Reveal className="mt-12 flex justify-center">
-          <motion.button
+          <m.button
             type="button"
             onClick={request}
             whileTap={{ scale: 0.97 }}
@@ -135,7 +135,7 @@ export function HowItWorks() {
           >
             {tr(tab === "pass" ? "how_cta_pass" : "how_cta_driver")}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-          </motion.button>
+          </m.button>
         </Reveal>
       </div>
     </section>

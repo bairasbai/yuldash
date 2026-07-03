@@ -1,19 +1,25 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Sora } from "next/font/google";
+import { Inter, Montserrat } from "next/font/google";
 import Script from "next/script";
 import { SITE_URL, METRIKA_ID } from "@/components/config";
 import { StructuredData } from "@/components/StructuredData";
+import { MotionProvider } from "@/components/MotionProvider";
 import "./globals.css";
 
+// Body — Inter: латиница + кириллица + расширенная кириллица (башкирские глифы
+// ҡ ғ ҙ һ ә ө ү ң живут в cyrillic-ext, U+0460-052F).
 const inter = Inter({
-  subsets: ["latin", "cyrillic"],
+  subsets: ["latin", "cyrillic", "cyrillic-ext"],
   variable: "--font-sans",
   display: "swap",
 });
 
-const sora = Sora({
-  subsets: ["latin"],
-  weight: ["600", "700", "800"],
+// Display — Montserrat: чистый геометрик с ПОЛНЫМ башкирским (cyrillic-ext
+// U+0460-052F: ҡ ғ ҙ һ ә ө ү ң). Заменил Unbounded — у того башкирские глифы
+// выглядели неровно/непривычно. Montserrat даёт аккуратные RU/BA-заголовки.
+const montserrat = Montserrat({
+  subsets: ["latin", "cyrillic", "cyrillic-ext"],
+  weight: ["700", "800", "900"], // убрал 600 (на display почти не используется) — минус вес шрифтов
   variable: "--font-display",
   display: "swap",
 });
@@ -29,7 +35,14 @@ export const metadata: Metadata = {
   applicationName: "Юлдаш",
   authors: [{ name: "Юлдаш" }],
   keywords: ["Юлдаш", "попутки", "Башкортостан", "поездки", "Android", "Yuldash", "карпулинг"],
-  alternates: { canonical: SITE_URL },
+  alternates: {
+    canonical: SITE_URL,
+    languages: {
+      "ru-RU": SITE_URL,
+      "ba-RU": `${SITE_URL}/ba`,
+      "x-default": SITE_URL,
+    },
+  },
   openGraph: {
     title,
     description,
@@ -63,7 +76,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={`${inter.variable} ${sora.variable}`}>
+    <html lang="ru" className={`${inter.variable} ${montserrat.variable}`}>
       <head>
         <StructuredData />
       </head>
@@ -76,13 +89,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Перейти к содержимому
         </a>
 
-        {children}
+        <MotionProvider>{children}</MotionProvider>
 
         {/* Яндекс.Метрика — грузится только если задан METRIKA_ID */}
         {METRIKA_ID && (
           <>
             <Script id="ym" strategy="afterInteractive">
-              {`(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");ym(${METRIKA_ID},"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true,webvisor:true});`}
+              {`(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");ym(${METRIKA_ID},"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true,webvisor:false,defer:true});`}
             </Script>
             {/* фолбэк без JS */}
             <noscript>

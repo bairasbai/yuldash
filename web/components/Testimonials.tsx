@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { useLang } from "./lang";
 import { Reveal } from "./Reveal";
 import { OrnamentKicker } from "./Ornament";
@@ -100,7 +100,7 @@ export function Testimonials() {
               const who = it.city ? `${it.name}, ${it.city}` : it.name;
               return (
                 <Reveal key={i} delay={(i % 3) * 0.1}>
-                  <motion.figure
+                  <m.figure
                     whileHover={{ y: -6 }}
                     transition={{ type: "spring", stiffness: 300, damping: 20 }}
                     className="glass flex h-full flex-col rounded-canon p-6"
@@ -115,7 +115,7 @@ export function Testimonials() {
                       </span>
                       <span className="text-sm font-semibold text-white/70">{who}</span>
                     </figcaption>
-                  </motion.figure>
+                  </m.figure>
                 </Reveal>
               );
             })}

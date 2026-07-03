@@ -1,30 +1,24 @@
-"use client";
+import { CSSProperties, ReactNode } from "react";
 
-import { motion } from "framer-motion";
-import { ReactNode } from "react";
-
-// Премиум-появление при скролле: фокус-ин (blur+scale) + подъём.
-// Уважение к reduced-motion — через MotionConfig в page.tsx.
+// Появление секций — на ЧИСТОМ CSS (не framer whileInView).
+// Почему: framer прятал контент (opacity:0) до гидрации ~275КБ JS → на LTE/мобиле
+// белый «висящий» экран. CSS-анимация стартует на парсе элемента: контент виден
+// за ~0.7с из SSG-HTML, без ожидания JS и без IntersectionObserver (который к тому
+// же глючил на iOS). Прогрессивное улучшение: нет JS — контент просто виден.
 export function Reveal({
   children,
   delay = 0,
-  y = 28,
-  className,
+  className = "",
 }: {
   children: ReactNode;
   delay?: number;
-  y?: number;
+  y?: number; // сохранено для совместимости вызовов, не используется
   className?: string;
 }) {
+  const style: CSSProperties | undefined = delay ? { animationDelay: `${delay}s` } : undefined;
   return (
-    <motion.div
-      className={className}
-      initial={{ opacity: 0, y, scale: 0.97, filter: "blur(8px)" }}
-      whileInView={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.8, delay, ease: [0.21, 0.47, 0.32, 0.98] }}
-    >
+    <div className={`reveal-in ${className}`} style={style}>
       {children}
-    </motion.div>
+    </div>
   );
 }

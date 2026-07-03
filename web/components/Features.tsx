@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { useLang, type DictKey } from "./lang";
 import { Reveal } from "./Reveal";
 import { OrnamentKicker } from "./Ornament";
@@ -55,7 +55,7 @@ export function Features() {
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:grid-rows-2">
           {/* Featured */}
           <Reveal className="lg:col-span-2 lg:row-span-2">
-            <motion.div
+            <m.div
               onMouseMove={spotMove}
               whileHover={{ y: -8 }}
               transition={{ type: "spring", stiffness: 300, damping: 20 }}
@@ -93,7 +93,7 @@ export function Features() {
                   4.9★
                 </span>
               </div>
-            </motion.div>
+            </m.div>
           </Reveal>
 
           {/* Остальные */}
@@ -103,7 +103,7 @@ export function Features() {
               delay={i * 0.08}
               className={i === 0 ? "lg:col-span-2" : "lg:col-span-1"}
             >
-              <motion.div
+              <m.div
                 onMouseMove={spotMove}
                 whileHover={{ y: -8 }}
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
@@ -114,7 +114,7 @@ export function Features() {
                 </div>
                 <h3 className="font-display text-xl font-bold">{tr(f.t)}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-white/60">{tr(f.d)}</p>
-              </motion.div>
+              </m.div>
             </Reveal>
           ))}
         </div>

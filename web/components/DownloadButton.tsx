@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useMotionValue, useSpring, useReducedMotion } from "framer-motion";
+import { m, useMotionValue, useSpring, useReducedMotion } from "framer-motion";
 import { useDownload } from "./DownloadProvider";
 import { useLang } from "./lang";
 
@@ -38,7 +38,7 @@ export function DownloadButton({
   };
 
   return (
-    <motion.button
+    <m.button
       type="button"
       onClick={request}
       onMouseMove={reduce ? undefined : onMove}
@@ -59,7 +59,7 @@ export function DownloadButton({
         </svg>
         {label}
       </span>
-      {subLabel && <span className="mt-0.5 text-xs font-semibold text-night/70">{subLabel}</span>}
-    </motion.button>
+      {subLabel && <span className="mt-0.5 text-xs font-semibold text-night/90">{subLabel}</span>}
+    </m.button>
   );
 }

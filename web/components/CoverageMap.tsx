@@ -1,7 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { m, useReducedMotion } from "framer-motion";
 import { AnimatePresence } from "framer-motion";
 import { useLang } from "./lang";
 import { Reveal } from "./Reveal";
@@ -47,7 +48,15 @@ export function CoverageMap() {
   const name = (n: Node) => (lang === "ba" ? n.ba : n.ru);
 
   return (
-    <section id="coverage" className="relative px-6 py-24">
+    <section id="coverage" className="relative overflow-hidden px-6 py-24">
+      {/* Реальная география Башкортостана (Higgsfield: деревня, дорога, минарет,
+          золотой час) — тускло за интерактивной картой, края растворяются в фоне. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
+        <Image src="/coverage-bg.webp" alt="" fill sizes="100vw" className="coverage-ken object-cover opacity-[0.15]" />
+        <div className="absolute inset-0 bg-[radial-gradient(120%_95%_at_50%_45%,transparent_0%,rgba(10,20,16,0.55)_66%,#0a1410_100%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-night via-transparent to-night" />
+      </div>
+
       <div className="mx-auto max-w-5xl">
         <Reveal className="mx-auto mb-12 max-w-2xl text-center">
           <OrnamentKicker />
@@ -80,7 +89,7 @@ export function CoverageMap() {
               <image href="/rb-map.png" x="0" y="0" width="425" height="549" opacity="0.85" />
 
               {/* обводка контура — прорисовка при появлении */}
-              <motion.path
+              <m.path
                 d={CONTOUR}
                 fill="none"
                 stroke="url(#covEdge)"
@@ -89,8 +98,7 @@ export function CoverageMap() {
                 strokeLinecap="round"
                 filter="url(#covGlow)"
                 initial={{ pathLength: reduce ? 1 : 0, opacity: reduce ? 0.55 : 0 }}
-                whileInView={{ pathLength: 1, opacity: 0.55 }}
-                viewport={{ once: true }}
+                animate={{ pathLength: 1, opacity: 0.55 }}
                 transition={{ duration: 2.2, ease: "easeInOut" }}
               />
 
@@ -101,9 +109,8 @@ export function CoverageMap() {
                     d={CONTOUR}
                     fill="none"
                     stroke="#F4D98B"
-                    strokeWidth="2.6"
+                    strokeWidth="3"
                     strokeLinecap="round"
-                    filter="url(#covGlow)"
                     pathLength={1}
                     strokeDasharray="0.05 0.95"
                     className="coverage-runner"
@@ -112,9 +119,8 @@ export function CoverageMap() {
                     d={CONTOUR}
                     fill="none"
                     stroke="#9CF0C2"
-                    strokeWidth="2.2"
+                    strokeWidth="2.4"
                     strokeLinecap="round"
-                    filter="url(#covGlow)"
                     pathLength={1}
                     strokeDasharray="0.04 0.96"
                     className="coverage-runner coverage-runner-2"
@@ -122,55 +128,33 @@ export function CoverageMap() {
                 </>
               )}
 
-              {/* линии маршрутов от Уфы */}
+              {/* Линии маршрутов от Уфы — пунктир «течёт» к городам чистым CSS
+                  (надёжно на мобиле; прежние SMIL-импульсы садились в угол (0,0)
+                  на iOS и давали лишнюю жёлтую точку без движения). */}
               {NODES.slice(1).map((n, i) => (
-                <motion.line
+                <line
                   key={`l${i}`}
                   x1={hub.x}
                   y1={hub.y}
                   x2={n.x}
                   y2={n.y}
                   stroke="#E8C36B"
-                  strokeOpacity="0.5"
-                  strokeWidth="1.6"
-                  strokeDasharray="3 4"
-                  initial={{ pathLength: 0, opacity: 0 }}
-                  whileInView={{ pathLength: 1, opacity: 1 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.9, delay: 0.25 + i * 0.06, ease: "easeOut" }}
+                  strokeOpacity="0.55"
+                  strokeWidth="1.8"
+                  strokeDasharray="3 5"
+                  strokeLinecap="round"
+                  className={reduce ? undefined : "route-flow"}
                 />
               ))}
-
-              {/* сигналы-импульсы, летящие от Уфы к городам */}
-              {!reduce &&
-                NODES.slice(1).map((n, i) => (
-                  <circle key={`p${i}`} r="2.8" fill="#F4D98B" filter="url(#covGlow)">
-                    <animateMotion
-                      dur="2.6s"
-                      begin={`${(i * 0.24).toFixed(2)}s`}
-                      repeatCount="indefinite"
-                      path={`M${hub.x},${hub.y} L${n.x},${n.y}`}
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0;1;1;0"
-                      keyTimes="0;0.12;0.8;1"
-                      dur="2.6s"
-                      begin={`${(i * 0.24).toFixed(2)}s`}
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                ))}
 
               {/* узлы городов */}
               {NODES.map((n, i) => {
                 const rightSide = n.x > 230;
                 return (
-                  <motion.g
+                  <m.g
                     key={`n${i}`}
                     initial={{ scale: 0, opacity: 0 }}
-                    whileInView={{ scale: 1, opacity: 1 }}
-                    viewport={{ once: true }}
+                    animate={{ scale: 1, opacity: 1 }}
                     transition={{ delay: 0.3 + i * 0.05, type: "spring", stiffness: 300, damping: 18 }}
                     className="cursor-pointer"
                     onMouseEnter={() => setHovered(i)}
@@ -201,7 +185,7 @@ export function CoverageMap() {
                     >
                       {lang === "ba" ? n.ba : n.ru}
                     </text>
-                  </motion.g>
+                  </m.g>
                 );
               })}
             </svg>
@@ -209,7 +193,7 @@ export function CoverageMap() {
             {/* Всплывающая карточка популярных направлений */}
             <AnimatePresence>
               {hovered !== null && (
-                <motion.div
+                <m.div
                   key={hovered}
                   initial={{ opacity: 0, y: 6, scale: 0.96 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -235,7 +219,7 @@ export function CoverageMap() {
                       </div>
                     ))}
                   </div>
-                </motion.div>
+                </m.div>
               )}
             </AnimatePresence>
             </div>

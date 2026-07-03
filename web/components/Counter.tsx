@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useInView, useReducedMotion } from "framer-motion";
 
-// Счётчик с count-up при появлении (0 → value). Уважает reduced-motion.
+// Счётчик с count-up при появлении (0 → value). Уважает reduced-m.
 export function Counter({
   value,
   suffix = "",

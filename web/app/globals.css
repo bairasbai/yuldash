@@ -4,10 +4,38 @@
 
 :root {
   --bg: #0a1410;
+
+  /* ===== Дизайн-система v2: fluid-типографика (clamp: min → viewport → max) =====
+     Заголовки сами масштабируются от 360px до 4K без брейкпойнтов. */
+  --fs-display: clamp(2.75rem, 7vw + 1rem, 5rem); /* hero H1 */
+  --fs-h2: clamp(2rem, 4vw + 0.5rem, 3rem); /* заголовки секций */
+  --fs-h3: clamp(1.25rem, 1.5vw + 0.75rem, 1.75rem);
+  --fs-lead: clamp(1rem, 1vw + 0.75rem, 1.25rem);
+
+  /* Вертикальный ритм секций (мобайл → десктоп) */
+  --sp-section: clamp(4rem, 9vw, 7rem);
 }
 
 html {
   scroll-behavior: smooth;
+  /* iOS: не подпрыгивает высота при появлении/скрытии адресной строки */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Fluid-утилиты (подключаются точечно, не ломают текущую вёрстку) */
+.fluid-display {
+  font-size: var(--fs-display);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+}
+.fluid-h2 {
+  font-size: var(--fs-h2);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+}
+/* Красивый перенос заголовков — не оставляет «сироту» в последней строке */
+.text-balance {
+  text-wrap: balance;
 }
 
 /* Якорные секции не заезжают под фиксированную шапку */
@@ -21,6 +49,42 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
+}
+
+/* ===== CSS-появление секций (вместо framer whileInView) =====
+   КРИТИЧНО для LTE/мобилы: контент виден сразу из SSG-HTML и проявляется чистым
+   CSS (не ждёт ~275КБ JS-гидрации). Раньше framer opacity:0 держал страницу
+   белой на медленном JS. Анимация стартует на парсе элемента — контент виден
+   за ~0.7с, без зависимости от JS/IntersectionObserver. */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.reveal-in {
+  animation: reveal-up 0.7s cubic-bezier(0.21, 0.47, 0.32, 0.98) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal-in {
+    animation: none;
+  }
+}
+
+/* Заголовки не оставляют «висячее» слово в последней строке (премиум-мелочь).
+   text-wrap: balance трогает только перенос — вёрстку не ломает. */
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+/* Длинные абзацы — красивый ровный «клин» справа */
+p {
+  text-wrap: pretty;
 }
 
 /* Премиум-градиентный текст (зелёный → золото) */
@@ -39,6 +103,62 @@ body {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(127, 227, 171, 0.12);
+}
+
+/* ===== Мобильный перф-слой =====
+   backdrop-filter blur(20px) дорогой для GPU средних телефонов, а .glass-карточек
+   на странице много. На узких экранах режем радиус блюра вдвое — визуально почти
+   не отличается, но прокрутка/анимации остаются 60fps. */
+@media (max-width: 767px) {
+  .glass {
+    backdrop-filter: blur(11px);
+    -webkit-backdrop-filter: blur(11px);
+    background: rgba(25, 36, 32, 0.62); /* чуть плотнее — компенсируем меньший блюр */
+  }
+}
+
+/* Тач-устройства: курсор-эффекты бессмысленны (нет курсора) и тратят GPU.
+   Глушим spotlight-свечение и бегущую рамку — на телефоне их всё равно не видно. */
+@media (hover: none) {
+  .spotlight::before {
+    display: none;
+  }
+  .shine-border {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+/* ===== Аврора-пятна: дрейф только на десктопе =====
+   На мобиле/при reduced-motion — статичны (см. ниже), чтобы GPU не грелся. */
+.aurora-blob {
+  will-change: transform;
+}
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+  .aurora-blob-1 {
+    animation: aurora-1 22s ease-in-out infinite;
+  }
+  .aurora-blob-2 {
+    animation: aurora-2 26s ease-in-out infinite;
+  }
+  .aurora-blob-3 {
+    animation: aurora-3 28s ease-in-out infinite;
+  }
+}
+@keyframes aurora-1 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(60px, 40px, 0) scale(1.12); }
+  66% { transform: translate3d(-20px, 10px, 0) scale(0.98); }
+}
+@keyframes aurora-2 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(-50px, 30px, 0) scale(1.08); }
+  66% { transform: translate3d(30px, -20px, 0) scale(1.04); }
+}
+@keyframes aurora-3 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(40px, -30px, 0) scale(1.1); }
+  66% { transform: translate3d(-30px, 20px, 0) scale(0.96); }
 }
 
 /* Тонкая зернистость поверх — «дорогой» матовый эффект */
@@ -62,6 +182,50 @@ body {
   }
   to {
     transform: scale(1.12) translate3d(-1.5%, -1%, 0);
+  }
+}
+
+/* Медленный «живой» дрейф фон-кадра секции покрытия (Ken-Burns, зациклено).
+   Масштаб ≥1.08 → при сдвиге края не оголяются. */
+@keyframes coverage-drift {
+  from {
+    transform: scale(1.08) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.16) translate3d(-2%, -1.5%, 0);
+  }
+}
+.coverage-ken {
+  animation: coverage-drift 46s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .coverage-ken {
+    animation: none;
+  }
+}
+/* На мобиле фон-дрейф не крутим — секция покрытия и так тяжёлая (SVG-карта +
+   анимации); картинка остаётся статичной, GPU разгружен. */
+@media (max-width: 767px) {
+  .coverage-ken {
+    animation: none;
+  }
+}
+
+/* Линии маршрутов на карте РБ: пунктир «течёт» от Уфы к городам.
+   Чистый CSS (SVG stroke-dashoffset) — надёжно на iOS, где SMIL-импульсы
+   не запускались и садились в угол (0,0) лишней жёлтой точкой. */
+@keyframes route-flow {
+  to {
+    stroke-dashoffset: -80;
+  }
+}
+.route-flow {
+  animation: route-flow 3s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-flow {
+    animation: none;
   }
 }
 
@@ -422,6 +586,57 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ===== Мобильный анти-перегрев =====
+   На телефоне/планшете бесконечные декоративные анимации крутят GPU без
+   остановки → корпус греется, батарея садится, на LTE ещё и тормозит. Глушим
+   тяжёлые вечные эффекты — визуально сайт остаётся дорогим (пятна, тени,
+   статика на месте), но GPU отдыхает. Порог 1023px = совпадает с useIsMobile
+   (JS-гейт Aurora/параллакса), чтобы граница «мобайл/десктоп» была единой.
+   Одноразовые reveal-анимации не трогаем. */
+@media (max-width: 1023px) {
+  .hero-streaks,
+  .hero-flare,
+  .glow-pulse,
+  .avatar-ripple,
+  .go-breathe,
+  .mockup-car,
+  .mockup-ping,
+  .coverage-runner,
+  .route-flow,
+  .shine-border {
+    animation: none !important;
+  }
+  /* border-beam (conic-gradient @property) — самый дорогой вечный эффект;
+     глушим по ширине, не только по hover:none (часть Android врёт про hover) */
+  .shine-border {
+    opacity: 0.5;
+  }
+  .go-shine::after {
+    animation: none !important;
+    display: none;
+  }
+  /* постер героя не скейлим вечно (Ken-Burns) — полноэкранный repaint = жар */
+  .hero-poster-ken {
+    animation: none !important;
+  }
+  /* маршрут в мокапе сразу дорисован, машина — на месте (без вечного проезда) */
+  .mockup-route {
+    stroke-dashoffset: 0;
+  }
+  .mockup-car {
+    offset-distance: 58%;
+    opacity: 1;
+  }
+  .mockup-ping {
+    opacity: 0;
+  }
+  /* пятна-аврора и так статичны на мобиле (min-width:768 гейт), убираем will-change,
+     чтобы не держать лишние GPU-слои промотированными */
+  .aurora-blob {
+    will-change: auto;
   }
 }
 

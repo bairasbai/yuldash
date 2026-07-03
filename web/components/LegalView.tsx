@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { LangProvider, useLang } from "./lang";
 import type { LegalDoc } from "./legal-content";
 
@@ -27,7 +27,7 @@ function LangToggle() {
           aria-pressed={lang === l}
         >
           {lang === l && (
-            <motion.span
+            <m.span
               layoutId="legal-lang-pill"
               className="absolute inset-0 -z-10 rounded-full bg-green-bright/90"
               transition={{ type: "spring", stiffness: 380, damping: 30 }}

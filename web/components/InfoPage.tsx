@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { ReactNode } from "react";
 import { LangProvider, useLang } from "./lang";
 
@@ -15,7 +15,7 @@ function LangToggle() {
       {(["ru", "ba"] as const).map((l) => (
         <button key={l} onClick={() => setLang(l)} className="relative z-10 rounded-full px-3 py-1" aria-pressed={lang === l}>
           {lang === l && (
-            <motion.span layoutId="info-lang" className="absolute inset-0 -z-10 rounded-full bg-green-bright/90" transition={{ type: "spring", stiffness: 380, damping: 30 }} />
+            <m.span layoutId="info-lang" className="absolute inset-0 -z-10 rounded-full bg-green-bright/90" transition={{ type: "spring", stiffness: 380, damping: 30 }} />
           )}
           <span className={lang === l ? "text-night" : "text-white/60"}>{l === "ru" ? "RU" : "БА"}</span>
         </button>

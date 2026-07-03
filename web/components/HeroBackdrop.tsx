@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useReducedMotion } from "framer-motion";
+import { useIsMobile } from "./useIsMobile";
 
 /**
  * Кинематографичный фон героя: тёплый постер дороги (LCP, ~160K) + поверх него
@@ -12,18 +13,29 @@ import { useReducedMotion } from "framer-motion";
  */
 export function HeroBackdrop() {
   const reduce = useReducedMotion();
+  const isMobile = useIsMobile();
   const [showVideo, setShowVideo] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  // На узком/портретном экране (телефон) landscape-видео пришлось бы сильно
+  // кропить по бокам — теряется дорога. Отдаём вертикальный дубль (Higgsfield,
+  // 720×1280, ~0.3 МБ). Определяем один раз на маунте.
+  const [portrait, setPortrait] = useState(false);
+  useEffect(() => {
+    setPortrait(window.matchMedia("(max-aspect-ratio: 3/4)").matches);
+  }, []);
+  const videoSrc = portrait ? "/hero-vertical.mp4" : "/hero.mp4";
 
-  // Кинофон-видео (5 МБ) — тяжёлое. Грузим ТОЛЬКО на десктопе и быстром
-  // соединении. На телефоне/медленном/save-data — остаётся лёгкий постер (~160K),
-  // чтобы сайт быстро открывался даже на троттлящихся (ТСПУ/DPI) мобильных сетях.
+  // Кинофон-видео (~0.6 МБ) крутим ТОЛЬКО на десктопе. На телефоне зациклённый
+  // декод видео жарит GPU (корпус греется) и жрёт трафик на LTE, а сам ролик —
+  // фон за текстом. Мобиле отдаём статичный постер (он же LCP, ~160К) → холодно
+  // и быстро. Также пропускаем при Save-Data / медленной сети (2g/3g).
   useEffect(() => {
     if (reduce) return;
-    const isDesktop = window.matchMedia("(min-width: 1024px)").matches;
+    const isMobile = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
+    if (isMobile) return; // телефон — только постер, без вечного декода видео
     const conn = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
     const slow = !!conn && (conn.saveData === true || /(^|-)([23])g$/.test(conn.effectiveType || ""));
-    if (!isDesktop || slow) return; // только постер
+    if (slow) return; // только постер на экономном/медленном соединении
 
     const start = () => setShowVideo(true);
     const w = window as Window & {
@@ -50,7 +62,7 @@ export function HeroBackdrop() {
           fill
           sizes="100vw"
           style={{ opacity: videoReady ? 0 : 0.5 }}
-          className="absolute inset-0 h-full w-full scale-105 object-cover object-center transition-opacity duration-[1200ms] ease-out motion-safe:[animation:hero-kenburns_26s_ease-in-out_infinite_alternate]"
+          className="hero-poster-ken absolute inset-0 h-full w-full scale-105 object-cover object-center transition-opacity duration-[1200ms] ease-out motion-safe:[animation:hero-kenburns_26s_ease-in-out_infinite_alternate]"
         />
         {showVideo && (
           <video
@@ -64,13 +76,14 @@ export function HeroBackdrop() {
             poster="/hero-poster.jpg"
             onLoadedData={() => setVideoReady(true)}
           >
-            <source src="/hero.mp4" type="video/mp4" />
+            <source src={videoSrc} type="video/mp4" />
           </video>
         )}
       </div>
 
-      {/* Световые следы — эффект скорости (чистый CSS) */}
-      {!reduce && (
+      {/* Световые следы — эффект скорости (чистый CSS). Только десктоп:
+          на телефоне это лишняя постоянная анимация поверх постера. */}
+      {!reduce && !isMobile && (
         <div className="pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,transparent,#000_30%,#000_70%,transparent)]">
           <div className="hero-streaks hero-streaks-1" />
           <div className="hero-streaks hero-streaks-2" />
