@@ -882,15 +882,36 @@ internal fun shareRide(context: android.content.Context, text: String, chooserTi
 
 @Composable
 private fun OnboardingScreen(onFinish: (RideRole) -> Unit, language: AppLanguage, onSelectLanguage: (AppLanguage) -> Unit) {
+    // Слайды и воронка-эффект живут в обёртке (side-effect), вся разметка — в чистом OnboardingContent.
     val slides = remember { onboardingSlides() }
+    LaunchedEffect(Unit) { Analytics.log("onboarding_start") }   // воронка: начало онбординга (с этим виден отвал внутри онбординга)
+    OnboardingContent(
+        slides = slides,
+        language = language,
+        onSelectLanguage = onSelectLanguage,
+        onFinish = onFinish,
+    )
+}
+
+/**
+ * Чистая разметка онбординга: пейджер слайдов, точки, кнопки «Далее/Пропустить/Войти», выбор роли.
+ * Без сети/ViewModel/Analytics — те живут в обёртке OnboardingScreen. Тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun OnboardingContent(
+    slides: List<OnboardingSlide>,
+    language: AppLanguage,
+    onSelectLanguage: (AppLanguage) -> Unit,
+    onFinish: (RideRole) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val pagerState = rememberPagerState(pageCount = { slides.size })
     val scope = rememberCoroutineScope()
     var role by rememberSaveable { mutableStateOf(RideRole.Passenger) }  // переживает поворот: выбор «водитель» не сбрасывался в «пассажир»
-    LaunchedEffect(Unit) { Analytics.log("onboarding_start") }   // воронка: начало онбординга (с этим виден отвал внутри онбординга)
     val isLastPage = pagerState.currentPage == slides.lastIndex
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         color = CanonBg
     ) {
         Column(
@@ -1055,7 +1076,7 @@ private fun Modifier.onbAppear(index: Int, play: Boolean): Modifier {
 }
 
 @Composable
-private fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float = { 0f }) {
+internal fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float = { 0f }) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1160,7 +1181,7 @@ private fun OnboardingHeroCard(slide: OnboardingSlide, pageOffset: () -> Float =
     }
 }
 
-private fun onboardingHeroIcon(hero: OnboardingHero): ImageVector {
+internal fun onboardingHeroIcon(hero: OnboardingHero): ImageVector {
     return when (hero) {
         OnboardingHero.Route -> Icons.Default.NearMe
         OnboardingHero.Security -> Icons.Default.Shield
@@ -1170,7 +1191,7 @@ private fun onboardingHeroIcon(hero: OnboardingHero): ImageVector {
 }
 
 @Composable
-private fun OnboardingFeatureCard(item: OnboardingItem, index: Int) {
+internal fun OnboardingFeatureCard(item: OnboardingItem, index: Int) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
@@ -1240,7 +1261,7 @@ internal fun OnboardingRoleCard(
 }
 
 @Composable
-private fun OnboardingTrustStrip() {
+internal fun OnboardingTrustStrip() {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
             OnboardingMiniTrust(Icons.Default.Handshake, appText("Между\nсвоими", "Үҙ кеше\nараһында"), Modifier.weight(1f))
@@ -1251,7 +1272,7 @@ private fun OnboardingTrustStrip() {
 }
 
 @Composable
-private fun OnboardingMiniTrust(icon: ImageVector, label: String, modifier: Modifier = Modifier) {
+internal fun OnboardingMiniTrust(icon: ImageVector, label: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, contentDescription = null, tint = CanonGreen2)
         Spacer(Modifier.height(6.dp))
@@ -1260,7 +1281,7 @@ private fun OnboardingMiniTrust(icon: ImageVector, label: String, modifier: Modi
 }
 
 @Composable
-private fun OnboardingIconBubble(icon: ImageVector, index: Int? = null) {
+internal fun OnboardingIconBubble(icon: ImageVector, index: Int? = null) {
     Box(
         modifier = Modifier
             .size(58.dp)
@@ -1296,7 +1317,7 @@ internal fun OnboardingSafetyNote(text: String) {
 }
 
 @Composable
-private fun OnboardingDots(count: Int, selected: Int, modifier: Modifier = Modifier) {
+internal fun OnboardingDots(count: Int, selected: Int, modifier: Modifier = Modifier) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         repeat(count) { index ->
             val active = selected == index
@@ -1312,7 +1333,7 @@ private fun OnboardingDots(count: Int, selected: Int, modifier: Modifier = Modif
     }
 }
 
-private fun onboardingSlides() = listOf(
+internal fun onboardingSlides() = listOf(
     OnboardingSlide(
         eyebrowRu = "Дорога по Башкортостану",
         eyebrowBa = "Башҡортостан буйлап юл",

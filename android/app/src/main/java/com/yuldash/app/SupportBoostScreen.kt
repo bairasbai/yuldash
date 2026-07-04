@@ -701,8 +701,31 @@ internal fun BoostPlanCard(plan: BoostPlanDto, selected: Boolean, onClick: () ->
     }
 }
 
+/**
+ * Обёртка результата оплаты буста: держит импур-часть (буфер обмена для «Скопировать» и QR-блок
+ * `SberPayBlock`, тянущий `LocalContext`) и отдаёт её в чистый [BoostResultContent] через колбэк
+ * `onCopyPhone` и слот `sberPaySlot`. Весь текст/ветвление — в Content → тестируется на JVM.
+ */
 @Composable
-private fun BoostResultCard(res: BoostResultDto, clipboard: androidx.compose.ui.platform.ClipboardManager) {
+internal fun BoostResultCard(res: BoostResultDto, clipboard: androidx.compose.ui.platform.ClipboardManager) {
+    BoostResultContent(
+        res = res,
+        onCopyPhone = { phone -> clipboard.setText(AnnotatedString(phone)) },
+        sberPaySlot = { phone -> SberPayBlock(phone, Modifier.padding(top = 4.dp)) },
+    )
+}
+
+/**
+ * Чистый рендер результата оплаты: 3 ветки (успех / ручной СБП / переход к ЮKassa) + двуязычные
+ * тексты и фолбэк «реквизиты не пришли». Буфер обмена и QR (`SberPayBlock`) — снаружи: копирование
+ * через `onCopyPhone`, QR-блок через `sberPaySlot`. Без сети/контекста → Robolectric на JVM.
+ */
+@Composable
+internal fun BoostResultContent(
+    res: BoostResultDto,
+    onCopyPhone: (String) -> Unit,
+    sberPaySlot: @Composable (String) -> Unit,
+) {
     when {
         res.status == "succeeded" -> InfoCard(
             title = appText("Объявление поднято", "Иғлан күтәрелде"),
@@ -725,12 +748,12 @@ private fun BoostResultCard(res: BoostResultDto, clipboard: androidx.compose.ui.
                             Text(listOfNotNull(res.payeeBank, res.payeeName).joinToString(" · "),
                                 fontSize = 13.sp, color = CanonMuted)
                         }
-                        OutlinedButton(onClick = { clipboard.setText(AnnotatedString(payPhone)) }) {
+                        OutlinedButton(onClick = { onCopyPhone(payPhone) }) {
                             Text(appText("Скопировать", "Күсереп алыу"))
                         }
                     }
                     // Быстрая оплата: QR + «Оплатить в Сбербанке».
-                    SberPayBlock(payPhone, Modifier.padding(top = 4.dp))
+                    sberPaySlot(payPhone)
                 } else {
                     // Реквизиты не пришли с сервера → не оставляем юзера без инструкции (фолбэк вместо пустоты).
                     Text(

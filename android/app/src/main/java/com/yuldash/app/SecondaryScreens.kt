@@ -794,7 +794,7 @@ internal fun AdminDriversContent(
 
 /** Бейдж авто-проверки прав (OCR) в карточке модерации: вердикт + распознанные данные. */
 @Composable
-private fun AutoCheckRow(result: String, dataJson: String) {
+internal fun AutoCheckRow(result: String, dataJson: String) {
     if (result.isBlank()) return
     val parsed = remember(dataJson) {
         try { org.json.JSONObject(dataJson) } catch (e: Exception) { org.json.JSONObject() }
@@ -1149,42 +1149,66 @@ internal fun BlocklistScreen(onBack: () -> Unit) {
     val blockedIds = blocks.map { it.blockedUserId }.toSet()
     val addable = partners.filter { it.id !in blockedIds }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Чёрный список", "Ҡара исемлек"), onBack) }) { padding ->
-        LazyColumn(
-            Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
-        ) {
-            item { Text(appText("Заблокированные не видят ваши поездки и не могут писать.", "Блоктағылар сәфәрегеҙҙе күрмәй һәм яҙа алмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
-            if (loading) {
-                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
-            } else {
-                if (blocks.isEmpty()) {
-                    item {
-                        Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                            Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.Block, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
-                                Text(appText("Чёрный список пуст", "Ҡара исемлек буш"), color = CanonText, fontWeight = FontWeight.Black)
-                            }
-                        }
-                    }
-                } else {
-                    items(blocks.size) { i ->
-                        val b = blocks[i]
-                        PersonRow(b.name, appText("Разблокировать", "Блокты алыу"), danger = false) {
-                            scope.launch { ApiClient.unblockUser(b.blockedUserId).onSuccess { reload() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } }
+        BlocklistContent(
+            loading = loading,
+            error = error,
+            blocks = blocks,
+            addable = addable,
+            onRetry = { reload() },
+            onUnblock = { id -> scope.launch { ApiClient.unblockUser(id).onSuccess { reload() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } } },
+            onBlock = { id -> scope.launch { ApiClient.blockUser(id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } } },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер чёрного списка: все состояния (загрузка / ошибка+повтор / пусто / список + секция
+ * «Ваши попутчики»). `blocks`/`addable` уже вычислены выше, колбэки принимают id → без сети/стейта →
+ * тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun BlocklistContent(
+    loading: Boolean,
+    error: String?,
+    blocks: List<com.yuldash.app.data.BlockDto>,
+    addable: List<com.yuldash.app.data.ReportableUserDto>,
+    onRetry: () -> Unit,
+    onUnblock: (Int) -> Unit,
+    onBlock: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
+    ) {
+        item { Text(appText("Заблокированные не видят ваши поездки и не могут писать.", "Блоктағылар сәфәрегеҙҙе күрмәй һәм яҙа алмай."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        if (loading) {
+            item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+        } else if (error != null) {
+            item { ListedError(error) { onRetry() } }
+        } else {
+            if (blocks.isEmpty()) {
+                item {
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.Block, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
+                            Text(appText("Чёрный список пуст", "Ҡара исемлек буш"), color = CanonText, fontWeight = FontWeight.Black)
                         }
                     }
                 }
-                if (addable.isNotEmpty()) {
-                    item { Text(appText("Ваши попутчики", "Юлдаштарығыҙ"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp)) }
-                    items(addable.size) { i ->
-                        val p = addable[i]
-                        PersonRow(p.name, appText("Заблокировать", "Блоклау"), danger = true) {
-                            scope.launch { ApiClient.blockUser(p.id).onSuccess { reload(); Toast.makeText(ctx, blockedMsg, Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() } }
-                        }
-                    }
+            } else {
+                items(blocks.size) { i ->
+                    val b = blocks[i]
+                    PersonRow(b.name, appText("Разблокировать", "Блокты алыу"), danger = false) { onUnblock(b.blockedUserId) }
+                }
+            }
+            if (addable.isNotEmpty()) {
+                item { Text(appText("Ваши попутчики", "Юлдаштарығыҙ"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp)) }
+                items(addable.size) { i ->
+                    val p = addable[i]
+                    PersonRow(p.name, appText("Заблокировать", "Блоклау"), danger = true) { onBlock(p.id) }
                 }
             }
         }
@@ -1233,31 +1257,55 @@ internal fun ReportScreen(onBack: () -> Unit) {
         )
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Пожаловаться", "Ялыу"), onBack) }) { padding ->
-        LazyColumn(
-            Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
-        ) {
-            item { Text(appText("Выберите, на кого пожаловаться. Видят только модераторы Юлдаша.", "Кемгә ялыу икәнен һайлағыҙ. Тик Юлдаш модераторҙары күрә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
-            if (loading) {
-                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
-            } else if (partners.isEmpty()) {
-                item {
-                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                        Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Default.Report, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
-                            Text(appText("Пока не на кого жаловаться", "Әлегә ялыу итергә кеше юҡ"), color = CanonText, fontWeight = FontWeight.Black)
-                            Text(appText("Здесь появятся попутчики после поездок.", "Бында сәфәрҙән һуң юлдаштар күренер."), color = CanonMuted, fontSize = 13.sp)
-                        }
+        ReportListContent(
+            loading = loading,
+            error = error,
+            partners = partners,
+            onRetry = { reload() },
+            onSelect = { p -> target = p; reason = "" },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер списка «на кого пожаловаться»: все состояния (загрузка / ошибка+повтор / пусто /
+ * список). Диалог жалобы держит умная обёртка (свой стейт target/reason). Клик по строке →
+ * onSelect(user). Без сети/стейта → тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun ReportListContent(
+    loading: Boolean,
+    error: String?,
+    partners: List<com.yuldash.app.data.ReportableUserDto>,
+    onRetry: () -> Unit,
+    onSelect: (com.yuldash.app.data.ReportableUserDto) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
+    ) {
+        item { Text(appText("Выберите, на кого пожаловаться. Видят только модераторы Юлдаша.", "Кемгә ялыу икәнен һайлағыҙ. Тик Юлдаш модераторҙары күрә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        if (loading) {
+            item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+        } else if (error != null) {
+            item { ListedError(error) { onRetry() } }
+        } else if (partners.isEmpty()) {
+            item {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Report, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(34.dp))
+                        Text(appText("Пока не на кого жаловаться", "Әлегә ялыу итергә кеше юҡ"), color = CanonText, fontWeight = FontWeight.Black)
+                        Text(appText("Здесь появятся попутчики после поездок.", "Бында сәфәрҙән һуң юлдаштар күренер."), color = CanonMuted, fontSize = 13.sp)
                     }
                 }
-            } else {
-                items(partners.size) { i ->
-                    val p = partners[i]
-                    PersonRow(p.name, appText("Пожаловаться", "Ялыу"), danger = true) { target = p; reason = "" }
-                }
+            }
+        } else {
+            items(partners.size) { i ->
+                val p = partners[i]
+                PersonRow(p.name, appText("Пожаловаться", "Ялыу"), danger = true) { onSelect(p) }
             }
         }
     }

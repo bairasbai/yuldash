@@ -253,7 +253,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // Описание одной экстренной службы для ползунков.
-private data class SosService(
+internal data class SosService(
     val key: String,
     val number: String,        // прямой номер для звонка с мобильного
     val label: LocalizedText,
@@ -348,6 +348,82 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
             .onFailure { Toast.makeText(context, tCallFail, Toast.LENGTH_SHORT).show() }
     }
 
+    fun requestLoc() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) fetchLoc()
+        else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    fun sendSignal() {
+        if (sending) return
+        if (!loggedIn) {
+            onLoginRequired()
+            return
+        }
+        failed = false
+        rateLimited = false
+        sent = false
+        sending = true
+        // В note кладём текст + КООРДИНАТЫ (бэкенд без гео-поля → передаём строкой со ссылкой на карту).
+        val note = buildString {
+            if (description.isNotBlank()) append(description.trim() + " ")
+            if (coordsText != null) append("Координаты: $coordsText (https://yandex.ru/maps/?pt=$sosLng,$sosLat&z=17)")
+        }.trim().ifBlank { "SOS" }
+        scope.launch {
+            val r = ApiClient.sos("other", note)   // ждём сервер, НЕ fire-and-forget (кнопка безопасности)
+            sending = false
+            if (r.isSuccess) {
+                sent = true
+            } else {
+                // 429 = «слишком часто» (rate-limit), а не «нет сети» — показываем честный текст.
+                rateLimited = (r.exceptionOrNull() as? ApiException)?.status == 429
+                failed = true
+            }
+        }
+    }
+
+    SosContent(
+        services = services,
+        description = description,
+        onDescriptionChange = { description = it },
+        coordsText = coordsText,
+        locating = locating,
+        loggedIn = loggedIn,
+        sent = sent,
+        failed = failed,
+        rateLimited = rateLimited,
+        sending = sending,
+        onDial = { dial(it) },
+        onLocate = { requestLoc() },
+        onCopy = {
+            clipboard.setText(AnnotatedString(dictText()))
+            Toast.makeText(context, tCopied, Toast.LENGTH_SHORT).show()
+        },
+        onSendSignal = { sendSignal() },
+        onBack = onBack,
+    )
+}
+
+// Чистая презентация экрана SOS: без сети/GPS/эффектов — всё через примитивы и колбэки.
+// Обёртка `SosScreen` держит геолокацию, разрешения и вызов бэкенда, а рисует этот Content.
+// Пульсирующих (бесконечных) анимаций тут нет → безопасно тестировать целиком на JVM.
+@Composable
+internal fun SosContent(
+    services: List<SosService>,
+    description: String,
+    onDescriptionChange: (String) -> Unit,
+    coordsText: String?,
+    locating: Boolean,
+    loggedIn: Boolean,
+    sent: Boolean,
+    failed: Boolean,
+    rateLimited: Boolean,
+    sending: Boolean,
+    onDial: (String) -> Unit,
+    onLocate: () -> Unit,
+    onCopy: () -> Unit,
+    onSendSignal: () -> Unit,
+    onBack: () -> Unit,
+) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { ScreenTopBar("SOS", onBack) }
@@ -378,7 +454,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
             // 🟥 Главная кнопка — единый 112. Сразу после шапки: в панике нужна одна очевидная кнопка.
             item {
                 Button(
-                    onClick = { dial("112") },
+                    onClick = { onDial("112") },
                     modifier = Modifier.fillMaxWidth().height(64.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
@@ -408,7 +484,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
                             label = svc.label.text(),
                             number = svc.number,
                             icon = svc.icon,
-                            onClick = { dial(svc.number) }
+                            onClick = { onDial(svc.number) }
                         )
                     }
                 }
@@ -417,7 +493,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
             item {
                 OutlinedTextField(
                     value = description,
-                    onValueChange = { description = it },
+                    onValueChange = onDescriptionChange,
                     label = { Text(appText("Что случилось?", "Нимә булды?")) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
@@ -442,10 +518,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
-                                onClick = {
-                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) fetchLoc()
-                                    else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                                },
+                                onClick = onLocate,
                                 shape = RoundedCornerShape(14.dp)
                             ) {
                                 Icon(Icons.Default.NearMe, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -454,10 +527,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
                             }
                             if (description.isNotBlank() || coordsText != null) {
                                 OutlinedButton(
-                                    onClick = {
-                                        clipboard.setText(AnnotatedString(dictText()))
-                                        Toast.makeText(context, tCopied, Toast.LENGTH_SHORT).show()
-                                    },
+                                    onClick = onCopy,
                                     shape = RoundedCornerShape(14.dp)
                                 ) {
                                     Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -512,33 +582,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
             item {
                 AppButton(
                     text = if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү"),
-                    onClick = {
-                        if (sending) return@AppButton
-                        if (!loggedIn) {
-                            onLoginRequired()
-                            return@AppButton
-                        }
-                        failed = false
-                        rateLimited = false
-                        sent = false
-                        sending = true
-                        // В note кладём текст + КООРДИНАТЫ (бэкенд без гео-поля → передаём строкой со ссылкой на карту).
-                        val note = buildString {
-                            if (description.isNotBlank()) append(description.trim() + " ")
-                            if (coordsText != null) append("Координаты: $coordsText (https://yandex.ru/maps/?pt=$sosLng,$sosLat&z=17)")
-                        }.trim().ifBlank { "SOS" }
-                        scope.launch {
-                            val r = ApiClient.sos("other", note)   // ждём сервер, НЕ fire-and-forget (кнопка безопасности)
-                            sending = false
-                            if (r.isSuccess) {
-                                sent = true
-                            } else {
-                                // 429 = «слишком часто» (rate-limit), а не «нет сети» — показываем честный текст.
-                                rateLimited = (r.exceptionOrNull() as? ApiException)?.status == 429
-                                failed = true
-                            }
-                        }
-                    },
+                    onClick = onSendSignal,
                     style = AppButtonStyle.Danger,
                     loading = sending
                 )
@@ -559,7 +603,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
 
 // Кнопка прямого вызова службы: тап = сразу звонок на её номер (без вкл/выкл). 3 в ряд.
 @Composable
-private fun RowScope.SosDirectCallChip(
+internal fun RowScope.SosDirectCallChip(
     label: String,
     number: String,
     icon: ImageVector,
@@ -665,6 +709,76 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
     }
     val canSubmit = licenseUrl != null && carPhotoUrl != null && !submitting
 
+    fun submit() {
+        submitting = true
+        submitError = false
+        scope.launch {
+            // Профиль и отправка на проверку — обе должны пройти. Любой сбой → честная ошибка, не «pending».
+            val profileOk = ApiClient.setDriverProfile(make.trim(), model.trim(), carColor.trim(), plate.trim(), seats.toIntOrNull() ?: 4).isSuccess
+            val submitOk = profileOk && ApiClient.submitDriverVerify(licenseUrl ?: "", carPhotoUrl ?: "").isSuccess
+            if (submitOk) {
+                docsStatus = "pending"
+                autocheckResult = ""  // прошлый отказ больше не актуален
+                autocheckData = ""
+            } else {
+                submitError = true
+                Toast.makeText(context, tSubmitFail, Toast.LENGTH_SHORT).show()
+            }
+            submitting = false
+        }
+    }
+
+    VerifyDriverContent(
+        make = make, onMakeChange = { make = it },
+        model = model, onModelChange = { model = it },
+        carColor = carColor, onColorChange = { carColor = it },
+        plate = plate, onPlateChange = { plate = it },
+        seats = seats, onSeatsChange = { seats = it.filter(Char::isDigit) },
+        licenseUrl = licenseUrl,
+        carPhotoUrl = carPhotoUrl,
+        uploadingLicense = uploadingLicense,
+        uploadingCar = uploadingCar,
+        docsStatus = docsStatus,
+        verified = verified,
+        submitting = submitting,
+        submitError = submitError,
+        autocheckResult = autocheckResult,
+        autocheckData = autocheckData,
+        canSubmit = canSubmit,
+        onPickLicense = { pickLicense.launch("image/*") },
+        onPickCar = { pickCar.launch("image/*") },
+        onSubmit = { submit() },
+        onSelectTab = onSelectTab,
+    )
+}
+
+// Чистая презентация экрана «Проверка водителя»: без сети/пикеров/эффектов — только примитивы и колбэки.
+// Обёртка `VerifyDriverScreen` держит загрузку статуса, выбор фото и отправку, а рисует этот Content.
+// Бесконечных анимаций нет → тестируется целиком на JVM (Robolectric).
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun VerifyDriverContent(
+    make: String, onMakeChange: (String) -> Unit,
+    model: String, onModelChange: (String) -> Unit,
+    carColor: String, onColorChange: (String) -> Unit,
+    plate: String, onPlateChange: (String) -> Unit,
+    seats: String, onSeatsChange: (String) -> Unit,
+    licenseUrl: String?,
+    carPhotoUrl: String?,
+    uploadingLicense: Boolean,
+    uploadingCar: Boolean,
+    docsStatus: String,
+    verified: Boolean,
+    submitting: Boolean,
+    submitError: Boolean,
+    autocheckResult: String,
+    autocheckData: String,
+    canSubmit: Boolean,
+    onPickLicense: () -> Unit,
+    onPickCar: () -> Unit,
+    onSubmit: () -> Unit,
+    onSelectTab: (HomeTab) -> Unit,
+) {
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Profile, onSelect = onSelectTab) }
@@ -695,42 +809,25 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
             item { Text(appText("Данные автомобиля", "Машина мәғлүмәте"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(value = make, onValueChange = { make = it }, label = { Text(appText("Марка", "Марка")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
-                    OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text(appText("Модель", "Модель")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
+                    OutlinedTextField(value = make, onValueChange = onMakeChange, label = { Text(appText("Марка", "Марка")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
+                    OutlinedTextField(value = model, onValueChange = onModelChange, label = { Text(appText("Модель", "Модель")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(value = carColor, onValueChange = { carColor = it }, label = { Text(appText("Цвет", "Төҫ")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
-                    OutlinedTextField(value = plate, onValueChange = { plate = it }, label = { Text(appText("Госномер", "Дәүләт номеры")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
+                    OutlinedTextField(value = carColor, onValueChange = onColorChange, label = { Text(appText("Цвет", "Төҫ")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
+                    OutlinedTextField(value = plate, onValueChange = onPlateChange, label = { Text(appText("Госномер", "Дәүләт номеры")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), singleLine = true)
                 }
             }
             item {
-                OutlinedTextField(value = seats, onValueChange = { seats = it.filter(Char::isDigit) }, label = { Text(appText("Количество мест", "Урындар һаны")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), singleLine = true)
+                OutlinedTextField(value = seats, onValueChange = onSeatsChange, label = { Text(appText("Количество мест", "Урындар һаны")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), singleLine = true)
             }
             item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
-            item { UploadTile(appText("Фото водительских прав", "Водитель танытмаһы фотоһы"), licenseUrl != null, uploadingLicense) { pickLicense.launch("image/*") } }
-            item { UploadTile(appText("Фото автомобиля", "Машина фотоһы"), carPhotoUrl != null, uploadingCar) { pickCar.launch("image/*") } }
+            item { UploadTile(appText("Фото водительских прав", "Водитель танытмаһы фотоһы"), licenseUrl != null, uploadingLicense, onPickLicense) }
+            item { UploadTile(appText("Фото автомобиля", "Машина фотоһы"), carPhotoUrl != null, uploadingCar, onPickCar) }
             item {
                 Button(
-                    onClick = {
-                        submitting = true
-                        submitError = false
-                        scope.launch {
-                            // Профиль и отправка на проверку — обе должны пройти. Любой сбой → честная ошибка, не «pending».
-                            val profileOk = ApiClient.setDriverProfile(make.trim(), model.trim(), carColor.trim(), plate.trim(), seats.toIntOrNull() ?: 4).isSuccess
-                            val submitOk = profileOk && ApiClient.submitDriverVerify(licenseUrl ?: "", carPhotoUrl ?: "").isSuccess
-                            if (submitOk) {
-                                docsStatus = "pending"
-                                autocheckResult = ""  // прошлый отказ больше не актуален
-                                autocheckData = ""
-                            } else {
-                                submitError = true
-                                Toast.makeText(context, tSubmitFail, Toast.LENGTH_SHORT).show()
-                            }
-                            submitting = false
-                        }
-                    },
+                    onClick = onSubmit,
                     enabled = canSubmit,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(18.dp),

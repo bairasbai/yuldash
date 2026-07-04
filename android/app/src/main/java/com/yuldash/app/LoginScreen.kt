@@ -931,8 +931,9 @@ internal fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Mod
 }
 
 // Согласие с офертой: ссылки ведут на реальные страницы лендинга (yulbash.ru/terms, /privacy).
+// internal (а не private) → покрыт на JVM (Robolectric): двуязычие текста + ссылки «Условия»/«Политику…».
 @Composable
-private fun LoginConsent(currentLanguage: AppLanguage, modifier: Modifier = Modifier) {
+internal fun LoginConsent(currentLanguage: AppLanguage, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     fun open(url: String) {
         runCatching {

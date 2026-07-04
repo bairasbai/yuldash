@@ -855,121 +855,159 @@ internal fun DriverCabinetScreen(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет водителя", "Водитель кабинеты"), onBack) }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            item {
-                Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
-                Text(appText("Публикуйте поездки, проходите проверку и поднимайте маршрут выше.", "Сәфәр баҫтырығыҙ, тикшереү үтегеҙ һәм маршрутты өҫкә күтәрегеҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+        DriverCabinetContent(
+            online = online,
+            driverRides = driverRides,
+            driverBookings = driverBookings,
+            ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
+            onToggleOnline = onToggleOnline@{ v ->
+                // Демо/без входа → не дёргаем API (там 401 → ложная «проверь сеть»), даём понятное «войдите».
+                if (!ApiClient.isLoggedIn()) {
+                    Toast.makeText(ctx, onlineLoginMsg, Toast.LENGTH_SHORT).show()
+                    return@onToggleOnline
+                }
+                val prev = online
+                online = v
+                rateScope.launch {
+                    ApiClient.setOnline(v).onFailure {
+                        online = prev
+                        Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onRate = { bookingId, n ->
+                rateScope.launch {
+                    ApiClient.rateBooking(bookingId, n)
+                        .onSuccess { Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
+            onCreateRide = onCreateRide,
+            onVerifyDriver = onVerifyDriver,
+            onBoost = onBoost,
+            onRequestsFeed = onRequestsFeed,
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистый рендер кабинета водителя: тумблер «на линии», метрики (маршруты/свободно/рейтинг),
+ * пусто-заглушка или список опубликованных маршрутов, блок «оцените пассажиров» и нижние действия.
+ * Сеть/стейт (online-переключение, оценка) вынесены в колбэки → без сети/эффектов → тестируется на JVM.
+ * Поведение 1-в-1 с обёрткой [DriverCabinetScreen]. `stars` — локальный UI-стейт звёзд, сети не трогает.
+ */
+@Composable
+internal fun DriverCabinetContent(
+    online: Boolean,
+    driverRides: List<Ride>,
+    driverBookings: List<com.yuldash.app.data.DriverBookingDto>,
+    ratingText: String,
+    onToggleOnline: (Boolean) -> Unit,
+    onRate: (Int, Int) -> Unit,
+    onCreateRide: () -> Unit,
+    onVerifyDriver: () -> Unit,
+    onBoost: () -> Unit,
+    onRequestsFeed: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item {
+            Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
+            Text(appText("Публикуйте поездки, проходите проверку и поднимайте маршрут выше.", "Сәфәр баҫтырығыҙ, тикшереү үтегеҙ һәм маршрутты өҫкә күтәрегеҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+        }
+        item {
+            SettingsGroup {
+                SettingSwitchRow(
+                    Icons.Default.DirectionsCar,
+                    appText("Я на линии", "Мин эштә"),
+                    appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
+                    online,
+                    onToggleOnline,
+                )
             }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CabinetMetric(appText("Мои маршруты", "Минең маршруттар"), driverRides.size.toString(), Modifier.weight(1f))
+                CabinetMetric(appText("Свободно", "Буш"), driverRides.sumOf { it.seats }.toString(), Modifier.weight(1f))
+                CabinetMetric(appText("Рейтинг", "Рейтинг"), ratingText, Modifier.weight(1f))
+            }
+        }
+        if (driverRides.isEmpty()) {
             item {
-                SettingsGroup {
-                    SettingSwitchRow(
-                        Icons.Default.DirectionsCar,
-                        appText("Я на линии", "Мин эштә"),
-                        appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
-                        online,
-                    ) { v ->
-                        // Демо/без входа → не дёргаем API (там 401 → ложная «проверь сеть»), даём понятное «войдите».
-                        if (!ApiClient.isLoggedIn()) {
-                            Toast.makeText(ctx, onlineLoginMsg, Toast.LENGTH_SHORT).show()
-                            return@SettingSwitchRow
+                EmptyStateCard(
+                    title = appText("Ваших маршрутов пока нет", "Һеҙҙең маршруттар әлегә юҡ"),
+                    text = appText("Опубликуйте поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтырығыҙ."),
+                    icon = Icons.Default.DirectionsCar,
+                    action = appText("Опубликовать маршрут", "Маршрут баҫтырыу"),
+                    onAction = onCreateRide
+                )
+            }
+        } else {
+            items(driverRides, key = { it.id }) { ride ->
+                MyTripCard(
+                    ride = ride,
+                    status = appText("Опубликована", "Баҫтырылды"),
+                    statusColor = CanonMint,
+                    icon = Icons.Default.DirectionsCar,
+                    primaryAction = appText("Поднять", "Күтәреү"),
+                    secondaryAction = appText("Новый маршрут", "Яңы маршрут"),
+                    onPrimary = onBoost,
+                    onSecondary = onCreateRide
+                )
+            }
+        }
+        if (driverBookings.isNotEmpty()) {
+            item {
+                Text(appText("Пассажиры — оцените после поездки", "Пассажирҙар — сәфәрҙән һуң баһалағыҙ"), fontWeight = FontWeight.Black, fontSize = 16.sp)
+            }
+            items(driverBookings, key = { it.bookingId }) { b ->
+                var stars by remember(b.bookingId) { mutableStateOf(0) }
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+                                Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(b.passengerName, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (b.route.isNotBlank()) Text(b.route, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            b.passengerRating?.let {
+                                Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(3.dp))
+                                Text(it.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
-                        val prev = online
-                        online = v
-                        rateScope.launch {
-                            ApiClient.setOnline(v).onFailure {
-                                online = prev
-                                Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            (1..5).forEach { n ->
+                                Icon(
+                                    Icons.Default.Star,
+                                    contentDescription = "$n",
+                                    tint = if (n <= stars) CanonStar else CanonBorder,
+                                    modifier = Modifier.size(34.dp).clickable {
+                                        stars = n
+                                        onRate(b.bookingId, n)
+                                    }
+                                )
                             }
                         }
                     }
                 }
             }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CabinetMetric(appText("Мои маршруты", "Минең маршруттар"), driverRides.size.toString(), Modifier.weight(1f))
-                    CabinetMetric(appText("Свободно", "Буш"), driverRides.sumOf { it.seats }.toString(), Modifier.weight(1f))
-                    CabinetMetric(appText("Рейтинг", "Рейтинг"), driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—", Modifier.weight(1f))
-                }
-            }
-            if (driverRides.isEmpty()) {
-                item {
-                    EmptyStateCard(
-                        title = appText("Ваших маршрутов пока нет", "Һеҙҙең маршруттар әлегә юҡ"),
-                        text = appText("Опубликуйте поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтырығыҙ."),
-                        icon = Icons.Default.DirectionsCar,
-                        action = appText("Опубликовать маршрут", "Маршрут баҫтырыу"),
-                        onAction = onCreateRide
-                    )
-                }
-            } else {
-                items(driverRides, key = { it.id }) { ride ->
-                    MyTripCard(
-                        ride = ride,
-                        status = appText("Опубликована", "Баҫтырылды"),
-                        statusColor = CanonMint,
-                        icon = Icons.Default.DirectionsCar,
-                        primaryAction = appText("Поднять", "Күтәреү"),
-                        secondaryAction = appText("Новый маршрут", "Яңы маршрут"),
-                        onPrimary = onBoost,
-                        onSecondary = onCreateRide
-                    )
-                }
-            }
-            if (driverBookings.isNotEmpty()) {
-                item {
-                    Text(appText("Пассажиры — оцените после поездки", "Пассажирҙар — сәфәрҙән һуң баһалағыҙ"), fontWeight = FontWeight.Black, fontSize = 16.sp)
-                }
-                items(driverBookings, key = { it.bookingId }) { b ->
-                    var stars by remember(b.bookingId) { mutableStateOf(0) }
-                    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-                                    Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
-                                }
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(b.passengerName, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (b.route.isNotBlank()) Text(b.route, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                                b.passengerRating?.let {
-                                    Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
-                                    Spacer(Modifier.width(3.dp))
-                                    Text(it.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                (1..5).forEach { n ->
-                                    Icon(
-                                        Icons.Default.Star,
-                                        contentDescription = "$n",
-                                        tint = if (n <= stars) CanonStar else CanonBorder,
-                                        modifier = Modifier.size(34.dp).clickable {
-                                            stars = n
-                                            rateScope.launch {
-                                                ApiClient.rateBooking(b.bookingId, n)
-                                                    .onSuccess { Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show() }
-                                                    .onFailure { Toast.makeText(ctx, rateFailMsg, Toast.LENGTH_SHORT).show() }
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            item {
-                SettingsGroup {
-                    SettingsNavRow(Icons.Default.ListAlt, appText("Заявки пассажиров", "Пассажир заявкалары"), appText("Откликнуться и предложить поездку", "Яуап биреп сәфәр тәҡдим итеү"), onClick = onRequestsFeed)
-                    SettingsNavRow(Icons.Default.AddRoad, appText("Создать поездку", "Сәфәр булдырыу"), appText("Маршрут, места, цена и время", "Маршрут, урын, хаҡ һәм ваҡыт"), onClick = onCreateRide)
-                    SettingsNavRow(Icons.Default.Verified, appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото и госномер", "Права, машина, фото һәм номер"), onClick = onVerifyDriver)
-                    SettingsNavRow(Icons.Default.TrendingUp, appText("Поднять маршрут", "Маршрутты күтәреү"), appText("Показать выше в списке поездок", "Сәфәрҙәр исемлегендә өҫтәрәк күрһәтеү"), onClick = onBoost)
-                }
+        }
+        item {
+            SettingsGroup {
+                SettingsNavRow(Icons.Default.ListAlt, appText("Заявки пассажиров", "Пассажир заявкалары"), appText("Откликнуться и предложить поездку", "Яуап биреп сәфәр тәҡдим итеү"), onClick = onRequestsFeed)
+                SettingsNavRow(Icons.Default.AddRoad, appText("Создать поездку", "Сәфәр булдырыу"), appText("Маршрут, места, цена и время", "Маршрут, урын, хаҡ һәм ваҡыт"), onClick = onCreateRide)
+                SettingsNavRow(Icons.Default.Verified, appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото и госномер", "Права, машина, фото һәм номер"), onClick = onVerifyDriver)
+                SettingsNavRow(Icons.Default.TrendingUp, appText("Поднять маршрут", "Маршрутты күтәреү"), appText("Показать выше в списке поездок", "Сәфәрҙәр исемлегендә өҫтәрәк күрһәтеү"), onClick = onBoost)
             }
         }
     }

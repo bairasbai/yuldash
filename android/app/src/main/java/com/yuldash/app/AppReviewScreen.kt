@@ -65,62 +65,31 @@ internal fun AppReviewScreen(onBack: () -> Unit) {
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Оставить отзыв", "Фекер ҡалдырыу"), onBack) },
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-                .fillMaxSize()
-                .imePadding()   // поле отзыва/кнопка не прячутся за клавиатурой
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Spacer(Modifier.height(6.dp))
-
-            if (sent) {
-                // Состояние «спасибо» после отправки
+        if (sent) {
+            // Состояние «спасибо» после отправки — отдельно от формы (у неё свой скролл/imePadding).
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .padding(horizontal = 16.dp)
+                    .fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Spacer(Modifier.height(6.dp))
                 ReviewThanksCard(onDone = onBack)
-                return@Column
             }
-
-            Text(
-                appText(
-                    "Как тебе Юлдаш? Оцени и напиши пару слов — это поможет другим решиться.",
-                    "Юлдаш нисек? Баһала һәм бер-ике һүҙ яҙ — был башҡаларға ҡарар итергә ярҙам итер.",
-                ),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
-            )
-
-            // Звёзды
-            ReviewStarsRow(selected = stars, onSelect = { stars = it })
-
-            // Текст отзыва
-            OutlinedTextField(
-                value = text,
-                onValueChange = { if (it.length <= 600) { text = it; error = null } },
-                label = { Text(appText("Твой отзыв", "Һинең фекерең")) },
-                placeholder = { Text(appText("Что понравилось? Как прошла поездка?", "Нимә оҡшаны? Сәфәр нисек үтте?")) },
-                minLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-                supportingText = { Text("${text.trim().length}/600", color = CanonMuted, fontSize = 12.sp) },
-            )
-
-            // Город (необязательно)
-            OutlinedTextField(
-                value = city,
-                onValueChange = { if (it.length <= 60) city = it },
-                label = { Text(appText("Город (необязательно)", "Ҡала (мотлаҡ түгел)")) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            error?.let {
-                Text(it, color = CanonRed, fontSize = 14.sp)
-            }
-
-            Button(
-                onClick = {
-                    if (!canSubmit) return@Button
+        } else {
+            AppReviewFormContent(
+                stars = stars,
+                text = text,
+                city = city,
+                sending = sending,
+                error = error,
+                canSubmit = canSubmit,
+                onSelectStars = { stars = it },
+                onTextChange = { if (it.length <= 600) { text = it; error = null } },
+                onCityChange = { if (it.length <= 60) city = it },
+                onSubmit = onSubmit@{
+                    if (!canSubmit) return@onSubmit
                     sending = true
                     error = null
                     scope.launch {
@@ -130,27 +99,102 @@ internal fun AppReviewScreen(onBack: () -> Unit) {
                         sending = false
                     }
                 },
-                enabled = canSubmit,
-                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg),
-                shape = CanonCardShape,
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-            ) {
-                if (sending) {
-                    CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                } else {
-                    Text(appText("Отправить отзыв", "Фекерҙе ебәрергә"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            }
-
-            Text(
-                appText(
-                    "Отзыв появится на сайте после короткой проверки — чтобы не было спама.",
-                    "Фекер ҡыҫҡа тикшереүҙән һуң сайтта күренер — спам булмаһын өсөн.",
-                ),
-                color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                modifier = Modifier.padding(padding),
             )
-            Spacer(Modifier.height(20.dp))
         }
+    }
+}
+
+/**
+ * Чистый рендер формы отзыва: подсказка, звёзды, поле отзыва (счётчик), город, ошибка, кнопка
+ * отправки (спиннер при `sending`, disabled по `canSubmit`), нижняя сноска. Всё двуязычное через
+ * `appText`. Состояние и сеть — в обёртке [AppReviewScreen] → форма тестируется на JVM (Robolectric).
+ *
+ * `onTextChange`/`onCityChange` получают сырой ввод (лимиты длины применяет вызывающий), выбор
+ * звёзд — `onSelectStars(1..5)`, отправка — `onSubmit`. Карточку «спасибо» (`sent`) рисует обёртка.
+ */
+@Composable
+internal fun AppReviewFormContent(
+    stars: Int,
+    text: String,
+    city: String,
+    sending: Boolean,
+    error: String?,
+    canSubmit: Boolean,
+    onSelectStars: (Int) -> Unit,
+    onTextChange: (String) -> Unit,
+    onCityChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxSize()
+            .imePadding()   // поле отзыва/кнопка не прячутся за клавиатурой
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Spacer(Modifier.height(6.dp))
+
+        Text(
+            appText(
+                "Как тебе Юлдаш? Оцени и напиши пару слов — это поможет другим решиться.",
+                "Юлдаш нисек? Баһала һәм бер-ике һүҙ яҙ — был башҡаларға ҡарар итергә ярҙам итер.",
+            ),
+            color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+        )
+
+        // Звёзды
+        ReviewStarsRow(selected = stars, onSelect = onSelectStars)
+
+        // Текст отзыва
+        OutlinedTextField(
+            value = text,
+            onValueChange = onTextChange,
+            label = { Text(appText("Твой отзыв", "Һинең фекерең")) },
+            placeholder = { Text(appText("Что понравилось? Как прошла поездка?", "Нимә оҡшаны? Сәфәр нисек үтте?")) },
+            minLines = 4,
+            modifier = Modifier.fillMaxWidth(),
+            supportingText = { Text("${text.trim().length}/600", color = CanonMuted, fontSize = 12.sp) },
+        )
+
+        // Город (необязательно)
+        OutlinedTextField(
+            value = city,
+            onValueChange = onCityChange,
+            label = { Text(appText("Город (необязательно)", "Ҡала (мотлаҡ түгел)")) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        error?.let {
+            Text(it, color = CanonRed, fontSize = 14.sp)
+        }
+
+        Button(
+            onClick = onSubmit,
+            enabled = canSubmit,
+            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen, contentColor = CanonBg),
+            shape = CanonCardShape,
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+        ) {
+            if (sending) {
+                CircularProgressIndicator(color = CanonBg, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+            } else {
+                Text(appText("Отправить отзыв", "Фекерҙе ебәрергә"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        }
+
+        Text(
+            appText(
+                "Отзыв появится на сайте после короткой проверки — чтобы не было спама.",
+                "Фекер ҡыҫҡа тикшереүҙән һуң сайтта күренер — спам булмаһын өсөн.",
+            ),
+            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+        )
+        Spacer(Modifier.height(20.dp))
     }
 }
 
