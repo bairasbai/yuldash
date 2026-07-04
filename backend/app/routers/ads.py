@@ -290,7 +290,20 @@ def ad_submit(ad_id: int, user: User = Depends(current_user), session: Session =
     session.commit()
     session.refresh(ad)
     try:  # уведомление админа — best-effort, не роняем сабмит если Telegram недоступен
-        notify_admin_telegram(f"🆕 Новое объявление на модерации: «{ad.title}» от {user.name or 'партнёра'}. Проверь в кабинете.")
+        notify_admin_telegram(
+            f"🆕 Реклама на модерации\n"
+            f"ID: {ad.id}\n"
+            f"Название: «{ad.title}»\n"
+            f"От: {user.name or 'партнёр'}\n"
+            f"Тариф: {ad.package or 'не указан'} · {ad.budget_kop // 100} ₽\n\n"
+            f"Одобрить или отклонить можно прямо тут:",
+            reply_markup={
+                "inline_keyboard": [[
+                    {"text": "✅ Одобрить", "callback_data": f"ad:ok:{ad.id}"},
+                    {"text": "❌ Отклонить", "callback_data": f"ad:no:{ad.id}"},
+                ]]
+            },
+        )
     except Exception:
         pass
     return _ad_mine(ad, _is_paid(session, ad.id))
@@ -320,7 +333,22 @@ def ad_pay(ad_id: int, user: User = Depends(current_user), session: Session = De
     session.commit()
     session.refresh(payment)
     try:
-        notify_admin_telegram(f"💳 Оплата рекламы: «{ad.title}» {ad.budget_kop // 100} ₽ от {user.name or 'партнёра'}. Сверь карту → подтверди.")
+        notify_admin_telegram(
+            (
+                f"💳 Оплата рекламы СБП\n"
+                f"ID платежа: {payment.id}\n"
+                f"Реклама: «{ad.title}»\n"
+                f"Сумма: {ad.budget_kop // 100} ₽\n"
+                f"От: {user.name or 'партнёра'}\n\n"
+                "Сначала проверь поступление в банке, потом подтверди здесь."
+            ),
+            reply_markup={
+                "inline_keyboard": [[
+                    {"text": "✅ Подтвердить", "callback_data": f"pay:ok:{payment.id}"},
+                    {"text": "❌ Отклонить", "callback_data": f"pay:no:{payment.id}"},
+                ]]
+            },
+        )
     except Exception:
         pass
     return {"payment_id": payment.id, "amount_kop": ad.budget_kop, "status": "pending"}

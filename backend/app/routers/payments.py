@@ -63,7 +63,22 @@ def _notify_new_payment(session: Session, payment: Payment) -> None:
     payer = session.get(User, payment.user_id)
     who = (payer.name if payer and payer.name else "—") + (f" · {payer.phone}" if payer and payer.phone else "")
     label = {"boost": "Буст", "donate": "Донат", "ad": "Реклама"}.get(payment.purpose, payment.purpose)
-    notify_admin_telegram(f"💳 Новая оплата: {label} {payment.amount_kop // 100} ₽ от {who}. Проверь карту → подтверди в кабинете.")
+    notify_admin_telegram(
+        (
+            f"💳 Новая оплата СБП\n"
+            f"ID: {payment.id}\n"
+            f"Тип: {label}\n"
+            f"Сумма: {payment.amount_kop // 100} ₽\n"
+            f"От: {who}\n\n"
+            "Сначала проверь поступление в банке, потом подтверди здесь."
+        ),
+        reply_markup={
+            "inline_keyboard": [[
+                {"text": "✅ Подтвердить", "callback_data": f"pay:ok:{payment.id}"},
+                {"text": "❌ Отклонить", "callback_data": f"pay:no:{payment.id}"},
+            ]]
+        },
+    )
 
 
 class BoostFreeIn(BaseModel):

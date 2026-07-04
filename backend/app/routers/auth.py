@@ -13,9 +13,10 @@ from sqlmodel import Session, select
 from ..account import delete_user_account
 from ..config import settings
 from ..db import engine, get_session
-from ..models import DeviceToken, OtpCode, TgAuth, User, UserRole
+from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, Ride, TgAuth, User, UserRole
+from ..payments import BOOST_PLANS
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
-from ..services import send_sms, user_rating
+from ..services import send_push, send_sms, user_rating
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["auth"])
@@ -147,6 +148,9 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     if settings.telegram_webhook_secret and x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
         raise HTTPException(403, "bad secret")
     update = await request.json()
+    callback = update.get("callback_query") or {}
+    if callback:
+        return _handle_admin_callback(callback)
     msg = update.get("message") or {}
     text = msg.get("text") or ""
     frm = msg.get("from") or {}
@@ -220,6 +224,134 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     return {"ok": True}
 
 
+def _telegram_api(method: str, payload: dict) -> None:
+    if not settings.telegram_bot_token:
+        return
+    try:
+        import httpx
+        httpx.post(f"https://api.telegram.org/bot{settings.telegram_bot_token}/{method}", json=payload, timeout=8)
+    except Exception:
+        pass
+
+
+def _activate_manual_payment(session: Session, payment: Payment) -> None:
+    """Apply a manually confirmed SBP payment from Telegram. Same effect as admin confirm."""
+    if payment.status == "succeeded":
+        return
+    payment.status = "succeeded"
+    session.add(payment)
+    if payment.purpose == "boost" and payment.ride_id is not None:
+        ride = session.get(Ride, payment.ride_id)
+        plan = BOOST_PLANS.get(payment.tier)
+        if ride and plan:
+            ride.boosted_until = utcnow() + timedelta(hours=plan[2])
+            ride.boost_tier = payment.tier
+            session.add(ride)
+    elif payment.purpose == "ad" and payment.ad_id is not None:
+        ad = session.get(Ad, payment.ad_id)
+        if ad:
+            ad.status = "active"
+            if ad.period_days > 0:
+                ad.starts_at = utcnow()
+                ad.ends_at = utcnow() + timedelta(days=ad.period_days)
+            session.add(ad)
+    session.commit()
+
+
+def _handle_admin_callback(callback: dict):
+    """Inline-кнопки админа в Telegram. Сейчас поддерживает модерацию водителей."""
+    cb_id = callback.get("id")
+    frm = callback.get("from") or {}
+    data = callback.get("data") or ""
+    msg = callback.get("message") or {}
+    chat = msg.get("chat") or {}
+    chat_id = chat.get("id")
+    message_id = msg.get("message_id")
+
+    if str(frm.get("id")) != str(settings.admin_telegram_chat_id):
+        if cb_id:
+            _telegram_api("answerCallbackQuery", {"callback_query_id": cb_id, "text": "Нет доступа", "show_alert": True})
+        return {"ok": True}
+
+    parts = data.split(":")
+    if len(parts) != 3 or parts[0] not in ("drv", "ad", "pay") or parts[1] not in ("ok", "no"):
+        if cb_id:
+            _telegram_api("answerCallbackQuery", {"callback_query_id": cb_id, "text": "Неизвестная команда"})
+        return {"ok": True}
+
+    try:
+        user_id = int(parts[2])
+    except ValueError:
+        if cb_id:
+            _telegram_api("answerCallbackQuery", {"callback_query_id": cb_id, "text": "Некорректный ID"})
+        return {"ok": True}
+
+    approve = parts[1] == "ok"
+    with Session(engine) as s:
+        if parts[0] == "drv":
+            target = s.get(User, user_id)
+            if not target:
+                text = f"Пользователь #{user_id} не найден"
+            else:
+                dp = s.exec(select(DriverProfile).where(DriverProfile.user_id == user_id)).first()
+                if not dp:
+                    dp = DriverProfile(user_id=user_id)
+                target.verified = approve
+                dp.docs_status = "verified" if approve else "rejected"
+                s.add(target)
+                s.add(dp)
+                s.commit()
+                text = f"{'Одобрен' if approve else 'Отклонён'} водитель #{user_id}: {target.name or target.phone}"
+        elif parts[0] == "ad":
+            ad = s.get(Ad, user_id)
+            if not ad:
+                text = f"Объявление #{user_id} не найдено"
+            elif approve:
+                ad.status = "active"
+                ad.reject_reason = ""
+                ad.reviewed_at = utcnow()
+                if ad.period_days > 0:
+                    ad.starts_at = utcnow()
+                    ad.ends_at = utcnow() + timedelta(days=ad.period_days)
+                s.add(ad)
+                s.commit()
+                if ad.owner_id:
+                    send_push(s, ad.owner_id, "Реклама одобрена", f"«{ad.title}» прошла модерацию. Осталось оплатить размещение.")
+                text = f"Одобрена реклама #{ad.id}: «{ad.title}»"
+            else:
+                ad.status = "rejected"
+                ad.reject_reason = "Отклонено администратором в Telegram"
+                ad.reviewed_at = utcnow()
+                s.add(ad)
+                s.commit()
+                if ad.owner_id:
+                    send_push(s, ad.owner_id, "Реклама отклонена", ad.reject_reason)
+                text = f"Отклонена реклама #{ad.id}: «{ad.title}»"
+        else:
+            payment = s.get(Payment, user_id)
+            if not payment:
+                text = f"Платёж #{user_id} не найден"
+            elif approve:
+                if payment.status == "succeeded":
+                    text = f"Платёж #{payment.id} уже подтверждён"
+                else:
+                    _activate_manual_payment(s, payment)
+                    text = f"Подтверждена оплата #{payment.id}: {payment.purpose} {payment.amount_kop // 100} ₽"
+            else:
+                if payment.status == "pending":
+                    payment.status = "canceled"
+                    s.add(payment)
+                    s.commit()
+                text = f"Отклонена оплата #{payment.id}: {payment.purpose} {payment.amount_kop // 100} ₽"
+
+    if cb_id:
+        _telegram_api("answerCallbackQuery", {"callback_query_id": cb_id, "text": text})
+    if chat_id and message_id:
+        _telegram_api("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []}})
+        _telegram_api("sendMessage", {"chat_id": chat_id, "text": text})
+    return {"ok": True}
+
+
 class TgVerifyIn(BaseModel):
     request_id: str
     code: str
@@ -242,6 +374,17 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
         session.commit()
         raise HTTPException(400, "Неверный код")
     user = session.exec(select(User).where(User.telegram_id == row.telegram_id)).first()
+    if not user and row.shared_phone:
+        existing_by_phone = session.exec(select(User).where(User.phone == row.shared_phone)).first()
+        if existing_by_phone and not existing_by_phone.telegram_id:
+            existing_by_phone.telegram_id = row.telegram_id
+            existing_by_phone.verified = True
+            if not existing_by_phone.name:
+                existing_by_phone.name = row.first_name or row.username or "Telegram"
+            session.add(existing_by_phone)
+            session.commit()
+            session.refresh(existing_by_phone)
+            user = existing_by_phone
     if not user:
         user = User(
             phone=f"tg{row.telegram_id}",   # плейсхолдер, пока юзер не поделился реальным номером

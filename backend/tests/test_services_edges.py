@@ -110,16 +110,16 @@ def test_notify_admin_telegram_is_noop_without_config_and_sends_with_config(monk
     monkeypatch.setattr(settings, "admin_telegram_chat_id", "")
     services.notify_admin_telegram("noop")
 
-    def fake_get(url, params, timeout):
-        calls.append((url, params, timeout))
+    def fake_post(url, json, timeout):
+        calls.append((url, json, timeout))
         return FakeResponse()
 
-    monkeypatch.setattr(httpx, "get", fake_get)
+    monkeypatch.setattr(httpx, "post", fake_post)
     monkeypatch.setattr(settings, "telegram_bot_token", "token")
     monkeypatch.setattr(settings, "admin_telegram_chat_id", "chat")
-    services.notify_admin_telegram("hello")
+    services.notify_admin_telegram("hello", reply_markup={"inline_keyboard": []})
     assert calls[0][0] == "https://api.telegram.org/bottoken/sendMessage"
-    assert calls[0][1] == {"chat_id": "chat", "text": "hello"}
+    assert calls[0][1] == {"chat_id": "chat", "text": "hello", "reply_markup": {"inline_keyboard": []}}
 
 
 def test_send_text_and_send_sms_branches(monkeypatch):

@@ -1,5 +1,16 @@
 # ✅ Задачи Юлдаш
 
+## ✅ Prod-reset перед реальными пользователями — 2026-07-03
+
+- Продовая PostgreSQL очищена от симуляционных данных после бэкапа `/root/manual-wipe-20260703T210912Z.sql.gz`.
+- После очистки оставлен один админ-пользователь; персональный телефон не дублируем в документации.
+- После повторной проверки выключен продовый `seed_demo=false`, потому что рестарт сервера снова создавал демо-водителей. Админ-пользователь привязан к числовому Telegram ID владельца.
+- На проде включено автоодобрение проверки водителя через OCR: `driver_autocheck_enabled=true`, `driver_autoreject_enabled=true`, `driver_autoapprove_enabled=true`, `driver_autocheck_min_score=0.75`. Yandex Vision ключ есть; `production_config=ok`. Это не «одобрять всех подряд»: уверенный `pass` → `verified`, явный мусор → `rejected`, спорное → `pending`.
+- Добавлена Telegram-модерация спорных водителей: если `/driver/verify` остаётся `pending`, бот отправляет админу сообщение с кнопками «Одобрить» / «Отклонить». Webhook принимает inline-кнопки только от `admin_telegram_chat_id`, меняет `User.verified` и `DriverProfile.docs_status`. Прод задеплоен; тестовое сообщение админу отправлено.
+- Добавлена Telegram-модерация рекламы: при `/ads/{id}/submit` бот отправляет админу карточку объявления с кнопками «Одобрить» / «Отклонить». Webhook принимает `ad:ok:{id}` / `ad:no:{id}` только от `admin_telegram_chat_id`: одобрение переводит объявление в `active` (в эфир платная партнёрская реклама пойдёт после оплаты), отказ переводит в `rejected`. Прод задеплоен; тестовое сообщение админу отправлено.
+- `backend/app/routers/auth.py`: Telegram-вход теперь привязывает `telegram_id` к уже существующему пользователю по подтверждённому `shared_phone`, если у этого пользователя ещё нет `telegram_id`. Это нужно, чтобы предсозданный админ по телефону не блокировал Telegram-вход.
+- Проверка: `tests/test_auth_edges.py` → `6 passed`; прод `systemctl is-active yuldash-api` → `active`; `/health` → `{"status":"ok","env":"prod","db":"ok"}`; в БД `user=1`, `ride=0`, `booking=0`, `riderequest=0`.
+
 ## 🗑 Удаление аккаунта пользователем (self-service, end-to-end) — 2026-07-03
 
 > Просьба Александра: кнопка «Удалить аккаунт» во вкладке Профиль. Человек удаляет себя сам → стираем его данные и НА СЕРВЕРЕ. Необратимо. Требование 152-ФЗ (право на удаление перс.данных) + доверие («между своими»).
@@ -1357,6 +1368,14 @@ Prod-smoke:
 - **founder-content** closing «Һына» (попробуй) — двусмысленно; вариант «Һынап ҡара».
 - «Водитель» везде русским словом (осознанное заимствование) — ок, если так задумано.
 
+## ✅ Добор покрытия MainActivity + SupportBoost — 2026-07-04
+
+- `MainActivity.kt`: `PopularRoute.minutesText()` / `labelText()` — `private`→`internal` (флип видимости, поведение 0 изменений; чистые `@Composable`-хелперы без вызовов — теперь тестируемы на JVM).
+- Новый тест `MainActivityContentTest.kt` (25 тестов): чистые двуязычные хелперы ядра — `LocalizedText.text()`, `seatsText` (RU-плюрал 1/3/5/11/21 + BA «урын»), `Ride.timeText/carText`, `PopularRoute.minutesText/labelText`, `TrustedContact.relationText`, `FrequentTrip.titleText/timeHintText`; ветки RU/BA + фолбэк `xxBa ?: xx`. Раньше 0%.
+- Новый тест `SupportBoostDeep4ContentTest.kt` (12 тестов): непокрытые ветки `SupportContent` (BA-кнопка доната/ошибка/«ждём перевод»/«Не сейчас» + валидная «своя сумма» → подсказка-диапазона скрыта) и `BoostContent` (текст ошибки оплаты item'ом, финальный дисклеймер RU/BA, НЕпустой `resultSlot` при `result != null`, BA-заголовки списка + BA-кнопка оплаты).
+- Импур-часть НЕ трогали: `onCreate`/Activity, `SbpTransferSheet`/`SberPayBlock` (буфер/контекст/QR), обёртки `SupportScreen`/`BoostScreen`/`BoostResultCard`.
+- Прогон gradle НЕ запускал (по заданию) — верификация сборки за тем, кто соберёт следующим.
+
 ## ✅ Тестовый прогон и coverage — 2026-07-01
 
 Факты:
@@ -1691,3 +1710,37 @@ Prod-smoke:
 - 📊 **Итог Спринта 3 на сейчас: `MapScreen.kt` 2057 → 1848** (−209 строк в 2 чистых модуля `MapPins.kt`+`MapGeo.kt`, поведение 0 изменений, сборка зелёная после каждого реза).
 - ⚠️ **Не закоммичено** (Александр не просил commit). Изменения в worktree `admiring-ardinghelli`, сборка зелёная. Бэкап исходного MapScreen — `/tmp/MapScreen.bak` (версия 2057).
 - ⚠️ **ДРЕЙФ ВЕТОК прод↔worktree:** прод бежит с ветки `claude/brave-northcutt-2d3a59` (есть `account.py` + `POST /me/delete` — удаление аккаунта 152-ФЗ, коммит `705e928`). Worktree `admiring-ardinghelli` этой фичи НЕ содержит. **НЕ деплоить `auth.py` из этого worktree — снесёт удаление аккаунта с прода** (ловушка lessons.md:14/56). Хотфикс `push_register` класть на ПРОД-версию файла (сохранив `delete_me`) ИЛИ на ветку `brave-northcutt`.
+
+## ✅ Лендинг: последний APK + мобильная проверка — 2026-07-03
+- [x] Сверен последний release APK: `android/app/build/outputs/apk/release/app-release.apk` и `web/public/yuldash.apk` имеют одинаковый SHA-256 `029508ED3112E2B9C9251F26C560E35D9184C6C00A4981F6733418EC9471CCC9`.
+- [x] Сверен статический экспорт: `web/out/yuldash.apk` имеет тот же SHA-256, значит APK попадает в телефонный лендинг после `next build`.
+- [x] Проверен прод `https://yulbash.ru/yuldash.apk`: HTTP 200, `Content-Length: 44877890`, то есть сервер уже отдаёт тот же размер APK, что локальная release-сборка.
+- [x] Продовый APK скачан во временный файл и сверен по SHA-256: `029508ED3112E2B9C9251F26C560E35D9184C6C00A4981F6733418EC9471CCC9`.
+- [x] Проверен мобильный viewport 390×844 на локальном `web/out`: русский текст виден, `h1=Доедемвместе`, горизонтального скролла нет (`overflowX=0`), кнопка Android видна.
+- [x] Найдена и исправлена JS-ошибка Метрики: `TypeError: ym is not a function` из-за `<Script id="ym">`, который конфликтовал с `window.ym`. Исправлено в `web/app/layout.tsx`: `id="yandex-metrika"` + безопасная проверка типа.
+- [x] После lint/build лендинг задеплоен через `web/deploy.sh` в Git Bash: `DEPLOY_DONE`, `чанков: 53`, `landing: 200`.
+- [x] Финальная перепроверка после правки мобильного hero и повторного деплоя (2026-07-03): `web/deploy.sh` прошёл успешно (`DEPLOY_DONE`, `чанков: 55`, `landing: 200`). `https://yulbash.ru/` отдаёт HTTP 200, `Last-Modified: Fri, 03 Jul 2026 20:54:33 GMT`.
+- [x] Продовый мобильный viewport 390×844: `h1=Доедемвместе`, `overflowX=0`, видны кнопка «Скачать для Android», чипы «Доступно на Android» и «iPhone — скоро», текст установки APK не вылезает, ошибок консоли нет.
+- [x] Клик по продовой кнопке «Скачать для Android» в браузере дал событие загрузки. Прямой APK `https://yulbash.ru/yuldash.apk` скачан и сверен: HTTP 200, `Content-Length: 44877890`, SHA-256 `029508ED3112E2B9C9251F26C560E35D9184C6C00A4981F6733418EC9471CCC9`.
+- [x] Исправлена мобильная нижняя кнопка «Скачать Юлдаш» (2026-07-03): CTA больше не программный `button` с искусственным кликом, а настоящая ссылка `href="/yuldash.apk" download`. `StickyDownloadBar` по умолчанию скрыт до принятия cookie, чтобы не накладываться на cookie-баннер.
+- [x] Блок отзывов больше не висит вечными skeleton-карточками на медленном LTE: `/reviews/public` обрывается по таймауту 3.5с и переходит в честное пустое состояние без фейковых отзывов.
+- [x] Повторный деплой после фикса: `DEPLOY_DONE`, `чанков: 56`, `landing: 200`. Прод-проверка: `https://yulbash.ru/` HTTP 200, `Last-Modified: Fri, 03 Jul 2026 21:02:49 GMT`; все CTA в мобильном DOM имеют `href="/yuldash.apk" download`, кнопок-заглушек «Скачать» не осталось. После «Хорошо» нижняя «Скачать Юлдаш» видна как ссылка `href="/yuldash.apk" download`. APK повторно скачан: `Content-Length: 44877890`, SHA-256 `029508ED3112E2B9C9251F26C560E35D9184C6C00A4981F6733418EC9471CCC9`.
+
+## ✅ Telegram-подтверждение ручных СБП-платежей — 2026-07-04
+- [x] Ручной СБП оставлен как `payments_provider=sbp_manual`: деньги по-прежнему нужно проверять в банковском приложении отдельно.
+- [x] Для новых оплат boost/donate/ad Telegram админу теперь приходит сообщение с кнопками `✅ Подтвердить` / `❌ Отклонить` (`pay:ok:{payment_id}` / `pay:no:{payment_id}`).
+- [x] `✅ Подтвердить` переводит платёж в `succeeded` и применяет эффект: boost поднимает поездку, реклама выходит в эфир, донат попадает в подтверждённые платежи. `❌ Отклонить` отменяет только `pending`-платёж.
+- [x] Защита: callback принимает только `admin_telegram_chat_id`; чужой Telegram не может подтвердить оплату.
+- [x] Проверка локально: `pytest tests/test_auth_edges.py tests/test_services_edges.py tests/test_payments_edges.py tests/test_partner_ads.py tests/test_ads_edges.py -q` → 49 passed; `pytest tests/test_flows.py tests/test_drivers_edges.py -q` → 62 passed.
+- [x] Прод-деплой: залиты `/opt/yuldash/app/routers/{auth,payments,ads}.py`; перед заменой сделан серверный бэкап `telegram-payments-*`; `py_compile` ok; `systemctl restart yuldash-api`; `/health` → `{"status":"ok","env":"prod","db":"ok"}`.
+- [x] Прод-проверка: на сервере grep подтвердил `pay:ok`/`pay:no`; контрольное Telegram-сообщение админу отправлено (`SENT`). В журнале после рестарта нет traceback/critical; видны только штатные INFO о закрытии старых gunicorn-сокетов при рестарте.
+
+## ✅ Покрытие SosVerifyScreens.kt — вынос Content (раунд 3) — 2026-07-04
+- [x] Флип `SosService` (`private data class` → `internal`) и `RowScope.SosDirectCallChip` (`private` → `internal fun`) для теста напрямую.
+- [x] Экстракция чистых презентационных функций из двух умных экранов (state hoisting, поведение 0 изменений — обёртки держат сеть/GPS/пикеры/эффекты, зовут Content):
+  - `SosScreen` → `internal fun SosContent(...)` (примитивы + колбэки `onDial/onLocate/onCopy/onSendSignal/onBack`); GPS/permission/`ApiClient.sos` остались в обёртке (локальные `requestLoc()`/`sendSignal()`).
+  - `VerifyDriverScreen` → `internal fun VerifyDriverContent(...)`; загрузка статуса, выбор фото и отправка — в обёртке (локальная `submit()`).
+- [x] Новый тест `android/app/src/test/java/com/yuldash/app/SosVerifyDeepContentTest.kt` — **32 теста** (Robolectric JVM, без эмулятора). Покрыты крайние состояния: SOS активен/неактивен, есть/нет координат, `locating`, залогинен/нет, `sent`/`failed`/`rateLimited`, клики-колбэки; verify — статусы `none/pending/rejected/verified`, форма, пикеры фото, кнопка disabled/enabled/submit, инлайн-ошибка. RU+BA дословно из исходника.
+- [x] Не дублирует существующий `SosVerifyContentTest` (StatusBanner/DocumentRow/SubmitErrorBanner/UploadTile/DriverReasonBanner).
+- Прим.: `sending=true` для `AppButton` (SOS-сигнал) рисует бесконечный спиннер без текста — этот кейс осознанно не тестируется (риск зависания `waitForIdle`). Новых черновых башкирских строк нет — все строки взяты 1-в-1 из `SosVerifyScreens.kt`.
+- ⚠️ Сборку/тесты не запускал (по заданию). Прогнать `:app:createDebugUnitTestCoverageReport` при следующем общем прогоне coverage.

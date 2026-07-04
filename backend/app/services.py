@@ -232,7 +232,7 @@ def _smsdar_send(phone: str, text: str) -> tuple[bool, str]:
     return ok, f"{r.status_code} {str(r.text)[:80]}"
 
 
-def notify_admin_telegram(text: str) -> None:
+def notify_admin_telegram(text: str, reply_markup: dict | None = None) -> None:
     """Уведомление администратору (Александру) в Telegram через бот: запрос звонка и пр.
     Тихо ничего не делает, если бот/chat_id не настроены."""
     if not settings.telegram_bot_token or not settings.admin_telegram_chat_id:
@@ -240,9 +240,12 @@ def notify_admin_telegram(text: str) -> None:
         return
     try:
         import httpx
-        httpx.get(
+        payload = {"chat_id": settings.admin_telegram_chat_id, "text": text}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        httpx.post(
             f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-            params={"chat_id": settings.admin_telegram_chat_id, "text": text},
+            json=payload,
             timeout=8,
         )
     except Exception as e:  # noqa: BLE001 — уведомление не должно ронять запрос

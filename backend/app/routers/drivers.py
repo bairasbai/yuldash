@@ -14,7 +14,7 @@ from ..config import settings
 from ..db import get_session
 from ..models import DriverProfile, User, UserRole
 from ..security import current_user
-from ..services import DOC_DIR, enforce_upload_quota, read_upload, secure_docs_url
+from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["drivers"])
@@ -182,6 +182,24 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     session.add(dp)
     session.commit()
     session.refresh(dp)
+    if dp.docs_status == "pending":
+        car = " ".join(x for x in [dp.car_make, dp.car_model, dp.car_color, dp.car_plate] if x).strip() or "авто не указано"
+        details = f"OCR: {dp.autocheck_result or 'нет'} · score {dp.autocheck_score:.2f}"
+        notify_admin_telegram(
+            f"🚗 Проверка водителя\n"
+            f"ID: {user.id}\n"
+            f"Имя: {user.name or 'Водитель'}\n"
+            f"Телефон: {user.phone}\n"
+            f"Авто: {car}\n"
+            f"{details}\n\n"
+            f"Одобрить или отклонить можно прямо тут:",
+            reply_markup={
+                "inline_keyboard": [[
+                    {"text": "✅ Одобрить", "callback_data": f"drv:ok:{user.id}"},
+                    {"text": "❌ Отклонить", "callback_data": f"drv:no:{user.id}"},
+                ]]
+            },
+        )
     return dp
 
 

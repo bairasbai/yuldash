@@ -5,8 +5,8 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.db import engine
 from app.models import (
-    AppReview, Block, Booking, DeviceToken, DriverProfile, Message, OtpCode,
-    Rating, RefreshToken, Report, Ride, RideRequest, SosEvent, TgAuth,
+    Ad, AppReview, Block, Booking, DeviceToken, DriverProfile, Message, OtpCode,
+    Payment, Rating, RefreshToken, Report, Ride, RideRequest, SosEvent, TgAuth,
     TrustedContact, UploadEvent, User, UserRole,
 )
 from app.timeutil import utcnow
@@ -116,10 +116,11 @@ def test_tg_verify_states_and_phone_conflict(monkeypatch, client):
     assert client.post("/auth/tg/verify", json={"request_id": "tg-wrong", "code": "000000"}).status_code == 400
 
     conflict = client.post("/auth/tg/verify", json={"request_id": "tg-wrong", "code": "555555"})
-    assert conflict.status_code == 403
+    assert conflict.status_code == 200, conflict.text
+    assert conflict.json()["user"]["phone"] == "+79990003030"
     with Session(engine) as session:
         user = session.exec(select(User).where(User.telegram_id == "555000")).first()
-        assert user.phone == "tg555000"
+        assert user.phone == "+79990003030"
 
 
 def test_telegram_webhook_secret_contact_and_unknown_start(monkeypatch, client):
@@ -149,6 +150,206 @@ def test_telegram_webhook_secret_contact_and_unknown_start(monkeypatch, client):
     )
     assert unknown_start.status_code == 200
     assert unknown_start.json()["method"] == "sendMessage"
+
+
+def test_admin_telegram_callback_moderates_driver(monkeypatch, client):
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "5141534025")
+    monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: None)
+    with Session(engine) as session:
+        driver = User(phone="+79990005050", name="Driver", verified=False)
+        session.add(driver)
+        session.commit()
+        session.refresh(driver)
+        session.add(DriverProfile(user_id=driver.id, docs_status="pending"))
+        session.commit()
+        driver_id = driver.id
+
+    headers = {"x-telegram-bot-api-secret-token": "secret"}
+    forbidden = client.post(
+        "/telegram/webhook",
+        headers=headers,
+        json={
+            "callback_query": {
+                "id": "cb0",
+                "from": {"id": 1},
+                "data": f"drv:ok:{driver_id}",
+                "message": {"message_id": 10, "chat": {"id": 1}},
+            }
+        },
+    )
+    assert forbidden.status_code == 200
+    with Session(engine) as session:
+        assert session.get(User, driver_id).verified is False
+
+    approved = client.post(
+        "/telegram/webhook",
+        headers=headers,
+        json={
+            "callback_query": {
+                "id": "cb1",
+                "from": {"id": 5141534025},
+                "data": f"drv:ok:{driver_id}",
+                "message": {"message_id": 11, "chat": {"id": 5141534025}},
+            }
+        },
+    )
+    assert approved.status_code == 200
+    with Session(engine) as session:
+        user = session.get(User, driver_id)
+        profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
+        assert user.verified is True
+        assert profile.docs_status == "verified"
+
+
+def test_admin_telegram_callback_moderates_ad(monkeypatch, client):
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "5141534025")
+    monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: None)
+    monkeypatch.setattr("app.routers.auth.send_push", lambda session, user_id, title, body: None)
+    with Session(engine) as session:
+        owner = User(phone="+79990006060", name="Partner", verified=True)
+        session.add(owner)
+        session.commit()
+        session.refresh(owner)
+        ad = Ad(
+            owner_id=owner.id,
+            created_by=owner.id,
+            title="Test Ad",
+            text="Text",
+            status="pending_review",
+            package="city",
+            budget_kop=100000,
+            period_days=30,
+        )
+        session.add(ad)
+        session.commit()
+        session.refresh(ad)
+        ad_id = ad.id
+
+    headers = {"x-telegram-bot-api-secret-token": "secret"}
+    forbidden = client.post(
+        "/telegram/webhook",
+        headers=headers,
+        json={
+            "callback_query": {
+                "id": "ad0",
+                "from": {"id": 1},
+                "data": f"ad:ok:{ad_id}",
+                "message": {"message_id": 20, "chat": {"id": 1}},
+            }
+        },
+    )
+    assert forbidden.status_code == 200
+    with Session(engine) as session:
+        assert session.get(Ad, ad_id).status == "pending_review"
+
+    approved = client.post(
+        "/telegram/webhook",
+        headers=headers,
+        json={
+            "callback_query": {
+                "id": "ad1",
+                "from": {"id": 5141534025},
+                "data": f"ad:ok:{ad_id}",
+                "message": {"message_id": 21, "chat": {"id": 5141534025}},
+            }
+        },
+    )
+    assert approved.status_code == 200
+    with Session(engine) as session:
+        ad = session.get(Ad, ad_id)
+        assert ad.status == "active"
+        assert ad.reject_reason == ""
+        assert ad.reviewed_at is not None
+
+
+def test_admin_telegram_callback_confirms_and_rejects_payment(monkeypatch, client):
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "5141534025")
+    monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: None)
+    with Session(engine) as session:
+        driver = User(phone="+79990007070", name="Pay Driver", verified=True)
+        donor = User(phone="+79990007071", name="Donor", verified=True)
+        session.add(driver)
+        session.add(donor)
+        session.commit()
+        session.refresh(driver)
+        session.refresh(donor)
+        ride = Ride(driver_id=driver.id, from_city="Ufa", to_city="Sibay", depart_at=utcnow() + timedelta(days=1))
+        session.add(ride)
+        session.commit()
+        session.refresh(ride)
+        boost_payment = Payment(
+            user_id=driver.id,
+            purpose="boost",
+            ride_id=ride.id,
+            tier="day",
+            amount_kop=49000,
+            status="pending",
+        )
+        donate_payment = Payment(user_id=donor.id, purpose="donate", amount_kop=10000, status="pending")
+        session.add(boost_payment)
+        session.add(donate_payment)
+        session.commit()
+        session.refresh(boost_payment)
+        session.refresh(donate_payment)
+        boost_payment_id = boost_payment.id
+        donate_payment_id = donate_payment.id
+        ride_id = ride.id
+
+    headers = {"x-telegram-bot-api-secret-token": "secret"}
+    forbidden = client.post(
+        "/telegram/webhook",
+        headers=headers,
+        json={
+            "callback_query": {
+                "id": "pay0",
+                "from": {"id": 1},
+                "data": f"pay:ok:{boost_payment_id}",
+                "message": {"message_id": 30, "chat": {"id": 1}},
+            }
+        },
+    )
+    assert forbidden.status_code == 200
+    with Session(engine) as session:
+        assert session.get(Payment, boost_payment_id).status == "pending"
+        assert session.get(Ride, ride_id).boosted_until is None
+
+    approved = client.post(
+        "/telegram/webhook",
+        headers=headers,
+        json={
+            "callback_query": {
+                "id": "pay1",
+                "from": {"id": 5141534025},
+                "data": f"pay:ok:{boost_payment_id}",
+                "message": {"message_id": 31, "chat": {"id": 5141534025}},
+            }
+        },
+    )
+    assert approved.status_code == 200
+    with Session(engine) as session:
+        assert session.get(Payment, boost_payment_id).status == "succeeded"
+        ride = session.get(Ride, ride_id)
+        assert ride.boosted_until is not None
+        assert ride.boost_tier == "day"
+
+    rejected = client.post(
+        "/telegram/webhook",
+        headers=headers,
+        json={
+            "callback_query": {
+                "id": "pay2",
+                "from": {"id": 5141534025},
+                "data": f"pay:no:{donate_payment_id}",
+                "message": {"message_id": 32, "chat": {"id": 5141534025}},
+            }
+        },
+    )
+    assert rejected.status_code == 200
+    with Session(engine) as session:
+        assert session.get(Payment, donate_payment_id).status == "canceled"
 
 
 def test_account_refresh_profile_and_push_edges(client, user_factory):
