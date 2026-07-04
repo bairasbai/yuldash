@@ -1,5 +1,6 @@
 """Семейный контроль: доверенные контакты, шаринг поездки близкому,
 статусы поездки (сел/доехал/завершил) с SMS-уведомлением, оценки после поездки."""
+import re
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +14,9 @@ from ..services import booking_and_ride_for_user, send_text, user_rating
 
 router = APIRouter(tags=["family"])
 
+MAX_TRUSTED_CONTACTS = 10          # разумный потолок «своих» → анти-SMS-бомбинг (каждый SOS/статус шлёт SMS всем)
+_PHONE_RE = re.compile(r"^\+?\d{10,15}$")   # телефон-получатель SMS: 10–15 цифр, опц. ведущий +
+
 
 class ContactIn(BaseModel):
     name: str = Field(..., max_length=120)
@@ -23,7 +27,17 @@ class ContactIn(BaseModel):
 
 @router.post("/trusted-contacts", response_model=TrustedContact)
 def add_contact(body: ContactIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    contact = TrustedContact(user_id=user.id, **body.model_dump())
+    # Телефон доверенного — это адрес SMS за счёт платформы. Валидируем формат и держим потолок,
+    # иначе через сотни «контактов» с чужими номерами можно устроить SMS-бомбинг (SOS/трип-статус шлют всем).
+    phone = (body.phone or "").strip()
+    if phone and not _PHONE_RE.match(phone.replace(" ", "").replace("-", "")):
+        raise HTTPException(400, "Неверный номер телефона")
+    count = len(session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all())
+    if count >= MAX_TRUSTED_CONTACTS:
+        raise HTTPException(400, f"Больше {MAX_TRUSTED_CONTACTS} доверенных контактов не добавить")
+    data = body.model_dump()
+    data["phone"] = phone
+    contact = TrustedContact(user_id=user.id, **data)
     session.add(contact)
     session.commit()
     session.refresh(contact)
@@ -81,6 +95,9 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
     if not contact_ids:
         return []
     shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id, TripShare.contact_id.in_(contact_ids))).all()
+    # SMS шлём ТОЛЬКО тем, у кого статус реально сменился — иначе повторный вызов того же
+    # статуса (sat→sat) = бесконечные SMS за счёт платформы (у SOS троттл есть, тут не было).
+    changed_ids = [s.contact_id for s in shares if s.last_status != body.status]
     for share in shares:
         share.last_status = body.status
         session.add(share)
@@ -90,8 +107,8 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
     # Реально уведомляем близких по SMS о статусе поездки.
     status_text = {"sat": "сел в машину", "arrived": "доехал до места", "done": "завершил поездку"}.get(body.status, body.status)
     who = user.name or user.phone
-    for share in shares:
-        c = session.get(TrustedContact, share.contact_id)
+    for cid in changed_ids:
+        c = session.get(TrustedContact, cid)
         if c and c.phone:
             send_text(c.phone, f"Юлдаш: {who} {status_text}.")
     return shares

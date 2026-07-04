@@ -1,5 +1,4 @@
 import hashlib
-import random
 import re
 import secrets
 import string
@@ -69,7 +68,11 @@ def issue_tokens(session: Session, user_id: int) -> dict:
 
 def rotate_refresh(session: Session, raw: str) -> dict:
     """Проверить refresh, ОТОЗВАТЬ его (one-time) и выдать новую пару. Иначе 401."""
-    rt = session.exec(select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw))).first()
+    # with_for_update: блокируем строку токена → два параллельных /auth/refresh с одним
+    # refresh не пройдут оба проверку (TOCTOU) и не выдадут две пары токенов.
+    rt = session.exec(
+        select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw)).with_for_update()
+    ).first()
     if not rt or rt.revoked or rt.expires_at < utcnow():
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
     rt.revoked = True                       # ротация: старый refresh больше не работает
@@ -124,14 +127,15 @@ def _token_revoked(payload: dict, user: User) -> bool:
 
 def gen_otp() -> str:
     """6-значный код (SMS/Telegram-вход, посадочный код брони). 6 цифр — стандарт,
-    10^6 комбинаций против 10^4 → перебор на порядки дороже."""
-    return "".join(random.choices(string.digits, k=6))
+    10^6 комбинаций против 10^4 → перебор на порядки дороже.
+    `secrets`, не `random`: код входа нельзя восстановить по выборке (Mersenne предсказуем)."""
+    return "".join(secrets.choice(string.digits) for _ in range(6))
 
 
 def gen_referral_code() -> str:
     """Короткий реферальный код (буквы+цифры, без 0/O/1/I — чтобы не путать при наборе)."""
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    return "".join(random.choices(alphabet, k=6))
+    return "".join(secrets.choice(alphabet) for _ in range(6))
 
 
 def current_user(

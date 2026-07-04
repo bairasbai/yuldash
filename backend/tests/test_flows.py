@@ -377,6 +377,26 @@ def test_share_only_passenger(client, user_factory):
     assert client.post(f"/bookings/{booking['id']}/share", headers=drv["auth"], json={"contact_id": c["id"]}).status_code == 403
 
 
+def test_trusted_contact_validation_and_cap(client, user_factory):
+    """P1: анти-SMS-бомбинг — кривой номер отклоняется, число контактов ограничено."""
+    pax = user_factory("Кеп")
+    # кривой номер (буквы/короткий) → 400
+    assert client.post("/trusted-contacts", headers=pax["auth"],
+                       json={"name": "Плохой", "phone": "abc"}).status_code == 400
+    assert client.post("/trusted-contacts", headers=pax["auth"],
+                       json={"name": "Короткий", "phone": "12345"}).status_code == 400
+    # заполняем до потолка валидными номерами
+    for i in range(10):
+        r = client.post("/trusted-contacts", headers=pax["auth"],
+                        json={"name": f"К{i}", "phone": f"+7999000{i:04d}"})
+        assert r.status_code == 200, r.text
+    # 11-й — отказ
+    over = client.post("/trusted-contacts", headers=pax["auth"],
+                       json={"name": "Лишний", "phone": "+79990009999"})
+    assert over.status_code == 400
+    assert "довер" in over.json()["detail"].lower()
+
+
 def test_trip_status_bad_value(client, user_factory):
     drv, pax, ride, booking = _trip(client, user_factory)
     assert client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "wat"}).status_code == 400
@@ -746,23 +766,33 @@ def test_driver_rides_own_only(client, user_factory):
     assert client.get("/driver/rides").status_code == 401   # нужен токен
 
 
-def test_yookassa_webhook_only_known_payment(client, user_factory):
-    """P1: вебхук активирует ТОЛЬКО известный платёж; чужой/случайный id — no-op (анти-амплификация)."""
+def test_yookassa_webhook_only_known_payment(client, user_factory, monkeypatch):
+    """P1: вебхук активирует ТОЛЬКО известный платёж И только при активном yookassa;
+    чужой/случайный id — no-op (анти-амплификация); mock/sbp_manual — вебхук не активирует ничего."""
     from app.db import engine
     from app.models import Payment, Ride
-    from sqlmodel import Session, select
+    from sqlmodel import Session
     drv = user_factory("WhDrv", role=UserRole.driver)
     ride = _publish(client, drv, frm="ХукГрад", to="Сибай")
-    # эмулируем выпущенный нами yookassa-платёж (pending)
+    # эмулируем выпущенный нами платёж (pending)
     with Session(engine) as s:
         s.add(Payment(user_id=drv["id"], purpose="boost", ride_id=ride["id"], tier="day",
                       amount_kop=5000, provider_id="pid_known", status="pending"))
         s.commit()
+    # SECURITY: при провайдере != yookassa (в тестах дефолт mock) вебхук НЕ активирует даже
+    # известный платёж — иначе поддельный POST активировал бы sbp_manual/mock-платёж бесплатно.
+    assert client.post("/payments/yookassa/webhook", json={"object": {"id": "pid_known"}}).status_code == 200
+    with Session(engine) as s:
+        assert s.get(Ride, ride["id"]).boosted_until is None      # mock-провайдер → не активировано
+
+    # Дальше — реальный путь yookassa: fetch_payment замокан на succeeded.
+    monkeypatch.setattr("app.config.settings.payments_provider", "yookassa")
+    monkeypatch.setattr("app.routers.payments.fetch_payment", lambda pid: {"status": "succeeded", "metadata": {}})
     # чужой id — ничего не активирует, 200
     assert client.post("/payments/yookassa/webhook", json={"object": {"id": "pid_random_attacker"}}).status_code == 200
     with Session(engine) as s:
         assert s.get(Ride, ride["id"]).boosted_until is None      # не тронуто
-    # наш id — fetch_payment в dev возвращает succeeded → активируется
+    # наш id + yookassa → активируется
     assert client.post("/payments/yookassa/webhook", json={"object": {"id": "pid_known"}}).status_code == 200
     with Session(engine) as s:
         assert s.get(Ride, ride["id"]).boosted_until is not None   # поднято

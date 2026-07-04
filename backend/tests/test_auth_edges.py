@@ -71,6 +71,34 @@ def test_auth_verify_rejects_missing_expired_and_too_many_attempts(client):
     assert client.post("/auth/verify", json={"phone": "+79990002022", "code": "222222"}).status_code == 429
 
 
+def test_otp_is_single_use(client):
+    """P1: код входа одноразовый — после успешной сверки повторный вход тем же кодом не проходит."""
+    phone = "+79990002030"
+    code = client.post("/auth/request-code", json={"phone": phone}).json()["dev_code"]
+    ok = client.post("/auth/verify", json={"phone": phone, "code": code, "name": "Раз"})
+    assert ok.status_code == 200, ok.text
+    # тот же код второй раз — код погашен (удалён) → 400, не пускаем
+    again = client.post("/auth/verify", json={"phone": phone, "code": code})
+    assert again.status_code == 400
+
+
+def test_seed_demo_forbidden_in_prod(monkeypatch):
+    """P2: прод-гвард запрещает seed_demo (фейковые водители в реальной БД)."""
+    from app.config import Settings
+    s = Settings(env="prod", jwt_secret="x" * 20, cors_origins="https://yulbash.ru",
+                 payments_provider="sbp_manual", sbp_phone="+79990000000",
+                 database_url="postgresql://x", media_base_url="https://yulbash.ru",
+                 seed_demo=True)
+    try:
+        s.validate_production()
+        assert False, "ожидали RuntimeError на seed_demo=True в проде"
+    except RuntimeError as e:
+        assert "SEED_DEMO" in str(e)
+    # с выключенным seed_demo та же конфигурация валидна
+    s2 = s.model_copy(update={"seed_demo": False})
+    s2.validate_production()   # не бросает
+
+
 def test_tg_verify_states_and_phone_conflict(monkeypatch, client):
     monkeypatch.setattr(settings, "admin_telegram_chat_id", "")
     with Session(engine) as session:

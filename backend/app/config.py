@@ -113,6 +113,9 @@ class Settings(BaseSettings):
             problems.append("TELEGRAM_WEBHOOK_SECRET обязателен при заданном TELEGRAM_BOT_TOKEN")
         if self.cors_origins.strip() == "*":
             problems.append("CORS_ORIGINS не должен быть '*' в проде")
+        # seed_demo в проде насыпает фейковых водителей (+7000000000X) как реальные аккаунты в пустую БД.
+        if self.seed_demo:
+            problems.append("SEED_DEMO должен быть выключен в проде (фейковые водители в реальной БД)")
         # mock-платежи в проде = «оплата» без денег. Включён реальный приём → ключи/реквизиты обязательны.
         if self.payments_provider == "yookassa" and not (self.yookassa_shop_id and self.yookassa_secret_key):
             problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")

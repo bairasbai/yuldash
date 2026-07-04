@@ -346,7 +346,11 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     resp = session.get(RequestResponse, response_id)
     if not resp:
         raise HTTPException(404, "Отклик не найден")
-    req = session.get(RideRequest, resp.request_id)
+    # with_for_update на заявке: два параллельных accept разных откликов не пройдут оба
+    # проверку status=="active" (иначе — две Ride+Booking на одну заявку, два водителя за одним пассажиром).
+    req = session.exec(
+        select(RideRequest).where(RideRequest.id == resp.request_id).with_for_update()
+    ).first()
     if not req:
         raise HTTPException(404, "Заявка не найдена")
     if req.passenger_id != user.id and user.role != UserRole.admin:   # админ принимает ЗА юзера (без интернета)
