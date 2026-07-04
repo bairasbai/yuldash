@@ -268,6 +268,7 @@ internal fun isLoginCodeValid(code: String): Boolean = code.trim().length == 6
 // по тегу (проверить disabled/двойной тап). На вид/поведение не влияют.
 internal const val TAG_LOGIN_TELEGRAM_BTN = "login_telegram_btn"   // экран выбора: «Войти через Telegram»
 internal const val TAG_LOGIN_TG_VERIFY_BTN = "login_tg_verify_btn" // шаг Telegram-кода: «Войти»
+internal const val TAG_LOGIN_SMS_PRIMARY_BTN = "login_sms_primary_btn" // SMS-форма (заморожена): «Получить код»/«Войти»
 
 @Composable
 internal fun LoginScreen(
@@ -599,92 +600,22 @@ internal fun LoginFormContent(
             // VK и WhatsApp убраны: VK требует ИНН (бизнес), WhatsApp — WhatsApp Business API. Оба недоступны физлицу.
             // SMS-вход ЗАМОРОЖЕН (нет юр.лица для sms.ru). Форма цела — видна только при SMS_LOGIN_ENABLED.
             if (BuildConfig.SMS_LOGIN_ENABLED) {
-            LoginDivider(currentLanguage)
-            OutlinedButton(
-                onClick = onToggleSmsForm,
-                modifier = Modifier.fillMaxWidth().height(64.dp),
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, CanonGreen2),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = CanonGreen2)
-            ) {
-                Icon(Icons.Default.Phone, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(26.dp))
-                Spacer(Modifier.width(14.dp))
-                Text(appTextFor(currentLanguage, "Войти по номеру телефона", "Телефон номеры аша инеү"), color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            }
-            if (showPhone) {
-            Text(
-                text = if (step == 0) appTextFor(currentLanguage, "Номер будет скрыт до подтверждения брони.", "Телефон номеры бронь раҫланғанға тиклем йәшерелә.")
-                else appTextFor(currentLanguage, "Код отправлен на $phone", "Код $phone номерыңа ебәрелде"),
-                color = CanonMuted,
-                fontSize = 16.sp,
-                lineHeight = 22.sp
-            )
-            if (step == 0) {
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = onPhoneChange,
-                    placeholder = { Text(appTextFor(currentLanguage, "Номер телефона", "Телефон номеры"), fontSize = 16.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonMuted)
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp),
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp)
+                LoginSmsSection(
+                    currentLanguage = currentLanguage,
+                    step = step,
+                    phone = phone,
+                    code = code,
+                    name = name,
+                    loading = loading,
+                    error = error,
+                    showPhone = showPhone,
+                    onPhoneChange = onPhoneChange,
+                    onCodeChange = onCodeChange,
+                    onNameChange = onNameChange,
+                    onToggleSmsForm = onToggleSmsForm,
+                    onChangePhone = onChangePhone,
+                    onSmsPrimary = onSmsPrimary,
                 )
-            } else {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = onNameChange,
-                    placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = 16.sp) },
-                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted) },
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp)
-                )
-                OutlinedTextField(
-                    value = code,
-                    onValueChange = onCodeChange,
-                    placeholder = { Text(appTextFor(currentLanguage, "Код из SMS", "SMS коды"), fontSize = 16.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted)
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp),
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp)
-                )
-                TextButton(onClick = onChangePhone) {
-                    Text(appTextFor(currentLanguage, "Изменить номер", "Номерҙы үҙгәртеү"), color = CanonGreen2)
-                }
-            }
-            error?.let {
-                Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp)
-            }
-            Button(
-                onClick = onSmsPrimary,
-                enabled = !loading,   // гард двойного тапа; пустое поле ловит колбэк (показывает ошибку) — поведение 1:1
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-            ) {
-                if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                } else {
-                    Text(
-                        text = if (step == 0) appTextFor(currentLanguage, "Получить код", "Код алыу") else appTextFor(currentLanguage, "Войти", "Инеү"),
-                        fontWeight = FontWeight.Black,
-                        fontSize = 16.sp
-                    )
-                }
-            }
-            }   // конец if (showPhone)
             }   // конец if (BuildConfig.SMS_LOGIN_ENABLED) — SMS-вход заморожен
             Spacer(Modifier.height(6.dp))
             LoginConsent(
@@ -694,6 +625,120 @@ internal fun LoginFormContent(
             }   // конец else (tgMode == false) — экран выбора входа
         }
     }
+}
+
+/**
+ * Замороженная SMS-форма входа (видна только при [BuildConfig.SMS_LOGIN_ENABLED]). Чистый рендер на
+ * колбэках — вынесен из [LoginFormContent] в `ColumnScope`-extension, чтобы элементы раскладывались
+ * в тот же родительский Column (тот же `spacedBy(16.dp)`, вёрстка 1:1). `internal` → тестируется на
+ * JVM (Robolectric) НАПРЯМУЮ, минуя build-флаг, который в unit-сборке всегда false. Логика 1:1 с прежним
+ * инлайн-блоком: разделитель, тумблер SMS-формы, поля телефона/имени/кода по [step], ошибка, primary-кнопка
+ * (disabled при [loading] — гард двойного тапа; пустое поле ловит колбэк [onSmsPrimary]).
+ */
+@Composable
+internal fun ColumnScope.LoginSmsSection(
+    currentLanguage: AppLanguage,
+    step: Int,
+    phone: String,
+    code: String,
+    name: String,
+    loading: Boolean,
+    error: String?,
+    showPhone: Boolean,
+    onPhoneChange: (String) -> Unit,
+    onCodeChange: (String) -> Unit,
+    onNameChange: (String) -> Unit,
+    onToggleSmsForm: () -> Unit,
+    onChangePhone: () -> Unit,
+    onSmsPrimary: () -> Unit,
+) {
+    LoginDivider(currentLanguage)
+    OutlinedButton(
+        onClick = onToggleSmsForm,
+        modifier = Modifier.fillMaxWidth().height(64.dp),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, CanonGreen2),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = CanonGreen2)
+    ) {
+        Icon(Icons.Default.Phone, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(26.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(appTextFor(currentLanguage, "Войти по номеру телефона", "Телефон номеры аша инеү"), color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    }
+    if (showPhone) {
+        Text(
+            text = if (step == 0) appTextFor(currentLanguage, "Номер будет скрыт до подтверждения брони.", "Телефон номеры бронь раҫланғанға тиклем йәшерелә.")
+            else appTextFor(currentLanguage, "Код отправлен на $phone", "Код $phone номерыңа ебәрелде"),
+            color = CanonMuted,
+            fontSize = 16.sp,
+            lineHeight = 22.sp
+        )
+        if (step == 0) {
+            OutlinedTextField(
+                value = phone,
+                onValueChange = onPhoneChange,
+                placeholder = { Text(appTextFor(currentLanguage, "Номер телефона", "Телефон номеры"), fontSize = 16.sp) },
+                leadingIcon = {
+                    Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonMuted)
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp),
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp)
+            )
+        } else {
+            OutlinedTextField(
+                value = name,
+                onValueChange = onNameChange,
+                placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = 16.sp) },
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted) },
+                modifier = Modifier.fillMaxWidth().height(58.dp),
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp)
+            )
+            OutlinedTextField(
+                value = code,
+                onValueChange = onCodeChange,
+                placeholder = { Text(appTextFor(currentLanguage, "Код из SMS", "SMS коды"), fontSize = 16.sp) },
+                leadingIcon = {
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted)
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp),
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp)
+            )
+            TextButton(onClick = onChangePhone) {
+                Text(appTextFor(currentLanguage, "Изменить номер", "Номерҙы үҙгәртеү"), color = CanonGreen2)
+            }
+        }
+        error?.let {
+            Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp)
+        }
+        Button(
+            onClick = onSmsPrimary,
+            enabled = !loading,   // гард двойного тапа; пустое поле ловит колбэк (показывает ошибку) — поведение 1:1
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .testTag(TAG_LOGIN_SMS_PRIMARY_BTN),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+        ) {
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+            } else {
+                Text(
+                    text = if (step == 0) appTextFor(currentLanguage, "Получить код", "Код алыу") else appTextFor(currentLanguage, "Войти", "Инеү"),
+                    fontWeight = FontWeight.Black,
+                    fontSize = 16.sp
+                )
+            }
+        }
+    }   // конец if (showPhone)
 }
 
 @Composable

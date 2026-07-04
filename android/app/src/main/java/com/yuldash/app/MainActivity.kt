@@ -412,10 +412,10 @@ internal fun Ride.timeText(): String = appText(time, timeBa ?: time)
 internal fun Ride.carText(): String = appText(car, carBa ?: car)
 
 @Composable
-private fun PopularRoute.minutesText(): String = appText(minutes, minutesBa ?: minutes)
+internal fun PopularRoute.minutesText(): String = appText(minutes, minutesBa ?: minutes)
 
 @Composable
-private fun PopularRoute.labelText(): String = appText(label, labelBa ?: label)
+internal fun PopularRoute.labelText(): String = appText(label, labelBa ?: label)
 
 @Composable
 internal fun TrustedContact.relationText(): String = appText(relation, relationBa ?: relation)
