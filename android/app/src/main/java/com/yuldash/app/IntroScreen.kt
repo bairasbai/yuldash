@@ -68,8 +68,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Размотка Compose-контекста (часто ContextWrapper) до Activity — чтобы достать window для иконок статус-бара. */
-private fun Context.findActivityCompat(): Activity? {
+/** Размотка Compose-контекста (часто ContextWrapper) до Activity — чтобы достать window для иконок статус-бара.
+ *  `internal` (а не private) — чистая логика размотки, покрываем на JVM без Compose. Поведение не меняется. */
+internal fun Context.findActivityCompat(): Activity? {
     var c: Context? = this
     while (c is ContextWrapper) { if (c is Activity) return c; c = c.baseContext }
     return null
@@ -98,9 +99,11 @@ internal fun introSlogan(language: AppLanguage): String =
     if (language == AppLanguage.Ba) INTRO_SLOGAN_BA else INTRO_SLOGAN_RU
 
 /** Слово ПО БУКВАМ (stagger) — для «смысла» (Попутчик): по-человечески, скромно.
- *  Появление: fade + подъём (EaseOutExpo). Уход: каскад вверх (морф в бренд). */
+ *  Появление: fade + подъём (EaseOutExpo). Уход: каскад вверх (морф в бренд).
+ *  `internal` (а не private) — статичный компонент (Row из AnimatedVisibility по буквам), рендерится на
+ *  JVM (Robolectric) при `visible=true` без бесконечных анимаций. Поведение не меняется. */
 @Composable
-private fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
+internal fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
     Row {
         text.forEachIndexed { i, ch ->
             AnimatedVisibility(
