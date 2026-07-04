@@ -1454,41 +1454,17 @@ internal fun HomeScreen(
     onAccountDeleted: () -> Unit = {},
     onTabChange: (HomeTab) -> Unit = {}
 ) {
-    var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
-    // Текущую вкладку Home прокидываем наверх (startHomeTab) → «Назад» из под-экранов вернётся НА НЕЁ, а не на Карту.
-    LaunchedEffect(selectedTab) { onTabChange(selectedTab) }
     var ridesPresetTo by remember { mutableStateOf("") }
     var ridesPresetToday by remember { mutableStateOf(false) }
 
-    fun openRides(to: String = "", today: Boolean = false) {
-        ridesPresetTo = to
-        ridesPresetToday = today
-        selectedTab = HomeTab.Rides
-    }
-
-    BackHandler(enabled = selectedTab != HomeTab.Map) {
-        selectedTab = HomeTab.Map
-    }
-
-    Scaffold(
-        containerColor = CanonBg,
-        bottomBar = {
-            YuldashBottomBar(
-                selectedTab = selectedTab,
-                onSelect = { selectedTab = it }
-            )
-        }
-    ) { padding ->
-        Box(Modifier.padding(padding)) {
-            AnimatedContent(
-                targetState = selectedTab,
-                transitionSpec = {
-                    (fadeIn(animationSpec = tween(260)) +
-                        slideInVertically(animationSpec = tween(260)) { it / 18 })
-                        .togetherWith(fadeOut(animationSpec = tween(180)))
-                },
-                label = "homeTab"
-            ) { tab ->
+    // Шелл (таб-стейт + нижнее меню + смена вкладок) вынесен в чистый HomeShell — тестируется на JVM.
+    // HomeScreen остаётся «умной» обёрткой: раздаёт данные/колбэки в тело конкретной вкладки.
+    HomeShell(initialTab = initialTab, onTabChange = onTabChange) { tab, selectTab ->
+            fun openRides(to: String = "", today: Boolean = false) {
+                ridesPresetTo = to
+                ridesPresetToday = today
+                selectTab(HomeTab.Rides)
+            }
             when (tab) {
                 HomeTab.Map -> MapScreen(
                     rides = rides,
@@ -1513,10 +1489,10 @@ internal fun HomeScreen(
                     onBookRide = onBookRide,
                     onOpenBookingDetails = onOpenBookingDetails,
                     onOpenActiveTrip = onOpenActiveTrip,
-                    onMessage = { selectedTab = HomeTab.Chat },
+                    onMessage = { selectTab(HomeTab.Chat) },
                     onShareRide = onShareRide,
                     onBoost = onBoost,
-                    onCreateRequest = { selectedTab = HomeTab.Request },
+                    onCreateRequest = { selectTab(HomeTab.Request) },
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick
                 )
@@ -1557,6 +1533,49 @@ internal fun HomeScreen(
                     onAdClick = onAdClick
                 )
             }
+    }
+}
+
+/**
+ * Чистый шелл главного экрана: держит выбранную вкладку (переживает поворот), рисует Scaffold с нижним
+ * меню (YuldashBottomBar) и анимированно переключает тело вкладки. Тело каждой вкладки приходит слотом
+ * `tabContent(tab, selectTab)` — так HomeShell не знает про данные/сеть и тестируется на JVM (Robolectric).
+ * Аппаратная «Назад» с любой вкладки, кроме Карты, возвращает на Карту. Смену вкладки прокидываем наверх
+ * (onTabChange) — чтобы «Назад» с под-экранов возвращался на активную вкладку, а не на Карту.
+ */
+@Composable
+internal fun HomeShell(
+    initialTab: HomeTab,
+    onTabChange: (HomeTab) -> Unit = {},
+    tabContent: @Composable (tab: HomeTab, selectTab: (HomeTab) -> Unit) -> Unit,
+) {
+    var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
+    LaunchedEffect(selectedTab) { onTabChange(selectedTab) }
+
+    BackHandler(enabled = selectedTab != HomeTab.Map) {
+        selectedTab = HomeTab.Map
+    }
+
+    Scaffold(
+        containerColor = CanonBg,
+        bottomBar = {
+            YuldashBottomBar(
+                selectedTab = selectedTab,
+                onSelect = { selectedTab = it }
+            )
+        }
+    ) { padding ->
+        Box(Modifier.padding(padding)) {
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    (fadeIn(animationSpec = tween(260)) +
+                        slideInVertically(animationSpec = tween(260)) { it / 18 })
+                        .togetherWith(fadeOut(animationSpec = tween(180)))
+                },
+                label = "homeTab"
+            ) { tab ->
+                tabContent(tab) { selectedTab = it }
             }
         }
     }

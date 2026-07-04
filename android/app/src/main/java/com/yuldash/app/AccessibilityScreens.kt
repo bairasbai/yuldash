@@ -397,7 +397,7 @@ internal fun AddressSuggestField(
 }
 
 @Composable
-private fun LocalRequestCard(request: LocalRequest) {
+internal fun LocalRequestCard(request: LocalRequest) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

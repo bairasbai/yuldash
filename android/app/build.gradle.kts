@@ -101,7 +101,7 @@ android {
         applicationId = "com.yuldash.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
+        versionCode = 2
         versionName = "0.1.0"
         // Рунер инструментальных тестов (без него AGP берёт легаси android.test.* → краш Compose-тестов).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -157,9 +157,11 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Только arm64 в релизе → APK меньше (MapKit нативные либы). Покрывает ~все телефоны с 2017.
-            // Debug остаётся универсальным (эмулятор x86_64 работает). Под Google Play — AAB-сплиты.
-            ndk { abiFilters += "arm64-v8a" }
+            // Раздача друзьям = прямой APK, не Play. Нужны ОБЕ ABI: arm64-v8a (совр. телефоны)
+            // + armeabi-v7a (старые/дешёвые 32-бит). Без v7a такой телефон при установке ловит
+            // «нет подходящей архитектуры» → «Приложение не установлено» (ловили вживую 2026-07-04).
+            // x86_64 не берём — это только эмуляторы, друзьям не нужно (лишний вес). Под Play — AAB-сплиты.
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
             if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
         }
     }
