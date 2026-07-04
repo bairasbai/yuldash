@@ -529,7 +529,7 @@ internal fun BookingScreen(
 }
 
 @Composable
-private fun BookingRouteMapPreview(
+internal fun BookingRouteMapPreview(   // internal: живой MapKit-рендер маршрута покрывается инструментальным тестом на ≤API-36 (JVM не может)
     modifier: Modifier = Modifier,
     from: String,
     to: String,

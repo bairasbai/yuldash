@@ -6,6 +6,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -44,25 +45,28 @@ class MapScreenInstrumentedTest {
         assumeTrue("Инструментальные Compose-тесты карты — только API ≤ 36", Build.VERSION.SDK_INT <= 36)
     }
 
-    /** Рендер MapScreen с пустыми данными (карта + хром); переопределяем только язык/активную поездку. */
+    /** Рендер MapScreen; данные/язык/колбэки переопределяем под тест. */
     private fun renderMap(
         language: AppLanguage = AppLanguage.Ru,
         activeTrip: Ride? = null,
+        rides: List<Ride> = emptyList(),
+        ads: List<PartnerAd> = emptyList(),
+        onDriver: () -> Unit = {},
     ) {
         composeRule.setContent {
             CompositionLocalProvider(LocalAppLanguage provides language) {
                 MapScreen(
-                    rides = emptyList(),
+                    rides = rides,
                     activeTrip = activeTrip,
-                    ads = emptyList(),
-                    adStats = emptyMap(),
+                    ads = ads,
+                    adStats = ads.associate { it.id to AdStats() },
                     onBookRide = {},
                     onShareRide = {},
                     onAdImpression = {},
                     onAdClick = {},
                     onSos = {},
                     onOpenPopular = {},
-                    onDriver = {},
+                    onDriver = onDriver,
                     onBoost = {},
                 )
             }
@@ -121,5 +125,35 @@ class MapScreenInstrumentedTest {
         Thread.sleep(2500)
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Найти поездку").assertIsDisplayed()
+    }
+
+    @Test
+    fun mapScreen_withFullData_rendersMarkersAndAds_noCrash() {
+        // Демо-поездки + реклама → карта рисует маркеры поездок (MapPins) и карточки рекламы,
+        // активная поездка → фокус маршрута. Максимум веток живого рендера MapKit за один тест.
+        val trip = Ride(
+            id = "t2", from = "Уфа", to = "Сибай", time = "10:00",
+            driver = "Айдар", car = "Kia Rio", price = 500, seats = 2,
+            rating = 4.9, verified = true, boosted = false,
+        )
+        renderMap(
+            language = AppLanguage.Ru,
+            activeTrip = trip,
+            rides = demoRides,
+            ads = demoPartnerAds,
+        )
+        composeRule.onNodeWithText("Куда поедем?").assertIsDisplayed()
+        // Даём карте нарисовать маркеры/маршрут по данным + инициализироваться.
+        Thread.sleep(3500)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Найти поездку").assertIsDisplayed()
+    }
+
+    @Test
+    fun mapScreen_iAmDriver_click_firesCallback() {
+        var driver = false
+        renderMap(AppLanguage.Ru, onDriver = { driver = true })
+        composeRule.onNodeWithText("Я водитель").performClick()
+        org.junit.Assert.assertTrue(driver)
     }
 }
