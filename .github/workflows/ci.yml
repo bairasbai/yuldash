@@ -1,14 +1,23 @@
 name: CI
 
-# Запускается при push/PR — ловит регрессии (бэкенд-тесты) автоматически.
-# Готов к работе, как только проект окажется на GitHub (git remote + push).
+# Ловит регрессии (бэкенд-тесты) автоматически.
+# Триггеры: PR (любая ветка) + push в main. Раньше было `push:` + `pull_request:` —
+# это давало ДВА прогона на каждый пуш в ветку с открытым PR (событие push + событие
+# pull_request). Теперь ветки проверяются через свой PR (одно событие), main — на push.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+
+# Новый пуш в ту же ветку/PR отменяет предыдущий незавершённый прогон — минуты не горят вхолостую.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15          # зависший тест не сожрёт дефолтные 360 минут лимита Actions
     defaults:
       run:
         working-directory: backend
@@ -17,6 +26,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip             # кеш зависимостей → быстрее прогон, меньше минут
+          cache-dependency-path: backend/requirements-dev.txt
       - name: Install deps
         run: pip install -r requirements-dev.txt
       - name: Run tests
