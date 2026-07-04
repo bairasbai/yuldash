@@ -646,182 +646,268 @@ internal fun CreatePassengerRequestScreen(
     var submitting by remember { mutableStateOf(false) }
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Создать заявку", "Заявка булдырыу"), onBack) }) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            item {
-                Text(
-                    appText("Заявка пассажира", "Пассажир заявкаһы"),
-                    color = CanonGreen,
-                    fontSize = 28.sp,
-                    lineHeight = 30.sp,
-                    fontWeight = FontWeight.Black
-                )
-            }
-            item {
-                InfoCard(
-                    title = appText("Водители увидят условия", "Водителдәр шарттарҙы күрә"),
-                    text = appText("Телефон и точная геолокация откроются только после подтверждения поездки.", "Телефон һәм теүәл геолокация сәфәр раҫланғандан һуң ғына асыла."),
-                    icon = Icons.Default.Lock
-                )
-            }
-            item { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) }
-            item { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) }
-            item {
-                val ctxDt = LocalContext.current
-                // Нативный календарь Android: башкирской локали (ba) в системе нет → русский для обоих языков (вместо англ.).
-                val dtLocale = "ru"
-                Box {
-                    OutlinedTextField(
-                        value = time,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
-                        placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
-                        trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                    Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt, dtLocale) { time = it } })
+        CreatePassengerRequestContent(
+            from = from, to = to, time = time, seats = seats, category = category, price = price,
+            comment = comment, categories = categories, selectedCategoryText = selectedCategoryText,
+            womenOnly = womenOnly, childSeat = childSeat, pets = pets, wheelchair = wheelchair,
+            baggage = baggage, nonSmoking = nonSmoking, airConditioner = airConditioner,
+            loading = submitting,
+            onCategoryChange = { category = it }, onSeatsChange = { seats = it }, onPriceChange = { price = it },
+            onCommentChange = { comment = it }, onTimeChange = { time = it },
+            onWomenOnlyChange = { womenOnly = it }, onChildSeatChange = { childSeat = it },
+            onPetsChange = { pets = it }, onWheelchairChange = { wheelchair = it },
+            onBaggageChange = { baggage = it }, onNonSmokingChange = { nonSmoking = it },
+            onAirConditionerChange = { airConditioner = it },
+            onSubmit = {
+                if (submitting) return@CreatePassengerRequestContent   // гард двойного нажатия
+                val (apiCat, withKids) = when (category) {
+                    "urgent" -> "urgent" to false
+                    "parcel" -> "parcel" to false
+                    "cargo" -> "cargo" to false
+                    "kids" -> "regular" to true
+                    else -> "regular" to false
                 }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = seats,
-                        onValueChange = { seats = it.filter(Char::isDigit).take(2) },
-                        label = { Text(appText("Мест", "Урын")) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(16.dp)
+                val priceVal = price.toIntOrNull() ?: 0
+                // Выбранное «dd.MM.yyyy, HH:mm» → ISO для сервера (иначе желаемое время терялось).
+                val desiredIso = runCatching {
+                    val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(time)
+                    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(picked!!)
+                }.getOrNull()
+                submitting = true
+                scope.launch {
+                    // Ждём ответ сервера: «создано» показываем только при реальном успехе POST.
+                    ApiClient.createRequest(
+                        from.trim(), to.trim(),
+                        seats.toIntOrNull() ?: 1,
+                        apiCat, withKids, comment.trim(), priceVal,
+                        assisted = true,   // заявка за близкого → уведомить админа
+                        desiredAt = desiredIso,
+                        womenOnly = womenOnly, childSeat = childSeat, pets = pets,
+                        wheelchair = wheelchair, nonSmoking = nonSmoking,
+                        airConditioner = airConditioner, baggage = baggage,
                     )
-                    OutlinedTextField(
-                        value = price,
-                        onValueChange = { price = it.filter(Char::isDigit).take(5) },
-                        label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                }
-            }
-            item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(categories, key = { it.first }) { (key, label) ->
-                        val labelText = label.text()
-                        if (category == key) {
-                            Button(
-                                onClick = { category = key },
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                            ) { Text(labelText, fontWeight = FontWeight.Bold) }
-                        } else {
-                            OutlinedButton(
-                                onClick = { category = key },
-                                shape = RoundedCornerShape(16.dp)
-                            ) { Text(labelText, fontWeight = FontWeight.Bold) }
+                        .onSuccess { newId ->
+                            onCreateRequest(
+                                LocalRequest(
+                                    title = selectedCategoryText,
+                                    route = "$from → $to",
+                                    time = time,
+                                    passenger = (ApiClient.cachedName() ?: "Я"),
+                                    status = waitingStatus,
+                                    price = priceVal,
+                                    trustedContact = comment.ifBlank { null },
+                                    serverId = newId   // сразу с id → кнопка «Отменить» без ожидания reload
+                                )
+                            )
                         }
-                    }
+                        .onFailure {
+                            submitting = false
+                            Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
+                        }
                 }
-            }
-            item {
-                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.padding(vertical = 6.dp)) {
-                        Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
-                        PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly) { womenOnly = it }
-                        PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), childSeat) { childSeat = it }
-                        PrefToggleRow(Icons.Default.Pets, appText("Еду с животным", "Хайуан менән"), pets) { pets = it }
-                        PrefToggleRow(Icons.Default.Person, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair) { wheelchair = it }
-                        PrefToggleRow(Icons.Default.Luggage, appText("Есть багаж", "Багаж бар"), baggage) { baggage = it }
-                        PrefToggleRow(Icons.Default.Block, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking) { nonSmoking = it }
-                        PrefToggleRow(Icons.Default.AcUnit, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner) { airConditioner = it }
-                    }
-                }
-            }
-            item {
+            },
+            // Поля адреса с гео-подсказками (собственный эффект) — слотами, чтобы Content остался чистым.
+            fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
+            toField = { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Чистая валидация формы «Заявка пассажира»: обязательны маршрут (откуда/куда), дата/время и цена.
+ * Кнопка «Создать заявку» = enabled только когда все четыре заполнены (и не идёт отправка).
+ * Без Compose/сети → тестируется прямым вызовом на JVM. «Плохие» кейсы: любое пустое поле → false.
+ */
+internal fun passengerRequestValid(from: String, to: String, time: String, price: String): Boolean =
+    from.isNotBlank() && to.isNotBlank() && time.isNotBlank() && price.isNotBlank()
+
+/**
+ * Чистый рендер формы «Заявка пассажира»: весь стейт — параметрами, отправка — колбэком [onSubmit].
+ * Импур-поля адреса (гео-подсказки) приняты слотами [fromField]/[toField]; в тесте/фолбэке рисуются
+ * простые поля с тем же вводом. Кнопка «Создать заявку» блокируется при [loading] (гард двойного
+ * нажатия) и когда форма невалидна ([passengerRequestValid]). Тестируется на JVM (Robolectric).
+ */
+@Composable
+internal fun CreatePassengerRequestContent(
+    from: String,
+    to: String,
+    time: String,
+    seats: String,
+    category: String,
+    price: String,
+    comment: String,
+    categories: List<Pair<String, LocalizedText>>,
+    selectedCategoryText: String,
+    womenOnly: Boolean,
+    childSeat: Boolean,
+    pets: Boolean,
+    wheelchair: Boolean,
+    baggage: Boolean,
+    nonSmoking: Boolean,
+    airConditioner: Boolean,
+    loading: Boolean,
+    onCategoryChange: (String) -> Unit,
+    onSeatsChange: (String) -> Unit,
+    onPriceChange: (String) -> Unit,
+    onCommentChange: (String) -> Unit,
+    onTimeChange: (String) -> Unit,
+    onWomenOnlyChange: (Boolean) -> Unit,
+    onChildSeatChange: (Boolean) -> Unit,
+    onPetsChange: (Boolean) -> Unit,
+    onWheelchairChange: (Boolean) -> Unit,
+    onBaggageChange: (Boolean) -> Unit,
+    onNonSmokingChange: (Boolean) -> Unit,
+    onAirConditionerChange: (Boolean) -> Unit,
+    onSubmit: () -> Unit,
+    fromField: (@Composable () -> Unit)? = null,
+    toField: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item {
+            Text(
+                appText("Заявка пассажира", "Пассажир заявкаһы"),
+                color = CanonGreen,
+                fontSize = 28.sp,
+                lineHeight = 30.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
+        item {
+            InfoCard(
+                title = appText("Водители увидят условия", "Водителдәр шарттарҙы күрә"),
+                text = appText("Телефон и точная геолокация откроются только после подтверждения поездки.", "Телефон һәм теүәл геолокация сәфәр раҫланғандан һуң ғына асыла."),
+                icon = Icons.Default.Lock
+            )
+        }
+        item {
+            if (fromField != null) fromField() else OutlinedTextField(
+                value = from, onValueChange = {},
+                label = { Text(appText("Откуда", "Ҡайҙан")) },
+                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+            )
+        }
+        item {
+            if (toField != null) toField() else OutlinedTextField(
+                value = to, onValueChange = {},
+                label = { Text(appText("Куда", "Ҡайҙа")) },
+                leadingIcon = { Icon(Icons.Default.NearMe, contentDescription = null) },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
+            )
+        }
+        item {
+            val ctxDt = LocalContext.current
+            // Нативный календарь Android: башкирской локали (ba) в системе нет → русский для обоих языков (вместо англ.).
+            val dtLocale = "ru"
+            Box {
                 OutlinedTextField(
-                    value = comment,
-                    onValueChange = { comment = it },
-                    label = { Text(appText("Комментарий", "Комментарий")) },
-                    placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
+                    value = time,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
+                    placeholder = { Text(appText("Выберите дату и время", "Дата һәм ваҡыт һайлағыҙ")) },
+                    trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                Box(Modifier.matchParentSize().clickable { openDateTimePicker(ctxDt, dtLocale, onTimeChange) })
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = seats,
+                    onValueChange = { onSeatsChange(it.filter(Char::isDigit).take(2)) },
+                    label = { Text(appText("Мест", "Урын")) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                OutlinedTextField(
+                    value = price,
+                    onValueChange = { onPriceChange(it.filter(Char::isDigit).take(5)) },
+                    label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(16.dp)
                 )
             }
-            item {
-                VoiceParsedCard(
-                    title = appText("Проверка заявки", "Заявканы тикшереү"),
-                    lines = listOf(
-                        CheckLine("$from → $to", from.isNotBlank() && to.isNotBlank()),
-                        // Дата/время — обязательное поле: пока не выбрано, показываем серой строкой (кнопка тоже неактивна).
-                        CheckLine(
-                            time.takeIf { it.isNotBlank() } ?: appText("Дата и время не выбраны", "Дата һәм ваҡыт һайланмаған"),
-                            time.isNotBlank()
-                        ),
-                        CheckLine(
-                            listOf("$seats ${appText("место", "урын")}", selectedCategoryText).joinToString(" · "),
-                            seats.isNotBlank()
-                        ),
-                        CheckLine(appText("Готовая сумма: $price ₽", "Әҙер сумма: $price ₽"), price.isNotBlank())
-                    )
-                )
+        }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(categories, key = { it.first }) { (key, label) ->
+                    val labelText = label.text()
+                    if (category == key) {
+                        Button(
+                            onClick = { onCategoryChange(key) },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                        ) { Text(labelText, fontWeight = FontWeight.Bold) }
+                    } else {
+                        OutlinedButton(
+                            onClick = { onCategoryChange(key) },
+                            shape = RoundedCornerShape(16.dp)
+                        ) { Text(labelText, fontWeight = FontWeight.Bold) }
+                    }
+                }
             }
-            item {
-                AppButton(
-                    text = appText("Создать заявку", "Заявка булдырыу"),
-                    loading = submitting,
-                    onClick = {
-                        val (apiCat, withKids) = when (category) {
-                            "urgent" -> "urgent" to false
-                            "parcel" -> "parcel" to false
-                            "cargo" -> "cargo" to false
-                            "kids" -> "regular" to true
-                            else -> "regular" to false
-                        }
-                        val priceVal = price.toIntOrNull() ?: 0
-                        // Выбранное «dd.MM.yyyy, HH:mm» → ISO для сервера (иначе желаемое время терялось).
-                        val desiredIso = runCatching {
-                            val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(time)
-                            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(picked!!)
-                        }.getOrNull()
-                        submitting = true
-                        scope.launch {
-                            // Ждём ответ сервера: «создано» показываем только при реальном успехе POST.
-                            ApiClient.createRequest(
-                                from.trim(), to.trim(),
-                                seats.toIntOrNull() ?: 1,
-                                apiCat, withKids, comment.trim(), priceVal,
-                                assisted = true,   // заявка за близкого → уведомить админа
-                                desiredAt = desiredIso,
-                                womenOnly = womenOnly, childSeat = childSeat, pets = pets,
-                                wheelchair = wheelchair, nonSmoking = nonSmoking,
-                                airConditioner = airConditioner, baggage = baggage,
-                            )
-                                .onSuccess { newId ->
-                                    onCreateRequest(
-                                        LocalRequest(
-                                            title = selectedCategoryText,
-                                            route = "$from → $to",
-                                            time = time,
-                                            passenger = (ApiClient.cachedName() ?: "Я"),
-                                            status = waitingStatus,
-                                            price = priceVal,
-                                            trustedContact = comment.ifBlank { null },
-                                            serverId = newId   // сразу с id → кнопка «Отменить» без ожидания reload
-                                        )
-                                    )
-                                }
-                                .onFailure {
-                                    submitting = false
-                                    Toast.makeText(context, sendError, Toast.LENGTH_LONG).show()
-                                }
-                        }
-                    },
-                    enabled = from.isNotBlank() && to.isNotBlank() && time.isNotBlank() && price.isNotBlank() && !submitting
-                )
+        }
+        item {
+            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                    PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
+                    PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), childSeat, onChildSeatChange)
+                    PrefToggleRow(Icons.Default.Pets, appText("Еду с животным", "Хайуан менән"), pets, onPetsChange)
+                    PrefToggleRow(Icons.Default.Person, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair, onWheelchairChange)
+                    PrefToggleRow(Icons.Default.Luggage, appText("Есть багаж", "Багаж бар"), baggage, onBaggageChange)
+                    PrefToggleRow(Icons.Default.Block, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking, onNonSmokingChange)
+                    PrefToggleRow(Icons.Default.AcUnit, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
+                }
             }
+        }
+        item {
+            OutlinedTextField(
+                value = comment,
+                onValueChange = onCommentChange,
+                label = { Text(appText("Комментарий", "Комментарий")) },
+                placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+        item {
+            VoiceParsedCard(
+                title = appText("Проверка заявки", "Заявканы тикшереү"),
+                lines = listOf(
+                    CheckLine("$from → $to", from.isNotBlank() && to.isNotBlank()),
+                    // Дата/время — обязательное поле: пока не выбрано, показываем серой строкой (кнопка тоже неактивна).
+                    CheckLine(
+                        time.takeIf { it.isNotBlank() } ?: appText("Дата и время не выбраны", "Дата һәм ваҡыт һайланмаған"),
+                        time.isNotBlank()
+                    ),
+                    CheckLine(
+                        listOf("$seats ${appText("место", "урын")}", selectedCategoryText).joinToString(" · "),
+                        seats.isNotBlank()
+                    ),
+                    CheckLine(appText("Готовая сумма: $price ₽", "Әҙер сумма: $price ₽"), price.isNotBlank())
+                )
+            )
+        }
+        item {
+            AppButton(
+                text = appText("Создать заявку", "Заявка булдырыу"),
+                loading = loading,
+                onClick = onSubmit,
+                enabled = !loading && passengerRequestValid(from, to, time, price),
+                modifier = Modifier.testTag("passenger_submit_btn"),
+            )
         }
     }
 }

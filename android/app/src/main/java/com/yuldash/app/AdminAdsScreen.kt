@@ -169,7 +169,7 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun AdAdminCard(
+internal fun AdAdminCard(
     ad: AdminAdDto, stat: AdStatsDto?, busy: Boolean,
     onPublish: () -> Unit, onPause: () -> Unit, onDelete: () -> Unit, onEdit: () -> Unit,
     onApprove: () -> Unit, onReject: (String) -> Unit,
@@ -266,7 +266,7 @@ private fun AdAdminCard(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCreated: () -> Unit) {
+internal fun CreateAdForm(founderFull: Boolean, edit: AdminAdDto? = null, onCreated: () -> Unit) {
     val scope = rememberCoroutineScope()
     var partner by remember(edit?.id) { mutableStateOf(edit?.partner ?: "") }
     var title by remember(edit?.id) { mutableStateOf(edit?.title ?: "") }

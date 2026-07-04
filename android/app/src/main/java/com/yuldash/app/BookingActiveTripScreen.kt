@@ -1356,7 +1356,7 @@ internal fun ShareTripRow(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(
+internal fun MessageBubble(
     text: String,
     voiceUrl: String?,
     mine: Boolean,

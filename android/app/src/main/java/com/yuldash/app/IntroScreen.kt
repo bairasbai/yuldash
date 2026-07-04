@@ -86,6 +86,17 @@ private val Montserrat = FontFamily(
     Font(R.font.montserrat_black, FontWeight.Black),
 )
 
+/** Тексты интро в одном месте — чтобы и анимированный экран, и статичный [IntroBrandContent]/тесты
+ *  брали ОДНИ И ТЕ ЖЕ строки (никакого расхождения RU/BA между рендером и проверкой). */
+internal const val INTRO_MEANING_WORD = "Попутчик"          // слово-смысл (по буквам), до бренда
+internal const val INTRO_BRAND_WORD = "Юлдаш"               // сам бренд
+internal const val INTRO_SLOGAN_RU = "Поездки между своими"
+internal const val INTRO_SLOGAN_BA = "Үҙебеҙҙекеләр араһында юллашыу"
+
+/** Слоган интро по языку (та же строка, что в анимированном таймлайне и в статичном контенте). */
+internal fun introSlogan(language: AppLanguage): String =
+    if (language == AppLanguage.Ba) INTRO_SLOGAN_BA else INTRO_SLOGAN_RU
+
 /** Слово ПО БУКВАМ (stagger) — для «смысла» (Попутчик): по-человечески, скромно.
  *  Появление: fade + подъём (EaseOutExpo). Уход: каскад вверх (морф в бренд). */
 @Composable
@@ -228,9 +239,9 @@ internal fun IntroScreen(onComplete: () -> Unit) {
             Spacer(Modifier.height(4.dp))
             // Слот СЛОВА (Попутчик/Юлдаш) — компактный, слово по центру; черта и слоган идут вплотную ниже.
             Box(modifier = Modifier.height(58.dp), contentAlignment = Alignment.Center) {
-                StaggerWord("Попутчик", showMeaning, 38.sp)
+                StaggerWord(INTRO_MEANING_WORD, showMeaning, 38.sp)
                 Text(
-                    "Юлдаш",
+                    INTRO_BRAND_WORD,
                     fontSize = 44.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = Montserrat,
@@ -259,12 +270,57 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                     label = "slo",
                 ) { ba ->
                     Text(
-                        if (ba) "Үҙебеҙҙекеләр араһында юллашыу" else "Поездки между своими",
+                        if (ba) INTRO_SLOGAN_BA else INTRO_SLOGAN_RU,
                         color = Color.White.copy(0.92f), fontSize = 15.sp, fontFamily = Montserrat,
                         fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
                         modifier = Modifier.graphicsLayer { alpha = sloganAlpha },
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * СТАТИЧНАЯ витрина бренда интро (значок + «Юлдаш» + золотая черта + слоган) — та же композиция колонки,
+ * что в финальном кадре [IntroScreen], но БЕЗ таймлайна: без бесконечных корутин, sheen-sweep, Ken-Burns,
+ * пыльцы и системных баров. Управляется примитивами (язык + видимость смысла/бренда/слогана), поэтому
+ * рендерится на JVM (Robolectric) без зависания на авто-анимации. Живой [IntroScreen] не трогаем.
+ *
+ * @param language какой слоган показать (RU/BA).
+ * @param showMeaning показать слово-смысл «Попутчик» (иначе показан бренд «Юлдаш»).
+ * @param showSlogan рисовать ли строку слогана.
+ */
+@Composable
+internal fun IntroBrandContent(
+    language: AppLanguage,
+    showMeaning: Boolean = false,
+    showSlogan: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
+        BrandHero(logoAlpha = 1f, logoScale = 1f)
+        Spacer(Modifier.height(4.dp))
+        Box(modifier = Modifier.height(58.dp), contentAlignment = Alignment.Center) {
+            Text(
+                if (showMeaning) INTRO_MEANING_WORD else INTRO_BRAND_WORD,
+                color = Color.White,
+                fontSize = if (showMeaning) 38.sp else 44.sp,
+                fontWeight = if (showMeaning) FontWeight.Medium else FontWeight.Black,
+                fontFamily = Montserrat,
+                letterSpacing = if (showMeaning) 1.sp else 2.sp,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(Modifier.width(72.dp).height(3.dp).background(Gold, RoundedCornerShape(2.dp)))
+        Spacer(Modifier.height(14.dp))
+        if (showSlogan) {
+            Box(modifier = Modifier.height(22.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    introSlogan(language),
+                    color = Color.White.copy(0.92f), fontSize = 15.sp, fontFamily = Montserrat,
+                    fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
+                )
             }
         }
     }
