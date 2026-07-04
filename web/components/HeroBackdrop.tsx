@@ -21,7 +21,10 @@ export function HeroBackdrop() {
   // 720×1280, ~0.3 МБ). Определяем один раз на маунте.
   const [portrait, setPortrait] = useState(false);
   useEffect(() => {
-    setPortrait(window.matchMedia("(max-aspect-ratio: 3/4)").matches);
+    const t = window.setTimeout(() => {
+      setPortrait(window.matchMedia("(max-aspect-ratio: 3/4)").matches);
+    }, 0);
+    return () => window.clearTimeout(t);
   }, []);
   const videoSrc = portrait ? "/hero-vertical.mp4" : "/hero.mp4";
 

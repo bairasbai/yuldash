@@ -43,10 +43,13 @@ export function Testimonials() {
       return () => window.clearTimeout(timer);
     }
     let alive = true;
-    fetch(TESTIMONIALS_API, { cache: "no-store" })
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 3500);
+    fetch(TESTIMONIALS_API, { cache: "no-store", signal: controller.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((data: unknown) => {
         if (!alive) return;
+        window.clearTimeout(timer);
         const raw = Array.isArray(data) ? data : (data as { items?: unknown[] })?.items ?? [];
         const mapped: View[] = (raw as Record<string, unknown>[])
           .filter((r) => typeof r?.text === "string" && (r.text as string).trim())
@@ -59,9 +62,12 @@ export function Testimonials() {
         // Если сервер пуст — мягко падаем на ручной список
         setItems(mapped.length ? mapped : fromConfig(LIVE_TESTIMONIALS, lang));
       })
-      .catch(() => alive && setItems(fromConfig(LIVE_TESTIMONIALS, lang)));
+      .catch(() => alive && setItems(fromConfig(LIVE_TESTIMONIALS, lang)))
+      .finally(() => window.clearTimeout(timer));
     return () => {
       alive = false;
+      window.clearTimeout(timer);
+      controller.abort();
     };
   }, [lang]);
 

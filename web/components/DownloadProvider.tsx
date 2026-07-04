@@ -22,12 +22,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const request = () => {
     if (APP_READY) {
       track("download");
-      const a = document.createElement("a");
-      a.href = APK_URL;
-      a.download = "";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      window.location.assign(APK_URL);
     } else {
       track("download_intent"); // спрос до релиза
       setOpen(true);

@@ -107,7 +107,7 @@ export function Hero() {
           {/* Заголовок — пословное появление */}
           <m.h1
             variants={wordWrap}
-            className="mt-6 flex flex-wrap justify-center gap-x-[0.28em] font-display text-5xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl lg:justify-start lg:text-7xl"
+            className="mt-6 flex flex-wrap justify-center gap-x-[0.28em] font-display text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-6xl lg:justify-start lg:text-7xl"
           >
             {titleWords.map((w, i) => (
               <m.span key={i} variants={word} className="inline-block">
@@ -155,7 +155,7 @@ export function Hero() {
           {/* Платформы */}
           <m.div
             variants={item}
-            className="mt-6 flex flex-wrap items-center justify-center gap-2.5 lg:justify-start"
+            className="mt-6 flex flex-col items-center justify-center gap-2.5 sm:flex-row sm:flex-wrap lg:justify-start"
           >
             <span className="inline-flex items-center gap-2 rounded-full border border-green-bright/30 bg-green-bright/10 px-3.5 py-1.5 text-sm font-semibold text-green-glow">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 20.5 13.5 12 3 3.5C2.7 3.7 2.5 4.1 2.5 4.6v14.8c0 .5.2.9.5 1.1Zm12.3-7 2.7 2.7-9.6 5.5 6.9-8.2Zm0-3-6.9-8.2 9.6 5.5-2.7 2.7ZM20.5 12c.6.4.9 1 .9 1.6 0 .6-.3 1.2-.9 1.6l-2 1.1-3-2.7 3-2.7 2 1.1Z"/></svg>

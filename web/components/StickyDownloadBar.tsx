@@ -4,14 +4,16 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, m } from "framer-motion";
 import { useLang } from "./lang";
 import { useDownload } from "./DownloadProvider";
+import { APK_URL } from "./config";
+import { track } from "./analytics";
 
 // Залипающая кнопка «Скачать» внизу — только мобайл, появляется после героя
 // и ТОЛЬКО когда cookie-баннер уже принят (чтобы не накладывались).
 export function StickyDownloadBar() {
   const { tr } = useLang();
-  const { request } = useDownload();
+  const { request, ready } = useDownload();
   const [scrolledPast, setScrolledPast] = useState(false);
-  const [cookieDone, setCookieDone] = useState(true);
+  const [cookieDone, setCookieDone] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -34,6 +36,15 @@ export function StickyDownloadBar() {
   }, []);
 
   const show = scrolledPast && cookieDone;
+  const content = (
+    <>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 3v12" /><path d="m7 11 5 5 5-5" /><path d="M5 21h14" />
+      </svg>
+      {tr("sticky_cta")} Юлдаш
+    </>
+  );
+  const className = "glass flex w-full items-center justify-center gap-2.5 rounded-canon bg-green-bright/95 py-3.5 text-base font-bold text-night shadow-glow active:scale-[0.98]";
 
   return (
     <AnimatePresence>
@@ -46,16 +57,15 @@ export function StickyDownloadBar() {
           className="fixed inset-x-0 bottom-0 z-40 p-3 md:hidden"
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
         >
-          <button
-            type="button"
-            onClick={request}
-            className="glass flex w-full items-center justify-center gap-2.5 rounded-canon bg-green-bright/95 py-3.5 text-base font-bold text-night shadow-glow active:scale-[0.98]"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 3v12" /><path d="m7 11 5 5 5-5" /><path d="M5 21h14" />
-            </svg>
-            {tr("sticky_cta")} Юлдаш
-          </button>
+          {ready ? (
+            <a href={APK_URL} download onClick={() => track("download")} className={className}>
+              {content}
+            </a>
+          ) : (
+            <button type="button" onClick={request} className={className}>
+              {content}
+            </button>
+          )}
         </m.div>
       )}
     </AnimatePresence>

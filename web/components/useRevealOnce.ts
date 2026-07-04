@@ -23,8 +23,8 @@ export function useRevealOnce(
   useEffect(() => {
     if (shown) return;
     if (inView) {
-      setShown(true);
-      return;
+      const t = setTimeout(() => setShown(true), 0);
+      return () => clearTimeout(t);
     }
     // Наблюдатель молчит — показываем по таймеру (защита от iOS-глюка).
     const t = setTimeout(() => setShown(true), fallbackMs);

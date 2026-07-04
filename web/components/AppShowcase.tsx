@@ -11,7 +11,10 @@ import { OrnamentKicker } from "./Ornament";
 function useDesktopMotion() {
   const [ok, setOk] = useState(false);
   useEffect(() => {
-    setOk(window.matchMedia("(min-width: 768px) and (pointer: fine)").matches);
+    const t = window.setTimeout(() => {
+      setOk(window.matchMedia("(min-width: 768px) and (pointer: fine)").matches);
+    }, 0);
+    return () => window.clearTimeout(t);
   }, []);
   return ok;
 }
