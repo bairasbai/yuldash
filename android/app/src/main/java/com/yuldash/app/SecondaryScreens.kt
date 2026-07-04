@@ -975,7 +975,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
+                item { ListedError(error ?: "") { reload() } }
             } else if (list.isEmpty()) {
                 item { ListedEmpty(appText("Нет заявок на оплату", "Түләү заявкалары юҡ"), appText("Здесь появятся оплаты буста и донаты на подтверждение.", "Бында буст түләүҙәре һәм донаттар раҫлауға күренер")) }
             } else {

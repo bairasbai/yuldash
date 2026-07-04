@@ -14,7 +14,9 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -37,6 +39,8 @@ class TripLocationService : Service() {
     private var listener: LocationListener? = null
     private var lastSent = 0L
     private var currentLang = AppLanguage.Ru   // язык нотификации; приходит из YuldashApp по текущему AppLanguage
+    private val watchdog = Handler(Looper.getMainLooper())   // сторож: сам глушит сервис, если YuldashApp упал и не позвал stop()
+    private val autoStop = Runnable { stopSelf() }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -62,6 +66,11 @@ class TripLocationService : Service() {
             socket = LocationSocket(bookingId, onPeer = { TripLocationBus.peer = it }).also { it.connect() }
         }
         if (listener == null) startLocationUpdates()   // GPS-слушатель один на сервис (шлёт в текущий socket)
+        // Сторож-таймаут: если вызывающий (YuldashApp) крашнется и не позовёт stop(), сервис бы висел
+        // и вечно лил GPS (батарея + приватность). Через MAX_LIFETIME_MS глушим сами. Каждый новый
+        // onStartCommand (смена брони / рестарт живой поездки) сбрасывает таймер — активная поездка не оборвётся.
+        watchdog.removeCallbacks(autoStop)
+        watchdog.postDelayed(autoStop, MAX_LIFETIME_MS)
         return START_STICKY
     }
 
@@ -116,6 +125,7 @@ class TripLocationService : Service() {
     }
 
     override fun onDestroy() {
+        watchdog.removeCallbacks(autoStop)
         listener?.let { runCatching { lm?.removeUpdates(it) } }
         socket?.close()
         socket = null
@@ -131,6 +141,7 @@ class TripLocationService : Service() {
         private const val CHANNEL = "trip_location"
         private const val NOTIF_ID = 4711
         private const val MIN_INTERVAL_MS = 7000L
+        private const val MAX_LIFETIME_MS = 6 * 3600_000L   // 6ч — заведомо дольше любой реальной поездки; страховка от зависшего сервиса
 
         internal fun start(ctx: Context, bookingId: Int, lang: AppLanguage) {
             val i = Intent(ctx, TripLocationService::class.java)

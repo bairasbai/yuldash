@@ -36,6 +36,16 @@ REPORT_DAYS = 180    # жалобы (история модерации)
 TRIP_DAYS = 180      # старые завершённые поездки/заявки — только без рейтингов/платежей/SOS
 
 
+# Белый список имён таблиц: имена в _rules() — наши константы, НЕ юзер-ввод (инъекции нет).
+# Но SQL строится f-строкой по имени таблицы, поэтому явно ограничиваем набор — страховка от
+# будущей правки, где в table случайно попадёт внешнее значение (см. review-plan 2026-07-03, P3).
+_ALLOWED_TABLES = frozenset({
+    "message", "otpcode", "tgauth", "uploadevent", "refreshtoken", "adevent",
+    "sosevent", "report", "tripshare", "requestresponse", "riderequest",
+    "booking", "ride",
+})
+
+
 def _rules(now):
     """Список (метка, таблица, WHERE, параметры). Порядок ВАЖЕН: дети раньше родителей."""
     def cut(days):
@@ -107,6 +117,10 @@ def main():
     print(f"=== Ретеншен-чистка Юлдаш · {mode} · {now.isoformat()} ===")
     total = 0
     for label, table, where, params in _rules(now):
+        # Имя таблицы подставляется в SQL f-строкой → пускаем только заведомо свои имена.
+        if table not in _ALLOWED_TABLES:
+            print(f"  {label}: ПРОПУЩЕНО — таблица '{table}' не в белом списке")
+            continue
         try:
             with engine.begin() as conn:
                 if DRY:
