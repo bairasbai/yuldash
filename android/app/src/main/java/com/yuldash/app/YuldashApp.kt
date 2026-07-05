@@ -684,7 +684,7 @@ internal fun YuldashApp() {
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
                 canOpenActiveTrip = activeBookingId == null || bookingStatusAllowsActiveTrip(selectedBookingStatus),
-                onConfirmRide = {
+                onConfirmRide = { payMethod, payAmount ->
                     if (activeBookingId != null) {
                         activeTrip = selectedRide
                         screen = Screen.ActiveTrip
@@ -692,7 +692,7 @@ internal fun YuldashApp() {
                         val rid = selectedRide?.id?.toIntOrNull()
                         if (rid != null) {
                             appScope.launch {
-                                ApiClient.book(rid, 1)
+                                ApiClient.book(rid, 1, payMethod, payAmount)
                                     .onSuccess { bid -> activeBookingId = bid; selectedBookingStatus = "confirmed"; activeTrip = selectedRide; screen = Screen.ActiveTrip }
                                     .onFailure { Toast.makeText(context, if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
                             }

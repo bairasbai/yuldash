@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Booking, BookingStatus, DriverProfile, Ride, RideStatus, User
+from ..models import Booking, BookingStatus, DriverProfile, PayMethod, Ride, RideStatus, User
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, send_push, user_rating
 
@@ -37,9 +37,25 @@ def _ensure_route_coords(session: Session, ride: Ride) -> None:
         session.refresh(ride)
 
 
+MAX_PAY_AMOUNT = 100_000   # ₽ — здравый потолок для суммы договорённости (защита от опечатки/мусора)
+
+
+def _clean_pay_amount(amount: Optional[int]) -> Optional[int]:
+    """Проверка суммы договорённости. None → None (не фиксировали). Мусор → 400."""
+    if amount is None:
+        return None
+    if amount < 0 or amount > MAX_PAY_AMOUNT:
+        raise HTTPException(400, "Некорректная сумма договорённости")
+    return amount
+
+
 class BookIn(BaseModel):
     ride_id: int
     seats: int = 1
+    # Договорённость об оплате (НЕ платёж): как решили платить + сумма (опц.).
+    # Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены поездки.
+    pay_method: Optional[PayMethod] = None
+    pay_amount: Optional[int] = None
 
 
 class BookingDetailsOut(BaseModel):
@@ -53,6 +69,9 @@ class BookingDetailsOut(BaseModel):
     depart_at: str
     seats: int
     price: int
+    # Договорённость об оплате (запись, не платёж) — видна обеим сторонам.
+    pay_method: str = "negotiate"
+    pay_amount: Optional[int] = None
     driver_name: str
     driver_verified: bool
     driver_phone: str = ""
@@ -91,9 +110,16 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         return existing
     if ride.seats_left < body.seats:
         raise HTTPException(400, "Не хватает мест")
+    total_price = ride.price * body.seats
+    # Договорённость об оплате: способ по умолчанию — «договоримся»; сумма — из цены поездки, если не задана.
+    pay_method = body.pay_method or PayMethod.negotiate
+    pay_amount = _clean_pay_amount(body.pay_amount)
+    if pay_amount is None:
+        pay_amount = total_price if total_price > 0 else None
     booking = Booking(
         ride_id=ride.id, passenger_id=user.id, seats=body.seats,
-        price=ride.price * body.seats, boarding_code=gen_otp(),
+        price=total_price, boarding_code=gen_otp(),
+        pay_method=pay_method, pay_amount=pay_amount,
     )
     ride.seats_left -= body.seats
     session.add(booking)
@@ -131,6 +157,8 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "depart_at": ride.depart_at.isoformat() if ride.depart_at else "",
         "seats": booking.seats,
         "price": booking.price,
+        "pay_method": booking.pay_method.value if hasattr(booking.pay_method, "value") else booking.pay_method,
+        "pay_amount": booking.pay_amount,
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "driver_verified": bool(driver.verified) if driver else False,
         "driver_phone": (driver.phone if (unlocked and driver) else ""),
@@ -144,6 +172,31 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "from_lng": ride.from_lng,
         "to_lat": ride.to_lat,
         "to_lng": ride.to_lng,
+    }
+
+
+class PayAgreementIn(BaseModel):
+    pay_method: Optional[PayMethod] = None   # None = не менять способ
+    pay_amount: Optional[int] = None         # None = не менять сумму
+
+
+@router.post("/bookings/{booking_id}/pay-agreement")
+def set_pay_agreement(booking_id: int, body: PayAgreementIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Зафиксировать/поправить договорённость об оплате. Это ЗАПИСЬ («как решили платить»),
+    НЕ платёж — деньги через приложение не идут. Править может любая сторона брони
+    (пассажир и водитель), запись видна обоим — опора в споре «мы же договаривались о 400»."""
+    booking, _ride = booking_and_ride_for_user(session, booking_id, user)
+    if body.pay_method is not None:
+        booking.pay_method = body.pay_method
+    if body.pay_amount is not None:
+        booking.pay_amount = _clean_pay_amount(body.pay_amount)
+    session.add(booking)
+    session.commit()
+    session.refresh(booking)
+    return {
+        "ok": True,
+        "pay_method": booking.pay_method.value if hasattr(booking.pay_method, "value") else booking.pay_method,
+        "pay_amount": booking.pay_amount,
     }
 
 
@@ -275,6 +328,8 @@ def my_bookings(
             "price": b.price,
             "status": b.status.value if hasattr(b.status, "value") else b.status,
             "boarding_code": b.boarding_code,
+            "pay_method": b.pay_method.value if hasattr(b.pay_method, "value") else b.pay_method,
+            "pay_amount": b.pay_amount,
             "from_city": r.from_city if r else "",
             "to_city": r.to_city if r else "",
             "depart_at": r.depart_at.isoformat() if r and r.depart_at else "",

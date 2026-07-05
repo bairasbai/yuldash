@@ -461,12 +461,26 @@ object ApiClient {
         auth = true,
     ).map { }.onSuccess { Analytics.log("publish_ride") }
 
-    /** Забронировать поездку. Возвращает id брони. */
-    suspend fun book(rideId: Int, seats: Int): Result<Int> = call(
+    /** Забронировать поездку. Возвращает id брони.
+     * payMethod/payAmount — договорённость об оплате (ЗАПИСЬ, не платёж): как решили платить.
+     * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
+    suspend fun book(rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null): Result<Int> = call(
         "POST", "/bookings",
-        JSONObject().put("ride_id", rideId).put("seats", seats),
+        JSONObject().put("ride_id", rideId).put("seats", seats)
+            .put("pay_method", payMethod)
+            .put("pay_amount", payAmount ?: JSONObject.NULL),
         auth = true,
     ).map { it.optInt("id") }.onSuccess { Analytics.log("booking") }
+
+    /** Поправить договорённость об оплате брони (может любая сторона — пассажир/водитель).
+     * Это ЗАПИСЬ «как договорились платить», а не платёж. */
+    suspend fun setPayAgreement(bookingId: Int, payMethod: String? = null, payAmount: Int? = null): Result<Unit> = call(
+        "POST", "/bookings/$bookingId/pay-agreement",
+        JSONObject()
+            .put("pay_method", payMethod ?: JSONObject.NULL)
+            .put("pay_amount", payAmount ?: JSONObject.NULL),
+        auth = true,
+    ).map { }
 
     /** Приватные детали брони: телефон и точная встреча открываются только после подтверждения. */
     suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =
@@ -482,6 +496,8 @@ object ApiClient {
                 departAt = o.optString("depart_at"),
                 seats = o.optInt("seats", 1),
                 price = o.optInt("price"),
+                payMethod = o.optString("pay_method", "negotiate"),
+                payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
                 driverName = o.optString("driver_name"),
                 driverVerified = o.optBoolean("driver_verified"),
                 driverPhone = o.optString("driver_phone"),
@@ -1456,6 +1472,8 @@ data class BookingDetailsDto(
     val departAt: String,
     val seats: Int,
     val price: Int,
+    val payMethod: String = "negotiate",   // договорённость об оплате (запись, не платёж): cash/sbp/negotiate
+    val payAmount: Int? = null,            // сумма договорённости, ₽ (опц.)
     val driverName: String,
     val driverVerified: Boolean,
     val driverPhone: String,

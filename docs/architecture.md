@@ -29,6 +29,8 @@
 
 **Кабинет партнёра (реклама, План B — в разработке):** `Ad` расширен полями `owner_id` (партнёр-владелец), `reject_reason`, `package`/`budget_kop`/`period_days` (тариф), `submitted_at`/`reviewed_at`; статусы `pending_review`/`rejected` добавлены к строке `status`. `User.is_advertiser`. Тарифы — конфиг `AD_PACKAGES` в `ads.py` (не хардкод в клиенте). Миграция `alembic/versions/0003_partner_ads_columns.py`. Приватность: партнёр видит/меняет только `owner_id==self`, админ — всё.
 
+**F10 — Договорённость об оплате в брони (2026-07-05, ветка `feat/payment-agreement`):** `Booking` +2 поля `pay_method` (`PayMethod`: cash/sbp/negotiate, дефолт negotiate) + `pay_amount` (₽, опц.). Это ЗАПИСЬ «как договорились платить», **НЕ платёж** и не движение денег — юр-модель не меняется; видно обеим сторонам, опора в споре. Бэк (`bookings.py`): `BookIn` принимает способ/сумму при брони (дефолт суммы — цена поездки, `_clean_pay_amount` валидирует ≤100k); `POST /bookings/{id}/pay-agreement` — правка любой стороной; поля отдаются в `/bookings/{id}/details` и `/bookings/mine`. Миграция `alembic/versions/f10_payment_agreement.py` (revises `0004`, идемпотентна; цепочку сведёт лид при мердже). UI (`BookingActiveTripScreen.kt`): `PayAgreementBlock` — чипы способа + поле суммы до брони (`Canon*`, переиспользует `NearbyFilterChip`), read-only показ договорённости в деталях брони и активной поездке обеим сторонам. Тексты — `appText(ru,ba)`, ба-черновик → `docs/tasks.md`.
+
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
 
 ## Лендинг web/ — интерактивная версия 2026-06-29
