@@ -151,13 +151,20 @@ def test_cannot_book_own_ride(client, user_factory):
     assert client.post("/bookings", headers=drv["auth"], json={"ride_id": ride["id"], "seats": 1}).status_code == 400
 
 
-def test_confirm_only_by_driver(client, user_factory):
+def test_confirm_only_by_driver(client, user_factory, monkeypatch):
     drv, pax, ride, booking = _trip(client, user_factory)
+    pushed = []
+    monkeypatch.setattr("app.routers.bookings.send_push", lambda s, uid, title, body: pushed.append((uid, title)))
     # пассажир не может подтвердить
     assert client.post(f"/bookings/{booking['id']}/confirm", headers=pax["auth"]).status_code == 403
     # водитель — может
     r = client.post(f"/bookings/{booking['id']}/confirm", headers=drv["auth"])
     assert r.status_code == 200 and r.json()["status"] == "confirmed"
+    # F2: пассажиру ушёл push «Бронь подтверждена» (открывает телефон/точку сбора)
+    assert (pax["id"], "Бронь подтверждена") in pushed
+    # идемпотентный повтор — без второго пуша
+    assert client.post(f"/bookings/{booking['id']}/confirm", headers=drv["auth"]).status_code == 200
+    assert len([p for p in pushed if p[1] == "Бронь подтверждена"]) == 1
 
 
 def test_booking_details_unlock_after_confirm(client, user_factory):

@@ -217,6 +217,9 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     session.add(booking)
     session.commit()
     session.refresh(booking)
+    # F2: пассажиру важно узнать СРАЗУ — подтверждение открывает телефон/точку сбора/live-гео.
+    send_push(session, booking.passenger_id, "Бронь подтверждена",
+              f"{ride.from_city} → {ride.to_city}: водитель подтвердил. Открыты телефон и точка сбора.")
     return booking
 
 
