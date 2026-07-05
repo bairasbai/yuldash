@@ -1838,3 +1838,12 @@ Prod-smoke:
 - [x] Не дублирует существующий `SosVerifyContentTest` (StatusBanner/DocumentRow/SubmitErrorBanner/UploadTile/DriverReasonBanner).
 - Прим.: `sending=true` для `AppButton` (SOS-сигнал) рисует бесконечный спиннер без текста — этот кейс осознанно не тестируется (риск зависания `waitForIdle`). Новых черновых башкирских строк нет — все строки взяты 1-в-1 из `SosVerifyScreens.kt`.
 - ⚠️ Сборку/тесты не запускал (по заданию). Прогнать `:app:createDebugUnitTestCoverageReport` при следующем общем прогоне coverage.
+
+## 🚀 Автопилот: реализация всех 18 фич + хвосты аудита (2026-07-05)
+База всех веток: `claude/feat-base` (595f1b7). Формат: 1 фича = 1 ветка = 1 draft PR. Бэкенд — с pytest, UI — проверка баланса скобок (Kotlin в облаке не собрать → сборка за Александром). Черновой башкирский → раздел «Переводы на проверку».
+
+Батчи (параллельные worktree-агенты):
+- Батч A: F5 notification-center · F6 ride-history · F7 reviews-driver-profile · F13 route-watch · audit-tails (WP-7/8/11 остаток)
+- Батч B: F8 trust-badges · F9 women-driver · F10 payment-agreement · F11 offline-trip-pass · F12 winter-safety
+- Батч C: F14 village-pickup-points · F15 seasonal-events · F16 share-ride-link · F17 driver-schedule
+- Батч D: F18 my-stats · F19 invite-drivers · F20 advertiser-cabinet · F21 boost-yookassa · F22 medical-partner
