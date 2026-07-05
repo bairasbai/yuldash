@@ -1095,9 +1095,37 @@ object ApiClient {
     suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
 
-    /** Оценить вторую сторону поездки (1..5 звёзд). Пассажир → водитель, водитель → пассажир. */
-    suspend fun rateBooking(bookingId: Int, stars: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/rate", JSONObject().put("stars", stars), auth = true).map { }
+    /** Оценить вторую сторону поездки (1..5 звёзд) + опц. текстовый отзыв (≤500, идёт на модерацию). */
+    suspend fun rateBooking(bookingId: Int, stars: Int, text: String = ""): Result<Unit> =
+        call("POST", "/bookings/$bookingId/rate",
+            JSONObject().put("stars", stars).apply { text.trim().take(500).let { if (it.isNotBlank()) put("text", it) } },
+            auth = true).map { }
+
+    /** Публичный профиль водителя: стаж, поездки, средний рейтинг, отзывы (после модерации). Без ПДн. */
+    suspend fun getDriverPublic(driverId: Int): Result<DriverPublicDto> =
+        call("GET", "/drivers/$driverId/public", null, auth = false).map { o ->
+            val revArr = o.optJSONArray("reviews") ?: JSONArray()
+            DriverPublicDto(
+                id = o.optInt("id"),
+                name = o.optString("name"),
+                avatarUrl = o.optString("avatar_url"),
+                verified = o.optBoolean("verified"),
+                daysInService = o.optInt("days_in_service"),
+                tripsCount = o.optInt("trips_count"),
+                car = o.optString("car"),
+                rating = if (o.isNull("rating")) null else o.optDouble("rating"),
+                ratingCount = o.optInt("rating_count"),
+                reviews = (0 until revArr.length()).map { i ->
+                    val r = revArr.getJSONObject(i)
+                    PublicReviewDto(
+                        author = r.optString("author").ifBlank { "Аноним" },
+                        stars = r.optInt("stars"),
+                        text = r.optString("text"),
+                        createdAt = r.optString("created_at"),
+                    )
+                },
+            )
+        }
 
     /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку. */
     suspend fun cancelBooking(bookingId: Int): Result<Unit> =
@@ -1322,6 +1350,7 @@ private fun JSONObject.toRideDto() = RideDto(
     seatsLeft = optInt("seats_left"),
     price = optInt("price"),
     category = optString("category"),
+    driverId = optInt("driver_id"),
     driverName = optString("driver_name"),
     driverRating = optDouble("driver_rating", 5.0),
     driverVerified = optBoolean("driver_verified"),
@@ -1364,6 +1393,7 @@ data class RideDto(
     val seatsLeft: Int,
     val price: Int,
     val category: String,
+    val driverId: Int = 0,            // id водителя → публичный профиль
     val driverName: String,
     val driverRating: Double,
     val driverVerified: Boolean,
@@ -1383,6 +1413,28 @@ data class RideDto(
     val boosted: Boolean = false,     // активный Boost (подсветка/бейдж)
     val receiverName: String = "",    // посылка: кому отдать
     val parcelSize: String = "",      // посылка: габарит/вес
+)
+
+/** Публичный профиль водителя (без ПДн: без телефона). Тапом с карточки поездки. */
+data class DriverPublicDto(
+    val id: Int,
+    val name: String,
+    val avatarUrl: String,
+    val verified: Boolean,
+    val daysInService: Int,       // стаж в Юлдаше в днях (клиент форматирует в «X лет/мес»)
+    val tripsCount: Int,          // завершённых поездок как водитель
+    val car: String,              // марка+модель (без госномера)
+    val rating: Double?,          // средний рейтинг (null — оценок ещё нет)
+    val ratingCount: Int,
+    val reviews: List<PublicReviewDto>,
+)
+
+/** Один текстовый отзыв в публичном профиле (прошёл модерацию). */
+data class PublicReviewDto(
+    val author: String,
+    val stars: Int,
+    val text: String,
+    val createdAt: String,
 )
 
 /** Заявка пассажира рядом (/requests/near) — для маркера «ищет попутку» на карте. Без телефона. */

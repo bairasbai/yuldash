@@ -116,11 +116,14 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
 
 class RateIn(BaseModel):
     stars: int
+    text: str = Field("", max_length=500)   # текстовый отзыв (опц.) — на модерацию, ≤500
 
 
 @router.post("/bookings/{booking_id}/rate")
 def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Оценить вторую сторону поездки (1..5). Пассажир оценивает водителя, водитель — пассажира. Одна оценка на бронь от каждого."""
+    """Оценить вторую сторону поездки (1..5) + опц. текстовый отзыв. Пассажир оценивает
+    водителя, водитель — пассажира. Одна оценка на бронь от каждого. Текст (если есть)
+    появляется в публичном профиле только после модерации (`text_published`)."""
     b = session.get(Booking, booking_id)
     if not b:
         raise HTTPException(status_code=404, detail="Бронь не найдена")
@@ -137,14 +140,20 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
     if b.status != BookingStatus.done:
         raise HTTPException(status_code=409, detail="Оценить можно только завершённую поездку")
     stars = max(1, min(5, body.stars))
+    text = (body.text or "").strip()[:500]
     existing = session.exec(
         select(Rating).where(Rating.booking_id == booking_id, Rating.rater_id == user.id)
     ).first()
     if existing:
         existing.stars = stars
+        if text != existing.text:
+            # Текст сменился → снова на модерацию (нельзя одобрить, потом подменить).
+            existing.text = text
+            existing.text_published = False
         session.add(existing)
     else:
-        session.add(Rating(booking_id=booking_id, rater_id=user.id, ratee_id=ratee_id, stars=stars))
+        session.add(Rating(booking_id=booking_id, rater_id=user.id, ratee_id=ratee_id,
+                           stars=stars, text=text, text_published=False))
     session.commit()
     avg, cnt = user_rating(session, ratee_id)
     # Оценили водителя → обновим витринный рейтинг в профиле.

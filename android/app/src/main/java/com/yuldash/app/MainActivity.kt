@@ -318,8 +318,14 @@ internal enum class Screen {
     AppReview,
     AdminReviews,
     AdminAds,
-    AdEditor
+    AdEditor,
+    DriverProfile   // публичный профиль водителя (тапом с карточки поездки): стаж, поездки, рейтинг, отзывы
 }
+
+/** Действие «открыть публичный профиль водителя» — прокинуто из YuldashApp,
+ *  чтобы карточки поездки (FullRideCard/NearbyRideCard/детали) открывали профиль
+ *  без ручного протаскивания колбэка через все экраны. 0/пусто = ничего не делаем. */
+internal val LocalOpenDriverProfile = staticCompositionLocalOf<(Int) -> Unit> { {} }
 
 internal enum class HomeTab {
     Map,
@@ -441,6 +447,7 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     from = fromCity,
     to = toCity,
     time = formatDepart(departAt),
+    driverId = driverId,
     driver = driverName.ifBlank { "Водитель" },
     driverAvatar = driverAvatar,
     driverOnline = driverOnline,

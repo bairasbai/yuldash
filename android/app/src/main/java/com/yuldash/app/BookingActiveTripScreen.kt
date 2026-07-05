@@ -957,12 +957,19 @@ internal fun ActiveTripScreen(
             }
             if (bookingStatus == "done") item {
                 var myStars by remember { mutableStateOf(0) }
+                var reviewText by remember { mutableStateOf("") }
                 var rating by remember { mutableStateOf(false) }   // запрос в полёте — блок повторных тапов, откат при сбое
+                var reviewSent by remember { mutableStateOf(false) }
+                val isDriver = role == "driver"
                 val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
+                val reviewSentMsg = appText("Спасибо! Отзыв на проверке", "Рәхмәт! Фекер тикшереүҙә")
                 val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
+                // Кого оцениваем: пассажир → водителя, водитель → пассажира.
+                val rateTitle = if (isDriver) appText("Оцените попутчика", "Юлдашты баһалағыҙ")
+                                else appText("Оцените водителя", "Водителде баһалағыҙ")
                 Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(appText("Оцените водителя", "Водителде баһалағыҙ"), fontWeight = FontWeight.Bold)
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(rateTitle, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             (1..5).forEach { n ->
                                 Icon(
@@ -978,14 +985,53 @@ internal fun ActiveTripScreen(
                                             if (id != null) {
                                                 rating = true
                                                 voiceScope.launch {
-                                                    ApiClient.rateBooking(id, n)
-                                                        .onSuccess { rating = false; Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show() }
+                                                    // Звёзды уходят сразу; текст (если уже написан) прикрепляем тем же запросом.
+                                                    ApiClient.rateBooking(id, n, reviewText)
+                                                        .onSuccess { rating = false; if (!reviewSent) Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show() }
                                                         .onFailure { rating = false; myStars = prev; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }   // откат: не показываем «оценено», если не сохранилось
                                                 }
                                             }
                                         }
                                 )
                             }
+                        }
+                        // Текстовый отзыв — появляется после выбора звёзд. Идёт на модерацию.
+                        if (myStars > 0 && !reviewSent) {
+                            OutlinedTextField(
+                                value = reviewText,
+                                onValueChange = { if (it.length <= 500) reviewText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text(appText("Пара слов о поездке (необязательно)", "Сәфәр тураһында бер-ике һүҙ (мотлаҡ түгел)")) },
+                                minLines = 2,
+                                maxLines = 4,
+                                shape = CanonItemShape,
+                            )
+                            Text(
+                                appText("Отзыв появится после проверки", "Фекер тикшереүҙән һуң күренер"),
+                                color = CanonMuted, fontSize = 12.sp,
+                            )
+                            Button(
+                                onClick = {
+                                    val id = bookingId
+                                    if (id != null && reviewText.isNotBlank()) {
+                                        rating = true
+                                        voiceScope.launch {
+                                            ApiClient.rateBooking(id, myStars, reviewText)
+                                                .onSuccess { rating = false; reviewSent = true; Toast.makeText(context, reviewSentMsg, Toast.LENGTH_SHORT).show() }
+                                                .onFailure { rating = false; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                                        }
+                                    }
+                                },
+                                enabled = !rating && reviewText.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                            ) {
+                                Text(appText("Оставить отзыв", "Фекер ҡалдырыу"), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (reviewSent) {
+                            Text(appText("✓ Отзыв отправлен на проверку", "✓ Фекер тикшереүгә ебәрелде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }

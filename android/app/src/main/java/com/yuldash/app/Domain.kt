@@ -9,6 +9,7 @@ internal data class Ride(
     val to: String,
     val time: String,
     val timeBa: String? = null,
+    val driverId: Int = 0,          // id водителя на сервере → открыть публичный профиль (0 = демо/неизвестно)
     val driver: String,
     val driverAvatar: String = "",
     val driverOnline: Boolean = false,

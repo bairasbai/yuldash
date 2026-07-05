@@ -303,6 +303,7 @@ internal fun YuldashApp() {
     var startHomeTab by vm.startHomeTab
     var callbackRequested by vm.callbackRequested
     var responsesRequestId by vm.responsesRequestId   // какую заявку открыть в «Откликах»
+    var driverProfileId by rememberSaveable { mutableStateOf(0) }   // чей публичный профиль открыть (0 = никакой)
     var createRideReturnScreen by rememberSaveable { mutableStateOf(Screen.Home) }
     var createRideReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Request) }
     var trustedContactsReturnScreen by rememberSaveable { mutableStateOf(Screen.SimpleMode) }
@@ -474,7 +475,12 @@ internal fun YuldashApp() {
                 )
         }
     }
-    CompositionLocalProvider(LocalAppLanguage provides language) {
+    // Открыть публичный профиль водителя из любой карточки поездки (без протаскивания колбэков).
+    // Трейл «Назад» ведётся авто-эффектом LaunchedEffect(screen) — ручной push не нужен.
+    val openDriverProfile: (Int) -> Unit = { id ->
+        if (id > 0) { driverProfileId = id; screen = Screen.DriverProfile }
+    }
+    CompositionLocalProvider(LocalAppLanguage provides language, LocalOpenDriverProfile provides openDriverProfile) {
         // Мои заявки — с сервера (после входа). Точное время в Фазе 1 не храним.
         val reqWaitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
         val reqByAgreement = appText("по договорённости", "килешеү буйынса")
@@ -884,6 +890,7 @@ internal fun YuldashApp() {
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
+            Screen.DriverProfile -> DriverProfileScreen(driverId = driverProfileId, onBack = { goBack() })
         }
         }
     }
