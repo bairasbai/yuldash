@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from ..db import get_session
 from ..models import Block, Booking, Report, Ride, SosEvent, TrustedContact, User, UserRole
@@ -28,7 +28,7 @@ def _send_sos_sms(phones: list, text: str) -> None:
 
 
 class SosIn(BaseModel):
-    category: str = "other"      # medical / breakdown / other
+    category: Literal["medical", "breakdown", "other"] = "other"   # закрытый список (было: любая строка в БД/админу)
     booking_id: Optional[int] = None
     note: str = Field("", max_length=2000)
 

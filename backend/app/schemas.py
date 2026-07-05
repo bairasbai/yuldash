@@ -13,16 +13,16 @@ from .models import RideCategory, RideStatus
 
 
 class RideIn(BaseModel):
-    from_city: str
-    to_city: str
+    from_city: str = Field(..., max_length=120)   # города — короткие; отсекаем мусорную строку в БД
+    to_city: str = Field(..., max_length=120)
     depart_at: datetime
-    seats_total: int = 3
-    price: int = 0
+    seats_total: int = 3   # диапазон 1..8 клампится в create_ride («клампим, а не падаем»)
+    price: int = 0         # диапазон 0..100000 клампится в create_ride
     category: RideCategory = RideCategory.regular
     comment: str = Field("", max_length=2000)
     pickup: str = Field("", max_length=500)
-    pickup_lat: Optional[float] = None
-    pickup_lng: Optional[float] = None
+    pickup_lat: Optional[float] = Field(None, ge=-90, le=90)      # валидные координаты (не NaN/мусор)
+    pickup_lng: Optional[float] = Field(None, ge=-180, le=180)
     pets_allowed: bool = False
     child_seat: bool = False
     women_only: bool = False

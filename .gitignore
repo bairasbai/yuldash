@@ -39,6 +39,7 @@ backend/private/
 # Широкие паттерны: ловят ЛЮБОЕ имя сервис-ключа (adminsdk, serviceAccount,
 # yuldash-<id>-firebase-adminsdk-*.json из консоли Firebase) — критичный админ-секрет.
 android/app/google-services.json
+**/google-services.json
 **/firebase-service-account*.json
 **/*firebase-adminsdk*.json
 **/*adminsdk*.json
@@ -54,8 +55,9 @@ android/app/google-services.json
 *.sqlite
 *.sqlite3
 .env
-.env.local
+.env.*
 # (.env.example — шаблон, остаётся в репо)
+!.env.example
 
 # Нативная сборка
 **/.cxx/

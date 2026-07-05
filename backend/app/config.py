@@ -100,8 +100,15 @@ class Settings(BaseSettings):
         if not self.is_prod:
             return
         problems: list[str] = []
-        if self.jwt_secret == DEFAULT_JWT_SECRET or len(self.jwt_secret) < 16:
-            problems.append("JWT_SECRET должен быть задан и быть длинным (>=16 символов)")
+        # Ловим не только точный дефолт, но и любой заведомо-dev секрет (напр. фолбэк из
+        # docker-compose `dev-secret-...-1234` — он длиннее 16 и раньше проскакивал гвард).
+        weak_secret = (
+            self.jwt_secret == DEFAULT_JWT_SECRET
+            or self.jwt_secret.startswith("dev-secret")
+            or len(self.jwt_secret) < 16
+        )
+        if weak_secret:
+            problems.append("JWT_SECRET должен быть задан, длинным (>=16) и не dev-дефолтом")
         # SMS — НЕобязателен: основной вход через мессенджеры (Telegram и т.п.).
         # SMS заморожен (sms_provider=mock) — это допустимо в проде. Оживить: SMS_PROVIDER=smsru + ключ.
         if self.sms_provider == "smsru" and not self.sms_ru_api_id:
@@ -113,6 +120,9 @@ class Settings(BaseSettings):
             problems.append("TELEGRAM_WEBHOOK_SECRET обязателен при заданном TELEGRAM_BOT_TOKEN")
         if self.cors_origins.strip() == "*":
             problems.append("CORS_ORIGINS не должен быть '*' в проде")
+        # seed_demo в проде насыпает фейковых водителей (+7000000000X) как реальные аккаунты в пустую БД.
+        if self.seed_demo:
+            problems.append("SEED_DEMO должен быть выключен в проде (фейковые водители в реальной БД)")
         # mock-платежи в проде = «оплата» без денег. Включён реальный приём → ключи/реквизиты обязательны.
         if self.payments_provider == "yookassa" and not (self.yookassa_shop_id and self.yookassa_secret_key):
             problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")

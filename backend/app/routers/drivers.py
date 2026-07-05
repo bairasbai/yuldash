@@ -7,7 +7,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -97,11 +97,11 @@ def secure_doc(name: str, user: User = Depends(current_user), session: Session =
 
 
 class DriverProfileIn(BaseModel):
-    car_make: str = ""
-    car_model: str = ""
-    car_color: str = ""
-    car_plate: str = ""
-    seats: int = 4
+    car_make: str = Field("", max_length=60)
+    car_model: str = Field("", max_length=60)
+    car_color: str = Field("", max_length=40)
+    car_plate: str = Field("", max_length=16)
+    seats: int = Field(4, ge=1, le=8)   # мест в машине — реальный диапазон (было: примут −5 и 9999)
 
 
 def _get_or_create_profile(session: Session, user_id: int) -> DriverProfile:

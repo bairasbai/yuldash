@@ -217,12 +217,12 @@ def _apply_package(ad: Ad, code: str) -> None:
 
 
 class AdCreateIn(BaseModel):
-    title: str = ""
-    text: str = ""
-    button: str = ""
-    target: str = ""
-    package: str = ""       # код тарифа из AD_PACKAGES
-    cities: str = ""        # CSV городов таргета; пусто = все
+    title: str = Field("", max_length=120)
+    text: str = Field("", max_length=2000)
+    button: str = Field("", max_length=60)
+    target: str = Field("", max_length=300)
+    package: str = Field("", max_length=40)       # код тарифа из AD_PACKAGES
+    cities: str = Field("", max_length=500)        # CSV городов таргета; пусто = все
 
 
 @router.post("/ads")

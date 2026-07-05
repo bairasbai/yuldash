@@ -20,6 +20,18 @@ def test_create_ride_clamps_price_and_seats(client, user_factory):
     assert created.json()["price"] == 100000
 
 
+def test_ride_input_validation_rejects_junk(client, user_factory):
+    """WP-9: слишком длинный город и мусорные координаты отклоняются (422), а не пишутся в БД."""
+    driver = user_factory("ValRideDriver", role=UserRole.driver)
+    base = {"to_city": "Сибай", "depart_at": "2030-01-01T10:00:00", "seats_total": 2, "price": 100}
+    # город > 120 символов → 422
+    assert client.post("/rides", headers=driver["auth"],
+                       json={**base, "from_city": "Г" * 200}).status_code == 422
+    # координаты вне диапазона → 422
+    assert client.post("/rides", headers=driver["auth"],
+                       json={**base, "from_city": "Баймаҡ", "pickup_lat": 999.0}).status_code == 422
+
+
 def test_weekly_and_weekday_recurrence_create_four_followups(client, user_factory):
     driver = user_factory("RecurringRideDriver", role=UserRole.driver)
     weekly = client.post("/rides", headers=driver["auth"], json={

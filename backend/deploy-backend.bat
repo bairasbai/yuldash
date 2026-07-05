@@ -9,32 +9,34 @@ set "OPT=-i %KEY% -o StrictHostKeyChecking=accept-new -o ConnectTimeout=25 -o Ba
 
 echo === YULDASH BACKEND DEPLOY ===
 echo.
-echo --- 1) Копирую код + миграции ---
+echo --- 1) Копирую код + alembic-миграции ---
 REM После разрезки монолита бэкенд = много файлов (services.py, schemas.py, routers\).
 REM Копируем всю папку app\ рекурсивно (а не три файла), чтобы ничего не забыть.
+REM ВАЖНО: копируем и alembic\ + alembic.ini — единственный источник истины по схеме БД
+REM (раньше копировался только app\, и alembic-ревизии на прод не попадали → колонки не доезжали).
 scp -r %OPT% "%BK%\app"                  %SRV%:/opt/yuldash/                       || goto :err
-scp %OPT% "%BK%\migrate_premium.sql"    %SRV%:/tmp/migrate_premium.sql            || goto :err
-scp %OPT% "%BK%\migrate_oauth.sql"      %SRV%:/tmp/migrate_oauth.sql              || goto :err
-scp %OPT% "%BK%\migrate_whatsapp.sql"   %SRV%:/tmp/migrate_whatsapp.sql           || goto :err
-scp %OPT% "%BK%\migrate_logout.sql"     %SRV%:/tmp/migrate_logout.sql             || goto :err
-scp %OPT% "%BK%\migrate_geo.sql"        %SRV%:/tmp/migrate_geo.sql                || goto :err
+scp -r %OPT% "%BK%\alembic"              %SRV%:/opt/yuldash/                       || goto :err
+scp %OPT% "%BK%\alembic.ini"            %SRV%:/opt/yuldash/alembic.ini            || goto :err
 
-echo --- 2) Миграции БД (ALTER TABLE, идемпотентно) ---
-ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_premium.sql"  || goto :err
-ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_oauth.sql"    || goto :err
-ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_whatsapp.sql" || goto :err
-ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_logout.sql"   || goto :err
-ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -v ON_ERROR_STOP=1 -f /tmp/migrate_geo.sql"      || goto :err
+echo --- 2) chown (чтобы alembic и venv были доступны пользователю приложения) ---
+ssh %OPT% %SRV% "chown -R yuldash:yuldash /opt/yuldash" || goto :err
+
+echo --- 3) Миграции БД: alembic upgrade head (идемпотентно, единый путь) ---
+REM Все ревизии идемпотентны (inspect-before-alter / create_all): повторный запуск = no-op.
+REM ПЕРВЫЙ РАЗ (онбординг прода на alembic) выполняется так же — 0001 baseline это create_all,
+REM существующие таблицы не трогает, 0002-0004 добавляют/убирают только недостающее.
+REM Инструкция + бэкап/откат: docs/deploy-migrations.md.
+ssh %OPT% %SRV% "cd /opt/yuldash && sudo -u yuldash ./.venv/bin/alembic upgrade head" || goto :err
 REM PostGIS (best-effort: если не установлен — работает Python-фолбэк радиуса). Разово, не валит деплой.
 ssh %OPT% %SRV% "sudo -u postgres psql -d yuldash -c \"CREATE EXTENSION IF NOT EXISTS postgis;\" & sudo -u postgres psql -d yuldash -c \"CREATE INDEX IF NOT EXISTS idx_ride_from_geog ON ride USING GIST ((ST_MakePoint(from_lng, from_lat)::geography)) WHERE from_lat IS NOT NULL;\""
 
-echo --- 3) chown + рестарт сервиса ---
-ssh %OPT% %SRV% "chown -R yuldash:yuldash /opt/yuldash && systemctl restart yuldash-api && sleep 2 && systemctl is-active yuldash-api" || goto :err
+echo --- 4) Рестарт сервиса ---
+ssh %OPT% %SRV% "systemctl restart yuldash-api && sleep 2 && systemctl is-active yuldash-api" || goto :err
 
-echo --- 4) Проверка здоровья (на сервере) ---
+echo --- 5) Проверка здоровья (на сервере) ---
 ssh %OPT% %SRV% "curl -s http://127.0.0.1:8000/health"
 echo.
-echo --- 5) Проверка публично + новые поля в /rides ---
+echo --- 6) Проверка публично + новые поля в /rides ---
 curl -s https://yulbash.ru/health
 echo.
 curl -s https://yulbash.ru/rides

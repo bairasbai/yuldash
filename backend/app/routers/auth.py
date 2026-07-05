@@ -2,6 +2,7 @@
 профиль `/me`, регистрация push-токена."""
 from datetime import timedelta
 from typing import Optional
+import hmac
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -96,11 +97,15 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
         raise HTTPException(400, "Неверный или просроченный код")
     if otp.attempts >= 5:                       # защита от перебора 6-значного кода
         raise HTTPException(429, "Слишком много попыток. Запроси новый код.")
-    if otp.code != body.code:
+    # constant-time сравнение — не даём измерить код по времени ответа (перебор и так лимитирован 5 попытками).
+    if not hmac.compare_digest(otp.code, body.code or ""):
         otp.attempts += 1
         session.add(otp)
         session.commit()
         raise HTTPException(400, "Неверный или просроченный код")
+    # Код одноразовый: гасим сразу после успеха, иначе перехваченный код реюзабелен все 5 минут TTL.
+    session.delete(otp)
+    session.commit()
     user = session.exec(select(User).where(User.phone == body.phone)).first()
     if not user:
         user = User(phone=body.phone, name=body.name or "Пользователь", verified=True)
@@ -145,7 +150,9 @@ def tg_start(session: Session = Depends(get_session)):
 @router.post("/telegram/webhook")
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(default="")):
     """Telegram шлёт сюда апдейты. На /start <request_id> привязываем юзера и шлём код."""
-    if settings.telegram_webhook_secret and x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
+    if settings.telegram_webhook_secret and not hmac.compare_digest(
+        x_telegram_bot_api_secret_token or "", settings.telegram_webhook_secret
+    ):
         raise HTTPException(403, "bad secret")
     update = await request.json()
     callback = update.get("callback_query") or {}
@@ -368,7 +375,7 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
         raise HTTPException(410, "Код истёк. Получи новый.")
     if row.attempts >= TG_MAX_ATTEMPTS:
         raise HTTPException(429, "Слишком много попыток. Получи новый код.")
-    if body.code.strip() != row.code:
+    if not hmac.compare_digest(body.code.strip(), row.code):   # constant-time (перебор лимитирован TG_MAX_ATTEMPTS)
         row.attempts += 1
         session.add(row)
         session.commit()

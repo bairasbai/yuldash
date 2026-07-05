@@ -267,6 +267,11 @@ def admin_payments_summary(user: User = Depends(current_user), session: Session 
 @router.post("/payments/yookassa/webhook")
 async def yookassa_webhook(request: Request, session: Session = Depends(get_session)):
     """Уведомление ЮKassa. Телу НЕ доверяем — по id перепроверяем статус через API ЮKassa."""
+    # Вебхук релевантен ТОЛЬКО при активном yookassa. При mock/sbp_manual `fetch_payment`
+    # возвращает succeeded без похода наружу → поддельный POST мог бы активировать чужой
+    # pending-платёж (Boost/рекламу бесплатно). При sbp_manual платежи подтверждает админ в Telegram.
+    if settings.payments_provider != "yookassa":
+        return {"ok": True}
     try:
         body = await request.json()
     except Exception:
