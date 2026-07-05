@@ -29,6 +29,13 @@ def test_sos_notifies_contacts_then_applies_hourly_sms_cap(client, user_factory,
     assert len(admin_messages) == 7
 
 
+def test_sos_rejects_unknown_category(client, user_factory):
+    """WP-9: категория SOS — закрытый список; произвольная строка отклоняется (422)."""
+    user = user_factory("SosCat")
+    assert client.post("/sos", headers=user["auth"], json={"category": "other"}).status_code == 200
+    assert client.post("/sos", headers=user["auth"], json={"category": "<script>"}).status_code == 422
+
+
 def test_sos_booking_access_is_limited_to_trip_participants(client, user_factory, monkeypatch):
     monkeypatch.setattr("app.routers.safety.send_text", lambda _phone, _text: None)
     monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda _text: None)

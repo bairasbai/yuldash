@@ -489,9 +489,12 @@ def test_feed_and_routes_shapes(client, user_factory):
     assert isinstance(client.get("/popular-routes").json(), list)
 
 
-def test_geocode_empty_without_key(client):
+def test_geocode_empty_without_key(client, user_factory):
     # ключ геокодера в тестах не задан → пустой список, не падаем
-    assert client.get("/geocode", params={"q": "Сибай"}).json() == {"items": []}
+    u = user_factory("Гео")
+    assert client.get("/geocode", headers=u["auth"], params={"q": "Сибай"}).json() == {"items": []}
+    # без авторизации — 401 (защита квоты Яндекса от анонимного абуза)
+    assert client.get("/geocode", params={"q": "Сибай"}).status_code == 401
 
 
 def test_ads_empty_without_seed(client):

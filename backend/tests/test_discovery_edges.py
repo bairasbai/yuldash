@@ -33,10 +33,11 @@ def test_popular_routes_and_feed_return_cache_hits(client, monkeypatch):
     assert client.get("/feed").json()["donations_total"] == 6
 
 
-def test_geocode_uses_cache_and_parses_remote_response(client, monkeypatch):
+def test_geocode_uses_cache_and_parses_remote_response(client, monkeypatch, user_factory):
+    auth = user_factory("ГеоКеш")["auth"]
     monkeypatch.setattr(settings, "yandex_geocoder_key", "key")
     monkeypatch.setattr("app.routers.discovery.cache_get_json", lambda key: {"items": [{"title": "Cached", "lat": 1, "lon": 2}]} if key.endswith("cached") else None)
-    cached = client.get("/geocode", params={"q": "cached"}).json()
+    cached = client.get("/geocode", headers=auth, params={"q": "cached"}).json()
     assert cached == {"items": [{"title": "Cached", "lat": 1, "lon": 2}]}
 
     saved = {}
@@ -61,13 +62,13 @@ def test_geocode_uses_cache_and_parses_remote_response(client, monkeypatch):
 
     monkeypatch.setattr("app.routers.discovery.cache_set_json", fake_set)
     monkeypatch.setattr(httpx, "get", fake_get)
-    body = client.get("/geocode", params={"q": "remote"}).json()
+    body = client.get("/geocode", headers=auth, params={"q": "remote"}).json()
     assert body == {"items": [{"title": "Ufa, Bashkortostan", "lat": 54.735, "lon": 55.958}]}
     assert saved["key"] == "geocode:v1:remote"
     assert saved["ttl"] == 86400
 
     monkeypatch.setattr(httpx, "get", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("network")))
-    assert client.get("/geocode", params={"q": "error"}).json() == {"items": []}
+    assert client.get("/geocode", headers=auth, params={"q": "error"}).json() == {"items": []}
 
 
 def test_my_routes_counts_passenger_history(client, user_factory):

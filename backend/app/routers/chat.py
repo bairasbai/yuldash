@@ -12,7 +12,10 @@ from starlette.concurrency import run_in_threadpool
 from ..db import engine, get_session
 from ..models import Booking, BookingStatus, Message, Ride, User
 from ..security import authenticate_ws, current_user
-from ..services import booking_and_ride_for_user, is_blocked, manager, public_media_url, send_push, user_bookings
+from ..services import (
+    booking_and_ride_for_user, is_blocked, manager, notify_chat_message,
+    public_media_url, send_push, user_bookings,
+)
 
 router = APIRouter(tags=["chat"])
 
@@ -109,6 +112,17 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     session.add(msg)
     session.commit()
     session.refresh(msg)
+    # Живая доставка собеседнику с открытым чатом (как в WS-хендлере) — иначе голос/фото/текст-фолбэк
+    # виден только после переполла истории. Поля совместимы с клиентским ChatSocket (id/sender_id/text/timestamp).
+    notify_chat_message(booking_id, {
+        "type": "message",
+        "id": msg.id,
+        "sender_id": msg.sender_id,
+        "text": msg.text or "",
+        "voice_url": msg.voice_url or "",
+        "transcript": msg.transcript or "",
+        "timestamp": msg.created_at.isoformat(),
+    })
     # Push другой стороне брони (кто не отправитель).
     other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
     send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120])

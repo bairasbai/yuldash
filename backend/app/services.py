@@ -590,6 +590,20 @@ def notify_map_changed():
         pass
 
 
+def notify_chat_message(booking_id: int, data: dict) -> None:
+    """Разослать живым WS-подписчикам чата сообщение, отправленное по REST (голос/фото/текст-фолбэк).
+    Иначе собеседник с открытым чатом видит его только после переполла истории. SYNC — зовём из
+    REST-хендлера после commit; publish в общий Redis-канал, async-loop доставит локальным сокетам
+    всех воркеров. Без Redis — no-op (клиент подстрахуется опросом истории)."""
+    client = _cache_client()
+    if client is None:
+        return
+    try:
+        client.publish(_CHAT_CHANNEL, json.dumps({"booking_id": booking_id, "data": data}))
+    except Exception:  # noqa: BLE001 — Redis недоступен → молча, история подстрахует
+        pass
+
+
 async def _chat_subscribe_loop(redis_client):
     """Слушает Redis-канал и доставляет сообщения локальным WS-соединениям этого воркера.
     get_message(timeout) вместо listen()-генератора — чисто отменяется при рестарте воркера
