@@ -203,6 +203,7 @@ class ConversationOut(BaseModel):
     booking_id: int
     peer_name: str
     peer_avatar: str = ""
+    peer_verified: bool = False            # реальный статус проверки собеседника (не фейк «проверен» у всех)
     route: str
     last_message: str
     depart_at: Optional[datetime] = None   # время выезда — различать треды одного маршрута в инбоксе
@@ -254,6 +255,7 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
             booking_id=b.id,
             peer_name=(peer.name if peer and peer.name else "Собеседник"),
             peer_avatar=(peer.avatar_url if peer else ""),
+            peer_verified=(bool(peer.verified) if peer else False),
             route=(f"{ride.from_city} → {ride.to_city}" if ride else ""),
             last_message=("Чат открыт" if last is None else _message_preview(last)),
             depart_at=(ride.depart_at if ride else None),

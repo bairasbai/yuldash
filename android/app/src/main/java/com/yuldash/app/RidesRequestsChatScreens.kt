@@ -1320,7 +1320,7 @@ internal fun ChatScreen(
                             message = c.lastMessage,
                             time = c.departAt?.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: "",   // время выезда — различать треды
                             unread = 0,
-                            verified = true,
+                            verified = c.peerVerified,   // реальный статус проверки собеседника (не фейк «проверен» у всех)
                             onClick = { onOpenChat(c.bookingId, c.peerName, c.route) },
                             avatarUrl = c.peerAvatar
                         )
