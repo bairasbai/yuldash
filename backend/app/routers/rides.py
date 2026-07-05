@@ -196,13 +196,26 @@ def rides_near(
 
 
 @router.get("/driver/rides", response_model=List[RideOut])
-def my_driver_rides(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Свои активные поездки водителя — для выбора, какую поднять (Boost).
-    `boosted` в RideOut показывает, что уже поднята."""
-    rides = session.exec(
-        select(Ride).where(Ride.driver_id == user.id, Ride.status == RideStatus.active)
-        .order_by(*boost_then_depart_order())
-    ).all()
+def my_driver_rides(
+    status: Optional[str] = None,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """Поездки водителя. По умолчанию — активные (для Boost, поведение как раньше).
+    `status`: active (по умолч.) / done / cancelled / all — для раздела «Архив» в кабинете.
+    Архив (done/cancelled/all) сортируем по времени выезда ↓ (свежие сверху); активные —
+    как раньше (сначала поднятые, потом по времени выезда)."""
+    status = (status or "").strip().lower()
+    q = select(Ride).where(Ride.driver_id == user.id)
+    if status == "all":
+        q = q.order_by(Ride.depart_at.desc())
+    elif status == "done":
+        q = q.where(Ride.status == RideStatus.done).order_by(Ride.depart_at.desc())
+    elif status == "cancelled":
+        q = q.where(Ride.status == RideStatus.cancelled).order_by(Ride.depart_at.desc())
+    else:   # "" | "active" — прежнее поведение (не ломаем существующий вызов Boost)
+        q = q.where(Ride.status == RideStatus.active).order_by(*boost_then_depart_order())
+    rides = session.exec(q).all()
     return rides_out(rides, session)
 
 

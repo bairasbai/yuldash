@@ -85,9 +85,11 @@ import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -841,11 +843,25 @@ internal fun DriverCabinetScreen(
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
+    // Архив: прошлые поездки водителя (done + cancelled) для раздела «Архив» + счётчиков.
+    var archive by remember { mutableStateOf<List<com.yuldash.app.data.RideDto>>(emptyList()) }
+    var archiveLoading by remember { mutableStateOf(true) }
+    var archiveError by remember { mutableStateOf(false) }
+    fun loadArchive() {
+        archiveLoading = true; archiveError = false
+        rateScope.launch {
+            ApiClient.getDriverRides("all")
+                .onSuccess { list -> archive = list.filter { it.status == "done" || it.status == "cancelled" } }
+                .onFailure { archiveError = true }
+            archiveLoading = false
+        }
+    }
     LaunchedEffect(Unit) {
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess { online = it.online }
+        loadArchive()
     }
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
@@ -886,6 +902,10 @@ internal fun DriverCabinetScreen(
             onVerifyDriver = onVerifyDriver,
             onBoost = onBoost,
             onRequestsFeed = onRequestsFeed,
+            archive = archive,
+            archiveLoading = archiveLoading,
+            archiveError = archiveError,
+            onRetryArchive = { loadArchive() },
             modifier = Modifier.padding(padding),
         )
     }
@@ -909,8 +929,15 @@ internal fun DriverCabinetContent(
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit,
+    archive: List<com.yuldash.app.data.RideDto> = emptyList(),
+    archiveLoading: Boolean = false,
+    archiveError: Boolean = false,
+    onRetryArchive: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
+    val ridesDone = archive.count { it.status == "done" }
+    val passengersServed = archive.filter { it.status == "done" }.sumOf { (it.seatsTotal - it.seatsLeft).coerceAtLeast(0) }
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1002,6 +1029,31 @@ internal fun DriverCabinetContent(
                 }
             }
         }
+        // ─── Архив: прошлые поездки + счётчики (рейсов сделано / пассажиров отвезено) ───
+        item {
+            SectionHeader(
+                appText("Архив поездок", "Сәфәрҙәр архивы"),
+                appText("Что уже отъездил — рейсы, пассажиры, история.", "Нимә инде үткәрелгән — рейстар, пассажирҙар, тарих."),
+            )
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CabinetMetric(appText("Рейсов сделано", "Рейс эшләнде"), ridesDone.toString(), Modifier.weight(1f))
+                CabinetMetric(appText("Пассажиров отвезено", "Пассажир йөрөтөлдө"), passengersServed.toString(), Modifier.weight(1f))
+            }
+        }
+        when {
+            archiveLoading && archive.isEmpty() -> item { SkeletonCard(lines = 2) }
+            archiveError && archive.isEmpty() -> item { AppErrorState(onRetry = onRetryArchive) }
+            archive.isEmpty() -> item {
+                EmptyStateCard(
+                    title = appText("Архив пока пуст", "Архив әлегә буш"),
+                    text = appText("Завершённые и отменённые поездки появятся здесь.", "Тамамланған һәм баш тартылған сәфәрҙәр бында күренер."),
+                    icon = Icons.Default.History,
+                )
+            }
+            else -> items(archive, key = { "arch-${it.id}" }) { ride -> ArchiveRideCard(ride) }
+        }
         item {
             SettingsGroup {
                 SettingsNavRow(Icons.Default.ListAlt, appText("Заявки пассажиров", "Пассажир заявкалары"), appText("Откликнуться и предложить поездку", "Яуап биреп сәфәр тәҡдим итеү"), onClick = onRequestsFeed)
@@ -1009,6 +1061,39 @@ internal fun DriverCabinetContent(
                 SettingsNavRow(Icons.Default.Verified, appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото и госномер", "Права, машина, фото һәм номер"), onClick = onVerifyDriver)
                 SettingsNavRow(Icons.Default.TrendingUp, appText("Поднять маршрут", "Маршрутты күтәреү"), appText("Показать выше в списке поездок", "Сәфәрҙәр исемлегендә өҫтәрәк күрһәтеү"), onClick = onBoost)
             }
+        }
+    }
+}
+
+/** Карточка прошлой поездки в «Архиве»: маршрут, дата, цена + бейдж статуса (завершена/отменена). */
+@Composable
+internal fun ArchiveRideCard(ride: com.yuldash.app.data.RideDto) {
+    val done = ride.status == "done"
+    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                Modifier.size(38.dp).background(if (done) CanonMint else CanonDangerBg, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (done) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                    contentDescription = if (done) appText("Завершена", "Тамамланды") else appText("Отменена", "Баш тартылды"),
+                    tint = if (done) CanonGreen2 else CanonRed,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("${ride.fromCity} → ${ride.toCity}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    formatDepart(ride.departAt) + " · " + (if (done) appText("Завершена", "Тамамланды") else appText("Отменена", "Баш тартылды")),
+                    color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (ride.price > 0) Text("${ride.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
         }
     }
 }
