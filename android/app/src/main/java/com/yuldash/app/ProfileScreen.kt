@@ -841,7 +841,8 @@ internal fun DriverCabinetScreen(
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
+    var ridesReload by remember { mutableStateOf(0) }   // F3: bump после правки → список свежий
+    LaunchedEffect(ridesReload) {
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
@@ -849,6 +850,8 @@ internal fun DriverCabinetScreen(
     }
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
+    val editSavedMsg = appText("Поездка обновлена", "Сәфәр яңыртылды")
+    val editFailMsg = appText("Не получилось изменить. Возможно, есть брони — цену можно только снижать.", "Үҙгәртеп булманы. Бәлки, бронь бар — хаҡты кәметергә генә була.")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
     Scaffold(
@@ -886,6 +889,16 @@ internal fun DriverCabinetScreen(
             onVerifyDriver = onVerifyDriver,
             onBoost = onBoost,
             onRequestsFeed = onRequestsFeed,
+            onEditRide = { rideId, price, comment ->
+                rateScope.launch {
+                    ApiClient.editRide(rideId, price, comment)
+                        .onSuccess {
+                            Toast.makeText(ctx, editSavedMsg, Toast.LENGTH_SHORT).show()
+                            ridesReload++
+                        }
+                        .onFailure { Toast.makeText(ctx, editFailMsg, Toast.LENGTH_LONG).show() }
+                }
+            },
             modifier = Modifier.padding(padding),
         )
     }
@@ -909,8 +922,11 @@ internal fun DriverCabinetContent(
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit,
+    onEditRide: (Int, Int?, String?) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
+    // F3: какая поездка правится сейчас (null = диалог закрыт).
+    var editing by remember { mutableStateOf<Ride?>(null) }
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -950,16 +966,29 @@ internal fun DriverCabinetContent(
             }
         } else {
             items(driverRides, key = { it.id }) { ride ->
-                MyTripCard(
-                    ride = ride,
-                    status = appText("Опубликована", "Баҫтырылды"),
-                    statusColor = CanonMint,
-                    icon = Icons.Default.DirectionsCar,
-                    primaryAction = appText("Поднять", "Күтәреү"),
-                    secondaryAction = appText("Новый маршрут", "Яңы маршрут"),
-                    onPrimary = onBoost,
-                    onSecondary = onCreateRide
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MyTripCard(
+                        ride = ride,
+                        status = appText("Опубликована", "Баҫтырылды"),
+                        statusColor = CanonMint,
+                        icon = Icons.Default.DirectionsCar,
+                        primaryAction = appText("Поднять", "Күтәреү"),
+                        secondaryAction = appText("Новый маршрут", "Яңы маршрут"),
+                        onPrimary = onBoost,
+                        onSecondary = onCreateRide
+                    )
+                    // F3: правка цены и комментария. Если поездку уже забронировали — сервер
+                    // разрешит только снизить цену и поправить комментарий (иначе понятная ошибка).
+                    TextButton(
+                        onClick = { editing = ride },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = appText("Изменить поездку", "Сәфәрҙе үҙгәртеү"), modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(appText("Изменить цену и комментарий", "Хаҡ һәм аңлатма үҙгәртеү"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
             }
         }
         if (driverBookings.isNotEmpty()) {
@@ -1010,6 +1039,63 @@ internal fun DriverCabinetContent(
                 SettingsNavRow(Icons.Default.TrendingUp, appText("Поднять маршрут", "Маршрутты күтәреү"), appText("Показать выше в списке поездок", "Сәфәрҙәр исемлегендә өҫтәрәк күрһәтеү"), onClick = onBoost)
             }
         }
+    }
+
+    // F3: диалог правки поездки. Цена — число; комментарий — свободный текст (напр. «заеду через Темясово»).
+    editing?.let { ride ->
+        var priceText by remember(ride.id) { mutableStateOf(ride.price.toString()) }
+        var commentText by remember(ride.id) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { editing = null },
+            containerColor = CanonSurface,
+            shape = CanonCardShape,
+            title = { Text(appText("Изменить поездку", "Сәфәрҙе үҙгәртеү"), fontWeight = FontWeight.Black, fontSize = 20.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("${ride.from} → ${ride.to}", color = CanonMuted, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    OutlinedTextField(
+                        value = priceText,
+                        onValueChange = { s -> priceText = s.filter { it.isDigit() }.take(6) },
+                        label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commentText,
+                        onValueChange = { if (it.length <= 2000) commentText = it },
+                        label = { Text(appText("Комментарий (по желанию)", "Аңлатма (теләк буйынса)")) },
+                        placeholder = { Text(appText("Напр. заеду через Темясово", "Мәҫ. Темәс аша үтәм")) },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        appText("Если поездку уже забронировали — цену можно только снизить.", "Әгәр сәфәр брондалған булһа — хаҡты кәметергә генә була."),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val id = ride.id.toIntOrNull()
+                        if (id != null) {
+                            val newPrice = priceText.toIntOrNull()?.takeIf { it != ride.price }
+                            val newComment = commentText.trim().takeIf { it.isNotEmpty() }
+                            onEditRide(id, newPrice, newComment)
+                        }
+                        editing = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2)
+                ) { Text(appText("Сохранить", "Һаҡлау"), fontWeight = FontWeight.Black) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editing = null }, colors = ButtonDefaults.textButtonColors(contentColor = CanonMuted)) {
+                    Text(appText("Отмена", "Баш тартыу"))
+                }
+            }
+        )
     }
 }
 

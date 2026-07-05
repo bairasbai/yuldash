@@ -1,20 +1,22 @@
 """Поездки: публикация (вкл. регулярные серии), поиск, ценовой ориентир,
 ближайшие по маршруту+гео, карточка поездки."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Ride, RideCategory, RideStatus, User
+from ..models import Booking, BookingStatus, Ride, RideCategory, RideStatus, User
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import utcnow
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
     geocode_city, haversine_km, notify_map_changed, public_ride_payload, public_rides_payload, ride_out, ride_out_with, rides_out,
+    send_push,
 )
 
 router = APIRouter(tags=["rides"])
@@ -61,6 +63,68 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     session.refresh(ride)
     notify_map_changed()   # новая поездка → пины на карте у всех обновятся live (не дожидаясь 25с-опроса)
     return ride
+
+
+class RideEditIn(BaseModel):
+    """F3: правка своей поездки. Все поля опциональны — меняется только присланное."""
+    price: Optional[int] = Field(None, ge=0, le=100_000)
+    comment: Optional[str] = Field(None, max_length=2000)
+    depart_at: Optional[datetime] = None
+    seats_total: Optional[int] = Field(None, ge=1, le=8)
+
+
+@router.patch("/rides/{ride_id}", response_model=RideOut)
+@router.post("/rides/{ride_id}/edit", response_model=RideOut)   # алиас: Android HttpURLConnection не умеет PATCH
+def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """F3: водитель правит опубликованную поездку (опечатка в цене/времени была неисправимой).
+
+    Правила честности перед пассажирами:
+    - без живых броней — можно всё (цена/комментарий/время/места);
+    - есть живые брони — только комментарий и цену ВНИЗ (условия «купленного» не ухудшаем);
+      время/места при бронях менять нельзя (409) — отмени рейс (пассажиры получат push) и создай новый.
+    Пассажиров с бронью уведомляем push «Поездка обновлена»."""
+    ride = session.exec(select(Ride).where(Ride.id == ride_id).with_for_update()).first()
+    if not ride:
+        raise HTTPException(404, "Поездка не найдена")
+    if ride.driver_id != user.id:
+        raise HTTPException(403, "Это не ваша поездка")
+    if ride.status != RideStatus.active:
+        raise HTTPException(400, "Менять можно только активную поездку")
+    live = session.exec(select(Booking).where(
+        Booking.ride_id == ride_id,
+        Booking.status.in_((BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)),
+    )).all()
+    booked_seats = sum(b.seats for b in live)
+    changed: list[str] = []
+    if body.price is not None and body.price != ride.price:
+        if live and body.price > ride.price:
+            raise HTTPException(409, "С активными бронями цену можно только снижать")
+        ride.price = body.price
+        changed.append("цена")
+    if body.comment is not None and body.comment != ride.comment:
+        ride.comment = body.comment
+        changed.append("комментарий")
+    if body.depart_at is not None and body.depart_at != ride.depart_at:
+        if live:
+            raise HTTPException(409, "С активными бронями время не меняют — отмените рейс и создайте новый")
+        ride.depart_at = body.depart_at
+        changed.append("время")
+    if body.seats_total is not None and body.seats_total != ride.seats_total:
+        if live:
+            raise HTTPException(409, "С активными бронями число мест не меняют")
+        ride.seats_total = body.seats_total
+        ride.seats_left = body.seats_total - booked_seats   # броней нет → просто новое число мест
+        changed.append("места")
+    if not changed:
+        return public_ride_payload(ride_out(ride, session))   # нечего менять — no-op
+    session.add(ride)
+    session.commit()
+    session.refresh(ride)
+    notify_map_changed()   # карточка на карте/в ленте обновится live
+    for b in live:         # пуши после commit
+        send_push(session, b.passenger_id, "Поездка обновлена",
+                  f"{ride.from_city} → {ride.to_city}: изменено — {', '.join(changed)}. Загляни в детали.")
+    return public_ride_payload(ride_out(ride, session))
 
 
 @router.get("/rides", response_model=List[RideOut])
