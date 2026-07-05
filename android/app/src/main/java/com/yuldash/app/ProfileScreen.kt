@@ -851,7 +851,10 @@ internal fun DriverCabinetScreen(
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
     val editSavedMsg = appText("Поездка обновлена", "Сәфәр яңыртылды")
-    val editFailMsg = appText("Не получилось изменить. Возможно, есть брони — цену можно только снижать.", "Үҙгәртеп булманы. Бәлки, бронь бар — хаҡты кәметергә генә була.")
+    // Точные тексты под причину отказа (сервер различает их HTTP-кодом), все на двух языках.
+    val editPriceDownMsg = appText("Поездку уже забронировали — цену можно только снизить.", "Сәфәр брондалған — хаҡты кәметергә генә була.")
+    val editNotActiveMsg = appText("Менять можно только активную поездку.", "Тик актив сәфәрҙе генә үҙгәртеп була.")
+    val editNetMsg = appText("Не получилось изменить. Проверь интернет и повтори.", "Үҙгәртеп булманы. Интернетты тикшереп ҡабатла.")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
     Scaffold(
@@ -896,7 +899,16 @@ internal fun DriverCabinetScreen(
                             Toast.makeText(ctx, editSavedMsg, Toast.LENGTH_SHORT).show()
                             ridesReload++
                         }
-                        .onFailure { Toast.makeText(ctx, editFailMsg, Toast.LENGTH_LONG).show() }
+                        .onFailure { e ->
+                            // Понятная причина под ошибку: 409 — цена вверх при бронях, 400 — поездка уже неактивна,
+                            // остальное (нет сети и т.п.) — общий текст с «повтори».
+                            val msg = when ((e as? ApiException)?.status) {
+                                409 -> editPriceDownMsg
+                                400 -> editNotActiveMsg
+                                else -> editNetMsg
+                            }
+                            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                        }
                 }
             },
             modifier = Modifier.padding(padding),
