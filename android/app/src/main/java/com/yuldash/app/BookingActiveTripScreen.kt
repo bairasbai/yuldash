@@ -761,7 +761,9 @@ internal fun ActiveTripScreen(
     val chatSendFailMsg = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
     val chatActionFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     // Роль в этой брони: водитель видит «Я выехал/Подъезжаю» (push пассажиру), пассажир — «сел/доехал/завершить».
-    var role by remember { mutableStateOf("") }
+    // Ключуем по bookingId (как driverPhase/bookingStatus ниже): иначе при открытии ДРУГОЙ брони до первого
+    // опроса видны кнопки чужой роли (водительские «Я выехал» у пассажира).
+    var role by remember(bookingId) { mutableStateOf("") }
     var driverPhase by remember(bookingId) { mutableStateOf("") }   // ""/departed/arriving — для live-баннера пассажиру
     var bookingStatus by remember(bookingId) { mutableStateOf("") }
     // Опрос состояния поездки раз в ~12с: роль + подфаза водителя. Так пассажир видит «водитель выехал/
@@ -777,9 +779,10 @@ internal fun ActiveTripScreen(
             }
         }
     }
-    var draft by remember { mutableStateOf("") }
-    var editingId by remember { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
-    var status by remember { mutableStateOf<String?>(null) }
+    // Ключуем по bookingId: черновик/режим редактирования/выбранный статус не должны утекать в другую бронь.
+    var draft by remember(bookingId) { mutableStateOf("") }
+    var editingId by remember(bookingId) { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
+    var status by remember(bookingId) { mutableStateOf<String?>(null) }
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
     val tripSharedPrefix = appText("Поездка отправлена", "Сәфәр ебәрелде")

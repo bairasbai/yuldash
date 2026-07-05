@@ -728,6 +728,7 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
     val token = remember { ApiClient.currentToken() ?: "" }
     val approvedMsg = appText("Водитель одобрен", "Водитель раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
+    val actionErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     // error отделяет «сеть упала» от «список пуст» — иначе админ решит, что заявок на проверку нет.
     fun reload() { loading = true; error = null; scope.launch { ApiClient.getPendingDrivers().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
@@ -739,8 +740,8 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
             drivers = list,
             token = token,
             onRetry = { reload() },
-            onApprove = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() } } },
-            onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() } } },
+            onApprove = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
+            onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
             modifier = Modifier.padding(padding),
         )
     }
@@ -925,6 +926,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
     val confirmedMsg = appText("Оплата подтверждена", "Түләү раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    val actionErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     fun reload() {
         loading = true; error = null
         scope.launch {
@@ -975,7 +977,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
+                item { ListedError(error ?: "") { reload() } }
             } else if (list.isEmpty()) {
                 item { ListedEmpty(appText("Нет заявок на оплату", "Түләү заявкалары юҡ"), appText("Здесь появятся оплаты буста и донаты на подтверждение.", "Бында буст түләүҙәре һәм донаттар раҫлауға күренер")) }
             } else {
@@ -998,8 +1000,8 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                             if (p.note.isNotBlank()) Text(p.note, color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             if (p.createdAt.length >= 10) Text(p.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(onClick = { val id = p.paymentId; scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                                OutlinedButton(onClick = { val id = p.paymentId; scope.launch { ApiClient.rejectPayment(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                                Button(onClick = { val id = p.paymentId; scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = p.paymentId; scope.launch { ApiClient.rejectPayment(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                             }
                         }
                     }
@@ -1072,6 +1074,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     val acceptedMsg = appText("Поездка создана. Перезвоните пассажиру и водителю.", "Сәфәр булдырылды. Пассажирға һәм водителгә шылтыратығыҙ.")
     val noResp = appText("Откликов нет или заявка не найдена", "Яуап юҡ йәки заявка табылманы")
+    val acceptErr = appText("Не получилось принять отклик. Проверь сеть и повтори.", "Яуапты алып булманы. Сетте тикшереп ҡабатла.")
     fun load() {
         val id = reqId.toIntOrNull() ?: return
         loading = true
@@ -1111,7 +1114,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
                             Button(
                                 onClick = {
                                     val id = r.id
-                                    scope.launch { ApiClient.acceptResponse(id).onSuccess { Toast.makeText(ctx, acceptedMsg, Toast.LENGTH_LONG).show(); load() } }
+                                    scope.launch { ApiClient.acceptResponse(id).onSuccess { Toast.makeText(ctx, acceptedMsg, Toast.LENGTH_LONG).show(); load() }.onFailure { Toast.makeText(ctx, acceptErr, Toast.LENGTH_SHORT).show() } }
                                 },
                                 modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
@@ -1323,7 +1326,9 @@ internal fun HelpScreen(
     val usefulAd = ads.forPlacement(AdPlacement.Help).firstOrNull { it.category == "В больницу" }
         ?: ads.forPlacement(AdPlacement.Help).firstOrNull { it.city == "Баймаҡ" }
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     val supportSent = appText("Заявка отправлена — мы свяжемся с вами.", "Заявка ебәрелде — һеҙҙең менән бәйләнешербеҙ.")
+    val supportErr = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Сетте тикшереп ҡабатла.")
     var helpQuery by remember { mutableStateOf("") }
     // FAQ строим в composable-контексте (appText), не внутри LazyColumn-лямбды.
     val faq = listOf(
@@ -1375,8 +1380,13 @@ internal fun HelpScreen(
             item {
                 SettingsGroup {
                     SettingsNavRow(Icons.Default.ChatBubble, appText("Связаться с поддержкой", "Ярҙамға яҙыу"), appText("Оставьте заявку — мы перезвоним", "Заявка ҡалдырығыҙ — шылтыратырбыҙ"), onClick = {
-                        ApiClient.fireRequestCallback("Поддержка из раздела «Помощь»")
-                        Toast.makeText(ctx, supportSent, Toast.LENGTH_SHORT).show()
+                        // Ждём результат: тост «отправлено» — только при успехе, иначе честная ошибка
+                        // (раньше fire-and-forget + тост ДО результата → при офлайне заявка терялась молча).
+                        scope.launch {
+                            ApiClient.requestCallback("Поддержка из раздела «Помощь»")
+                                .onSuccess { Toast.makeText(ctx, supportSent, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(ctx, supportErr, Toast.LENGTH_SHORT).show() }
+                        }
                     })
                     SettingsNavRow(Icons.Default.HeadsetMic, appText("Написать в Telegram", "Telegram-ға яҙыу"), appText("Открыть чат поддержки Юлдаш", "Юлдаш ярҙам чатын асыу"), onClick = {
                         runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/bairas_ntv")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }

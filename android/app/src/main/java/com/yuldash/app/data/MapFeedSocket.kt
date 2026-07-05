@@ -51,6 +51,9 @@ class MapFeedSocket(private val onRefresh: () -> Unit) {
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     runCatching { if (JSONObject(text).optString("type") == "refresh") onRefresh() }
                 }
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    webSocket.close(code, null)   // ответный close на серверный graceful-close → onClosed придёт, реконнект отработает
+                }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     if (code != 1008 && code !in 4000..4999) scheduleReconnect()   // 1008/4xxx (битый токен) — терминал
                 }

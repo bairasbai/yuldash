@@ -164,6 +164,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.getValue
@@ -290,9 +291,14 @@ internal fun MapScreen(
     val focusTo = activeTrip?.to
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
     val userLng = LocationPrefs.lastLng
+    // Огрублённый ключ позиции (~1.1 км, 2 знака): перезапрашиваем «рядом» только при заметном
+    // смещении, а не на КАЖДЫЙ GPS-фикс (было — REST на каждый фикс, жёг трафик и квоту). Сам запрос
+    // уходит с ТОЧНОЙ позицией — грубим только частоту, не точность.
+    val userLatKey = userLat?.let { kotlin.math.round(it * 100) }
+    val userLngKey = userLng?.let { kotlin.math.round(it * 100) }
     // Сбрасываем страницу при смене маршрута/позиции (новый контекст → снова с начала).
-    LaunchedEffect(focusFrom, focusTo, userLat, userLng) { nearbyLimit = NEARBY_PAGE }
-    LaunchedEffect(focusFrom, focusTo, userLat, userLng, nearbyReload, nearbyLimit) {
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey) { nearbyLimit = NEARBY_PAGE }
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
         // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
@@ -302,7 +308,7 @@ internal fun MapScreen(
         nearbyLoading = false
     }
     // Заявки пассажиров рядом → маркеры на карте (кто ищет попутку). Радиус — когда знаем позицию.
-    LaunchedEffect(userLat, userLng, nearbyReload) {
+    LaunchedEffect(userLatKey, userLngKey, nearbyReload) {
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
         ApiClient.getNearbyRequests(userLat, userLng, radius)
             .onSuccess { nearbyRequests = it }
@@ -703,7 +709,7 @@ private fun HomeHeader(onSos: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(timeGreeting(ApiClient.cachedName() ?: "друг"), color = CanonMuted, fontSize = 14.sp)
+            Text(timeGreeting(ApiClient.cachedName() ?: appText("друг", "дуҫ")), color = CanonMuted, fontSize = 14.sp)
             Text(
                 appText("Куда поедем?", "Ҡайҙа барабыҙ?"),
                 color = CanonGreen,
@@ -1343,7 +1349,9 @@ private fun YandexMapCard(
     }
     // Маршрут до партнёра из рекламы — прямо на нашей карте (как активная поездка, но к точке магазина).
     // Есть геолокация → дорога от меня к магазину; нет → просто центрируем карту на магазине с флажком.
-    DisposableEffect(adRoutePoint, lastUserPoint) {
+    // Ключ ТОЛЬКО adRoutePoint (origin захватываем при запуске): раньше был и lastUserPoint → маршрут
+    // пересчитывался DrivingRouter'ом на КАЖДЫЙ GPS-фикс, жёг квоту MapKit и линия мигала.
+    DisposableEffect(adRoutePoint) {
         val map = mapView.mapWindow.map
         val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
         var roadSession: com.yandex.mapkit.directions.driving.DrivingSession? = null
@@ -1400,11 +1408,21 @@ private fun YandexMapCard(
             added.forEach { runCatching { map.mapObjects.remove(it) } }
         }
     }
-    // Жизненный цикл карты привязан к появлению/скрытию экрана «Карта».
-    DisposableEffect(Unit) {
-        MapKitFactory.getInstance().onStart()
-        mapView.onStart()
+    // Жизненный цикл карты привязан к lifecycle экрана, а не к композиции: иначе при сворачивании
+    // приложения (экран «Карта» ещё в композиции) mapView.onStop() не звался → MapKit продолжал
+    // рендер/сеть в фоне (батарея + квота). Теперь onStart/onStop по ON_START/ON_STOP владельца.
+    val mapLifecycle = LocalLifecycleOwner.current
+    DisposableEffect(mapLifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> { MapKitFactory.getInstance().onStart(); mapView.onStart() }
+                Lifecycle.Event.ON_STOP -> { mapView.onStop(); MapKitFactory.getInstance().onStop() }
+                else -> {}
+            }
+        }
+        mapLifecycle.lifecycle.addObserver(observer)
         onDispose {
+            mapLifecycle.lifecycle.removeObserver(observer)
             mapView.onStop()
             MapKitFactory.getInstance().onStop()
         }
