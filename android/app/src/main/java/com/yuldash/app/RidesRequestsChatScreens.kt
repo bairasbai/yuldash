@@ -66,6 +66,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -675,7 +676,7 @@ internal fun NearbySkeletonCard() {
 }
 
 @Composable
-internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Boolean = false) {
+internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Boolean = false, onWatchRoute: (() -> Unit)? = null) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -706,6 +707,18 @@ internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Bool
             )
             TextButton(onClick = onRetry) {
                 Text(if (error) appText("Повторить", "Ҡабатлау") else appText("Обновить", "Яңыртыу"), color = CanonGreen2, fontWeight = FontWeight.Black)
+            }
+            // F13 «карауль поездку»: подпишись на маршрут — уведомим, как только появится машина.
+            if (onWatchRoute != null) {
+                Spacer(Modifier.height(2.dp))
+                AppButton(
+                    text = appText("Следить за маршрутом", "Маршрутты күҙәтеү"),
+                    onClick = onWatchRoute,
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.NotificationsActive,
+                    fillWidth = false,
+                    height = 46.dp,
+                )
             }
         }
     }

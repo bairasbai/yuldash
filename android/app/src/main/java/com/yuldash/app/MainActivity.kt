@@ -318,7 +318,8 @@ internal enum class Screen {
     AppReview,
     AdminReviews,
     AdminAds,
-    AdEditor
+    AdEditor,
+    RouteWatches   // «Мои подписки» на маршрут (F13 «карауль поездку»)
 }
 
 internal enum class HomeTab {

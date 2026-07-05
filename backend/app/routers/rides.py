@@ -14,7 +14,8 @@ from ..security import current_user, current_user_optional
 from ..timeutil import utcnow
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
-    geocode_city, haversine_km, notify_map_changed, public_ride_payload, public_rides_payload, ride_out, ride_out_with, rides_out,
+    geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
+    public_rides_payload, ride_out, ride_out_with, rides_out,
 )
 
 router = APIRouter(tags=["rides"])
@@ -60,6 +61,7 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     session.commit()
     session.refresh(ride)
     notify_map_changed()   # новая поездка → пины на карте у всех обновятся live (не дожидаясь 25с-опроса)
+    notify_route_watchers(session, ride)   # «карауль поездку»: оповещаем подходящих сторожей (push + запись)
     return ride
 
 

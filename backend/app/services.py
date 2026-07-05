@@ -19,8 +19,8 @@ from sqlmodel import Session, select
 from .config import settings
 from .db import engine
 from .models import (
-    Block, Booking, DeviceToken, DriverProfile, Rating, Ride, RideCategory,
-    RideStatus, UploadEvent, User, UserRole,
+    Block, Booking, DeviceToken, DriverProfile, Notification, Rating, Ride, RideCategory,
+    RideStatus, RouteWatch, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
 from .timeutil import utcnow
@@ -198,6 +198,60 @@ def send_push(session: Session, user_id: int, title: str, body: str) -> None:
                 print(f"[FCM] send error: {e}")
     except Exception as e:  # noqa: BLE001
         print(f"[FCM] init error: {e}")
+
+
+# ----------------------------- Подписка на маршрут (RouteWatch) -----------------------------
+def _norm_city(s: str) -> str:
+    """Нормализация названия города для сравнения подписки с поездкой (регистр/пробелы)."""
+    return (s or "").strip().casefold()
+
+
+def notify_route_watchers(session: Session, ride: Ride) -> int:
+    """Матчинг новой поездки с подписками «карауль поездку».
+    Находит непротухшие подписки, чей маршрут совпал с поездкой, и шлёт push + пишет
+    запись уведомления. Анти-спам: не чаще 1 пуша на подписку в сутки (last_notified_at).
+    Возвращает число оповещённых подписок (для тестов/логов). Не роняет публикацию поездки."""
+    try:
+        now = utcnow()
+        r_from, r_to = _norm_city(ride.from_city), _norm_city(ride.to_city)
+        # Берём только непротухшие подписки; чужие водителю (сам себе не шлём).
+        watches = session.exec(
+            select(RouteWatch).where(
+                RouteWatch.expires_at > now,
+                RouteWatch.user_id != ride.driver_id,
+            )
+        ).all()
+        # Языки получателей (для двуязычного пуша RU/BA — CLAUDE.md §3): один батч, без N+1.
+        watcher_ids = {w.user_id for w in watches}
+        langs = {}
+        if watcher_ids:
+            langs = {u.id: (u.language or "ru") for u in session.exec(select(User).where(User.id.in_(watcher_ids))).all()}
+        notified = 0
+        for w in watches:
+            w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
+            forward = (w_from == r_from and w_to == r_to)
+            backward = (w.direction == "both" and w_from == r_to and w_to == r_from)
+            if not (forward or backward):
+                continue
+            # Дата: если у подписки задан день — матчим только поездку в этот календарный день.
+            if w.watch_date is not None and w.watch_date.date() != ride.depart_at.date():
+                continue
+            # Анти-спам: 1 пуш на подписку в сутки.
+            if w.last_notified_at is not None and (now - w.last_notified_at) < timedelta(hours=24):
+                continue
+            title = "Сәфәр барлыҡҡа килде" if langs.get(w.user_id) == "ba" else "Появилась поездка"
+            body = f"{ride.from_city} → {ride.to_city}"   # города — как есть (имена собственные)
+            session.add(Notification(user_id=w.user_id, type="route_watch", title=title, text=body, ride_id=ride.id))
+            w.last_notified_at = now
+            session.add(w)
+            notified += 1
+            send_push(session, w.user_id, title, body)
+        if notified:
+            session.commit()
+        return notified
+    except Exception as e:  # noqa: BLE001 — оповещение сторожей не должно ронять публикацию поездки
+        print(f"[ROUTE_WATCH] notify error: {e}")
+        return 0
 
 
 # ----------------------------- SMS -----------------------------

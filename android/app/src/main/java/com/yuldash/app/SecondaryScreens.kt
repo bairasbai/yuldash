@@ -125,6 +125,9 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -166,6 +169,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -250,7 +254,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit) {
+internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit, onRouteWatches: () -> Unit = {}) {
     var selected by remember { mutableStateOf("all") }
     val allLabel = appText("Все", "Бөтәһе")
     val ridesLabel = appText("Поездки", "Сәфәрҙәр")
@@ -282,6 +286,22 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
                 // (не хранятся как отдельные записи) → «очистка» не могла сохраниться и при перезаходе
                 // список возвращался. Лента сама обновляется по факту прочтения переписки.
                 Text(appText("Уведомления", "Хәбәрҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+            }
+            item {
+                // F13: вход в «Мои подписки» на маршрут — карауль поездку.
+                AppCard(onClick = onRouteWatches) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = CanonMint, shape = CircleShape) {
+                            Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(22.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(appText("Мои подписки на маршрут", "Маршрут яҙылыуҙарым"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                            Text(appText("Караулим поездку и сообщим первыми", "Сәфәрҙе күҙәтеп, беренсе булып хәбәр итәбеҙ"), color = CanonMuted, fontSize = 13.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = CanonMuted)
+                    }
+                }
             }
             item {
                 SegmentedTabs(
@@ -339,6 +359,167 @@ internal fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVect
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Text(time, color = CanonMuted, fontSize = 13.sp)
                 if (unread) Box(Modifier.size(8.dp).background(CanonGreen2, CircleShape))
+            }
+        }
+    }
+}
+
+/**
+ * F13 «Мои подписки» — подписка на маршрут «карауль поездку» (retention-двигатель).
+ * Форма подписки (откуда/куда + туда-обратно) + список активных подписок с удалением.
+ * Все состояния: загрузка / ошибка+повтор / пусто / список. Двуязычно.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun RouteWatchesScreen(
+    onBack: () -> Unit,
+    prefillFrom: String = "",
+    prefillTo: String = "",
+) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var watches by remember { mutableStateOf<List<com.yuldash.app.data.RouteWatchDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
+    var from by rememberSaveable { mutableStateOf(prefillFrom) }
+    var to by rememberSaveable { mutableStateOf(prefillTo) }
+    var bothWays by rememberSaveable { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
+
+    val savedMsg = appText("Готово! Сообщим, как появится поездка", "Әҙер! Сәфәр сыҡҡас, хәбәр итәбеҙ")
+    val failMsg = appText("Не получилось. Проверь сеть и повтори", "Булманы. Сетте тикшереп ҡабатла")
+    val removedMsg = appText("Подписка удалена", "Яҙылыу юйылды")
+
+    fun reload() {
+        loading = true; error = false
+        scope.launch {
+            ApiClient.getRouteWatches()
+                .onSuccess { watches = it; error = false }
+                .onFailure { error = true }
+            loading = false
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
+
+    Scaffold(
+        containerColor = CanonBg,
+        topBar = { ScreenTopBar(appText("Мои подписки", "Яҙылыуҙарым"), onBack) }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item {
+                Text(
+                    appText(
+                        "Подпишись на маршрут — пришлём уведомление, как только водитель опубликует подходящую поездку.",
+                        "Маршрутҡа яҙыл — йөрөтөүсе тап килгән сәфәр баҫтырһа, шунда уҡ хәбәр итәбеҙ."
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
+                )
+            }
+            // --- Форма подписки ---
+            item {
+                AppCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            from, { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) },
+                            leadingIcon = { Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2) },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)
+                        )
+                        OutlinedTextField(
+                            to, { to = it }, label = { Text(appText("Куда", "Ҡайҙа")) },
+                            leadingIcon = { Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = CanonGreen2) },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(appText("И в обратную сторону", "Кире яҡҡа ла"), color = CanonText, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                            Switch(checked = bothWays, onCheckedChange = { bothWays = it })
+                        }
+                        AppButton(
+                            text = appText("Следить за маршрутом", "Маршрутты күҙәтеү"),
+                            onClick = {
+                                val f = from.trim(); val t = to.trim()
+                                if (f.isBlank() || t.isBlank()) {
+                                    Toast.makeText(ctx, appText("Укажи откуда и куда", "Ҡайҙан һәм ҡайҙа икәнен яҙ"), Toast.LENGTH_SHORT).show()
+                                    return@AppButton
+                                }
+                                submitting = true
+                                scope.launch {
+                                    ApiClient.createRouteWatch(f, t, if (bothWays) "both" else "forward")
+                                        .onSuccess {
+                                            Toast.makeText(ctx, savedMsg, Toast.LENGTH_SHORT).show()
+                                            from = ""; to = ""; bothWays = false
+                                            reload()
+                                        }
+                                        .onFailure {
+                                            val m = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg
+                                            Toast.makeText(ctx, m, Toast.LENGTH_LONG).show()
+                                        }
+                                    submitting = false
+                                }
+                            },
+                            icon = Icons.Default.NotificationsActive,
+                            loading = submitting,
+                        )
+                    }
+                }
+            }
+            // --- Список активных подписок ---
+            item {
+                Text(appText("Активные подписки", "Әүҙем яҙылыуҙар"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(top = 6.dp))
+            }
+            when {
+                loading && watches.isEmpty() -> item { AppLoading(appText("Загрузка…", "Йөкләнә…")) }
+                error && watches.isEmpty() -> item { AppErrorState(onRetry = { reload() }) }
+                watches.isEmpty() -> item {
+                    AppEmptyState(
+                        title = appText("Пока нет подписок", "Әлегә яҙылыуҙар юҡ"),
+                        text = appText("Подпишись на нужный маршрут выше — не пропустишь новую поездку.", "Кәрәкле маршрутҡа яҙыл — яңы сәфәрҙе үткәрмәҫһең."),
+                        icon = Icons.Default.NotificationsActive,
+                    )
+                }
+                else -> items(watches, key = { it.id }) { w ->
+                    RouteWatchRow(
+                        watch = w,
+                        onDelete = {
+                            scope.launch {
+                                ApiClient.deleteRouteWatch(w.id)
+                                    .onSuccess { watches = watches.filterNot { it.id == w.id }; Toast.makeText(ctx, removedMsg, Toast.LENGTH_SHORT).show() }
+                                    .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteWatchRow(watch: com.yuldash.app.data.RouteWatchDto, onDelete: () -> Unit) {
+    AppCard {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = CanonMint, shape = CircleShape) {
+                Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    if (watch.direction == "both") "${watch.fromCity}  ⇄  ${watch.toCity}" else "${watch.fromCity}  →  ${watch.toCity}",
+                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp
+                )
+                Text(
+                    if (watch.direction == "both") appText("Туда и обратно", "Бара һәм ҡайта")
+                    else appText("Караулим поездку", "Сәфәрҙе күҙәтәбеҙ"),
+                    color = CanonMuted, fontSize = 13.sp
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = appText("Удалить", "Юйыу"), tint = CanonRed)
             }
         }
     }

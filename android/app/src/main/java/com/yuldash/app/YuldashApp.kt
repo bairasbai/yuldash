@@ -308,6 +308,9 @@ internal fun YuldashApp() {
     var trustedContactsReturnScreen by rememberSaveable { mutableStateOf(Screen.SimpleMode) }
     var trustedContactsReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Profile) }
     var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
+    // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
+    var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
+    var routeWatchPrefillTo by rememberSaveable { mutableStateOf("") }
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
     // Версия сессии: инкрементится при входе (onContinue), чтобы user-специфичные загрузки
@@ -618,6 +621,11 @@ internal fun YuldashApp() {
                 onSos = { screen = Screen.Sos },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onNotifications = { screen = Screen.Notifications },
+                onRouteWatch = { from, to ->
+                    routeWatchPrefillFrom = from ?: ""
+                    routeWatchPrefillTo = to ?: ""
+                    screen = Screen.RouteWatches
+                },
                 onOpenChat = { bid, peer, route ->
                     val parts = route.split("→").map { it.trim() }
                     selectedRide = Ride(id = bid.toString(), from = parts.getOrElse(0) { "" }, to = parts.getOrElse(1) { "" }, time = "", driver = peer, car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
@@ -718,7 +726,13 @@ internal fun YuldashApp() {
             )
             Screen.Notifications -> NotificationsScreen(
                 onBack = { goBack() },
-                onSelectTab = { tab -> openHome(tab) }
+                onSelectTab = { tab -> openHome(tab) },
+                onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches }
+            )
+            Screen.RouteWatches -> RouteWatchesScreen(
+                onBack = { goBack() },
+                prefillFrom = routeWatchPrefillFrom,
+                prefillTo = routeWatchPrefillTo,
             )
             Screen.Privacy -> PrivacyScreen(onBack = { goBack() })
             Screen.Rules -> RulesScreen(onBack = { goBack() })
@@ -1451,6 +1465,7 @@ internal fun HomeScreen(
     onSos: () -> Unit,
     onVerifyDriver: () -> Unit,
     onNotifications: () -> Unit,
+    onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13: открыть «Мои подписки» (опц. с маршрутом)
     onOpenChat: (Int, String, String) -> Unit,
     onOpenResponses: (Int) -> Unit = {},
     onCancelRequest: (Int) -> Unit = {},
@@ -1495,7 +1510,8 @@ internal fun HomeScreen(
                     onSos = onSos,
                     onOpenPopular = { route -> openRides(to = route.to, today = true) },
                     onDriver = onCreateRide,
-                    onBoost = onBoost
+                    onBoost = onBoost,
+                    onRouteWatch = onRouteWatch
                 )
                 HomeTab.Rides -> RidesScreen(
                     rides = rides,

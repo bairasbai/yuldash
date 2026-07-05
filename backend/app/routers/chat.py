@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
 from ..db import engine, get_session
-from ..models import Booking, BookingStatus, Message, Ride, User
+from ..models import Booking, BookingStatus, Message, Notification, Ride, User
 from ..security import authenticate_ws, current_user
 from ..services import (
     booking_and_ride_for_user, is_blocked, manager, notify_chat_message,
@@ -265,7 +265,8 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
 
 @router.get("/notifications")
 def notifications(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Лента событий: входящие сообщения по броням пользователя (как пассажир и водитель)."""
+    """Лента событий: входящие сообщения по броням пользователя + персистентные
+    уведомления (подписка на маршрут «карауль поездку» и т.п.)."""
     booking_ids = [b.id for b in user_bookings(session, user)]
     out: list = []
     if booking_ids:
@@ -275,4 +276,11 @@ def notifications(user: User = Depends(current_user), session: Session = Depends
         ).all()
         for m in msgs:
             out.append({"type": "message", "title": "Новое сообщение", "text": (m.text if m.text else "Голосовое сообщение")})
+    # Персистентные уведомления (напр. «Появилась поездка Сибай→Уфа» по подписке на маршрут).
+    notes = session.exec(
+        select(Notification).where(Notification.user_id == user.id)
+        .order_by(Notification.id.desc()).limit(15)
+    ).all()
+    for n in notes:
+        out.append({"type": n.type, "title": n.title, "text": n.text, "ride_id": n.ride_id})
     return out
