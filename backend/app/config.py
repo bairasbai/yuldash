@@ -100,8 +100,15 @@ class Settings(BaseSettings):
         if not self.is_prod:
             return
         problems: list[str] = []
-        if self.jwt_secret == DEFAULT_JWT_SECRET or len(self.jwt_secret) < 16:
-            problems.append("JWT_SECRET должен быть задан и быть длинным (>=16 символов)")
+        # Ловим не только точный дефолт, но и любой заведомо-dev секрет (напр. фолбэк из
+        # docker-compose `dev-secret-...-1234` — он длиннее 16 и раньше проскакивал гвард).
+        weak_secret = (
+            self.jwt_secret == DEFAULT_JWT_SECRET
+            or self.jwt_secret.startswith("dev-secret")
+            or len(self.jwt_secret) < 16
+        )
+        if weak_secret:
+            problems.append("JWT_SECRET должен быть задан, длинным (>=16) и не dev-дефолтом")
         # SMS — НЕобязателен: основной вход через мессенджеры (Telegram и т.п.).
         # SMS заморожен (sms_provider=mock) — это допустимо в проде. Оживить: SMS_PROVIDER=smsru + ключ.
         if self.sms_provider == "smsru" and not self.sms_ru_api_id:
