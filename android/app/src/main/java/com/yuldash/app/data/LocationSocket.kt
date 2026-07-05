@@ -76,6 +76,11 @@ class LocationSocket(
                         }
                     }
                 }
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    // Отвечаем на серверный graceful-close (деплой/рестарт) → onClosed гарантированно придёт
+                    // и отработает реконнект. Без этого handshake не завершается до TCP-таймаута — стрим тихо умирает.
+                    webSocket.close(code, null)
+                }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     onConnected(false)
                     // Поездка ещё не активна (бронь pending/подтверждается) — сервер закрывает 1008 "Trip not active".

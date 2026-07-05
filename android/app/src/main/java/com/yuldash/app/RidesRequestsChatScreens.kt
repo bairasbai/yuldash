@@ -1296,9 +1296,9 @@ internal fun ChatScreen(
                 itemsIndexed(myRequests, key = { _, r -> r.id }) { i, r ->
                     Box(Modifier.appearIn(i)) {
                         ChatCard(
-                            initial = r.fromCity.firstOrNull()?.uppercase() ?: "З",
+                            initial = r.fromCity.firstOrNull()?.uppercase() ?: "?",
                             name = "${r.fromCity} → ${r.toCity}",
-                            subtitle = "Заявка · " + seatsText(r.seats),
+                            subtitle = appText("Заявка", "Ғариза") + " · " + seatsText(r.seats),
                             message = appText("Смотреть отклики водителей", "Водитель яуаптарын ҡарау"),
                             time = "",
                             unread = 0,
@@ -1320,7 +1320,7 @@ internal fun ChatScreen(
                             message = c.lastMessage,
                             time = c.departAt?.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: "",   // время выезда — различать треды
                             unread = 0,
-                            verified = true,
+                            verified = c.peerVerified,   // реальный статус проверки собеседника (не фейк «проверен» у всех)
                             onClick = { onOpenChat(c.bookingId, c.peerName, c.route) },
                             avatarUrl = c.peerAvatar
                         )

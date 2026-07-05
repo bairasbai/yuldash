@@ -87,6 +87,11 @@ class ChatSocket(
                         }
                     }
                 }
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    // Отвечаем на серверный graceful-close (в т.ч. 1008 «не участник»/«битый токен»): без этого
+                    // onClosed может не прийти → onFailure → долбёжка реконнекта даже при терминальном отказе.
+                    webSocket.close(code, null)
+                }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     onConnected(false)
                     // 1008 (policy/нарушение) и кастомные 4xxx = терминальный отказ (напр. не участник брони,
