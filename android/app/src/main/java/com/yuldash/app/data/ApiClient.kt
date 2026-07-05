@@ -118,6 +118,9 @@ object ApiClient {
         // Прогрев кеша статики из prefs → цены пакетов/буста видны мгновенно на холодном старте (сеть освежит по TTL).
         seedStatic("ad-packages", ::parseAdPackages)
         seedStatic("boost-plans", ::parseBoostPlans)
+        // F11: локальные хранилища офлайн-паспорта поездки и очереди исходящих действий.
+        TripPassStore.init(app)
+        Outbox.init(app)
     }
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
