@@ -204,6 +204,10 @@ class Booking(SQLModel, table=True):
     status: BookingStatus = BookingStatus.pending
     driver_phase: str = ""           # подфаза активной поездки от водителя: "" / departed / arriving (для live-баннера пассажиру)
     boarding_code: str = ""
+    # F12 «Зимний протокол»: авто-проверка «доехал?». sent_at — когда обеим сторонам ушёл пуш
+    # «всё в порядке?»; ack_at — когда участник подтвердил, что доехал/всё хорошо (гасит эскалацию).
+    winter_check_sent_at: Optional[datetime] = None
+    winter_check_ack_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow)
 
 

@@ -338,3 +338,13 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - Latest backend verification: `pytest tests -q` → `148 passed, 1 skipped`; coverage for `backend/app` → `91%` (`3186` statements, `300` missed).
 - High-covered active modules after this pass: `routers/ads.py` 99%, `routers/auth.py` 98%, `payments.py` 100%, `routers/payments.py` 95%, `routers/requests.py` 95%, `routers/safety.py` 99%, `driver_check.py` 96%, `routers/rides.py` 93%.
 - Remaining lower areas are mostly integration-heavy/infrastructure: `services.py`, `db.py`, `middleware.py`, and WebSocket internals in `routers/chat.py`.
+
+## ❄️ F12 «Зимний протокол безопасности» (ветка feat/winter-safety, 2026-07-05)
+> РБ-фишка «между своими = заботимся»: зимняя трасса между сёлами опасна. Всё переиспользует существующие сущности — новых таблиц (кроме 2 колонок) нет.
+- **Бэкенд `routers/safety.py`** (3 новых эндпоинта, участник поездки only):
+  - `POST /bookings/{id}/stuck` — «Застрял на трассе»: координаты → доверенным контактам (SMS в фоне) + запись в SOS-ленту (`SosEvent category=breakdown`) + Telegram админу. Уровень мягче паники SOS.
+  - `POST /bookings/{id}/winter-check` — авто-проверка «доехал?» (прагматично v1: вызывается клиентом/по флагу, когда его ETA+буфер истёк). Идемпотентна: 1) не закрыта + пуш не слали → пуш «всё в порядке?» обеим сторонам (`send_push`), помечает `winter_check_sent_at`; 2) ответа нет ≥30 мин + активный `TripShare` → уведомление доверенному (SMS) + `SosEvent`; ветки `closed/ok/too_early/waiting/no_share/escalated`.
+  - `POST /bookings/{id}/winter-check/ok` — участник подтвердил «всё в порядке» (`winter_check_ack_at`) → гасит эскалацию.
+- **Модель `Booking` +2 колонки:** `winter_check_sent_at`, `winter_check_ack_at`. Миграция `alembic/versions/f12_winter_safety.py` (идемпотентна; на проде миграции F-веток сведёт лид).
+- **Android `BookingActiveTripScreen.kt`:** баннер «Морозная ночь» (`FrostyNightBanner`, показывается по `isFrostyWinterNight()` = месяц ноя–мар + время 20:00–07:00, без внешних API) + кнопка «Застрял на трассе» (`RoadsideHelpButton`, амбер `CanonWarn`, отдельный уровень от красной SOS, с подтверждением). `ApiClient.roadsideHelp(bookingId, lat, lng, note)` → `/stuck` (координаты из `LocationPrefs`).
+- **Тесты:** `backend/tests/test_winter_safety.py` (9 тестов: stuck пишет SOS+шлёт доверенным, права участника, все ветки авто-чека, ack гасит эскалацию).

@@ -596,6 +596,14 @@ object ApiClient {
     suspend fun sos(category: String, note: String): Result<Unit> =
         call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }.onSuccess { Analytics.log("sos") }
 
+    /** F12 «Застрял на трассе»: координаты уходят доверенным контактам + запись в SOS-ленту админа.
+     *  Уровень мягче паники SOS. Координаты необязательны (шлём хотя бы сигнал о помощи). */
+    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<Unit> {
+        val body = JSONObject().put("note", note)
+        if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
+        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { }.onSuccess { Analytics.log("roadside_help") }
+    }
+
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
     suspend fun requestCallback(note: String): Result<Unit> =
         call("POST", "/callback", JSONObject().put("note", note), auth = true).map { }.onSuccess { Analytics.log("callback_request") }
