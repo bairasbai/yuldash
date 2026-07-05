@@ -287,6 +287,9 @@ internal fun MapScreen(
     val filterCtx = LocalContext.current
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
     val verifiedOnly = remember { AppPrefs.verifiedOnly(filterCtx) }  // «Только проверенные» из раздела Безопасность
+    // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
+    // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
+    var dateFilter by remember { mutableStateOf<String?>(null) }
     val focusFrom = activeTrip?.from
     val focusTo = activeTrip?.to
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
@@ -296,13 +299,13 @@ internal fun MapScreen(
     // уходит с ТОЧНОЙ позицией — грубим только частоту, не точность.
     val userLatKey = userLat?.let { kotlin.math.round(it * 100) }
     val userLngKey = userLng?.let { kotlin.math.round(it * 100) }
-    // Сбрасываем страницу при смене маршрута/позиции (новый контекст → снова с начала).
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey) { nearbyLimit = NEARBY_PAGE }
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit) {
+    // Сбрасываем страницу при смене маршрута/позиции/дня (новый контекст → снова с начала).
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter) { nearbyLimit = NEARBY_PAGE }
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
         // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
-        ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit)
+        ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit, date = dateFilter)
             .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false }
             .onFailure { nearbyError = true }
         nearbyLoading = false
@@ -410,6 +413,23 @@ internal fun MapScreen(
                             if (nearby.isNotEmpty()) {
                                 Text(appText("${shownNearby.size} рядом", "${shownNearby.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
+                        }
+                    }
+                }
+                item {
+                    // F4: «Когда едем» — видим ВСЕГДА (даже при пустой выдаче: выбрал «Сегодня»,
+                    // пусто → должен смочь вернуться на «Все дни»). Даты — по часам устройства.
+                    val today = java.time.LocalDate.now()
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        NearbyFilterChip(Icons.Default.CalendarMonth, appText("Все дни", "Бөтә көндәр"), dateFilter == null) { dateFilter = null }
+                        NearbyFilterChip(Icons.Default.Schedule, appText("Сегодня", "Бөгөн"), dateFilter == today.toString()) {
+                            dateFilter = if (dateFilter == today.toString()) null else today.toString()
+                        }
+                        NearbyFilterChip(Icons.Default.Schedule, appText("Завтра", "Иртәгә"), dateFilter == today.plusDays(1).toString()) {
+                            dateFilter = if (dateFilter == today.plusDays(1).toString()) null else today.plusDays(1).toString()
                         }
                     }
                 }

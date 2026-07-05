@@ -40,6 +40,24 @@ def test_past_rides_hidden_from_search(client, user_factory):
     assert "Прошлое" not in tos      # вчерашняя отсеяна
 
 
+def test_date_filter_in_search_and_near(client, user_factory):
+    """F4: параметр date=YYYY-MM-DD оставляет только поездки этого дня (в /rides и /rides/near)."""
+    drv = user_factory("DateDrv", role=UserRole.driver)
+    _publish(client, drv, frm="ДатаА", to="Первое", depart_at="2030-01-01T10:00:00")
+    _publish(client, drv, frm="ДатаА", to="Второе", depart_at="2030-01-02T10:00:00")
+    day1 = client.get("/rides", params={"from_city": "ДатаА", "date": "2030-01-01"}).json()
+    assert [r["to_city"] for r in day1] == ["Первое"]
+    day2 = client.get("/rides", params={"from_city": "ДатаА", "date": "2030-01-02"}).json()
+    assert [r["to_city"] for r in day2] == ["Второе"]
+    # без date — обе (обратная совместимость)
+    assert len(client.get("/rides", params={"from_city": "ДатаА"}).json()) == 2
+    # /rides/near — тот же фильтр
+    near = client.get("/rides/near", params={"from_city": "ДатаА", "date": "2030-01-01"}).json()
+    assert near["count"] == 1 and near["items"][0]["to_city"] == "Первое"
+    # кривая дата → 422, не 500
+    assert client.get("/rides", params={"date": "не-дата"}).status_code == 422
+
+
 def test_ride_input_validation_rejects_junk(client, user_factory):
     """WP-9: слишком длинный город и мусорные координаты отклоняются (422), а не пишутся в БД."""
     driver = user_factory("ValRideDriver", role=UserRole.driver)

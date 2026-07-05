@@ -1,6 +1,6 @@
 """Поездки: публикация (вкл. регулярные серии), поиск, ценовой ориентир,
 ближайшие по маршруту+гео, карточка поездки."""
-from datetime import timedelta
+from datetime import date as date_type, datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,6 +20,14 @@ from ..services import (
 router = APIRouter(tags=["rides"])
 
 RIDE_PAST_GRACE_HOURS = 2   # сколько часов после depart_at поездка ещё видна в выдаче (поздняя бронь / уехал впритык)
+
+
+def _date_bounds(date: Optional[date_type]):
+    """F4: границы суток для фильтра «когда едем» (date=YYYY-MM-DD → [00:00, +1день))."""
+    if date is None:
+        return None
+    start = datetime(date.year, date.month, date.day)
+    return start, start + timedelta(days=1)
 
 
 def _hide_blocked(items, user, session):
@@ -72,6 +80,7 @@ def search_rides(
     child_seat: Optional[bool] = None,
     women_only: Optional[bool] = None,
     baggage: Optional[bool] = None,
+    date: Optional[date_type] = None,   # F4: «когда едем» — только поездки этого дня (YYYY-MM-DD)
     limit: Optional[int] = None,        # пагинация (опц., обратносовместимо: None = все)
     offset: int = 0,
     user: Optional[User] = Depends(current_user_optional),   # есть токен → прячем заблокированных
@@ -81,7 +90,7 @@ def search_rides(
     # Кешируем в Redis на 20с → снимаем нагрузку с БД при наплыве. Фильтрованные запросы (реже) — мимо кеша.
     # Кеш хранит ПОЛНЫЙ список; фильтр заблокированных — поверх, per-user (кеш не портим).
     no_filter = (
-        not any([from_city, to_city, category, pets_allowed, child_seat, women_only, baggage])
+        not any([from_city, to_city, category, pets_allowed, child_seat, women_only, baggage, date])
         and limit is None
     )
     if no_filter:
@@ -109,6 +118,9 @@ def search_rides(
         q = q.where(Ride.women_only == True)  # noqa: E712
     if baggage:
         q = q.where(Ride.baggage == True)  # noqa: E712
+    bounds = _date_bounds(date)
+    if bounds:
+        q = q.where(Ride.depart_at >= bounds[0], Ride.depart_at < bounds[1])
     q = q.order_by(*boost_then_depart_order())   # поднятые (Boost) — первыми
     if limit is not None:
         q = q.offset(max(0, offset)).limit(max(1, min(limit, 200)))   # потолок 200/страница
@@ -145,6 +157,7 @@ def rides_near(
     lat: Optional[float] = None,
     lng: Optional[float] = None,
     radius_km: Optional[float] = None,
+    date: Optional[date_type] = None,   # F4: «когда едем» — только поездки этого дня (YYYY-MM-DD)
     limit: Optional[int] = None,        # пагинация «показать ещё» (опц., None = все)
     offset: int = 0,
     user: Optional[User] = Depends(current_user_optional),   # есть токен → прячем заблокированных
@@ -158,6 +171,9 @@ def rides_near(
         q = q.where(Ride.from_city.contains(from_city))
     if to_city:
         q = q.where(Ride.to_city.contains(to_city))
+    bounds = _date_bounds(date)
+    if bounds:
+        q = q.where(Ride.depart_at >= bounds[0], Ride.depart_at < bounds[1])
     # PostGIS-префильтр по радиусу (только postgres + есть координаты): индекс GiST → быстро на больших
     # объёмах. Фолбэк (sqlite/без PostGIS/ошибка) — Python-haversine ниже даёт тот же результат.
     if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
