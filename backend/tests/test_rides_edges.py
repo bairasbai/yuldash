@@ -20,6 +20,26 @@ def test_create_ride_clamps_price_and_seats(client, user_factory):
     assert created.json()["price"] == 100000
 
 
+def test_past_rides_hidden_from_search(client, user_factory):
+    """Аудит 2026-07-04: уже уехавшие поездки не висят в выдаче (фильтр по depart_at + грейс)."""
+    from datetime import timedelta
+    from sqlmodel import Session
+    from app.db import engine
+    from app.models import Ride, RideStatus
+    from app.timeutil import utcnow
+    drv = user_factory("PastDrv", role=UserRole.driver)
+    _publish(client, drv, frm="ВремяА", to="Будущее")   # depart_at 2030 → видна
+    with Session(engine) as s:                            # уехала вчера → скрыта
+        s.add(Ride(driver_id=drv["id"], from_city="ВремяА", to_city="Прошлое",
+                   depart_at=utcnow() - timedelta(days=1), seats_total=2, seats_left=2,
+                   price=100, status=RideStatus.active))
+        s.commit()
+    rows = client.get("/rides", params={"from_city": "ВремяА"}).json()
+    tos = [r["to_city"] for r in rows]
+    assert "Будущее" in tos          # будущая поездка в выдаче
+    assert "Прошлое" not in tos      # вчерашняя отсеяна
+
+
 def test_ride_input_validation_rejects_junk(client, user_factory):
     """WP-9: слишком длинный город и мусорные координаты отклоняются (422), а не пишутся в БД."""
     driver = user_factory("ValRideDriver", role=UserRole.driver)

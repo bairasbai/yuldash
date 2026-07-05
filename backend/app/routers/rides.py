@@ -11,12 +11,15 @@ from ..db import get_session
 from ..models import Ride, RideCategory, RideStatus, User
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
+from ..timeutil import utcnow
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
     geocode_city, haversine_km, notify_map_changed, public_ride_payload, public_rides_payload, ride_out, ride_out_with, rides_out,
 )
 
 router = APIRouter(tags=["rides"])
+
+RIDE_PAST_GRACE_HOURS = 2   # сколько часов после depart_at поездка ещё видна в выдаче (поздняя бронь / уехал впритык)
 
 
 def _hide_blocked(items, user, session):
@@ -86,7 +89,12 @@ def search_rides(
         if cached is not None:
             return _hide_blocked(public_rides_payload(cached), user, session)
 
-    q = select(Ride).where(Ride.status == RideStatus.active)
+    # Не показываем УЖЕ УЕХАВШИЕ поездки (аудит 2026-07-04: у поездки не было отсева по времени →
+    # вчерашние висели в ленте). Грейс 2ч: поездка «только что уехала»/бронируют впритык — ещё видна.
+    q = select(Ride).where(
+        Ride.status == RideStatus.active,
+        Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS),
+    )
     if from_city:
         q = q.where(Ride.from_city.contains(from_city))
     if to_city:
