@@ -421,11 +421,25 @@ private fun LoginFormCard(
                 }
             }
         },
-        // Открыть Telegram из шага кода: нужен номер → чат БЕЗ ?start (не перевыпускаем код); иначе — повтор входа.
+        // Открыть Telegram из шага кода. Нужен номер → чат БЕЗ ?start (делимся контактом, код не перевыпускаем).
+        // Иначе — начинаем СВЕЖУЮ сессию (новый request_id + новый код), а не переоткрываем старый:
+        // после протухшего кода (410) или лимита попыток (429) переоткрытие старого request_id вело в тупик.
         onTelegramOpen = {
-            val url = if (needPhone) "https://t.me/${BuildConfig.TELEGRAM_BOT}"
-                      else "https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$tgRequestId"
-            openTelegram(url)
+            if (needPhone) {
+                openTelegram("https://t.me/${BuildConfig.TELEGRAM_BOT}")
+            } else if (!loading) {
+                loading = true; error = null
+                scope.launch {
+                    ApiClient.tgStart()
+                        .onSuccess { req ->
+                            loading = false
+                            tgRequestId = req
+                            code = ""
+                            openTelegram("https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$req")
+                        }
+                        .onFailure { loading = false; error = errTgStart }
+                }
+            }
         },
         onBackFromTg = { tgMode = false; code = ""; error = null },
         onToggleSmsForm = { showPhone = !showPhone },

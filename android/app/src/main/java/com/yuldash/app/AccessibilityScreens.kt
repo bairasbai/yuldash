@@ -951,7 +951,11 @@ internal fun FamilyOrderScreen(
             onSubmit = {
                 if (submitting) return@FamilyOrderFormContent   // гард двойного нажатия
                 val f = fromCity.trim(); val t = toCity.trim()
-                val comment = if (phone.isBlank()) commentLabel else "$commentLabel · ${phone.trim()}"
+                // ПРИВАТНОСТЬ: телефон близкого НЕ кладём в публичный комментарий заявки —
+                // он виден всем водителям в ленте ДО подтверждения (утечка ПДн третьего лица).
+                // Комментарий — только нейтральная метка. Контакт раскрывается после матча (в чате брони).
+                // TODO(backend): отдельное поле relative_phone с раскрытием только матч-водителю — docs/tasks.md.
+                val comment = commentLabel
                 submitError = null
                 submitting = true
                 scope.launch {
