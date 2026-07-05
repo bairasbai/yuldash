@@ -33,6 +33,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -629,7 +631,10 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                 Spacer(Modifier.width(3.dp))
                 Text(dto.driverRating.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.weight(1f))
+            // F8: стаж/поездки водителя — в гибкой зоне (weight), высоту карточки не увеличивает.
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                CompactTrustLine(trips = dto.driverTrips, since = dto.driverSince)
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 dto.distanceKm?.let { km ->
                     Icon(Icons.Default.NearMe, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
@@ -793,6 +798,9 @@ internal fun RideCard(
                 Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(18.dp))
                 Text(ride.rating.toString())
             }
+            // F8: бейджи доверия водителя (проверен · N поездок · с нами с …). Скрыт «Проверен» в чипе,
+            // т.к. галочка уже есть рядом с именем выше — тут показываем «стаж» и «поездки».
+            DriverTrustBadges(verified = false, trips = ride.driverTrips, since = ride.driverSince)
             if (compact) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -858,6 +866,98 @@ private fun VerifiedBadge() {
             Spacer(Modifier.width(4.dp))
             Text(appText("Проверен", "Тикшерелгән"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
+    }
+}
+
+// ---- F8 «Стаж своего»: компактные бейджи доверия водителя ----
+// Показываем только правдивые факты: «Проверен» / «N поездок» (завершённых) / «С нами с <мес год>».
+// FlowRow → длинный башкирский переносится на новую строку, вёрстка карточки не ломается.
+// «Земляк» и «Отвечает быстро» пока НЕ отдаём: у пользователя нет города, а времени подтверждения
+// брони не храним — честно пропускаем, чтобы не рисовать выдуманный бейдж.
+private val f8MonthsRu = listOf(
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+private val f8MonthsBa = listOf(
+    "ғинуар", "февраль", "март", "апрель", "май", "июнь",
+    "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+)
+
+/** RU-плюрал: 1 поездка · 2 поездки · 5 поездок. */
+private fun tripsWordRu(n: Int): String {
+    val m100 = n % 100
+    val m10 = n % 10
+    return when {
+        m100 in 11..14 -> "поездок"
+        m10 == 1 -> "поездка"
+        m10 in 2..4 -> "поездки"
+        else -> "поездок"
+    }
+}
+
+/** "YYYY-MM" → (индекс месяца 0..11, год); null — если формат неожиданный (бейдж не покажем). */
+private fun parseDriverSince(since: String): Pair<Int, Int>? {
+    val parts = since.split("-")
+    if (parts.size < 2) return null
+    val year = parts[0].toIntOrNull() ?: return null
+    val mon = parts[1].toIntOrNull() ?: return null
+    if (mon !in 1..12) return null
+    return (mon - 1) to year
+}
+
+@Composable
+private fun TrustChip(icon: ImageVector, text: String, accent: Boolean) {
+    val bg = if (accent) MaterialTheme.colorScheme.primaryContainer else CanonMint
+    val fg = if (accent) MaterialTheme.colorScheme.primary else CanonGreen2
+    Surface(color = bg, shape = RoundedCornerShape(999.dp)) {
+        Row(Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(13.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(text, color = fg, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun DriverTrustBadges(verified: Boolean, trips: Int, since: String, modifier: Modifier = Modifier) {
+    val sinceParts = parseDriverSince(since)
+    if (!verified && trips <= 0 && sinceParts == null) return   // нечего показывать — не занимаем место
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (verified) {
+            TrustChip(Icons.Default.Verified, appText("Проверен", "Тикшерелгән"), accent = true)
+        }
+        if (trips > 0) {
+            TrustChip(Icons.Default.Route, appText("$trips ${tripsWordRu(trips)}", "$trips сәфәр"), accent = false)
+        }
+        sinceParts?.let { (mi, yr) ->
+            TrustChip(
+                Icons.Default.CalendarMonth,
+                appText("с ${f8MonthsRu[mi]} $yr", "${f8MonthsBa[mi]} $yr-нан бирле"),
+                accent = false,
+            )
+        }
+    }
+}
+
+/** Однострочный компактный «стаж» для карточек фикс-высоты (Ближайшие): «N поездок · с <мес год>».
+ *  maxLines=1 + ellipsis → длинный башкирский не ломает вёрстку. Пусто → строку не рисуем. */
+@Composable
+internal fun CompactTrustLine(trips: Int, since: String, modifier: Modifier = Modifier) {
+    val sinceParts = parseDriverSince(since)
+    val parts = buildList {
+        if (trips > 0) add(appText("$trips ${tripsWordRu(trips)}", "$trips сәфәр"))
+        sinceParts?.let { (mi, yr) -> add(appText("с ${f8MonthsRu[mi]} $yr", "${f8MonthsBa[mi]} $yr-нан")) }
+    }
+    if (parts.isEmpty()) return
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Badge, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(parts.joinToString(" · "), color = CanonMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

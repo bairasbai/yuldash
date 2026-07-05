@@ -351,13 +351,13 @@ def test_driver_bundle_and_ride_out_use_profile_and_real_rating(client, user_fac
         session.commit()
 
         ride = session.get(Ride, ride_id)
-        users, profiles, rating_agg = services.drivers_bundle(session, {driver["id"]})
-        out = services.ride_out_with(ride, users, profiles, rating_agg)
+        users, profiles, rating_agg, trips_agg = services.drivers_bundle(session, {driver["id"]})
+        out = services.ride_out_with(ride, users, profiles, rating_agg, trips_agg)
         assert out.driver_name == "BundleDriver"
         assert out.driver_car == "Kia Rio"
         assert out.driver_online is True
         assert out.driver_rating == 4.5
-        assert services.drivers_bundle(session, set()) == ({}, {}, {})
+        assert services.drivers_bundle(session, set()) == ({}, {}, {}, {})
 
 
 def test_send_push_initializes_firebase_and_ignores_per_token_errors(monkeypatch, user_factory):

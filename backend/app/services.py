@@ -13,13 +13,13 @@ import math
 import os
 
 from fastapi import HTTPException
-from sqlalchemy import case
+from sqlalchemy import case, distinct, func
 from sqlmodel import Session, select
 
 from .config import settings
 from .db import engine
 from .models import (
-    Block, Booking, DeviceToken, DriverProfile, Rating, Ride, RideCategory,
+    Block, Booking, BookingStatus, DeviceToken, DriverProfile, Rating, Ride, RideCategory,
     RideStatus, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
@@ -338,27 +338,46 @@ def user_rating(session: Session, user_id: int) -> tuple[float, int]:
     return (sum(rows) / len(rows), len(rows)) if rows else (0.0, 0)
 
 
-def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict]:
-    """Батч водителей/профилей/рейтингов для списка поездок — против N+1
+def driver_trips_agg(session: Session, driver_ids: set) -> dict:
+    """F8 «N поездок»: сколько поездок водитель реально ЗАВЕРШИЛ (агрегат, без новых таблиц).
+    Считаем distinct поездок с завершённой бронью — поездка со статусом done не выставляется
+    (её ставит только бронь: booking.status=done), поэтому меряем по броням. Один батч-запрос
+    на весь список карточек (без N+1). Нового водителя тут нет → бейдж не покажется (0)."""
+    if not driver_ids:
+        return {}
+    rows = session.exec(
+        select(Ride.driver_id, func.count(distinct(Booking.ride_id)))
+        .join(Ride, Booking.ride_id == Ride.id)
+        .where(Ride.driver_id.in_(driver_ids), Booking.status == BookingStatus.done)
+        .group_by(Ride.driver_id)
+    ).all()
+    return {driver_id: cnt for driver_id, cnt in rows}
+
+
+def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict, dict]:
+    """Батч водителей/профилей/рейтингов/поездок для списка поездок — против N+1
     (раньше _ride_out делал 3 запроса НА КАЖДУЮ поездку)."""
     if not driver_ids:
-        return {}, {}, {}
+        return {}, {}, {}, {}
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(driver_ids))).all()}
     profiles = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(driver_ids))).all()}
     stars_by_driver: dict = {}
     for ratee_id, stars in session.exec(select(Rating.ratee_id, Rating.stars).where(Rating.ratee_id.in_(driver_ids))).all():
         stars_by_driver.setdefault(ratee_id, []).append(stars)
     rating_agg = {rid: (sum(s) / len(s), len(s)) for rid, s in stars_by_driver.items()}
-    return users, profiles, rating_agg
+    trips_agg = driver_trips_agg(session, driver_ids)
+    return users, profiles, rating_agg, trips_agg
 
 
-def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict) -> RideOut:
+def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, trips_agg: dict | None = None) -> RideOut:
     """RideOut из предзагруженных батчей (без запросов в БД)."""
     drv = users.get(ride.driver_id)
     prof = profiles.get(ride.driver_id)
     car = f"{prof.car_make} {prof.car_model}".strip() if prof else ""
     avg, cnt = rating_agg.get(ride.driver_id, (0.0, 0))
     rating = round(avg, 1) if cnt > 0 else (prof.rating if prof else 5.0)  # реальный рейтинг; до отзывов — сид
+    trips = (trips_agg or {}).get(ride.driver_id, 0)                       # F8: завершённых поездок водителя
+    since = drv.created_at.strftime("%Y-%m") if (drv and drv.created_at) else ""  # F8: «С нами с <мес год>»
     return RideOut(
         **ride.model_dump(exclude={"created_at"}),
         boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),
@@ -368,13 +387,15 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict) -> 
         driver_car=car,
         driver_avatar=(drv.avatar_url if drv else ""),
         driver_online=(prof.online if prof else False),
+        driver_trips=trips,
+        driver_since=since,
     )
 
 
 def rides_out(rides: list, session: Session) -> list:
-    """Список поездок → list[RideOut] одним батчем (3 запроса вместо 3×N)."""
-    users, profiles, rating_agg = drivers_bundle(session, {r.driver_id for r in rides})
-    return [ride_out_with(r, users, profiles, rating_agg) for r in rides]
+    """Список поездок → list[RideOut] одним батчем (4 запроса вместо 4×N)."""
+    users, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in rides})
+    return [ride_out_with(r, users, profiles, rating_agg, trips_agg) for r in rides]
 
 
 def ride_out(ride: Ride, session: Session) -> RideOut:

@@ -65,3 +65,6 @@ class RideOut(BaseModel):
     driver_car: str
     driver_avatar: str = ""
     driver_online: bool = False
+    # F8 «Стаж своего»: вычисляемые бейджи доверия (агрегаты, без новых таблиц).
+    driver_trips: int = 0        # завершённых поездок водителя (done-брони, distinct поездок) → бейдж «N поездок»
+    driver_since: str = ""       # месяц регистрации водителя "YYYY-MM" → бейдж «С нами с …»

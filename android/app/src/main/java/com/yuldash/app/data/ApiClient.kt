@@ -1328,6 +1328,8 @@ private fun JSONObject.toRideDto() = RideDto(
     driverCar = optString("driver_car"),
     driverAvatar = optString("driver_avatar"),
     driverOnline = optBoolean("driver_online"),
+    driverTrips = optInt("driver_trips"),
+    driverSince = optString("driver_since"),
     petsAllowed = optBoolean("pets_allowed"),
     childSeat = optBoolean("child_seat"),
     womenOnly = optBoolean("women_only"),
@@ -1370,6 +1372,8 @@ data class RideDto(
     val driverCar: String,
     val driverAvatar: String = "",
     val driverOnline: Boolean = false,
+    val driverTrips: Int = 0,         // F8: завершённых поездок водителя (бейдж «N поездок»)
+    val driverSince: String = "",     // F8: месяц регистрации "YYYY-MM" (бейдж «С нами с …»)
     val petsAllowed: Boolean = false,
     val childSeat: Boolean = false,
     val womenOnly: Boolean = false,
