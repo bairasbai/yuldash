@@ -83,3 +83,6 @@ promo/.remotion/
 
 # QA-артефакты тестирования (скриншоты, отчёты сборки)
 test_artifacts/
+
+# Изоляция суб-агентов Claude Code (worktree) — локальные, не в git
+.claude/worktrees/
