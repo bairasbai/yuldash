@@ -1298,7 +1298,7 @@ internal fun ChatScreen(
                         ChatCard(
                             initial = r.fromCity.firstOrNull()?.uppercase() ?: "?",
                             name = "${r.fromCity} → ${r.toCity}",
-                            subtitle = "Заявка · " + seatsText(r.seats),
+                            subtitle = appText("Заявка", "Ғариза") + " · " + seatsText(r.seats),
                             message = appText("Смотреть отклики водителей", "Водитель яуаптарын ҡарау"),
                             time = "",
                             unread = 0,
