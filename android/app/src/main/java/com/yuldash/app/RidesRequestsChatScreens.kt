@@ -458,7 +458,7 @@ internal fun SegmentedTabs(
             ) {
                 Text(
                     tab,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),   // тач-цель ~48dp (a11y §4.5): было vertical 10
                     color = if (selected == tab) Color.White else CanonMuted,
                     fontWeight = if (selected == tab) FontWeight.Black else FontWeight.Medium,
                     fontSize = 14.sp,
@@ -1222,6 +1222,8 @@ internal fun ChatScreen(
     var convError by remember { mutableStateOf(false) }
     var convReload by remember { mutableStateOf(0) }
     var myRequests by remember { mutableStateOf<List<RequestDto>>(emptyList()) }
+    var reqLoading by remember { mutableStateOf(true) }
+    var reqError by remember { mutableStateOf(false) }
     val chatTabs = listOf(
         "active" to LocalizedText("Активные", "Актив"),
         "requests" to LocalizedText("Заявки", "Заявкалар"),
@@ -1235,7 +1237,12 @@ internal fun ChatScreen(
             // Реальная ошибка (нет сети, 5xx) → convError=true → «Повторить».
             .onFailure { e -> convError = (e as? ApiException)?.status != 401 }
         convLoading = false
-        ApiClient.getMyRequests().onSuccess { myRequests = it }
+        reqLoading = true
+        ApiClient.getMyRequests()
+            .onSuccess { myRequests = it; reqError = false }
+            // 401 = нет сессии (заявок нет), не ошибка сети. Реальная ошибка → «Повторить».
+            .onFailure { e -> reqError = (e as? ApiException)?.status != 401 }
+        reqLoading = false
     }
     LazyColumn(
         modifier = Modifier
@@ -1285,11 +1292,24 @@ internal fun ChatScreen(
             if (myRequests.isEmpty()) {
                 item {
                     Box(Modifier.appearIn(0)) {
-                        InfoCard(
-                            title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
-                            text = appText("Создай заявку на вкладке «Заявка» — водители откликнутся", "«Заявка» бүлегендә заявка яһа — водителдәр яуап бирер"),
-                            icon = Icons.Default.ListAlt
-                        )
+                        when {
+                            reqLoading -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                repeat(3) { SkeletonCard(lines = 2) }
+                            }
+                            // Сеть упала → честная ошибка с «Повторить», а не ложное «заявок нет».
+                            reqError -> EmptyStateCard(
+                                title = appText("Не удалось загрузить заявки", "Заявкаларҙы йөкләп булманы"),
+                                text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
+                                icon = Icons.Default.Refresh,
+                                action = appText("Повторить", "Ҡабатлау"),
+                                onAction = { convReload++ },
+                            )
+                            else -> InfoCard(
+                                title = appText("Заявок пока нет", "Әлегә заявкалар юҡ"),
+                                text = appText("Создай заявку на вкладке «Заявка» — водители откликнутся", "«Заявка» бүлегендә заявка яһа — водителдәр яуап бирер"),
+                                icon = Icons.Default.ListAlt
+                            )
+                        }
                     }
                 }
             } else {
@@ -1996,7 +2016,7 @@ internal fun EmojiPicker(onPick: (String) -> Unit) {
                     row.forEach { e ->
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(48.dp)   // тач-цель 48dp (a11y §4.5): было 40dp
                                 .clip(CircleShape)
                                 .clickable { onPick(e) },
                             contentAlignment = Alignment.Center

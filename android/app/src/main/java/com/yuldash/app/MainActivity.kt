@@ -394,16 +394,27 @@ private const val SBP_BANK = "Сбербанк"
 @Composable
 internal fun LocalizedText.text(): String = appText(ru, ba)
 
-@Composable
-internal fun seatsText(count: Int): String {
-    val ru = when {
-        count % 100 in 11..14 -> "$count мест"
-        count % 10 == 1 -> "$count место"
-        count % 10 in 2..4 -> "$count места"
-        else -> "$count мест"
-    }
-    return appText(ru, "$count урын")
+/**
+ * Русское склонение существительного по числу: 1 → one, 2..4 → few, иначе → many
+ * (учитывает 11..14 → many). Пример: pluralRu(n, "место", "места", "мест").
+ * Единый хелпер, чтобы не плодить «1 мест»/«1 звёзд» по экранам. Не @Composable — зовётся откуда угодно.
+ */
+internal fun pluralRu(n: Int, one: String, few: String, many: String): String = when {
+    n % 100 in 11..14 -> many
+    n % 10 == 1 -> one
+    n % 10 in 2..4 -> few
+    else -> many
 }
+
+@Composable
+internal fun seatsText(count: Int): String =
+    // Башкирский (тюркский) не склоняет счётное существительное — «$count урын» верно для любого числа.
+    appText("$count " + pluralRu(count, "место", "места", "мест"), "$count урын")
+
+/** Число звёзд с правильным склонением: «1 звезда», «2 звезды», «5 звёзд». */
+@Composable
+internal fun starsText(count: Int): String =
+    appText("$count " + pluralRu(count, "звезда", "звезды", "звёзд"), "$count йондоҙ")
 
 @Composable
 internal fun Ride.timeText(): String = appText(time, timeBa ?: time)

@@ -473,11 +473,20 @@ internal fun ProfileScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(displayName, color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
-                                    Spacer(Modifier.width(6.dp))
-                                    Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp).bounceClick { nameDraft = displayName; showEditName = true })
+                                    // Тач-цель 48dp (a11y §4.5): карандаш видимо 18dp, кликабельная область — 48dp.
+                                    Box(Modifier.size(48.dp).bounceClick { nameDraft = displayName; showEditName = true }, contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
+                                    }
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                                    // Роль — из данных сервера (passenger/driver/admin). Города в профиле
+                                    // на сервере нет — раньше был захардкожен «Баймаҡ» у всех, убрали.
+                                    val roleLabel = when (role) {
+                                        "driver" -> appText("Водитель", "Йөрөтөүсе")
+                                        "admin" -> appText("Администратор", "Администратор")
+                                        else -> appText("Пассажир", "Юлаусы")
+                                    }
+                                    Text(roleLabel, color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                                     myRating?.let { r ->
                                         Spacer(Modifier.width(8.dp))
                                         Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
@@ -841,11 +850,21 @@ internal fun DriverCabinetScreen(
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
+    // Загрузка маршрутов водителя: различаем «загрузил, пусто» и «сеть упала» —
+    // при обрыве показываем ошибку+«Повторить», а не ложное «маршрутов нет».
+    var driverLoading by remember { mutableStateOf(true) }
+    var driverLoadError by remember { mutableStateOf(false) }
+    var driverReload by remember { mutableStateOf(0) }
+    LaunchedEffect(driverReload) {
+        driverLoading = true
+        driverLoadError = false
+        ApiClient.getDriverRides()
+            .onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
+            .onFailure { driverLoadError = true }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess { online = it.online }
+        driverLoading = false
     }
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
@@ -859,6 +878,9 @@ internal fun DriverCabinetScreen(
             online = online,
             driverRides = driverRides,
             driverBookings = driverBookings,
+            ridesLoading = driverLoading,
+            ridesError = driverLoadError,
+            onRetryRides = { driverReload++ },
             ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
             onToggleOnline = onToggleOnline@{ v ->
                 // Демо/без входа → не дёргаем API (там 401 → ложная «проверь сеть»), даём понятное «войдите».
@@ -902,6 +924,9 @@ internal fun DriverCabinetContent(
     online: Boolean,
     driverRides: List<Ride>,
     driverBookings: List<com.yuldash.app.data.DriverBookingDto>,
+    ridesLoading: Boolean = false,
+    ridesError: Boolean = false,
+    onRetryRides: () -> Unit = {},
     ratingText: String,
     onToggleOnline: (Boolean) -> Unit,
     onRate: (Int, Int) -> Unit,
@@ -940,13 +965,22 @@ internal fun DriverCabinetContent(
         }
         if (driverRides.isEmpty()) {
             item {
-                EmptyStateCard(
-                    title = appText("Ваших маршрутов пока нет", "Һеҙҙең маршруттар әлегә юҡ"),
-                    text = appText("Опубликуйте поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтырығыҙ."),
-                    icon = Icons.Default.DirectionsCar,
-                    action = appText("Опубликовать маршрут", "Маршрут баҫтырыу"),
-                    onAction = onCreateRide
-                )
+                when {
+                    // Сеть упала при загрузке — честная ошибка с «Повторить», а не ложное «маршрутов нет».
+                    ridesError -> AppErrorState(
+                        onRetry = onRetryRides,
+                        title = appText("Не удалось загрузить маршруты", "Маршруттарҙы йөкләп булманы"),
+                        text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
+                    )
+                    ridesLoading -> SkeletonCard(lines = 2)
+                    else -> EmptyStateCard(
+                        title = appText("Ваших маршрутов пока нет", "Һеҙҙең маршруттар әлегә юҡ"),
+                        text = appText("Опубликуйте поездку, чтобы пассажиры могли откликнуться.", "Пассажирҙар яуап бирһен өсөн сәфәр баҫтырығыҙ."),
+                        icon = Icons.Default.DirectionsCar,
+                        action = appText("Опубликовать маршрут", "Маршрут баҫтырыу"),
+                        onAction = onCreateRide
+                    )
+                }
             }
         } else {
             items(driverRides, key = { it.id }) { ride ->
@@ -985,17 +1019,23 @@ internal fun DriverCabinetContent(
                                 Text(it.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             (1..5).forEach { n ->
-                                Icon(
-                                    Icons.Default.Star,
-                                    contentDescription = "$n",
-                                    tint = if (n <= stars) CanonStar else CanonBorder,
-                                    modifier = Modifier.size(34.dp).clickable {
+                                // Тач-цель 48dp (a11y §4.5): звезда видимо 34dp, но кликабельная область — 48dp.
+                                Box(
+                                    modifier = Modifier.size(48.dp).clickable {
                                         stars = n
                                         onRate(b.bookingId, n)
-                                    }
-                                )
+                                    },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = starsText(n),
+                                        tint = if (n <= stars) CanonStar else CanonBorder,
+                                        modifier = Modifier.size(34.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1294,7 +1334,16 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
     val errNet = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сеткәне тикшер, ҡабатла.")
     val needTitle = appText("Впиши заголовок", "Башлыҡ яҙ")
     val needPkg = appText("Выбери тариф", "Тариф һайла")
-    LaunchedEffect(Unit) { ApiClient.getAdPackages().onSuccess { packages = it } }
+    // Тарифы грузим отдельно: при обрыве список пуст → нельзя выбрать тариф → тупик.
+    // Показываем ошибку+«Повторить», а не молча пустой блок.
+    var packagesError by remember { mutableStateOf(false) }
+    var packagesReload by remember { mutableStateOf(0) }
+    LaunchedEffect(packagesReload) {
+        packagesError = false
+        ApiClient.getAdPackages()
+            .onSuccess { packages = it }
+            .onFailure { packagesError = true }
+    }
 
     fun save(submit: Boolean) {
         if (title.isBlank()) { Toast.makeText(ctx, needTitle, Toast.LENGTH_SHORT).show(); return }
@@ -1331,6 +1380,15 @@ internal fun AdEditorScreen(initial: MyAdDto?, onBack: () -> Unit, onSaved: () -
             item { AdField(appText("Ссылка или телефон", "Һылтанма йәки телефон"), target, { target = it }) }
             item { AdField(appText("Город(а) через запятую — пусто = все", "Ҡала(лар) өтөр аша — буш = бөтәһе"), cities, { cities = it }) }
             item { Text(appText("Тариф", "Тариф"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp) }
+            if (packages.isEmpty() && packagesError) {
+                item {
+                    AppErrorState(
+                        onRetry = { packagesReload++ },
+                        title = appText("Не удалось загрузить тарифы", "Тарифтарҙы йөкләп булманы"),
+                        text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
+                    )
+                }
+            }
             items(packages, key = { it.code }) { p ->
                 val selected = pkg == p.code
                 Surface(

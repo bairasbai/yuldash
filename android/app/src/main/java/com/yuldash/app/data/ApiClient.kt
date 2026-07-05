@@ -38,6 +38,14 @@ object ApiClient {
     @Volatile private var token: String? = null
     @Volatile private var refreshToken: String? = null
     @Volatile private var userName: String? = null
+    @Volatile private var userRole: String? = null   // passenger/driver/admin из /me — для подписи профиля
+    // Язык интерфейса для клиентских сообщений об ошибке (ApiException.message показывается юзеру).
+    // Обновляется из UI при смене языка (ApiClient — не Composable, appText недоступен).
+    @Volatile private var langBa = false
+    /** Синхронизировать язык клиентских ошибок с UI (зовётся при смене языка). */
+    fun setUiLanguageBashkir(ba: Boolean) { langBa = ba }
+    /** Двуязычная строка для сообщений слоя данных (аналог appText вне Compose). */
+    private fun tr(ru: String, ba: String): String = if (langBa) ba else ru
     private val refreshMutex = Mutex()   // не даём нескольким 401 рефрешить одновременно
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
@@ -115,6 +123,7 @@ object ApiClient {
         token = p.getString("token", null)
         refreshToken = p.getString("refresh_token", null)
         userName = p.getString("user_name", null)
+        userRole = p.getString("user_role", null)
         // Прогрев кеша статики из prefs → цены пакетов/буста видны мгновенно на холодном старте (сеть освежит по TTL).
         seedStatic("ad-packages", ::parseAdPackages)
         seedStatic("boost-plans", ::parseBoostPlans)
@@ -153,6 +162,16 @@ object ApiClient {
 
     /** Имя вошедшего клиента (для приветствия и профиля). null → не вошёл (демо). */
     fun cachedName(): String? = userName?.takeIf { it.isNotBlank() }
+
+    /** Роль вошедшего клиента (passenger/driver/admin) из последнего /me. null → неизвестна. */
+    fun cachedRole(): String? = userRole?.takeIf { it.isNotBlank() }
+
+    /** Сохранить роль из /me (для подписи профиля без повторного запроса). */
+    fun saveRole(r: String) {
+        if (r.isBlank()) return
+        userRole = r
+        prefs?.edit()?.putString("user_role", r)?.apply()
+    }
 
     // ---------- Кеш GET-ответов (TTL) ----------
     // Статику/редкие данные не дёргаем на каждом открытии экрана и в поллинге. Живое (поездки/near/
@@ -235,10 +254,11 @@ object ApiClient {
         token = null
         refreshToken = null
         userName = null
+        userRole = null
         cachedUserId = null
         cachedUserIdForToken = null
         respCache.clear()   // сброс кеша ответов (иначе следующий юзер увидит чужой /me/referral/contacts)
-        prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.apply()
+        prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.remove("user_role")?.apply()
     }
 
     /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).
@@ -322,7 +342,10 @@ object ApiClient {
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = cachedGet("me", TTL_PERSONAL) {
         call("GET", "/me", null, auth = true)
-            .onSuccess { o -> o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName) }
+            .onSuccess { o ->
+                o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName)
+                o.optString("role").takeIf { it.isNotBlank() }?.let(::saveRole)
+            }
     }
 
     // ---------- Поездки ----------
@@ -1219,11 +1242,11 @@ object ApiClient {
                 if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
                 else {
                     logout()   // refresh мёртв → чистим локальную сессию, иначе isLoggedIn() врёт true и юзер «залипает» с 401 на каждом запросе
-                    Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
+                    Result.failure(ApiException(401, tr("Сессия истекла. Войди заново.", "Сессия тамамланды. Ҡабат ин.")))
                 }
             } else {
                 val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
-                Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)"))
+                Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: tr("Ошибка сервера ($code)", "Сервер хатаһы ($code)")))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -1274,10 +1297,10 @@ object ApiClient {
             } else if (code == 401 && !isRetry && !refreshToken.isNullOrBlank()) {
                 conn.disconnect(); conn = null
                 if (tryRefresh(usedToken)) callMultipart(path, fileBytes, ext, filename, isRetry = true)
-                else Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
+                else Result.failure(ApiException(401, tr("Сессия истекла. Войди заново.", "Сессия тамамланды. Ҡабат ин.")))
             } else {
                 val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
-                Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)"))
+                Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: tr("Ошибка сервера ($code)", "Сервер хатаһы ($code)")))
             }
         } catch (e: Exception) {
             Result.failure(e)

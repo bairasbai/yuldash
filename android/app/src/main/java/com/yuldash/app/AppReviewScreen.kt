@@ -218,7 +218,7 @@ internal fun ReviewStarsRow(selected: Int, onSelect: (Int) -> Unit) {
                 IconButton(onClick = { onSelect(i) }) {
                     Icon(
                         if (i <= selected) Icons.Default.Star else Icons.Outlined.StarBorder,
-                        contentDescription = appText("$i звёзд", "$i йондоҙ"),
+                        contentDescription = starsText(i),
                         tint = if (i <= selected) CanonGold else CanonMuted,
                         modifier = Modifier.size(38.dp),
                     )

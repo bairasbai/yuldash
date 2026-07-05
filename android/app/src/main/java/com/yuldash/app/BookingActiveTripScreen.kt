@@ -735,7 +735,13 @@ internal fun CompactProfileBanner() {
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(ApiClient.cachedName() ?: "Я", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
-                Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                // Роль — из данных сервера (кеш /me). Город в профиле не хранится → раньше был
+                // захардкожен «Баймаҡ» у всех, убрали. Роль неизвестна (демо) → строку не рисуем.
+                when (ApiClient.cachedRole()) {
+                    "driver" -> Text(appText("Водитель", "Йөрөтөүсе"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                    "admin" -> Text(appText("Администратор", "Администратор"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                    "passenger" -> Text(appText("Пассажир", "Юлаусы"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                }
                 Text(appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерен"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
             }
         }
@@ -963,14 +969,13 @@ internal fun ActiveTripScreen(
                 Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(appText("Оцените водителя", "Водителде баһалағыҙ"), fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             (1..5).forEach { n ->
-                                Icon(
-                                    Icons.Default.Star,
-                                    contentDescription = "$n",
-                                    tint = if (n <= myStars) CanonStar else CanonBorder,
+                                // Тач-цель 48dp (a11y §4.5): звезда видимо 38dp, кликабельная область — 48dp.
+                                Box(
+                                    contentAlignment = Alignment.Center,
                                     modifier = Modifier
-                                        .size(38.dp)
+                                        .size(48.dp)
                                         .clickable(enabled = !rating) {
                                             val prev = myStars
                                             myStars = n
@@ -984,7 +989,14 @@ internal fun ActiveTripScreen(
                                                 }
                                             }
                                         }
-                                )
+                                ) {
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = starsText(n),
+                                        tint = if (n <= myStars) CanonStar else CanonBorder,
+                                        modifier = Modifier.size(38.dp)
+                                    )
+                                }
                             }
                         }
                     }

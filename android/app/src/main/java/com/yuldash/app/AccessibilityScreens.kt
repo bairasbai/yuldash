@@ -893,7 +893,10 @@ internal fun CreatePassengerRequestContent(
                         time.isNotBlank()
                     ),
                     CheckLine(
-                        listOf("$seats ${appText("место", "урын")}", selectedCategoryText).joinToString(" · "),
+                        listOf(
+                            seats.toIntOrNull()?.let { seatsText(it) } ?: "$seats ${appText("место", "урын")}",
+                            selectedCategoryText
+                        ).joinToString(" · "),
                         seats.isNotBlank()
                     ),
                     CheckLine(appText("Готовая сумма: $price ₽", "Әҙер сумма: $price ₽"), price.isNotBlank())

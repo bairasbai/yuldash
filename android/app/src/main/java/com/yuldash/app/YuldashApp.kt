@@ -475,6 +475,9 @@ internal fun YuldashApp() {
         }
     }
     CompositionLocalProvider(LocalAppLanguage provides language) {
+        // Синхронизируем язык клиентских ошибок (ApiException.message показывается юзеру, а ApiClient
+        // не Composable → appText недоступен). Иначе башкир видел бы «Сессия истекла» по-русски.
+        LaunchedEffect(language) { ApiClient.setUiLanguageBashkir(language == AppLanguage.Ba) }
         // Мои заявки — с сервера (после входа). Точное время в Фазе 1 не храним.
         val reqWaitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
         val reqByAgreement = appText("по договорённости", "килешеү буйынса")

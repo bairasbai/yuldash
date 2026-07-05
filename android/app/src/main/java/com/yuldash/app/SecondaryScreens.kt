@@ -264,7 +264,16 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
     }
     var serverNotifs by remember { mutableStateOf<List<NotifDto>>(emptyList()) }
     var notifsLoading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) { ApiClient.getNotifications().onSuccess { serverNotifs = it }; notifsLoading = false }
+    var notifsError by remember { mutableStateOf(false) }
+    var notifsReload by remember { mutableStateOf(0) }
+    LaunchedEffect(notifsReload) {
+        notifsLoading = true
+        notifsError = false
+        ApiClient.getNotifications()
+            .onSuccess { serverNotifs = it }
+            .onFailure { notifsError = true }   // сеть упала → покажем ошибку, а не ложное «уведомлений нет»
+        notifsLoading = false
+    }
     // Только реальные события с сервера. Пусто → честная заглушка (без демо-обмана «Рамиль едет»).
     val notifications = serverNotifs.map { Triple(Icons.Default.ChatBubble, it.title, it.text) }
     Scaffold(
@@ -305,6 +314,14 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
             }
             if (notifsLoading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            } else if (notifsError && serverNotifs.isEmpty()) {
+                item {
+                    AppErrorState(
+                        onRetry = { notifsReload++ },
+                        title = appText("Не удалось загрузить уведомления", "Хәбәрҙәрҙе йөкләп булманы"),
+                        text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
+                    )
+                }
             } else if (visibleNotifications.isEmpty()) {
                 item {
                     InfoCard(
@@ -344,6 +361,27 @@ internal fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVect
     }
 }
 
+/** Статическая строка настроек «всегда включено» (гарантия, не переключатель): зелёная галочка вместо тумблера. */
+@Composable
+internal fun SettingInfoRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+        }
+        Spacer(Modifier.width(8.dp))
+        Icon(Icons.Default.CheckCircle, contentDescription = appText("Всегда включено", "Һәр ваҡыт эшләй"), tint = CanonGreen2, modifier = Modifier.size(24.dp))
+    }
+}
+
 @Composable
 internal fun SafetyScreen(
     onBack: () -> Unit,
@@ -355,7 +393,6 @@ internal fun SafetyScreen(
     onReport: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
-    var hidePhone by remember { mutableStateOf(AppPrefs.hidePhone(ctx)) }
     var verifiedOnly by remember { mutableStateOf(AppPrefs.verifiedOnly(ctx)) }
     Scaffold(
         containerColor = CanonBg,
@@ -398,7 +435,14 @@ internal fun SafetyScreen(
             }
             item {
                 SettingsGroup {
-                    SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it; AppPrefs.setHidePhone(ctx, it) }
+                    // Телефон на сервере ВСЕГДА скрыт до подтверждения поездки — жёсткая гарантия
+                    // приватности, а не настройка. Раньше здесь был тумблер-плацебо (писал в prefs,
+                    // но сервер его не читал → ложное ощущение контроля). Показываем как факт «включено».
+                    SettingInfoRow(
+                        Icons.Default.PhoneLocked,
+                        appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерен"),
+                        appText("Ваш номер виден попутчику только после подтверждения поездки — всегда.", "Номерегеҙ юлдашҡа тик сәфәр раҫланғас ҡына күренә — һәр ваҡыт."),
+                    )
                     SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
                     SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
                     SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
@@ -648,11 +692,9 @@ internal object AppPrefs {
     fun notifications(ctx: Context) = sp(ctx).getBoolean("notifications", true)
     fun sounds(ctx: Context) = sp(ctx).getBoolean("sounds", true)
     fun verifiedOnly(ctx: Context) = sp(ctx).getBoolean("verified_only", false)
-    fun hidePhone(ctx: Context) = sp(ctx).getBoolean("hide_phone", true)
     fun setNotifications(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("notifications", v).apply()
     fun setSounds(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("sounds", v).apply()
     fun setVerifiedOnly(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("verified_only", v).apply()
-    fun setHidePhone(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("hide_phone", v).apply()
 }
 
 /** Экран «Фильтры по умолчанию»: тумблеры условий, сохраняются и применяются к «Ближайшим». */

@@ -43,7 +43,7 @@ class AppReviewContentTest {
             }
         }
         // 5 звёзд рендерятся, у каждой русский contentDescription "$i звёзд"
-        composeRule.onNodeWithContentDescription("1 звёзд").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("1 звезда").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("5 звёзд").assertIsDisplayed()
     }
 
@@ -67,7 +67,7 @@ class AppReviewContentTest {
             }
         }
         assertEquals(-1, picked)
-        composeRule.onNodeWithContentDescription("2 звёзд").performClick()
+        composeRule.onNodeWithContentDescription("2 звезды").performClick()
         assertEquals(2, picked)
     }
 
