@@ -368,6 +368,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict) -> 
         driver_car=car,
         driver_avatar=(drv.avatar_url if drv else ""),
         driver_online=(prof.online if prof else False),
+        driver_is_woman=(prof.gender == "female" if prof else False),
     )
 
 

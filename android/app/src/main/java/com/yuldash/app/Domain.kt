@@ -12,6 +12,7 @@ internal data class Ride(
     val driver: String,
     val driverAvatar: String = "",
     val driverOnline: Boolean = false,
+    val driverIsWoman: Boolean = false,   // F9: водитель — женщина (opt-in) → бейдж «Водитель-женщина»
     val car: String,
     val carBa: String? = null,
     val price: Int,

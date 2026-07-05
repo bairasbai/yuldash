@@ -65,3 +65,6 @@ class RideOut(BaseModel):
     driver_car: str
     driver_avatar: str = ""
     driver_online: bool = False
+    # Деликатный opt-in сигнал: водитель указала пол «женщина». True только для female;
+    # male и «не указан» дают False (мужской пол не выпячиваем, приватность водителя).
+    driver_is_woman: bool = False

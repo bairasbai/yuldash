@@ -70,6 +70,31 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     return dp
 
 
+_ALLOWED_GENDERS = ("", "female", "male")
+
+
+class GenderIn(BaseModel):
+    # "" — снять/не указывать (opt-out), female / male. Пол — деликатное поле,
+    # меняет его только сам водитель.
+    gender: str = ""
+
+
+@router.post("/driver/gender", response_model=DriverProfile)
+def set_driver_gender(body: GenderIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """F9 «Женщинам — водитель-женщина»: водитель по желанию (opt-in) указывает пол.
+    Публично раскрывается только полезный сигнал «женщина за рулём» (female);
+    male/пусто наружу не выпячиваются (см. schemas.RideOut.driver_is_woman)."""
+    g = (body.gender or "").strip().lower()
+    if g not in _ALLOWED_GENDERS:
+        raise HTTPException(400, "Недопустимое значение пола")
+    dp = _get_or_create_profile(session, user.id)
+    dp.gender = g
+    session.add(dp)
+    session.commit()
+    session.refresh(dp)
+    return dp
+
+
 @router.post("/upload/photo")
 async def upload_photo(request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Загрузка фото документа/авто (multipart `file` ИЛИ base64 — обратная совместимость со
@@ -217,6 +242,7 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "license_url": dp.license_url if dp else "",
         "car_photo_url": dp.car_photo_url if dp else "",
         "online": dp.online if dp else False,
+        "gender": dp.gender if dp else "",   # виден только самому водителю (свой профиль)
         "autocheck_result": dp.autocheck_result if dp else "",
         "autocheck_score": dp.autocheck_score if dp else 0.0,
         "autocheck_data": dp.autocheck_data if dp else "",

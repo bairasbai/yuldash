@@ -454,6 +454,7 @@ internal val demoRides = listOf(
         time = "Завтра, 06:00",
         timeBa = "Иртәгә, 06:00",
         driver = "Айгуль",
+        driverIsWoman = true,   // F9: демо женщины-водителя (бейдж «за рулём женщина» в офлайне)
         car = "Hyundai Solaris, серебро",
         carBa = "Hyundai Solaris, көмөш төҫ",
         price = 1400,

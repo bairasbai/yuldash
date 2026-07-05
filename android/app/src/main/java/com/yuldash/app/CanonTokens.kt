@@ -44,6 +44,10 @@ internal val CanonDangerBg: Color @Composable get() = if (appIsDark()) Color(0xF
 // Предупреждение/в процессе (pending, черновик): подложка + текст — адаптивные.
 internal val CanonWarnBg: Color @Composable get() = if (appIsDark()) Color(0xFF3A2E12) else Color(0xFFFFF2D6)
 internal val CanonWarn: Color @Composable get() = if (appIsDark()) Color(0xFFE8B86A) else Color(0xFF9A6200)  // светлый затемнён под WCAG (текст на жёлтом фоне ≥4.5:1)
+// F9 «Женщинам — водитель-женщина»: деликатный сигнал «женщина за рулём» (opt-in).
+// Мягкий сливово-розовый, отличается от зелёного «проверен»/«на линии», но остаётся спокойным.
+internal val CanonWomanBg: Color @Composable get() = if (appIsDark()) Color(0xFF2E1A27) else Color(0xFFF7E9F1)
+internal val CanonWoman: Color @Composable get() = if (appIsDark()) Color(0xFFE39BC4) else Color(0xFF8E3B6B)  // текст/иконка на CanonWomanBg ≥4.5:1
 // Золото рейтинга (звёзды). Plain val — читается и из @Composable, и из не-composable (Canvas). Золото видно в обеих темах.
 internal val CanonStar: Color = Color(0xFFE7A921)
 // Тонкая зелёная разделительная линия (border карточек) — была хардкод 0x1A0B6B3A в нескольких экранах.

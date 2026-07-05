@@ -842,6 +842,7 @@ object ApiClient {
                 licenseUrl = o.optString("license_url"),
                 carPhotoUrl = o.optString("car_photo_url"),
                 online = o.optBoolean("online"),
+                gender = o.optString("gender"),
                 autocheckResult = o.optString("autocheck_result"),
                 autocheckData = o.optString("autocheck_data"),
             )
@@ -850,6 +851,11 @@ object ApiClient {
     /** Водитель: я на линии (доступен сейчас) / не на линии. */
     suspend fun setOnline(online: Boolean): Result<Unit> =
         call("POST", "/driver/online", JSONObject().put("online", online), auth = true).map { }
+
+    /** F9: водитель по желанию (opt-in) указывает пол ("" снять / "female" / "male").
+     *  Наружу раскрывается только сигнал «женщина за рулём» (driverIsWoman). */
+    suspend fun setDriverGender(gender: String): Result<Unit> =
+        call("POST", "/driver/gender", JSONObject().put("gender", gender), auth = true).map { }
 
     /** Брони на поездки водителя — чтобы оценить пассажиров. */
     suspend fun getDriverBookings(): Result<List<DriverBookingDto>> =
@@ -1328,6 +1334,7 @@ private fun JSONObject.toRideDto() = RideDto(
     driverCar = optString("driver_car"),
     driverAvatar = optString("driver_avatar"),
     driverOnline = optBoolean("driver_online"),
+    driverIsWoman = optBoolean("driver_is_woman"),
     petsAllowed = optBoolean("pets_allowed"),
     childSeat = optBoolean("child_seat"),
     womenOnly = optBoolean("women_only"),
@@ -1370,6 +1377,7 @@ data class RideDto(
     val driverCar: String,
     val driverAvatar: String = "",
     val driverOnline: Boolean = false,
+    val driverIsWoman: Boolean = false,   // F9: водитель — женщина (opt-in сигнал для бейджа)
     val petsAllowed: Boolean = false,
     val childSeat: Boolean = false,
     val womenOnly: Boolean = false,
@@ -1413,6 +1421,7 @@ data class DriverStatusDto(
     val licenseUrl: String,
     val carPhotoUrl: String,
     val online: Boolean = false,
+    val gender: String = "",             // "" не указан / female / male — виден только самому водителю (opt-in)
     val autocheckResult: String = "",   // "" / pass / needs_human / reject / error
     val autocheckData: String = "",      // JSON: распознанные поля + коды причин
 )

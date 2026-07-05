@@ -344,7 +344,7 @@ internal fun MapScreen(
     val shownNearby = remember(nearby, prefFilter, verifiedOnly) {
         if (prefFilter.isEmpty() && !verifiedOnly) nearby else nearby.filter { d ->
             (!verifiedOnly || d.driverVerified) &&
-                ("women" !in prefFilter || d.womenOnly) &&
+                ("women" !in prefFilter || d.womenOnly || d.driverIsWoman) &&   // F9: женщины за рулём тоже подходят
                 ("child" !in prefFilter || d.childSeat) &&
                 ("pets" !in prefFilter || d.petsAllowed) &&
                 ("baggage" !in prefFilter || d.baggage) &&
@@ -415,6 +415,7 @@ internal fun MapScreen(
                 }
                 item {
                     if (nearby.isNotEmpty()) {
+                      Column {
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -426,6 +427,19 @@ internal fun MapScreen(
                             NearbyFilterChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), "ac" in prefFilter) { prefFilter = if ("ac" in prefFilter) prefFilter - "ac" else prefFilter + "ac" }
                             NearbyFilterChip(Icons.Default.Block, appText("Некурящий", "Тартмаусы"), "nosmoke" in prefFilter) { prefFilter = if ("nosmoke" in prefFilter) prefFilter - "nosmoke" else prefFilter + "nosmoke" }
                         }
+                        // F9: поясняем, что фильтр «Только женщины» включает и женщин за рулём.
+                        if ("women" in prefFilter) {
+                            Spacer(Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Woman, contentDescription = null, tint = CanonWoman, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    appText("Женщины за рулём и поездки «только для женщин».", "Рулдә ҡатын-ҡыҙҙар һәм «тик ҡатын-ҡыҙ өсөн» сәфәрҙәр."),
+                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
+                                )
+                            }
+                        }
+                      }
                     }
                 }
                 item {
