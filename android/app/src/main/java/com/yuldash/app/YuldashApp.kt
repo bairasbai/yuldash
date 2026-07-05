@@ -310,7 +310,11 @@ internal fun YuldashApp() {
     var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
-    LaunchedEffect(Unit) { ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" } }
+    // Версия сессии: инкрементится при входе (onContinue), чтобы user-специфичные загрузки
+    // (роль/мои заявки/доверенные контакты) перечитались ПОСЛЕ логина, а не только один раз на Splash
+    // (иначе после входа в этой же сессии эти данные оставались пустыми до перезапуска приложения).
+    var sessionVersion by remember { mutableStateOf(0) }
+    LaunchedEffect(sessionVersion) { ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" } }
     // Android 13+ требует РАНТАЙМ-разрешение на уведомления — без него пуши тихо не показываются
     // (FCM настроен end-to-end, но без этого запроса доставка на новых телефонах = no-op).
     // Просим один раз, когда пользователь уже в приложении (не на онбординге/входе).
@@ -331,8 +335,12 @@ internal fun YuldashApp() {
     var adEditorTarget by remember { mutableStateOf<com.yuldash.app.data.MyAdDto?>(null) }
     LaunchedEffect(Unit) {
         ApiClient.getAds().onSuccess { srv ->
+            // Сервер ОТВЕТИЛ (пусть даже пусто) → показываем именно его данные, а не демо.
+            // Пустой ответ = нет рекламы, а не «оставить демо-аптеку с фейк-номером» (иначе при
+            // живом пустом сервере кнопка «Позвонить» набирала бы демо +7 927 000-12-12).
+            // Демо остаётся только как офлайн-фолбэк (стартовое значение vm.partnerAds при сбое сети).
             val tmpl = demoPartnerAds.firstOrNull()
-            if (srv.isNotEmpty() && tmpl != null) partnerAds = srv.map { a ->
+            partnerAds = if (srv.isEmpty() || tmpl == null) emptyList() else srv.map { a ->
                 // Шаблон даёт ТОЛЬКО оформление (иконка/места/категория). Все данные партнёра — с сервера.
                 // КРИТИЧНО: contact/mapPoint/имя/адрес НЕ наследуем от демо (иначе клик звонил на демо-номер).
                 tmpl.copy(
@@ -358,8 +366,8 @@ internal fun YuldashApp() {
     var navPopping by vm.navPopping
     var navPrev by vm.navPrev
     LaunchedEffect(screen) {
-        val transient = navPrev == Screen.Splash || navPrev == Screen.Login || navPrev == Screen.Onboarding
-        if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)   // forward → запоминаем, откуда пришли
+        val transient = navPrev == Screen.Splash || navPrev == Screen.Login || navPrev == Screen.Onboarding || navPrev == Screen.Intro
+        if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)   // forward → запоминаем, откуда пришли (Intro/Splash/Login/Onboarding — не в трейл)
         navPopping = false
         navPrev = screen
     }
@@ -428,10 +436,12 @@ internal fun YuldashApp() {
     // Сервер недоступен (ТСПУ/офлайн) → остаются демо, экран не пустеет.
     LaunchedEffect(Unit) {
         ApiClient.getRides().onSuccess { dtos ->
-            if (dtos.isNotEmpty()) {
-                rides.clear()
-                rides.addAll(
-                    dtos.map { d ->
+            // Сервер ОТВЕТИЛ → показываем ровно его список. Пусто = пусто (честный empty-state),
+            // а не «оставить демо с числовыми id 1..3», которые book() принял бы за реальные
+            // серверные поездки и создал бронь на чужую поездку id=1.
+            rides.clear()
+            rides.addAll(
+                dtos.map { d ->
                         Ride(
                             id = d.id.toString(),
                             from = d.fromCity,
@@ -458,14 +468,13 @@ internal fun YuldashApp() {
                         )
                     }
                 )
-            }
         }
     }
     CompositionLocalProvider(LocalAppLanguage provides language) {
         // Мои заявки — с сервера (после входа). Точное время в Фазе 1 не храним.
         val reqWaitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
         val reqByAgreement = appText("по договорённости", "килешеү буйынса")
-        LaunchedEffect(Unit) {
+        LaunchedEffect(sessionVersion) {
             ApiClient.getMyRequests().onSuccess { reqs ->
                 localRequests.clear()
                 localRequests.addAll(
@@ -487,8 +496,8 @@ internal fun YuldashApp() {
                 )
             }
         }
-        // Доверенные контакты — с сервера (после входа).
-        LaunchedEffect(Unit) {
+        // Доверенные контакты — с сервера (после входа). Перечитываем и при смене sessionVersion (после логина).
+        LaunchedEffect(sessionVersion) {
             ApiClient.getContacts().onSuccess { list ->
                 if (list.isNotEmpty()) {
                     trustedContacts.clear()
@@ -496,7 +505,7 @@ internal fun YuldashApp() {
                 }
             }
         }
-        BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash) {
+        BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash && screen != Screen.Intro) {
             goBack()   // единый пошаговый возврат по трейлу — та же логика, что верхняя стрелка «Назад»
         }
         AnimatedContent(
@@ -532,6 +541,7 @@ internal fun YuldashApp() {
                         language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                     },
                     onContinue = {
+                        sessionVersion++   // вход завершён → перечитать роль/мои заявки/контакты под новым токеном
                         if (prefs.getString("preferred_role", "") == RideRole.Driver.name) {
                             startHomeTab = HomeTab.Profile   // назад из кабинета водителя → профиль
                             screen = Screen.DriverCabinet     // выбрал «Я водитель» → сразу в кабинет (проверка/публикация)
@@ -574,7 +584,10 @@ internal fun YuldashApp() {
                 },
                 onOpenActiveTrip = { ride, status ->
                     selectedRide = ride
-                    activeTrip = null
+                    // Живое гео гейтится на activeTrip != null (см. эффект TripLocationService выше):
+                    // для подтверждённой поездки, открытой из списка, ставим activeTrip = ride, иначе
+                    // сервис заглохнет и попутчик не увидит позицию. Для неактивной брони — null (как было).
+                    activeTrip = if (bookingStatusAllowsActiveTrip(status)) ride else null
                     activeBookingId = ride.id.toIntOrNull()
                     selectedBookingStatus = status
                     screen = if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.Booking
