@@ -14,7 +14,7 @@ from ..models import Booking, BookingStatus, Message, Ride, User
 from ..security import authenticate_ws, current_user
 from ..services import (
     booking_and_ride_for_user, is_blocked, manager, notify_chat_message,
-    public_media_url, send_push, user_bookings,
+    public_media_url, push_notification, send_push, user_bookings,
 )
 
 router = APIRouter(tags=["chat"])
@@ -123,9 +123,17 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         "transcript": msg.transcript or "",
         "timestamp": msg.created_at.isoformat(),
     })
-    # Push другой стороне брони (кто не отправитель).
+    # Уведомление + push другой стороне брони (кто не отправитель). REST-путь (в отличие от WS)
+    # используется, когда получатель НЕ в живом сокете (голос/фото/фолбэк) — тогда запись в Центр
+    # уведомлений осмысленна. Живой WS-обмен (оба в чате) уведомление не плодит.
     other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
-    send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120])
+    preview = (msg.text or "Голосовое сообщение")[:120]
+    push_notification(
+        session, other_id, "message",
+        user.name or "Новое сообщение", user.name or "Яңы хәбәр",
+        preview, preview,
+        ref_kind="booking", ref_id=booking_id,
+    )
     return msg
 
 
@@ -262,17 +270,5 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
         ))
     return out
 
-
-@router.get("/notifications")
-def notifications(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Лента событий: входящие сообщения по броням пользователя (как пассажир и водитель)."""
-    booking_ids = [b.id for b in user_bookings(session, user)]
-    out: list = []
-    if booking_ids:
-        msgs = session.exec(
-            select(Message).where(Message.booking_id.in_(booking_ids), Message.sender_id != user.id)
-            .order_by(Message.id.desc()).limit(15)   # тянем из БД только последние 15, не всю переписку
-        ).all()
-        for m in msgs:
-            out.append({"type": "message", "title": "Новое сообщение", "text": (m.text if m.text else "Голосовое сообщение")})
-    return out
+# `/notifications` переехал в routers/notifications.py (Центр уведомлений: типизированная
+# лента из таблицы Notification с пометкой прочитанного). Здесь плацебо-версия удалена.

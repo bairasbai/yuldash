@@ -30,6 +30,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -1222,6 +1223,7 @@ internal fun ChatScreen(
     var convError by remember { mutableStateOf(false) }
     var convReload by remember { mutableStateOf(0) }
     var myRequests by remember { mutableStateOf<List<RequestDto>>(emptyList()) }
+    var notifUnread by remember { mutableStateOf(0) }   // бейдж непрочитанных на кнопке «Система»
     val chatTabs = listOf(
         "active" to LocalizedText("Активные", "Актив"),
         "requests" to LocalizedText("Заявки", "Заявкалар"),
@@ -1236,6 +1238,7 @@ internal fun ChatScreen(
             .onFailure { e -> convError = (e as? ApiException)?.status != 401 }
         convLoading = false
         ApiClient.getMyRequests().onSuccess { myRequests = it }
+        ApiClient.getNotifications().onSuccess { notifUnread = it.unread }
     }
     LazyColumn(
         modifier = Modifier
@@ -1261,21 +1264,38 @@ internal fun ChatScreen(
                 chatTabs.zip(listOf(Icons.Default.ChatBubble, Icons.Default.ListAlt, Icons.Default.Settings)).forEach { (tab, icon) ->
                     val (key, label) = tab
                     val labelText = label.text()
-                    FilledTonalButton(
-                        onClick = {
-                            if (key == "system") onNotifications() else selected = key
-                        },
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = if (selected == key) CanonMint else CanonSurface,
-                            contentColor = CanonText
-                        )
-                    ) {
-                        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selected == key) CanonGreen2 else CanonMuted)
-                        Spacer(Modifier.width(5.dp))
-                        Text(labelText, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Box(Modifier.weight(1f)) {
+                        FilledTonalButton(
+                            onClick = {
+                                if (key == "system") onNotifications() else selected = key
+                            },
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = if (selected == key) CanonMint else CanonSurface,
+                                contentColor = CanonText
+                            )
+                        ) {
+                            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selected == key) CanonGreen2 else CanonMuted)
+                            Spacer(Modifier.width(5.dp))
+                            Text(labelText, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        // Бейдж непрочитанных уведомлений на кнопке «Система».
+                        if (key == "system" && notifUnread > 0) {
+                            Box(
+                                Modifier.align(Alignment.TopEnd).padding(4.dp)
+                                    .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                                    .background(CanonRed, CircleShape)
+                                    .padding(horizontal = 5.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    if (notifUnread > 99) "99+" else notifUnread.toString(),
+                                    color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black, maxLines = 1,
+                                )
+                            }
+                        }
                     }
                 }
             }

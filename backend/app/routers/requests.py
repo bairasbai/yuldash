@@ -16,7 +16,7 @@ from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
-    notify_map_changed, public_rides_payload, rides_out, send_push, user_rating,
+    notify_map_changed, public_rides_payload, push_notification, rides_out, user_rating,
 )
 from ..timeutil import utcnow
 
@@ -293,7 +293,14 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     session.commit()
     session.refresh(resp)
     price_s = f", {body.price}₽" if body.price else ""
-    send_push(session, req.passenger_id, "Отклик на заявку", f"{user.name or 'Водитель'}: {req.from_city} → {req.to_city}{price_s}")
+    drv_name = user.name or "Водитель"
+    route = f"{req.from_city} → {req.to_city}"
+    push_notification(
+        session, req.passenger_id, "ride",
+        "Отклик на заявку", "Заявкаға яуап",
+        f"{drv_name}: {route}{price_s}", f"{drv_name}: {route}{price_s}",
+        ref_kind="request", ref_id=req.id,
+    )
     has_device = session.exec(select(DeviceToken).where(DeviceToken.user_id == req.passenger_id)).first() is not None
     if not has_device:   # пассажир без приложения (напр. создан админом по звонку) → зовём админа перезвонить
         p = session.get(User, req.passenger_id)
@@ -378,7 +385,14 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     session.refresh(booking)
     notify_map_changed()   # заявка исполнена (matched) → её маркер уходит, новая поездка появляется — live
     pax = session.get(User, req.passenger_id)
-    send_push(session, resp.driver_id, "Заявку приняли", f"{(pax.name if pax else 'Пассажир')}: {req.from_city} → {req.to_city}")
+    pax_name = pax.name if pax else "Пассажир"
+    route = f"{req.from_city} → {req.to_city}"
+    push_notification(
+        session, resp.driver_id, "ride",
+        "Заявку приняли", "Заявка ҡабул ителде",
+        f"{pax_name}: {route}", f"{pax_name}: {route}",
+        ref_kind="booking", ref_id=booking.id,
+    )
     return {"booking_id": booking.id}
 
 

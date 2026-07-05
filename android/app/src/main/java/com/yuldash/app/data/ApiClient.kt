@@ -917,15 +917,32 @@ object ApiClient {
         }
     }
 
-    // Лента событий (входящие сообщения по броням).
-    suspend fun getNotifications(): Result<List<NotifDto>> =
+    // Центр уведомлений: типизированная лента (непрочитанные сверху) + счётчик для бейджа.
+    suspend fun getNotifications(): Result<NotifFeed> =
         call("GET", "/notifications", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
+            val items = (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                NotifDto(o.optString("title"), o.optString("text"))
+                NotifDto(
+                    id = o.optInt("id"),
+                    type = o.optString("type"),
+                    titleRu = o.optString("title_ru"), titleBa = o.optString("title_ba"),
+                    bodyRu = o.optString("body_ru"), bodyBa = o.optString("body_ba"),
+                    refKind = o.optString("ref_kind"),
+                    refId = if (o.isNull("ref_id")) null else o.optInt("ref_id"),
+                    read = o.optBoolean("read"),
+                    createdAt = o.optString("created_at"),
+                )
             }
+            NotifFeed(unread = obj.optInt("unread"), items = items)
         }
+
+    /** Пометить уведомление(я) прочитанным: id=конкретное, null=все. Возврат — актуальный unread. */
+    suspend fun markNotificationsRead(id: Int? = null): Result<Int> {
+        val body = JSONObject()
+        if (id != null) body.put("id", id) else body.put("all", true)
+        return call("POST", "/notifications/read", body, auth = true).map { it.optInt("unread") }
+    }
 
     // Партнёрская реклама — сервер-управляемая.
     suspend fun getAds(): Result<List<AdDto>> =
@@ -1551,7 +1568,19 @@ data class FeedDto(
     val drivers: Int, val topFrom: String, val topTo: String, val topCount: Int,
     val donationsTotal: Int = 0   // ₽ донатов от пользователей за всё время
 )
-data class NotifDto(val title: String, val text: String)
+/** Уведомление Центра уведомлений (типизированное, двуязычное). ref_kind/ref_id — deep-link. */
+data class NotifDto(
+    val id: Int,
+    val type: String,              // booking / ride / system / message
+    val titleRu: String, val titleBa: String,
+    val bodyRu: String, val bodyBa: String,
+    val refKind: String, val refId: Int?,
+    val read: Boolean,
+    val createdAt: String,         // ISO-8601 UTC
+)
+
+/** Лента уведомлений: непрочитанные сверху + счётчик непрочитанного (бейдж). */
+data class NotifFeed(val unread: Int, val items: List<NotifDto>)
 
 /** Тариф поднятия (с бэкенда /boost/plans). */
 data class BoostPlanDto(val tier: String, val title: String, val price: Int, val hours: Int)
