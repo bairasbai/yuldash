@@ -280,7 +280,10 @@ object ApiClient {
         ).onSuccess { obj ->
             obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
             obj.optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
-            saveName(obj.optString("name").ifBlank { name })
+            // Имя сервер кладёт в user.name (не в корень) — читаем оттуда, иначе фолбэк на введённое.
+            val serverName = obj.optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }
+            saveName(serverName ?: name)
+            registerCurrentPushToken()   // SMS-вход тоже регистрирует устройство для push (иначе пуши не идут до перезапуска)
             Analytics.log("login", mapOf("method" to "sms"))
         }
 
