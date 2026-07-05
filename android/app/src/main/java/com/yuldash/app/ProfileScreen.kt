@@ -482,7 +482,7 @@ internal fun ProfileScreen(
                                         Spacer(Modifier.width(8.dp))
                                         Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
                                         Spacer(Modifier.width(2.dp))
-                                        Text(r.toString(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Text(String.format(java.util.Locale.US, "%.1f", r), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                                 Text(appText("Телефон скрыт до подтверждения поездки", "Телефон сәфәр раҫланғанға тиклем йәшерелгән"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, lineHeight = 16.sp)
@@ -1719,7 +1719,7 @@ internal fun List<PartnerAd>.forCategory(category: String): List<PartnerAd> {
 @Composable
 private fun AdStatus.label(): String {
     return when (this) {
-        AdStatus.Draft -> appText("Черновик", "Черновик")
+        AdStatus.Draft -> appText("Черновик", "Ҡаралама")
         AdStatus.Moderation -> appText("На модерации", "Модерацияла")
         AdStatus.Active -> appText("Активна", "Актив")
         AdStatus.Paused -> appText("Пауза", "Туҡтатылған")

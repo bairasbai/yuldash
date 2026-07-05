@@ -1296,7 +1296,7 @@ internal fun ChatScreen(
                 itemsIndexed(myRequests, key = { _, r -> r.id }) { i, r ->
                     Box(Modifier.appearIn(i)) {
                         ChatCard(
-                            initial = r.fromCity.firstOrNull()?.uppercase() ?: "З",
+                            initial = r.fromCity.firstOrNull()?.uppercase() ?: "?",
                             name = "${r.fromCity} → ${r.toCity}",
                             subtitle = "Заявка · " + seatsText(r.seats),
                             message = appText("Смотреть отклики водителей", "Водитель яуаптарын ҡарау"),

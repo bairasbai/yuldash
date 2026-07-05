@@ -418,7 +418,11 @@ internal fun YuldashApp() {
         if (trustedContactsReturnScreen == Screen.Home) openHome(trustedContactsReturnHomeTab) else screen = trustedContactsReturnScreen
     }
 
+    // Один показ на объявление за сессию: карточка в LazyColumn пересоздаётся при скролле
+    // (item ушёл за экран и вернулся) → LaunchedEffect(ad.id) срабатывал повторно и накручивал статистику.
+    val countedImpressions = remember { mutableSetOf<String>() }
     fun trackAdImpression(ad: PartnerAd) {
+        if (!countedImpressions.add(ad.id)) return   // уже засчитали → не шлём повторный impression при скролле
         val current = adStats[ad.id] ?: AdStats()
         adStats[ad.id] = current.copy(impressions = current.impressions + 1)
         ApiClient.fireAdEvent(ad.id, "impression")   // реальный показ на сервер
