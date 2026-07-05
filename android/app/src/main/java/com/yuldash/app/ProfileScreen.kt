@@ -841,7 +841,8 @@ internal fun DriverCabinetScreen(
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
+    var ridesReload by remember { mutableStateOf(0) }   // F1: bump после отмены/завершения → список свежий
+    LaunchedEffect(ridesReload) {
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
@@ -849,6 +850,9 @@ internal fun DriverCabinetScreen(
     }
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
+    val rideCancelledMsg = appText("Поездка снята. Пассажиры уведомлены.", "Сәфәр алынды. Пассажирҙар хәбәрҙар ителде.")
+    val rideDoneMsg = appText("Рейс завершён. Хорошей дороги домой!", "Рейс тамамланды. Юлың уң булһын!")
+    val rideActionFailMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
     Scaffold(
@@ -886,6 +890,21 @@ internal fun DriverCabinetScreen(
             onVerifyDriver = onVerifyDriver,
             onBoost = onBoost,
             onRequestsFeed = onRequestsFeed,
+            // F1: отмена/завершение рейса — ждём сервер, потом обновляем список (bump ridesReload).
+            onCancelRide = { rideId ->
+                rateScope.launch {
+                    ApiClient.cancelRide(rideId)
+                        .onSuccess { Toast.makeText(ctx, rideCancelledMsg, Toast.LENGTH_LONG).show(); ridesReload++ }
+                        .onFailure { Toast.makeText(ctx, rideActionFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
+            onCompleteRide = { rideId ->
+                rateScope.launch {
+                    ApiClient.completeRide(rideId)
+                        .onSuccess { Toast.makeText(ctx, rideDoneMsg, Toast.LENGTH_LONG).show(); ridesReload++ }
+                        .onFailure { Toast.makeText(ctx, rideActionFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
             modifier = Modifier.padding(padding),
         )
     }
@@ -909,8 +928,31 @@ internal fun DriverCabinetContent(
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit,
+    onCancelRide: (Int) -> Unit = {},     // F1: снять поездку (id) — сервер уведомит пассажиров
+    onCompleteRide: (Int) -> Unit = {},   // F1: завершить рейс (id)
     modifier: Modifier = Modifier,
 ) {
+    // F1: подтверждение отмены — отмена каскадно снимает брони пассажиров, случайный тап недопустим.
+    var cancelTarget by remember { mutableStateOf<Ride?>(null) }
+    cancelTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { cancelTarget = null },
+            title = { Text(appText("Снять поездку?", "Сәфәрҙе алырғамы?"), fontWeight = FontWeight.Black) },
+            text = { Text(appText(
+                "${target.from} → ${target.to}. Все брони пассажиров будут отменены, им придёт уведомление.",
+                "${target.from} → ${target.to}. Пассажирҙарҙың бөтә брондары кире алына, уларға хәбәр килә."
+            )) },
+            confirmButton = {
+                Button(
+                    onClick = { target.id.toIntOrNull()?.let(onCancelRide); cancelTarget = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
+                ) { Text(appText("Снять поездку", "Сәфәрҙе алыу"), fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { cancelTarget = null }) { Text(appText("Оставить", "Ҡалдырыу")) }
+            }
+        )
+    }
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -950,16 +992,31 @@ internal fun DriverCabinetContent(
             }
         } else {
             items(driverRides, key = { it.id }) { ride ->
-                MyTripCard(
-                    ride = ride,
-                    status = appText("Опубликована", "Баҫтырылды"),
-                    statusColor = CanonMint,
-                    icon = Icons.Default.DirectionsCar,
-                    primaryAction = appText("Поднять", "Күтәреү"),
-                    secondaryAction = appText("Новый маршрут", "Яңы маршрут"),
-                    onPrimary = onBoost,
-                    onSecondary = onCreateRide
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MyTripCard(
+                        ride = ride,
+                        status = appText("Опубликована", "Баҫтырылды"),
+                        statusColor = CanonMint,
+                        icon = Icons.Default.DirectionsCar,
+                        primaryAction = appText("Поднять", "Күтәреү"),
+                        secondaryAction = appText("Новый маршрут", "Яңы маршрут"),
+                        onPrimary = onBoost,
+                        onSecondary = onCreateRide
+                    )
+                    // F1: управление рейсом — завершить (брони → done, пассажирам «оцените») или снять (с подтверждением).
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(
+                            onClick = { ride.id.toIntOrNull()?.let(onCompleteRide) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) { Text(appText("Завершить рейс", "Рейсты тамамлау"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                        OutlinedButton(
+                            onClick = { cancelTarget = ride },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) { Text(appText("Снять поездку", "Сәфәрҙе алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    }
+                }
             }
         }
         if (driverBookings.isNotEmpty()) {
