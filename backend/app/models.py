@@ -56,6 +56,9 @@ class User(SQLModel, table=True):
     referral_code: str = Field(default="", index=True)
     referred_by: Optional[int] = Field(default=None, foreign_key="user.id")
     referral_credits: int = 0
+    # F19 «Позови водителя»: приглашённый стал водителем и опубликовал первый рейс →
+    # пригласивший получил бонус (бесплатный Boost). Флаг гарантирует начисление РОВНО раз.
+    driver_referral_rewarded: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
 

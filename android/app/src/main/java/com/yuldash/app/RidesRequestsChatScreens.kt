@@ -707,6 +707,85 @@ internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Bool
             TextButton(onClick = onRetry) {
                 Text(if (error) appText("Повторить", "Ҡабатлау") else appText("Обновить", "Яңыртыу"), color = CanonGreen2, fontWeight = FontWeight.Black)
             }
+            // F19 «Позови водителя»: на реальной пустой выдаче (не ошибка сети) — мягкий призыв
+            // пригласить знакомого водителя. Спрос сам растит предложение (виральность «между своими»).
+            if (!error) {
+                Spacer(Modifier.height(4.dp))
+                InviteDriverCallout()
+            }
+        }
+    }
+}
+
+/**
+ * F19 «Позови водителя» — блок на пустой выдаче поиска.
+ * Шеринг персональной реферальной ссылки + обещание бонуса: приглашённый станет водителем
+ * и сделает первый рейс → пригласившему бесплатный Boost (поднятие поездки).
+ * Реф-код тянем из существующего /referral/me (кэш). Не вошёл → делимся без кода (общая ссылка).
+ */
+@Composable
+internal fun InviteDriverCallout() {
+    val ctx = LocalContext.current
+    var refCode by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { ApiClient.getReferral().onSuccess { refCode = it.code } }
+
+    val shareTitle = appText("Пригласить водителя", "Водитель саҡырыу")
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(CanonHairlineGreen)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.size(38.dp).clip(CircleShape).background(CanonGreen2),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    appText("Никто не едет? Позови водителя", "Бер кем дә бармаймы? Водитель саҡыр"),
+                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp
+                )
+                Text(
+                    appText(
+                        "Пригласи знакомого. Сделает первый рейс — тебе бесплатный Boost.",
+                        "Танышыңды саҡыр. Тәүге сәфәрен яһаһа — һиңә бушлай Boost."
+                    ),
+                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
+                )
+            }
+        }
+        Button(
+            onClick = {
+                val code = refCode
+                val shareTxt = if (code != null) appText(
+                    "Юлдаш — попутки между своими по Башкортостану. Становись водителем по моему приглашению: сделаешь первый рейс — обоим бонус. Мой код: $code. Скачать: https://yulbash.ru",
+                    "Юлдаш — Башҡортостан буйлап үҙ-ара юлдаштар. Минең саҡырыу буйынса водитель бул: тәүге сәфәреңде яһаһаң — икәүгә лә бонус. Минең код: $code. Йөкләү: https://yulbash.ru"
+                ) else appText(
+                    "Юлдаш — попутки между своими по Башкортостану. Становись водителем — вози соседей и зарабатывай. Скачать: https://yulbash.ru",
+                    "Юлдаш — Башҡортостан буйлап үҙ-ара юлдаштар. Водитель бул — күршеләреңде йөрөт, аҡса эшлә. Йөкләү: https://yulbash.ru"
+                )
+                runCatching {
+                    ctx.startActivity(
+                        Intent.createChooser(
+                            Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, shareTxt),
+                            shareTitle
+                        )
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+        ) {
+            Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(shareTitle, color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
         }
     }
 }

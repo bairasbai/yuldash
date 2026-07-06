@@ -16,6 +16,7 @@ from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
     geocode_city, haversine_km, notify_map_changed, public_ride_payload, public_rides_payload, ride_out, ride_out_with, rides_out,
 )
+from .referral import reward_driver_referral
 
 router = APIRouter(tags=["rides"])
 
@@ -59,6 +60,9 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
             made += 1
     session.commit()
     session.refresh(ride)
+    # F19 «Позови водителя»: если этого водителя кто-то пригласил и это его первый рейс —
+    # пригласивший получает бонус (бесплатный Boost). Начисляется ровно один раз, к гонке безопасно.
+    reward_driver_referral(session, user)
     notify_map_changed()   # новая поездка → пины на карте у всех обновятся live (не дожидаясь 25с-опроса)
     return ride
 

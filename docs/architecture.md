@@ -338,3 +338,15 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - Latest backend verification: `pytest tests -q` → `148 passed, 1 skipped`; coverage for `backend/app` → `91%` (`3186` statements, `300` missed).
 - High-covered active modules after this pass: `routers/ads.py` 99%, `routers/auth.py` 98%, `payments.py` 100%, `routers/payments.py` 95%, `routers/requests.py` 95%, `routers/safety.py` 99%, `driver_check.py` 96%, `routers/rides.py` 93%.
 - Remaining lower areas are mostly integration-heavy/infrastructure: `services.py`, `db.py`, `middleware.py`, and WebSocket internals in `routers/chat.py`.
+
+## 2026-07-06 — F19 «Позови водителя» (водительский трек реферала, ветка `feat/invite-drivers`)
+
+Спрос сам растит предложение: на пустой выдаче поиска зовём пригласить знакомого водителя.
+
+- **Бэкенд (расширение существующего реферала, не ломает базовый):**
+  - `User.driver_referral_rewarded: bool` — новая колонка. Флаг «за этого приглашённого водительский бонус уже начислен» (ровно один раз).
+  - `routers/referral.py::reward_driver_referral(session, driver)` — если приглашённого (`referred_by` задан) ещё не наградили и он публикует **первый рейс** → пригласившему `+DRIVER_REFERRAL_BONUS` (=1 бесплатный Boost, потолок `MAX_REFERRAL_CREDITS`). Идемпотентно, row-lock приглашённого (гонка двух первых рейсов не задвоит).
+  - Хук — в `routers/rides.py::create_ride` после коммита поездки. Базовый реферал (по +1 обоим при redeem) не тронут.
+  - Миграция `alembic/versions/f19_invite_drivers.py` (revision `f19_invite_drivers`, ветвится от `0004`; идемпотентна; **сведение цепочки миграций — за лидом**).
+  - Тесты: `tests/test_flows.py::test_driver_referral_bonus` (бонус начисляется, ровно один раз), `::test_driver_referral_no_inviter_no_bonus` (не приглашённый — без побочных начислений). Базовый `test_referral_flow` не изменён.
+- **UI:** `RidesRequestsChatScreens.kt::InviteDriverCallout()` — блок внутри `NearbyEmptyCard` (реальная пустая выдача, не ошибка). Тянет реф-код из `/referral/me` (кэш), share-sheet (`ACTION_SEND`) персональной ссылки с упоминанием бонуса. Стиль `Canon*`, обе строки через `appText`. Не вошёл → делимся общей ссылкой без кода.

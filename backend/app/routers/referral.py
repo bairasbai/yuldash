@@ -14,6 +14,37 @@ router = APIRouter(tags=["referral"])
 # через новые регистрации → иначе бесконечные бесплатные поднятия). Хватает на реальную виральность.
 MAX_REFERRAL_CREDITS = 20
 
+# F19 «Позови водителя»: приглашённый стал водителем и опубликовал ПЕРВЫЙ рейс → пригласившему
+# начисляем этот бонус (бесплатный Boost). Начисляется ровно один раз на приглашённого.
+DRIVER_REFERRAL_BONUS = 1
+
+
+def reward_driver_referral(session: Session, driver: User) -> bool:
+    """F19: приглашённый стал водителем и публикует первый рейс → пригласивший получает
+    бонус (бесплатный Boost). Начисляется РОВНО ОДИН раз на приглашённого.
+
+    Не ломает обычный реферал: обычные +1 обоим при redeem остаются как были — это
+    ОТДЕЛЬНЫЙ, дополнительный бонус только пригласившему и только за водительский трек.
+
+    Идемпотентно и безопасно к гонке: row-lock приглашённого (два параллельных первых
+    рейса не задвоят бонус — флаг `driver_referral_rewarded` ставится под блокировкой).
+    Возвращает True, если бонус начислен именно сейчас.
+    """
+    if driver.referred_by is None:            # никто не приглашал — водительского бонуса нет
+        return False
+    # Блокируем строку приглашённого: атомарная проверка+установка флага (как в boost_free).
+    locked = session.exec(select(User).where(User.id == driver.id).with_for_update()).one()
+    if locked.driver_referral_rewarded or locked.referred_by is None:
+        return False                          # бонус уже начислён / приглашения нет — no-op
+    locked.driver_referral_rewarded = True
+    session.add(locked)
+    referrer = session.get(User, locked.referred_by)
+    if referrer is not None:                  # пригласивший мог удалиться — флаг всё равно ставим
+        referrer.referral_credits = min(referrer.referral_credits + DRIVER_REFERRAL_BONUS, MAX_REFERRAL_CREDITS)
+        session.add(referrer)
+    session.commit()
+    return True
+
 
 def _ensure_code(session: Session, user: User) -> str:
     """Лениво генерим уникальный код, если ещё нет (старые юзеры — без бэкфилл-миграции)."""

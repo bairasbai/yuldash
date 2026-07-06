@@ -287,6 +287,32 @@ def test_referral_flow(client, user_factory):
     assert client.post("/referral/redeem", headers=a["auth"], json={"code": code}).status_code == 400
 
 
+def test_driver_referral_bonus(client, user_factory):
+    """F19 «Позови водителя»: приглашённый стал водителем и сделал первый рейс →
+    пригласивший получает ДОП. бонус. Начисляется ровно один раз."""
+    inviter = user_factory("InviteDrvA")
+    invited = user_factory("InviteDrvB")
+    code = client.get("/referral/me", headers=inviter["auth"]).json()["code"]
+    # обычный реферал: invited вводит код → оба +1 (базовый бонус, как и раньше — не сломан)
+    assert client.post("/referral/redeem", headers=invited["auth"], json={"code": code}).json()["credits"] == 1
+    assert client.get("/referral/me", headers=inviter["auth"]).json()["credits"] == 1
+    # invited публикует ПЕРВЫЙ рейс (стал водителем) → пригласившему +1 водительский бонус
+    _publish(client, invited, frm="Баймак", to="Уфа")
+    assert client.get("/referral/me", headers=inviter["auth"]).json()["credits"] == 2
+    # второй рейс — бонус НЕ повторяется (ровно один раз на приглашённого)
+    _publish(client, invited, frm="Сибай", to="Уфа")
+    assert client.get("/referral/me", headers=inviter["auth"]).json()["credits"] == 2
+
+
+def test_driver_referral_no_inviter_no_bonus(client, user_factory):
+    """Не приглашённый водитель публикует рейс → водительский бонус никому не начисляется
+    (обычный поток публикации не ломается, никаких побочных начислений)."""
+    solo = user_factory("SoloDrv")
+    before = client.get("/referral/me", headers=solo["auth"]).json()["credits"]
+    _publish(client, solo, frm="Баймак", to="Магнитогорск")
+    assert client.get("/referral/me", headers=solo["auth"]).json()["credits"] == before
+
+
 def test_boost_free_consumes_credit(client, user_factory):
     drv = user_factory("BoostDrv", role=UserRole.driver)
     other = user_factory("BoostRef")
