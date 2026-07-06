@@ -338,3 +338,15 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - Latest backend verification: `pytest tests -q` → `148 passed, 1 skipped`; coverage for `backend/app` → `91%` (`3186` statements, `300` missed).
 - High-covered active modules after this pass: `routers/ads.py` 99%, `routers/auth.py` 98%, `payments.py` 100%, `routers/payments.py` 95%, `routers/requests.py` 95%, `routers/safety.py` 99%, `driver_check.py` 96%, `routers/rides.py` 93%.
 - Remaining lower areas are mostly integration-heavy/infrastructure: `services.py`, `db.py`, `middleware.py`, and WebSocket internals in `routers/chat.py`.
+
+## 2026-07-06 — Масштаб-ops до 100k (Фаза 5, ветка feat/scale-ops)
+
+Операционная обвязка под рост (код `app/` не менялся — масштаб процессами/пулами/индексами, не переписыванием). Детальный runbook: [scale-ops-runbook.md](scale-ops-runbook.md).
+
+**Добавлено (код/доки, готово к применению Александром):**
+- **Нагрузочное (Locust):** `backend/loadtest/locustfile.py` + `README.md` + `requirements.txt`. Сценарии на горячие пути: `/rides/near`, `/rides`, `/requests/near`, `/feed` (роль ReadUser), логин+бронь (RiderUser), matcher `/instant/*` (InstantUser, флаг), WS-чат `/ws/bookings/{id}` (ChatWSUser, флаг). Вердикт p95<300мс@200RPS с ненулевым кодом выхода для CI. Гонять ТОЛЬКО против staging.
+- **Многопроцессность:** `backend/deploy/gunicorn_conf.py` (gunicorn + UvicornWorker, число воркеров из `WEB_CONCURRENCY`), `yuldash-api.service.example` (systemd, заменяет одиночный uvicorn), `nginx-yuldash-scale.conf.example` (upstream + `ip_hash` для WS-стикинга при нескольких адресах бэкенда; события между воркерами и так разносит Redis pub/sub — `app/services.py` `_CHAT_CHANNEL`).
+- **PostgreSQL:** `pgbouncer.ini.example` (`pool_mode=transaction`), заметка про managed/отдельный инстанс, EXPLAIN-чеклист по горячим запросам (ключевое: `from_city/to_city` через `LIKE '%..%'` не берут btree → нужен pg_trgm GIN; PostGIS ST_DWithin требует функционального GiST-индекса по geography).
+- **Redis:** `redis.conf.example` (пароль `requirepass`, AOF `appendonly yes`, `maxmemory-policy volatile-lru`, вынос на отдельный инстанс при росте).
+
+**Шаги Александра (прод-подъём, за пределами кода):** выбрать managed/отдельный PostgreSQL; поставить PgBouncer; включить Redis-пароль+AOF; переключить systemd на gunicorn N воркеров; прогнать Locust против staging и подтвердить p95<300мс@200RPS + отказоустойчивость (убийство воркера). Порядок — §4 runbook.

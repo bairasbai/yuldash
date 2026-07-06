@@ -1,0 +1,47 @@
+# Юлдаш — Redis (пример безопасного конфига для прод/staging). Фаза 5.
+#
+# Redis у нас используется для: pub/sub чата/карты между воркерами, кэша ленты,
+# rate-limit, и (с «Быстрым заказом») GEO-presence водителей.
+#
+# ⚠️ ГЛАВНОЕ: по умолчанию Redis слушает без пароля — если порт 6379 доступен извне,
+# это дыра. Обязательно: (1) слушать только localhost или приватную сеть, (2) пароль,
+# (3) persistence (AOF), чтобы presence/кэш/rate не терялись при рестарте.
+#
+# Файл: /etc/redis/redis.conf → systemctl restart redis-server
+# Приложение: REDIS_URL=redis://:PASSWORD@127.0.0.1:6379/0  (значение — в .env ВНЕ git)
+
+# --- (1) Сеть: только localhost, пока Redis на том же хосте, что и app ---
+bind 127.0.0.1 -::1
+protected-mode yes
+port 6379
+# При выносе Redis на отдельный инстанс (см. runbook): bind на приватный IP,
+# firewall/security-group только с app-хостов, и обязательно пароль ниже + TLS если сеть не доверенная.
+
+# --- (2) Пароль (плейсхолдер — реальный только в .env/этом файле на сервере, НЕ в git) ---
+requirepass CHANGE_ME_STRONG_REDIS_PASSWORD
+# Опционально ACL вместо одного пароля:
+# user default off
+# user yuldash on >CHANGE_ME_STRONG_REDIS_PASSWORD ~* +@all
+
+# --- (3) Persistence: AOF (append-only file) — переживаем рестарт/падение ---
+appendonly yes
+appendfsync everysec        # компромисс скорость/надёжность: теряем максимум ~1с при аварии
+aof-use-rdb-preamble yes    # компактный AOF с RDB-преамбулой (быстрее рестарт)
+# RDB-снапшоты оставляем как «страховку»/бэкап:
+save 900 1
+save 300 10
+save 60 10000
+dir /var/lib/redis
+
+# --- (4) Память ---
+# Presence/кэш — не безлимитны. Ставим потолок и политику вытеснения.
+maxmemory 512mb
+# volatile-lru: вытесняем только ключи с TTL (кэш/presence с EX), данные без TTL не трогаем.
+maxmemory-policy volatile-lru
+
+# --- (5) Прочее ---
+timeout 0
+tcp-keepalive 300
+# Отключить опасные команды в проде (по желанию):
+# rename-command FLUSHALL ""
+# rename-command CONFIG ""

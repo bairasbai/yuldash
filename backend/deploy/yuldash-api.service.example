@@ -1,0 +1,43 @@
+# Юлдаш API — systemd-юнит (ПРИМЕР, Фаза 5: многопроцессность через gunicorn).
+#
+# Заменяет запуск одного uvicorn на gunicorn с N uvicorn-воркерами.
+# Пути и пользователь — ПЛЕЙСХОЛДЕРЫ, подставь свои (сейчас на проде: /opt/yuldash,
+# пользователь yuldash — см. docs/server.md).
+#
+# Установка:
+#   sudo cp backend/deploy/yuldash-api.service.example /etc/systemd/system/yuldash-api.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl restart yuldash-api
+#
+# Проверка: systemctl status yuldash-api ; journalctl -u yuldash-api -f
+#
+# Откат на одиночный uvicorn (если что-то не так) — вернуть прежний ExecStart:
+#   ExecStart=/opt/yuldash/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+
+[Unit]
+Description=Yuldash API (gunicorn + uvicorn workers)
+After=network.target
+# Если Redis/PostgreSQL на этом же хосте — можно добавить:
+# Wants=redis-server.service postgresql.service
+# After=network.target redis-server.service postgresql.service
+
+[Service]
+Type=notify
+User=yuldash
+Group=yuldash
+WorkingDirectory=/opt/yuldash/backend
+# Секреты — из файла окружения ВНЕ git (chmod 600). Тут только путь-плейсхолдер.
+EnvironmentFile=/opt/yuldash/.env
+# Число воркеров можно переопределить прямо тут (иначе автоформула в gunicorn_conf.py):
+Environment=WEB_CONCURRENCY=4
+ExecStart=/opt/yuldash/.venv/bin/gunicorn app.main:app \
+    --config /opt/yuldash/backend/deploy/gunicorn_conf.py
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=3
+# Немного харднинга (безопасность):
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
