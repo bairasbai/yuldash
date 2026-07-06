@@ -146,3 +146,58 @@ Revision **id** у всех разные (коллизии id нет), но `dow
 - **Ключи ЮKassa F21** — на прод в `.env` (без них Boost остаётся на СБП-fallback, ничего не ломается).
 - **F16 шеринг:** проверь nginx-fallback `/r/*` → FastAPI; опц. `assetlinks.json` для бесшовного deep-link.
 - **Миграция БД на проде** — по `docs/deploy-migrations.md` (бэкап + откат), один раз после сведения бэкенд-миграций.
+
+---
+
+# 🚀 ДОБАВЛЕНО: Юлдаш 2.0 — фазы надёжности и роста (PR #30–#41)
+
+Поверх 26 фич-веток сделаны 5 фаз плана `product-plan-2026-07.md`. Ещё 12 черновых PR-ов. Все от `claude/feat-base` или стопкой друг на друге (указано). Бэкенд каждой — с pytest, UI — баланс скобок. **Android теперь собирается в CI** (job `android-build`, PR #33).
+
+## Таблица фаз
+
+| PR | Ветка | Фаза | База (от чего ответвлена) | Миграция | Тесты |
+|----|-------|------|---------------------------|----------|-------|
+| #30 | feat/observability | 1 надёжность | feat-base | — | ✅ 188 |
+| #31 | feat/backups-dr | 1 надёжность | feat-base | — | ops |
+| #32 | feat/rate-limit | 1 надёжность | feat-base | — | ✅ 187 |
+| #33 | feat/ci-hardening | 1 надёжность | feat-base | — | ✅ +android-build |
+| #34 | feat/instant-order | 2 быстрый заказ (бэк) | feat-base | `p2_instant_order`←0004 | ✅ 206 |
+| #35 | feat/instant-order-ui | 2 быстрый заказ (UI) | **от #34** | — | UI |
+| #36 | feat/payments-ledger | 3 деньги (бэк) | **от #34** | `p3_ledger`←p2 | ✅ 225 |
+| #37 | feat/payments-ui | 3 деньги (UI) | **от #36** | — | UI |
+| #38 | feat/trust-levels | 4 доверие (бэк) | feat-base | `p4_trust`←0004 | ✅ 204 |
+| #39 | feat/trust-ui | 4 доверие (UI) | **от #38** | — | UI |
+| #40 | feat/scale-ops | 5 масштаб | feat-base | — | ops (app не тронут) |
+| #41 | feat/media-s3 | 5 масштаб | feat-base | — | ✅ 194 |
+
+## Порядок вливания фаз (после базы #2/#3 и, желательно, фич-волн)
+
+1. **Фаза 1** (независимые, любой порядок): #30 → #31 → #32 → #33. Осторожно: #30 и #32 оба трогают `main.py` middleware — конфликт тривиальный (взять оба). #33 меняет `.github/workflows/ci.yml` — после мержа android-build станет на всех PR (пока informational).
+2. **Фаза 2**: #34 (бэк) → #35 (UI). #35 ветка от #34 — вливать строго после.
+3. **Фаза 3**: #36 (бэк, от #34) → #37 (UI, от #36). Вливать после Фазы 2.
+4. **Фаза 4**: #38 (бэк) → #39 (UI, от #38). Независима от Ф2/Ф3.
+5. **Фаза 5**: #40 (ops) и #41 (медиа) — независимы, любой порядок.
+
+## Линеаризация миграций — ОБНОВЛЕНО (добавь к §3)
+
+К 10 фич-миграциям добавились 3 фазовые. Полная цепочка после 0004 (пример; порядок гибкий, важно чтобы `down_revision` каждой = предыдущей):
+```
+0004 → [фич-миграции F5/F7/F13/F9/F10/F12/F14/F17/F19/F22 — см. §3]
+     → p2_instant_order → p3_ledger → p4_trust
+```
+`p3_ledger` уже указывает на `p2_instant_order` (стек Фазы 3 на Фазе 2) — это правильно, не переправляй. `p2_instant_order` и `p4_trust` висят на 0004 → при сведении дай им `down_revision` = предыдущий head. Все миграции идемпотентны.
+
+## «Горячие» файлы фаз (в дополнение к §4)
+- `backend/app/main.py` — middleware (Ф1 #30/#32), StaticFiles/media (Ф5 #41). Взять все куски.
+- `backend/app/models.py` — новые таблицы (InstantOrder, Tariff, LedgerEntry, Trust, InviteCode, Consent). Взять все.
+- `backend/app/routers/__init__.py` — регистрация роутеров (instant, wallet, trust). Взять все.
+- `backend/requirements.txt` — Ф2 `fakeredis`, Ф5 `boto3`, Ф1 `sentry-sdk`. Взять все.
+- `android/.../MainActivity.kt` enum Screen + `YuldashApp.kt` when — новые экраны (InstantOrder, InstantDriverTrip, Wallet, Trust, Invites, Consents). Взять все.
+- `android/gradle.properties` — из него убран хардкод `org.gradle.java.home` (Windows-путь ломал CI). Не возвращай.
+
+## Что осталось на стороне Александра (активация фаз)
+- **Ф1:** проект Sentry + DSN в env/local.properties; cron бэкапов + первый `restore-verify`; staging-контур; (позже) android-build → блокирующим.
+- **Ф2:** `REDIS_URL` (уже есть); проверить стартовые тарифы в таблице `tariff`.
+- **Ф3:** ключи ЮKassa; финальный % комиссии (`service_fee_percent`, сейчас 15); оферта/тарифы на подпись; порог алерта сверки.
+- **Ф4:** ничего в env; пороги инвайтов — константы (можно вынести в конфиг).
+- **Ф5:** managed-БД + PgBouncer; Redis пароль+AOF; gunicorn N воркеров; S3-бакет + ключи + перенос файлов; прогон Locust против staging; индексы по EXPLAIN.
