@@ -235,6 +235,7 @@ import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.PickupPointDto
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
@@ -286,6 +287,8 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var pickup by remember { mutableStateOf("") }
     var pickupLat by remember { mutableStateOf<Double?>(null) }
     var pickupLng by remember { mutableStateOf<Double?>(null) }
+    var pickupPointId by remember { mutableStateOf<Int?>(null) }   // F14: id выбранной точки справочника (null = ручной ввод/карта)
+    val isBa = LocalAppLanguage.current == AppLanguage.Ba
     var showPicker by remember { mutableStateOf(false) }
     var priceHint by remember { mutableStateOf(0) }
     var publishing by remember { mutableStateOf(false) }   // ждём ответ сервера, блок двойного нажатия
@@ -321,7 +324,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             onCommentChange = { comment = it },
             onSelectType = { category = it }, onSelectRecurrence = { recurrence = it },
             onReceiverNameChange = { receiverName = it }, onParcelSizeChange = { parcelSize = it },
-            onPickupChange = { pickup = it }, onOpenPicker = { showPicker = true },
+            onPickupChange = { pickup = it; pickupPointId = null }, onOpenPicker = { showPicker = true },
             onOpenDatePicker = { openDateTimePicker(ctxDt, "ru") { dateTime = it } },
             onUsePriceHint = { price = priceHint.toString() },
             onWomenOnly = { womenOnly = it }, onChildSeat = { childSeat = it },
@@ -353,7 +356,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 publishing = true
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim())
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim(), pickupPointId)
                         .onSuccess { publishing = false; onPublish(ride) }
                         .onFailure { publishing = false; publishError = errPublish }
                 }
@@ -362,13 +365,19 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             // «Умные» поля с собственными эффектами (гео-подсказки) — слотами, чтобы Content остался чистым.
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
             toField = { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
+            pickupChips = {
+                PickupSuggestionChips(city = from, selectedId = pickupPointId) { p ->
+                    pickup = if (isBa && p.titleBa.isNotBlank()) p.titleBa else p.titleRu
+                    pickupLat = p.lat; pickupLng = p.lng; pickupPointId = p.id
+                }
+            },
             modifier = Modifier.padding(padding),
         )
     }
         if (showPicker) {
             PickupPickerOverlay(
                 initial = pickupLat?.let { la -> pickupLng?.let { ln -> Point(la, ln) } },
-                onConfirm = { la, ln -> pickupLat = la; pickupLng = ln; if (pickup.isBlank()) pickup = dropPinLabel; showPicker = false },
+                onConfirm = { la, ln -> pickupLat = la; pickupLng = ln; pickupPointId = null; if (pickup.isBlank()) pickup = dropPinLabel; showPicker = false },
                 onDismiss = { showPicker = false }
             )
         }
@@ -428,6 +437,7 @@ internal fun CreateRideFormContent(
     onCancel: () -> Unit,
     fromField: (@Composable () -> Unit)? = null,
     toField: (@Composable () -> Unit)? = null,
+    pickupChips: (@Composable () -> Unit)? = null,   // F14: подсказки точек сбора (умный слот)
     modifier: Modifier = Modifier,
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
@@ -525,6 +535,7 @@ internal fun CreateRideFormContent(
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                pickupChips?.invoke()   // F14: чипы «частые точки сбора» для выбранного города (если есть)
                 OutlinedTextField(
                     value = pickup,
                     onValueChange = onPickupChange,
@@ -698,6 +709,73 @@ internal fun PriceHintChip(price: Int, onClick: () -> Unit) {
             Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text(appText("Обычно по маршруту ~$price ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$price ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp)
+        }
+    }
+}
+
+/**
+ * F14 · Подсказки точек сбора по ориентирам города/села («у мечети», «у Магнита», «автовокзал»).
+ * РБ-фишка: в сёлах адресов нет — «встретимся у мечети» понятнее координат. Сам грузит справочник
+ * для [city] (публичный, без токена); тап по чипу отдаёт выбранную точку через [onSelect] (координаты
+ * подставятся вместо ручного тыка в карту). Пусто/нет сети → ничего не показываем, ручной выбор остаётся.
+ */
+@Composable
+internal fun PickupSuggestionChips(
+    city: String,
+    selectedId: Int?,
+    onSelect: (PickupPointDto) -> Unit,
+) {
+    val isBa = LocalAppLanguage.current == AppLanguage.Ba
+    var points by remember { mutableStateOf<List<PickupPointDto>>(emptyList()) }
+    // Дебаунс: город печатают по буквам — не дёргаем сервер на каждый символ.
+    LaunchedEffect(city) {
+        val c = city.trim()
+        if (c.isBlank()) { points = emptyList(); return@LaunchedEffect }
+        delay(350)
+        points = ApiClient.getPickupPoints(c).getOrNull().orEmpty()
+    }
+    AnimatedVisibility(visible = points.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                appText("Частые точки сбора рядом", "Яҡындағы йыш осрашыу нөктәләре"),
+                fontSize = 13.sp, fontWeight = FontWeight.Medium, color = CanonMuted
+            )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(points, key = { it.id }) { p ->
+                    val selected = p.id == selectedId
+                    val title = if (isBa && p.titleBa.isNotBlank()) p.titleBa else p.titleRu
+                    Surface(
+                        color = if (selected) CanonMint else CanonSurface,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .heightIn(min = 40.dp)
+                            .border(
+                                BorderStroke(1.dp, if (selected) CanonGreen2 else CanonBorder),
+                                RoundedCornerShape(14.dp)
+                            )
+                            .clickable { onSelect(p) }
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                if (selected) Icons.Default.CheckCircle else Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = if (selected) CanonGreen2 else CanonMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                title,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                color = if (selected) CanonGreen2 else CanonText
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

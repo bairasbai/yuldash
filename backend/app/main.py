@@ -25,7 +25,7 @@ from .middleware import (
 )
 from .routers import all_routers
 from .routers.health import API_VERSION
-from .services import MEDIA_DIR, init_chat_redis, seed_demo
+from .services import MEDIA_DIR, init_chat_redis, seed_demo, seed_pickup_points
 
 API_V1_PREFIX = "/api/v1"
 
@@ -37,6 +37,9 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         if settings.seed_demo:
             seed_demo(session)
+        # Ориентиры точек сбора (F14) — публичный справочник, нужен и на проде
+        # (не под флагом SEED_DEMO). Идемпотентно: повторный старт не дублирует.
+        seed_pickup_points(session)
     await init_chat_redis()   # WS pub/sub между воркерами (если есть Redis), иначе локально
     yield
 

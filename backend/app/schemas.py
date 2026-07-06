@@ -23,6 +23,7 @@ class RideIn(BaseModel):
     pickup: str = Field("", max_length=500)
     pickup_lat: Optional[float] = Field(None, ge=-90, le=90)      # валидные координаты (не NaN/мусор)
     pickup_lng: Optional[float] = Field(None, ge=-180, le=180)
+    pickup_point_id: Optional[int] = None   # F14: выбрана известная точка сбора из справочника → привязать
     pets_allowed: bool = False
     child_seat: bool = False
     women_only: bool = False

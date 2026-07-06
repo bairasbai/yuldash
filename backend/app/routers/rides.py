@@ -14,7 +14,8 @@ from ..security import current_user, current_user_optional
 from ..timeutil import utcnow
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
-    geocode_city, haversine_km, notify_map_changed, public_ride_payload, public_rides_payload, ride_out, ride_out_with, rides_out,
+    geocode_city, haversine_km, notify_map_changed, public_ride_payload, public_rides_payload,
+    record_pickup_choice, ride_out, ride_out_with, rides_out,
 )
 
 router = APIRouter(tags=["rides"])
@@ -42,7 +43,21 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     frm = geocode_city(body.from_city) or (None, None)
     to = geocode_city(body.to_city) or (None, None)
     geo = {"from_lat": frm[0], "from_lng": frm[1], "to_lat": to[0], "to_lng": to[1]}
-    ride = Ride(driver_id=user.id, seats_left=body.seats_total, **body.model_dump(), **geo)
+    # F14: выбрана известная точка сбора из справочника → привязываем её координаты/название к поездке.
+    point_id = body.pickup_point_id
+    if point_id:
+        from ..models import PickupPoint
+        pt = session.get(PickupPoint, point_id)
+        if pt is not None:
+            if not body.pickup:
+                body.pickup = pt.title_ru
+            if body.pickup_lat is None:
+                body.pickup_lat = pt.lat
+            if body.pickup_lng is None:
+                body.pickup_lng = pt.lng
+    # pickup_point_id — не колонка Ride (только сигнал привязки), исключаем из дампа.
+    dump = body.model_dump(exclude={"pickup_point_id"})
+    ride = Ride(driver_id=user.id, seats_left=body.seats_total, **dump, **geo)
     session.add(ride)
     # Регулярная поездка: сразу создаём ближайшие 4 рейса серии (реальные, бронируемые).
     if body.recurrence and body.recurrence != "none":
@@ -55,10 +70,16 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
             dt = dt + step
             if body.recurrence == "weekdays" and dt.weekday() >= 5:   # пропускаем сб/вс
                 continue
-            session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**body.model_dump(), "depart_at": dt}, **geo))
+            session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**dump, "depart_at": dt}, **geo))
             made += 1
     session.commit()
     session.refresh(ride)
+    # F14: пополняем справочник ориентиров реально выбранной точкой (usage_count / новый ориентир).
+    record_pickup_choice(
+        session, city=ride.from_city, point_id=point_id,
+        title_ru=ride.pickup, lat=ride.pickup_lat, lng=ride.pickup_lng,
+    )
+    session.refresh(ride)   # record_pickup_choice коммитит → объект ride «протух», обновляем перед сериализацией
     notify_map_changed()   # новая поездка → пины на карте у всех обновятся live (не дожидаясь 25с-опроса)
     return ride
 

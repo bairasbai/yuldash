@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 from .config import settings
 from .db import engine
 from .models import (
-    Block, Booking, DeviceToken, DriverProfile, Rating, Ride, RideCategory,
+    Block, Booking, DeviceToken, DriverProfile, PickupPoint, Rating, Ride, RideCategory,
     RideStatus, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
@@ -481,6 +481,103 @@ def seed_demo(session: Session) -> None:
             category=RideCategory.regular,
         ))
     session.commit()
+
+
+# --------------------- Точки сбора по ориентирам (F14) ---------------------
+# Сидовые популярные ориентиры крупных городов (город → список (title_ru, title_ba, dlat, dlng)).
+# Координаты = центр города (CITY_COORDS/фолбэк) + небольшое смещение, чтобы пины не слипались.
+# BA — ЧЕРНОВИК модели, на проверке носителю (docs/tasks.md «Переводы на проверку — F14»).
+_SEED_CITY_FALLBACK = {"Белорецк": (53.966, 58.410)}
+_PICKUP_SEEDS: dict[str, list[tuple[str, str, float, float]]] = {
+    "Уфа": [
+        ("Автовокзал Южный", "Көньяҡ автовокзалы", 0.000, 0.000),
+        ("Ж/д вокзал", "Тимер юл вокзалы", 0.004, -0.006),
+        ("У Гостиного двора", "Гостиный двор янында", -0.005, 0.004),
+        ("ТЦ «Мега»", "«Мега» СҮ янында", 0.008, 0.009),
+    ],
+    "Сибай": [
+        ("Автовокзал", "Автовокзал янында", 0.000, 0.000),
+        ("У мечети", "Мәсет янында", 0.003, 0.004),
+        ("У центрального рынка", "Үҙәк баҙар янында", -0.004, 0.003),
+    ],
+    "Баймаҡ": [
+        ("У мечети", "Мәсет янында", 0.000, 0.000),
+        ("Автостанция", "Автостанция янында", 0.003, -0.003),
+        ("У «Магнита»", "«Магнит» янында", -0.003, 0.004),
+    ],
+    "Белорецк": [
+        ("Автовокзал", "Автовокзал янында", 0.000, 0.000),
+        ("У центрального рынка", "Үҙәк баҙар янында", 0.004, 0.005),
+    ],
+    "Учалы": [
+        ("Автовокзал", "Автовокзал янында", 0.000, 0.000),
+        ("У мечети", "Мәсет янында", -0.004, 0.003),
+    ],
+}
+
+
+def seed_pickup_points(session: Session) -> None:
+    """Идемпотентный сид ориентиров крупных городов. Публичный справочник — нужен и
+    на проде (не под флагом SEED_DEMO). Повторный вызов ничего не дублирует."""
+    if session.exec(select(PickupPoint).where(PickupPoint.is_seed == True)).first():  # noqa: E712
+        return
+    for city, points in _PICKUP_SEEDS.items():
+        base = CITY_COORDS.get(city) or _SEED_CITY_FALLBACK.get(city)
+        for title_ru, title_ba, dlat, dlng in points:
+            lat = round(base[0] + dlat, 6) if base else None
+            lng = round(base[1] + dlng, 6) if base else None
+            session.add(PickupPoint(
+                city=city, title_ru=title_ru, title_ba=title_ba,
+                lat=lat, lng=lng, usage_count=0, is_seed=True,
+            ))
+    session.commit()
+
+
+def suggest_pickup_points(session: Session, city: str | None, limit: int = 12) -> list[PickupPoint]:
+    """Подсказки точек сбора для города — чаще выбираемые первыми (usage_count ↓)."""
+    q = select(PickupPoint)
+    if city and city.strip():
+        q = q.where(PickupPoint.city == city.strip())
+    q = q.order_by(PickupPoint.usage_count.desc(), PickupPoint.id.asc())
+    return session.exec(q.limit(max(1, min(limit, 50)))).all()
+
+
+def record_pickup_choice(
+    session: Session, *, city: str, point_id: int | None = None,
+    title_ru: str = "", title_ba: str = "", lat: float | None = None, lng: float | None = None,
+) -> PickupPoint | None:
+    """Пополнение справочника из реально выбранной точки сбора.
+
+    - выбрана известная точка (`point_id`) → +1 к usage_count (поднимается в подсказках);
+    - новая точка (текст + валидные координаты, без id) и такой ещё нет для города →
+      добавляем пользовательский ориентир (usage_count=1), справочник растёт сам.
+    Ничего не подходит (нет id и нет текста/координат) → None (просто не записываем)."""
+    pt: PickupPoint | None = None
+    if point_id:
+        pt = session.get(PickupPoint, point_id)
+    title_ru = (title_ru or "").strip()
+    city = (city or "").strip()
+    if pt is None and title_ru and city:
+        # дедуп по городу + названию (без регистра) — не плодим дубли одного ориентира
+        existing = session.exec(select(PickupPoint).where(PickupPoint.city == city)).all()
+        pt = next((p for p in existing if p.title_ru.strip().lower() == title_ru.lower()), None)
+    if pt is not None:
+        pt.usage_count += 1
+        session.add(pt)
+        session.commit()
+        session.refresh(pt)
+        return pt
+    # новой точки нет — создаём, только если есть название + валидные координаты
+    if title_ru and city and lat is not None and lng is not None and -90 <= lat <= 90 and -180 <= lng <= 180:
+        pt = PickupPoint(
+            city=city, title_ru=title_ru, title_ba=(title_ba or "").strip(),
+            lat=lat, lng=lng, usage_count=1, is_seed=False,
+        )
+        session.add(pt)
+        session.commit()
+        session.refresh(pt)
+        return pt
+    return None
 
 
 # ----------------------------- Кеш (Redis) -----------------------------
