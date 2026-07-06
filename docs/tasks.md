@@ -1,5 +1,16 @@
 # ✅ Задачи Юлдаш
 
+## 🚦 Фаза 1.3 — CI/CD hardening (ветка `feat/ci-hardening`)
+> Цель: закрыть разрывы в автоматических проверках и сделать деплой безопасным.
+- ✅ **Android-сборка в CI** (закрывает разрыв: раньше APK собирался только у Александра локально) — новый job `android-build` в `.github/workflows/ci.yml`: `setup-java@v4` (temurin 17), `setup-android@v3`, кэш gradle, `./gradlew :app:assembleDebug`. Собирается **без секретов** (`build.gradle.kts` терпим к отсутствию `google-services.json`/`local.properties`). Пока `continue-on-error: true` (informational, **не блокирует мерж**) — чтобы красная сборка не завалила все открытые PR-ы разом.
+- ✅ **Coverage-gate бэка** — в job `backend-tests` добавлен `pytest --cov=app --cov-report=term-missing --cov-fail-under=70`. Сейчас реальное покрытие ~87% (181 passed / 1 skipped), порог 70% с запасом. `pytest-cov` добавлен в `requirements-dev.txt`.
+- ✅ **Скрипт деплоя со staging** — `backend/ops/deploy.sh`: `git pull → alembic upgrade head → рестарт → health-gate (/health = 200 + status:ok)`. Не поднялось → авто-откат кода на прошлый коммит + рестарт + Telegram-алерт (переиспользует инфру `monitor.sh`). Дефолты — staging-безопасные (порт 8100, отдельный сервис/БД), прод — только явными переменными окружения. Гайд по staging простым языком: [staging.md](staging.md).
+- 🟡 **Осталось Александру:**
+  1. Поднять staging-контур по [staging.md](staging.md) (вторая БД `yuldash_staging` + `yuldash-api-staging` на порту 8100 + поддомен `staging.yulbash.ru`). Опционально, но рекомендуется до роста аудитории.
+  2. Секреты CI: для android-build секреты **не нужны** (собираем без ключей). Если позже захотим release-сборку с подписью — добавить keystore/пароли в GitHub Secrets.
+  3. Когда `android-build` докажет стабильность (несколько зелёных прогонов) — **сделать блокирующим**: убрать `continue-on-error: true` из job. Тогда сломанная сборка будет валить PR (это цель).
+  4. Позже поднять порог покрытия `--cov-fail-under` с 70 до 80 по мере роста тестов.
+
 ## 🔬 Полный аудит 2026-07-04 — прогресс по пакетам
 > Аудит: [audit-2026-07-04-full.md](audit-2026-07-04-full.md) (227 находок: P0-1, P1-17, P2-83, P3-126). План — 12 рабочих пакетов (WP), 1 пакет = 1 коммит.
 - ✅ **WP-0 (CI, минуты)** — убран двойной прогон (on: push+pull_request → pull_request + push:main), timeout-minutes:15, cache:pip, concurrency cancel-in-progress. Пуш `91f0108`.
