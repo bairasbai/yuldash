@@ -60,4 +60,4 @@ jobs:
       - name: Собрать debug APK
         # local.properties/google-services.json в git нет — build.gradle.kts подставляет
         # безопасные дефолты (пустые ключи, push выключен), так что сборка проходит без секретов.
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        run: chmod +x ./gradlew && ./gradlew :app:assembleDebug --no-daemon --stacktrace
