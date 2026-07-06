@@ -126,6 +126,25 @@ class DriverProfile(SQLModel, table=True):
     autocheck_at: Optional[datetime] = None
 
 
+class MedicalPartner(SQLModel, table=True):
+    """Партнёр-медцентр (F22) — клиника в справочнике как точка назначения поездки «в больницу».
+
+    ДЕЛИКАТНО: это B2B-логистика («доехать до клиники»), НЕ медуслуга. Здесь — только
+    публичные данные организации (название, город, адрес, координаты, описание маршрута).
+    Никаких мед.данных, диагнозов, приёмов, обещаний лечения. Пациент нигде не привязывается —
+    клиника это лишь пункт на карте, к которому пассажиры из районов могут подъехать вместе.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)            # название клиники (напр. «РКБ им. Куватова»)
+    city: str = Field(index=True)            # город, где находится клиника
+    address: str = ""                        # адрес (публичный, как на вывеске)
+    lat: Optional[float] = None              # координаты для пина на карте
+    lng: Optional[float] = None
+    description: str = ""                     # описание: как доехать / что рядом (без обещаний медуслуг)
+    active: bool = Field(default=True, index=True)   # показывать ли в справочнике
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class Ride(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     driver_id: int = Field(index=True, foreign_key="user.id")
@@ -143,6 +162,10 @@ class Ride(SQLModel, table=True):
     # Посылка (category=parcel): кому отдать на месте + габарит/вес. Только для parcel-поездок.
     receiver_name: Optional[str] = None
     parcel_size: Optional[str] = None
+    # Клиника-назначение (F22): поездка «в больницу»/«на приём» (category=hospital) может быть
+    # привязана к партнёру-медцентру из справочника. Это ТОЛЬКО логистика — точка назначения,
+    # как обычный пункт маршрута. НИКАКИХ мед.данных пациента (диагнозы/услуги/приёмы) не храним.
+    partner_id: Optional[int] = Field(default=None, foreign_key="medicalpartner.id", index=True)
     # Гео-координаты концов маршрута (геокодятся из from_city/to_city при публикации).
     # Нужны для радиус-поиска: PostGIS на проде, haversine-фолбэк на sqlite/без координат.
     from_lat: Optional[float] = None

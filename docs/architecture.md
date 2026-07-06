@@ -29,6 +29,8 @@
 
 **Кабинет партнёра (реклама, План B — в разработке):** `Ad` расширен полями `owner_id` (партнёр-владелец), `reject_reason`, `package`/`budget_kop`/`period_days` (тариф), `submitted_at`/`reviewed_at`; статусы `pending_review`/`rejected` добавлены к строке `status`. `User.is_advertiser`. Тарифы — конфиг `AD_PACKAGES` в `ads.py` (не хардкод в клиенте). Миграция `alembic/versions/0003_partner_ads_columns.py`. Приватность: партнёр видит/меняет только `owner_id==self`, админ — всё.
 
+**🏥 F22 «медцентр-партнёр» (ветка `feat/medical-partner`):** справочник клиник как точек назначения поездок «в больницу» (ЛОГИСТИКА, не медуслуга — без мед.данных пациента). Backend: модель `MedicalPartner` (название/город/адрес/коорд/описание) + `Ride.partner_id` (опц.), миграция `f22_medical_partner` (down_revision `0004`, идемпотентно + сид РКБ/ЦРБ), роутер `medical.py` (`GET /medical-partners`, `/medical-partners/{id}`, `/medical-partners/{id}/rides` — публичная витрина без телефона). UI: `ClinicRidesScreen.kt` (`Screen.ClinicRides`, вход — карточка на вкладке Карта), выбор клиники-назначения в `CreateRideScreen` (тип «В больницу»). `pytest 187 passed`. **Миграции сведёт лид.**
+
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
 
 ## Лендинг web/ — интерактивная версия 2026-06-29

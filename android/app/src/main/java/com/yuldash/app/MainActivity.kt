@@ -318,7 +318,8 @@ internal enum class Screen {
     AppReview,
     AdminReviews,
     AdminAds,
-    AdEditor
+    AdEditor,
+    ClinicRides    // F22: «Поездки к клинике» — справочник клиник-партнёров + попутки к выбранной клинике
 }
 
 internal enum class HomeTab {
@@ -482,6 +483,7 @@ internal fun rideTypeMeta(key: String): Triple<androidx.compose.ui.graphics.vect
     "parcel" -> Triple(Icons.Default.Inventory2, "Посылка", "Посылка")
     "cargo" -> Triple(Icons.Default.LocalShipping, "Груз", "Йөк")
     "urgent" -> Triple(Icons.Default.Bolt, "Срочно", "Ашығыс")
+    "hospital" -> Triple(Icons.Default.LocalHospital, "В больницу", "Дауаханаға")   // F22: поездка к клинике-партнёру
     else -> Triple(Icons.Default.DirectionsCar, "Пассажиры", "Пассажирҙар")
 }
 

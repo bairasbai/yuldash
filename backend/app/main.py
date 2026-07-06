@@ -37,6 +37,8 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         if settings.seed_demo:
             seed_demo(session)
+            from .routers.medical import seed_medical_partners  # F22: справочник клиник (идемпотентно)
+            seed_medical_partners(session)
     await init_chat_redis()   # WS pub/sub между воркерами (если есть Redis), иначе локально
     yield
 

@@ -281,6 +281,9 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var airConditioner by remember { mutableStateOf(false) }
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
+    var partnerId by remember { mutableStateOf<Int?>(null) }   // F22: клиника-назначение (для category=hospital)
+    var partners by remember { mutableStateOf<List<com.yuldash.app.data.MedicalPartnerDto>>(emptyList()) }
+    LaunchedEffect(Unit) { ApiClient.getMedicalPartners().onSuccess { partners = it } }   // справочник клиник (тихо; форма работает и без него)
     var receiverName by remember { mutableStateOf("") }   // посылка: кому отдать
     var parcelSize by remember { mutableStateOf("") }     // посылка: габарит/вес
     var pickup by remember { mutableStateOf("") }
@@ -320,6 +323,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             onPriceChange = { price = it.filter(Char::isDigit) },
             onCommentChange = { comment = it },
             onSelectType = { category = it }, onSelectRecurrence = { recurrence = it },
+            partners = partners, selectedPartnerId = partnerId, onSelectPartner = { partnerId = it },
             onReceiverNameChange = { receiverName = it }, onParcelSizeChange = { parcelSize = it },
             onPickupChange = { pickup = it }, onOpenPicker = { showPicker = true },
             onOpenDatePicker = { openDateTimePicker(ctxDt, "ru") { dateTime = it } },
@@ -353,7 +357,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 publishing = true
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim())
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim(), if (category == "hospital") partnerId else null)
                         .onSuccess { publishing = false; onPublish(ride) }
                         .onFailure { publishing = false; publishError = errPublish }
                 }
@@ -426,11 +430,15 @@ internal fun CreateRideFormContent(
     onSmoking: (Boolean) -> Unit,
     onPublish: () -> Unit,
     onCancel: () -> Unit,
+    partners: List<com.yuldash.app.data.MedicalPartnerDto> = emptyList(),  // F22: клиники-партнёры
+    selectedPartnerId: Int? = null,
+    onSelectPartner: (Int?) -> Unit = {},
     fromField: (@Composable () -> Unit)? = null,
     toField: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
+    val isHospital = typeKey == "hospital"
     LazyColumn(
         modifier = modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -460,11 +468,49 @@ internal fun CreateRideFormContent(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                val rideTypeKeys = remember { listOf("regular", "parcel", "cargo", "urgent") }
+                val rideTypeKeys = remember { listOf("regular", "parcel", "cargo", "urgent", "hospital") }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(rideTypeKeys, key = { it }) { key ->
                         val (icon, ru, ba) = rideTypeMeta(key)
                         RideTypeChip(icon = icon, ru = ru, ba = ba, selected = typeKey == key) { onSelectType(key) }
+                    }
+                }
+            }
+        }
+        // F22: выбор клиники-назначения (только для типа «В больницу»). Деликатно — это логистика:
+        // куда едешь, чтобы пассажиры из района могли подсесть. Без мед.данных.
+        if (isHospital) {
+            item {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LocalHospital, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(appText("Клиника назначения", "Билдәләнгән клиника"), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                        }
+                        Text(
+                            appText("Выбери, к какой клинике едешь — попутчики к ней смогут подсесть. Это просто точка назначения.",
+                                "Ҡайһы клиникаға бараһың — юлдаштар ҡушыла алһын. Был бары тик билдәләнгән нөктә."),
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                        )
+                        when {
+                            partners.isEmpty() -> Text(appText("Список клиник загружается…", "Клиникалар исемлеге йөкләнә…"), color = CanonMuted, fontSize = 12.sp)
+                            else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(partners, key = { it.id }) { p ->
+                                    FilledTonalButton(
+                                        onClick = { onSelectPartner(if (selectedPartnerId == p.id) null else p.id) },
+                                        shape = RoundedCornerShape(14.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                            containerColor = if (selectedPartnerId == p.id) CanonMint else CanonBg,
+                                            contentColor = if (selectedPartnerId == p.id) CanonGreen2 else CanonText,
+                                        ),
+                                    ) {
+                                        Text("${p.name} · ${p.city}", fontSize = 13.sp, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

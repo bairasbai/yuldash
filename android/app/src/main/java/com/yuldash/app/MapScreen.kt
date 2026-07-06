@@ -269,6 +269,7 @@ internal fun MapScreen(
     onSos: () -> Unit,
     onOpenPopular: (PopularRoute) -> Unit,
     onDriver: () -> Unit,
+    onClinicRides: () -> Unit,   // F22: раздел «Поездки к клинике»
     onBoost: () -> Unit
 ) {
     val nearbyAd = ads.forPlacement(AdPlacement.Nearby).firstOrNull { it.city == "Баймаҡ" }
@@ -453,9 +454,14 @@ internal fun MapScreen(
                         }
                     }
                 }
+                item {
+                    Box(Modifier.appearIn(4)) {
+                        ClinicRidesEntryCard(onClick = onClinicRides)
+                    }
+                }
                 nearbyAd?.let { ad ->
                     item {
-                        Box(Modifier.appearIn(4)) {
+                        Box(Modifier.appearIn(5)) {
                             PartnerAdCard(
                                 ad = ad,
                                 stats = adStats[ad.id] ?: AdStats(),
