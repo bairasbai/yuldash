@@ -107,6 +107,7 @@ import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
@@ -279,6 +280,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var smoking by remember { mutableStateOf(false) }
     var baggage by remember { mutableStateOf(false) }
     var airConditioner by remember { mutableStateOf(false) }
+    var onlyTrusted by remember { mutableStateOf(false) }   // «только для своих» (L3)
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
     var receiverName by remember { mutableStateOf("") }   // посылка: кому отдать
@@ -314,6 +316,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             pickup = pickup, pinned = pickupLat != null,
             womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
             baggage = baggage, airConditioner = airConditioner, smoking = smoking,
+            onlyTrusted = onlyTrusted,
             priceHint = priceHint, loading = publishing, error = publishError,
             onFromChange = { from = it }, onToChange = { to = it },
             onSeatsChange = { seats = it.filter(Char::isDigit) },
@@ -327,6 +330,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             onWomenOnly = { womenOnly = it }, onChildSeat = { childSeat = it },
             onPetsAllowed = { petsAllowed = it }, onBaggage = { baggage = it },
             onAirConditioner = { airConditioner = it }, onSmoking = { smoking = it },
+            onOnlyTrusted = { onlyTrusted = it },
             onPublish = {
                 if (publishing) return@CreateRideFormContent
                 val fromVal = from.ifBlank { "Баймаҡ" }
@@ -353,7 +357,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                 publishing = true
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim())
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim())
                         .onSuccess { publishing = false; onPublish(ride) }
                         .onFailure { publishing = false; publishError = errPublish }
                 }
@@ -402,6 +406,7 @@ internal fun CreateRideFormContent(
     baggage: Boolean,
     airConditioner: Boolean,
     smoking: Boolean,
+    onlyTrusted: Boolean,
     priceHint: Int,
     loading: Boolean,
     error: String?,
@@ -424,6 +429,7 @@ internal fun CreateRideFormContent(
     onBaggage: (Boolean) -> Unit,
     onAirConditioner: (Boolean) -> Unit,
     onSmoking: (Boolean) -> Unit,
+    onOnlyTrusted: (Boolean) -> Unit,
     onPublish: () -> Unit,
     onCancel: () -> Unit,
     fromField: (@Composable () -> Unit)? = null,
@@ -593,6 +599,21 @@ internal fun CreateRideFormContent(
                     PrefToggleRow(Icons.Default.Luggage, appText("Есть место под багаж", "Багаж урыны бар"), baggage) { onBaggage(it) }
                     PrefToggleRow(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), airConditioner) { onAirConditioner(it) }
                     PrefToggleRow(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"), smoking) { onSmoking(it) }
+                }
+            }
+        }
+        item {
+            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    PrefToggleRow(Icons.Default.Groups, appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"), onlyTrusted) { onOnlyTrusted(it) }
+                    Text(
+                        appText(
+                            "Поездку увидят и возьмут только проверенные «свои» (уровень «Свой»).",
+                            "Сәфәрҙе тик тикшерелгән «үҙебеҙҙекеләр» (Үҙебеҙҙеке кимәле) күрер һәм алыр.",
+                        ),
+                        modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 8.dp),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                    )
                 }
             }
         }

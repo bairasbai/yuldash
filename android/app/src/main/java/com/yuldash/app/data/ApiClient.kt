@@ -54,9 +54,9 @@ object ApiClient {
         petsAllowed: Boolean = false, childSeat: Boolean = false, womenOnly: Boolean = false,
         smoking: Boolean = false, baggage: Boolean = false, airConditioner: Boolean = false,
         recurrence: String = "none", category: String = "regular", pickup: String = "",
-        pickupLat: Double? = null, pickupLng: Double? = null,
+        pickupLat: Double? = null, pickupLng: Double? = null, onlyTrusted: Boolean = false,
     ) {
-        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup, pickupLat, pickupLng) }
+        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup, pickupLat, pickupLng, onlyTrusted = onlyTrusted) }
     }
 
     fun fireAddContact(name: String, relation: String, phone: String, notifyByDefault: Boolean) {
@@ -434,6 +434,7 @@ object ApiClient {
         pickup: String = "",
         pickupLat: Double? = null,
         pickupLng: Double? = null,
+        onlyTrusted: Boolean = false,   // «только для своих» — поездку видят/берут лишь L3
         receiverName: String = "",   // посылка: кому отдать
         parcelSize: String = "",     // посылка: габарит/вес
     ): Result<Unit> = call(
@@ -456,6 +457,7 @@ object ApiClient {
             .put("pickup", pickup)
             .put("pickup_lat", pickupLat ?: JSONObject.NULL)
             .put("pickup_lng", pickupLng ?: JSONObject.NULL)
+            .put("only_trusted", onlyTrusted)
             .put("receiver_name", receiverName)
             .put("parcel_size", parcelSize),
         auth = true,
@@ -519,6 +521,7 @@ object ApiClient {
         nonSmoking: Boolean = false,
         airConditioner: Boolean = false,
         baggage: Boolean = false,
+        onlyTrusted: Boolean = false,   // «только для своих» — заявку видят/берут лишь L3
     ): Result<Int> = call(
         "POST", "/requests",
         JSONObject()
@@ -535,6 +538,7 @@ object ApiClient {
             .put("non_smoking", nonSmoking)
             .put("air_conditioner", airConditioner)
             .put("max_price", maxPrice)
+            .put("only_trusted", onlyTrusted)
             .put("comment", comment)
             .put("assisted", assisted)
             .apply {
@@ -566,6 +570,73 @@ object ApiClient {
                     desiredAt = o.optString("desired_at").ifBlank { null },
                 )
             }
+        }
+
+    // ---------- Доверие «между своими» (уровни L0–L3, инвайты, согласия) ----------
+
+    private fun JSONObject.toBilingual(): Bilingual = Bilingual(optString("ru"), optString("ba"))
+
+    private fun JSONArray?.toBenefits(): List<Bilingual> {
+        val arr = this ?: return emptyList()
+        return (0 until arr.length()).map { arr.getJSONObject(it).toBilingual() }
+    }
+
+    /** Мой уровень доверия + что даёт следующий (только про себя, 152-ФЗ). */
+    suspend fun getMyTrust(): Result<TrustSummaryDto> =
+        call("GET", "/me/trust", null, auth = true).map { o ->
+            val nextObj = o.optJSONObject("next")
+            TrustSummaryDto(
+                level = o.optInt("level"),
+                title = (o.optJSONObject("title") ?: JSONObject()).toBilingual(),
+                benefits = o.optJSONArray("benefits").toBenefits(),
+                isInsider = o.optBoolean("is_insider"),
+                invitedBy = if (o.isNull("invited_by")) null else o.optInt("invited_by"),
+                canInvite = o.optBoolean("can_invite"),
+                next = nextObj?.let {
+                    TrustNextDto(
+                        level = it.optInt("level"),
+                        title = (it.optJSONObject("title") ?: JSONObject()).toBilingual(),
+                        how = (it.optJSONObject("how") ?: JSONObject()).toBilingual(),
+                        benefits = it.optJSONArray("benefits").toBenefits(),
+                    )
+                },
+            )
+        }
+
+    /** Создать пригласительный код в круг «своих» (может только L2+). */
+    suspend fun createInvite(): Result<InviteDto> =
+        call("POST", "/invites", JSONObject(), auth = true).map { it.toInviteDto() }
+
+    /** Мои пригласительные коды (только свои). */
+    suspend fun getMyInvites(): Result<List<InviteDto>> =
+        call("GET", "/invites/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toInviteDto() }
+        }
+
+    private fun JSONObject.toInviteDto() =
+        InviteDto(code = optString("code"), usesLeft = optInt("uses_left"), createdAt = optString("created_at"))
+
+    /** Активировать код → стать «своим» (L3). Возвращает новый уровень. */
+    suspend fun redeemInvite(code: String): Result<Int> =
+        call("POST", "/invites/redeem", JSONObject().put("code", code.trim().uppercase()), auth = true)
+            .map { it.optInt("level") }
+            .onSuccess { Analytics.log("trust_redeem_invite") }
+
+    /** Мои зафиксированные согласия (оферта/политика/гео). */
+    suspend fun getConsents(): Result<List<ConsentDto>> =
+        call("GET", "/me/consents", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                ConsentDto(kind = o.optString("kind"), grantedAt = o.optString("granted_at"))
+            }
+        }
+
+    /** Зафиксировать согласие (идемпотентно, время первого не перезаписывается). */
+    suspend fun setConsent(kind: String): Result<ConsentDto> =
+        call("POST", "/me/consents", JSONObject().put("kind", kind), auth = true).map { o ->
+            ConsentDto(kind = o.optString("kind"), grantedAt = o.optString("granted_at"))
         }
 
     // ---------- Доверенные контакты / SOS ----------
@@ -1304,6 +1375,29 @@ object ApiClient {
 class ApiException(val status: Int, message: String) : Exception(message)
 
 data class ReviewItem(val id: Int, val name: String, val city: String, val stars: Int, val text: String)
+
+/** Двуязычная пара RU/BA, как её отдаёт бэкенд доверия (title/benefit/how). */
+data class Bilingual(val ru: String, val ba: String)
+
+/** Следующий уровень доверия: что он даёт и как его получить. */
+data class TrustNextDto(val level: Int, val title: Bilingual, val how: Bilingual, val benefits: List<Bilingual>)
+
+/** Мой уровень доверия L0–L3 (GET /me/trust). */
+data class TrustSummaryDto(
+    val level: Int,
+    val title: Bilingual,
+    val benefits: List<Bilingual>,
+    val isInsider: Boolean,
+    val invitedBy: Int?,
+    val canInvite: Boolean,
+    val next: TrustNextDto?,
+)
+
+/** Пригласительный код в круг «своих». */
+data class InviteDto(val code: String, val usesLeft: Int, val createdAt: String)
+
+/** Зафиксированное согласие (152-ФЗ): вид + время. */
+data class ConsentDto(val kind: String, val grantedAt: String)
 
 /** Поездка с витрины сервера (бэкенд RideOut: поездка + данные водителя). */
 data class PriceHintDto(val avg: Int, val count: Int)

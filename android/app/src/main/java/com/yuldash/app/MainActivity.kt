@@ -318,7 +318,10 @@ internal enum class Screen {
     AppReview,
     AdminReviews,
     AdminAds,
-    AdEditor
+    AdEditor,
+    Trust,        // «Доверие»: уровень L0–L3 + путь к следующему (Фаза 4)
+    Invites,      // «Позвать своего»: инвайт-коды в круг доверия
+    Consents      // Согласия и данные (152-ФЗ)
 }
 
 internal enum class HomeTab {

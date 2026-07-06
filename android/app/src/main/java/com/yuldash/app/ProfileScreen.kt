@@ -90,6 +90,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.ui.draw.clip
@@ -260,6 +261,8 @@ internal fun ProfileScreen(
     onSafety: () -> Unit,
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
+    onTrust: () -> Unit,
+    onConsents: () -> Unit,
     onHelp: () -> Unit,
     onReview: () -> Unit,
     onAdminReviews: () -> Unit,
@@ -550,6 +553,7 @@ internal fun ProfileScreen(
             item { Box(Modifier.appearIn(2)) { ProfileActionCard(appText("Кабинет водителя", "Водитель кабинеты"), appText("Маршруты, проверка и поднятие", "Маршруттар, тикшереү һәм күтәреү"), Icons.Default.DirectionsCar, onDriverCabinet) } }
             item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
             item { Box(Modifier.appearIn(4)) { ProfileActionCard(appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото авто", "Права, машина, авто фотоһы"), Icons.Default.Verified, onVerifyDriver) } }
+            item { Box(Modifier.appearIn(5)) { ProfileActionCard(appText("Доверие", "Ышаныс"), appText("Твой уровень и круг «своих»", "Кимәлең һәм «үҙебеҙҙекеләр» түңәрәге"), Icons.Default.Handshake, onTrust) } }
             item { Box(Modifier.appearIn(6)) { ProfileActionCard(appText("Безопасность", "Хәүефһеҙлек"), appText("SOS, скрытый телефон, подтверждённые участники", "SOS, йәшерен телефон, раҫланған ҡатнашыусылар"), Icons.Default.Shield, onSafety) } }
             item { Box(Modifier.appearIn(7)) { ProfileActionCard(appText("Поддержать Юлдаш", "Юлдашҡа ярҙам итеү"), appText("Серверы, карты, SMS и поддержка", "Серверҙар, карталар, SMS һәм ярҙам"), Icons.Default.VolunteerActivism, onSupport) } }
             item {
@@ -563,6 +567,7 @@ internal fun ProfileScreen(
             }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Настройки", "Көйләүҙәр"), appText("Уведомления, карта, предпочтения", "Хәбәрҙәр, карта, өҫтөнлөктәр"), Icons.Default.Settings, onSettings) } }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Конфиденциальность", "Хосусилыҡ"), appText("Геолокация и разрешения", "Геолокация һәм рөхсәттәр"), Icons.Default.Shield, onPrivacy) } }
+            item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт"), appText("Оферта, политика, геолокация", "Оферта, сәйәсәт, геолокация"), Icons.Default.Description, onConsents) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Помощь", "Ярҙам"), appText("Ответы на частые вопросы", "Йыш һорауҙарға яуаптар"), Icons.Default.Help, onHelp) } }
             item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Оставить отзыв", "Фекер ҡалдырыу"), appText("Оцени приложение — лучшие попадут на сайт", "Ҡушымтаны баһала — иң яҡшылары сайтҡа эләгер"), Icons.Default.Star, onReview) } }
             if (role == "admin") {
