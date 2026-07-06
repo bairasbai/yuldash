@@ -12,6 +12,7 @@ from ..models import Ride, RideCategory, RideStatus, User
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import utcnow
+from ..trust_service import INSIDER_LEVEL, trust_level
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
     geocode_city, haversine_km, notify_map_changed, public_ride_payload, public_rides_payload, ride_out, ride_out_with, rides_out,
@@ -31,6 +32,20 @@ def _hide_blocked(items, user, session):
     if not blocked:
         return items
     return [r for r in items if (r["driver_id"] if isinstance(r, dict) else r.driver_id) not in blocked]
+
+
+def _hide_trusted_only(items, user, session):
+    """Прячем поездки «только для своих» (only_trusted) от всех, кто НЕ L3.
+    Аноним и L0–L2 их не видят; свой водитель видит СВОЮ поездку всегда.
+    items — RideOut (свежие) или dict (кеш/near); оба содержат only_trusted + driver_id."""
+    def _f(r, key):
+        return r[key] if isinstance(r, dict) else getattr(r, key)
+    # Вычисляем уровень зрителя один раз (не в цикле).
+    level = trust_level(session, user) if user is not None else 0
+    if level >= INSIDER_LEVEL:
+        return items
+    uid = user.id if user is not None else None
+    return [r for r in items if not _f(r, "only_trusted") or _f(r, "driver_id") == uid]
 
 
 @router.post("/rides", response_model=Ride)
@@ -87,7 +102,8 @@ def search_rides(
     if no_filter:
         cached = cache_get_json("rides:active:v1")
         if cached is not None:
-            return _hide_blocked(public_rides_payload(cached), user, session)
+            out = _hide_blocked(public_rides_payload(cached), user, session)
+            return _hide_trusted_only(out, user, session)
 
     # Не показываем УЖЕ УЕХАВШИЕ поездки (аудит 2026-07-04: у поездки не было отсева по времени →
     # вчерашние висели в ленте). Грейс 2ч: поездка «только что уехала»/бронируют впритык — ещё видна.
@@ -117,7 +133,8 @@ def search_rides(
     public_out = public_rides_payload(out)
     if no_filter:
         cache_set_json("rides:active:v1", [r.model_dump(mode="json") for r in public_out], 20)
-    return _hide_blocked(public_out, user, session)
+    out = _hide_blocked(public_out, user, session)
+    return _hide_trusted_only(out, user, session)
 
 
 @router.get("/rides/price_hint")
@@ -189,6 +206,7 @@ def rides_near(
         out["distance_km"] = dist
         items.append(out)
     items = _hide_blocked(items, user, session)   # прячем заблокированных до подсчёта total/пагинации
+    items = _hide_trusted_only(items, user, session)   # «только для своих» видит лишь L3
     total = len(items)
     if limit is not None:
         items = items[max(0, offset):max(0, offset) + max(1, min(limit, 200))]

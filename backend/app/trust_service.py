@@ -1,0 +1,148 @@
+"""Доверие «между своими» — вычисление уровней L0..L3, инвайты, реестр согласий (152-ФЗ).
+
+Уровень доверия почти целиком ВЫЧИСЛЯЕТСЯ из уже имеющихся данных пользователя,
+поэтому логика собрана в одном месте и переиспользуется и в роутере `routers/trust.py`,
+и в выдаче поездок/заявок (фильтр «только для своих»). Отдельная таблица `Trust`
+заводится только под «дарованный» статус «свой» (L3) по инвайту.
+
+Модель уровней (важно: L0 — нормальный, полноправный пользователь, просто без части
+привилегий; уровни НЕ унижают, а открывают «круг своих» по мере доверия):
+  L0 «Новичок»   — телефон подтверждён (базовый вход в Юлдаш);
+  L1 «Знакомый»  — заполнил имя и фото профиля;
+  L2 «Проверен»  — прошёл проверку документов (модерация водителя, `User.verified`);
+  L3 «Свой»      — вошёл в круг доверия по инвайту от проверенного участника (L2/L3).
+
+Итоговый уровень = max(вычисленный из данных, дарованный в `Trust.level`).
+"""
+from typing import Optional
+
+from sqlmodel import Session, select
+
+from .models import Consent, InviteCode, Trust, User
+
+# Запас инвайтов на пользователя (анти-абьюз: круг «своих» растёт органично, не лавиной).
+MAX_INVITES_PER_USER = 5
+# Активаций у одного кода (не бесконечный — иначе один код расшарили бы в публичный чат).
+INVITE_CODE_USES = 1
+# Виды согласий реестра 152-ФЗ.
+CONSENT_KINDS = {"offer", "privacy", "geo"}
+
+INSIDER_LEVEL = 3   # «свой» — дарованный уровень при активации инвайта
+MIN_INVITER_LEVEL = 2  # приглашать в круг может только проверенный (L2+)
+
+
+def base_level(user: User) -> int:
+    """Уровень, вычисляемый из данных профиля (без учёта дарованного статуса «свой»)."""
+    lvl = 0                                                # L0: телефон (есть у любого авторизованного)
+    if (user.name or "").strip() and (user.avatar_url or "").strip():
+        lvl = max(lvl, 1)                                  # L1: имя + фото
+    if user.verified:
+        lvl = max(lvl, 2)                                  # L2: документы проверены (модерация)
+    return lvl
+
+
+def get_trust_row(session: Session, user_id: int) -> Optional[Trust]:
+    return session.exec(select(Trust).where(Trust.user_id == user_id)).first()
+
+
+def trust_level(session: Session, user: Optional[User]) -> int:
+    """Итоговый уровень доверия пользователя (0..3). Аноним (None) → 0."""
+    if user is None:
+        return 0
+    granted = 0
+    row = get_trust_row(session, user.id)
+    if row:
+        granted = row.level
+    return max(base_level(user), granted)
+
+
+# ---- Двуязычные описания уровней (клиент рисует бейдж/полосу прогресса доверия) ----
+# Черновой башкирский → на проверку носителю (docs/tasks.md).
+_LEVELS = {
+    0: {
+        "title": {"ru": "Новичок", "ba": "Яңы"},
+        "benefits": [
+            {"ru": "Вход по номеру телефона", "ba": "Телефон номеры буйынса инеү"},
+            {"ru": "Поиск и просмотр поездок", "ba": "Сәфәрҙәрҙе эҙләү һәм ҡарау"},
+        ],
+    },
+    1: {
+        "title": {"ru": "Знакомый", "ba": "Таныш"},
+        "benefits": [
+            {"ru": "Имя и фото — тебя узнают", "ba": "Исем һәм фото — һине таныйҙар"},
+            {"ru": "Больше доверия при бронировании", "ba": "Броньлағанда ышаныс күберәк"},
+        ],
+    },
+    2: {
+        "title": {"ru": "Проверен", "ba": "Тикшерелгән"},
+        "benefits": [
+            {"ru": "Документы проверены — бейдж «Проверен»", "ba": "Документтар тикшерелгән — «Тикшерелгән» билдәһе"},
+            {"ru": "Можно приглашать своих в круг доверия", "ba": "Үҙеңдекеләрҙе ышаныс түңәрәгенә саҡырырға була"},
+        ],
+    },
+    3: {
+        "title": {"ru": "Свой", "ba": "Үҙебеҙҙеке"},
+        "benefits": [
+            {"ru": "Ты в кругу своих — тебя пригласили", "ba": "Һин үҙебеҙҙекеләр араһында — һине саҡырҙылар"},
+            {"ru": "Видишь поездки «только для своих»", "ba": "«Үҙебеҙҙекеләр өсөн генә» сәфәрҙәрҙе күрәһең"},
+            {"ru": "Сам можешь звать своих", "ba": "Үҙең дә үҙебеҙҙекеләрҙе саҡыра алаһың"},
+        ],
+    },
+}
+
+# Как подняться на следующий уровень (двуязычно).
+_NEXT_HOW = {
+    1: {"ru": "Добавь имя и фото профиля", "ba": "Исем һәм профиль фотоһын өҫтә"},
+    2: {"ru": "Пройди проверку документов", "ba": "Документтар тикшереүен үт"},
+    3: {"ru": "Активируй пригласительный код от своего", "ba": "Үҙеңдекенән саҡырыу кодын активлаштыр"},
+}
+
+
+def level_title(level: int) -> dict:
+    return _LEVELS[max(0, min(3, level))]["title"]
+
+
+def trust_summary(session: Session, user: User) -> dict:
+    """Полное описание уровня для GET /me/trust: текущий уровень + что даёт следующий."""
+    level = trust_level(session, user)
+    row = get_trust_row(session, user.id)
+    cur = _LEVELS[level]
+    nxt = None
+    if level < 3:
+        n = level + 1
+        nxt = {
+            "level": n,
+            "title": _LEVELS[n]["title"],
+            "how": _NEXT_HOW[n],
+            "benefits": _LEVELS[n]["benefits"],
+        }
+    return {
+        "level": level,
+        "title": cur["title"],
+        "benefits": cur["benefits"],
+        "is_insider": level >= INSIDER_LEVEL,
+        "invited_by": (row.invited_by if row else None),
+        "can_invite": level >= MIN_INVITER_LEVEL,   # L2+ может звать своих
+        "next": nxt,
+    }
+
+
+# ---- Реестр согласий (152-ФЗ) ----
+
+def record_consent(session: Session, user_id: int, kind: str) -> Consent:
+    """Зафиксировать согласие (идемпотентно: время ПЕРВОГО согласия не перезаписываем —
+    это доказательство). Повторный вызов возвращает уже сохранённую запись."""
+    existing = session.exec(
+        select(Consent).where(Consent.user_id == user_id, Consent.kind == kind)
+    ).first()
+    if existing:
+        return existing
+    c = Consent(user_id=user_id, kind=kind)
+    session.add(c)
+    session.commit()
+    session.refresh(c)
+    return c
+
+
+def list_consents(session: Session, user_id: int) -> list:
+    return session.exec(select(Consent).where(Consent.user_id == user_id)).all()

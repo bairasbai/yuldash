@@ -19,6 +19,7 @@ from ..services import (
     notify_map_changed, public_rides_payload, rides_out, send_push, user_rating,
 )
 from ..timeutil import utcnow
+from ..trust_service import INSIDER_LEVEL, trust_level
 
 router = APIRouter(tags=["requests"])
 
@@ -38,6 +39,7 @@ class RequestIn(BaseModel):
     wheelchair: bool = False
     non_smoking: bool = False
     air_conditioner: bool = False
+    only_trusted: bool = False       # «только для своих» — заявку берут лишь водители L3
     comment: str = Field("", max_length=2000)
     for_relative_name: Optional[str] = Field(None, max_length=120)
     voice_url: Optional[str] = None
@@ -102,9 +104,12 @@ def requests_near(
             print(f"[GEO] requests PostGIS prefilter skipped: {e}")
     reqs = session.exec(q.order_by(RideRequest.id.desc())).all()
     pax = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.passenger_id for r in reqs}))).all()} if reqs else {}
+    is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3
     items: list = []
     for r in reqs:
         if user is not None and is_blocked(session, user.id, r.passenger_id):
+            continue
+        if getattr(r, "only_trusted", False) and not is_insider and r.passenger_id != user.id:
             continue
         dist = None
         if lat is not None and lng is not None:
@@ -253,9 +258,12 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     # Блокировки текущего водителя — ОДНИМ запросом (анти-N+1 вместо is_blocked в цикле по 200 заявкам).
     blk = session.exec(select(Block).where(or_(Block.user_id == user.id, Block.blocked_user_id == user.id))).all()
     blocked_ids = {(b.blocked_user_id if b.user_id == user.id else b.user_id) for b in blk}
+    is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3
     out: list = []
     for r in reqs:
         if r.passenger_id in blocked_ids:
+            continue
+        if getattr(r, "only_trusted", False) and not is_insider:
             continue
         p = pax.get(r.passenger_id)
         out.append(RequestFeedOut(
@@ -284,6 +292,8 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         raise HTTPException(400, "Нельзя откликнуться на свою заявку")
     if is_blocked(session, user.id, req.passenger_id):
         raise HTTPException(403, "Недоступно")
+    if getattr(req, "only_trusted", False) and trust_level(session, user) < INSIDER_LEVEL:
+        raise HTTPException(403, "Заявка только для своих")   # IDOR-защита: прямой id не обходит фильтр
     dup = session.exec(select(RequestResponse).where(
         RequestResponse.request_id == request_id, RequestResponse.driver_id == user.id)).first()
     if dup:
@@ -397,6 +407,8 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
         Ride.category == req.category,
     )
     rides = session.exec(q.order_by(Ride.depart_at)).all()
+    if trust_level(session, user) < INSIDER_LEVEL:   # «только для своих» видит лишь L3
+        rides = [r for r in rides if not r.only_trusted]
     # Через public-payload: точная точка сбора (pickup/координаты) раскрывается только участнику
     # подтверждённой брони, а не всем, кто ищет попутку по заявке (приватность до брони).
     return public_rides_payload(rides_out(rides, session))
