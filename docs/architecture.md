@@ -29,6 +29,8 @@
 
 **Кабинет партнёра (реклама, План B — в разработке):** `Ad` расширен полями `owner_id` (партнёр-владелец), `reject_reason`, `package`/`budget_kop`/`period_days` (тариф), `submitted_at`/`reviewed_at`; статусы `pending_review`/`rejected` добавлены к строке `status`. `User.is_advertiser`. Тарифы — конфиг `AD_PACKAGES` в `ads.py` (не хардкод в клиенте). Миграция `alembic/versions/0003_partner_ads_columns.py`. Приватность: партнёр видит/меняет только `owner_id==self`, админ — всё.
 
+**F20 — статистика кабинета рекламодателя (2026-07-06):** `GET /ads/mine/stats` (все мои объявления) и `GET /ads/{id}/stats` (одно) — показы/клики/CTR/остаток срока, агрегат по `AdEvent` через SQL `GROUP BY` (без загрузки всей таблицы в память). CTR = клики/показы·100, при 0 показов = 0.0. IDOR закрыт: строго `owner_id==self`, чужое → 404. Миграции не требуется (только чтение `AdEvent`). Клиент: `MyAdStatsDto` + `ApiClient.getMyAdsStats()`; в `ProfileScreen.kt` — `AdStatsTiles` (плитки показы/клики/CTR/срок в `MyAdCard`, только для active) + кнопка «Продлить размещение» для оплаченных (тот же СБП-флоу `SbpTransferSheet`; серверное продление — заявка+подтверждение админом — бэклог). Тесты: `backend/tests/test_ads_stats.py` (8). Спека — [ads-system.md](ads-system.md) сценарий 12.
+
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
 
 ## Лендинг web/ — интерактивная версия 2026-06-29

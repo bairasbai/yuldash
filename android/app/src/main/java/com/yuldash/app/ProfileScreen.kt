@@ -72,6 +72,7 @@ import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EmojiEvents
@@ -236,6 +237,7 @@ import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MyAdDto
+import com.yuldash.app.data.MyAdStatsDto
 import com.yuldash.app.data.AdPackageDto
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
@@ -1034,6 +1036,7 @@ internal fun AdsCabinetScreen(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var ads by remember { mutableStateOf<List<MyAdDto>>(emptyList()) }
+    var stats by remember { mutableStateOf<Map<String, MyAdStatsDto>>(emptyMap()) }
     var packages by remember { mutableStateOf<List<AdPackageDto>>(emptyList()) }
     var reloadKey by remember { mutableStateOf(0) }
     var submittingId by remember { mutableStateOf<String?>(null) }
@@ -1049,6 +1052,8 @@ internal fun AdsCabinetScreen(
         ApiClient.getMyAds()
             .onSuccess { ads = it; loading = false }
             .onFailure { error = errLoad; loading = false }
+        // Статистика — второстепенно: не роняет кабинет, если не подгрузилась (плитки просто не покажутся).
+        ApiClient.getMyAdsStats().onSuccess { stats = it }
     }
     Scaffold(
         containerColor = CanonBg,
@@ -1059,6 +1064,7 @@ internal fun AdsCabinetScreen(
             error = error,
             ads = ads,
             packages = packages,
+            stats = stats,
             submittingId = submittingId,
             onRetry = { reloadKey++ },
             onCreateAd = onCreateAd,
@@ -1081,6 +1087,8 @@ internal fun AdsCabinetScreen(
                         .onFailure { Toast.makeText(ctx, errPay, Toast.LENGTH_SHORT).show() }
                 }
             },
+            // Продление: тот же СБП-перевод «на доверии», что и первичная оплата (админ продлит срок вручную).
+            onRenewAd = { ad -> payingAd = ad },
             modifier = Modifier.padding(padding),
         )
     }
@@ -1104,12 +1112,14 @@ internal fun AdsCabinetContent(
     error: String?,
     ads: List<MyAdDto>,
     packages: List<AdPackageDto>,
+    stats: Map<String, MyAdStatsDto> = emptyMap(),
     submittingId: String?,
     onRetry: () -> Unit,
     onCreateAd: () -> Unit,
     onEditAd: (MyAdDto) -> Unit,
     onSubmitAd: (MyAdDto) -> Unit,
     onPayAd: (MyAdDto) -> Unit,
+    onRenewAd: (MyAdDto) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Box(modifier) {
@@ -1141,10 +1151,12 @@ internal fun AdsCabinetContent(
                 items(ads, key = { it.id }) { ad ->
                     MyAdCard(
                         ad = ad,
+                        stats = stats[ad.id],
                         submitting = submittingId == ad.id,
                         onEdit = { onEditAd(ad) },
                         onSubmit = { onSubmitAd(ad) },
                         onPay = { onPayAd(ad) },
+                        onRenew = { onRenewAd(ad) },
                     )
                 }
             }
@@ -1168,7 +1180,7 @@ internal fun AdStatusBadge(status: String) {
 }
 
 @Composable
-internal fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSubmit: () -> Unit, onPay: () -> Unit) {
+internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Boolean, onEdit: () -> Unit, onSubmit: () -> Unit, onPay: () -> Unit, onRenew: () -> Unit = {}) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1189,6 +1201,11 @@ internal fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSu
                             "Тариф: ${ad.pkgTitle} · ${ad.budgetKop / 100} ₽ / ${ad.periodDays} көн"),
                     color = CanonMuted, fontSize = 12.sp
                 )
+            }
+            // Статистика размещения: показы / клики / CTR / остаток срока. Только для запущенных
+            // объявлений (active) — у черновика/на модерации показов ещё нет.
+            if (stats != null && ad.status == "active") {
+                AdStatsTiles(stats)
             }
             if (ad.status == "rejected" && ad.rejectReason.isNotBlank()) {
                 Surface(color = CanonRed.copy(alpha = 0.10f), shape = RoundedCornerShape(12.dp)) {
@@ -1212,7 +1229,26 @@ internal fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSu
                 }
             }
             if (ad.status == "active" && ad.paid) {
+                val endingSoon = stats?.daysLeft != null && stats.daysLeft <= 5
                 Text(appText("Оплачено · объявление показывается.", "Түләнде · иғлан күрһәтелә."), color = CanonGreen2, fontSize = 12.sp)
+                if (endingSoon) {
+                    Text(
+                        appText("Размещение скоро закончится. Продли, чтобы показы не прервались.",
+                                "Урынлаштырыу тиҙҙән бөтә. Күрһәтеү өҙөлмәһен өсөн оҙайт."),
+                        color = CanonWarn, fontSize = 12.sp, lineHeight = 16.sp
+                    )
+                }
+                // Продление размещения — тот же СБП-флоу, что и первичная оплата (перевод «на доверии»).
+                OutlinedButton(
+                    onClick = onRenew,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.5.dp, CanonGreen2),
+                ) {
+                    Icon(Icons.Default.Autorenew, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(appText("Продлить размещение · ${ad.budgetKop / 100} ₽", "Урынлаштырыуҙы оҙайтыу · ${ad.budgetKop / 100} ₽"), fontWeight = FontWeight.Black, color = CanonGreen2)
+                }
             }
             if (ad.status == "draft" || ad.status == "rejected") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1230,6 +1266,21 @@ internal fun MyAdCard(ad: MyAdDto, submitting: Boolean, onEdit: () -> Unit, onSu
                 }
             }
         }
+    }
+}
+
+// Плитки статистики объявления в кабинете рекламодателя: показы / клики / CTR / остаток срока.
+// Данные из AdEvent (реальные), считает сервер (GROUP BY). Стиль — CanonMetric, как в кабинете водителя.
+@Composable
+internal fun AdStatsTiles(stats: MyAdStatsDto) {
+    val daysValue = stats.daysLeft?.let { "$it" } ?: "∞"
+    val daysLabel = if (stats.daysLeft != null) appText("осталось дней", "көн ҡалды")
+                    else appText("бессрочно", "сикһеҙ")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        CabinetMetric(appText("показы", "күрһәтеү"), "${stats.impressions}", Modifier.weight(1f))
+        CabinetMetric(appText("клики", "баҫыу"), "${stats.clicks}", Modifier.weight(1f))
+        CabinetMetric(appText("CTR", "CTR"), "${stats.ctr}%", Modifier.weight(1f))
+        CabinetMetric(daysLabel, daysValue, Modifier.weight(1f))
     }
 }
 
