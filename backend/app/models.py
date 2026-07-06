@@ -126,6 +126,24 @@ class DriverProfile(SQLModel, table=True):
     autocheck_at: Optional[datetime] = None
 
 
+class DriverSchedule(SQLModel, table=True):
+    """Постоянный (регулярный) маршрут водителя: «езжу Баймаҡ→Уфа по пятницам в 8:00».
+
+    Показывается в профиле водителя и в поиске (публично). Пассажиры могут «следить»
+    за направлением — связка с route-watch (F13); саму подписку эта таблица НЕ хранит.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    from_city: str = Field(index=True)
+    to_city: str = Field(index=True)
+    # Дни недели через запятую, ISO 1=Пн … 7=Вс. Напр. "5" (пятница) или "1,3,5".
+    weekdays: str = ""
+    time: str = ""            # время выезда "HH:MM" (местное), напр. "08:00"; "" — без точного времени
+    comment: str = Field(default="", max_length=200)
+    active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class Ride(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     driver_id: int = Field(index=True, foreign_key="user.id")

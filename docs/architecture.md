@@ -29,6 +29,8 @@
 
 **Кабинет партнёра (реклама, План B — в разработке):** `Ad` расширен полями `owner_id` (партнёр-владелец), `reject_reason`, `package`/`budget_kop`/`period_days` (тариф), `submitted_at`/`reviewed_at`; статусы `pending_review`/`rejected` добавлены к строке `status`. `User.is_advertiser`. Тарифы — конфиг `AD_PACKAGES` в `ads.py` (не хардкод в клиенте). Миграция `alembic/versions/0003_partner_ads_columns.py`. Приватность: партнёр видит/меняет только `owner_id==self`, админ — всё.
 
+**F17 — Постоянные маршруты водителя (ветка `feat/driver-schedule`):** таблица `DriverSchedule` (driver_id, from_city, to_city, weekdays CSV ISO 1–7, time «ЧЧ:ММ», active) + миграция `alembic/versions/f17_driver_schedule.py` (revision `f17_driver_schedule` ← `0004`, идемпотентна). Роутер `backend/app/routers/driver_schedule.py`: `POST /driver/schedule` (создать, валидация дней/времени), `GET /driver/schedule` (мои), `GET /drivers/{id}/schedule` (публичные active, без auth), `DELETE /driver/schedule/{id}` (своё; чужое → 403). UI: блок «Регулярные маршруты» в `DriverCabinetScreen` (`ProfileScreen.kt` — `DriverScheduleSection`/`AddScheduleDialog`/`ScheduleRow`, дни чипами, время, все состояния, Canon*). Хук для пассажира `PublicDriverSchedulesCard` (кнопка «Следить» → route-watch F13, когда появится экран профиля водителя). ApiClient: `createDriverSchedule`/`getMyDriverSchedules`/`getPublicDriverSchedules`/`deleteDriverSchedule` + `DriverScheduleDto`. Тесты: `tests/test_driver_schedule.py` (CRUD, публичный список без auth, 403 на чужое, валидация). Миграции сводит лид.
+
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
 
 ## Лендинг web/ — интерактивная версия 2026-06-29

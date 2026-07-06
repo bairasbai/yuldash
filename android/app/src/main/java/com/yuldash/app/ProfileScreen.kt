@@ -40,6 +40,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -887,6 +889,7 @@ internal fun DriverCabinetScreen(
             onBoost = onBoost,
             onRequestsFeed = onRequestsFeed,
             modifier = Modifier.padding(padding),
+            scheduleSection = { DriverScheduleSection() },
         )
     }
 }
@@ -910,6 +913,8 @@ internal fun DriverCabinetContent(
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit,
     modifier: Modifier = Modifier,
+    // F17: слот «Регулярные маршруты» (сеть/стейт снаружи → Content остаётся чистым и тестируемым).
+    scheduleSection: (@Composable () -> Unit)? = null,
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -1002,6 +1007,7 @@ internal fun DriverCabinetContent(
                 }
             }
         }
+        scheduleSection?.let { section -> item { section() } }
         item {
             SettingsGroup {
                 SettingsNavRow(Icons.Default.ListAlt, appText("Заявки пассажиров", "Пассажир заявкалары"), appText("Откликнуться и предложить поездку", "Яуап биреп сәфәр тәҡдим итеү"), onClick = onRequestsFeed)
@@ -1019,6 +1025,291 @@ internal fun CabinetMetric(label: String, value: String, modifier: Modifier = Mo
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Text(label, color = CanonMuted, fontSize = 11.sp, lineHeight = 13.sp, textAlign = TextAlign.Center, maxLines = 2)
+        }
+    }
+}
+
+// --- F17: Постоянные (регулярные) маршруты водителя ---
+// ISO-дни недели 1=Пн..7=Вс. Короткие подписи для чипов. BA — черновик (docs/tasks.md).
+private val WEEKDAY_ORDER = listOf(1, 2, 3, 4, 5, 6, 7)
+
+@Composable
+private fun weekdayShort(iso: Int): String = when (iso) {
+    1 -> appText("Пн", "Дш"); 2 -> appText("Вт", "Шш"); 3 -> appText("Ср", "Шр")
+    4 -> appText("Чт", "Кс"); 5 -> appText("Пт", "Йм"); 6 -> appText("Сб", "Шб")
+    else -> appText("Вс", "Йҡ")
+}
+
+/** CSV "1,3,5" → "Пн · Ср · Пт" (или «Каждый день» / «По будням» / «Выходные»). */
+@Composable
+private fun weekdaysSummary(csv: String): String {
+    val days = csv.split(",").mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..7 }.sorted()
+    if (days.isEmpty()) return appText("—", "—")
+    if (days == WEEKDAY_ORDER) return appText("Каждый день", "Һәр көн")
+    if (days == listOf(1, 2, 3, 4, 5)) return appText("По будням", "Эш көндәре")
+    if (days == listOf(6, 7)) return appText("Выходные", "Ял көндәре")
+    return days.joinToString(" · ") { weekdayShort(it) }
+}
+
+/**
+ * Блок «Регулярные маршруты» в кабинете водителя (F17): свои постоянные направления
+ * (маршрут + дни недели + время), добавить/удалить. Сам держит стейт и сеть, поэтому
+ * подключается слотом в [DriverCabinetContent] (Content остаётся чистым/тестируемым).
+ */
+@Composable
+internal fun DriverScheduleSection() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val loggedIn = ApiClient.isLoggedIn()
+    var schedules by remember { mutableStateOf<List<DriverScheduleDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
+    var reload by remember { mutableStateOf(0) }
+    var showAdd by remember { mutableStateOf(false) }
+    val delFailMsg = appText("Не получилось удалить. Повтори.", "Юйып булманы. Ҡабатла.")
+
+    LaunchedEffect(reload) {
+        if (!loggedIn) { loading = false; error = false; return@LaunchedEffect }
+        loading = true; error = false
+        ApiClient.getMyDriverSchedules()
+            .onSuccess { schedules = it; loading = false }
+            .onFailure { error = true; loading = false }
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(38.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(appText("Регулярные маршруты", "Даими маршруттар"), fontWeight = FontWeight.Black, fontSize = 17.sp, color = CanonText)
+                    Text(appText("Езжу постоянно — покажем в профиле и поиске", "Даими йөрөйөм — профилдә һәм эҙләүҙә күрһәтәбеҙ"), color = CanonMuted, fontSize = 12.sp, lineHeight = 15.sp)
+                }
+            }
+
+            when {
+                loading -> {
+                    SkeletonBox(height = 54.dp)
+                    SkeletonBox(height = 54.dp)
+                }
+                error -> {
+                    Text(appText("Не удалось загрузить маршруты.", "Маршруттарҙы йөкләп булманы."), color = CanonMuted, fontSize = 13.sp)
+                    AppButton(
+                        text = appText("Повторить", "Ҡабатларға"),
+                        onClick = { reload++ },
+                        style = AppButtonStyle.Secondary,
+                        icon = Icons.Default.Refresh,
+                        height = 48.dp,
+                    )
+                }
+                !loggedIn -> {
+                    Text(
+                        appText("Войди, чтобы добавить постоянный маршрут.", "Даими маршрут өҫтәр өсөн ин."),
+                        color = CanonMuted, fontSize = 13.sp,
+                    )
+                }
+                schedules.isEmpty() -> {
+                    Text(
+                        appText("Пока нет регулярных маршрутов. Добавь, чтобы пассажиры знали, когда ты ездишь.",
+                            "Әле даими маршруттар юҡ. Пассажирҙар ҡасан йөрөгәнеңде белһен өсөн өҫтә."),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    )
+                }
+                else -> {
+                    schedules.forEach { s ->
+                        ScheduleRow(
+                            schedule = s,
+                            onDelete = {
+                                val prev = schedules
+                                schedules = schedules.filterNot { it.id == s.id }   // оптимистично
+                                scope.launch {
+                                    ApiClient.deleteDriverSchedule(s.id).onFailure {
+                                        schedules = prev
+                                        Toast.makeText(ctx, delFailMsg, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+
+            if (loggedIn && !loading) {
+                AppButton(
+                    text = appText("Добавить маршрут", "Маршрут өҫтәү"),
+                    onClick = { showAdd = true },
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.Add,
+                    height = 50.dp,
+                )
+            }
+        }
+    }
+
+    if (showAdd) {
+        AddScheduleDialog(
+            onDismiss = { showAdd = false },
+            onSaved = { created ->
+                schedules = listOf(created) + schedules
+                showAdd = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun ScheduleRow(schedule: DriverScheduleDto, onDelete: () -> Unit) {
+    Surface(color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Row(
+            Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "${schedule.fromCity} → ${schedule.toCity}",
+                    fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CanonText,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(weekdaysSummary(schedule.weekdays), color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    if (schedule.time.isNotBlank()) {
+                        Text("  ·  ${schedule.time}", color = CanonMuted, fontSize = 12.sp)
+                    }
+                }
+                if (schedule.comment.isNotBlank()) {
+                    Text(schedule.comment, color = CanonMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Default.Delete, contentDescription = appText("Удалить", "Юйыу"), tint = CanonMuted, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AddScheduleDialog(onDismiss: () -> Unit, onSaved: (DriverScheduleDto) -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var from by remember { mutableStateOf("") }
+    var to by remember { mutableStateOf("") }
+    var time by remember { mutableStateOf("") }
+    var comment by remember { mutableStateOf("") }
+    val selectedDays = remember { mutableStateListOf<Int>() }
+    var saving by remember { mutableStateOf(false) }
+
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = CanonGreen2, cursorColor = CanonGreen2,
+        focusedLabelColor = CanonGreen2,
+    )
+    val canSave = from.isNotBlank() && to.isNotBlank() && selectedDays.isNotEmpty() &&
+        time.matches(Regex("^([01]?\\d|2[0-3]):[0-5]\\d$")) && !saving
+    val errMsg = appText("Не получилось сохранить. Проверь поля.", "Һаҡлап булманы. Ҡырҙарҙы тикшер.")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CanonSurface,
+        shape = CanonCardShape,
+        title = { Text(appText("Регулярный маршрут", "Даими маршрут"), fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    from, { from = it.take(80) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(appText("Откуда", "Ҡайҙан")) }, placeholder = { Text(appText("Баймак", "Баймаҡ")) },
+                    shape = RoundedCornerShape(14.dp), colors = fieldColors,
+                )
+                OutlinedTextField(
+                    to, { to = it.take(80) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(appText("Куда", "Ҡайҙа")) }, placeholder = { Text(appText("Уфа", "Өфө")) },
+                    shape = RoundedCornerShape(14.dp), colors = fieldColors,
+                )
+                Text(appText("Дни недели", "Аҙна көндәре"), color = CanonMuted, fontSize = 12.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    WEEKDAY_ORDER.forEach { d ->
+                        val on = selectedDays.contains(d)
+                        Surface(
+                            color = if (on) CanonGreen2 else CanonBg,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, if (on) CanonGreen2 else CanonBorder),
+                            modifier = Modifier.size(44.dp).clickable {
+                                if (on) selectedDays.remove(d) else selectedDays.add(d)
+                            },
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(weekdayShort(d), color = if (on) Color.White else CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    time, { time = it.take(5) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(appText("Время выезда", "Сығыу ваҡыты")) }, placeholder = { Text("08:00") },
+                    shape = RoundedCornerShape(14.dp), colors = fieldColors,
+                )
+                OutlinedTextField(
+                    comment, { comment = it.take(200) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(appText("Комментарий (необязательно)", "Аңлатма (мотлаҡ түгел)")) },
+                    shape = RoundedCornerShape(14.dp), colors = fieldColors,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = canSave,
+                onClick = {
+                    saving = true
+                    val days = selectedDays.sorted().joinToString(",")
+                    scope.launch {
+                        ApiClient.createDriverSchedule(from.trim(), to.trim(), days, time.trim(), comment.trim())
+                            .onSuccess { saving = false; onSaved(it) }
+                            .onFailure { saving = false; Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
+                    }
+                },
+            ) { Text(appText("Сохранить", "Һаҡлау"), color = if (canSave) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(appText("Отмена", "Кире"), color = CanonMuted) }
+        },
+    )
+}
+
+/**
+ * F17-хук для пассажира: публичные регулярные маршруты водителя (read-only) + кнопка
+ * «Следить» (связка с route-watch F13). В этой ветке экрана-профиля водителя для
+ * пассажира нет — компонент готов к подключению, когда появится. onWatch — заглушка F13.
+ */
+@Composable
+internal fun PublicDriverSchedulesCard(driverId: Int, onWatch: (DriverScheduleDto) -> Unit = {}) {
+    var schedules by remember(driverId) { mutableStateOf<List<DriverScheduleDto>>(emptyList()) }
+    LaunchedEffect(driverId) {
+        ApiClient.getPublicDriverSchedules(driverId).onSuccess { schedules = it }
+    }
+    if (schedules.isEmpty()) return
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(appText("Ездит регулярно", "Даими йөрөй"), fontWeight = FontWeight.Black, fontSize = 16.sp, color = CanonText)
+            schedules.forEach { s ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${s.fromCity} → ${s.toCity}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(weekdaysSummary(s.weekdays) + (if (s.time.isNotBlank()) "  ·  ${s.time}" else ""), color = CanonGreen2, fontSize = 12.sp)
+                    }
+                    OutlinedButton(onClick = { onWatch(s) }, shape = RoundedCornerShape(12.dp)) {
+                        Text(appText("Следить", "Күҙәтеү"), color = CanonGreen2, fontSize = 13.sp)
+                    }
+                }
+            }
         }
     }
 }
