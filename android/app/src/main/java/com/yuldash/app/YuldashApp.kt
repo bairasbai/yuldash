@@ -791,8 +791,10 @@ internal fun YuldashApp() {
                 onCreateRide = { openCreateRide(returnScreen = Screen.DriverCabinet) },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onBoost = { screen = Screen.Boost },
-                onRequestsFeed = { screen = Screen.RequestsFeed }
+                onRequestsFeed = { screen = Screen.RequestsFeed },
+                onWallet = { screen = Screen.Wallet }
             )
+            Screen.Wallet -> WalletScreen(onBack = { goBack() })
             Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
             Screen.RequestResponses -> ResponsesScreen(
                 requestId = responsesRequestId,

@@ -308,6 +308,7 @@ internal enum class Screen {
     Help,
     PassengerCabinet,
     DriverCabinet,
+    Wallet,
     AdsCabinet,
     SimpleMode,
     VoiceRequest,

@@ -379,4 +379,16 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 **Тесты:** backend `pytest -q` → **225 passed, 1 skipped** (+19 денежных). Alembic `upgrade head` — оба пути (baseline no-op + прод create-table с 5 индексами), идемпотентно.
 
-**Что НЕ входит (v2/за Александром):** hold→capture («безопасная сделка»), выплаты водителям (payout API), UI экрана оплаты, ЮKassa-чеки 54-ФЗ для поездок, финальный процент комиссии + оферта (юр.).
+**Что НЕ входит (v2/за Александром):** hold→capture («безопасная сделка»), выплаты водителям (payout API), ЮKassa-чеки 54-ФЗ для поездок, финальный процент комиссии + оферта (юр.).
+
+## 2026-07-06 — 💰 «Деньги v1» — UI оплаты + кошелёк водителя (Фаза 3, ANDROID) — ветка `feat/payments-ui` (от `feat/payments-ledger`)
+
+UI-слой поверх бэкенда денег. **Новый файл `PaymentWalletScreens.kt`** (зона 🎨 UI, пакет `com.yuldash.app`):
+- **`PayTripCard(amountRub, pay, modifier)`** — переиспользуемая карточка «Оплатить поездку» после done. Лист (`ModalBottomSheet`) с выбором способа: **Наличные / Карта / СБП**. Наличные → «оплатишь водителю» (сервер помечает `paid`, ledger не трогает). Карта/СБП → `pay(method)`: dev/mock отдаёт `succeeded` сразу → «Оплачено»; прод-ЮKassa отдаёт `pending`+`confirmation_url` → открываем браузер (`Intent.ACTION_VIEW`, как в Boost) → состояние «Ждём подтверждения» + кнопка «Проверить оплату» (повторный `pay`, интерпретируем `already_paid`). Параметр `pay` — замыкание, поэтому карточка годится и для брони (`payBooking`), и для быстрого заказа (`payInstantOrder`) когда его экран появится. Все состояния + анимации (`AnimatedContent`), тач-цели 48dp, RU/BA.
+- **`WalletScreen(onBack)` + `WalletContent` (чистый рендер, тестируемый)** — `Screen.Wallet`. Баланс-герой + разбор понятным языком: **Заработано** (SUM earn) − **Комиссия сервиса** (SUM fee) = **Итого** (баланс). История записей ledger (earn/fee/payout/adj) с датами. Состояния загрузка (скелетон) / ошибка (retry) / пусто. Суммы из копеек через `rubFromKop` (int-копейки, без float, копейки показываем только если есть).
+
+**Проводка:** `enum Screen.Wallet` (MainActivity.kt) + ветка в `when` (`YuldashApp.kt`) → `WalletScreen`. Вход — из **кабинета водителя** (`DriverCabinetScreen`/`DriverCabinetContent` + новый колбэк `onWallet`, пункт `SettingsNavRow` «Кошелёк»). Оплата встроена в **поток done брони** (`BookingActiveTripScreen` `ActiveTripScreen`: при `bookingStatus=="done" && role=="passenger"` — `PayTripCard` перед карточкой оценки). Быстрый заказ (instant) UI на клиенте ещё нет → его точка оплаты подключится вместе с тем экраном (метод `payInstantOrder` уже готов).
+
+**ApiClient (`data/ApiClient.kt`):** `payInstantOrder`/`payBooking` (→`PayResultDto`: status succeeded|pending|paid|already_paid + confirmationUrl), `getWalletBalance` (→`WalletBalanceDto`), `getWalletLedger` (→`List<LedgerEntryDto>`).
+
+**Прод:** приём карты/СБП требует ключей ЮKassa на проде (пока `payments_provider=mock` в проде → сервер вернёт 503 «Оплата скоро будет доступна»; наличные работают всегда). **Сборку (`assembleDebug`) прогнать перед мержем на машине с Android SDK.** Вливать ПОСЛЕ #34 и #36 (ветка от `feat/payments-ledger`).

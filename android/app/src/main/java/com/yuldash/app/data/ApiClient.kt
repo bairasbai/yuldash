@@ -1179,6 +1179,44 @@ object ApiClient {
             PaymentsSummaryDto(d.optInt("count"), d.optInt("sum_rub"), b.optInt("count"), b.optInt("sum_rub"))
         }
 
+    // ---------- Деньги v1: оплата поездки после done + кошелёк водителя ----------
+
+    /** Оплатить ЗАВЕРШЁННЫЙ быстрый заказ. method: cash|card|sbp. Оплата только после статуса done. */
+    suspend fun payInstantOrder(orderId: Int, method: String): Result<PayResultDto> =
+        call("POST", "/instant/orders/$orderId/pay", JSONObject().put("method", method), auth = true)
+            .map { it.toPayResult() }
+            .onSuccess { Analytics.log("pay_trip", mapOf("kind" to "instant", "method" to method)) }
+
+    /** Оплатить ЗАВЕРШЁННУЮ бронь плановой поездки. method: cash|card|sbp. */
+    suspend fun payBooking(bookingId: Int, method: String): Result<PayResultDto> =
+        call("POST", "/bookings/$bookingId/pay", JSONObject().put("method", method), auth = true)
+            .map { it.toPayResult() }
+            .onSuccess { Analytics.log("pay_trip", mapOf("kind" to "booking", "method" to method)) }
+
+    /** Баланс кошелька водителя (сумма всех записей ledger по своему токену). */
+    suspend fun getWalletBalance(): Result<WalletBalanceDto> =
+        call("GET", "/wallet/balance", null, auth = true).map {
+            WalletBalanceDto(balanceKop = it.optInt("balance_kop"), balanceRub = it.optInt("balance_rub"))
+        }
+
+    /** История начислений/комиссий/выплат водителя (всегда свои — чужой ledger не виден). */
+    suspend fun getWalletLedger(limit: Int = 100): Result<List<LedgerEntryDto>> =
+        call("GET", "/wallet/ledger?limit=$limit", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                LedgerEntryDto(
+                    id = o.optInt("id"),
+                    kind = o.optString("kind"),
+                    amountKop = o.optInt("amount_kop"),
+                    orderId = if (o.isNull("order_id")) null else o.optInt("order_id"),
+                    bookingId = if (o.isNull("booking_id")) null else o.optInt("booking_id"),
+                    note = o.optString("note"),
+                    createdAt = o.optString("created_at"),
+                )
+            }
+        }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -1302,6 +1340,40 @@ object ApiClient {
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
 class ApiException(val status: Int, message: String) : Exception(message)
+
+// ---------- Деньги v1: DTO оплаты + кошелька ----------
+private fun JSONObject.toPayResult() = PayResultDto(
+    status = optString("status"),
+    method = optString("method"),
+    paymentId = if (isNull("payment_id")) null else optInt("payment_id"),
+    confirmationUrl = optString("confirmation_url").ifBlank { null },
+)
+
+/** Ответ оплаты поездки/брони. status: succeeded | pending | paid | already_paid.
+ *  pending (прод-ЮKassa) → есть confirmationUrl (открыть в браузере). */
+data class PayResultDto(
+    val status: String,
+    val method: String,
+    val paymentId: Int?,
+    val confirmationUrl: String?,
+) {
+    /** Деньги уже начислены/зафиксированы (наличные, мгновенный dev-успех или повторная оплата). */
+    val isPaid: Boolean get() = status == "succeeded" || status == "paid" || status == "already_paid"
+}
+
+/** Баланс кошелька водителя (SUM ledger в копейках + округлённо в рублях). */
+data class WalletBalanceDto(val balanceKop: Int, val balanceRub: Int)
+
+/** Запись кошелька (append-only). kind: earn|fee|payout|adj. amountKop: earn>0, fee/payout<0. */
+data class LedgerEntryDto(
+    val id: Int,
+    val kind: String,
+    val amountKop: Int,
+    val orderId: Int?,
+    val bookingId: Int?,
+    val note: String,
+    val createdAt: String,
+)
 
 data class ReviewItem(val id: Int, val name: String, val city: String, val stars: Int, val text: String)
 

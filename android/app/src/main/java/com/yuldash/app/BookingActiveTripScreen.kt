@@ -955,6 +955,15 @@ internal fun ActiveTripScreen(
                     )
                 }
             }
+            // Оплата завершённой поездки — только пассажиру (водитель не платит). Деньги v1.
+            if (bookingStatus == "done" && role == "passenger" && bookingId != null) item {
+                val payBid = bookingId!!
+                PayTripCard(
+                    amountRub = ride?.price,
+                    pay = { m -> ApiClient.payBooking(payBid, m) },
+                    modifier = Modifier.appearIn(1),
+                )
+            }
             if (bookingStatus == "done") item {
                 var myStars by remember { mutableStateOf(0) }
                 var rating by remember { mutableStateOf(false) }   // запрос в полёте — блок повторных тапов, откат при сбое

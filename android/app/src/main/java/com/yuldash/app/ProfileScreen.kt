@@ -64,6 +64,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -832,7 +833,8 @@ internal fun DriverCabinetScreen(
     onCreateRide: () -> Unit,
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit,
-    onRequestsFeed: () -> Unit = {}
+    onRequestsFeed: () -> Unit = {},
+    onWallet: () -> Unit = {}
 ) {
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
@@ -886,6 +888,7 @@ internal fun DriverCabinetScreen(
             onVerifyDriver = onVerifyDriver,
             onBoost = onBoost,
             onRequestsFeed = onRequestsFeed,
+            onWallet = onWallet,
             modifier = Modifier.padding(padding),
         )
     }
@@ -909,6 +912,7 @@ internal fun DriverCabinetContent(
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit,
+    onWallet: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -928,6 +932,16 @@ internal fun DriverCabinetContent(
                     appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
                     online,
                     onToggleOnline,
+                )
+            }
+        }
+        item {
+            SettingsGroup {
+                SettingsNavRow(
+                    Icons.Default.AccountBalanceWallet,
+                    appText("Кошелёк", "Хамъян"),
+                    appText("Баланс и история начислений", "Баланс һәм килем тарихы"),
+                    onClick = onWallet,
                 )
             }
         }
