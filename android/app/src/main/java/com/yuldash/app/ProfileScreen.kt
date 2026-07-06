@@ -675,6 +675,7 @@ internal fun PassengerCabinetScreen(
     onOpenBooking: (Ride, String) -> Unit,
     onFindRide: () -> Unit,
     onCreateRequest: () -> Unit,
+    onInstantOrder: () -> Unit = {},
     onSafety: () -> Unit
 ) {
     // Реальные брони и заявки пользователя (раньше метрики и карточка брались из демо-списка).
@@ -728,6 +729,7 @@ internal fun PassengerCabinetScreen(
             onOpenBooking = onOpenBooking,
             onFindRide = onFindRide,
             onCreateRequest = onCreateRequest,
+            onInstantOrder = onInstantOrder,
             onSafety = onSafety,
             modifier = Modifier.padding(padding),
         )
@@ -753,6 +755,7 @@ internal fun PassengerCabinetContent(
     onOpenBooking: (Ride, String) -> Unit,
     onFindRide: () -> Unit,
     onCreateRequest: () -> Unit,
+    onInstantOrder: () -> Unit,
     onSafety: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -764,6 +767,28 @@ internal fun PassengerCabinetContent(
         item {
             Text(appText("Ваши поездки и заявки", "Һеҙҙең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
             Text(appText("Быстрый доступ к бронированиям, заявкам и защите поездки.", "Брондәргә, заявкаларға һәм хәүефһеҙлеккә тиҙ инеү."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+        }
+        item {
+            // Флагман Фазы 2 — вызвать машину сейчас (такси-режим). Заметная зелёная карточка.
+            Card(
+                onClick = onInstantOrder,
+                modifier = Modifier.fillMaxWidth().appearIn(0),
+                colors = CardDefaults.cardColors(containerColor = CanonGreen2),
+                shape = CanonCardShape,
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+            ) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = CircleShape, color = CanonBg.copy(alpha = 0.22f)) {
+                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonBg, modifier = Modifier.padding(11.dp).size(24.dp))
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(appText("Быстрый заказ", "Тиҙ заказ"), color = CanonBg, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                        Text(appText("Вызвать машину сейчас — цену видно заранее", "Хәҙер машина саҡырыу — хаҡ алдан күренә"), color = CanonBg.copy(alpha = 0.9f), fontSize = 13.sp, lineHeight = 17.sp)
+                    }
+                    Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonBg, modifier = Modifier.size(22.dp))
+                }
+            }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -832,7 +857,8 @@ internal fun DriverCabinetScreen(
     onCreateRide: () -> Unit,
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit,
-    onRequestsFeed: () -> Unit = {}
+    onRequestsFeed: () -> Unit = {},
+    onInstantTrip: (Int) -> Unit = {}   // «Быстрый заказ»: принял входящий оффер → экран поездки водителя
 ) {
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
@@ -851,6 +877,7 @@ internal fun DriverCabinetScreen(
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Кабинет водителя", "Водитель кабинеты"), onBack) }
@@ -888,6 +915,9 @@ internal fun DriverCabinetScreen(
             onRequestsFeed = onRequestsFeed,
             modifier = Modifier.padding(padding),
         )
+    }
+    // Пока водитель «на линии» — presence-heartbeat + опрос входящего оффера; оффер рисуется поверх.
+    InstantDriverOnlineController(online = online, onOpenTrip = onInstantTrip)
     }
 }
 

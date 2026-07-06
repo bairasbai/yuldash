@@ -308,6 +308,7 @@ internal fun YuldashApp() {
     var trustedContactsReturnScreen by rememberSaveable { mutableStateOf(Screen.SimpleMode) }
     var trustedContactsReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Profile) }
     var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
+    var instantTripOrderId by rememberSaveable { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
     // Версия сессии: инкрементится при входе (onContinue), чтобы user-специфичные загрузки
@@ -783,6 +784,7 @@ internal fun YuldashApp() {
                 },
                 onFindRide = { openHome(HomeTab.Map) },
                 onCreateRequest = { screen = Screen.CreateRequest },
+                onInstantOrder = { if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder else screen = Screen.Login },
                 onSafety = { screen = Screen.Safety }
             )
             Screen.DriverCabinet -> DriverCabinetScreen(
@@ -791,7 +793,17 @@ internal fun YuldashApp() {
                 onCreateRide = { openCreateRide(returnScreen = Screen.DriverCabinet) },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onBoost = { screen = Screen.Boost },
-                onRequestsFeed = { screen = Screen.RequestsFeed }
+                onRequestsFeed = { screen = Screen.RequestsFeed },
+                onInstantTrip = { id -> instantTripOrderId = id; screen = Screen.InstantDriverTrip }
+            )
+            Screen.InstantOrder -> InstantOrderScreen(
+                onBack = { goBack() },
+                onLoginRequired = { screen = Screen.Login }
+            )
+            Screen.InstantDriverTrip -> InstantDriverTripScreen(
+                orderId = instantTripOrderId,
+                onBack = { goBack() },
+                onFinished = { screen = Screen.DriverCabinet }
             )
             Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
             Screen.RequestResponses -> ResponsesScreen(

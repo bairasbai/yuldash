@@ -15,7 +15,8 @@
 | `RidesRequestsChatScreens.kt` | Вкладки Поездки/Заявки/Чат, `RideCard`, `RequestsFeedScreen` (чипы условий), `ResponsesScreen`, `ChatSocket`-чат; вкладка `Мои поездки` передаёт статус брони в навигацию |
 | `CreateRideScreen.kt` | Публикация поездки (маршрут, цена, удобства `PrefToggleRow`, повтор) |
 | `AccessibilityScreens.kt` | «Создать заявку» (+ карточка «Условия поездки», 7 предпочтений), Простой режим, голосовая заявка, за близкого, доверенные контакты, повтор маршрута |
-| `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии» |
+| `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии». Кабинет пассажира — карточка входа «Быстрый заказ»; кабинет водителя — `InstantDriverOnlineController` (presence + оффер) |
+| `InstantOrderScreen.kt` 🆕 (2026-07-06) | **«Быстрый заказ» (такси-режим, Фаза 2).** Пассажир `Screen.InstantOrder`: `InstantOrderScreen` (Куда едем → `instantEstimate` цена → «Ищем машину» → «Водитель едет»: `InstantRouteMap` A→B + ETA + телефон после accept + отмена; состояния searching/active/expired/cancelled/done, восстановление активного заказа через `getMyInstantOrders`). Водитель: `InstantDriverOnlineController` (heartbeat `fireInstantPresence` + опрос `getDriverOffer` пока «на линии» → полноэкранный `InstantOfferOverlay` с таймером 20с, «Взять»/«Пропустить») и `Screen.InstantDriverTrip` → `InstantDriverTripScreen` (навигация к пассажиру, Приехал/Посадил/Завершить). Гео — `rememberMyPoint` (LocationManager, как на карте); выбор точки Б — переиспользован `PickupPickerOverlay`. Бэкенд-контракт — `backend/app/routers/instant.py`, DTO/методы в `data/ApiClient.kt` |
 | `SecondaryScreens.kt` | Уведомления, Безопасность, Настройки, «Фильтры по умолчанию», правила, админ-экраны |
 | `SosVerifyScreens.kt` | SOS + проверка водителя (фото, OCR-баннер причин отказа) |
 | `SupportBoostScreen.kt` | Поддержка, Boost, Help (буст-оплата — общий `SberPayBlock`) |
