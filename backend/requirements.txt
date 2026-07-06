@@ -10,3 +10,4 @@ firebase-admin>=6.5
 alembic>=1.13
 redis>=5.0
 gunicorn>=21.2
+fakeredis>=2.20   # тест-only: presence/matcher быстрого заказа гоняются на in-memory Redis
