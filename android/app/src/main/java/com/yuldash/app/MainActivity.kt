@@ -266,12 +266,38 @@ class MainActivity : ComponentActivity() {
         // Восстановить выбор темы день/ночь (если пользователь переключал тумблером в шапке).
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
+        handleDeepLink(intent)   // холодный старт по ссылке yulbash.ru/r/{id}
         setContent {
             YuldashTheme(darkTheme = appIsDark()) {
                 YuldashApp()
             }
         }
     }
+
+    // Приложение уже открыто и пришла новая ссылка (WhatsApp/Telegram) → тоже ловим.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    /** F16 deep-link: из https://yulbash.ru/r/{id} достаём id поездки и кладём в DeepLink —
+     *  YuldashApp подхватит его и откроет поездку. Кривые ссылки молча игнорим. */
+    private fun handleDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (!data.host.equals("yulbash.ru", ignoreCase = true)) return
+        // путь вида /r/123 (+ возможный trailing slash) → берём числовой сегмент после "r"
+        val segments = data.pathSegments
+        val idx = segments.indexOf("r")
+        val rideId = segments.getOrNull(idx + 1)?.toIntOrNull() ?: return
+        DeepLink.pendingRideId.value = rideId
+    }
+}
+
+/** Мост deep-link → Compose: onCreate/onNewIntent пишут сюда id поездки,
+ *  YuldashApp читает как snapshot-состояние и открывает поездку. */
+internal object DeepLink {
+    val pendingRideId = mutableStateOf<Int?>(null)
 }
 
 internal enum class Screen {
