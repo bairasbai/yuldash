@@ -216,6 +216,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Circle
@@ -472,8 +475,34 @@ internal fun BoostScreen(onBack: () -> Unit) {
     var result by remember { mutableStateOf<BoostResultDto?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var credits by remember { mutableStateOf(0) }   // реферальные бонусы = бесплатные поднятия
+    // ЮKassa: платёж, который ждёт оплаты в браузере. На ON_RESUME экрана (вернулся из браузера)
+    // поллим статус — сервер перепроверяет оплату у ЮKassa и активирует boost (go-live).
+    var pendingPaymentId by remember { mutableStateOf<Int?>(null) }
+    var checkingPayment by remember { mutableStateOf(false) }
     val failText = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")  // appText @Composable → хойстим из корутины
     val freeBoostOkMsg = appText("Поездка поднята бесплатно на 24 часа", "Сәфәр 24 сәғәткә бушлай күтәрелде")
+    val notPaidYetMsg = appText("Оплата пока не подтверждена. Если уже оплатил — попробуй ещё раз.", "Түләү әле раҫланмаған. Түләгән булһаң — тағы бер тапҡыр ҡара.")
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Тихо обновляет список поездок (без спиннера всего экрана) — чтобы бейдж «поднята» подтянулся.
+    fun quietRefreshRides() {
+        scope.launch { ApiClient.getDriverRides().onSuccess { list -> rides = list } }
+    }
+
+    // Одна проверка статуса. Возврат: true, если оплата подтверждена (boost активирован).
+    suspend fun pollPaymentOnce(): Boolean {
+        val pid = pendingPaymentId ?: return false
+        var paid = false
+        ApiClient.getPaymentStatus(pid).onSuccess { st ->
+            if (st.status == "succeeded") {
+                result = result?.copy(status = "succeeded")
+                pendingPaymentId = null
+                paid = true
+                quietRefreshRides()
+            }
+        }
+        return paid
+    }
 
     fun reload() {
         loading = true; loadError = false
@@ -488,6 +517,23 @@ internal fun BoostScreen(onBack: () -> Unit) {
         }
     }
     LaunchedEffect(Unit) { reload() }
+
+    // Авто-поллинг на ON_RESUME: пока экран виден и есть неоплаченный ЮKassa-платёж — проверяем
+    // статус несколько раз. Когда пользователь ушёл в браузер оплаты, экран уходит из RESUMED и
+    // блок останавливается; вернулся — перезапускается и подхватывает результат оплаты.
+    LaunchedEffect(pendingPaymentId) {
+        if (pendingPaymentId == null) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            checkingPayment = true
+            var tries = 0
+            while (pendingPaymentId != null && tries < 6) {
+                if (pollPaymentOnce()) break
+                tries++
+                delay(2500)
+            }
+            checkingPayment = false
+        }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -521,18 +567,29 @@ internal fun BoostScreen(onBack: () -> Unit) {
             onPay = {
                 val rid = selectedRideId ?: return@BoostContent
                 val tier = selectedTier ?: return@BoostContent
-                submitting = true; error = null; result = null
+                submitting = true; error = null; result = null; pendingPaymentId = null
                 scope.launch {
                     ApiClient.createBoost(rid, tier)
                         .onSuccess { res ->
                             result = res
-                            if (res.method == "yookassa" && !res.confirmationUrl.isNullOrBlank()) {
+                            if (res.method == "yookassa" && res.status == "pending" && !res.confirmationUrl.isNullOrBlank()) {
+                                // Уходим в браузер ЮKassa; статус проверим на возврате (ON_RESUME) поллингом.
+                                pendingPaymentId = res.paymentId
                                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(res.confirmationUrl))) }
                             }
                             if (res.status == "succeeded") reload()
                         }
                         .onFailure { e -> error = (e as? ApiException)?.message ?: failText }
                     submitting = false
+                }
+            },
+            checkingPayment = checkingPayment,
+            onCheckPayment = {
+                scope.launch {
+                    checkingPayment = true
+                    val paid = pollPaymentOnce()
+                    checkingPayment = false
+                    if (!paid) Toast.makeText(context, notPaidYetMsg, Toast.LENGTH_SHORT).show()
                 }
             },
             resultSlot = { res -> BoostResultCard(res, clipboard) },
@@ -564,6 +621,8 @@ internal fun BoostContent(
     onSelectTier: (String) -> Unit,
     onBoostFree: () -> Unit,
     onPay: () -> Unit,
+    checkingPayment: Boolean = false,
+    onCheckPayment: () -> Unit = {},
     resultSlot: @Composable (BoostResultDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -631,6 +690,31 @@ internal fun BoostContent(
                     )
                 }
                 result?.let { res -> item { resultSlot(res) } }
+                // ЮKassa: платёж создан, но ещё не подтверждён → показываем «проверяем оплату» и
+                // кнопку ручной проверки (авто-поллинг идёт на ON_RESUME, кнопка — если не сработал).
+                result?.let { res ->
+                    if (res.method == "yookassa" && res.status != "succeeded") {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                if (checkingPayment) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen)
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(appText("Проверяем оплату…", "Түләүҙе тикшерәбеҙ…"),
+                                            fontSize = 14.sp, color = CanonMuted)
+                                    }
+                                }
+                                AppButton(
+                                    text = appText("Я оплатил — проверить", "Түләнем — тикшереү"),
+                                    onClick = onCheckPayment,
+                                    style = AppButtonStyle.Secondary,
+                                    icon = Icons.Default.Refresh,
+                                    enabled = !checkingPayment,
+                                )
+                            }
+                        }
+                    }
+                }
                 item {
                     Text(
                         appText("Поднятие не гарантирует бронирование и влияет только на релевантные результаты.", "Күтәреү бронде гарантияламай һәм тик тура килгән һөҙөмтәләргә генә йоғонто яһай."),

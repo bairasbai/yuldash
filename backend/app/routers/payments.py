@@ -193,6 +193,31 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
     return {"status": "pending", "method": "yookassa", "payment_id": payment.id, "confirmation_url": res["confirmation_url"]}
 
 
+@router.get("/payments/{payment_id}/status")
+def payment_status(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Статус СВОЕГО платежа — клиент поллит после возврата из браузера ЮKassa (ON_RESUME экрана).
+
+    Подтверждение go-live не должно зависеть только от вебхука (он может задержаться/не дойти):
+    если платёж ещё pending и провайдер yookassa — сами перепроверяем статус по своему
+    provider_id (`fetch_payment`) и при успехе активируем (идемпотентно, как вебхук).
+    Владелец — только сам плательщик (чужой платёж → 404, не раскрываем существование)."""
+    payment = session.get(Payment, payment_id)
+    if not payment or payment.user_id != user.id:
+        raise HTTPException(404, "Платёж не найден")
+    if payment.status == "pending" and payment.provider_id and settings.payments_provider == "yookassa":
+        try:
+            info = fetch_payment(payment.provider_id)   # перепроверка у ЮKassa (телу вебхука не доверяем)
+        except Exception:  # noqa: BLE001 — сеть/ЮKassa недоступна → вернём текущий статус, клиент повторит
+            info = None
+        if info and info["status"] == "succeeded":
+            _activate_payment(session, payment)
+    boosted_until = None
+    if payment.purpose == "boost" and payment.ride_id is not None:
+        ride = session.get(Ride, payment.ride_id)
+        boosted_until = ride.boosted_until if ride else None
+    return {"payment_id": payment.id, "status": payment.status, "purpose": payment.purpose, "boosted_until": boosted_until}
+
+
 # ----------------------------- Админ: подтверждение СБП-переводов -----------------------------
 def _require_admin(user: User) -> None:
     if user.role != UserRole.admin:
