@@ -260,14 +260,16 @@ def notify_admin_telegram(text: str, reply_markup: dict | None = None) -> None:
 # чтобы не заспамить. Счётчик — в памяти воркера (для алерта «что-то горит» этого хватает;
 # на несколько воркеров каждый шлёт максимум один раз за cooldown, не лавина).
 _err_times: deque = deque()
-_last_error_alert: float = 0.0
+# None = алерта ещё не было. НЕ 0.0: sentinel сравнивается с time.monotonic(), а он на
+# свежем сервере/CI-раннере может быть < cooldown → 0.0 давал ложное «ещё остываем».
+_last_error_alert: float | None = None
 
 
 def reset_error_counter() -> None:
     """Сброс окна и cooldown — для тестов и ручного сброса."""
     global _last_error_alert
     _err_times.clear()
-    _last_error_alert = 0.0
+    _last_error_alert = None
 
 
 def record_server_error(path: str = "") -> None:
@@ -284,7 +286,7 @@ def record_server_error(path: str = "") -> None:
         while _err_times and _err_times[0] < edge:
             _err_times.popleft()
         _err_times.append(now)
-        if len(_err_times) >= threshold and (now - _last_error_alert) >= cooldown:
+        if len(_err_times) >= threshold and (_last_error_alert is None or (now - _last_error_alert) >= cooldown):
             _last_error_alert = now
             count = len(_err_times)
             _err_times.clear()  # окно закрыто одним алертом — не копим на следующий тик
