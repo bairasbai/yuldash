@@ -2,7 +2,6 @@
 прокси геокодера, партнёрская реклама + её статистика, загрузка голосовых."""
 from collections import Counter
 from datetime import timedelta
-import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,9 +12,10 @@ from ..db import get_session
 from ..models import AdEvent, AppReview, Booking, Payment, Ride, User, UserRole
 from ..security import current_user
 from ..services import (
-    CHAT_DIR, VOICE_DIR, cache_get_json, cache_set_json,
+    cache_get_json, cache_set_json,
     enforce_upload_quota, public_media_url, read_upload,
 )
+from ..storage import get_storage
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["discovery"])
@@ -176,8 +176,7 @@ async def upload_voice(request: Request, user: User = Depends(current_user), ses
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.audio_ext_set, "m4a", "аудио")
     name = f"{uuid.uuid4().hex}.{ext}"
-    with open(os.path.join(VOICE_DIR, name), "wb") as f:
-        f.write(data)
+    get_storage().save(f"voice/{name}", data)
     return {"url": public_media_url(f"voice/{name}")}
 
 
@@ -188,6 +187,5 @@ async def upload_chat_photo(request: Request, user: User = Depends(current_user)
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
     name = f"{uuid.uuid4().hex}.{ext}"
-    with open(os.path.join(CHAT_DIR, name), "wb") as f:
-        f.write(data)
+    get_storage().save(f"chat/{name}", data)
     return {"url": public_media_url(f"chat/{name}")}

@@ -6,7 +6,7 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -15,6 +15,7 @@ from ..db import get_session
 from ..models import DriverProfile, User, UserRole
 from ..security import current_user
 from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url
+from ..storage import get_storage
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["drivers"])
@@ -77,23 +78,27 @@ async def upload_photo(request: Request, user: User = Depends(current_user), ses
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
     name = f"{user.id}_{uuid.uuid4().hex}.{ext}"
-    with open(os.path.join(DOC_DIR, name), "wb") as f:
-        f.write(data)
+    get_storage().save(f"docs/{name}", data)
     return {"url": secure_docs_url(name)}
 
 
 @router.get("/secure/docs/{name}")
 def secure_doc(name: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Отдать фото документа водителя. Доступ: админ ИЛИ владелец этого документа."""
+    """Отдать фото документа водителя. Доступ: админ ИЛИ владелец этого документа.
+
+    URL стабильный (/secure/docs/{name}) — авторизацию всегда делает приложение (152-ФЗ).
+    Локально отдаём файл; в S3-режиме после проверки доступа редиректим на подписанный URL."""
     safe = os.path.basename(name)   # защита от path traversal
     if user.role != UserRole.admin:
         prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
         if not _is_owned_doc_name(safe, user.id, prof):
             raise HTTPException(403, "Нет доступа к документу")
-    path = os.path.join(DOC_DIR, safe)
-    if not os.path.isfile(path):
+    storage = get_storage()
+    if not storage.exists(f"docs/{safe}"):
         raise HTTPException(404, "Файл не найден")
-    return FileResponse(path)
+    if storage.is_remote:
+        return RedirectResponse(storage.url(f"docs/{safe}"))
+    return FileResponse(os.path.join(DOC_DIR, safe))
 
 
 class DriverProfileIn(BaseModel):

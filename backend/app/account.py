@@ -32,25 +32,23 @@ from .models import (
     OtpCode, Payment, Rating, RefreshToken, Report, RequestResponse, Ride,
     RideRequest, SosEvent, TgAuth, TripShare, TrustedContact, UploadEvent, User,
 )
-from .services import CHAT_DIR, DOC_DIR, MEDIA_DIR, VOICE_DIR
+from .storage import get_storage
 
 
 def _safe_unlink_media(url: str) -> None:
-    """Best-effort удаление файла по его публичному URL. Берём только basename
-    (защита от path-traversal), пробуем во всех медиа-папках. Ошибки глотаем —
-    файла может уже не быть (ретеншен) или это внешний URL."""
+    """Best-effort удаление медиа по его URL. Берём только basename (анти path-traversal)
+    и пробуем во всех областях хранилища (диск или S3). Ошибки глотаем — файла может уже
+    не быть (ретеншен) или это внешний URL."""
     if not url:
         return
     name = os.path.basename(urlparse(url).path)
     if not name or name in (".", ".."):
         return
-    for d in (DOC_DIR, CHAT_DIR, VOICE_DIR, MEDIA_DIR):
-        path = os.path.join(d, name)
-        try:
-            if os.path.isfile(path):
-                os.remove(path)
-        except OSError:
-            pass
+    storage = get_storage()
+    # Не знаем область по URL — чистим во всех (лишние вызовы безвредны, delete идемпотентен).
+    for area in ("docs", "chat", "voice"):
+        storage.delete(f"{area}/{name}")
+    storage.delete(name)   # legacy: файлы прямо в корне MEDIA_DIR
 
 
 def delete_user_account(session: Session, user: User) -> None:

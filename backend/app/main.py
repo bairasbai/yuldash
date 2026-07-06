@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
@@ -26,6 +27,7 @@ from .middleware import (
 from .routers import all_routers
 from .routers.health import API_VERSION
 from .services import MEDIA_DIR, init_chat_redis, seed_demo
+from .storage import get_storage
 
 API_V1_PREFIX = "/api/v1"
 
@@ -55,8 +57,16 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RateLimitMiddleware)
     app.add_exception_handler(Exception, unhandled_exception_handler)
-    # Медиа: голосовые — публично; документы водителя отдаются отдельно (/secure/docs, см. drivers.py).
-    app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+    # Медиа: голосовые/фото чата — публично; документы водителя отдаются отдельно (/secure/docs, см. drivers.py).
+    # Локально — раздаём с диска (StaticFiles). В S3-режиме файлов на диске нет:
+    # тот же путь /media/... редиректит на подписанный (presigned) URL объекта.
+    storage = get_storage()
+    if storage.is_remote:
+        @app.get("/media/{path:path}", name="media")
+        def media_redirect(path: str):
+            return RedirectResponse(storage.url(path))
+    else:
+        app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
     # Каждый роутер — на корень (совместимость) и под /api/v1 (версионирование).
     for r in all_routers:
         app.include_router(r)

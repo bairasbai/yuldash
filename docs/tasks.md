@@ -1,5 +1,15 @@
 # ✅ Задачи Юлдаш
 
+## ☁️ Фаза 5.3 — Медиа в облако S3 (абстракция хранилища) — 2026-07-06, ветка `feat/media-s3` (draft PR)
+> Проблема (G-аудит): фото машин/документов/чеков лежали ТОЛЬКО на диске сервера → при переезде/масштабировании терялись.
+- ✅ **Сделано (бэкенд):** новая абстракция `backend/app/storage.py` — `Storage` + `LocalStorage` (диск, дефолт) + `S3Storage` (S3-совместимое, `boto3`, ленивый импорт). Все точки работы с файлами мигрированы на `get_storage()`: `discovery.py` (voice/chat), `drivers.py` (docs + `/secure/docs` redirect для S3), `driver_check.py` (чтение для OCR), `account.py` (удаление), `main.py` (`/media` StaticFiles ↔ redirect). Конфиг S3 — только из `.env` (`STORAGE_BACKEND`, `S3_*`), секреты НЕ в git. Без ключей S3 = локальный диск, поведение 1:1 как раньше (полный фолбэк).
+- ✅ **Тесты:** `backend/tests/test_storage.py` (13 шт., boto3 замокан — реального S3 в CI нет). Полный прогон `pytest -q` → **194 passed, 1 skipped**. Детали — `architecture.md` (раздел 2026-07-06).
+- ⏳ **Осталось Александру (чтобы включить облако; пока НЕ включено):**
+  1. Завести бакет у провайдера (Timeweb / VK Cloud / Selectel — S3-совместимые).
+  2. Ключи в `.env` на проде: `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_ENDPOINT_URL` (+`S3_REGION`); при желании `STORAGE_BACKEND=s3`.
+  3. Один раз перенести существующие файлы `backend/media/*` и `backend/private/docs/*` в бакет (скрипт-миграция — отдельная задача).
+  4. PR — черновой (draft), зависит от порядка вливания веток #2/#3; смержить после них.
+
 ## 🔬 Полный аудит 2026-07-04 — прогресс по пакетам
 > Аудит: [audit-2026-07-04-full.md](audit-2026-07-04-full.md) (227 находок: P0-1, P1-17, P2-83, P3-126). План — 12 рабочих пакетов (WP), 1 пакет = 1 коммит.
 - ✅ **WP-0 (CI, минуты)** — убран двойной прогон (on: push+pull_request → pull_request + push:main), timeout-minutes:15, cache:pip, concurrency cancel-in-progress. Пуш `91f0108`.
