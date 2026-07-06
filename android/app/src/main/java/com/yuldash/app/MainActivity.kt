@@ -318,7 +318,8 @@ internal enum class Screen {
     AppReview,
     AdminReviews,
     AdminAds,
-    AdEditor
+    AdEditor,
+    MyStats        // «Мой Юлдаш» — личная статистика попутчика (F18)
 }
 
 internal enum class HomeTab {

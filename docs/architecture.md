@@ -31,6 +31,12 @@
 
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
 
+## F18 «Мой Юлдаш» — личная статистика (2026-07-06, ветка `feat/my-stats`)
+- **Экран:** `MyStatsScreen.kt` — новый `Screen.MyStats` (в `enum Screen` MainActivity.kt) + ветка в `YuldashApp.kt`; вход из профиля (карточка «Мой Юлдаш», `ProfileScreen.kt`, параметр `onMyStats`). Плитки Canon* (км/поездки/₽/CO₂), «звание» + прогресс-бар до следующего, кнопка «Поделиться». Все состояния (загрузка/ошибка+повтор/нули для новичка).
+- **Шеринг картинкой:** открытка рисуется на Android `Canvas` (`drawStatsBitmap`, 1080×1350) → PNG в `cacheDir/shared/` → `FileProvider` (authority `${applicationId}.fileprovider`, `res/xml/file_paths.xml`, объявлен в манифесте) → `ACTION_SEND image/png`. Фолбэк — текстовый шеринг при ошибке.
+- **Данные:** `ApiClient.getMyStats()` → `MyStatsDto` (км/поездки/сэкономлено ₽/CO₂/звание+прогресс).
+- **Backend:** `GET /me/stats` (`backend/app/routers/stats.py`, зарегистрирован в `routers/__init__.py`) — агрегаты по `current_user` (приватность): завершённые брони (пассажир) + завершённые поездки (водитель). Дистанция — координаты концов маршрута, иначе `geocode_city`. Звание — по числу поездок (`RANKS`), уровень 0 у новичка (без «наград»). Коэффициенты в `config.py`: `stats_taxi_rub_per_km`, `stats_co2_grams_per_km` (⚠️ уточнит Александр). Тесты `tests/test_stats_edges.py`. Миграция НЕ нужна.
+
 ## Лендинг web/ — интерактивная версия 2026-06-29
 - **Production-hardening 2026-06-30:** `web/` обновлён до Next.js 16.2.9, PostCSS поднят до 8.5.x через `overrides`, потому `npm audit --omit=dev` теперь 0 vulnerabilities. Build остаётся статическим (`output: "export"`) и деплоится как `web/out/` в `/var/www/yuldash-landing`.
 - Главная страница `web/app/page.tsx` стала тонкой оболочкой: `MotionConfig` → `LangProvider` → `DownloadProvider` → `YuldashLanding`.
