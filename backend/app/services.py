@@ -177,8 +177,10 @@ def blocked_user_ids(session: Session, uid: int) -> set[int]:
 _fcm_app = None
 
 
-def send_push(session: Session, user_id: int, title: str, body: str) -> None:
-    """Push на все устройства пользователя. Тихо ничего, если Firebase не настроен (нет ключа)."""
+def send_push(session: Session, user_id: int, title: str, body: str, data: dict | None = None) -> None:
+    """Push на все устройства пользователя. Тихо ничего, если Firebase не настроен (нет ключа).
+    `data` — необязательный data-payload (напр. оффер «Быстрого заказа» → полноэкранная карточка
+    на клиенте). FCM требует строковые значения в data — приводим к str на всякий случай."""
     if not settings.firebase_credentials:
         return
     try:
@@ -187,13 +189,14 @@ def send_push(session: Session, user_id: int, title: str, body: str) -> None:
         from firebase_admin import credentials, messaging
         if _fcm_app is None:
             _fcm_app = firebase_admin.initialize_app(credentials.Certificate(settings.firebase_credentials))
+        payload_data = {k: str(v) for k, v in data.items()} if data else None
         tokens = [d.token for d in session.exec(select(DeviceToken).where(DeviceToken.user_id == user_id)).all()]
         for t in tokens:
             try:
-                messaging.send(messaging.Message(
-                    notification=messaging.Notification(title=title, body=body),
-                    token=t,
-                ))
+                msg_kwargs = {"notification": messaging.Notification(title=title, body=body), "token": t}
+                if payload_data:                         # data-payload только когда есть (не ломаем прежних вызовов)
+                    msg_kwargs["data"] = payload_data
+                messaging.send(messaging.Message(**msg_kwargs))
             except Exception as e:  # noqa: BLE001
                 print(f"[FCM] send error: {e}")
     except Exception as e:  # noqa: BLE001

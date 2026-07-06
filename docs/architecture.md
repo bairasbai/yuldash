@@ -337,4 +337,24 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
   - `test_auth_edges.py`
 - Latest backend verification: `pytest tests -q` → `148 passed, 1 skipped`; coverage for `backend/app` → `91%` (`3186` statements, `300` missed).
 - High-covered active modules after this pass: `routers/ads.py` 99%, `routers/auth.py` 98%, `payments.py` 100%, `routers/payments.py` 95%, `routers/requests.py` 95%, `routers/safety.py` 99%, `driver_check.py` 96%, `routers/rides.py` 93%.
+
+## 2026-07-06 — 🚕 Домен «Быстрый заказ» (такси-режим, Фаза 2, БЭКЕНД) — ветка `feat/instant-order`
+
+Флагман Фазы 2. **Отдельный поток** от плановых поездок (Ride/Booking — не тронут). Полный статус, конфиг и «что осталось» — в [instant-order-backend.md](instant-order-backend.md).
+
+**Новые файлы:**
+- `backend/app/instant_service.py` — сервисный слой: presence (Redis GEO), тариф (сервер считает сам), machine состояний + matcher.
+- `backend/app/routers/instant.py` — эндпоинты (`/instant/*`), зарегистрирован в `routers/__init__.py`.
+- `backend/alembic/versions/p2_instant_order.py` — миграция (rev `p2_instant_order`, down `0004`), идемпотентна: на свежей БД create_all уже создал таблицы → no-op; на проде создаёт `tariff` + `instantorder` c индексами.
+- `backend/tests/test_instant.py` — 25 тестов (тариф/presence/matcher/машина/гонка/таймаут/отмены/приватность).
+
+**Модели (`models.py`):** `Tariff(zone, category, base, per_km, per_min, min_price, k, active)`; `InstantOrder(...+ таймстампы переходов)`; `InstantOrderStatus` (created→searching→offered→accepted→arriving→onboard→done, терминальные cancelled/expired). **Presence — только Redis** (эфемерно, в БД нет).
+
+**Presence:** `POST /instant/presence` (водитель «на линии») → `GEOADD presence` + `SET presence:hb:{id} EX 60`. Переиспользует `services._cache_client()`. Без Redis — graceful (заказ не находит водителей, не падает).
+
+**Тариф:** `POST /instant/estimate` — сервер считает `max(min_price, base + per_km·dist + per_min·eta)·k`, округл. до 10 ₽, `dist = haversine × road_k`. **Клиенту не верит** (в схеме нет поля цены). Зоны город/межгород по порогу дистанции. Сид тарифов — в lifespan (`seed_tariffs`, всегда, не под `seed_demo`).
+
+**Заказ + matcher:** `POST /instant/orders` считает цену → matcher `GEOSEARCH` c расширением 3→7→15 км → фильтр (online/verified/не занят/не в блоке) → скоринг (подача/рейтинг) → оффер top-1 через `send_push` (data-payload) с таймаутом 20с. Переходы: `/accept /decline /arrived /onboard /done /cancel` — под row-lock (`with_for_update`) + атомарный условный UPDATE (гонка двух accept → второму **409**, корректно и на SQLite). Ленивый таймаут оффера (reconcile при чтении) — работает **без arq-воркера**. Приватность: телефоны сторон раскрываются ТОЛЬКО после accept; координаты не логируем.
+
+**Тесты:** backend `pytest -q` → **206 passed, 1 skipped**. Alembic `upgrade head` на чистой БД проходит + идемпотентен (оба пути проверены).
 - Remaining lower areas are mostly integration-heavy/infrastructure: `services.py`, `db.py`, `middleware.py`, and WebSocket internals in `routers/chat.py`.

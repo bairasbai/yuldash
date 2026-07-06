@@ -287,6 +287,78 @@ class RequestResponse(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+# ---- Фаза 2: «Быстрый заказ» (такси-режим) — presence/тариф/заказ/matcher ----
+
+class InstantOrderStatus(str, Enum):
+    """Машина состояний быстрого заказа. Терминальные: done/cancelled/expired (выхода нет)."""
+    created = "created"        # заказ создан
+    searching = "searching"    # matcher ищет водителя
+    offered = "offered"        # оффер отправлен водителю (ждём accept/decline/timeout)
+    accepted = "accepted"      # водитель принял (телефоны раскрываются обеим сторонам)
+    arriving = "arriving"      # водитель едет к пассажиру (подача)
+    onboard = "onboard"        # пассажир в машине
+    done = "done"              # поездка завершена
+    cancelled = "cancelled"    # отменён (пассажиром или водителем)
+    expired = "expired"        # никто не принял / рядом никого
+
+
+class Tariff(SQLModel, table=True):
+    """Тариф быстрого заказа. Цену считает СЕРВЕР (не клиент): price = max(min_price,
+    base + per_km·dist + per_min·eta) · k, округление до 10 ₽. zone: city|intercity."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    zone: str = Field(default="city", index=True)       # city | intercity
+    category: str = Field(default="standard", index=True)  # standard | ... (на будущее)
+    base: int = 0                    # подача, ₽
+    per_km: float = 0.0              # ₽ за км
+    per_min: float = 0.0             # ₽ за минуту
+    min_price: int = 0               # минимальная цена поездки, ₽
+    k: float = 1.0                   # surge-коэффициент (v1 = 1.0, поле на будущее)
+    active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class InstantOrder(SQLModel, table=True):
+    """Быстрый заказ (такси-режим). Отдельный поток от плановых поездок (Ride/Booking).
+    Все переходы статусов — под row-lock, идемпотентные. Координаты в БД нужны для трека
+    и приватности (телефоны раскрываются только после accept)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    passenger_id: int = Field(index=True, foreign_key="user.id")
+    # Точки А (откуда) и Б (куда)
+    from_lat: float = 0.0
+    from_lng: float = 0.0
+    to_lat: float = 0.0
+    to_lng: float = 0.0
+    from_text: str = ""
+    to_text: str = ""
+    category: str = "standard"
+    status: InstantOrderStatus = Field(default=InstantOrderStatus.created, index=True)
+    # Цена: estimate — оценка сервера при создании; final — фактическая при завершении.
+    price_estimate: int = 0
+    price_final: Optional[int] = None
+    tariff_id: Optional[int] = Field(default=None, foreign_key="tariff.id")
+    distance_km: float = 0.0
+    eta_min: float = 0.0
+    # Назначенный водитель (после accept). До accept телефоны скрыты.
+    driver_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")
+    # Текущий оффер (кому сейчас предложено) + дедлайн ответа + счётчик кругов подбора.
+    current_offer_driver_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    offer_expires_at: Optional[datetime] = None
+    search_round: int = 0
+    # Отмена: кто и почему.
+    cancel_by: str = ""              # passenger | driver | system
+    cancel_reason: str = ""
+    # Таймстампы переходов (пишутся машиной состояний).
+    created_at: datetime = Field(default_factory=utcnow)
+    searching_at: Optional[datetime] = None
+    offered_at: Optional[datetime] = None
+    accepted_at: Optional[datetime] = None
+    arriving_at: Optional[datetime] = None
+    onboard_at: Optional[datetime] = None
+    done_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    expired_at: Optional[datetime] = None
+
+
 class AdEvent(SQLModel, table=True):
     """Событие по рекламе: показ или клик (для реальной статистики кабинета)."""
     id: Optional[int] = Field(default=None, primary_key=True)
