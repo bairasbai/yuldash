@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     # Пусто → rate-limit in-memory на воркер, WS — локальный режим (один воркер). Пример: redis://127.0.0.1:6379/0
     redis_url: str = ""
 
+    # --- Наблюдаемость (Sentry + алерты) ---
+    # Sentry: сбор ошибок/трейсбеков. Пусто → полный no-op (ничего не инициализируется и не шлётся).
+    # DSN — секрет, только из env, НЕ в git. Пример: https://<key>@o0.ingest.sentry.io/0
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0   # доля трейсов производительности (0 → только ошибки, дёшево)
+    # Алерт в Telegram при всплеске серверных ошибок (5xx). Простой счётчик в окне + порог.
+    error_alert_threshold: int = 10          # сколько 5xx в окне, чтобы отправить один алерт
+    error_alert_window_sec: int = 300        # окно наблюдения (сек)
+    error_alert_cooldown_sec: int = 900      # не чаще одного алерта раз в N сек (анти-спам)
+
     # --- Прод-параметры ---
     media_base_url: str = "https://yulbash.ru"   # база для публичных URL медиа (фото/голос)
     cors_origins: str = "*"                       # список origin через запятую; в проде сузить

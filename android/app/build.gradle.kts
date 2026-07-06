@@ -80,6 +80,14 @@ val smsLoginEnabled: Boolean = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YULDASH_SMS_LOGIN", "false").trim().lowercase() == "true"
 
+// Sentry DSN (сбор ошибок приложения) — из local.properties (НЕ в git):
+//   YULDASH_SENTRY_DSN=https://<key>@o0.ingest.sentry.io/0
+// Пусто → Sentry не инициализируется (no-op), приложение работает как раньше.
+val sentryDsn: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_SENTRY_DSN", "")
+
 // Подпись релиза: данные из keystore.properties (в .gitignore, в git не попадает).
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
@@ -113,6 +121,7 @@ android {
         buildConfigField("String", "TELEGRAM_BOT", "\"$telegramBot\"")
         buildConfigField("String", "VK_APP_ID", "\"$vkAppId\"")
         buildConfigField("boolean", "SMS_LOGIN_ENABLED", "$smsLoginEnabled")
+        buildConfigField("String", "SENTRY_DSN", "\"$sentryDsn\"")
     }
 
     buildFeatures {
@@ -195,6 +204,9 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics-ktx")   // метрики: DAU/удержание/воронка событий (активно при google-services.json)
     // Шифрованное хранилище JWT (вместо открытого SharedPreferences).
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // Sentry (сбор ошибок/крашей). Инициализируется вручную в YuldashApplication ТОЛЬКО
+    // при заданном BuildConfig.SENTRY_DSN (без Gradle-плагина — меньше риска для сборки).
+    implementation("io.sentry:sentry-android:7.14.0")
     // ZXing core (только генерация QR-матрицы, без Android-модуля) — QR оплаты Сбербанка (СБП по номеру).
     implementation("com.google.zxing:core:3.5.3")
     // Lifecycle-aware корутины в Compose (LocalLifecycleOwner + repeatOnLifecycle):

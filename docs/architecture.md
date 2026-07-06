@@ -27,6 +27,14 @@
 
 **Бэкенд** `backend/app/routers/`: `location.py` (WS `/ws/trip/{id}/location` реле + `/ws/map` сигнал), `requests.py` (заявка + prefs + `/near` округл. коорд + лента), `bookings.py` (бронь, приватные детали `/bookings/{id}/details`, `driver_phase`, статусы), `rides.py`, `discovery.py` (`/feed` + `donations_total`), `chat.py` (WS `/ws/bookings/{id}`, REST-история, `/conversations` показывает активные брони даже до первого сообщения), `drivers.py`, `payments.py` (донат/буст СБП «на доверии»), `ads.py`, `safety.py`, `family.py`. Деплой — `docs/server.md`.
 
+**🔭 Наблюдаемость (2026-07-06, ветка `feat/observability`, Фаза 1.1):**
+- **Sentry (бэк)** — `backend/app/observability.py:init_sentry()`, зовётся в `main.create_app()`. Активен ТОЛЬКО при `SENTRY_DSN` в env, иначе полный no-op. Конфиг: `sentry_dsn`, `sentry_traces_sample_rate` в `config.py`. PII не шлём (`send_default_pii=False`, 152-ФЗ). Зависимость `sentry-sdk[fastapi]` в `requirements.txt`.
+- **Sentry (Android)** — `YuldashApplication.initSentry()` (SDK `io.sentry:sentry-android`), DSN из `BuildConfig.SENTRY_DSN` ← `local.properties:YULDASH_SENTRY_DSN` (НЕ в git). Пусто → no-op. PII off.
+- **`/health` расширен** (`routers/health.py`) — компоненты `{db, redis, fcm}` + агрегат `components`; плоские `status`/`db` сохранены (парсит `monitor.sh` и старые тесты). Пробы не бросают исключений: недоступный компонент → его статус, а не 500.
+- **`/health/ready`** — гейт деплоя: 200 если БД доступна, иначе 503.
+- **Алерт 5xx** — `services.record_server_error()`: счётчик серверных ошибок в окне + порог → ОДНО сообщение админу в Telegram (`notify_admin_telegram`), затем cooldown (анти-спам). Пороги: `error_alert_threshold/window_sec/cooldown_sec` в `config.py`. Считается в `AccessLogMiddleware` (явные 5xx, кроме `/health*`) и в `unhandled_exception_handler` (реальные краши). Тесты — `tests/test_observability.py` (7).
+- **Шаги Александра для активации:** создать проект Sentry → положить DSN в прод-env (`SENTRY_DSN=...`) и в `local.properties` (`YULDASH_SENTRY_DSN=...`); при желании задать `ERROR_ALERT_THRESHOLD`. Без этих шагов всё работает как раньше (no-op).
+
 **Кабинет партнёра (реклама, План B — в разработке):** `Ad` расширен полями `owner_id` (партнёр-владелец), `reject_reason`, `package`/`budget_kop`/`period_days` (тариф), `submitted_at`/`reviewed_at`; статусы `pending_review`/`rejected` добавлены к строке `status`. `User.is_advertiser`. Тарифы — конфиг `AD_PACKAGES` в `ads.py` (не хардкод в клиенте). Миграция `alembic/versions/0003_partner_ads_columns.py`. Приватность: партнёр видит/меняет только `owner_id==self`, админ — всё.
 
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).

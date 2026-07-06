@@ -10,3 +10,5 @@ firebase-admin>=6.5
 alembic>=1.13
 redis>=5.0
 gunicorn>=21.2
+# Наблюдаемость: сбор ошибок/трейсбеков. Активен только при заданном SENTRY_DSN (иначе no-op).
+sentry-sdk[fastapi]>=2.0

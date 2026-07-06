@@ -128,11 +128,22 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         start = time.monotonic()
         resp = await call_next(request)
         ms = (time.monotonic() - start) * 1000.0
-        print(f"[REQ] {request.method} {request.url.path} -> {resp.status_code} {ms:.0f}ms")
+        path = request.url.path
+        print(f"[REQ] {request.method} {path} -> {resp.status_code} {ms:.0f}ms")
+        # Явные серверные ошибки (500/503 и т.п.) считаем для алерта о всплеске.
+        # /health* исключаем: 503 от readiness-пробы — это отдельный ожидаемый сигнал
+        # (его отслеживает monitor.sh), а не «всплеск багов».
+        if resp.status_code >= 500 and not path.startswith("/health"):
+            from .services import record_server_error
+            record_server_error(path)
         return resp
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Любая необработанная ошибка → 500 без утечки стека наружу (стек — в лог)."""
     print(f"[ERR] {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
+    # Реальный краш (проброшенное исключение) до AccessLogMiddleware не доходит —
+    # считаем его здесь, у источника 500.
+    from .services import record_server_error
+    record_server_error(request.url.path)
     return JSONResponse({"detail": "Внутренняя ошибка сервера"}, status_code=500)
