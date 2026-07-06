@@ -750,7 +750,8 @@ internal fun ActiveTripScreen(
     bookingId: Int?,
     onBack: () -> Unit,
     onTripEnd: () -> Unit,
-    onSos: () -> Unit
+    onSos: () -> Unit,
+    onSupport: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var messages by remember(bookingId) { mutableStateOf<List<MessageDto>>(emptyList()) }
@@ -985,6 +986,44 @@ internal fun ActiveTripScreen(
                                             }
                                         }
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+            // Мягкое, ненавязчивое предложение поддержать платформу после завершённой поездки.
+            // Легко закрыть (крестик / «Не сейчас») — поддержка строго по желанию.
+            if (bookingStatus == "done") item {
+                var supportDismissed by rememberSaveable(bookingId) { mutableStateOf(false) }
+                AnimatedVisibility(visible = !supportDismissed) {
+                    Card(
+                        modifier = Modifier.appearIn(3),
+                        colors = CardDefaults.cardColors(containerColor = CanonGreen.copy(alpha = 0.10f)),
+                        shape = CanonItemShape,
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.VolunteerActivism, contentDescription = null, tint = CanonGreen)
+                                Text(appText("Юлдаш делают для своих 🌱", "Юлдашты үҙебеҙ өсөн эшләйбеҙ 🌱"), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                IconButton(onClick = { supportDismissed = true }) {
+                                    Icon(Icons.Default.Close, contentDescription = appText("Закрыть", "Ябыу"), tint = CanonMuted)
+                                }
+                            }
+                            Text(
+                                appText("Если нравится — поддержи, это по желанию.", "Оҡшаһа — ярҙам ит, был ирекле."),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                FilledTonalButton(
+                                    onClick = onSupport,
+                                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonGreen.copy(alpha = 0.18f))
+                                ) {
+                                    Text(appText("Поддержать", "Ярҙам итеү"), color = CanonGreen, fontWeight = FontWeight.Bold)
+                                }
+                                TextButton(onClick = { supportDismissed = true }) {
+                                    Text(appText("Не сейчас", "Хәҙер түгел"), color = CanonMuted)
+                                }
                             }
                         }
                     }

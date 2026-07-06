@@ -38,6 +38,8 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         return
     payment.status = "succeeded"
     session.add(payment)
+    # donate / support → просто отметка succeeded (доход платформы, а НЕ деньги за проезд):
+    # ledger водителя НЕ трогаем. Начисление водителю — только для purpose ride/booking ниже.
     # Оплата поездки (Фаза 3): начисление водителю через ledger. Фиксируем succeeded ДО
     # начисления (settle открывает свою транзакцию под row-lock). Идемпотентно по флагу paid
     # заказа/брони — повторный webhook → settle вернёт "already", ledger не задваивается.
@@ -76,7 +78,7 @@ def _notify_new_payment(session: Session, payment: Payment) -> None:
     """Telegram админу о новой заявке на оплату (СБП): сверь карту → подтверди в кабинете."""
     payer = session.get(User, payment.user_id)
     who = (payer.name if payer and payer.name else "—") + (f" · {payer.phone}" if payer and payer.phone else "")
-    label = {"boost": "Буст", "donate": "Донат", "ad": "Реклама"}.get(payment.purpose, payment.purpose)
+    label = {"boost": "Буст", "donate": "Донат", "support": "Поддержка", "ad": "Реклама"}.get(payment.purpose, payment.purpose)
     notify_admin_telegram(
         (
             f"💳 Новая оплата СБП\n"
@@ -207,6 +209,54 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
     return {"status": "pending", "method": "yookassa", "payment_id": payment.id, "confirmation_url": res["confirmation_url"]}
 
 
+# ----------------------------- «Поддержать Юлдаш» (добровольная поддержка платформы) -----------------------------
+# Пресеты берёт клиент (кнопки 20/50/100 ₽), но границы валидирует СЕРВЕР — клиенту не верим.
+SUPPORT_MIN_KOP = 1000        # 10 ₽ — нижняя граница (символическая поддержка)
+SUPPORT_MAX_KOP = 500_000     # 5000 ₽ — верхняя граница (защита от опечатки/фрода)
+
+
+class SupportDonateIn(BaseModel):
+    amount_kop: int   # сумма поддержки, целые копейки (деньги — только int)
+
+
+@router.post("/support/donate")
+def support_donate(body: SupportDonateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """«Поддержать Юлдаш» — ДОБРОВОЛЬНАЯ поддержка платформы (не обязательная, не за проезд).
+
+    Это доход платформы, а НЕ водителю: ledger НЕ трогаем (purpose=support → _activate_payment
+    только помечает succeeded). Оплата через ту же ЮKassa-инфру, что boost/донат; без ключей —
+    СБП-перевод по номеру (подтверждает админ). Идемпотентно на уровне денег: повторный webhook
+    по тому же provider_id → no-op (payment уже succeeded), задвоения нет."""
+    amount_kop = body.amount_kop
+    if amount_kop < SUPPORT_MIN_KOP or amount_kop > SUPPORT_MAX_KOP:
+        raise HTTPException(400, f"Сумма поддержки — от {SUPPORT_MIN_KOP // 100} до {SUPPORT_MAX_KOP // 100} ₽")
+    if settings.is_prod and settings.payments_provider == "mock":
+        raise HTTPException(503, "Оплата скоро будет доступна")
+
+    payment = Payment(user_id=user.id, purpose="support", amount_kop=amount_kop)
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+
+    # СБП-перевод по номеру: платёж висит pending, подтверждает админ после получения денег.
+    if settings.payments_provider == "sbp_manual":
+        _notify_new_payment(session, payment)
+        return {
+            "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
+            "amount": amount_kop // 100,
+            "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
+        }
+
+    res = create_payment(amount_kop, "Юлдаш · поддержка платформы", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    payment.provider_id = res["provider_id"]
+    session.add(payment)
+    session.commit()
+    if res["status"] == "succeeded":          # mock/dev — оплачено сразу
+        _activate_payment(session, payment)     # purpose=support → просто succeeded, ledger не трогаем
+        return {"status": "succeeded", "method": "yookassa", "payment_id": payment.id}
+    return {"status": "pending", "method": "yookassa", "payment_id": payment.id, "confirmation_url": res["confirmation_url"]}
+
+
 # ----------------------------- Админ: подтверждение СБП-переводов -----------------------------
 def _require_admin(user: User) -> None:
     if user.role != UserRole.admin:
@@ -275,7 +325,7 @@ def admin_payments_summary(user: User = Depends(current_user), session: Session 
         rows = session.exec(select(Payment).where(Payment.purpose == purpose, Payment.status == "succeeded")).all()
         return {"count": len(rows), "sum_rub": sum(p.amount_kop for p in rows) // 100}
 
-    return {"donate": agg("donate"), "boost": agg("boost")}
+    return {"donate": agg("donate"), "boost": agg("boost"), "support": agg("support")}
 
 
 @router.post("/payments/yookassa/webhook")

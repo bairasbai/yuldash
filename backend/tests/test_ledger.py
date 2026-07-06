@@ -88,6 +88,15 @@ def test_fee_kop_round_half_up():
     assert ledger.fee_kop_for(100, 12.5) == 13
 
 
+def test_default_service_fee_is_8_percent():
+    """Дефолтная комиссия платформы = 8% (втрое ниже Яндекса ~24–30%); правится без пересборки."""
+    from app.config import settings
+    assert settings.service_fee_percent == 8.0
+    # По дефолту (percent=None → берёт из конфига): 20000 коп · 8% = 1600.
+    assert ledger.fee_kop_for(20000) == 1600
+    assert ledger.fee_kop_for(30000) == 2400
+
+
 # ============================ Начисление за поездку ============================
 def test_pay_cashless_posts_earn_and_fee(client, user_factory):
     """Оплата картой завершённого заказа: earn (+вся сумма) и fee (−комиссия); баланс = earn − fee."""
@@ -99,8 +108,8 @@ def test_pay_cashless_posts_earn_and_fee(client, user_factory):
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "succeeded"
 
-    # Баланс = 20000 − 3000 = 17000 коп (свежий водитель → детерминированно).
-    assert _bal(drv["id"]) == 17000
+    # Баланс = 20000 − 1600 (8%) = 18400 коп (свежий водитель → детерминированно).
+    assert _bal(drv["id"]) == 18400
     with Session(engine) as s:
         rows = s.exec(select(LedgerEntry).where(LedgerEntry.driver_id == drv["id"])).all()
         kinds = sorted(e.kind.value for e in rows)
@@ -108,7 +117,7 @@ def test_pay_cashless_posts_earn_and_fee(client, user_factory):
         earn = next(e for e in rows if e.kind == LedgerKind.earn)
         fee = next(e for e in rows if e.kind == LedgerKind.fee)
         assert earn.amount_kop == 20000 and earn.order_id == oid
-        assert fee.amount_kop == -3000
+        assert fee.amount_kop == -1600
         assert s.get(InstantOrder, oid).paid is True
 
 
@@ -120,7 +129,7 @@ def test_wallet_balance_and_ledger_endpoints(client, user_factory):
     client.post(f"/instant/orders/{oid}/pay", headers=pax["auth"], json={"method": "card"})
 
     bal = client.get("/wallet/balance", headers=drv["auth"]).json()
-    assert bal["balance_kop"] == 17000 and bal["balance_rub"] == 170
+    assert bal["balance_kop"] == 18400 and bal["balance_rub"] == 184
     entries = client.get("/wallet/ledger", headers=drv["auth"]).json()
     assert len(entries) == 2
     assert {e["kind"] for e in entries} == {"earn", "fee"}
@@ -164,7 +173,7 @@ def test_settle_idempotent_no_double(client, user_factory):
         assert ledger.settle_instant_order(s, oid, "card", 20000) == "settled"
     with Session(engine) as s:
         assert ledger.settle_instant_order(s, oid, "card", 20000) == "already"
-    assert _bal(drv["id"]) == 17000
+    assert _bal(drv["id"]) == 18400
     with Session(engine) as s:
         rows = s.exec(select(LedgerEntry).where(LedgerEntry.driver_id == drv["id"])).all()
         assert len(rows) == 2                            # ровно earn+fee, не 4
@@ -178,7 +187,7 @@ def test_pay_twice_returns_already_paid(client, user_factory):
     assert client.post(f"/instant/orders/{oid}/pay", headers=pax["auth"], json={"method": "card"}).json()["status"] == "succeeded"
     r2 = client.post(f"/instant/orders/{oid}/pay", headers=pax["auth"], json={"method": "card"})
     assert r2.json()["status"] == "already_paid"
-    assert _bal(drv["id"]) == 17000
+    assert _bal(drv["id"]) == 18400
 
 
 def test_webhook_repeat_does_not_double_ledger(client, user_factory, monkeypatch):
@@ -201,7 +210,7 @@ def test_webhook_repeat_does_not_double_ledger(client, user_factory, monkeypatch
             assert client.post("/payments/yookassa/webhook",
                                json={"object": {"id": "pid_ride_idem"}}).status_code == 200
 
-        assert _bal(drv["id"]) == 17000
+        assert _bal(drv["id"]) == 18400
         with Session(engine) as s:
             rows = s.exec(select(LedgerEntry).where(LedgerEntry.driver_id == drv["id"])).all()
             assert len(rows) == 2
@@ -288,8 +297,8 @@ def test_pay_done_booking_cashless(client, user_factory):
     bid = _make_done_booking(drv["id"], pax["id"], price_rub=300)
     r = client.post(f"/bookings/{bid}/pay", headers=pax["auth"], json={"method": "card"})
     assert r.status_code == 200 and r.json()["status"] == "succeeded"
-    # 300 ₽ = 30000 коп; комиссия 15% = 4500 → баланс 25500.
-    assert _bal(drv["id"]) == 25500
+    # 300 ₽ = 30000 коп; комиссия 8% = 2400 → баланс 27600.
+    assert _bal(drv["id"]) == 27600
     with Session(engine) as s:
         assert s.get(Booking, bid).paid is True
         row = s.exec(select(LedgerEntry).where(LedgerEntry.booking_id == bid, LedgerEntry.kind == LedgerKind.earn)).first()

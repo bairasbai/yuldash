@@ -61,7 +61,7 @@ def test_estimate_server_computes(client, user_factory):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["price"] % 10 == 0            # округление до 10 ₽
-    assert body["price"] >= 150               # не ниже min_price города
+    assert body["price"] >= 100               # не ниже min_price города (новый тариф)
     assert body["distance_km"] > 0 and body["eta_min"] > 0
     assert body["zone"] == "city"
 
@@ -81,7 +81,40 @@ def test_estimate_zone_intercity(client, user_factory):
     ufa = (54.735, 55.958)
     body = client.post("/instant/estimate", headers=pax["auth"], json=_order_body(to=ufa)).json()
     assert body["zone"] == "intercity"
-    assert body["price"] >= 400
+    assert body["price"] >= 150               # не ниже min_price межгорода (новый тариф)
+
+
+def test_seed_tariff_values_are_new():
+    """Стартовые тарифы засеены новыми числами (город/межгород, ₽): сильно ниже конкурентов."""
+    from app.models import Tariff
+    from sqlmodel import select
+    with Session(engine) as s:
+        city = s.exec(select(Tariff).where(Tariff.zone == "city", Tariff.active == True)).first()  # noqa: E712
+        inter = s.exec(select(Tariff).where(Tariff.zone == "intercity", Tariff.active == True)).first()  # noqa: E712
+    assert (city.base, city.per_km, city.per_min, city.min_price, city.k) == (70, 11.0, 3.0, 100, 1.0)
+    assert (inter.base, inter.per_km, inter.per_min, inter.min_price, inter.k) == (80, 9.0, 2.0, 150, 1.0)
+
+
+def test_estimate_matches_new_tariff_formula(client, user_factory):
+    """estimate считает по НОВЫМ числам тарифа: price = max(min, base+per_km·dist+per_min·eta)·k."""
+    from app.services import haversine_km
+    from app.config import settings
+    pax = user_factory("EstFormula")
+    body = client.post("/instant/estimate", headers=pax["auth"], json=_order_body()).json()
+    dist = max(haversine_km(ORIG[0], ORIG[1], DEST[0], DEST[1]) * settings.instant_road_k, 0.5)
+    eta = dist / settings.instant_avg_speed_kmh * 60
+    expected = max(100, isv.round_to_10((70 + 11.0 * dist + 3.0 * eta) * 1.0))  # город
+    assert body["zone"] == "city"
+    assert body["price"] == expected
+
+
+def test_estimate_city_min_price_binds_on_tiny_trip(client, user_factory):
+    """Крошечная поездка упирается в min_price города = 100 ₽ (детерминированно)."""
+    pax = user_factory("EstTiny")
+    tiny = (ORIG[0] + 0.0005, ORIG[1] + 0.0005)   # ~70 м → floor 0.5 км
+    body = client.post("/instant/estimate", headers=pax["auth"], json=_order_body(to=tiny)).json()
+    assert body["zone"] == "city"
+    assert body["price"] == 100
 
 
 # ============================ Presence ============================

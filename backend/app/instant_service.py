@@ -147,8 +147,9 @@ def seed_tariffs(session: Session) -> None:
     поэтому сеются всегда при пустой таблице. Значения — стартовые, правятся в БД."""
     if session.exec(select(Tariff)).first():
         return
-    session.add(Tariff(zone="city", category="standard", base=100, per_km=15.0, per_min=5.0, min_price=150, k=1.0))
-    session.add(Tariff(zone="intercity", category="standard", base=150, per_km=22.0, per_min=4.0, min_price=400, k=1.0))
+    # Стартовые цены — СИЛЬНО ниже конкурентов (правятся в БД без пересборки).
+    session.add(Tariff(zone="city", category="standard", base=70, per_km=11.0, per_min=3.0, min_price=100, k=1.0))
+    session.add(Tariff(zone="intercity", category="standard", base=80, per_km=9.0, per_min=2.0, min_price=150, k=1.0))
     session.commit()
 
 

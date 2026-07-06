@@ -260,8 +260,8 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun SupportScreen(onBack: () -> Unit) {
     val minAmount = 10
-    val maxAmount = 100_000
-    var selectedAmount by remember { mutableIntStateOf(30) }
+    val maxAmount = 5_000
+    var selectedAmount by remember { mutableIntStateOf(50) }
     var customMode by remember { mutableStateOf(false) }
     var customInput by remember { mutableStateOf("") }
     var completed by remember { mutableStateOf(false) }
@@ -278,7 +278,7 @@ internal fun SupportScreen(onBack: () -> Unit) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { ScreenTopBar(appText("Поддержать Юлдаш", "Юлдашҡа ярҙам итеү"), onBack) }
+        topBar = { ScreenTopBar(appText("Поддержать Юлдаш 🌱", "Юлдашҡа ярҙам итеү 🌱"), onBack) }
     ) { padding ->
         SupportContent(
             selectedAmount = selectedAmount,
@@ -302,8 +302,8 @@ internal fun SupportScreen(onBack: () -> Unit) {
                 sendError = false
             },
             onCustomInputChange = { new ->
-                // Только цифры, максимум 6 знаков (до 100 000).
-                customInput = new.filter { it.isDigit() }.take(6)
+                // Только цифры, максимум 4 знака (до 5 000 ₽).
+                customInput = new.filter { it.isDigit() }.take(4)
                 completed = false
                 sendError = false
             },
@@ -312,7 +312,8 @@ internal fun SupportScreen(onBack: () -> Unit) {
                 sending = true
                 sendError = false
                 scope.launch {
-                    ApiClient.createDonation(amount)
+                    // Новый эндпоинт добровольной поддержки: суммы в копейках (₽ · 100).
+                    ApiClient.supportDonate(amount * 100)
                         .onSuccess { donation = it; showSbp = true }
                         .onFailure { sendError = true }
                     sending = false
@@ -353,7 +354,7 @@ internal fun SupportContent(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val amounts = listOf(10, 30, 50, 100)
+    val amounts = listOf(20, 50, 100)
     val errMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     LazyColumn(
         modifier = modifier.padding(16.dp),
@@ -409,7 +410,7 @@ internal fun SupportContent(
                     isError = customInput.isNotEmpty() && !amountValid,
                     supportingText = {
                         if (customInput.isNotEmpty() && !amountValid)
-                            Text(appText("От $minAmount до 100 000 ₽", "$minAmount‑дан 100 000 ₽‑ҡа тиклем"))
+                            Text(appText("От $minAmount до 5 000 ₽", "$minAmount‑дан 5 000 ₽‑ҡа тиклем"))
                     }
                 )
             }

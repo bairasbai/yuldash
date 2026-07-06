@@ -1,10 +1,10 @@
 """Regression tests for payment edge cases and admin payment actions."""
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.config import settings
 from app.db import engine
-from app.models import Ad, Payment, Ride, UserRole
+from app.models import Ad, LedgerEntry, Payment, Ride, UserRole
 
 from test_flows import _publish
 
@@ -158,3 +158,70 @@ def test_yookassa_webhook_bad_json_and_fetch_failure_are_noop(client, user_facto
     with Session(engine) as session:
         assert session.get(Payment, payment_id).status == "pending"
         assert session.get(Ride, ride["id"]).boosted_until is None
+
+
+# ============================ «Поддержать Юлдаш» (добровольная поддержка) ============================
+def test_support_donate_bounds(client, user_factory):
+    """Границы суммы поддержки валидирует сервер: 10 ₽ (1000 коп) ≤ amount_kop ≤ 5000 ₽ (500000 коп)."""
+    user = user_factory("SupBounds")
+    assert client.post("/support/donate", headers=user["auth"], json={"amount_kop": 999}).status_code == 400
+    assert client.post("/support/donate", headers=user["auth"], json={"amount_kop": 500001}).status_code == 400
+    assert client.post("/support/donate", headers=user["auth"], json={"amount_kop": 1000}).status_code == 200
+    assert client.post("/support/donate", headers=user["auth"], json={"amount_kop": 500000}).status_code == 200
+
+
+def test_support_donate_mock_succeeds_and_no_driver_ledger(client, user_factory):
+    """Поддержка (mock) → succeeded, purpose=support, и НИКОМУ в ledger не начисляем (доход платформы)."""
+    user = user_factory("SupPay")
+    with Session(engine) as s:
+        ledger_before = len(s.exec(select(LedgerEntry)).all())
+
+    r = client.post("/support/donate", headers=user["auth"], json={"amount_kop": 5000})   # 50 ₽
+    assert r.status_code == 200
+    assert r.json()["status"] == "succeeded"
+    payment_id = r.json()["payment_id"]
+
+    with Session(engine) as s:
+        p = s.get(Payment, payment_id)
+        assert p.purpose == "support" and p.status == "succeeded" and p.amount_kop == 5000
+        # ledger не вырос — поддержка водителю не начисляется
+        assert len(s.exec(select(LedgerEntry)).all()) == ledger_before
+
+
+def test_support_donate_in_admin_summary(client, user_factory):
+    """Подтверждённая поддержка попадает в админ-сводку (счётчик дохода платформы)."""
+    user = user_factory("SupSummary")
+    assert client.post("/support/donate", headers=user["auth"], json={"amount_kop": 10000}).status_code == 200
+    admin = user_factory("SupSummaryAdmin", role=UserRole.admin)
+    summary = client.get("/admin/payments/summary", headers=admin["auth"]).json()
+    assert summary["support"]["count"] >= 1
+    assert summary["support"]["sum_rub"] >= 100
+
+
+def test_support_donate_webhook_idempotent(client, user_factory, monkeypatch):
+    """Повторный webhook по тому же provider_id → платёж активируется РОВНО один раз (идемпотентно)."""
+    old_provider = settings.payments_provider
+    settings.payments_provider = "yookassa"
+    try:
+        user = user_factory("SupHook")
+        with Session(engine) as s:
+            p = Payment(user_id=user["id"], purpose="support", amount_kop=20000,
+                        provider_id="pid_support_idem", status="pending")
+            s.add(p)
+            s.commit()
+            s.refresh(p)
+            pid = p.id
+            ledger_before = len(s.exec(select(LedgerEntry)).all())
+
+        monkeypatch.setattr("app.routers.payments.fetch_payment",
+                            lambda _pid: {"status": "succeeded", "metadata": {}})
+        for _ in range(2):
+            assert client.post("/payments/yookassa/webhook",
+                               json={"object": {"id": "pid_support_idem"}}).status_code == 200
+
+        with Session(engine) as s:
+            assert s.get(Payment, pid).status == "succeeded"
+            # ledger не тронут ни разу — поддержка не начисляется водителю даже через webhook
+            assert len(s.exec(select(LedgerEntry)).all()) == ledger_before
+    finally:
+        settings.payments_provider = old_provider

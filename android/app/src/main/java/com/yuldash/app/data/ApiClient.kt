@@ -1138,6 +1138,24 @@ object ApiClient {
             )
         }
 
+    /**
+     * «Поддержать Юлдаш» — добровольная поддержка платформы (доход платформы, НЕ водителю).
+     * Деньги в копейках (int). Карта/СБП через ту же ЮKassa-инфру; без ключей — СБП-фолбэк
+     * (реквизиты в ответе, как у boost/доната). confirmationUrl != null → открыть оплату картой.
+     */
+    suspend fun supportDonate(amountKop: Int): Result<BoostResultDto> =
+        call("POST", "/support/donate", JSONObject().put("amount_kop", amountKop), auth = true).map { o ->
+            val payee = o.optJSONObject("payee")
+            BoostResultDto(
+                status = o.optString("status"), method = o.optString("method"),
+                paymentId = o.optInt("payment_id"), amount = o.optInt("amount"),
+                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
+                payeePhone = payee?.optString("phone")?.ifBlank { null },
+                payeeBank = payee?.optString("bank")?.ifBlank { null },
+                payeeName = payee?.optString("name")?.ifBlank { null },
+            )
+        }
+
     /** Донат на платформу (интерим СБП): создаёт заявку на подтверждение, возвращает реквизиты (как boost). */
     suspend fun createDonation(amount: Int): Result<BoostResultDto> =
         call("POST", "/donate", JSONObject().put("amount", amount), auth = true).map { o ->

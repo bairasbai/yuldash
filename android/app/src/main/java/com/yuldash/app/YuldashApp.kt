@@ -706,7 +706,8 @@ internal fun YuldashApp() {
                 bookingId = activeBookingId,
                 onBack = { goBack() },
                 onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
-                onSos = { screen = Screen.Sos }
+                onSos = { screen = Screen.Sos },
+                onSupport = { screen = Screen.Support }
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },

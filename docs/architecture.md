@@ -352,7 +352,7 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 **Presence:** `POST /instant/presence` (водитель «на линии») → `GEOADD presence` + `SET presence:hb:{id} EX 60`. Переиспользует `services._cache_client()`. Без Redis — graceful (заказ не находит водителей, не падает).
 
-**Тариф:** `POST /instant/estimate` — сервер считает `max(min_price, base + per_km·dist + per_min·eta)·k`, округл. до 10 ₽, `dist = haversine × road_k`. **Клиенту не верит** (в схеме нет поля цены). Зоны город/межгород по порогу дистанции. Сид тарифов — в lifespan (`seed_tariffs`, всегда, не под `seed_demo`).
+**Тариф:** `POST /instant/estimate` — сервер считает `max(min_price, base + per_km·dist + per_min·eta)·k`, округл. до 10 ₽, `dist = haversine × road_k`. **Клиенту не верит** (в схеме нет поля цены). Зоны город/межгород по порогу дистанции. Сид тарифов — в lifespan (`seed_tariffs`, всегда, не под `seed_demo`). **Стартовые цены (₽, сильно ниже конкурентов, правятся в БД):** город base=70/per_km=11/per_min=3/min=100; межгород base=80/per_km=9/per_min=2/min=150; k=1.0.
 
 **Заказ + matcher:** `POST /instant/orders` считает цену → matcher `GEOSEARCH` c расширением 3→7→15 км → фильтр (online/verified/не занят/не в блоке) → скоринг (подача/рейтинг) → оффер top-1 через `send_push` (data-payload) с таймаутом 20с. Переходы: `/accept /decline /arrived /onboard /done /cancel` — под row-lock (`with_for_update`) + атомарный условный UPDATE (гонка двух accept → второму **409**, корректно и на SQLite). Ленивый таймаут оффера (reconcile при чтении) — работает **без arq-воркера**. Приватность: телефоны сторон раскрываются ТОЛЬКО после accept; координаты не логируем.
 
@@ -371,7 +371,9 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 **Модели (`models.py`):** `LedgerEntry(id, driver_id, order_id NULL, booking_id NULL, kind[earn|fee|payout|adj], amount_kop, created_at, note)` — **append-only, баланс = SUM(amount_kop)**, историю НЕ редактируем (правка → запись `adj`). Расширены: `Payment(+order_id,+booking_id,+method, purpose=ride|booking)`, `InstantOrder(+paid,+payment_method)`, `Booking(+paid,+payment_method)`. Деньги — только int-копейки, без float.
 
-**Комиссия:** `service_fee_percent` в config (дефолт **15%**, помечен «УТОЧНИТ АЛЕКСАНДР»). Успешная безналичная оплата → в ledger две записи: `earn` (+вся сумма водителю) и `fee` (−комиссия). Баланс водителя за поездку = earn − fee.
+**Комиссия:** `service_fee_percent` в config (дефолт **8%** — втрое ниже Яндекса ~24–30%; правится без пересборки, финальный процент утверждает Александр). Успешная безналичная оплата → в ledger две записи: `earn` (+вся сумма водителю) и `fee` (−комиссия). Баланс водителя за поездку = earn − fee.
+
+**«Поддержать Юлдаш» (добровольная поддержка):** `POST /support/donate {amount_kop}` (`routers/payments.py`) — `Payment(purpose="support")`, доход платформы (НЕ водителю): `_activate_payment` только помечает succeeded, **ledger не трогает**. Через ту же ЮKassa-инфру (карта/СБП), без ключей — СБП-фолбэк по номеру (подтверждает админ). Границы 10–5000 ₽, идемпотентно по деньгам (повторный webhook → no-op). UI — `SupportScreen` (`SupportBoostScreen.kt`, пресеты 20/50/100 ₽ + своя сумма, `ApiClient.supportDonate`), вход: профиль + мягкое дисмиссируемое предложение после done-поездки (`BookingActiveTripScreen`, колбэк `onSupport`).
 
 **Оплата после done:** `POST /instant/orders/{id}/pay` и `POST /bookings/{id}/pay` (метод `cash|card|sbp`). Только владелец-пассажир (анти-IDOR), только статус **done**. Безнал → ЮKassa (mock/dev → succeeded сразу; прод → confirmation_url, начисление по webhook). **Наличные** → заказ помечается `paid`, но ledger НЕ двигаем (деньги мимо нас). **Идемпотентность:** повторный webhook не задваивает — `_activate_payment` фиксирует succeeded, затем `settle_*` под row-lock гейтит по флагу `paid` (второй раз → «already»).
 
