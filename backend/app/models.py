@@ -204,6 +204,10 @@ class Booking(SQLModel, table=True):
     status: BookingStatus = BookingStatus.pending
     driver_phase: str = ""           # подфаза активной поездки от водителя: "" / departed / arriving (для live-баннера пассажиру)
     boarding_code: str = ""
+    # Оплата после done (Фаза 3, деньги v1). paid — факт оплаты; наличные через нас НЕ идут
+    # (ledger не двигаем), безнал (ЮKassa) начисляет водителю через ledger.
+    paid: bool = False
+    payment_method: str = ""         # "" / cash / card / sbp / yookassa
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -338,6 +342,10 @@ class InstantOrder(SQLModel, table=True):
     tariff_id: Optional[int] = Field(default=None, foreign_key="tariff.id")
     distance_km: float = 0.0
     eta_min: float = 0.0
+    # Оплата после done (Фаза 3, деньги v1). paid — факт оплаты (нал/безнал). Наличные через
+    # нас НЕ идут (ledger не двигаем), безнал (ЮKassa) начисляет водителю через ledger.
+    paid: bool = False
+    payment_method: str = ""         # "" / cash / card / sbp / yookassa
     # Назначенный водитель (после accept). До accept телефоны скрыты.
     driver_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")
     # Текущий оффер (кому сейчас предложено) + дедлайн ответа + счётчик кругов подбора.
@@ -368,18 +376,46 @@ class AdEvent(SQLModel, table=True):
 
 
 class Payment(SQLModel, table=True):
-    """Платёж за СВОЮ услугу платформы (самозанятый): Boost поездки или платная реклама.
-    НЕ посредничество за проезд. provider_id — id платежа в ЮKassa (или mock-id в dev)."""
+    """Платёж платформы. Два вида:
+    1) СВОЯ услуга самозанятого (boost/ad/donate) — НЕ посредничество за проезд.
+    2) Оплата поездки после done (purpose=ride|booking, Фаза 3) — пассажир платит за
+       завершённый заказ/бронь; успех → начисление водителю через ledger (см. ledger.py).
+    provider_id — id платежа в ЮKassa (или mock-id в dev)."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True, foreign_key="user.id")
-    purpose: str = "boost"                       # boost | ad | donate
+    user_id: int = Field(index=True, foreign_key="user.id")   # плательщик (для ride — пассажир)
+    purpose: str = "boost"                       # boost | ad | donate | ride | booking
     provider_id: str = Field(default="", index=True)  # id платежа в ЮKassa
     ride_id: Optional[int] = Field(default=None, foreign_key="ride.id")  # для boost
     ad_id: Optional[int] = Field(default=None, foreign_key="ad.id")       # для оплаты рекламы (purpose=ad)
+    order_id: Optional[int] = Field(default=None, foreign_key="instantorder.id")  # для purpose=ride (быстрый заказ)
+    booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")     # для purpose=booking (бронь плановой поездки)
     tier: str = ""                               # quick / day / urgent (для boost)
+    method: str = ""                             # cash | card | sbp | yookassa (способ оплаты поездки)
     amount_kop: int = 0                          # сумма в копейках
     status: str = "pending"                      # pending | succeeded | canceled
-    created_at: datetime = Field(default_factory=utcnow)
+    created_at: datetime = Field(default_factory=utcnow, index=True)  # index — для сверки за период
+
+
+class LedgerKind(str, Enum):
+    """Тип записи в ledger (кошельке водителя). Append-only, историю НЕ редактируем."""
+    earn = "earn"        # начисление водителю за поездку (полная сумма, +)
+    fee = "fee"          # комиссия сервиса (−, вычитается из начисления)
+    payout = "payout"    # выплата водителю (−, деньги ушли с баланса; v1 вручную по реестру)
+    adj = "adj"          # ручная корректировка (+/−) — только админ, с note
+
+
+class LedgerEntry(SQLModel, table=True):
+    """Кошелёк-ledger водителя (Фаза 3, D3). ТОЛЬКО append: баланс = SUM(amount_kop).
+    Историю денег НЕ редактируем и НЕ удаляем — корректировка отдельной записью kind=adj.
+    amount_kop: earn > 0; fee/payout < 0; adj любой знак. Деньги — целые копейки (int)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")  # быстрый заказ
+    booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")     # бронь плановой поездки
+    kind: LedgerKind = Field(index=True)
+    amount_kop: int = 0
+    created_at: datetime = Field(default_factory=utcnow, index=True)  # index — для сверки за период
+    note: str = ""
 
 
 class UploadEvent(SQLModel, table=True):

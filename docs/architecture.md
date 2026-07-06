@@ -358,3 +358,25 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 **Тесты:** backend `pytest -q` → **206 passed, 1 skipped**. Alembic `upgrade head` на чистой БД проходит + идемпотентен (оба пути проверены).
 - Remaining lower areas are mostly integration-heavy/infrastructure: `services.py`, `db.py`, `middleware.py`, and WebSocket internals in `routers/chat.py`.
+
+## 2026-07-06 — 💰 Домен «Деньги v1» (ledger + комиссия + оплата done + сверка, Фаза 3, БЭКЕНД) — ветка `feat/payments-ledger`
+
+Реализация D3 (v1, БЕЗ hold/capture — это v2). Пассажир платит за **завершённую** поездку картой/СБП через СУЩЕСТВУЮЩУЮ ЮKassa-инфру (`payments.py` create/fetch/webhook); водителю начисляется через **append-only ledger** (кошелёк). Полный статус — в [payments-ledger-backend.md](payments-ledger-backend.md).
+
+**Новые файлы:**
+- `backend/app/ledger.py` — деньги: `fee_kop_for` (комиссия, целые копейки, ROUND_HALF_UP), `driver_balance` (= SUM), `settle_instant_order`/`settle_booking` (идемпотентно, под row-lock), `reconcile` (сверка за период).
+- `backend/app/routers/wallet.py` — эндпоинты оплаты/кошелька/сверки, зарегистрирован в `routers/__init__.py`.
+- `backend/alembic/versions/p3_ledger.py` — миграция (rev `p3_ledger`, down `p2_instant_order`), идемпотентна: свежая БД create_all → no-op; прод создаёт `ledgerentry` c 5 индексами и добавляет колонки в `payment`/`instantorder`/`booking`.
+- `backend/tests/test_ledger.py` — 19 тестов (комиссия/начисление/только-done/наличные/идемпотентность webhook/append-only/сверка/IDOR/бронь).
+
+**Модели (`models.py`):** `LedgerEntry(id, driver_id, order_id NULL, booking_id NULL, kind[earn|fee|payout|adj], amount_kop, created_at, note)` — **append-only, баланс = SUM(amount_kop)**, историю НЕ редактируем (правка → запись `adj`). Расширены: `Payment(+order_id,+booking_id,+method, purpose=ride|booking)`, `InstantOrder(+paid,+payment_method)`, `Booking(+paid,+payment_method)`. Деньги — только int-копейки, без float.
+
+**Комиссия:** `service_fee_percent` в config (дефолт **15%**, помечен «УТОЧНИТ АЛЕКСАНДР»). Успешная безналичная оплата → в ledger две записи: `earn` (+вся сумма водителю) и `fee` (−комиссия). Баланс водителя за поездку = earn − fee.
+
+**Оплата после done:** `POST /instant/orders/{id}/pay` и `POST /bookings/{id}/pay` (метод `cash|card|sbp`). Только владелец-пассажир (анти-IDOR), только статус **done**. Безнал → ЮKassa (mock/dev → succeeded сразу; прод → confirmation_url, начисление по webhook). **Наличные** → заказ помечается `paid`, но ledger НЕ двигаем (деньги мимо нас). **Идемпотентность:** повторный webhook не задваивает — `_activate_payment` фиксирует succeeded, затем `settle_*` под row-lock гейтит по флагу `paid` (второй раз → «already»).
+
+**Кошелёк/сверка:** `GET /wallet/balance` и `GET /wallet/ledger` — только СВОИ записи (анти-IDOR). `GET /admin/ledger/reconcile?days=N` (админ) — сверка `SUM(earn)` ↔ `SUM(успешных безналичных Payment)`; `diff≠0` → расхождение (алерт вешает Александр). Наличные в сверку не входят.
+
+**Тесты:** backend `pytest -q` → **225 passed, 1 skipped** (+19 денежных). Alembic `upgrade head` — оба пути (baseline no-op + прод create-table с 5 индексами), идемпотентно.
+
+**Что НЕ входит (v2/за Александром):** hold→capture («безопасная сделка»), выплаты водителям (payout API), UI экрана оплаты, ЮKassa-чеки 54-ФЗ для поездок, финальный процент комиссии + оферта (юр.).

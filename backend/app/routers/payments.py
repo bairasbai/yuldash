@@ -32,11 +32,25 @@ def boost_plans():
 
 def _activate_payment(session: Session, payment: Payment) -> None:
     """Применить оплаченный платёж (идемпотентно, только из pending):
-    boost → поднять поездку; ad → опубликовать рекламу; donate → просто succeeded."""
+    boost → поднять поездку; ad → опубликовать рекламу; donate → просто succeeded;
+    ride/booking → начислить водителю через ledger (earn − комиссия), под row-lock."""
     if payment.status == "succeeded":
         return
     payment.status = "succeeded"
     session.add(payment)
+    # Оплата поездки (Фаза 3): начисление водителю через ledger. Фиксируем succeeded ДО
+    # начисления (settle открывает свою транзакцию под row-lock). Идемпотентно по флагу paid
+    # заказа/брони — повторный webhook → settle вернёт "already", ledger не задваивается.
+    if payment.purpose == "ride" and payment.order_id is not None:
+        session.commit()
+        from .. import ledger
+        ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop)
+        return
+    if payment.purpose == "booking" and payment.booking_id is not None:
+        session.commit()
+        from .. import ledger
+        ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop)
+        return
     if payment.purpose == "boost" and payment.ride_id is not None:
         ride = session.get(Ride, payment.ride_id)
         plan = BOOST_PLANS.get(payment.tier)
