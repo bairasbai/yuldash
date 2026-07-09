@@ -673,7 +673,7 @@ private fun MapHero(
             ) {
                 Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(appText("Найти поездку", "Сәфәр табыу"), fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1)
+                Text(appText("Найти попутку", "Юлдаш табыу"), fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1)
             }
             Button(
                 onClick = onDriver,

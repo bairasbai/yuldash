@@ -1243,6 +1243,96 @@ object ApiClient {
     suspend fun rejectDebt(debtId: Int): Result<Unit> =
         call("POST", "/admin/debts/$debtId/reject", JSONObject(), auth = true).map { }
 
+    // ---------- Быстрый заказ (такси-режим, Фаза 2) ----------
+    // Отдельный поток от плановых поездок (Ride/Booking) — те не трогаем. Приватность: телефоны/имя
+    // стороны сервер отдаёт пустыми до accept. Координаты heartbeat НЕ логируем.
+
+    private fun instantBody(
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        fromText: String, toText: String, category: String,
+    ): JSONObject = JSONObject()
+        .put("from_lat", fromLat).put("from_lng", fromLng)
+        .put("to_lat", toLat).put("to_lng", toLng)
+        .put("from_text", fromText).put("to_text", toText)
+        .put("category", category)
+
+    /** Водитель «на линии» шлёт координаты (heartbeat ~раз в 12с) → Redis GEO. Координаты не логируем.
+     *  ok=false, если Redis на сервере недоступен (заказ тогда «рядом никого», но запрос не падает). */
+    suspend fun instantPresence(lat: Double, lng: Double): Result<Boolean> =
+        call("POST", "/instant/presence", JSONObject().put("lat", lat).put("lng", lng), auth = true).map { it.optBoolean("ok") }
+
+    /** Fire-and-forget heartbeat (для таймера presence — не ждём ответа, не роняем экран при сбое сети). */
+    fun fireInstantPresence(lat: Double, lng: Double) {
+        bg.launch { call("POST", "/instant/presence", JSONObject().put("lat", lat).put("lng", lng), auth = true) }
+    }
+
+    /** Оценка цены ДО заказа. Сервер считает сам (клиенту не верит) — поля цены в запросе нет. */
+    suspend fun instantEstimate(
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        fromText: String = "", toText: String = "", category: String = "standard",
+    ): Result<InstantEstimateDto> =
+        call("POST", "/instant/estimate", instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category), auth = true).map { o ->
+            InstantEstimateDto(
+                price = o.optInt("price"),
+                distanceKm = o.optDouble("distance_km", 0.0),
+                etaMin = o.optDouble("eta_min", 0.0),
+                zone = o.optString("zone"),
+                category = o.optString("category", category),
+                tariffId = o.optInt("tariff_id"),
+            )
+        }
+
+    /** Создать быстрый заказ → сервер считает цену и ищет водителя (сразу offered | expired). */
+    suspend fun createInstantOrder(
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        fromText: String = "", toText: String = "", category: String = "standard",
+    ): Result<InstantOrderDto> =
+        call("POST", "/instant/orders", instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category), auth = true)
+            .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
+
+    /** Мои быстрые заказы (свежие сверху) — восстановить активный заказ при возврате на экран. */
+    suspend fun getMyInstantOrders(limit: Int = 5): Result<List<InstantOrderDto>> =
+        call("GET", "/instant/orders/mine?limit=$limit", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toInstantOrderDto() }
+        }
+
+    /** Детали заказа: пассажир поллит статус (searching→offered→accepted→arriving→onboard→done). */
+    suspend fun getInstantOrder(id: Int): Result<InstantOrderDto> =
+        call("GET", "/instant/orders/$id", null, auth = true).map { it.toInstantOrderDto() }
+
+    /** Активный оффер для водителя (поллинг-фолбэк к пушу). null = нет входящего заказа. */
+    suspend fun getDriverOffer(): Result<InstantOrderDto?> =
+        call("GET", "/instant/driver/offer", null, auth = true).map { o ->
+            if (o.isNull("offer")) null else o.optJSONObject("offer")?.toInstantOrderDto()
+        }
+
+    /** Водитель принимает оффер. Гонка/протух → 409 (ApiException) — экран покажет «оффер ушёл». */
+    suspend fun instantAccept(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/accept", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+            .onSuccess { Analytics.log("instant_order_accept") }
+
+    /** Водитель пропускает оффер → matcher предлагает следующему. */
+    suspend fun instantDecline(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/decline", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+
+    /** Водитель поехал к пассажиру: accepted → arriving. */
+    suspend fun instantArrived(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/arrived", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+
+    /** Пассажир сел: arriving → onboard. */
+    suspend fun instantOnboard(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/onboard", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+
+    /** Поездка завершена: onboard → done. */
+    suspend fun instantDone(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/done", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+
+    /** Отмена заказа (пассажир до посадки / водитель после accept). Причина опциональна. */
+    suspend fun instantCancel(id: Int, reason: String = ""): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true).map { it.toInstantOrderDto() }
+            .onSuccess { Analytics.log("instant_order_cancel") }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -1366,6 +1456,78 @@ object ApiClient {
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
 class ApiException(val status: Int, message: String) : Exception(message)
+
+/** Оценка цены быстрого заказа (сервер считает сам по своей формуле). */
+data class InstantEstimateDto(
+    val price: Int,
+    val distanceKm: Double,
+    val etaMin: Double,
+    val zone: String,
+    val category: String,
+    val tariffId: Int,
+)
+
+/** Быстрый заказ (такси-режим) с сервера. Имя/телефон стороны приходят пустыми до accept (приватность). */
+data class InstantOrderDto(
+    val id: Int,
+    val status: String,           // created/searching/offered/accepted/arriving/onboard/done/cancelled/expired
+    val role: String,             // "driver" | "passenger" — чья это витрина
+    val fromLat: Double, val fromLng: Double,
+    val toLat: Double, val toLng: Double,
+    val fromText: String, val toText: String,
+    val category: String,
+    val priceEstimate: Int,
+    val priceFinal: Int?,
+    val distanceKm: Double,
+    val etaMin: Double,
+    val driverId: Int?,
+    val offerExpiresAt: String?,  // ISO — когда протухнет текущий оффер (таймер водителя ведём локально)
+    val cancelBy: String,         // "" | passenger | driver
+    val cancelReason: String,
+    // Раскрыто только после accept:
+    val driverName: String,
+    val driverCar: String,
+    val driverVerified: Boolean,
+    val driverRating: Double,
+    val driverPhone: String,      // виден пассажиру после accept
+    val passengerName: String,    // виден водителю после accept
+    val passengerPhone: String,   // виден водителю после accept
+) {
+    /** Терминальный статус — заказ окончен (успех/отмена/протух). */
+    val isTerminal: Boolean get() = status == "done" || status == "cancelled" || status == "expired"
+    /** Идёт подбор водителя (машину ещё ищем). */
+    val isSearching: Boolean get() = status == "created" || status == "searching" || status == "offered"
+    /** Водитель назначен и заказ активен (телефон раскрыт). */
+    val isActive: Boolean get() = status == "accepted" || status == "arriving" || status == "onboard"
+}
+
+private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
+    id = optInt("id"),
+    status = optString("status"),
+    role = optString("role"),
+    fromLat = optDouble("from_lat", 0.0),
+    fromLng = optDouble("from_lng", 0.0),
+    toLat = optDouble("to_lat", 0.0),
+    toLng = optDouble("to_lng", 0.0),
+    fromText = optString("from_text"),
+    toText = optString("to_text"),
+    category = optString("category"),
+    priceEstimate = optInt("price_estimate"),
+    priceFinal = if (isNull("price_final")) null else optInt("price_final"),
+    distanceKm = optDouble("distance_km", 0.0),
+    etaMin = optDouble("eta_min", 0.0),
+    driverId = if (isNull("driver_id")) null else optInt("driver_id"),
+    offerExpiresAt = if (isNull("offer_expires_at")) null else optString("offer_expires_at").ifBlank { null },
+    cancelBy = optString("cancel_by"),
+    cancelReason = optString("cancel_reason"),
+    driverName = optString("driver_name"),
+    driverCar = optString("driver_car"),
+    driverVerified = optBoolean("driver_verified"),
+    driverRating = optDouble("driver_rating", 0.0),
+    driverPhone = optString("driver_phone"),
+    passengerName = optString("passenger_name"),
+    passengerPhone = optString("passenger_phone"),
+)
 
 data class ReviewItem(val id: Int, val name: String, val city: String, val stars: Int, val text: String)
 

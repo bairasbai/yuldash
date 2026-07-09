@@ -318,7 +318,9 @@ internal enum class Screen {
     AppReview,
     AdminReviews,
     AdminAds,
-    AdEditor
+    AdEditor,
+    InstantOrder,       // «Быстрый заказ» — экран пассажира (куда едем → ищем → водитель едет)
+    InstantDriverTrip   // «Быстрый заказ» — экран поездки водителя (навигация → приехал/посадил/завершил)
 }
 
 internal enum class HomeTab {

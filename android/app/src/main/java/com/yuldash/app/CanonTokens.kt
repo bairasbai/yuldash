@@ -46,6 +46,13 @@ internal val CanonWarnBg: Color @Composable get() = if (appIsDark()) Color(0xFF3
 internal val CanonWarn: Color @Composable get() = if (appIsDark()) Color(0xFFE8B86A) else Color(0xFF9A6200)  // светлый затемнён под WCAG (текст на жёлтом фоне ≥4.5:1)
 // Золото рейтинга (звёзды). Plain val — читается и из @Composable, и из не-composable (Canvas). Золото видно в обеих темах.
 internal val CanonStar: Color = Color(0xFFE7A921)
+// Режимы поездки (переключатель пассажира): Такси = ЖЁЛТЫЙ (привычный цвет такси), Попутка = ЗЕЛЁНЫЙ (бренд «свои»).
+// Акцент окрашивает активный сегмент, кнопку действия и индикатор-полоску. Оба варианта — светлый/тёмный.
+internal val CanonTaxi: Color @Composable get() = if (appIsDark()) Color(0xFFF2C14E) else Color(0xFFE8A200)       // акцент такси (кнопка/полоска/иконка)
+internal val CanonTaxiBg: Color @Composable get() = if (appIsDark()) Color(0xFF3A2E12) else Color(0xFFFFEFC2)      // мягкая подложка активного сегмента «Такси»
+internal val CanonTaxiInk: Color = Color(0xFF3A2A00)                                                               // тёмный текст на жёлтом (читаем в обеих темах)
+internal val CanonPooling: Color @Composable get() = if (appIsDark()) Color(0xFF27A463) else Color(0xFF0B6B3A)     // акцент попутки (бренд-зелёный)
+internal val CanonPoolingBg: Color @Composable get() = if (appIsDark()) Color(0xFF0F2419) else Color(0xFFE7F5EC)   // мягкая подложка активного сегмента «Попутка»
 // Тонкая зелёная разделительная линия (border карточек) — была хардкод 0x1A0B6B3A в нескольких экранах.
 internal val CanonHairlineGreen: Color = Color(0x1A0B6B3A)
 // Тонкая красная рамка danger-карточек (SOS) — была хардкод 0x33D93025 в SafetyScreen.

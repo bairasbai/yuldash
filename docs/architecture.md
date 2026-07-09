@@ -15,7 +15,8 @@
 | `RidesRequestsChatScreens.kt` | Вкладки Поездки/Заявки/Чат, `RideCard`, `RequestsFeedScreen` (чипы условий), `ResponsesScreen`, `ChatSocket`-чат; вкладка `Мои поездки` передаёт статус брони в навигацию |
 | `CreateRideScreen.kt` | Публикация поездки (маршрут, цена, удобства `PrefToggleRow`, повтор) |
 | `AccessibilityScreens.kt` | «Создать заявку» (+ карточка «Условия поездки», 7 предпочтений), Простой режим, голосовая заявка, за близкого, доверенные контакты, повтор маршрута |
-| `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии» |
+| `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии». Кабинет пассажира — карточка входа «Быстрый заказ»; кабинет водителя — `InstantDriverOnlineController` (presence + оффер) |
+| `InstantOrderScreen.kt` 🆕 (2026-07-06) | **«Быстрый заказ» (такси-режим, Фаза 2).** Пассажир `Screen.InstantOrder`: `InstantOrderScreen` (Куда едем → `instantEstimate` цена → «Ищем машину» → «Водитель едет»: `InstantRouteMap` A→B + ETA + телефон после accept + отмена; состояния searching/active/expired/cancelled/done, восстановление активного заказа через `getMyInstantOrders`). Водитель: `InstantDriverOnlineController` (heartbeat `fireInstantPresence` + опрос `getDriverOffer` пока «на линии» → полноэкранный `InstantOfferOverlay` с таймером 20с, «Взять»/«Пропустить») и `Screen.InstantDriverTrip` → `InstantDriverTripScreen` (навигация к пассажиру, Приехал/Посадил/Завершить). Гео — `rememberMyPoint` (LocationManager, как на карте); выбор точки Б — переиспользован `PickupPickerOverlay`. Бэкенд-контракт — `backend/app/routers/instant.py`, DTO/методы в `data/ApiClient.kt` |
 | `SecondaryScreens.kt` | Уведомления, Безопасность, Настройки, «Фильтры по умолчанию», правила, админ-экраны |
 | `SosVerifyScreens.kt` | SOS + проверка водителя (фото, OCR-баннер причин отказа) |
 | `SupportBoostScreen.kt` | Поддержка, Boost, Help (буст-оплата — общий `SberPayBlock`) |
@@ -129,6 +130,12 @@
 - DTO: `RideDto`, `RequestDto`, `ContactDto`, `MessageDto` (маппинг `RideDto` — один шов `JSONObject.toRideDto()`). Геокодер адресов — через бэкенд `/geocode` (`GeocoderClient`), ключ на сервере. Мёртвый слой `Models.kt`/`Repository.kt`/`MockRepository.kt` **УДАЛЁН** 2026-06-27 (0 ссылок).
 - Загрузка с сервера: поездки и заявки — `LaunchedEffect` в `YuldashApp`; контакты — там же; сообщения — в `ActiveTripScreen`.
 - **`ActiveTripScreen`** (`Screen.ActiveTrip`) — экран «Моя поездка» после брони: чат по `booking_id`, поделиться с контактом, статус поездки, SOS.
+
+## 🔀 Переключатель режимов пассажира: Такси ↔ Попутка (2026-07-09, ветка `feat/mode-switch`)
+- **Где:** вверху вкладки «Карта» (главный экран пассажира). Файл `ModeSwitchHome.kt`: `enum RideMode { Pooling, Taxi }`, `PassengerModeHome` (обёртка), `ModeSwitchBar` (2 больших сегмента ≥66dp: 🚗 Попутка зелёная / 🚕 Такси жёлтая), `ModeSegment`, `ModeHintSheet`.
+- **Логика:** `HomeTab.Map` в `HomeScreen` теперь рендерит `PassengerModeHome` (раньше сразу `MapScreen`). Попутка (по умолчанию) → `MapScreen` (поиск плановых поездок); Такси → `InstantOrderScreen(embedded=true)` (без своей шапки — контекст задаёт переключатель). Смена — `AnimatedContent`. Аппаратная «Назад» в такси → к попутке (`BackHandler`). Вход требуется только для такси (`onInstantLogin` → `Screen.Login`).
+- **Цвета:** токены `CanonTaxi/CanonTaxiBg/CanonTaxiInk` (жёлтый) и `CanonPooling/CanonPoolingBg` (зелёный бренд) в `CanonTokens.kt` (светлый/тёмный). Активный режим красит CTA и полоску-индикатор. CTA такси = «Вызвать машину» (жёлтая), попутки = «Найти попутку» (зелёная).
+- **Подсказка первого входа:** `ModeHintSheet` (bottom-sheet, крупный текст) — один раз, флаг `mode_hint_shown` в `yuldash_prefs`. Повтор — ссылкой «Чем отличается?» у переключателя.
 
 ## Навигация (как устроены экраны)
 
