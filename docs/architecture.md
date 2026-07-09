@@ -131,6 +131,12 @@
 - Загрузка с сервера: поездки и заявки — `LaunchedEffect` в `YuldashApp`; контакты — там же; сообщения — в `ActiveTripScreen`.
 - **`ActiveTripScreen`** (`Screen.ActiveTrip`) — экран «Моя поездка» после брони: чат по `booking_id`, поделиться с контактом, статус поездки, SOS.
 
+## 🔀 Переключатель режимов пассажира: Такси ↔ Попутка (2026-07-09, ветка `feat/mode-switch`)
+- **Где:** вверху вкладки «Карта» (главный экран пассажира). Файл `ModeSwitchHome.kt`: `enum RideMode { Pooling, Taxi }`, `PassengerModeHome` (обёртка), `ModeSwitchBar` (2 больших сегмента ≥66dp: 🚗 Попутка зелёная / 🚕 Такси жёлтая), `ModeSegment`, `ModeHintSheet`.
+- **Логика:** `HomeTab.Map` в `HomeScreen` теперь рендерит `PassengerModeHome` (раньше сразу `MapScreen`). Попутка (по умолчанию) → `MapScreen` (поиск плановых поездок); Такси → `InstantOrderScreen(embedded=true)` (без своей шапки — контекст задаёт переключатель). Смена — `AnimatedContent`. Аппаратная «Назад» в такси → к попутке (`BackHandler`). Вход требуется только для такси (`onInstantLogin` → `Screen.Login`).
+- **Цвета:** токены `CanonTaxi/CanonTaxiBg/CanonTaxiInk` (жёлтый) и `CanonPooling/CanonPoolingBg` (зелёный бренд) в `CanonTokens.kt` (светлый/тёмный). Активный режим красит CTA и полоску-индикатор. CTA такси = «Вызвать машину» (жёлтая), попутки = «Найти попутку» (зелёная).
+- **Подсказка первого входа:** `ModeHintSheet` (bottom-sheet, крупный текст) — один раз, флаг `mode_hint_shown` в `yuldash_prefs`. Повтор — ссылкой «Чем отличается?» у переключателя.
+
 ## Навигация (как устроены экраны)
 
 - Нет навигационной библиотеки. Всё через `enum Screen` + `when(screen)` в `YuldashApp()`. **Первый экран — `Screen.Splash`** (зелёный мост → цель `splashTarget`; первый запуск → `Screen.Intro` морф-интро → онбординг; повтор → сразу Home/Login). Состояние навигации — в `YuldashViewModel` (переживает поворот/смерть процесса).

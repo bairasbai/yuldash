@@ -654,7 +654,8 @@ internal fun YuldashApp() {
                 onToggleLanguage = {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                 },
-                onAccountDeleted = { isAdmin = false; startHomeTab = HomeTab.Map; screen = Screen.Login }
+                onAccountDeleted = { isAdmin = false; startHomeTab = HomeTab.Map; screen = Screen.Login },
+                onInstantLogin = { screen = Screen.Login }   // такси требует входа → на экран входа
             )
             Screen.CreateRide -> CreateRideScreen(
                 onBack = { goBack() },
@@ -1481,6 +1482,7 @@ internal fun HomeScreen(
     onAdsCabinet: () -> Unit,
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit = {},
+    onInstantLogin: () -> Unit = {},
     onTabChange: (HomeTab) -> Unit = {}
 ) {
     var ridesPresetTo by remember { mutableStateOf("") }
@@ -1495,7 +1497,7 @@ internal fun HomeScreen(
                 selectTab(HomeTab.Rides)
             }
             when (tab) {
-                HomeTab.Map -> MapScreen(
+                HomeTab.Map -> PassengerModeHome(
                     rides = rides,
                     activeTrip = activeTrip,
                     ads = ads,
@@ -1507,7 +1509,8 @@ internal fun HomeScreen(
                     onSos = onSos,
                     onOpenPopular = { route -> openRides(to = route.to, today = true) },
                     onDriver = onCreateRide,
-                    onBoost = onBoost
+                    onBoost = onBoost,
+                    onInstantLogin = onInstantLogin
                 )
                 HomeTab.Rides -> RidesScreen(
                     rides = rides,

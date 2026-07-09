@@ -217,7 +217,7 @@ internal fun InstantRouteMap(from: Point?, to: Point?, modifier: Modifier = Modi
  * При возврате на экран активный заказ восстанавливается (getMyInstantOrders).
  */
 @Composable
-internal fun InstantOrderScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
+internal fun InstantOrderScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, embedded: Boolean = false) {
     val scope = rememberCoroutineScope()
     val loggedIn = ApiClient.isLoggedIn()
     var order by remember { mutableStateOf<InstantOrderDto?>(null) }
@@ -242,7 +242,12 @@ internal fun InstantOrderScreen(onBack: () -> Unit, onLoginRequired: () -> Unit)
         }
     }
 
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Быстрый заказ", "Тиҙ заказ"), onBack) }) { padding ->
+    // Встроенный режим (внутри переключателя Такси↔Попутка на главной): свою шапку не рисуем —
+    // контекст задаёт сам переключатель. Самостоятельный экран (из кабинета) — с шапкой и «Назад».
+    Scaffold(
+        containerColor = CanonBg,
+        topBar = { if (!embedded) ScreenTopBar(appText("Быстрый заказ", "Тиҙ заказ"), onBack) }
+    ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             val current = order
             when {
@@ -457,16 +462,17 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
             enabled = effFrom != null && toPoint != null && estimate != null && !creating,
             modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+            colors = ButtonDefaults.buttonColors(containerColor = CanonTaxi, contentColor = CanonTaxiInk),   // жёлтый — режим такси
         ) {
             if (creating) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonBg)
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonTaxiInk)
             } else {
                 Icon(Icons.Default.DirectionsCar, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (estimate != null) appText("Заказать за ${estimate!!.price} ₽", "${estimate!!.price} ₽-ға заказ")
-                    else appText("Заказать машину", "Машина заказлау"),
+                    // Глагол-действие: «Вызвать машину» понятнее, чем «Заказать» (эталон Яндекс/inDrive).
+                    if (estimate != null) appText("Вызвать за ${estimate!!.price} ₽", "${estimate!!.price} ₽-ға саҡырыу")
+                    else appText("Вызвать машину", "Машина саҡырыу"),
                     fontSize = 16.sp, fontWeight = FontWeight.Bold,
                 )
             }
