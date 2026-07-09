@@ -1197,6 +1197,52 @@ object ApiClient {
             PaymentsSummaryDto(d.optInt("count"), d.optInt("sum_rub"), b.optInt("count"), b.optInt("sum_rub"))
         }
 
+    // ---------- Долг по комиссии за такси (Модель А «на доверии») ----------
+    /** Долг водителя: сколько должен, до какой даты, реквизиты СБП Александра, блок такси. По своему токену. */
+    suspend fun getDriverDebt(): Result<DriverDebtDto> =
+        call("GET", "/driver/debt", null, auth = true).map { o ->
+            val sbp = o.optJSONObject("sbp") ?: JSONObject()
+            val wk = o.optJSONArray("weeks") ?: JSONArray()
+            DriverDebtDto(
+                unpaidKop = o.optInt("unpaid_kop"), pendingKop = o.optInt("pending_kop"),
+                dueAt = o.optString("due_at").ifBlank { null },
+                overdue = o.optBoolean("overdue"), blocked = o.optBoolean("blocked"),
+                blockReason = o.optString("block_reason").ifBlank { null },
+                thresholdKop = o.optInt("threshold_kop"),
+                sbpPhone = sbp.optString("phone"), sbpName = sbp.optString("name"),
+                weeks = (0 until wk.length()).map { i ->
+                    val w = wk.getJSONObject(i)
+                    DebtWeekDto(w.optString("week"), w.optInt("amount_kop"), w.optString("status"))
+                },
+            )
+        }
+
+    /** Водитель нажал «Я оплатил» → долг в pending (на подтверждение админом). */
+    suspend fun declareDebtPaid(): Result<Int> =
+        call("POST", "/driver/debt/paid", JSONObject(), auth = true).map { it.optInt("pending_kop") }
+
+    /** Админ: долги на подтверждении (сгруппированы по водителю). */
+    suspend fun getAdminDebts(): Result<List<AdminDebtDto>> =
+        call("GET", "/admin/debts", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                val wk = o.optJSONArray("weeks") ?: JSONArray()
+                AdminDebtDto(
+                    debtId = o.optInt("debt_id"), driverId = o.optInt("driver_id"),
+                    driverName = o.optString("driver_name"), driverPhone = o.optString("driver_phone"),
+                    amount = o.optInt("amount"),
+                    weeks = (0 until wk.length()).map { j -> wk.optString(j) },
+                )
+            }
+        }
+
+    suspend fun confirmDebt(debtId: Int): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/confirm", JSONObject(), auth = true).map { }
+
+    suspend fun rejectDebt(debtId: Int): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/reject", JSONObject(), auth = true).map { }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -1593,6 +1639,23 @@ data class PendingPaymentDto(
 )
 /** Счётчик подтверждённых оплат (донаты/буст) для админ-кабинета. */
 data class PaymentsSummaryDto(val donateCount: Int, val donateSum: Int, val boostCount: Int, val boostSum: Int)
+
+/** Разбивка долга по неделе (для наглядности в кабинете водителя). */
+data class DebtWeekDto(val week: String, val amountKop: Int, val status: String)
+/** Долг водителя по комиссии за такси (Модель А «на доверии»): сколько должен, срок, реквизиты СБП, блок. */
+data class DriverDebtDto(
+    val unpaidKop: Int, val pendingKop: Int, val dueAt: String?, val overdue: Boolean,
+    val blocked: Boolean, val blockReason: String?, val thresholdKop: Int,
+    val sbpPhone: String, val sbpName: String, val weeks: List<DebtWeekDto>,
+) {
+    val unpaidRub: Int get() = unpaidKop / 100
+    val pendingRub: Int get() = pendingKop / 100
+}
+/** Долг водителя в админ-очереди подтверждения (сгруппирован по водителю). */
+data class AdminDebtDto(
+    val debtId: Int, val driverId: Int, val driverName: String, val driverPhone: String,
+    val amount: Int, val weeks: List<String>,
+)
 data class AdDto(
     val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String,
     val partner: String = "", val contact: String = "", val target: String = "", val image: String = "", val city: String = "",

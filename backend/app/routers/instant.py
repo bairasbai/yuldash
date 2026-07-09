@@ -12,9 +12,17 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, User
 from ..security import current_user
+from .. import debt as debt_mod
 from .. import instant_service as isv
 
 router = APIRouter(tags=["instant"])
+
+
+def _guard_taxi_not_blocked(session: Session, driver_id: int) -> None:
+    """Долг по комиссии просрочен / выше порога → водитель НЕ может возить такси.
+    ПОПУТКА (плановые Ride/Booking) этим не затрагивается — там своего долга нет."""
+    if debt_mod.taxi_block_reason(session, driver_id) is not None:
+        raise HTTPException(403, debt_mod.TAXI_BLOCKED_MSG)
 
 
 # ------------------------------ схемы ------------------------------
@@ -50,6 +58,7 @@ def presence(body: PresenceIn, user: User = Depends(current_user), session: Sess
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
     if not dp or not dp.online:
         raise HTTPException(409, "Сначала включи «Я на линии»")
+    _guard_taxi_not_blocked(session, user.id)   # долг по комиссии просрочен → такси заблокировано
     ok = isv.presence_heartbeat(user.id, body.lat, body.lng)
     return {"ok": ok, "ttl_sec": isv.settings.presence_ttl_sec}
 
@@ -114,6 +123,8 @@ def my_orders(limit: int = 20, user: User = Depends(current_user), session: Sess
 @router.get("/instant/driver/offer")
 def driver_offer(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Активный оффер для водителя (поллинг-фолбэк к пушу). Протухший — сам двигается дальше."""
+    if debt_mod.taxi_block_reason(session, user.id) is not None:
+        return {"offer": None}   # заблокирован долгом — офферы такси не показываем
     order = session.exec(
         select(InstantOrder).where(
             InstantOrder.current_offer_driver_id == user.id,
@@ -140,6 +151,7 @@ def get_order(order_id: int, user: User = Depends(current_user), session: Sessio
 @router.post("/instant/orders/{order_id}/accept")
 def accept(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель принимает оффер. Гонка двух accept → второму 409 (row-lock + условный UPDATE)."""
+    _guard_taxi_not_blocked(session, user.id)   # заблокирован долгом → принять заказ такси нельзя
     order = isv.transition(session, order_id, isv.Actor.driver, S.accepted, user.id, idempotent=False)
     return isv.order_payload(session, order, user)
 
@@ -167,8 +179,12 @@ def onboard(order_id: int, user: User = Depends(current_user), session: Session 
 
 @router.post("/instant/orders/{order_id}/done")
 def done(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Поездка завершена: onboard → done (фиксируем price_final)."""
+    """Поездка завершена: onboard → done (фиксируем price_final).
+    Начисляем долг по комиссии (Модель А «на доверии»): 8% с завершённого такси-заказа —
+    водитель получил деньги напрямую, комиссию должен платформе. Идемпотентно (на заказ — раз)."""
     order = isv.transition(session, order_id, isv.Actor.driver, S.done, user.id)
+    if order.status == S.done:
+        debt_mod.accrue_for_order(session, order)
     return isv.order_payload(session, order, user)
 
 

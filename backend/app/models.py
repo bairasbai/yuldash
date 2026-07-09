@@ -418,6 +418,36 @@ class LedgerEntry(SQLModel, table=True):
     note: str = ""
 
 
+class DebtStatus(str, Enum):
+    """Статус долга водителя по комиссии за такси-заказы (Модель А «на доверии»)."""
+    unpaid = "unpaid"      # начислен, водитель ещё не переводил
+    pending = "pending"    # водитель нажал «Я оплатил» — ждём подтверждения админом
+    paid = "paid"          # админ подтвердил получение перевода
+
+
+class CommissionDebt(SQLModel, table=True):
+    """Долг водителя по комиссии сервиса за ЗАВЕРШЁННЫЙ такси-заказ (Модель А «на доверии»).
+
+    За такси (instant) водитель получает деньги напрямую (нал / прямой СБП), а комиссию 8%
+    ДОЛЖЕН платформе. Раз в неделю водитель сам переводит долг Александру по СБП и жмёт
+    «Я оплатил» (unpaid → pending), Александр (админ) подтверждает (pending → paid).
+    Просроченный неоплаченный долг (или сумма > порога) → режим ТАКСИ блокируется.
+    ПОПУТКА (плановые Ride/Booking) этим НЕ блокируется — это отдельный поток.
+
+    Одна строка = комиссия одного заказа (append-only, историю не редактируем).
+    Деньги — только целые копейки (int amount_kop). Группируется по ISO-неделе (week)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
+    amount_kop: int = 0                                    # комиссия по этому заказу, копейки
+    week: str = Field(default="", index=True)             # ISO-неделя начисления, напр. "2026-W28"
+    status: DebtStatus = Field(default=DebtStatus.unpaid, index=True)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    due_at: Optional[datetime] = None                     # срок оплаты (created_at + debt_due_days)
+    paid_declared_at: Optional[datetime] = None           # когда водитель нажал «Я оплатил»
+    confirmed_at: Optional[datetime] = None               # когда админ подтвердил
+
+
 class UploadEvent(SQLModel, table=True):
     """Факт загрузки файла юзером (фото/голос) — для суточной квоты (анти disk-fill / спам).
     Лёгкая строка на каждую загрузку; считаем за последние 24ч."""

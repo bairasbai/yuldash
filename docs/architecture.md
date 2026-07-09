@@ -382,3 +382,27 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 **Тесты:** backend `pytest -q` → **225 passed, 1 skipped** (+19 денежных). Alembic `upgrade head` — оба пути (baseline no-op + прод create-table с 5 индексами), идемпотентно.
 
 **Что НЕ входит (v2/за Александром):** hold→capture («безопасная сделка»), выплаты водителям (payout API), UI экрана оплаты, ЮKassa-чеки 54-ФЗ для поездок, финальный процент комиссии + оферта (юр.).
+
+## 2026-07-09 — 🧾 Домен «Долг по комиссии за такси» (Модель А «на доверии», Фаза 3) — ветка `feat/driver-debt`
+
+**Суть:** за завершённый ТАКСИ-заказ (instant) водитель получает деньги напрямую (нал/прямой СБП), а комиссию 8% ДОЛЖЕН платформе. Раз в неделю переводит долг Александру по СБП → «Я оплатил» → админ подтверждает. Не оплатил в срок → режим ТАКСИ блокируется. **ПОПУТКА (плановые Ride/Booking) этим НЕ блокируется** — отдельный поток.
+
+Новые файлы:
+- `backend/app/debt.py` — логика: `order_commission_kop` (8% с цены, int-копейки), `accrue_for_order` (начисление в done, идемпотентно по order_id), `taxi_block_reason` (просрочка / сумма unpaid > порога), `debt_summary`, `declare_paid`, `admin_confirm`, `admin_reject`.
+- `backend/app/routers/debt.py` — эндпоинты, зарегистрирован в `routers/__init__.py`.
+- `backend/alembic/versions/p3_debt.py` — миграция (rev `p3_debt`, down `p3_ledger`), идемпотентна (baseline create_all no-op / прод create_table `commissiondebt` c 5 индексами).
+- `backend/tests/test_debt.py` — **16 тестов** (начисление/идемпотентность/блок presence·offer·accept/ПОПУТКА-не-блокируется/цикл оплаты→confirm→разблок/reject→снова-блок/анти-IDOR/границы).
+
+**Модель (`models.py`):** `CommissionDebt(id, driver_id, order_id NULL, amount_kop, week, status[unpaid|pending|paid], created_at, due_at, paid_declared_at, confirmed_at)` — одна строка = комиссия одного заказа. `DebtStatus` enum. Деньги — int-копейки.
+
+**Начисление:** в `/instant/orders/{id}/done` (router) после успешного перехода → `debt.accrue_for_order` (гейт по order_id → повторный done не задваивает; нулевая комиссия долг не создаёт). База = `price_final || price_estimate` (₽ → копейки), процент = `service_fee_percent` (8%).
+
+**Блок такси (guard `_guard_taxi_not_blocked`):** `/instant/presence`, `/instant/driver/offer` (возвращает `offer:None`), `/instant/orders/{id}/accept` → 403 «Оплати долг сервису, чтобы возить такси», если есть просроченный unpaid ИЛИ `SUM(unpaid) > debt_block_threshold_kop`. `pending` (заявил оплату) НЕ блокирует — работаем «на доверии» (разблок сразу после «Я оплатил», окончательно — после админ-confirm). `/rides` и брони guard НЕ трогает.
+
+**Эндпоинты:** водитель — `GET /driver/debt` (сумма/срок/реквизиты СБП/блок, по своему токену), `POST /driver/debt/paid` (unpaid→pending, Telegram админу). Админ — `GET /admin/debts` (pending, группировка по водителю, representative `debt_id`), `POST /admin/debts/{id}/confirm` (весь pending водителя→paid, push «Долг подтверждён»), `/reject` (→unpaid). Все `/admin/*` — только роль admin.
+
+**Config (`config.py`, «уточнит Александр»):** `owner_sbp_phone`, `owner_sbp_name` (реквизиты СБП — из `.env`, НЕ хардкод), `debt_due_days=7`, `debt_block_threshold_kop=100000` (1000 ₽).
+
+**UI:** `DriverDebtBanner` (`ProfileScreen.kt`, в `DriverCabinetContent`) — «К оплате X ₽» + реквизиты СБП + «Я оплатил»; заблокированное такси красным + «попутка работает как обычно». Админ — секция «Долги за такси» в `AdminPaymentRequestsScreen` (`SecondaryScreens.kt`): Подтвердить/Отклонить. DTO/методы — `ApiClient.kt` (`getDriverDebt`, `declareDebtPaid`, `getAdminDebts`, `confirmDebt`, `rejectDebt`).
+
+**Тесты:** backend `pytest -q` → **249 passed, 1 skipped** (+16 долговых). Android-сборку прогнать на машине Александра (в Linux-песочнице нет Android SDK). Вливать ПОСЛЕ #34/#36/#42.

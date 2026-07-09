@@ -920,6 +920,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<com.yuldash.app.data.PendingPaymentDto>>(emptyList()) }
+    var debts by remember { mutableStateOf<List<com.yuldash.app.data.AdminDebtDto>>(emptyList()) }
     var summary by remember { mutableStateOf<com.yuldash.app.data.PaymentsSummaryDto?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -931,6 +932,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
         loading = true; error = null
         scope.launch {
             ApiClient.getPaymentsSummary().onSuccess { summary = it }
+            ApiClient.getAdminDebts().onSuccess { debts = it }
             ApiClient.getPendingPayments().onSuccess { list = it }.onFailure { error = loadErr }
             loading = false
         }
@@ -974,13 +976,40 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            // Долги водителей по комиссии за такси (Модель А «на доверии») — на подтверждение.
+            if (debts.isNotEmpty()) {
+                item {
+                    Text(appText("Долги за такси", "Такси бурыстары"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                }
+                item {
+                    Text(appText("Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.", "Водитель комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                }
+                items(debts.size) { i ->
+                    val g = debts[i]
+                    val noName = appText("Без имени", "Исемһеҙ")
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(appText("Долг за такси", "Такси бурысы"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                                Text("${g.amount} ₽", color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            }
+                            Text((g.driverName.ifBlank { noName }) + (if (g.driverPhone.isNotBlank()) " · ${g.driverPhone}" else ""), color = CanonMuted, fontSize = 13.sp)
+                            if (g.weeks.isNotEmpty()) Text(appText("Недели: ", "Аҙналар: ") + g.weeks.joinToString(", "), color = CanonMuted, fontSize = 12.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(onClick = { val id = g.debtId; scope.launch { ApiClient.confirmDebt(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = g.debtId; scope.launch { ApiClient.rejectDebt(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                    }
+                }
+            }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (error != null) {
                 item { ListedError(error ?: "") { reload() } }
-            } else if (list.isEmpty()) {
-                item { ListedEmpty(appText("Нет заявок на оплату", "Түләү заявкалары юҡ"), appText("Здесь появятся оплаты буста и донаты на подтверждение.", "Бында буст түләүҙәре һәм донаттар раҫлауға күренер")) }
-            } else {
+            } else if (list.isEmpty() && debts.isEmpty()) {
+                item { ListedEmpty(appText("Нет заявок на оплату", "Түләү заявкалары юҡ"), appText("Здесь появятся оплаты буста, донаты и долги за такси на подтверждение.", "Бында буст түләүҙәре, донаттар һәм такси бурыстары раҫлауға күренер")) }
+            } else if (list.isNotEmpty()) {
                 items(list.size) { i ->
                     val p = list[i]
                     val label = when (p.purpose) {

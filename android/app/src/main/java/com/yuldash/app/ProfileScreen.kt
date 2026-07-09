@@ -841,12 +841,17 @@ internal fun DriverCabinetScreen(
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
+    var debt by remember { mutableStateOf<com.yuldash.app.data.DriverDebtDto?>(null) }
+    suspend fun reloadDebt() { ApiClient.getDriverDebt().onSuccess { debt = it } }
     LaunchedEffect(Unit) {
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess { online = it.online }
+        reloadDebt()
     }
+    val debtPaidMsg = appText("Спасибо! Ждём подтверждения — можно возить такси.", "Рәхмәт! Раҫлауҙы көтәбеҙ — такси йөрөтөргә мөмкин.")
+    val debtPaidErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
@@ -860,6 +865,14 @@ internal fun DriverCabinetScreen(
             driverRides = driverRides,
             driverBookings = driverBookings,
             ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
+            debt = debt,
+            onDeclareDebtPaid = {
+                rateScope.launch {
+                    ApiClient.declareDebtPaid()
+                        .onSuccess { Toast.makeText(ctx, debtPaidMsg, Toast.LENGTH_LONG).show(); reloadDebt() }
+                        .onFailure { Toast.makeText(ctx, debtPaidErrMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
             onToggleOnline = onToggleOnline@{ v ->
                 // Демо/без входа → не дёргаем API (там 401 → ложная «проверь сеть»), даём понятное «войдите».
                 if (!ApiClient.isLoggedIn()) {
@@ -891,6 +904,90 @@ internal fun DriverCabinetScreen(
     }
 }
 
+/** ISO-дата ("2026-07-16T…") → "16.07.2026" для показа срока. Кривой ввод — вернём как есть (первые 10). */
+private fun debtDueLabel(iso: String): String {
+    val d = iso.take(10).split("-")
+    return if (d.size == 3) "${d[2]}.${d[1]}.${d[0]}" else iso.take(10)
+}
+
+/**
+ * Баннер долга по комиссии за такси (Модель А «на доверии»). Три состояния:
+ *  • заблокирован (просрочка / выше порога) — красный: «Такси заблокировано» + понятно, что попутка работает;
+ *  • есть долг, не заблокирован — жёлтый: «Долг сервису: X ₽, оплати до <дата>»;
+ *  • всё в pending (нажал «Я оплатил») — мятный: «Ждём подтверждения».
+ * Реквизиты СБП приходят с сервера (owner_sbp_phone/name из .env) — НЕ хардкод.
+ */
+@Composable
+private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclarePaid: () -> Unit) {
+    val onlyPending = debt.unpaidKop == 0 && debt.pendingKop > 0
+    val bg = when { debt.blocked -> CanonDangerBg; onlyPending -> CanonMint; else -> CanonWarnBg }
+    val accent = when { debt.blocked -> CanonRed; onlyPending -> CanonGreen2; else -> CanonWarn }
+    val title = when {
+        debt.blocked -> appText("Такси заблокировано", "Такси блокланған")
+        onlyPending -> appText("Ждём подтверждения оплаты", "Түләү раҫлауын көтәбеҙ")
+        else -> appText("Долг сервису", "Сервисҡа бурыс")
+    }
+    Surface(color = bg, shape = CanonItemShape, border = BorderStroke(1.dp, accent.copy(alpha = 0.35f))) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (debt.blocked) Icons.Default.Lock else Icons.Default.Payments,
+                    contentDescription = if (debt.blocked) appText("Заблокировано", "Блокланған") else appText("Долг", "Бурыс"),
+                    tint = accent, modifier = Modifier.size(22.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(title, color = accent, fontWeight = FontWeight.Black, fontSize = 17.sp)
+            }
+            // Сумма к оплате (или сумма в ожидании подтверждения).
+            if (debt.unpaidKop > 0) {
+                Text(
+                    appText("К оплате: ", "Түләргә: ") + "${debt.unpaidRub} ₽",
+                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp
+                )
+            } else if (onlyPending) {
+                Text(
+                    appText("В обработке: ", "Эшкәртеүҙә: ") + "${debt.pendingRub} ₽",
+                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp
+                )
+            }
+            // Пояснение по состоянию.
+            val explain = when {
+                debt.blocked -> appText(
+                    "Оплати долг сервису, чтобы снова возить такси. Попутка (плановые поездки) работает как обычно.",
+                    "Такси йөрөтөр өсөн сервисҡа бурысты түлә. Юлдаш (планлы сәфәрҙәр) ғәҙәттәгесә эшләй."
+                )
+                onlyPending -> appText(
+                    "Александр проверит перевод и подтвердит. Такси уже работает.",
+                    "Александр күсереүҙе тикшереп раҫлар. Такси инде эшләй."
+                )
+                debt.dueAt != null -> appText("Оплати до ", "Түлә: ") + debtDueLabel(debt.dueAt!!)
+                else -> appText("Переведи долг по реквизитам ниже.", "Түбәндәге реквизиттар буйынса бурысты күсер.")
+            }
+            Text(explain, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+            // Реквизиты СБП Александра (с сервера). Пока не заданы — мягкая заглушка.
+            if (debt.unpaidKop > 0) {
+                Surface(color = CanonSurface, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(appText("Перевод по СБП", "СБП аша күсереү"), color = CanonMuted, fontSize = 12.sp)
+                        if (debt.sbpPhone.isNotBlank()) {
+                            Text(debt.sbpPhone, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            if (debt.sbpName.isNotBlank()) Text(debt.sbpName, color = CanonText, fontSize = 14.sp)
+                        } else {
+                            Text(appText("Реквизиты уточняются — напиши в поддержку.", "Реквизиттар аныҡлана — ярҙамға яҙ."), color = CanonMuted, fontSize = 13.sp)
+                        }
+                    }
+                }
+                Button(
+                    onClick = onDeclarePaid,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                ) { Text(appText("Я оплатил", "Мин түләнем"), fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
 /**
  * Чистый рендер кабинета водителя: тумблер «на линии», метрики (маршруты/свободно/рейтинг),
  * пусто-заглушка или список опубликованных маршрутов, блок «оцените пассажиров» и нижние действия.
@@ -910,6 +1007,8 @@ internal fun DriverCabinetContent(
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit,
     modifier: Modifier = Modifier,
+    debt: com.yuldash.app.data.DriverDebtDto? = null,
+    onDeclareDebtPaid: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -919,6 +1018,10 @@ internal fun DriverCabinetContent(
         item {
             Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
             Text(appText("Публикуйте поездки, проходите проверку и поднимайте маршрут выше.", "Сәфәр баҫтырығыҙ, тикшереү үтегеҙ һәм маршрутты өҫкә күтәрегеҙ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+        }
+        // Долг по комиссии за такси (Модель А «на доверии»): баннер только если есть что платить/подтверждать.
+        if (debt != null && (debt.unpaidKop > 0 || debt.pendingKop > 0)) {
+            item { DriverDebtBanner(debt, onDeclareDebtPaid) }
         }
         item {
             SettingsGroup {
