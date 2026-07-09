@@ -548,6 +548,9 @@ internal fun ProfileScreen(
             }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Кабинет пассажира", "Пассажир кабинеты"), appText("Мои брони, заявки и безопасность", "Брондәр, заявкалар һәм хәүефһеҙлек"), Icons.Default.EventSeat, onPassengerCabinet) } }
             item { Box(Modifier.appearIn(2)) { ProfileActionCard(appText("Кабинет водителя", "Водитель кабинеты"), appText("Маршруты, проверка и поднятие", "Маршруттар, тикшереү һәм күтәреү"), Icons.Default.DirectionsCar, onDriverCabinet) } }
+            if (role == "driver") {
+                item { Box(Modifier.appearIn(2)) { DriverWalletCard() } }
+            }
             item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
             item { Box(Modifier.appearIn(4)) { ProfileActionCard(appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото авто", "Права, машина, авто фотоһы"), Icons.Default.Verified, onVerifyDriver) } }
             item { Box(Modifier.appearIn(6)) { ProfileActionCard(appText("Безопасность", "Хәүефһеҙлек"), appText("SOS, скрытый телефон, подтверждённые участники", "SOS, йәшерен телефон, раҫланған ҡатнашыусылар"), Icons.Default.Shield, onSafety) } }
@@ -664,6 +667,185 @@ internal fun ProfileActionCard(
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
         }
     }
+}
+
+// Кошелёк водителя: баланс + вывод на карту (Модель Б). Кнопка «Вывести» активна ТОЛЬКО когда
+// сервер включил выплаты (payouts_enabled). Иначе — «Скоро: вывод на карту», а Модель А
+// (наличные/перевод) остаётся рабочей. Все состояния: загрузка / ошибка+повтор / готово.
+@Composable
+internal fun DriverWalletCard() {
+    var status by remember { mutableStateOf<com.yuldash.app.data.PayoutStatusDto?>(null) }
+    var loadFailed by remember { mutableStateOf(false) }
+    var reload by remember { mutableStateOf(0) }
+    var showPayout by remember { mutableStateOf(false) }
+    LaunchedEffect(reload) {
+        loadFailed = false
+        ApiClient.getPayoutStatus()
+            .onSuccess { status = it }
+            .onFailure { loadFailed = true }
+    }
+    val enabled = status?.enabled == true
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+                    Icon(Icons.Default.Payments, contentDescription = appText("Кошелёк", "Кесә"), tint = CanonGreen2, modifier = Modifier.padding(9.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(appText("Кошелёк водителя", "Водитель кесәһе"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp, lineHeight = 19.sp)
+                    val balText = when {
+                        status != null -> appText("Баланс: ", "Баланс: ") + "${status!!.balanceKop / 100} ₽"
+                        loadFailed -> appText("Не удалось загрузить баланс", "Балансты йөкләп булманы")
+                        else -> appText("Загружаем баланс…", "Баланс йөкләнә…")
+                    }
+                    Text(balText, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                }
+                if (loadFailed) {
+                    TextButton(onClick = { reload++ }) {
+                        Text(appText("Повторить", "Ҡабатларға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            if (enabled) {
+                Button(
+                    onClick = { showPayout = true },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                ) {
+                    Icon(Icons.Default.CreditCard, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(appText("Вывести на карту", "Картаға сығарыу"), color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Surface(color = CanonMint.copy(alpha = 0.5f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(appText("Скоро: вывод на карту", "Тиҙҙән: картаға сығарыу"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
+                Text(
+                    appText(
+                        "Пока вывод недоступен. Оплата за поездки — наличными или переводом.",
+                        "Хәҙергә сығарыу юҡ. Сәфәр өсөн түләү — нәҡ аҡса йәки күсереү менән.",
+                    ),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                )
+            }
+        }
+    }
+
+    val s = status
+    if (showPayout && s != null) {
+        PayoutDialog(
+            status = s,
+            onDismiss = { showPayout = false },
+            onDone = { newBalKop ->
+                status = s.copy(balanceKop = newBalKop, hasRequisite = true)
+                showPayout = false
+                reload++
+            },
+        )
+    }
+}
+
+// Диалог вывода: реквизиты (если карты ещё нет) + сумма. Границы и «не больше баланса» —
+// зеркалят серверные (окончательную проверку делает бэкенд). Полный номер карты не остаётся у нас.
+@Composable
+private fun PayoutDialog(
+    status: com.yuldash.app.data.PayoutStatusDto,
+    onDismiss: () -> Unit,
+    onDone: (Int) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var card by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val needCard = !status.hasRequisite
+    val cardDigits = card.filter { it.isDigit() }
+    val amountKop = (amount.toIntOrNull() ?: 0) * 100
+    val cardOk = !needCard || cardDigits.length in 12..19
+    val amountOk = amountKop in status.minKop..status.maxKop && amountKop <= status.balanceKop
+    val canSubmit = cardOk && amountOk && !busy
+
+    val saveErr = appText("Не удалось сохранить карту. Проверь номер.", "Картаны һаҡлап булманы. Номерҙы тикшер.")
+    val genericErr = appText("Не получилось. Попробуй позже.", "Булманы. Һуңыраҡ ҡабатла.")
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        containerColor = CanonSurface,
+        title = { Text(appText("Вывод на карту", "Картаға сығарыу"), color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(appText("Доступно: ", "Бар: ") + "${status.balanceKop / 100} ₽", color = CanonMuted, fontSize = 13.sp)
+                if (needCard) {
+                    OutlinedTextField(
+                        value = card,
+                        onValueChange = { v -> card = v.filter { it.isDigit() || it == ' ' }.take(23) },
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        label = { Text(appText("Номер карты", "Карта номеры")) },
+                        placeholder = { Text("2200 0000 0000 0000") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    Text(appText("Храним только последние 4 цифры карты.", "Тик картаның һуңғы 4 һанын ғына һаҡлайбыҙ."), color = CanonMuted, fontSize = 11.sp)
+                } else {
+                    Text(appText("Карта ····", "Карта ····") + status.cardLast4, color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { v -> amount = v.filter { it.isDigit() }.take(7) },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(appText("Сумма, ₽", "Сумма, ₽")) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RoundedCornerShape(14.dp),
+                )
+                Text(appText("Минимум ", "Кәм тигәндә ") + "${status.minKop / 100} ₽", color = CanonMuted, fontSize = 11.sp)
+                error?.let { Text(it, color = CanonRed, fontSize = 12.sp) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = canSubmit, onClick = {
+                busy = true
+                error = null
+                scope.launch {
+                    if (needCard) {
+                        val saved = ApiClient.savePayoutCard(cardDigits)
+                        if (saved.isFailure) {
+                            busy = false
+                            error = saveErr
+                            return@launch
+                        }
+                    }
+                    val idem = "po-" + System.currentTimeMillis()
+                    ApiClient.requestPayout(amountKop, idem)
+                        .onSuccess { newBal -> busy = false; onDone(newBal) }
+                        .onFailure { e -> busy = false; error = (e as? ApiException)?.message ?: genericErr }
+                }
+            }) {
+                Text(
+                    if (busy) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Вывести", "Сығарыу"),
+                    color = CanonGreen2, fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) {
+                Text(appText("Отмена", "Баш тартыу"), color = CanonMuted)
+            }
+        },
+    )
 }
 
 @Composable

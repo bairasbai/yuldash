@@ -24,6 +24,7 @@ BOOST_PLANS: dict[str, tuple[str, int, int]] = {
 }
 
 YOOKASSA_API = "https://api.yookassa.ru/v3/payments"
+YOOKASSA_PAYOUT_API = "https://api.yookassa.ru/v3/payouts"
 
 
 def _rub(amount_kop: int) -> str:
@@ -99,3 +100,39 @@ def fetch_payment(provider_id: str) -> dict:
     r.raise_for_status()
     data = r.json()
     return {"status": data.get("status", "pending"), "metadata": data.get("metadata") or {}}
+
+
+# ============================ Выплаты водителям (Модель Б, Фаза 3 v2) ============================
+# ГОТОВНОСТЬ: обёртка над ЮKassa Payout API рядом с create/fetch платежей. Реальные выплаты
+# идут только когда Александр оформит ИП + бизнес-ЮKassa + ключи выплат (payouts_ready=True).
+# Без ключей выплат — mock: фиктивная успешная выплата (для dev/готовности; денег не двигает).
+def payout_keys_present() -> bool:
+    """Есть ли реальные ключи выплат ЮKassa? Нет → работаем в mock (dev/готовность)."""
+    return bool(settings.yookassa_payout_agent_id and settings.yookassa_payout_secret_key)
+
+
+def create_payout(amount_kop: int, payout_token: str, description: str, metadata: dict,
+                  idempotence_key: str = "") -> dict:
+    """Отправить выплату водителю на привязанную карту. Возврат: {payout_id, status, mock}.
+
+    Полного номера карты у нас НЕТ — платим по `payout_token` (токен карты у провайдера,
+    получен через виджет привязки). mock-режим (нет ключей выплат): status='succeeded' без
+    реальных денег. Idempotence-Key передаём в ЮKassa → повторная отправка не задваивает выплату."""
+    if not payout_keys_present():
+        return {"payout_id": f"mock_payout_{uuid.uuid4().hex}", "status": "succeeded", "mock": True}
+    import httpx
+    body = {
+        "amount": {"value": _rub(amount_kop), "currency": "RUB"},
+        "payout_token": payout_token,          # токен карты (НЕ PAN) — полный номер у ЮKassa, не у нас
+        "description": description[:128],
+        "metadata": metadata,
+    }
+    r = httpx.post(
+        YOOKASSA_PAYOUT_API, json=body,
+        auth=(settings.yookassa_payout_agent_id, settings.yookassa_payout_secret_key),
+        headers={"Idempotence-Key": idempotence_key or uuid.uuid4().hex},
+        timeout=30,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return {"payout_id": data.get("id", ""), "status": data.get("status", "pending"), "mock": False}

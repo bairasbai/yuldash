@@ -124,6 +124,10 @@ class DriverProfile(SQLModel, table=True):
     autocheck_score: float = 0.0      # 0..1 — уверенность авто-проверки
     autocheck_data: str = ""          # JSON: распознанные поля + коды причин (для админа/клиента)
     autocheck_at: Optional[datetime] = None
+    # --- Реквизиты для выплат (Модель Б, Фаза 3 v2). Полный номер карты НЕ храним. ---
+    payout_card_last4: str = ""       # последние 4 цифры карты (для показа «карта ····1234»)
+    payout_token: str = ""            # токен привязанной карты у провайдера (НЕ PAN) — по нему шлём выплату
+    payout_card_at: Optional[datetime] = None  # когда реквизиты добавлены/обновлены
 
 
 class Ride(SQLModel, table=True):
@@ -416,6 +420,9 @@ class LedgerEntry(SQLModel, table=True):
     amount_kop: int = 0
     created_at: datetime = Field(default_factory=utcnow, index=True)  # index — для сверки за период
     note: str = ""
+    # payout: ключ идемпотентности выплаты / id выплаты у провайдера (для earn/fee/adj пусто).
+    # Гарантирует, что повторный запрос вывода с тем же ключом НЕ спишет баланс дважды.
+    ext_id: str = Field(default="", index=True)
 
 
 class UploadEvent(SQLModel, table=True):

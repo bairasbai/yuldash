@@ -1170,6 +1170,32 @@ object ApiClient {
             )
         }
 
+    // ---------- Кошелёк водителя: выплаты (Модель Б, на сервере ВЫКЛ по умолчанию) ----------
+
+    /** Статус выплат + баланс кошелька. enabled=false → сервер выключил вывод (кнопка «Скоро»). */
+    suspend fun getPayoutStatus(): Result<PayoutStatusDto> =
+        call("GET", "/wallet/payout/status", null, auth = true).map { o ->
+            PayoutStatusDto(
+                enabled = o.optBoolean("enabled"),
+                balanceKop = o.optInt("balance_kop"),
+                hasRequisite = o.optBoolean("has_requisite"),
+                cardLast4 = o.optString("card_last4"),
+                minKop = o.optInt("min_kop"),
+                maxKop = o.optInt("max_kop"),
+            )
+        }
+
+    /** Сохранить карту для выплат. Номер уходит транзитом — на сервере хранятся ТОЛЬКО последние 4. */
+    suspend fun savePayoutCard(cardNumber: String): Result<String> =
+        call("POST", "/wallet/payout/requisite", JSONObject().put("card_number", cardNumber), auth = true)
+            .map { it.optString("card_last4") }
+
+    /** Вывести деньги на карту. idempotencyKey защищает от двойного списания при ретрае. Возврат — новый баланс, коп. */
+    suspend fun requestPayout(amountKop: Int, idempotencyKey: String): Result<Int> =
+        call("POST", "/wallet/payout",
+            JSONObject().put("amount_kop", amountKop).put("idempotency_key", idempotencyKey), auth = true)
+            .map { it.optInt("balance_kop") }
+
     // ---------- Админ: заявки на оплату (буст/донат на подтверждение) ----------
     suspend fun getPendingPayments(): Result<List<PendingPaymentDto>> =
         call("GET", "/admin/payments/pending", null, auth = true).map { obj ->
@@ -1584,6 +1610,16 @@ data class BoostResultDto(
     val payeePhone: String?,       // СБП: номер получателя
     val payeeBank: String?,
     val payeeName: String?,
+)
+
+/** Статус выплат водителю (/wallet/payout/status). enabled=false → вывод выключен сервером («Скоро»). */
+data class PayoutStatusDto(
+    val enabled: Boolean,
+    val balanceKop: Int,
+    val hasRequisite: Boolean,
+    val cardLast4: String,
+    val minKop: Int,
+    val maxKop: Int,
 )
 
 /** Заявка на оплату (буст/донат) в админ-очереди подтверждения. */

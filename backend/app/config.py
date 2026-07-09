@@ -61,6 +61,18 @@ class Settings(BaseSettings):
     # Финальный процент и оферту утверждает Александр (юр.шляпа). Наличные комиссией не облагаются.
     service_fee_percent: float = 8.0
 
+    # --- Выплаты водителям (Модель Б, Фаза 3 v2). ПО УМОЛЧАНИЮ ВЫКЛЮЧЕНО ---
+    # Модель Б: деньги пассажира идут ЧЕРЕЗ платформу (бизнес-ЮKassa Александра), платформа
+    # берёт комиссию, остальное — выплата водителю на карту (ЮKassa Payout API).
+    # Это ГОТОВНОСТЬ: код полный, но режим недоступен, пока Александр не оформит ИП +
+    # бизнес-ЮKassa + ключи выплат и не выставит PAYOUTS_ENABLED=true.
+    # Выключено → эндпоинт вывода отвечает «Выплаты скоро», Модель А (наличные/перевод) работает.
+    payouts_enabled: bool = False
+    yookassa_payout_agent_id: str = ""   # agentId «Выплат» ЮKassa (отдельный продукт). НЕ в git — в .env.
+    yookassa_payout_secret_key: str = "" # секретный ключ выплат ЮKassa (Basic-auth). НЕ в git — в .env.
+    payout_min_kop: int = 10000          # минимальный вывод: 100 ₽ (защита от копеечных выплат/комиссий)
+    payout_max_kop: int = 15_000_000     # максимальный вывод за раз: 150 000 ₽ (защита от опечатки/фрода)
+
     # --- «Быстрый заказ» (такси-режим, Фаза 2) ---
     # Тариф считает СЕРВЕР. Клиенту не верим: haversine × road_k → дорожная дистанция.
     instant_road_k: float = 1.3            # прямая → примерная длина по дорогам
@@ -97,6 +109,16 @@ class Settings(BaseSettings):
     @property
     def is_prod(self) -> bool:
         return self.env.lower() in ("prod", "production")
+
+    @property
+    def payouts_ready(self) -> bool:
+        """Реальные выплаты доступны? В dev достаточно флага (mock-выплата для теста/готовности);
+        в проде обязателен ключ выплат ЮKassa — иначе «нажали кнопку, а денег нет»."""
+        if not self.payouts_enabled:
+            return False
+        if self.is_prod:
+            return bool(self.yookassa_payout_agent_id and self.yookassa_payout_secret_key)
+        return True
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -147,6 +169,10 @@ class Settings(BaseSettings):
             problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")
         if self.payments_provider == "sbp_manual" and not self.sbp_phone:
             problems.append("SBP_PHONE обязателен при PAYMENTS_PROVIDER=sbp_manual")
+        # Выплаты водителям (Модель Б): включать в проде можно только с реальными ключами выплат —
+        # иначе водитель «выведет», а деньги никуда не уйдут (mock). Ключи — в .env, НЕ в git.
+        if self.payouts_enabled and self.is_prod and not (self.yookassa_payout_agent_id and self.yookassa_payout_secret_key):
+            problems.append("YOOKASSA_PAYOUT_AGENT_ID и YOOKASSA_PAYOUT_SECRET_KEY обязательны при PAYOUTS_ENABLED=true")
         # Авто-одобрять водителей без OCR нельзя — это пустит непроверенных. Нужен ключ Vision.
         if self.driver_autoapprove_enabled and not self.yandex_vision_key:
             problems.append("YANDEX_VISION_KEY обязателен при DRIVER_AUTOAPPROVE_ENABLED (нельзя авто-одобрять без OCR)")

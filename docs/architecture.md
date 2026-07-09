@@ -382,3 +382,21 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 **Тесты:** backend `pytest -q` → **225 passed, 1 skipped** (+19 денежных). Alembic `upgrade head` — оба пути (baseline no-op + прод create-table с 5 индексами), идемпотентно.
 
 **Что НЕ входит (v2/за Александром):** hold→capture («безопасная сделка»), выплаты водителям (payout API), UI экрана оплаты, ЮKassa-чеки 54-ФЗ для поездок, финальный процент комиссии + оферта (юр.).
+
+## 2026-07-09 — 💸 Домен «Деньги v2»: выплаты водителям (Модель Б, ГОТОВНОСТЬ, ВЫКЛ по умолчанию) — ветка `feat/driver-payouts` (от `feat/tariffs-support`)
+
+**Модель Б:** деньги пассажира идут ЧЕРЕЗ платформу (бизнес-ЮKassa Александра), платформа берёт комиссию, остальное — выплата водителю на карту (ЮKassa Payout API). Код полный, но **режим недоступен, пока Александр не оформит ИП + бизнес-ЮKassa + ключи выплат** и не выставит `PAYOUTS_ENABLED=true`. Выключено → эндпоинт вывода отвечает 503 «Выплаты скоро» (не падает), Модель А (наличные/перевод) остаётся рабочей.
+
+- `backend/app/config.py` — `payouts_enabled` (дефолт **False**), `yookassa_payout_agent_id`/`yookassa_payout_secret_key` (env, НЕ git), границы `payout_min_kop`=10000 (100 ₽)/`payout_max_kop`=15 000 000 (150 000 ₽). Свойство `payouts_ready` (в проде требует ключи). Прод-гейт `validate_production`: `PAYOUTS_ENABLED=true` без ключей → отказ старта.
+- `backend/app/payments.py` — `create_payout(amount_kop, payout_token, …)` рядом с create/fetch: реальный ЮKassa Payout API + Idempotence-Key; без ключей выплат → mock succeeded (dev/готовность, денег не двигает). Платим по **токену карты** (полного PAN у нас нет).
+- `backend/app/ledger.py` — `request_payout(session, driver_id, amount_kop, …)`: границы → row-lock строки водителя → идемпотентность по `ext_id` → `amount ≤ balance` → провайдер → запись `LedgerEntry(kind=payout, −сумма)`. `PayoutError(code, message)`.
+- `backend/app/routers/wallet.py` — `GET /wallet/payout/status` (enabled+баланс+границы+реквизиты), `POST /wallet/payout/requisite` (сохраняем ТОЛЬКО последние 4 + токен, PAN не храним/не логируем), `POST /wallet/payout {amount_kop, idempotency_key}` (выключено → 503 «скоро»), `GET /admin/payouts` (реестр выплат, только админ).
+- `backend/alembic/versions/p3_payout.py` — миграция (rev `p3_payout`, down `p3_ledger`), идемпотентна: `driverprofile(+payout_card_last4,+payout_token,+payout_card_at)`, `ledgerentry(+ext_id +index)`.
+- `backend/tests/test_payouts.py` — 11 тестов: баланс=SUM(вкл. payout), выключено→503 (не 500), реквизиты хранят только last4, payout пишет −сумма и уменьшает баланс, нельзя больше баланса, ниже минимума → ошибка, идемпотентность (повтор ключа не задваивает), нужны реквизиты, реестр только админ.
+- **UI** (`ProfileScreen.kt`): `DriverWalletCard` (виден при `role=="driver"`) — баланс + `PayoutDialog` (карта+сумма). Кнопка «Вывести на карту» активна ТОЛЬКО при `enabled` из `/wallet/payout/status`, иначе пилюля «Скоро: вывод на карту» + пояснение. `ApiClient`: `getPayoutStatus`/`savePayoutCard`/`requestPayout` + `PayoutStatusDto`. Все состояния (загрузка/ошибка+повтор/готово), два языка, Canon-стиль.
+
+**Модели:** `DriverProfile(+payout_card_last4, +payout_token[токен, НЕ PAN], +payout_card_at)`, `LedgerEntry(+ext_id[ключ идемпотентности/id выплаты])`. Баланс = SUM(amount_kop) включает payout (−).
+
+**Тесты:** backend `pytest -q` → **244 passed, 1 skipped** (+11 к выплатам). Alembic `upgrade head` идемпотентно (create_all no-op + прод add-column/index).
+
+**Активация Александром:** ИП + бизнес-ЮKassa (продукт «Выплаты») + `YOOKASSA_PAYOUT_AGENT_ID`/`YOOKASSA_PAYOUT_SECRET_KEY` в `.env` + `PAYOUTS_ENABLED=true`. Вливать ПОСЛЕ #34/#36/#42 (ledger/тарифы).
