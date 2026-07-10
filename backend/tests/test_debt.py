@@ -97,8 +97,8 @@ def test_debt_accrued_on_instant_done(client, user_factory, fake_redis):
     assert row is not None
     assert row.order_id == done["id"]
     assert row.status == DebtStatus.unpaid
-    # 8% от цены в копейках, ROUND_HALF_UP
-    expected = round(price_rub * 100 * settings.service_fee_percent / 100)
+    # Новичок (первый done-заказ) платит 1-ю ступень лесенки (3%), копейки, ROUND_HALF_UP.
+    expected = round(price_rub * 100 * settings.fee_tier1_percent / 100)
     assert row.amount_kop == expected
     assert row.amount_kop > 0
     assert row.week.startswith(str(utcnow().year))

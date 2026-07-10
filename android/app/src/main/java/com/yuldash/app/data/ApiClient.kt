@@ -1272,6 +1272,8 @@ object ApiClient {
         fromText: String = "", toText: String = "", category: String = "standard",
     ): Result<InstantEstimateDto> =
         call("POST", "/instant/estimate", instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category), auth = true).map { o ->
+            val note = o.optJSONObject("surge_note")
+            val optArr = o.optJSONArray("options") ?: JSONArray()
             InstantEstimateDto(
                 price = o.optInt("price"),
                 distanceKm = o.optDouble("distance_km", 0.0),
@@ -1279,6 +1281,13 @@ object ApiClient {
                 zone = o.optString("zone"),
                 category = o.optString("category", category),
                 tariffId = o.optInt("tariff_id"),
+                surgeK = o.optDouble("surge_k", 1.0),
+                surgeNoteRu = note?.optString("ru") ?: "",
+                surgeNoteBa = note?.optString("ba") ?: "",
+                options = (0 until optArr.length()).map { i ->
+                    val c = optArr.getJSONObject(i)
+                    InstantClassOption(category = c.optString("category"), price = c.optInt("price"))
+                },
             )
         }
 
@@ -1353,14 +1362,15 @@ object ApiClient {
      *  Сервер валидирует возраст 20+/стаж 2+/ИНН 10–12 цифр → 400 с русским detail (покажем как есть). */
     suspend fun applyTaxi(
         inn: String, permitNumber: String, birthDate: String, licenseSinceYear: Int,
-        permitPhotoUrl: String, osagoUrl: String,
+        permitPhotoUrl: String, osagoUrl: String, carClass: String = "economy",
     ): Result<TaxiApplicationDto> =
         call(
             "POST", "/taxi/apply",
             JSONObject()
                 .put("inn", inn).put("permit_number", permitNumber)
                 .put("birth_date", birthDate).put("license_since_year", licenseSinceYear)
-                .put("permit_photo_url", permitPhotoUrl).put("osago_url", osagoUrl),
+                .put("permit_photo_url", permitPhotoUrl).put("osago_url", osagoUrl)
+                .put("car_class", carClass),   // §6: заявленный класс, админ подтверждает при approve
             auth = true,
         ).map { it.toTaxiApplicationDto() }.onSuccess { Analytics.log("taxi_apply") }
 
@@ -1565,7 +1575,11 @@ object ApiClient {
 /** Ошибка API с кодом и понятным текстом для пользователя. */
 class ApiException(val status: Int, message: String) : Exception(message)
 
-/** Оценка цены быстрого заказа (сервер считает сам по своей формуле). */
+/** Цена одного класса машины (Эконом/Комфорт) в options оценки — обе цены одним запросом. */
+data class InstantClassOption(val category: String, val price: Int)
+
+/** Оценка цены быстрого заказа (сервер считает сам по своей формуле).
+ *  surgeK > 1.0 → час пик: плашка surgeNote (RU/BA) показывается ДО заказа, цена уже с k. */
 data class InstantEstimateDto(
     val price: Int,
     val distanceKm: Double,
@@ -1573,6 +1587,10 @@ data class InstantEstimateDto(
     val zone: String,
     val category: String,
     val tariffId: Int,
+    val surgeK: Double = 1.0,
+    val surgeNoteRu: String = "",
+    val surgeNoteBa: String = "",
+    val options: List<InstantClassOption> = emptyList(),
 )
 
 /** Быстрый заказ (такси-режим) с сервера. Имя/телефон стороны приходят пустыми до accept (приватность). */
@@ -1592,6 +1610,16 @@ data class InstantOrderDto(
     val offerExpiresAt: String?,  // ISO — когда протухнет текущий оффер (таймер водителя ведём локально)
     val cancelBy: String,         // "" | passenger | driver
     val cancelReason: String,
+    // Деньги-правила (волна 2 §5): сурж/ожидание/отмены. Всё считает сервер, UI только показывает.
+    val surgeK: Double,           // применённый сурж (зафиксирован при создании)
+    val waitingStartedAt: String?, // ISO UTC — водитель нажал «Я на месте» (пошло ожидание)
+    val waitingFeeKop: Int,       // платное ожидание, копейки (фиксируется на посадке)
+    val cancelFeeKop: Int,        // штраф за позднюю отмену / no-show (Модель А: фиксация, не списание)
+    val noShow: Boolean,          // «пассажир не вышел»
+    val waitFreeMin: Int,         // бесплатное ожидание, мин (конфиг сервера)
+    val waitFeeRubPerMin: Int,    // платное ожидание, ₽/мин (конфиг сервера)
+    val noShowAt: String?,        // ISO UTC — с этого момента водителю доступна «Пассажир не вышел»
+    val cancelFeeNowKop: Int,     // сколько стоила бы отмена ПРЯМО СЕЙЧАС (0 = бесплатно)
     // Раскрыто только после accept:
     val driverName: String,
     val driverCar: String,
@@ -1628,6 +1656,15 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     offerExpiresAt = if (isNull("offer_expires_at")) null else optString("offer_expires_at").ifBlank { null },
     cancelBy = optString("cancel_by"),
     cancelReason = optString("cancel_reason"),
+    surgeK = optDouble("surge_k", 1.0),
+    waitingStartedAt = if (isNull("waiting_started_at")) null else optString("waiting_started_at").ifBlank { null },
+    waitingFeeKop = optInt("waiting_fee_kop"),
+    cancelFeeKop = optInt("cancel_fee_kop"),
+    noShow = optBoolean("no_show"),
+    waitFreeMin = optInt("wait_free_min", 5),
+    waitFeeRubPerMin = optInt("wait_fee_rub_per_min", 5),
+    noShowAt = if (isNull("no_show_at")) null else optString("no_show_at").ifBlank { null },
+    cancelFeeNowKop = optInt("cancel_fee_now_kop"),
     driverName = optString("driver_name"),
     driverCar = optString("driver_car"),
     driverVerified = optBoolean("driver_verified"),

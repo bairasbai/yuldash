@@ -7,12 +7,19 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +52,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -98,6 +106,26 @@ import kotlinx.coroutines.launch
 
 // Города-опоры РБ для дефолтной камеры, если позиция ещё не определилась.
 private val InstantDefaultPoint = Point(52.5980, 58.4419) // Баймак
+
+// ------------------------------ Время сервера (наивный UTC ISO) ------------------------------
+/** Сервер шлёт наивные UTC-даты ISO («2026-07-10T12:34:56.123456») — переводим в epoch ms. */
+private fun isoUtcToEpochMs(iso: String): Long? = runCatching {
+    java.time.LocalDateTime.parse(iso.removeSuffix("Z"))
+        .toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+}.getOrNull()
+
+/** Тикающее «сейчас» (раз в секунду) для живых таймеров ожидания. */
+@Composable
+private fun rememberNowMs(): State<Long> {
+    val state = remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            state.value = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    return state
+}
 
 // ------------------------------ Гео: моя позиция ------------------------------
 /** Моя позиция через LocationManager (как на «Карте»). active=false → не подписываемся (экономим батарею). */
@@ -282,9 +310,19 @@ internal fun InstantOrderScreen(onBack: () -> Unit, onLoginRequired: () -> Unit,
                 )
                 current.status == "cancelled" -> InstantFinalCard(
                     icon = Icons.Default.Close,
-                    title = appText("Заказ отменён", "Заказ ҡабул ителмәне"),
-                    subtitle = if (current.cancelBy == "driver") appText("Водитель отменил. Попробуй заказать снова.", "Водитель баш тартты. Ҡабат заказ ит.")
-                    else appText("Ты отменил заказ.", "Һин заказды кире ҡайтарҙың."),
+                    title = if (current.noShow) appText("Поездка не состоялась", "Сәфәр булманы")
+                    else appText("Заказ отменён", "Заказ ҡабул ителмәне"),
+                    // Честные тексты про штраф/страйки (Модель А: фиксируем, деньги не списываем).
+                    subtitle = when {
+                        current.noShow -> appText(
+                            "Водитель ждал ${current.waitFreeMin}+ минут, но не дождался. Подача — ${current.cancelFeeKop / 100} ₽, переведи водителю. Частые такие отмены ставят такси на паузу.",
+                            "Водитель ${current.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${current.cancelFeeKop / 100} ₽, водителгә күсер. Йыш улай булһа — такси паузаға китә.")
+                        current.cancelFeeKop > 0 && current.cancelBy == "passenger" -> appText(
+                            "Отмена была платной: ${current.cancelFeeKop / 100} ₽ (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.",
+                            "Кире алыу түләүле булды: ${current.cancelFeeKop / 100} ₽ (килеү хаҡы) — водителгә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
+                        current.cancelBy == "driver" -> appText("Водитель отменил. Попробуй заказать снова.", "Водитель баш тартты. Ҡабат заказ ит.")
+                        else -> appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.")
+                    },
                     action = appText("Новый заказ", "Яңы заказ"),
                     onAction = { order = null },
                     onSecondary = onBack,
@@ -326,6 +364,7 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
     var estimating by remember { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
+    var category by remember { mutableStateOf("standard") }   // §6: standard = Эконом, comfort = Комфорт
     var pickOnMap by remember { mutableStateOf(false) }   // оверлей выбора точки Б на карте
     var pickFromOnMap by remember { mutableStateOf(false) }
 
@@ -348,13 +387,13 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
         suggestions = GeocoderClient.suggest(query).take(6)
     }
 
-    // Оценка цены, когда есть обе точки.
-    LaunchedEffect(effFrom, toPoint) {
+    // Оценка цены, когда есть обе точки (и при смене класса — тариф другой).
+    LaunchedEffect(effFrom, toPoint, category) {
         val f = effFrom; val t = toPoint
         if (f == null || t == null) { estimate = null; return@LaunchedEffect }
         delay(350)   // дебаунс: позиция уточняется GPS-фиксами — не дёргаем /estimate на каждый
         estimating = true; errorText = null
-        ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText)
+        ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText, category)
             .onSuccess { estimate = it }
             .onFailure { errorText = (it as? ApiException)?.message ?: estimateFailMsg }
         estimating = false
@@ -429,6 +468,55 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
             }
         }
 
+        // Класс машины (§6): Эконом / Комфорт — обе цены сразу, выбранная уходит в заказ.
+        if (toPoint != null) {
+            val opts = estimate?.options.orEmpty().associate { it.category to it.price }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                InstantClassCard(
+                    title = appText("Эконом", "Эконом"),
+                    subtitle = appText("обычная машина", "ғәҙәти машина"),
+                    price = opts["standard"],
+                    selected = category == "standard",
+                    onClick = { category = "standard" },
+                    modifier = Modifier.weight(1f),
+                )
+                InstantClassCard(
+                    title = appText("Комфорт", "Комфорт"),
+                    subtitle = appText("новее и просторнее", "яңыраҡ һәм иркенерәк"),
+                    price = opts["comfort"],
+                    selected = category == "comfort",
+                    onClick = { category = "comfort" },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        // Сурж — честно и ДО заказа: почему дороже и на сколько (потолок ×1.5 на сервере).
+        AnimatedVisibility(
+            visible = (estimate?.surgeK ?: 1.0) > 1.0,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            val est = estimate
+            val pct = (((est?.surgeK ?: 1.0) - 1.0) * 100).toInt()
+            Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("⚡", fontSize = 22.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            // Серверный текст (двуязычный) — источник правды; локальный — фолбэк.
+                            appText(
+                                est?.surgeNoteRu?.ifBlank { null } ?: "Сейчас заказов больше обычного — цена выше на $pct%. Вызвать или подождать?",
+                                est?.surgeNoteBa?.ifBlank { null } ?: "Хәҙер заказдар күберәк — хаҡ $pct%-ҡа юғарыраҡ. Саҡырырғамы, әллә көтөргәме?",
+                            ),
+                            color = CanonText, fontSize = 13.sp, lineHeight = 18.sp,
+                        )
+                    }
+                }
+            }
+        }
+
         // Оценка цены
         if (toPoint != null) {
             Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape) {
@@ -465,7 +553,7 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
                 creating = true; errorText = null
                 scope.launch {
                     ApiClient.createInstantOrder(f.latitude, f.longitude, t.latitude, t.longitude,
-                        fromText.ifBlank { myPosText }, toText.ifBlank { mapPointText })
+                        fromText.ifBlank { myPosText }, toText.ifBlank { mapPointText }, category)
                         .onSuccess { onOrderCreated(it) }
                         .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
                     creating = false
@@ -510,6 +598,72 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
     }
 }
 
+// ------------------------------ Карточка класса (Эконом/Комфорт) ------------------------------
+@Composable
+private fun InstantClassCard(
+    title: String,
+    subtitle: String,
+    price: Int?,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val border by animateColorAsState(if (selected) CanonGreen2 else CanonSurface, tween(200), label = "clsBorder")
+    val bg by animateColorAsState(if (selected) CanonGreen2.copy(alpha = 0.08f) else CanonSurface, tween(200), label = "clsBg")
+    Surface(
+        onClick = onClick,
+        shape = CanonItemShape,
+        color = bg,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
+        modifier = modifier.height(76.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.Center) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (price != null) {
+                    Text("$price ₽", color = if (selected) CanonGreen2 else CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black)
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}
+
+// ------------------------------ Таймер ожидания (обе стороны) ------------------------------
+/** «Машина на месте»: живой таймер — бесплатное окно тикает вниз, дальше честно копится
+ *  платное ожидание (+N ₽/мин, целыми минутами — как считает сервер). */
+@Composable
+private fun InstantWaitingRow(order: InstantOrderDto) {
+    val startMs = order.waitingStartedAt?.let { isoUtcToEpochMs(it) } ?: return
+    val now by rememberNowMs()
+    val elapsedSec = ((now - startMs) / 1000).coerceAtLeast(0)
+    val freeSec = order.waitFreeMin * 60L
+    val isFree = elapsedSec < freeSec
+    val accent by animateColorAsState(if (isFree) CanonGreen2 else CanonRed, tween(300), label = "waitAccent")
+    Surface(shape = CanonItemShape, color = accent.copy(alpha = 0.08f), border = BorderStroke(1.dp, accent.copy(alpha = 0.4f))) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.AccessTime, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            if (isFree) {
+                val left = freeSec - elapsedSec
+                Text(
+                    appText("Бесплатное ожидание %d:%02d".format(left / 60, left % 60),
+                        "Бушлай көтөү %d:%02d".format(left / 60, left % 60)),
+                    color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                )
+            } else {
+                val paidRub = ((elapsedSec / 60 - order.waitFreeMin).coerceAtLeast(0)) * order.waitFeeRubPerMin
+                Text(
+                    appText("Платное ожидание · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (уже +$paidRub ₽)" else ""),
+                        "Түләүле көтөү · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (инде +$paidRub ₽)" else "")),
+                    color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
 // ------------------------------ «Ищем машину» ------------------------------
 @Composable
 private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
@@ -548,12 +702,16 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
 @Composable
 private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Unit) {
     val ctx = LocalContext.current
+    // Семантика фаз (§5, структура как Яндекс): accepted = водитель едет к тебе,
+    // arriving = «Я на месте» (машина ждёт — тикает ожидание), onboard = в пути.
     val phaseTitle = when (order.status) {
-        "accepted" -> appText("Водитель принял заказ", "Водитель заказды алды")
-        "arriving" -> appText("Водитель едет к тебе", "Водитель һиңә килә")
+        "accepted" -> appText("Водитель едет к тебе", "Водитель һиңә килә")
+        "arriving" -> appText("Машина на месте", "Машина урынында")
         "onboard" -> appText("В пути", "Юлда")
         else -> appText("Водитель едет", "Водитель килә")
     }
+    var confirmPaidCancel by remember { mutableStateOf(false) }
+    val cancelFeeRub = order.cancelFeeNowKop / 100
     Column(Modifier.fillMaxSize()) {
         InstantRouteMap(
             from = Point(order.fromLat, order.fromLng),
@@ -605,13 +763,52 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                         }
                     }
                 }
+                // «Я на месте» → живой таймер ожидания (бесплатное окно → платно).
+                if (order.status == "arriving") {
+                    InstantWaitingRow(order)
+                }
                 if (order.status != "onboard") {
-                    OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) {
-                        Text(appText("Отменить заказ", "Заказды кире алыу"), color = CanonRed)
+                    OutlinedButton(
+                        // Поздняя отмена платная (подача) — честно предупреждаем ДО тапа.
+                        onClick = { if (order.cancelFeeNowKop > 0) confirmPaidCancel = true else onCancel() },
+                        modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp),
+                    ) {
+                        Text(
+                            if (order.cancelFeeNowKop > 0)
+                                appText("Отменить · $cancelFeeRub ₽", "Кире алыу · $cancelFeeRub ₽")
+                            else appText("Отменить заказ", "Заказды кире алыу"),
+                            color = CanonRed,
+                        )
                     }
                 }
             }
         }
+    }
+    if (confirmPaidCancel) {
+        AlertDialog(
+            onDismissRequest = { confirmPaidCancel = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Отмена сейчас платная", "Хәҙер кире алыу түләүле"), color = CanonText, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    appText(
+                        "Водитель уже приехал и ждёт. Отмена — $cancelFeeRub ₽ (подача), переведи водителю напрямую. Частые платные отмены ставят такси на паузу.",
+                        "Водитель килде инде һәм көтә. Кире алыу — $cancelFeeRub ₽ (килеү хаҡы), водителгә туранан күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.",
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmPaidCancel = false; onCancel() }) {
+                    Text(appText("Всё равно отменить", "Барыбер кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmPaidCancel = false }) {
+                    Text(appText("Я выхожу", "Мин сығам"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                }
+            },
+        )
     }
 }
 
@@ -804,7 +1001,15 @@ private fun InstantOfferOverlay(order: InstantOrderDto, onAccept: () -> Unit, on
             )
             Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("${order.priceEstimate} ₽", color = CanonText, fontSize = 34.sp, fontWeight = FontWeight.Black)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${order.priceEstimate} ₽", color = CanonText, fontSize = 34.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                        if (order.category == "comfort") {
+                            Surface(shape = RoundedCornerShape(10.dp), color = CanonGreen2.copy(alpha = 0.12f)) {
+                                Text(appText("Комфорт", "Комфорт"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                            }
+                        }
+                    }
                     InstantPointRow(Icons.Default.MyLocation, appText("Подача", "Килеп алыу"), order.fromText.ifBlank { appText("Точка А", "А нөктәһе") })
                     InstantPointRow(Icons.Default.LocationOn, appText("Назначение", "Барыр урын"), order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") })
                     val meta = buildList {
@@ -840,7 +1045,9 @@ private fun InstantPointRow(icon: androidx.compose.ui.graphics.vector.ImageVecto
 }
 
 // ------------------------------ Экран поездки водителя ------------------------------
-/** После accept: навигация к пассажиру + кнопки «Приехал» → «Посадил» → «Завершить». */
+/** После accept: навигация к пассажиру + кнопки «Я на месте» → «Пассажир сел» → «Завершить».
+ *  На месте — живой таймер ожидания; по таймингу (5 бесплатных + 3 сверх) появляется
+ *  «Пассажир не вышел» (no-show: заказ закрывается, штраф-подача фиксируется пассажиру). */
 @Composable
 internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinished: () -> Unit) {
     val ctx = LocalContext.current
@@ -848,6 +1055,8 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
     var order by remember { mutableStateOf<InstantOrderDto?>(null) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
+    var confirmNoShow by remember { mutableStateOf(false) }
+    var actionError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(orderId) {
         ApiClient.getInstantOrder(orderId).onSuccess { order = it }
@@ -878,8 +1087,18 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                 )
                 current.status == "cancelled" -> InstantFinalCard(
                     icon = Icons.Default.Close,
-                    title = appText("Заказ отменён", "Заказ кире алынды"),
-                    subtitle = if (current.cancelBy == "passenger") appText("Пассажир отменил заказ.", "Пассажир заказды кире алды.") else appText("Заказ отменён.", "Заказ кире алынды."),
+                    title = if (current.noShow) appText("Пассажир не вышел", "Пассажир сыҡманы")
+                    else appText("Заказ отменён", "Заказ кире алынды"),
+                    subtitle = when {
+                        current.noShow -> appText(
+                            "Заказ закрыт. Пассажиру зафиксирована плата за подачу — ${current.cancelFeeKop / 100} ₽.",
+                            "Заказ ябылды. Пассажирға килеү хаҡы яҙылды — ${current.cancelFeeKop / 100} ₽.")
+                        current.cancelBy == "passenger" && current.cancelFeeKop > 0 -> appText(
+                            "Пассажир отменил поздно — ему зафиксирована подача ${current.cancelFeeKop / 100} ₽.",
+                            "Пассажир һуң кире алды — уға килеү хаҡы яҙылды: ${current.cancelFeeKop / 100} ₽.")
+                        current.cancelBy == "passenger" -> appText("Пассажир отменил заказ.", "Пассажир заказды кире алды.")
+                        else -> appText("Заказ отменён.", "Заказ кире алынды.")
+                    },
                     action = appText("К заказам", "Заказдарға"), onAction = onFinished, onSecondary = onFinished,
                 )
                 else -> Column(Modifier.fillMaxSize()) {
@@ -909,10 +1128,21 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                                     }
                                 }
                             }
-                            Text(appText("Оплата: ${current.priceEstimate} ₽ наличными/переводом", "Түләү: ${current.priceEstimate} ₽ аҡсалата/күсереп"), color = CanonMuted, fontSize = 13.sp)
-                            // Главная кнопка по фазе
+                            val waitRub = current.waitingFeeKop / 100
+                            Text(
+                                appText(
+                                    "Оплата: ${current.priceEstimate} ₽" + (if (waitRub > 0) " + $waitRub ₽ ожидание" else "") + " наличными/переводом",
+                                    "Түләү: ${current.priceEstimate} ₽" + (if (waitRub > 0) " + $waitRub ₽ көтөү" else "") + " аҡсалата/күсереп",
+                                ),
+                                color = CanonMuted, fontSize = 13.sp,
+                            )
+                            // «Я на месте» → таймер ожидания (бесплатное окно и платные минуты — как у пассажира).
+                            if (current.status == "arriving") {
+                                InstantWaitingRow(current)
+                            }
+                            // Главная кнопка по фазе (§5: accepted = еду, arriving = на месте/жду).
                             val (label, next) = when (current.status) {
-                                "accepted" -> appText("Выехал к пассажиру", "Пассажирға сыҡтым") to "arriving"
+                                "accepted" -> appText("Я на месте", "Мин урында") to "arriving"
                                 "arriving" -> appText("Пассажир сел", "Пассажир ултырҙы") to "onboard"
                                 "onboard" -> appText("Завершить поездку", "Сәфәрҙе тамамлау") to "done"
                                 else -> appText("Обновить", "Яңыртыу") to ""
@@ -927,7 +1157,8 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                                             "onboard" -> ApiClient.instantOnboard(current.id)
                                             else -> ApiClient.instantDone(current.id)
                                         }
-                                        res.onSuccess { order = it }
+                                        res.onSuccess { order = it; actionError = null }
+                                        res.onFailure { actionError = (it as? ApiException)?.message }
                                         busy = false
                                     }
                                 },
@@ -939,6 +1170,23 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                                 if (busy) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonBg)
                                 else Text(label, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             }
+                            // «Пассажир не вышел» — появляется по честному таймингу сервера
+                            // (5 бесплатных минут + 3 сверх после «Я на месте»).
+                            val nowMs by rememberNowMs()
+                            val noShowReady = current.status == "arriving" &&
+                                (current.noShowAt?.let { isoUtcToEpochMs(it) }?.let { nowMs >= it } == true)
+                            AnimatedVisibility(visible = noShowReady, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                                OutlinedButton(
+                                    onClick = { confirmNoShow = true },
+                                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                ) {
+                                    Text(appText("Пассажир не вышел", "Пассажир сыҡманы"), color = CanonRed, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            if (actionError != null) {
+                                Text(actionError!!, color = CanonRed, fontSize = 13.sp)
+                            }
                             TextButton(
                                 onClick = { scope.launch { ApiClient.instantCancel(current.id).onSuccess { order = it } } },
                                 modifier = Modifier.fillMaxWidth(),
@@ -948,5 +1196,37 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                 }
             }
         }
+    }
+    val activeOrder = order
+    if (confirmNoShow && activeOrder != null) {
+        AlertDialog(
+            onDismissRequest = { confirmNoShow = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Пассажир не вышел?", "Пассажир сыҡманымы?"), color = CanonText, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    appText(
+                        "Заказ закроется, пассажиру зафиксируется плата за подачу. Позвони ему перед этим — вдруг уже бежит.",
+                        "Заказ ябыла, пассажирға килеү хаҡы яҙыла. Тәүҙә шылтыратып ҡара — бәлки, йүгереп килә лә.",
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmNoShow = false
+                    scope.launch {
+                        ApiClient.instantCancel(activeOrder.id, reason = "no_show")
+                            .onSuccess { order = it; actionError = null }
+                            .onFailure { actionError = (it as? ApiException)?.message }
+                    }
+                }) { Text(appText("Да, не вышел", "Эйе, сыҡманы"), color = CanonRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmNoShow = false }) {
+                    Text(appText("Ещё подожду", "Тағы көтәм"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                }
+            },
+        )
     }
 }

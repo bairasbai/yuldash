@@ -8,14 +8,14 @@
 (/upload/photo → /secure/docs, как license_url водителя). Персональные данные не логируем.
 """
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import TaxiApplication, TaxiApplicationStatus, TaxiCity, User, UserRole
+from ..models import DriverProfile, TaxiApplication, TaxiApplicationStatus, TaxiCity, User, UserRole
 from ..security import current_user
 from ..services import send_push
 from ..timeutil import utcnow
@@ -49,6 +49,20 @@ class TaxiApplyIn(BaseModel):
     license_since_year: int = Field(..., ge=1900, le=2100)
     permit_photo_url: str = Field("", max_length=500)
     osago_url: str = Field("", max_length=500)
+    # Класс машины (§6): водитель ЗАЯВЛЯЕТ в онбординге, админ подтверждает/меняет при approve.
+    car_class: Literal["economy", "comfort"] = "economy"
+
+
+def _set_car_class(session: Session, user_id: int, car_class: Optional[str]) -> None:
+    """Класс машины живёт на DriverProfile (matcher читает оттуда). Профиля нет → создаём
+    выключенный (online=False): заявку таксиста подают и до первого выхода на линию."""
+    if car_class not in ("economy", "comfort"):
+        return
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user_id)).first()
+    if dp is None:
+        dp = DriverProfile(user_id=user_id, online=False)
+    dp.car_class = car_class
+    session.add(dp)
 
 
 def _full_years_since(d: date, today: date) -> int:
@@ -110,6 +124,7 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     app.reviewed_at = None
     app.created_at = utcnow()
     session.add(app)
+    _set_car_class(session, user.id, body.car_class)   # заявленный класс — на профиль водителя
     session.commit()
     session.refresh(app)
     return _application_payload(app)
@@ -144,15 +159,19 @@ def admin_taxi_applications(status: str = "pending", user: User = Depends(curren
     apps = session.exec(q.order_by(TaxiApplication.id.desc())).all()
     if not apps:
         return []
-    users = {u.id: u for u in session.exec(select(User).where(User.id.in_({a.user_id for a in apps}))).all()}
+    ids = {a.user_id for a in apps}
+    users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()}
+    profs = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(ids))).all()}
     out = []
     for a in apps:
         u = users.get(a.user_id)
+        p = profs.get(a.user_id)
         out.append({
             **_application_payload(a),
             "user_id": a.user_id,
             "name": (u.name if u and u.name else "Водитель"),
             "phone": (u.phone if u else ""),
+            "car_class": ((p.car_class if p and p.car_class else "economy")),  # заявленный класс (§6)
         })
     return out
 
@@ -164,15 +183,24 @@ def _get_app_or_404(session: Session, app_id: int) -> TaxiApplication:
     return app
 
 
+class ApproveIn(BaseModel):
+    # Админ может подтвердить/поправить класс машины при одобрении (None = не менять).
+    car_class: Optional[Literal["economy", "comfort"]] = None
+
+
 @router.post("/admin/taxi-applications/{app_id}/approve")
-def admin_approve_taxi(app_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Одобрить заявку → водитель может возить такси. Push заявителю (двуязычно)."""
+def admin_approve_taxi(app_id: int, body: ApproveIn | None = None,
+                       user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Одобрить заявку → водитель может возить такси. Push заявителю (двуязычно).
+    Опционально body.car_class — админ финально подтверждает класс (economy|comfort)."""
     _require_admin(user)
     app = _get_app_or_404(session, app_id)
     app.status = TaxiApplicationStatus.approved
     app.comment = None
     app.reviewed_at = utcnow()
     session.add(app)
+    if body is not None and body.car_class is not None:
+        _set_car_class(session, app.user_id, body.car_class)
     session.commit()
     send_push(session, app.user_id, "Ты в такси Юлдаша! 🚕",
               "Заявка одобрена — выходи на линию · Ғариза хупланды — линияға сыҡ")

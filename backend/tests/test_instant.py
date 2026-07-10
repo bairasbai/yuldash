@@ -89,8 +89,10 @@ def test_seed_tariff_values_are_new():
     from app.models import Tariff
     from sqlmodel import select
     with Session(engine) as s:
-        city = s.exec(select(Tariff).where(Tariff.zone == "city", Tariff.active == True)).first()  # noqa: E712
-        inter = s.exec(select(Tariff).where(Tariff.zone == "intercity", Tariff.active == True)).first()  # noqa: E712
+        city = s.exec(select(Tariff).where(
+            Tariff.zone == "city", Tariff.category == "standard", Tariff.active == True)).first()  # noqa: E712
+        inter = s.exec(select(Tariff).where(
+            Tariff.zone == "intercity", Tariff.category == "standard", Tariff.active == True)).first()  # noqa: E712
     assert (city.base, city.per_km, city.per_min, city.min_price, city.k) == (70, 11.0, 3.0, 100, 1.0)
     assert (inter.base, inter.per_km, inter.per_min, inter.min_price, inter.k) == (80, 9.0, 2.0, 150, 1.0)
 

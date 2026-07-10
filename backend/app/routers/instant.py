@@ -52,7 +52,8 @@ class EstimateIn(BaseModel):
     to_lng: float = Field(..., ge=-180, le=180)
     from_text: str = Field("", max_length=200)
     to_text: str = Field("", max_length=200)
-    category: str = Field("standard", max_length=40)
+    # Классы (§6): standard = Эконом, comfort = Комфорт (авто новее/чище, тариф дороже).
+    category: Literal["standard", "comfort"] = "standard"
     # ВНИМАНИЕ: поля цены здесь НЕТ намеренно — сервер считает сам, клиенту не верим.
 
 
@@ -146,8 +147,12 @@ def estimate(body: EstimateIn, user: User = Depends(current_user), session: Sess
 @router.post("/instant/orders")
 def create_order(body: OrderIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Создать быстрый заказ: сервер считает цену → matcher ищет и предлагает ближайшему водителю.
-    Нет свободных/нет Redis → заказ сразу expired («рядом никого»), но запрос не падает."""
+    Нет свободных/нет Redis → заказ сразу expired («рядом никого»), но запрос не падает.
+    Сурж фиксируется на заказе (price_estimate уже с ним). Страйки (§5, Модель А):
+    ≥3 платные отмены/no-show за 7 дней → такси-заказы на паузе 24 ч (попутка работает)."""
     _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
+    if isv.strike_pause_until(session, user.id) is not None:
+        raise HTTPException(403, isv.strike_pause_message())
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
     # Не даём плодить параллельные активные заказы одному пассажиру (двойной тап/спам).
     existing = session.exec(
@@ -166,6 +171,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         category=body.category,
         price_estimate=est["price"], distance_km=est["distance_km"],
         eta_min=est["eta_min"], tariff_id=est["tariff_id"],
+        surge_k=est["surge_k"],
     )
     session.add(order)
     session.commit()
@@ -247,7 +253,8 @@ def decline(order_id: int, user: User = Depends(current_user), session: Session 
 
 @router.post("/instant/orders/{order_id}/arrived")
 def arrived(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Водитель поехал к пассажиру: accepted → arriving."""
+    """«Я на месте»: accepted → arriving. С этого момента идёт ожидание пассажира
+    (wait_free_minutes бесплатно, дальше wait_fee_rub_per_min ₽/мин — фиксируется на onboard)."""
     order = isv.transition(session, order_id, isv.Actor.driver, S.arriving, user.id)
     return isv.order_payload(session, order, user)
 
@@ -274,7 +281,9 @@ def done(order_id: int, user: User = Depends(current_user), session: Session = D
 @router.post("/instant/orders/{order_id}/cancel")
 def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(current_user),
            session: Session = Depends(get_session)):
-    """Отмена заказа. Пассажир — до посадки; водитель — после accept. Причина опциональна."""
+    """Отмена заказа. Пассажир — до посадки; водитель — после accept. Причина опциональна.
+    Водитель с reason="no_show" («пассажир не вышел») — только после «Я на месте» +
+    бесплатное ожидание + запас; фиксирует no_show и штраф-подачу (Модель А, денег не двигаем)."""
     order = session.get(InstantOrder, order_id)
     if not order:
         raise HTTPException(404, "Заказ не найден")

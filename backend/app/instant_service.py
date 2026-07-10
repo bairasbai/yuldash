@@ -255,6 +255,92 @@ def seed_tariffs(session: Session) -> None:
         session.commit()
 
 
+# ============================ Отмены / ожидание / страйки (волна 2 §5, Модель А) ============================
+# Деньги НЕ двигаем (Модель А «на доверии»): платная отмена / no-show только фиксируется на
+# заказе (cancel_fee_kop) и даёт пассажиру страйк. ≥ strike_limit страйков за
+# strike_window_days → пауза такси-заказов strike_pause_hours (гейт в POST /instant/orders).
+# ПОПУТКА (Ride/Booking) не затрагивается.
+NO_SHOW_REASON = "no_show"
+
+
+def waiting_fee_kop(started, now) -> int:
+    """Платное ожидание: первые wait_free_minutes бесплатно, дальше wait_fee_rub_per_min ₽
+    за каждую ПОЛНУЮ минуту (неполная минута — в пользу пассажира). Целые копейки."""
+    whole_min = int(max((now - started).total_seconds(), 0.0) // 60)
+    billable = max(0, whole_min - settings.wait_free_minutes)
+    return billable * settings.wait_fee_rub_per_min * 100
+
+
+def _order_base_fee_kop(session: Session, order: InstantOrder) -> int:
+    """Штраф = подача (Tariff.base) этого заказа, копейки. Тариф не найден → 0 (не штрафуем вслепую)."""
+    t = session.get(Tariff, order.tariff_id) if order.tariff_id else None
+    return int(t.base) * 100 if t and t.base > 0 else 0
+
+
+def passenger_cancel_fee_kop(session: Session, order: InstantOrder, now=None) -> int:
+    """Штраф пассажира за отмену (Модель А: только фиксируем). Бесплатно, если:
+    водитель ещё не назначен, ИЛИ прошло ≤ cancel_free_minutes от принятия, ИЛИ водитель
+    ещё не нажал «Я на месте». Иначе — подача (tariff.base). Показываем ДО отмены."""
+    now = now or utcnow()
+    if order.driver_id is None or order.accepted_at is None:
+        return 0
+    if now - order.accepted_at <= timedelta(minutes=settings.cancel_free_minutes):
+        return 0
+    if order.waiting_started_at is None:
+        return 0
+    return _order_base_fee_kop(session, order)
+
+
+def no_show_available_at(order: InstantOrder):
+    """С какого момента водителю доступна кнопка «Пассажир не вышел»:
+    «Я на месте» + бесплатное ожидание + no_show_extra_minutes. До «Я на месте» — None."""
+    if order.waiting_started_at is None:
+        return None
+    return order.waiting_started_at + timedelta(
+        minutes=settings.wait_free_minutes + settings.no_show_extra_minutes)
+
+
+def _guard_no_show(order: InstantOrder, now) -> None:
+    """No-show отмечается только когда водитель на месте («Я на месте») и честно отждал
+    бесплатное окно + запас — защита пассажира от поспешной кнопки."""
+    if order.status != S.arriving or order.waiting_started_at is None:
+        raise HTTPException(409, "«Пассажир не вышел» доступно после кнопки «Я на месте»")
+    allowed_at = no_show_available_at(order)
+    if allowed_at is not None and now < allowed_at:
+        raise HTTPException(409, "Подожди ещё немного: бесплатное ожидание "
+                                 f"{settings.wait_free_minutes} мин + {settings.no_show_extra_minutes} мин сверху")
+
+
+def strike_pause_until(session: Session, passenger_id: int, now=None):
+    """Пауза такси-заказов за страйки. Страйк = платная отмена пассажира ИЛИ no-show.
+    ≥ strike_limit страйков за strike_window_days → пауза strike_pause_hours от последнего
+    страйка. Возврат: datetime конца паузы или None (можно заказывать)."""
+    now = now or utcnow()
+    since = now - timedelta(days=settings.strike_window_days)
+    rows = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.passenger_id == passenger_id,
+            InstantOrder.status == S.cancelled,
+            InstantOrder.cancelled_at >= since,
+        )
+    ).all()
+    strikes = [o.cancelled_at for o in rows
+               if o.no_show or (o.cancel_fee_kop > 0 and o.cancel_by == Actor.passenger.value)]
+    if len(strikes) < settings.strike_limit:
+        return None
+    until = max(strikes) + timedelta(hours=settings.strike_pause_hours)
+    return until if until > now else None
+
+
+def strike_pause_message() -> str:
+    """Тёплый текст паузы. RU + черновой BA одной строкой (detail показывается как есть)."""
+    h = settings.strike_pause_hours
+    return (f"Такси взяло паузу: за неделю накопилось несколько поздних отмен. "
+            f"Попробуй снова через {h} ч — а попутка работает как обычно 💚"
+            f" · Такси пауза алды: аҙнала бер нисә һуң кире алыу йыйылды. "
+            f"{h} сәғәттән ҡабат ҡара — ә юлдаш ғәҙәттәгесә эшләй 💚")
+
+
 # ============================ Машина состояний (под замком) ============================
 def _guard_owns(order: InstantOrder, actor: Actor, user_id: int) -> None:
     """Владелец действия: водитель — назначенный на заказ, пассажир — создатель."""
@@ -332,7 +418,14 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
 
 
 def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "") -> InstantOrder:
-    """Отмена заказа пассажиром или водителем. Идемпотентна, под замком."""
+    """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
+
+    Деньги (Модель А — только фиксируем, ничего не списываем):
+    — пассажир отменяет поздно (>cancel_free_minutes от принятия И водитель уже «на месте»)
+      → cancel_fee_kop = подача; это страйк;
+    — водитель отменяет с reason="no_show" (пассажир не вышел, тайминг честно выдержан)
+      → no_show=true + cancel_fee_kop = подача; это страйк пассажира;
+    — обычная отмена водителем штрафа пассажиру НЕ даёт."""
     order = session.exec(
         select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
     ).first()
@@ -344,11 +437,21 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     allowed = PASSENGER_CANCELLABLE if actor == Actor.passenger else DRIVER_CANCELLABLE
     if order.status not in allowed:
         raise HTTPException(409, f"Сейчас отменить нельзя ({order.status.value})")
+    now = utcnow()
+    values = dict(status=S.cancelled, cancelled_at=now, cancel_by=actor.value,
+                  cancel_reason=(reason or "")[:200], current_offer_driver_id=None, offer_expires_at=None)
+    if actor == Actor.passenger:
+        fee = passenger_cancel_fee_kop(session, order, now)
+        if fee > 0:
+            values["cancel_fee_kop"] = fee
+    elif (reason or "").strip() == NO_SHOW_REASON:
+        _guard_no_show(order, now)
+        values["no_show"] = True
+        values["cancel_fee_kop"] = _order_base_fee_kop(session, order)
     result = session.execute(
         update(InstantOrder)
         .where(InstantOrder.id == order_id, InstantOrder.status == order.status)
-        .values(status=S.cancelled, cancelled_at=utcnow(), cancel_by=actor.value,
-                cancel_reason=(reason or "")[:200], current_offer_driver_id=None, offer_expires_at=None)
+        .values(**values)
     )
     session.commit()
     if result.rowcount == 0:
@@ -437,9 +540,11 @@ def _zone_ok(p: DriverProfile, zone: str, from_names, to_city) -> bool:
 
 def eligible(session: Session, ids: list, order: InstantOrder) -> list:
     """Фильтр кандидатов: онлайн + верифицирован + не занят + не в блоке пассажира +
-    не сам пассажир + зона работы (город/межгород/регион, волна 2)."""
+    не сам пассажир + зона работы (волна 2) + класс машины (§6: comfort-заказ — только
+    водителям car_class=comfort; standard — всем)."""
     if not ids:
         return []
+    comfort_only = (order.category or "standard") == "comfort"
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()}
     profs = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(ids))).all()}
     busy = busy_driver_ids(session, ids)
@@ -456,6 +561,8 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if not _zone_ok(p, zone, from_names, to_city):
             continue
+        if comfort_only and (p.car_class or "economy") != "comfort":
+            continue          # NULL = economy: комфорт-заказ обычной машине не предлагаем
         out.append(did)
     return out
 
@@ -605,8 +712,8 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
 
 def _notify_transition(session: Session, order: InstantOrder, target: S) -> None:
     titles = {
-        S.accepted: ("Водитель найден", "Водитель принял заказ и скоро выедет"),
-        S.arriving: ("Водитель в пути", "Машина едет к тебе"),
+        S.accepted: ("Водитель найден", "Водитель принял заказ и уже едет к тебе"),
+        S.arriving: ("Машина на месте", f"Водитель ждёт. Бесплатное ожидание — {settings.wait_free_minutes} мин"),
         S.onboard: ("В пути", "Хорошей поездки!"),
         S.done: ("Поездка завершена", f"{order.from_text or ''} → {order.to_text or ''}".strip(" →")),
     }
@@ -617,7 +724,11 @@ def _notify_transition(session: Session, order: InstantOrder, target: S) -> None
 
 def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
     if actor == Actor.driver and order.passenger_id:
-        send_push(session, order.passenger_id, "Заказ отменён", "Водитель отменил заказ. Ищем другого?")
+        if order.no_show:
+            send_push(session, order.passenger_id, "Поездка не состоялась",
+                      "Водитель ждал, но не дождался. Частые несостоявшиеся поездки ставят такси на паузу")
+        else:
+            send_push(session, order.passenger_id, "Заказ отменён", "Водитель отменил заказ. Ищем другого?")
     elif actor == Actor.passenger and order.driver_id:
         send_push(session, order.driver_id, "Заказ отменён", "Пассажир отменил заказ")
 
@@ -642,12 +753,25 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         "category": order.category,
         "price_estimate": order.price_estimate,
         "price_final": order.price_final,
+        "surge_k": order.surge_k,
         "distance_km": order.distance_km,
         "eta_min": order.eta_min,
         "driver_id": order.driver_id,
         "offer_expires_at": order.offer_expires_at.isoformat() if order.offer_expires_at else None,
         "cancel_by": order.cancel_by,
         "cancel_reason": order.cancel_reason,
+        # Ожидание/отмены (волна 2 §5): всё для честных таймеров и предупреждений в UI.
+        "waiting_started_at": order.waiting_started_at.isoformat() if order.waiting_started_at else None,
+        "waiting_fee_kop": order.waiting_fee_kop,
+        "cancel_fee_kop": order.cancel_fee_kop,
+        "no_show": order.no_show,
+        "wait_free_min": settings.wait_free_minutes,
+        "wait_fee_rub_per_min": settings.wait_fee_rub_per_min,
+        # Когда водителю станет доступна кнопка «Пассажир не вышел» (None до «Я на месте»).
+        "no_show_at": (no_show_available_at(order).isoformat() if no_show_available_at(order) else None),
+        # Сколько будет стоить отмена пассажиру ПРЯМО СЕЙЧАС (0 = бесплатно) — предупреждаем до тапа.
+        "cancel_fee_now_kop": (passenger_cancel_fee_kop(session, order)
+                               if order.status in (S.accepted, S.arriving) else 0),
         # Раскрывается ТОЛЬКО после accept:
         "driver_name": (driver.name if (unlocked and driver) else ""),
         "driver_car": (car if unlocked else ""),

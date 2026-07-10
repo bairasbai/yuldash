@@ -414,6 +414,31 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 **Тесты:** backend `pytest -q` → **249 passed, 1 skipped** (+16 долговых). Android-сборку прогнать на машине Александра (в Linux-песочнице нет Android SDK). Вливать ПОСЛЕ #34/#36/#42.
 
+## 2026-07-10 — 💸 Домен «Деньги-тонкости» (волна 2, батч B3, §5+§6 бизнес-плана) — ветка `feat/taxi-money-rules`
+
+Четыре части поверх `feat/geo-catalog`. Все цифры — в конфиге (`app/config.py`) или в БД (тарифы): Александр правит без пересборки. ПОПУТКА не затронута. Деньги — только целые копейки (int `*_kop`).
+
+**1. Комиссия лесенкой 3/5/8 (`app/debt.py`):** `driver_fee_percent(session, driver_id)` — стаж = дни с ПЕРВОГО done instant-заказа водителя: ≤`fee_tier1_days`(30) → `fee_tier1_percent`(3%); ≤`fee_tier2_days`(60) → `fee_tier2_percent`(5%); дальше `service_fee_percent`(8%). Промо запуска: заявка таксиста approved до `launch_promo_until` (ISO-дата, `""`=выкл — дефолт) → `launch_promo_percent`(0%) первые `launch_promo_days`(90) от одобрения. `accrue_for_order` берёт процент лесенки; 0% → долг не создаётся.
+
+**2. Сурж (`app/instant_service.py`):** `surge_k_for(session, lat, lng)` — спрос (`searching/created` заказы за `surge_window_min`=10 мин в радиусе `surge_radius_km`=7 км, haversine) / предложение (живые presence из Redis GEOSEARCH, знаменатель ≥1) → ступени `SURGE_STEPS`: <1→1.0; ≥1→1.1; ≥1.5→1.2; ≥2→1.3; ≥3→1.5; потолок `surge_max_k`=1.5, флаг `surge_enabled`. Без Redis → 1.0 (не падаем и не наживаемся вслепую). Формула цены: `max(min_price, (base+per_km·d+per_min·t) · Tariff.k · surge_k)` — статичный `Tariff.k` остаётся АВАРИЙНЫМ множителем (всегда, дефолт 1.0), двойного счёта нет. `estimate` отдаёт `surge_k`, `surge_note{ru,ba}` (прозрачно ДО заказа) и `options[{category,price}]` (обе цены классов одним запросом); `POST /instant/orders` фиксирует `InstantOrder.surge_k` (price_estimate уже с ним).
+
+**3. Отмены/ожидание/страйки (Модель А — деньги НЕ двигаем, только фиксируем + страйки; решение Александра):**
+- Поля `InstantOrder`: `waiting_started_at` (ставится на переходе `arrived`→`arriving` = «Я на месте»), `waiting_fee_kop` (фикс на onboard: полные минуты сверх `wait_free_minutes`=5 × `wait_fee_rub_per_min`=5 ₽), `cancel_fee_kop`, `no_show`. На done `price_final = price_estimate + waiting_fee` (сурж уже внутри estimate).
+- **Семантика фаз уточнена (как Яндекс):** accepted = водитель едет к пассажиру, arriving = «машина на месте, ждёт» (эндпоинт `/arrived` = кнопка «Я на месте»), onboard = в пути. UI-лейблы обеих сторон обновлены.
+- Отмена пассажиром (`cancel_order`): бесплатно если ≤`cancel_free_minutes`(3) от accepted ИЛИ водитель ещё не «на месте»; иначе `cancel_fee_kop = Tariff.base × 100`. Payload отдаёт `cancel_fee_now_kop` — UI предупреждает ДО тапа (диалог).
+- No-show: водитель `POST /instant/orders/{id}/cancel {reason:"no_show"}` — только из arriving после `wait_free_minutes + no_show_extra_minutes`(3) (иначе 409); заказ cancelled + `no_show=true` + штраф-подача. Кнопка «Пассажир не вышел» появляется в UI по серверному `no_show_at`.
+- Страйки: `strike_pause_until` — платная отмена пассажира ИЛИ no-show = страйк (считается запросом по InstantOrder, без новой таблицы); ≥`strike_limit`(3) за `strike_window_days`(7) → `POST /instant/orders` 403 (тёплый текст RU+BA) на `strike_pause_hours`(24) от последнего страйка. Обычная отмена водителем штрафа/страйка не даёт.
+
+**4. Классы Эконом/Комфорт (§6):** сид `seed_tariffs` теперь идемпотентен ПО СТРОКАМ (прод досеет Комфорт сам): comfort город 90/14/4/130, межгород 100/12/3/200. `DriverProfile.car_class` (`economy|comfort`, NULL=economy): водитель заявляет в `/taxi/apply` (`car_class`), админ подтверждает/меняет в `/admin/taxi-applications/{id}/approve {car_class}` (+ поле в admin-списке). Matcher (`eligible`): comfort-заказ → только `car_class=comfort`; standard → все. `category` в `EstimateIn/OrderIn` ужат до `Literal["standard","comfort"]`.
+
+**Payload заказа (`order_payload`) добавил:** `surge_k, waiting_started_at, waiting_fee_kop, cancel_fee_kop, no_show, wait_free_min, wait_fee_rub_per_min, no_show_at, cancel_fee_now_kop`.
+
+**UI (Android):** `InstantOrderScreen.kt` — выбор класса (две карточки с ценами из `options`), плашка суржа ДО заказа (серверный текст RU/BA), живой таймер ожидания у ОБЕИХ сторон (`InstantWaitingRow`: «Бесплатное ожидание 3:12» → «Платное +5 ₽/мин», тикает по `waiting_started_at` + `rememberNowMs`), платная отмена с предупреждающим диалогом, кнопка «Пассажир не вышел» по таймингу `no_show_at` (+диалог), честные финальные карточки (no-show/платная отмена/бесплатно), бейдж «Комфорт» в оффере. `TaxiOnboardingScreen.kt` — выбор класса машины в заявке. `ApiClient.kt` — новые поля DTO + `car_class` в `applyTaxi`.
+
+**Миграция:** `alembic/versions/w2_money_rules.py` (down=`w2_geo`), идемпотентна оба пути (проверено up→down→up на SQLite): +5 колонок `instantorder`, +`driverprofile.car_class`.
+
+**Тесты:** `pytest -q` → **334 passed, 1 skipped** (+47 в `test_money_rules.py`: границы 30/60 дней и промо, ступени суржа/потолок/без Redis/фикс на заказе, окно отмены/ожидание/no-show тайминги/страйки→пауза→истечение, классы: сид/estimate/matcher/apply-approve). Обновлены 2 старых теста под новые правила (3% новичку; сид с category). Вливать ПОСЛЕ #49 (feat/geo-catalog).
+
 ## 2026-07-10 — 🗺 Домен «География РБ + соседние регионы» (волна 2, батч B2) — ветка `feat/geo-catalog`
 
 **Суть (план §4):** единый справочник населённых пунктов `Settlement` (21 город респ. значения РБ + центры 54 районов + 18 приграничных городов соседей) + зона работы таксиста (🏙 город / 🛣 межгород / 🌍 регион) в matcher'е + автоподсказки городов и пресеты популярных маршрутов. ПОПУТКА не ломается: подсказки аддитивны, свободный ввод остаётся.

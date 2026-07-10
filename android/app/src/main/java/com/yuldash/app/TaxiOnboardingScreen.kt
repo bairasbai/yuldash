@@ -190,6 +190,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
     var uploadingOsago by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
     var submitError by remember { mutableStateOf<String?>(null) }
+    var carClass by remember { mutableStateOf("economy") }   // §6: заявляет водитель, подтверждает админ
 
     // Локальная валидация — до похода на сервер (сервер продублирует).
     val currentYear = remember { java.time.LocalDate.now().year }
@@ -375,6 +376,26 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                 )
             }
         }
+        // Класс машины (§6): Эконом на старте у всех; Комфорт — авто новее/чище, подтвердит админ.
+        item { Text(appText("Класс машины", "Машина класы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TaxiClassChip(
+                    title = appText("Эконом", "Эконом"),
+                    subtitle = appText("обычная машина", "ғәҙәти машина"),
+                    selected = carClass == "economy",
+                    onClick = { carClass = "economy" },
+                    modifier = Modifier.weight(1f),
+                )
+                TaxiClassChip(
+                    title = appText("Комфорт", "Комфорт"),
+                    subtitle = appText("новее и просторнее", "яңыраҡ һәм иркенерәк"),
+                    selected = carClass == "comfort",
+                    onClick = { carClass = "comfort" },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
         item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
         item { UploadTile(appText("Фото разрешения на такси", "Такси рөхсәте фотоһы"), permitPhotoUrl != null, uploadingPermit) { pickPermit.launch("image/*") } }
         item { UploadTile(appText("Фото полиса ОСАГО", "ОСАГО полисы фотоһы"), osagoUrl != null, uploadingOsago) { pickOsago.launch("image/*") } }
@@ -398,7 +419,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                     val y = year ?: return@AppButton
                     submitting = true; submitError = null
                     scope.launch {
-                        ApiClient.applyTaxi(innDigits, permitNumber.trim(), iso, y, permitPhotoUrl ?: "", osagoUrl ?: "")
+                        ApiClient.applyTaxi(innDigits, permitNumber.trim(), iso, y, permitPhotoUrl ?: "", osagoUrl ?: "", carClass)
                             .onSuccess { onSubmitted(it) }
                             .onFailure { submitError = (it as? ApiException)?.message ?: submitFailMsg }
                         submitting = false
@@ -418,6 +439,30 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
         }
     }
 }
+
+/** Чип выбора класса машины (Эконом/Комфорт) — тач-цель 76dp, выделение рамкой. */
+@Composable
+private fun TaxiClassChip(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        shape = CanonItemShape,
+        color = if (selected) CanonGreen2.copy(alpha = 0.08f) else CanonSurface,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonSurface),
+        modifier = modifier.height(64.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.Center) {
+            Text(title, color = if (selected) CanonGreen2 else CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}
+
 
 /** Шкала комиссии 3% → 5% → 8%: три шага месяцев. */
 @Composable
