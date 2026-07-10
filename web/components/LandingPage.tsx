@@ -7,6 +7,7 @@ import { Header } from "@/components/Header";
 import { Hero } from "@/components/Hero";
 import { SearchTrip } from "@/components/SearchTrip";
 import { CoverageMap } from "@/components/CoverageMap";
+import { EarlyAccess } from "@/components/EarlyAccess";
 import { Savings } from "@/components/Savings";
 import { Features } from "@/components/Features";
 import { HowItWorks } from "@/components/HowItWorks";
@@ -50,6 +51,7 @@ export function LandingPage({ initialLang = "ru" }: { initialLang?: Lang }) {
             <VideoPromo />
             <AppShowcase />
             <CoverageMap />
+            <EarlyAccess />
             <Comparison />
             <Routes />
             <Savings />

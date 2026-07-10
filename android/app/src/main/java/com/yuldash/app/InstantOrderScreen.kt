@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
@@ -84,6 +85,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -249,7 +251,12 @@ internal fun InstantRouteMap(from: Point?, to: Point?, modifier: Modifier = Modi
  * При возврате на экран активный заказ восстанавливается (getMyInstantOrders).
  */
 @Composable
-internal fun InstantOrderScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, embedded: Boolean = false) {
+internal fun InstantOrderScreen(
+    onBack: () -> Unit,
+    onLoginRequired: () -> Unit,
+    embedded: Boolean = false,
+    onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Скоро» водитель может уйти в онбординг таксиста
+) {
     val scope = rememberCoroutineScope()
     val loggedIn = ApiClient.isLoggedIn()
     var order by remember { mutableStateOf<InstantOrderDto?>(null) }
@@ -296,6 +303,7 @@ internal fun InstantOrderScreen(onBack: () -> Unit, onLoginRequired: () -> Unit,
                 current == null && availability?.enabled == false -> TaxiComingSoonCard(
                     availability = availability!!,
                     onBackToPooling = onBack,
+                    onTaxiOnboarding = onTaxiOnboarding,
                 )
                 current == null -> InstantDestinationPicker(
                     onOrderCreated = { order = it },
@@ -952,10 +960,18 @@ private fun InstantCenterLoader(text: String) {
 }
 
 // ------------------------------ «Такси скоро» (гейт по флагу/городу) ------------------------------
+private val WaitlistPhoneRegex = Regex("^\\+?\\d{10,15}$")   // как на сервере (family.py/waitlist.py)
+
 /** Такси в этой точке пока выключено (глобальный запуск или город ещё не подключён).
- *  Тёплая заглушка вместо пикера: серверный текст на языке приложения + путь назад к попутке. */
+ *  Тёплая заглушка вместо пикера + ранний доступ (§11): «оставь номер — сообщим, когда включим»
+ *  и CTA для водителей «стань первым таксистом города». Успех — «Ты в списке! 🎉». */
 @Composable
-private fun TaxiComingSoonCard(availability: com.yuldash.app.data.TaxiAvailabilityDto, onBackToPooling: () -> Unit) {
+private fun TaxiComingSoonCard(
+    availability: com.yuldash.app.data.TaxiAvailabilityDto,
+    onBackToPooling: () -> Unit,
+    onTaxiOnboarding: () -> Unit = {},
+) {
+    val scope = rememberCoroutineScope()
     val title = if (availability.reason == "global_off")
         appText("Такси Юлдаш совсем скоро 🚕", "Юлдаш таксиы бик тиҙҙән 🚕")
     else appText("Такси скоро в твоём городе 🚕", "Тиҙҙән таксиы һинең ҡалаңда ла 🚕")
@@ -964,11 +980,44 @@ private fun TaxiComingSoonCard(availability: com.yuldash.app.data.TaxiAvailabili
         "Мы подключаем города по очереди, чтобы машины точно были рядом. А попутка уже работает по всей республике.",
         "Ҡалаларҙы сиратлап тоташтырабыҙ — машиналар яҡында булһын өсөн. Ә юлдаш инде бөтә республикала эшләй.",
     )
+
+    // Форма листа ожидания: телефон (предзаполнен у залогиненного), город (из availability), роль.
+    var phone by remember { mutableStateOf("") }
+    var city by remember { mutableStateOf(availability.city) }
+    var role by remember { mutableStateOf("passenger") }
+    var sending by remember { mutableStateOf(false) }
+    var sent by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val sendErr = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Селтәрҙе тикшереп ҡабатла.")
+    val badPhoneErr = appText("Проверь номер: 10–15 цифр, можно с +", "Номерҙы тикшер: 10–15 һан, + менән дә мөмкин")
+
+    // Предзаполняем телефон из профиля (Telegram-плейсхолдер tg<id> не подставляем).
+    LaunchedEffect(Unit) {
+        if (ApiClient.isLoggedIn()) {
+            ApiClient.me().onSuccess { me ->
+                val p = me.optString("phone")
+                if (phone.isBlank() && WaitlistPhoneRegex.matches(p.replace(" ", "").replace("-", ""))) phone = p
+            }
+        }
+    }
+
+    fun submit() {
+        val normalized = phone.replace(Regex("[\\s\\-()]"), "")
+        if (!WaitlistPhoneRegex.matches(normalized)) { error = badPhoneErr; return }
+        sending = true; error = null
+        scope.launch {
+            ApiClient.joinWaitlist(normalized, city.trim(), role)
+                .onSuccess { sent = true }
+                .onFailure { error = sendErr }
+            sending = false
+        }
+    }
+
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
+        Spacer(Modifier.height(8.dp))
         Surface(shape = CircleShape, color = CanonTaxiBg) {
             Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { Text("🚕", fontSize = 44.sp) }
         }
@@ -976,7 +1025,101 @@ private fun TaxiComingSoonCard(availability: com.yuldash.app.data.TaxiAvailabili
         Text(title, color = CanonText, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(24.dp))
+
+        // ---------- Ранний доступ: форма или «Ты в списке!» ----------
+        AnimatedVisibility(visible = sent, enter = fadeIn(tween(300)) + expandVertically(tween(300))) {
+            Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(appText("Ты в списке! 🎉", "Һин исемлектә! 🎉"), color = CanonGreen2, fontSize = 19.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        if (role == "driver")
+                            appText("Позовём одним из первых — 0% комиссии первые 3 месяца.", "Беренселәрҙән булып саҡырырбыҙ — тәүге 3 айҙа 0% комиссия.")
+                        else appText("Сообщим, как только такси заработает в твоём городе.", "Такси һинең ҡалаңда эшләй башлағас та хәбәр итербеҙ."),
+                        color = CanonText, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(visible = !sent, exit = fadeOut(tween(200)) + shrinkVertically(tween(250))) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            appText("Оставь номер — сообщим, когда включим", "Номерыңды ҡалдыр — ҡабыҙғас та хәбәр итербеҙ"),
+                            color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 21.sp,
+                        )
+                        // Роль: пассажир / водитель (тач-цель ≥48dp).
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            WaitlistRoleChip(appText("Я пассажир", "Мин пассажир"), role == "passenger", Modifier.weight(1f)) { role = "passenger" }
+                            WaitlistRoleChip(appText("Я водитель", "Мин водитель"), role == "driver", Modifier.weight(1f)) { role = "driver" }
+                        }
+                        OutlinedTextField(
+                            value = phone,
+                            onValueChange = { phone = it.take(20); error = null },
+                            label = { Text(appText("Телефон", "Телефон")) },
+                            placeholder = { Text("+7 9xx xxx-xx-xx") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                        )
+                        OutlinedTextField(
+                            value = city,
+                            onValueChange = { city = it.take(40) },
+                            label = { Text(appText("Город", "Ҡала")) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                        )
+                        error?.let { Text(it, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp) }
+                        Button(
+                            onClick = { submit() },
+                            enabled = phone.isNotBlank() && !sending,
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                        ) {
+                            if (sending) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonSurface)
+                            else Text(appText("Записаться", "Яҙылыу"), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                // ---------- CTA для водителей: застолби город ----------
+                Surface(color = CanonTaxiBg, shape = CanonCardShape, border = BorderStroke(1.dp, CanonTaxi), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            appText("Стань первым таксистом города 🚖", "Ҡаланың беренсе таксисы бул 🚖"),
+                            color = CanonTaxiInk, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 21.sp,
+                        )
+                        Text(
+                            appText("Первым водителям — 0% комиссии первые 3 месяца. Оставь номер как водитель, и город твой.",
+                                "Тәүге водителдәргә — тәүге 3 айҙа 0% комиссия. Номерыңды водитель итеп ҡалдыр — ҡала һинеке."),
+                            color = CanonTaxiInk, fontSize = 13.sp, lineHeight = 19.sp,
+                        )
+                        if (role != "driver") {
+                            OutlinedButton(
+                                onClick = { role = "driver" },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, CanonTaxiInk),
+                            ) { Text(appText("Хочу возить", "Йөрөтөргә теләйем"), color = CanonTaxiInk, fontWeight = FontWeight.Bold) }
+                        }
+                        // Такси уже включено (глобально), просто не в этом городе → проверку 580-ФЗ можно пройти заранее.
+                        if (availability.reason == "city_off") {
+                            TextButton(onClick = onTaxiOnboarding, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                                Text(
+                                    appText("Пройти проверку таксиста заранее →", "Таксист тикшереүен алдан үтергә →"),
+                                    color = CanonTaxiInk, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
         Button(
             onClick = onBackToPooling,
             modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -986,6 +1129,23 @@ private fun TaxiComingSoonCard(availability: com.yuldash.app.data.TaxiAvailabili
             Icon(Icons.Default.DirectionsCar, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text(appText("Поехали попуткой", "Юлдаш менән киттек"), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/** Чип выбора роли в форме листа ожидания (тач-цель ≥48dp). */
+@Composable
+private fun WaitlistRoleChip(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = if (active) CanonMint else CanonBg,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
+        modifier = modifier.height(48.dp),
+    ) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
     }
 }

@@ -84,6 +84,7 @@ internal fun PassengerModeHome(
     onDriver: () -> Unit,
     onBoost: () -> Unit,
     onInstantLogin: () -> Unit,
+    onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» — в онбординг таксиста
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE) }
@@ -129,6 +130,7 @@ internal fun PassengerModeHome(
                         onBack = { mode = RideMode.Pooling },        // «назад» из встроенного такси → к попутке
                         onLoginRequired = onInstantLogin,
                         embedded = true,
+                        onTaxiOnboarding = onTaxiOnboarding,
                     )
                 }
             }

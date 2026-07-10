@@ -1422,6 +1422,7 @@ object ApiClient {
                 reason = o.optString("reason"),
                 messageRu = msg.optString("ru"),
                 messageBa = msg.optString("ba"),
+                city = o.optNullableString("city") ?: "",
             )
         }
 
@@ -1476,6 +1477,61 @@ object ApiClient {
 
     suspend fun adminDeleteTaxiCity(id: Int): Result<Unit> =
         call("DELETE", "/admin/taxi-cities/$id", null, auth = true).map { }
+
+    // ---------- Ранний доступ / лист ожидания (волна 2, §11 «Запуск») ----------
+
+    /** Оставить номер в листе ожидания («сообщим, когда включим»). ПУБЛИЧНЫЙ — работает и без входа.
+     *  Повторная подача того же номера обновляет город/роль на сервере (дублей не будет).
+     *  role: passenger | driver. Город пустой → не отправляем (не затираем известный на сервере). */
+    suspend fun joinWaitlist(phone: String, city: String, role: String): Result<Unit> =
+        call(
+            "POST", "/waitlist",
+            JSONObject().put("phone", phone).put("role", role)
+                .apply { if (city.isNotBlank()) put("city", city) },
+            auth = false,
+        ).map { }.onSuccess { Analytics.log("waitlist_join") }
+
+    /** Админ: лист ожидания — счётчики (по всей базе) + записи (по фильтрам).
+     *  city/role пустые = без фильтра; invited: null = все, true/false = позваны/ждут. */
+    suspend fun getAdminWaitlist(city: String = "", role: String = "", invited: Boolean? = null): Result<AdminWaitlistDto> {
+        val q = buildList {
+            if (city.isNotBlank()) add("city=${enc(city)}")
+            if (role.isNotBlank()) add("role=$role")
+            if (invited != null) add("invited=$invited")
+        }.joinToString("&")
+        return call("GET", "/admin/waitlist" + (if (q.isBlank()) "" else "?$q"), null, auth = true).map { o ->
+            val cityArr = o.optJSONArray("by_city") ?: JSONArray()
+            val roles = o.optJSONObject("by_role") ?: JSONObject()
+            val itemsArr = o.optJSONArray("items") ?: JSONArray()
+            AdminWaitlistDto(
+                total = o.optInt("total"),
+                invited = o.optInt("invited"),
+                byCity = (0 until cityArr.length()).map { i ->
+                    val c = cityArr.getJSONObject(i)
+                    c.optString("city") to c.optInt("count")
+                },
+                passengers = roles.optInt("passenger"),
+                drivers = roles.optInt("driver"),
+                items = (0 until itemsArr.length()).map { i ->
+                    val e = itemsArr.getJSONObject(i)
+                    WaitlistEntryDto(
+                        id = e.optInt("id"),
+                        phone = e.optString("phone"),
+                        city = e.optString("city"),
+                        role = e.optString("role"),
+                        createdAt = e.optString("created_at"),
+                        invitedAt = e.optNullableString("invited_at"),
+                    )
+                },
+            )
+        }
+    }
+
+    /** Админ: пометить волну — проставить invited_at выбранным (рассылку админ делает сам).
+     *  Возвращает, сколько записей реально помечено (уже позванные не перетираются). */
+    suspend fun adminWaitlistInvite(ids: List<Int>): Result<Int> =
+        call("POST", "/admin/waitlist/invite", JSONObject().put("ids", JSONArray(ids)), auth = true)
+            .map { it.optInt("invited") }
 
     // ---------- География: справочник НП + зона работы таксиста (волна 2) ----------
     // Справочник публичный (общеизвестные города, не перс.данные) — auth не нужен.
@@ -1757,12 +1813,34 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     passengerPhone = optString("passenger_phone"),
 )
 
-/** Доступность такси в точке (гейт пассажира). reason: ok | global_off | city_off. */
+/** Доступность такси в точке (гейт пассажира). reason: ok | global_off | city_off.
+ *  city — ближайший известный город (для предзаполнения листа ожидания); пусто = не определён. */
 data class TaxiAvailabilityDto(
     val enabled: Boolean,
     val reason: String,
     val messageRu: String,
     val messageBa: String,
+    val city: String = "",
+)
+
+/** Запись листа ожидания (админ). role: passenger | driver; invitedAt = null → ещё ждёт. */
+data class WaitlistEntryDto(
+    val id: Int,
+    val phone: String,
+    val city: String,
+    val role: String,
+    val createdAt: String,
+    val invitedAt: String?,
+)
+
+/** Лист ожидания для админа: счётчики по всей базе + записи по текущим фильтрам. */
+data class AdminWaitlistDto(
+    val total: Int,
+    val invited: Int,
+    val byCity: List<Pair<String, Int>>,   // отсортировано по убыванию на сервере
+    val passengers: Int,
+    val drivers: Int,
+    val items: List<WaitlistEntryDto>,
 )
 
 /** Заявка «Стать таксистом» (580-ФЗ). В админ-списке дополнительно приходят user_id/name/phone. */

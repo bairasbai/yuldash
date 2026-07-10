@@ -615,3 +615,18 @@ class Ad(SQLModel, table=True):
     submitted_at: Optional[datetime] = None   # когда отправлено на модерацию
     reviewed_at: Optional[datetime] = None    # когда админ одобрил/отклонил
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class WaitlistEntry(SQLModel, table=True):
+    """Лист ожидания раннего доступа (волна 2, §11 «Запуск»: трафик волнами).
+
+    Публичная подача (без аккаунта): телефон + город + роль (пассажир/водитель).
+    Телефон уникален — повторная подача обновляет city/role, не дублирует.
+    invited_at — отметка «позван в волне» (саму рассылку админ делает вручную).
+    Приватность: телефоны отдаются ТОЛЬКО админу и не пишутся в логи (152-ФЗ)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    phone: str = Field(index=True, unique=True, max_length=32)
+    city: Optional[str] = Field(default=None, index=True)
+    role: str = Field(default="passenger", index=True)   # passenger | driver
+    created_at: datetime = Field(default_factory=utcnow)
+    invited_at: Optional[datetime] = None                # когда позвали (волна); NULL = ещё ждёт

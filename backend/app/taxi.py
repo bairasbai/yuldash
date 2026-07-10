@@ -61,22 +61,24 @@ def _city_aliases(name: str) -> set[str]:
 
 def availability(session: Session, lat: Optional[float] = None, lng: Optional[float] = None) -> dict:
     """Доступно ли такси в точке (lat, lng). Ответ единый для API и внутренних гейтов:
-    {"enabled": bool, "reason": "global_off"|"city_off"|"ok", "message": {"ru","ba"}}."""
+    {"enabled": bool, "reason": "global_off"|"city_off"|"ok", "message": {"ru","ba"}, "city": str|None}.
+    city — ближайший известный город (для предзаполнения формы листа ожидания, §11);
+    None = город не определён. Аддитивное поле, старые клиенты его игнорируют."""
+    near = _nearest_city(lat, lng) if (lat is not None and lng is not None) else None
     if not settings.taxi_enabled:
-        return {"enabled": False, "reason": "global_off", "message": MSG_GLOBAL_OFF}
+        return {"enabled": False, "reason": "global_off", "message": MSG_GLOBAL_OFF, "city": near}
     cities = session.exec(select(TaxiCity)).all()
     if not cities:
-        return {"enabled": True, "reason": "ok", "message": MSG_OK}
+        return {"enabled": True, "reason": "ok", "message": MSG_OK, "city": near}
     enabled_names: set[str] = set()
     for c in cities:
         if c.enabled:
             enabled_names |= _city_aliases(c.city.strip())
     if lat is None or lng is None:
-        return {"enabled": False, "reason": "city_off", "message": MSG_CITY_OFF}
-    near = _nearest_city(lat, lng)
+        return {"enabled": False, "reason": "city_off", "message": MSG_CITY_OFF, "city": None}
     if near is not None and _city_aliases(near) & enabled_names:
-        return {"enabled": True, "reason": "ok", "message": MSG_OK}
-    return {"enabled": False, "reason": "city_off", "message": MSG_CITY_OFF}
+        return {"enabled": True, "reason": "ok", "message": MSG_OK, "city": near}
+    return {"enabled": False, "reason": "city_off", "message": MSG_CITY_OFF, "city": near}
 
 
 def my_application(session: Session, user_id: int) -> Optional[TaxiApplication]:

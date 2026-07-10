@@ -16,9 +16,11 @@ from .config import settings
 
 # Префиксы, где лимит строже (перебор кодов, спам SOS, флуд админа в Telegram). Совпадение и с /api/v1.
 # /callback, /donate, /boost/create шлют уведомление админу → без строгого лимита их можно заспамить.
+# /waitlist — публичный без auth (ранний доступ, §11) → строгий бюджет против спама номеров.
 _STRICT_PREFIXES = (
-    "/auth", "/sos", "/callback", "/donate", "/boost/create",
+    "/auth", "/sos", "/callback", "/donate", "/boost/create", "/waitlist",
     "/api/v1/auth", "/api/v1/sos", "/api/v1/callback", "/api/v1/donate", "/api/v1/boost/create",
+    "/api/v1/waitlist",
 )
 
 

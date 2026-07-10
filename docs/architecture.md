@@ -442,6 +442,24 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 **Тесты:** `pytest -q` → **368 passed, 1 skipped** (+19 в `test_quality.py`: категории/привязка/участие/несовпадение цели/совместимость старого тела/422 на мусорную категорию; анонимность (ответ автору, /me/restrictions цели, admin-only); оценки заказов (агрегат, unique-повтор, guard'ы); 🟡 дедуп совета, 🟠 штраф в score, 🔴 3 resolved → пауза+гейт+попутка работает, ⛔ тяжёлая → Telegram+пауза, resolve keep/release, reject снимает; пассажирские страйки за no_show-жалобы; админ-права/IDOR). Вливать ПОСЛЕ #51 (feat/work-hours).
 
+## 2026-07-10 — 🚀 Домен «Запуск: ранний доступ + „Скоро в городе"» (волна 2, батч B6, §11 бизнес-плана) — ветка `feat/launch-tools`
+
+**Суть:** у Александра сильный медиа-охват → трафик пускаем волнами через лист ожидания. Попутка — на всю РБ сразу, такси — по городам (per-city флаги из B1). Водителей набираем первыми («0% комиссии первые 3 месяца»). СМС на этом этапе НЕ шлём — invite только помечает волну, рассылку Александр делает сам.
+
+**Модель (`models.py`):** `WaitlistEntry` — `phone` (unique, index), `city NULL`, `role` (passenger|driver), `created_at`, `invited_at NULL`. Телефоны отдаются ТОЛЬКО админу, в логи не пишутся (152-ФЗ).
+
+**Роутер `app/routers/waitlist.py`:** `POST /waitlist {phone, city?, role}` — ПУБЛИЧНЫЙ (без auth: лендинг + приложение до входа), телефон нормализуется (пробелы/дефисы/скобки) и валидируется (`^\+?\d{10,15}$`, как family.py); дедуп по номеру — повтор обновляет city/role (город только если передан), не дублирует. Строгий rate-limit: `/waitlist` добавлен в `_STRICT_PREFIXES` (`middleware.py`). Админ: `GET /admin/waitlist?city=&role=&invited=` (счётчики total/invited/by_city[отсортирован]/by_role — по всей базе; items — по фильтрам), `GET /admin/waitlist.csv` (те же фильтры, attachment), `POST /admin/waitlist/invite {ids}` (проставить invited_at; уже позванных не перетирает — сохраняется номер волны; потолок 500 id).
+
+**Availability+город:** `app/taxi.py availability()` теперь возвращает аддитивное поле `city` (ближайший из CITY_COORDS) — для предзаполнения города в форме листа. Старые клиенты поле игнорируют.
+
+**UI (Android):** `InstantOrderScreen.kt` — `TaxiComingSoonCard` дополнен формой раннего доступа: телефон (предзаполнен из `/me`, tg-плейсхолдер не подставляется), город (из availability), чипы «Я пассажир»/«Я водитель», успех «Ты в списке! 🎉» (AnimatedVisibility); CTA-блок «Стань первым таксистом города 🚖» (0% комиссии 3 мес) переключает роль, при `reason=city_off` — кнопка «Пройти проверку таксиста заранее» → `Screen.TaxiOnboarding` (колбэк прокинут через HomeScreen→PassengerModeHome→InstantOrderScreen и из `Screen.InstantOrder`). Админ: `AdminWaitlistScreen.kt` (`Screen.AdminWaitlist`, вход из кабинета админа «Лист ожидания» рядом с «Таксисты») — счётчики (всего/ждут/позваны, пассажиры/водители, чипы городов), фильтры, чекбоксы + «Пометить волну (N)», все состояния. `ApiClient.kt`: `joinWaitlist` (auth=false), `getAdminWaitlist`, `adminWaitlistInvite`, DTO `WaitlistEntryDto`/`AdminWaitlistDto`, `TaxiAvailabilityDto.city`.
+
+**Web (лендинг `web/`):** `components/EarlyAccess.tsx` — секция «Ранний доступ» (после CoverageMap): табы пассажир/водитель, телефон+город, POST на относительный `/waitlist` (тот же домен, как /landing-stats), успех «Ты в списке!», двуязычно через `dict` (`ea_*` в `lang.tsx`), цели Метрики `waitlist_passenger/driver`.
+
+**Миграция:** `alembic/versions/w2_waitlist.py` (down=`w2_quality`), идемпотентна оба пути (проверено up→down→up на SQLite): create_table `waitlistentry` + 3 индекса, только если нет; downgrade дропает таблицу.
+
+**Тесты:** `pytest -q` → **379 passed, 1 skipped** (+11 в `test_waitlist.py`: публичность без токена, валидация/нормализация телефона, дедуп-обновление и «город не затирается», rate-limit (нормальная подача проходит, спам 429), админ-счётчики/фильтры/CSV/invite (повтор не перетирает метку), 403/401 для не-админа и анонима, city в availability). `npm run build` (web) зелёный. Вливать ПОСЛЕ #52 (feat/quality-ladder) — последний батч волны 2.
+
 ## 2026-07-10 — 🌙 Домен «8-часовой лимит + отдых водителя» (волна 2, батч B4, §8 бизнес-плана) — ветка `feat/work-hours`
 
 **Суть:** безопасность = продукт. 8 часов на линии ТАКСИ за местный день → отдых до утра. Активный заказ не рубим, попутка вне блока не ограничена вообще. Все цифры — конфиг: `taxi_shift_limit_hours=8`, `rest_hours=8`, `rest_unlock_hour=6`, `local_tz_offset_hours=5` (Уфа UTC+5), `workday_step_cap_sec=60`.

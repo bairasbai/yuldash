@@ -618,6 +618,7 @@ internal fun YuldashApp() {
                 },
                 onSos = { screen = Screen.Sos },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
+                onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
                 onNotifications = { screen = Screen.Notifications },
                 onOpenChat = { bid, peer, route ->
                     val parts = route.split("→").map { it.trim() }
@@ -759,7 +760,8 @@ internal fun YuldashApp() {
                 onDrivers = { screen = Screen.AdminDrivers },
                 onReports = { screen = Screen.AdminReports },
                 onPaymentRequests = { screen = Screen.AdminPaymentRequests },
-                onTaxi = { screen = Screen.AdminTaxi }
+                onTaxi = { screen = Screen.AdminTaxi },
+                onWaitlist = { screen = Screen.AdminWaitlist }
             )
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
@@ -802,7 +804,8 @@ internal fun YuldashApp() {
             )
             Screen.InstantOrder -> InstantOrderScreen(
                 onBack = { goBack() },
-                onLoginRequired = { screen = Screen.Login }
+                onLoginRequired = { screen = Screen.Login },
+                onTaxiOnboarding = { screen = Screen.TaxiOnboarding }
             )
             Screen.InstantDriverTrip -> InstantDriverTripScreen(
                 orderId = instantTripOrderId,
@@ -814,6 +817,7 @@ internal fun YuldashApp() {
                 onOpenDriverCabinet = { screen = Screen.DriverCabinet }
             )
             Screen.AdminTaxi -> AdminTaxiScreen(onBack = { goBack() })
+            Screen.AdminWaitlist -> AdminWaitlistScreen(onBack = { goBack() })
             Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
             Screen.RequestResponses -> ResponsesScreen(
                 requestId = responsesRequestId,
@@ -1491,6 +1495,7 @@ internal fun HomeScreen(
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit = {},
     onInstantLogin: () -> Unit = {},
+    onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» водитель уходит в онбординг
     onTabChange: (HomeTab) -> Unit = {}
 ) {
     var ridesPresetTo by remember { mutableStateOf("") }
@@ -1518,7 +1523,8 @@ internal fun HomeScreen(
                     onOpenPopular = { route -> openRides(to = route.to, today = true) },
                     onDriver = onCreateRide,
                     onBoost = onBoost,
-                    onInstantLogin = onInstantLogin
+                    onInstantLogin = onInstantLogin,
+                    onTaxiOnboarding = onTaxiOnboarding
                 )
                 HomeTab.Rides -> RidesScreen(
                     rides = rides,
