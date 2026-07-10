@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
@@ -446,6 +446,47 @@ class CommissionDebt(SQLModel, table=True):
     due_at: Optional[datetime] = None                     # срок оплаты (created_at + debt_due_days)
     paid_declared_at: Optional[datetime] = None           # когда водитель нажал «Я оплатил»
     confirmed_at: Optional[datetime] = None               # когда админ подтвердил
+
+
+class TaxiCity(SQLModel, table=True):
+    """Город, где включён режим такси (волна 2, гейт такси).
+
+    Логика доступности (см. app/taxi.py): taxi_enabled=False → такси выключено везде;
+    True и таблица пуста → включено везде; True и есть записи → только города с enabled=True.
+    Город пользователя определяется ближайшим из CITY_COORDS (радиус taxi_city_radius_km)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    city: str = Field(index=True)
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class TaxiApplicationStatus(str, Enum):
+    """Статус заявки таксиста: подал → админ одобрил/отклонил. После reject можно подать снова."""
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class TaxiApplication(SQLModel, table=True):
+    """Заявка «Стать таксистом Юлдаша» (580-ФЗ, Путь Б).
+
+    Возить ТАКСИ (instant) может только водитель с approved-заявкой; ПОПУТКА этого не требует.
+    Документы: ИНН (самозанятость), № разрешения на такси, фото разрешения/ОСАГО (приватное
+    хранилище /secure/docs, как license_url водителя). Требования: возраст 20+, стаж от 2 лет.
+    Проверка — вручную админом (Александр). Одна заявка на пользователя (user_id unique);
+    повторная подача после reject обновляет эту же строку (status → pending)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, unique=True, foreign_key="user.id")
+    inn: str = ""                                  # ИНН самозанятого (10-12 цифр)
+    permit_number: str = ""                        # № разрешения на такси (реестр перевозчиков)
+    permit_photo_url: Optional[str] = None         # фото разрешения (защищённый URL)
+    osago_url: Optional[str] = None                # фото полиса ОСАГО (защищённый URL)
+    birth_date: date_type = date_type(1970, 1, 1)  # для проверки «возраст 20+»
+    license_since_year: int = 0                    # год получения прав (стаж от 2 лет)
+    status: TaxiApplicationStatus = Field(default=TaxiApplicationStatus.pending, index=True)
+    comment: Optional[str] = None                  # комментарий админа при отклонении
+    created_at: datetime = Field(default_factory=utcnow)
+    reviewed_at: Optional[datetime] = None         # когда админ одобрил/отклонил
 
 
 class UploadEvent(SQLModel, table=True):

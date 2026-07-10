@@ -1333,6 +1333,73 @@ object ApiClient {
         call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true).map { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_order_cancel") }
 
+    // ---------- Такси-гейт + онбординг таксиста (580-ФЗ) ----------
+    // Пассажирский гейт: доступно ли такси в его точке. Водительский гейт: заявка «Стать таксистом»
+    // (самозанятость/разрешение/ОСАГО, возраст 20+, стаж 2+) → модерация админом → выход на линию.
+
+    /** Доступно ли такси в точке (глобальный флаг + города). message — тёплый текст заглушки RU/BA. */
+    suspend fun getTaxiAvailability(lat: Double, lng: Double): Result<TaxiAvailabilityDto> =
+        call("GET", "/instant/availability?lat=$lat&lng=$lng", null, auth = true).map { o ->
+            val msg = o.optJSONObject("message") ?: JSONObject()
+            TaxiAvailabilityDto(
+                enabled = o.optBoolean("enabled"),
+                reason = o.optString("reason"),
+                messageRu = msg.optString("ru"),
+                messageBa = msg.optString("ba"),
+            )
+        }
+
+    /** Подать заявку «Стать таксистом» (580-ФЗ). Повторная подача после reject — тот же метод (заявка снова pending).
+     *  Сервер валидирует возраст 20+/стаж 2+/ИНН 10–12 цифр → 400 с русским detail (покажем как есть). */
+    suspend fun applyTaxi(
+        inn: String, permitNumber: String, birthDate: String, licenseSinceYear: Int,
+        permitPhotoUrl: String, osagoUrl: String,
+    ): Result<TaxiApplicationDto> =
+        call(
+            "POST", "/taxi/apply",
+            JSONObject()
+                .put("inn", inn).put("permit_number", permitNumber)
+                .put("birth_date", birthDate).put("license_since_year", licenseSinceYear)
+                .put("permit_photo_url", permitPhotoUrl).put("osago_url", osagoUrl),
+            auth = true,
+        ).map { it.toTaxiApplicationDto() }.onSuccess { Analytics.log("taxi_apply") }
+
+    /** Моя заявка таксиста. Не подавал → failure с ApiException(404) — экран трактует как «нет заявки». */
+    suspend fun getMyTaxiApplication(): Result<TaxiApplicationDto> =
+        call("GET", "/taxi/application", null, auth = true).map { it.toTaxiApplicationDto() }
+
+    /** Админ: заявки таксистов. status: pending | approved | rejected | all. */
+    suspend fun adminTaxiApplications(status: String = "pending"): Result<List<TaxiApplicationDto>> =
+        call("GET", "/admin/taxi-applications?status=$status", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toTaxiApplicationDto() }
+        }
+
+    suspend fun adminApproveTaxiApplication(id: Int): Result<Unit> =
+        call("POST", "/admin/taxi-applications/$id/approve", JSONObject(), auth = true).map { }
+
+    suspend fun adminRejectTaxiApplication(id: Int, comment: String): Result<Unit> =
+        call("POST", "/admin/taxi-applications/$id/reject", JSONObject().put("comment", comment), auth = true).map { }
+
+    /** Админ: города, где включено такси. */
+    suspend fun adminTaxiCities(): Result<List<TaxiCityDto>> =
+        call("GET", "/admin/taxi-cities", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                TaxiCityDto(o.optInt("id"), o.optString("city"), o.optBoolean("enabled"))
+            }
+        }
+
+    /** Админ: добавить город такси (или обновить enabled существующего — сервер делает upsert по названию). */
+    suspend fun adminAddTaxiCity(city: String, enabled: Boolean): Result<TaxiCityDto> =
+        call("POST", "/admin/taxi-cities", JSONObject().put("city", city).put("enabled", enabled), auth = true).map { o ->
+            TaxiCityDto(o.optInt("id"), o.optString("city"), o.optBoolean("enabled"))
+        }
+
+    suspend fun adminDeleteTaxiCity(id: Int): Result<Unit> =
+        call("DELETE", "/admin/taxi-cities/$id", null, auth = true).map { }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -1528,6 +1595,53 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     passengerName = optString("passenger_name"),
     passengerPhone = optString("passenger_phone"),
 )
+
+/** Доступность такси в точке (гейт пассажира). reason: ok | global_off | city_off. */
+data class TaxiAvailabilityDto(
+    val enabled: Boolean,
+    val reason: String,
+    val messageRu: String,
+    val messageBa: String,
+)
+
+/** Заявка «Стать таксистом» (580-ФЗ). В админ-списке дополнительно приходят user_id/name/phone. */
+data class TaxiApplicationDto(
+    val id: Int,
+    val status: String,          // pending | approved | rejected
+    val inn: String,
+    val permitNumber: String,
+    val permitPhotoUrl: String,
+    val osagoUrl: String,
+    val birthDate: String,       // YYYY-MM-DD
+    val licenseSinceYear: Int,
+    val comment: String,         // комментарий админа при отклонении
+    val createdAt: String,
+    val reviewedAt: String?,
+    // Только в списке админа (в личной заявке пустые):
+    val userId: Int = 0,
+    val name: String = "",
+    val phone: String = "",
+)
+
+private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
+    id = optInt("id"),
+    status = optString("status"),
+    inn = optString("inn"),
+    permitNumber = optString("permit_number"),
+    permitPhotoUrl = optString("permit_photo_url"),
+    osagoUrl = optString("osago_url"),
+    birthDate = optString("birth_date"),
+    licenseSinceYear = optInt("license_since_year"),
+    comment = optString("comment"),
+    createdAt = optString("created_at"),
+    reviewedAt = if (isNull("reviewed_at")) null else optString("reviewed_at").ifBlank { null },
+    userId = optInt("user_id"),
+    name = optString("name"),
+    phone = optString("phone"),
+)
+
+/** Город, где включено такси (управляет админ). */
+data class TaxiCityDto(val id: Int, val city: String, val enabled: Boolean)
 
 data class ReviewItem(val id: Int, val name: String, val city: String, val stars: Int, val text: String)
 

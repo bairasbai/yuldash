@@ -1,0 +1,238 @@
+"""Гейт такси + онбординг таксиста (волна 2, 580-ФЗ).
+
+Пассажиру: /instant/availability — доступно ли такси в его точке (глобальный флаг + города).
+Водителю: /taxi/apply, /taxi/application — заявка «Стать таксистом» (ИНН, разрешение, ОСАГО).
+Админу: очередь заявок (approve/reject + push заявителю) и CRUD городов такси.
+
+ПОПУТКА этим роутером не затрагивается. Фото документов — приватное хранилище
+(/upload/photo → /secure/docs, как license_url водителя). Персональные данные не логируем.
+"""
+from datetime import date
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlmodel import Session, select
+
+from ..db import get_session
+from ..models import TaxiApplication, TaxiApplicationStatus, TaxiCity, User, UserRole
+from ..security import current_user
+from ..services import send_push
+from ..timeutil import utcnow
+from .. import taxi as taxi_mod
+from .drivers import _ensure_owned_doc_url
+
+router = APIRouter(tags=["taxi"])
+
+MIN_AGE_YEARS = 20        # возраст 20+ (бизнес-правило, юрист подтвердит минимум)
+MIN_LICENSE_YEARS = 2     # стаж от 2 лет
+
+
+# ------------------------------ доступность такси ------------------------------
+@router.get("/instant/availability")
+def instant_availability(lat: Optional[float] = None, lng: Optional[float] = None,
+                         user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Доступно ли такси в точке пользователя. Клиент дёргает ДО пикера заказа:
+    выключено → экран «Такси скоро в вашем городе» (тёплый текст на двух языках)."""
+    if lat is not None and not (-90 <= lat <= 90):
+        raise HTTPException(400, "Некорректная широта")
+    if lng is not None and not (-180 <= lng <= 180):
+        raise HTTPException(400, "Некорректная долгота")
+    return taxi_mod.availability(session, lat, lng)
+
+
+# ------------------------------ заявка таксиста ------------------------------
+class TaxiApplyIn(BaseModel):
+    inn: str = Field(..., max_length=20)
+    permit_number: str = Field(..., min_length=1, max_length=60)
+    birth_date: date
+    license_since_year: int = Field(..., ge=1900, le=2100)
+    permit_photo_url: str = Field("", max_length=500)
+    osago_url: str = Field("", max_length=500)
+
+
+def _full_years_since(d: date, today: date) -> int:
+    return today.year - d.year - ((today.month, today.day) < (d.month, d.day))
+
+
+def _validate_apply(body: TaxiApplyIn) -> None:
+    """Валидация требований 580-ФЗ/бизнес-правил. Ошибки — понятной русской строкой."""
+    inn = body.inn.strip()
+    if not (inn.isdigit() and 10 <= len(inn) <= 12):
+        raise HTTPException(400, "ИНН должен состоять из 10–12 цифр")
+    today = utcnow().date()
+    if _full_years_since(body.birth_date, today) < MIN_AGE_YEARS:
+        raise HTTPException(400, f"Возить такси можно с {MIN_AGE_YEARS} лет")
+    if body.license_since_year > today.year:
+        raise HTTPException(400, "Год получения прав не может быть в будущем")
+    if today.year - body.license_since_year < MIN_LICENSE_YEARS:
+        raise HTTPException(400, f"Нужен стаж вождения от {MIN_LICENSE_YEARS} лет")
+
+
+def _application_payload(app: TaxiApplication) -> dict:
+    return {
+        "id": app.id,
+        "status": app.status.value,
+        "inn": app.inn,
+        "permit_number": app.permit_number,
+        "permit_photo_url": app.permit_photo_url or "",
+        "osago_url": app.osago_url or "",
+        "birth_date": app.birth_date.isoformat(),
+        "license_since_year": app.license_since_year,
+        "comment": app.comment or "",
+        "created_at": app.created_at.isoformat(),
+        "reviewed_at": app.reviewed_at.isoformat() if app.reviewed_at else None,
+    }
+
+
+@router.post("/taxi/apply")
+def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Подать заявку «Стать таксистом». Повторная подача после reject разрешена —
+    обновляет ту же заявку (status → pending, комментарий админа очищается).
+    Уже approved → 409 (заявка одна на пользователя, менять нечего)."""
+    _validate_apply(body)
+    app = taxi_mod.my_application(session, user.id)
+    if app and app.status == TaxiApplicationStatus.approved:
+        raise HTTPException(409, "Заявка уже одобрена — ты в такси Юлдаша")
+    # Фото — только СВОИ загруженные защищённые документы (анти-подмена чужих URL).
+    permit_url = _ensure_owned_doc_url(body.permit_photo_url, user, None) if body.permit_photo_url.strip() else None
+    osago_url = _ensure_owned_doc_url(body.osago_url, user, None) if body.osago_url.strip() else None
+    if app is None:
+        app = TaxiApplication(user_id=user.id)
+    app.inn = body.inn.strip()
+    app.permit_number = body.permit_number.strip()
+    app.permit_photo_url = permit_url
+    app.osago_url = osago_url
+    app.birth_date = body.birth_date
+    app.license_since_year = body.license_since_year
+    app.status = TaxiApplicationStatus.pending
+    app.comment = None
+    app.reviewed_at = None
+    app.created_at = utcnow()
+    session.add(app)
+    session.commit()
+    session.refresh(app)
+    return _application_payload(app)
+
+
+@router.get("/taxi/application")
+def my_taxi_application(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Моя заявка таксиста (для экрана статуса). Не подавал → 404."""
+    app = taxi_mod.my_application(session, user.id)
+    if not app:
+        raise HTTPException(404, "Заявка не подана")
+    return _application_payload(app)
+
+
+# ------------------------------ админ: заявки ------------------------------
+def _require_admin(user: User) -> None:
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+
+
+@router.get("/admin/taxi-applications")
+def admin_taxi_applications(status: str = "pending", user: User = Depends(current_user),
+                            session: Session = Depends(get_session)):
+    """Очередь заявок таксистов для модерации. status=pending|approved|rejected|all."""
+    _require_admin(user)
+    q = select(TaxiApplication)
+    if status != "all":
+        try:
+            q = q.where(TaxiApplication.status == TaxiApplicationStatus(status))
+        except ValueError:
+            raise HTTPException(400, "status: pending|approved|rejected|all")
+    apps = session.exec(q.order_by(TaxiApplication.id.desc())).all()
+    if not apps:
+        return []
+    users = {u.id: u for u in session.exec(select(User).where(User.id.in_({a.user_id for a in apps}))).all()}
+    out = []
+    for a in apps:
+        u = users.get(a.user_id)
+        out.append({
+            **_application_payload(a),
+            "user_id": a.user_id,
+            "name": (u.name if u and u.name else "Водитель"),
+            "phone": (u.phone if u else ""),
+        })
+    return out
+
+
+def _get_app_or_404(session: Session, app_id: int) -> TaxiApplication:
+    app = session.get(TaxiApplication, app_id)
+    if not app:
+        raise HTTPException(404, "Заявка не найдена")
+    return app
+
+
+@router.post("/admin/taxi-applications/{app_id}/approve")
+def admin_approve_taxi(app_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Одобрить заявку → водитель может возить такси. Push заявителю (двуязычно)."""
+    _require_admin(user)
+    app = _get_app_or_404(session, app_id)
+    app.status = TaxiApplicationStatus.approved
+    app.comment = None
+    app.reviewed_at = utcnow()
+    session.add(app)
+    session.commit()
+    send_push(session, app.user_id, "Ты в такси Юлдаша! 🚕",
+              "Заявка одобрена — выходи на линию · Ғариза хупланды — линияға сыҡ")
+    return {"id": app.id, "status": app.status.value}
+
+
+class RejectIn(BaseModel):
+    comment: str = Field("", max_length=500)
+
+
+@router.post("/admin/taxi-applications/{app_id}/reject")
+def admin_reject_taxi(app_id: int, body: RejectIn, user: User = Depends(current_user),
+                      session: Session = Depends(get_session)):
+    """Отклонить заявку (с комментарием — водитель увидит и сможет подать снова)."""
+    _require_admin(user)
+    app = _get_app_or_404(session, app_id)
+    app.status = TaxiApplicationStatus.rejected
+    app.comment = body.comment.strip() or None
+    app.reviewed_at = utcnow()
+    session.add(app)
+    session.commit()
+    send_push(session, app.user_id, "Заявка в такси отклонена",
+              "Поправь документы и подай снова · Документтарҙы төҙәт тә яңынан ебәр")
+    return {"id": app.id, "status": app.status.value}
+
+
+# ------------------------------ админ: города такси ------------------------------
+class TaxiCityIn(BaseModel):
+    city: str = Field(..., min_length=1, max_length=80)
+    enabled: bool = True
+
+
+@router.get("/admin/taxi-cities")
+def admin_taxi_cities(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    _require_admin(user)
+    rows = session.exec(select(TaxiCity).order_by(TaxiCity.id)).all()
+    return [{"id": c.id, "city": c.city, "enabled": c.enabled, "created_at": c.created_at.isoformat()} for c in rows]
+
+
+@router.post("/admin/taxi-cities")
+def admin_add_taxi_city(body: TaxiCityIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Добавить город (или обновить enabled существующего — без дублей по имени)."""
+    _require_admin(user)
+    name = body.city.strip()
+    existing = next((c for c in session.exec(select(TaxiCity)).all()
+                     if c.city.strip().casefold() == name.casefold()), None)
+    row = existing or TaxiCity(city=name)
+    row.enabled = body.enabled
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return {"id": row.id, "city": row.city, "enabled": row.enabled, "created_at": row.created_at.isoformat()}
+
+
+@router.delete("/admin/taxi-cities/{city_id}")
+def admin_delete_taxi_city(city_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    _require_admin(user)
+    row = session.get(TaxiCity, city_id)
+    if not row:
+        raise HTTPException(404, "Город не найден")
+    session.delete(row)
+    session.commit()
+    return {"ok": True}

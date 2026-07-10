@@ -1,0 +1,356 @@
+package com.yuldash.app
+
+// ============================ Админ: заявки таксистов + города такси ============================
+// По паттерну AdminDriversScreen/AdminPaymentRequestsScreen (SecondaryScreens.kt): умная обёртка
+// держит стейт и сеть, LazyColumn рисует все состояния (загрузка / ошибка+Повторить / пусто / список).
+// Заявки: имя, телефон, ИНН, № разрешения, возраст/стаж, фото документов (Coil+Bearer),
+// Одобрить / Отклонить (с комментарием). Ниже — секция «Города такси»: тумблер enabled, добавить/удалить.
+
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.LocalTaxi
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.TaxiApplicationDto
+import com.yuldash.app.data.TaxiCityDto
+import kotlinx.coroutines.launch
+
+@Composable
+internal fun AdminTaxiScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    val token = remember { ApiClient.currentToken() ?: "" }
+
+    var filter by remember { mutableStateOf("pending") }
+    var apps by remember { mutableStateOf<List<TaxiApplicationDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    var cities by remember { mutableStateOf<List<TaxiCityDto>>(emptyList()) }
+    var citiesError by remember { mutableStateOf(false) }
+    var newCity by remember { mutableStateOf("") }
+    var cityBusy by remember { mutableStateOf(false) }
+
+    // Отклонение с комментарием: id раскрытой карточки + текст.
+    var rejectingId by remember { mutableStateOf<Int?>(null) }
+    var rejectComment by remember { mutableStateOf("") }
+
+    val approvedMsg = appText("Таксист одобрен", "Таксист раҫланды")
+    val rejectedMsg = appText("Заявка отклонена", "Заявка кире ҡағылды")
+    val actionErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
+    val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+
+    fun reloadApps() {
+        loading = true; error = null
+        scope.launch {
+            ApiClient.adminTaxiApplications(filter).onSuccess { apps = it }.onFailure { error = loadErr }
+            loading = false
+        }
+    }
+    fun reloadCities() {
+        scope.launch {
+            citiesError = false
+            ApiClient.adminTaxiCities().onSuccess { cities = it }.onFailure { citiesError = true }
+        }
+    }
+    LaunchedEffect(filter) { reloadApps() }
+    LaunchedEffect(Unit) { reloadCities() }
+
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Таксисты", "Таксистар"), onBack) }) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
+        ) {
+            item {
+                Text(
+                    appText(
+                        "Заявки «Стать таксистом» (580-ФЗ): сверь ИНН, разрешение и ОСАГО, потом одобри или отклони с комментарием.",
+                        "«Таксист булыу» заявкалары (580-ФЗ): ИНН, рөхсәт һәм ОСАГО-ны тикшер, аҙаҡ раҫла йәки комментарий менән кире ҡаҡ.",
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                )
+            }
+            // Фильтр по статусу.
+            item {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TaxiFilterChip(appText("На проверке", "Тикшереүҙә"), filter == "pending") { filter = "pending" }
+                    TaxiFilterChip(appText("Одобрены", "Раҫланған"), filter == "approved") { filter = "approved" }
+                    TaxiFilterChip(appText("Отклонены", "Кире ҡағылған"), filter == "rejected") { filter = "rejected" }
+                    TaxiFilterChip(appText("Все", "Барыһы"), filter == "all") { filter = "all" }
+                }
+            }
+            if (loading) {
+                item { SkeletonCard(lines = 4) }
+                item { SkeletonCard(lines = 4) }
+            } else if (error != null) {
+                item { ListedError(error ?: "") { reloadApps() } }
+            } else if (apps.isEmpty()) {
+                item {
+                    ListedEmpty(
+                        appText("Заявок нет", "Заявка юҡ"),
+                        appText("Здесь появятся водители, которые хотят возить такси.", "Бында такси йөрөтөргә теләгән водителдәр күренер"),
+                    )
+                }
+            } else {
+                items(apps.size) { i ->
+                    val a = apps[i]
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(a.name.ifBlank { appText("Без имени", "Исемһеҙ") }, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                                TaxiStatusBadge(a.status)
+                            }
+                            if (a.phone.isNotBlank()) Text(a.phone, color = CanonMuted, fontSize = 13.sp)
+                            // ИНН + разрешение + возраст/стаж.
+                            val age = taxiAgeYears(a.birthDate)
+                            val currentYear = remember { java.time.LocalDate.now().year }
+                            val expYears = if (a.licenseSinceYear in 1900..currentYear) currentYear - a.licenseSinceYear else null
+                            Text(appText("ИНН: ", "ИНН: ") + a.inn.ifBlank { "—" }, color = CanonText, fontSize = 14.sp)
+                            Text(appText("Разрешение: ", "Рөхсәт: ") + a.permitNumber.ifBlank { "—" }, color = CanonText, fontSize = 14.sp)
+                            val meta = buildList {
+                                if (age != null) add(appText("$age лет", "$age йәш"))
+                                if (expYears != null) add(appText("стаж $expYears г.", "стаж $expYears йыл"))
+                            }.joinToString("  ·  ")
+                            if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
+                            if (a.permitPhotoUrl.isNotBlank()) {
+                                Text(appText("Разрешение на такси", "Такси рөхсәте"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                TaxiDocImage(a.permitPhotoUrl, token)
+                            }
+                            if (a.osagoUrl.isNotBlank()) {
+                                Text(appText("Полис ОСАГО", "ОСАГО полисы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                TaxiDocImage(a.osagoUrl, token)
+                            }
+                            if (a.status == "rejected" && a.comment.isNotBlank()) {
+                                Text(appText("Комментарий: ", "Комментарий: ") + a.comment, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp)
+                            }
+                            if (a.status == "pending") {
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Button(
+                                        onClick = {
+                                            val id = a.id
+                                            scope.launch {
+                                                ApiClient.adminApproveTaxiApplication(id)
+                                                    .onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reloadApps() }
+                                                    .onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f).height(48.dp),
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                                    ) { Text(appText("Одобрить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (rejectingId == a.id) { rejectingId = null } else { rejectingId = a.id; rejectComment = "" }
+                                        },
+                                        modifier = Modifier.weight(1f).height(48.dp),
+                                        shape = RoundedCornerShape(14.dp),
+                                    ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                                }
+                                // Отклонение — с полем комментария (водитель увидит его в заявке).
+                                AnimatedVisibility(visible = rejectingId == a.id) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(
+                                            value = rejectComment,
+                                            onValueChange = { rejectComment = it.take(300) },
+                                            label = { Text(appText("Почему отклоняешь (увидит водитель)", "Ниңә кире ҡағаһың (водитель күрер)")) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(14.dp),
+                                        )
+                                        Button(
+                                            onClick = {
+                                                val id = a.id
+                                                val comment = rejectComment.trim()
+                                                scope.launch {
+                                                    ApiClient.adminRejectTaxiApplication(id, comment)
+                                                        .onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); rejectingId = null; reloadApps() }
+                                                        .onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }
+                                                }
+                                            },
+                                            enabled = rejectComment.isNotBlank(),
+                                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                                            shape = RoundedCornerShape(14.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = CanonRed),
+                                        ) { Text(appText("Отклонить с комментарием", "Комментарий менән кире ҡағыу"), fontWeight = FontWeight.Bold) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ------------------------------ Города такси ------------------------------
+            item { Spacer(Modifier.height(6.dp)) }
+            item { SectionHeader(appText("Города такси", "Такси ҡалалары"), appText("Где пассажирам доступен быстрый заказ", "Пассажирҙарға тиҙ заказ ҡайҙа асыҡ")) }
+            if (citiesError) {
+                item { ListedError(loadErr) { reloadCities() } }
+            } else if (cities.isEmpty()) {
+                item {
+                    Text(
+                        appText("Городов пока нет — добавь первый ниже. Пока список пуст, такси решает глобальный флаг на сервере.", "Ҡалалар әлегә юҡ — тәүгеһен түбәндә өҫтә. Исемлек буш саҡта таксины серверҙағы дөйөм флаг хәл итә."),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    )
+                }
+            } else {
+                items(cities.size) { i ->
+                    val c = cities[i]
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LocalTaxi, contentDescription = null, tint = if (c.enabled) CanonGreen2 else CanonMuted, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(c.city, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text(
+                                    if (c.enabled) appText("Такси включено", "Такси ҡабыҙылған") else appText("Выключено", "Һүндерелгән"),
+                                    color = if (c.enabled) CanonGreen2 else CanonMuted, fontSize = 12.sp,
+                                )
+                            }
+                            Switch(
+                                checked = c.enabled,
+                                onCheckedChange = { v ->
+                                    val name = c.city
+                                    scope.launch {
+                                        ApiClient.adminAddTaxiCity(name, v)
+                                            .onSuccess { reloadCities() }
+                                            .onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(checkedTrackColor = CanonGreen2),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            IconButton(onClick = {
+                                val id = c.id
+                                scope.launch {
+                                    ApiClient.adminDeleteTaxiCity(id)
+                                        .onSuccess { reloadCities() }
+                                        .onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }
+                                }
+                            }) {
+                                Icon(Icons.Default.Delete, contentDescription = appText("Удалить город", "Ҡаланы юйыу"), tint = CanonRed)
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = newCity,
+                        onValueChange = { newCity = it.take(40) },
+                        label = { Text(appText("Город", "Ҡала")) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    Button(
+                        onClick = {
+                            val name = newCity.trim()
+                            if (name.isBlank() || cityBusy) return@Button
+                            cityBusy = true
+                            scope.launch {
+                                ApiClient.adminAddTaxiCity(name, true)
+                                    .onSuccess { newCity = ""; reloadCities() }
+                                    .onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }
+                                cityBusy = false
+                            }
+                        },
+                        enabled = newCity.isNotBlank() && !cityBusy,
+                        modifier = Modifier.height(56.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = appText("Добавить город", "Ҡала өҫтәү"))
+                        Spacer(Modifier.width(6.dp))
+                        Text(appText("Добавить", "Өҫтәү"), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Чип фильтра статуса заявок (тач-цель ≥48dp). */
+@Composable
+private fun TaxiFilterChip(label: String, active: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = if (active) CanonMint else CanonSurface,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
+        modifier = Modifier.height(48.dp),
+    ) {
+        Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+    }
+}
+
+/** Бейдж статуса заявки таксиста. */
+@Composable
+private fun TaxiStatusBadge(status: String) {
+    val (label, fg, bg) = when (status) {
+        "approved" -> Triple(appText("Одобрен", "Раҫланған"), CanonGreen2, CanonMint)
+        "rejected" -> Triple(appText("Отклонён", "Кире ҡағылған"), CanonRed, CanonDangerBg)
+        else -> Triple(appText("На проверке", "Тикшереүҙә"), CanonWarn, CanonWarnBg)
+    }
+    Surface(color = bg, shape = RoundedCornerShape(10.dp)) {
+        Text(label, color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+    }
+}
+
+/** Фото документа с Bearer-токеном (как DocImage в модерации водителей — тот приватный, поэтому свой). */
+@Composable
+private fun TaxiDocImage(url: String, token: String) {
+    val ctx = LocalContext.current
+    coil.compose.AsyncImage(
+        model = coil.request.ImageRequest.Builder(ctx).data(url).addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+        contentDescription = null,
+        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp)),
+        contentScale = ContentScale.Crop,
+    )
+}

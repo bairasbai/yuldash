@@ -14,6 +14,7 @@ from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, User
 from ..security import current_user
 from .. import debt as debt_mod
 from .. import instant_service as isv
+from .. import taxi as taxi_mod
 
 router = APIRouter(tags=["instant"])
 
@@ -23,6 +24,23 @@ def _guard_taxi_not_blocked(session: Session, driver_id: int) -> None:
     ПОПУТКА (плановые Ride/Booking) этим не затрагивается — там своего долга нет."""
     if debt_mod.taxi_block_reason(session, driver_id) is not None:
         raise HTTPException(403, debt_mod.TAXI_BLOCKED_MSG)
+
+
+def _guard_taxi_available(session: Session, lat: float | None = None, lng: float | None = None) -> None:
+    """Гейт (a), волна 2: такси выключено глобально (taxi_enabled=False) или в этом городе
+    (список TaxiCity) → 403 «Такси скоро». Применяется к ПАССАЖИРСКИМ ручкам (estimate,
+    создание заказа) и к водительским. ПОПУТКА (rides/bookings) не затрагивается."""
+    av = taxi_mod.availability(session, lat, lng)
+    if not av["enabled"]:
+        raise HTTPException(403, av["message"]["ru"])
+
+
+def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = None, lng: float | None = None) -> None:
+    """Водительские ручки такси: (a) флаг/город + (b) одобренная заявка таксиста (580-ФЗ) + долг."""
+    _guard_taxi_available(session, lat, lng)
+    if not taxi_mod.is_approved_taxi_driver(session, driver_id):
+        raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
+    _guard_taxi_not_blocked(session, driver_id)
 
 
 # ------------------------------ схемы ------------------------------
@@ -58,7 +76,7 @@ def presence(body: PresenceIn, user: User = Depends(current_user), session: Sess
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
     if not dp or not dp.online:
         raise HTTPException(409, "Сначала включи «Я на линии»")
-    _guard_taxi_not_blocked(session, user.id)   # долг по комиссии просрочен → такси заблокировано
+    _guard_taxi_driver(session, user.id, body.lat, body.lng)   # флаг/город + заявка таксиста + долг
     ok = isv.presence_heartbeat(user.id, body.lat, body.lng)
     return {"ok": ok, "ttl_sec": isv.settings.presence_ttl_sec}
 
@@ -67,6 +85,7 @@ def presence(body: PresenceIn, user: User = Depends(current_user), session: Sess
 @router.post("/instant/estimate")
 def estimate(body: EstimateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Оценка цены ДО заказа. Сервер считает сам (haversine × road_k) — цена из клиента игнорируется."""
+    _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
     return isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
 
 
@@ -75,6 +94,7 @@ def estimate(body: EstimateIn, user: User = Depends(current_user), session: Sess
 def create_order(body: OrderIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Создать быстрый заказ: сервер считает цену → matcher ищет и предлагает ближайшему водителю.
     Нет свободных/нет Redis → заказ сразу expired («рядом никого»), но запрос не падает."""
+    _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
     # Не даём плодить параллельные активные заказы одному пассажиру (двойной тап/спам).
     existing = session.exec(
@@ -123,6 +143,8 @@ def my_orders(limit: int = 20, user: User = Depends(current_user), session: Sess
 @router.get("/instant/driver/offer")
 def driver_offer(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Активный оффер для водителя (поллинг-фолбэк к пушу). Протухший — сам двигается дальше."""
+    if not taxi_mod.is_approved_taxi_driver(session, user.id):
+        return {"offer": None}   # гейт (b): нет одобренной заявки таксиста — офферов нет
     if debt_mod.taxi_block_reason(session, user.id) is not None:
         return {"offer": None}   # заблокирован долгом — офферы такси не показываем
     order = session.exec(
@@ -135,6 +157,9 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
         return {"offer": None}
     order = isv.reconcile_offer(session, order)
     if order.status != S.offered or order.current_offer_driver_id != user.id:
+        return {"offer": None}
+    # Гейт (a) по точке подачи: такси выключено глобально/в этом городе → оффер не показываем.
+    if not taxi_mod.availability(session, order.from_lat, order.from_lng)["enabled"]:
         return {"offer": None}
     return {"offer": isv.order_payload(session, order, user)}
 
@@ -151,7 +176,11 @@ def get_order(order_id: int, user: User = Depends(current_user), session: Sessio
 @router.post("/instant/orders/{order_id}/accept")
 def accept(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель принимает оффер. Гонка двух accept → второму 409 (row-lock + условный UPDATE)."""
-    _guard_taxi_not_blocked(session, user.id)   # заблокирован долгом → принять заказ такси нельзя
+    existing = session.get(InstantOrder, order_id)
+    if not existing:
+        raise HTTPException(404, "Заказ не найден")
+    # Гейты водителя: (a) флаг/город по точке подачи + (b) заявка таксиста + долг.
+    _guard_taxi_driver(session, user.id, existing.from_lat, existing.from_lng)
     order = isv.transition(session, order_id, isv.Actor.driver, S.accepted, user.id, idempotent=False)
     return isv.order_payload(session, order, user)
 
