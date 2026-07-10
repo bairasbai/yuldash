@@ -688,8 +688,11 @@ internal fun PassengerCabinetScreen(
     var bookingsReload by remember { mutableIntStateOf(0) }
     var serverReqCount by remember { mutableStateOf<Int?>(null) }
     var myRating by remember { mutableStateOf<Double?>(null) }
+    // Ограничения качества (§9): пауза такси-заказов за страйки/жалобы — карточка в кабинете.
+    var restrictions by remember { mutableStateOf<com.yuldash.app.data.RestrictionsDto?>(null) }
     LaunchedEffect(bookingsReload) {
         bookingsLoading = true
+        if (ApiClient.isLoggedIn()) ApiClient.getMyRestrictions().onSuccess { restrictions = it }
         ApiClient.getMyBookingsDetailed()
             .onSuccess { bookings = it; bookingsError = false }
             .onFailure { e -> bookingsError = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401 }
@@ -735,6 +738,7 @@ internal fun PassengerCabinetScreen(
             onInstantOrder = onInstantOrder,
             onSafety = onSafety,
             modifier = Modifier.padding(padding),
+            restrictions = restrictions,
         )
     }
 }
@@ -761,6 +765,8 @@ internal fun PassengerCabinetContent(
     onInstantOrder: () -> Unit,
     onSafety: () -> Unit,
     modifier: Modifier = Modifier,
+    // Ограничения качества (§9): карточка «Мои ограничения» (пусто → не показывается).
+    restrictions: com.yuldash.app.data.RestrictionsDto? = null,
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -770,6 +776,10 @@ internal fun PassengerCabinetContent(
         item {
             Text(appText("Ваши поездки и заявки", "Һеҙҙең сәфәрҙәр һәм заявкалар"), color = CanonGreen, fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
             Text(appText("Быстрый доступ к бронированиям, заявкам и защите поездки.", "Брондәргә, заявкаларға һәм хәүефһеҙлеккә тиҙ инеү."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+        }
+        // §9 Качество: активные ограничения (пауза такси-заказов) + «написать в поддержку».
+        if (restrictions != null && restrictions.items.isNotEmpty()) {
+            item { RestrictionsCard(restrictions) }
         }
         item {
             // Флагман Фазы 2 — вызвать машину сейчас (такси-режим). Заметная зелёная карточка.
@@ -880,8 +890,11 @@ internal fun DriverCabinetScreen(
     var showZoneSheet by remember { mutableStateOf(false) }
     // Смена такси (волна 2, §8 Отдых): прогресс к 8-часовому лимиту / блок отдыха.
     var workday by remember { mutableStateOf<com.yuldash.app.data.TaxiWorkdayDto?>(null) }
+    // Ограничения качества (§9): пауза такси по жалобам — карточка «Мои ограничения».
+    var restrictions by remember { mutableStateOf<com.yuldash.app.data.RestrictionsDto?>(null) }
     suspend fun reloadDebt() { ApiClient.getDriverDebt().onSuccess { debt = it } }
     LaunchedEffect(Unit) {
+        if (ApiClient.isLoggedIn()) ApiClient.getMyRestrictions().onSuccess { restrictions = it }
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
@@ -965,6 +978,7 @@ internal fun DriverCabinetScreen(
             zone = zone,
             onZoneClick = { showZoneSheet = true },
             workday = workday,
+            restrictions = restrictions,
         )
     }
     // Шторка выбора зоны работы (география, волна 2): открывается с чипа или при выходе на линию без зоны.
@@ -986,6 +1000,84 @@ internal fun DriverCabinetScreen(
 private fun debtDueLabel(iso: String): String {
     val d = iso.take(10).split("-")
     return if (d.size == 3) "${d[2]}.${d[1]}.${d[0]}" else iso.take(10)
+}
+
+/**
+ * «Мои ограничения» (§9 Качество, право объяснения). Показывается ТОЛЬКО если
+ * /me/restrictions не пуст: что ограничено (пауза такси / заказов), категория жалобы
+ * (БЕЗ автора — анонимность), до какого времени, «попутка работает» и кнопка
+ * «Написать в поддержку» (диалог → запрос звонка админу). Тексты — с сервера, двуязычно.
+ */
+@Composable
+internal fun RestrictionsCard(data: com.yuldash.app.data.RestrictionsDto) {
+    if (data.items.isEmpty()) return
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var showSupport by remember { mutableStateOf(false) }
+    var supportText by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    val sentMsg = appText("Отправлено. Мы перезвоним и разберёмся.", "Ебәрелде. Шылтыратып асыҡлайбыҙ.")
+    val failMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
+    val supportPrefix = appText("Об ограничении (§9): ", "Сикләү тураһында (§9): ")   // вне лямбды: appText только в composition
+    Surface(color = CanonWarnBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonWarn.copy(alpha = 0.35f))) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Lock, contentDescription = appText("Ограничение", "Сикләү"), tint = CanonWarn, modifier = Modifier.size(20.dp))
+                Text(appText("Мои ограничения", "Минең сикләүҙәр"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            }
+            data.items.forEach { it ->
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(appText(it.titleRu, it.titleBa), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    val catRu = it.categoryRu; val catBa = it.categoryBa
+                    if (catRu.isNotBlank() || catBa.isNotBlank()) {
+                        Text(appText("Причина: $catRu", "Сәбәп: $catBa"), color = CanonText, fontSize = 13.sp)
+                    }
+                    val until = it.until
+                    Text(
+                        if (until != null) appText("До ", "Тиклем: ") + debtDueLabel(until)
+                        else appText("До разбора — решает живой человек", "Тикшергәнсе — тере кеше хәл итә"),
+                        color = CanonMuted, fontSize = 13.sp,
+                    )
+                    Text(appText(it.noteRu, it.noteBa), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                }
+            }
+            Text(appText(data.supportRu, data.supportBa), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+            OutlinedButton(
+                onClick = { showSupport = true },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) { Text(appText("Написать в поддержку", "Ярҙамға яҙыу"), color = CanonText, fontWeight = FontWeight.Bold) }
+        }
+    }
+    if (showSupport) {
+        AlertDialog(
+            onDismissRequest = { showSupport = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Твоя версия событий", "Һинең яғыңдан ҡараш"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(appText("Расскажи, как было — поддержка перезвонит и разберётся по-человечески.", "Нисек булғанын һөйлә — ярҙам шылтыратып кешеләрсә асыҡлар."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                    OutlinedTextField(
+                        value = supportText, onValueChange = { supportText = it },
+                        placeholder = { Text(appText("Что случилось на самом деле?", "Ысынында ни булды?")) },
+                        modifier = Modifier.fillMaxWidth(), minLines = 3,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !sending && supportText.isNotBlank(), onClick = {
+                    sending = true
+                    scope.launch {
+                        ApiClient.requestCallback(supportPrefix + supportText.trim())
+                            .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_LONG).show(); showSupport = false; supportText = "" }
+                            .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                        sending = false
+                    }
+                }) { Text(appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { showSupport = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
 }
 
 /**
@@ -1265,6 +1357,8 @@ internal fun DriverCabinetContent(
     onZoneClick: () -> Unit = {},
     // Смена такси (волна 2, §8 Отдых): прогресс «На линии X из 8» / карточка отдыха.
     workday: com.yuldash.app.data.TaxiWorkdayDto? = null,
+    // Ограничения качества (§9): карточка «Мои ограничения» (пусто → не показывается).
+    restrictions: com.yuldash.app.data.RestrictionsDto? = null,
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -1278,6 +1372,10 @@ internal fun DriverCabinetContent(
         // Долг по комиссии за такси (Модель А «на доверии»): баннер только если есть что платить/подтверждать.
         if (debt != null && (debt.unpaidKop > 0 || debt.pendingKop > 0)) {
             item { DriverDebtBanner(debt, onDeclareDebtPaid) }
+        }
+        // §9 Качество: активные ограничения (пауза такси по жалобам) + «написать в поддержку».
+        if (restrictions != null && restrictions.items.isNotEmpty()) {
+            item { RestrictionsCard(restrictions) }
         }
         item {
             // Гейт такси (580-ФЗ): «на линию» может выйти только одобренный таксист.

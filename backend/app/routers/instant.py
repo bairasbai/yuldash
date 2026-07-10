@@ -10,11 +10,13 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Settlement, User
+from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Rating, Settlement, User
 from ..security import current_user
+from ..services import user_rating
 from .. import debt as debt_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
+from .. import quality as quality_mod
 from .. import taxi as taxi_mod
 from .. import workday as workday_mod
 
@@ -39,13 +41,15 @@ def _guard_taxi_available(session: Session, lat: float | None = None, lng: float
 
 def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = None, lng: float | None = None) -> None:
     """Водительские ручки такси: (a) флаг/город + (b) одобренная заявка таксиста (580-ФЗ) +
-    долг + отдых (волна 2 §8: 8ч на линии → блок presence/offer/accept до утра;
-    активный заказ НЕ рубится — arrived/onboard/done через этот гейт не ходят)."""
+    долг + отдых (волна 2 §8) + пауза качества (§9: жалобы). Всё блокирует ТОЛЬКО такси
+    (presence/offer/accept), попутка работает; активный заказ НЕ рубится —
+    arrived/onboard/done через этот гейт не ходят."""
     _guard_taxi_available(session, lat, lng)
     if not taxi_mod.is_approved_taxi_driver(session, driver_id):
         raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
     _guard_taxi_not_blocked(session, driver_id)
     workday_mod.guard_taxi_rested(session, driver_id)
+    quality_mod.guard_taxi_quality(session, driver_id)
 
 
 # ------------------------------ схемы ------------------------------
@@ -170,7 +174,8 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     Сурж фиксируется на заказе (price_estimate уже с ним). Страйки (§5, Модель А):
     ≥3 платные отмены/no-show за 7 дней → такси-заказы на паузе 24 ч (попутка работает)."""
     _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
-    if isv.strike_pause_until(session, user.id) is not None:
+    # Страйки §5 + resolved-жалобы no_show/unpaid/damage §9 — общий счётчик (попутка работает).
+    if quality_mod.passenger_pause_until(session, user.id) is not None:
         raise HTTPException(403, isv.strike_pause_message())
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
     # Не даём плодить параллельные активные заказы одному пассажиру (двойной тап/спам).
@@ -227,6 +232,8 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
         return {"offer": None}   # заблокирован долгом — офферы такси не показываем
     if workday_mod.blocking_workday(session, user.id) is not None:
         return {"offer": None}   # отдых (§8): 8ч на линии — офферы не показываем до разблокировки
+    if quality_mod.taxi_pause_until(session, user.id) is not None:
+        return {"offer": None}   # пауза качества (§9: жалобы) — офферы такси не показываем
     order = session.exec(
         select(InstantOrder).where(
             InstantOrder.current_offer_driver_id == user.id,
@@ -296,6 +303,52 @@ def done(order_id: int, user: User = Depends(current_user), session: Session = D
     if order.status == S.done:
         debt_mod.accrue_for_order(session, order)
     return isv.order_payload(session, order, user)
+
+
+# --------- взаимная оценка заказа (§9 Качество) ---------
+class RateIn(BaseModel):
+    stars: int = Field(..., ge=1, le=5)
+
+
+@router.post("/instant/orders/{order_id}/rate")
+def rate_order(order_id: int, body: RateIn, user: User = Depends(current_user),
+               session: Session = Depends(get_session)):
+    """Оценить вторую сторону ЗАВЕРШЁННОГО быстрого заказа (1..5). Пассажир → водитель,
+    водитель → пассажир. Одна оценка на (rater, order) — повтор обновляет. Оценка анонимна:
+    наружу идёт только агрегат (кто поставил — не раскрывается). Пересчёт driver.rating
+    учитывает и заказы, и попутку (общий агрегат по ratee_id)."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    if user.id == order.passenger_id and order.driver_id is not None:
+        ratee_id = order.driver_id           # пассажир → водитель
+    elif order.driver_id is not None and user.id == order.driver_id:
+        ratee_id = order.passenger_id        # водитель → пассажир
+    else:
+        raise HTTPException(403, "Нельзя оценить этот заказ")
+    if order.status != S.done:
+        raise HTTPException(409, "Оценить можно только завершённую поездку")
+    stars = max(1, min(5, body.stars))
+    existing = session.exec(
+        select(Rating).where(Rating.order_id == order_id, Rating.rater_id == user.id)
+    ).first()
+    if existing:
+        existing.stars = stars
+        session.add(existing)
+    else:
+        session.add(Rating(order_id=order_id, rater_id=user.id, ratee_id=ratee_id, stars=stars))
+    session.commit()
+    avg, cnt = user_rating(session, ratee_id)
+    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ratee_id)).first()
+    if prof and cnt > 0:
+        prof.rating = round(avg, 1)
+        session.add(prof)
+        session.commit()
+    # 🟡 Лестница §9: рейтинг просел → мягкий пуш-совет (дедуп 1/нед), без наказания.
+    if cnt > 0:
+        quality_mod.maybe_low_rating_advice(session, ratee_id, avg)
+    # Анонимность: rater не раскрываем, отдаём только агрегат оценённого.
+    return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 
 
 # --------- отмена (обе стороны) ---------

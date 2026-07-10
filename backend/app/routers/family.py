@@ -153,4 +153,8 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
         prof.rating = round(avg, 1)
         session.add(prof)
         session.commit()
+    # 🟡 Лестница качества (§9): рейтинг просел → мягкий пуш-совет (дедуп 1/нед).
+    if cnt > 0:
+        from .. import quality
+        quality.maybe_low_rating_advice(session, ratee_id, avg)
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}

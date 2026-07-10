@@ -1,4 +1,4 @@
-"""Безопасность: SOS (с SMS доверенным контактам), жалобы, блокировки."""
+"""Безопасность: SOS (с SMS доверенным контактам), жалобы (§9 Качество), блокировки."""
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -7,10 +7,11 @@ from sqlmodel import Session, select
 from typing import List, Literal, Optional
 
 from ..db import get_session
-from ..models import Block, Booking, Report, Ride, SosEvent, TrustedContact, User, UserRole
+from ..models import Block, Booking, InstantOrder, Report, Ride, SosEvent, TrustedContact, User, UserRole
 from ..security import current_user
 from ..services import booking_and_ride_for_user, notify_admin_telegram, send_text
 from ..timeutil import utcnow
+from .. import quality
 
 router = APIRouter(tags=["safety"])
 
@@ -88,26 +89,90 @@ def request_callback(body: CallbackIn, user: User = Depends(current_user)):
     return {"ok": True}
 
 
+ReportCategory = Literal[
+    "rude", "kicked_out", "dangerous_driving", "price_fraud", "dirty_car",
+    "late", "safety_threat", "no_show", "damage", "unpaid", "other",
+]
+
+
 class ReportIn(BaseModel):
-    target_user_id: int
-    reason: str = Field("", max_length=1000)   # анти-раздувание таблицы: авторизованный не льёт мегабайты
+    # target_user_id опционален при привязке к поездке (вторая сторона вычисляется сервером).
+    target_user_id: Optional[int] = None
+    reason: str = Field("", max_length=1000)   # свободные детали (анти-раздувание таблицы)
+    category: ReportCategory = "other"         # закрытый перечень §9 (default — совместимость)
+    order_id: Optional[int] = None             # привязка к быстрому заказу
+    booking_id: Optional[int] = None           # привязка к брони попутки
+
+
+class ReportCreatedOut(BaseModel):
+    """Ответ автору жалобы — БЕЗ reporter_id в теле (анонимность: наружу автора не отдаём,
+    даже самому себе не нужен — он и так знает)."""
+    id: int
+    category: str
+    status: str
+    created_at: datetime
 
 
 class ReportOut(BaseModel):
     id: int
-    reporter_name: str
+    reporter_name: str        # видит ТОЛЬКО админ (эта ручка admin-only)
     target_name: str
     target_phone: str
     reason: str
     created_at: datetime
+    # Волна 2 §9 (старые поля выше не убираем — совместимость со старым админ-экраном).
+    category: str = "other"
+    status: str = "new"
+    resolution: Optional[str] = None
+    order_id: Optional[int] = None
+    booking_id: Optional[int] = None
+    target_user_id: int = 0
+
+
+def _report_counterparty(session: Session, user: User, body: ReportIn) -> int:
+    """Вторая сторона поездки/заказа. Проверяем: reporter — участник, цель — второй участник.
+    Без привязки — прежнее поведение (target_user_id обязателен)."""
+    if body.order_id is not None:
+        order = session.get(InstantOrder, body.order_id)
+        if not order:
+            raise HTTPException(404, "Заказ не найден")
+        if user.id == order.passenger_id:
+            other = order.driver_id
+        elif order.driver_id is not None and user.id == order.driver_id:
+            other = order.passenger_id
+        else:
+            raise HTTPException(403, "Ты не участник этого заказа")
+        if other is None:
+            raise HTTPException(409, "У заказа нет второй стороны")
+        return other
+    if body.booking_id is not None:
+        b = session.get(Booking, body.booking_id)
+        ride = session.get(Ride, b.ride_id) if b else None
+        if not b or not ride:
+            raise HTTPException(404, "Бронь не найдена")
+        if user.id == b.passenger_id:
+            return ride.driver_id
+        if user.id == ride.driver_id:
+            return b.passenger_id
+        raise HTTPException(403, "Ты не участник этой поездки")
+    if body.target_user_id is None:
+        raise HTTPException(400, "Укажи, на кого жалоба, или поездку")
+    return body.target_user_id
 
 
 @router.get("/admin/reports", response_model=List[ReportOut])
-def admin_reports(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Все жалобы — для разбора админом (кто на кого, причина, когда)."""
+def admin_reports(status: Optional[str] = None, category: Optional[str] = None,
+                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Жалобы для разбора админом (кто на кого, категория, статус). Автора жалобы видит
+    ТОЛЬКО эта admin-ручка. Фильтры: ?status=new|reviewing|resolved|rejected, ?category=…"""
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для админа")
-    reports = session.exec(select(Report).order_by(Report.id.desc()).limit(200)).all()
+    q = select(Report)
+    if status:
+        q = q.where(Report.status == status)
+    if category:
+        q = q.where(Report.category == category)
+    reports = session.exec(q.order_by(Report.id.desc()).limit(200)).all()
     if not reports:
         return []
     ids: set = set()
@@ -125,21 +190,148 @@ def admin_reports(user: User = Depends(current_user), session: Session = Depends
             target_name=(tgt.name if tgt and tgt.name else "—"),
             target_phone=(tgt.phone if tgt else ""),
             reason=r.reason, created_at=r.created_at,
+            category=r.category, status=r.status, resolution=r.resolution,
+            order_id=r.order_id, booking_id=r.booking_id, target_user_id=r.target_user_id,
         ))
     return out
 
 
-@router.post("/reports", response_model=Report)
-def create_report(body: ReportIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    if body.target_user_id == user.id:
+@router.post("/reports", response_model=ReportCreatedOut)
+def create_report(body: ReportIn,
+                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пожаловаться (§9). Категория из перечня + опциональная привязка к поездке/заказу
+    (тогда цель = вторая сторона, участие проверяется). Анонимно: цель получает пуш с
+    категорией БЕЗ автора; тяжёлая категория → мгновенно админу + пауза такси до разбора."""
+    target_id = _report_counterparty(session, user, body)
+    if body.target_user_id is not None and body.target_user_id != target_id:
+        raise HTTPException(400, "Цель жалобы не совпадает со второй стороной поездки")
+    if target_id == user.id:
         raise HTTPException(400, "Нельзя пожаловаться на себя")
-    if not session.get(User, body.target_user_id):
+    if not session.get(User, target_id):
         raise HTTPException(404, "Пользователь не найден")
-    report = Report(reporter_id=user.id, **body.model_dump())
+    report = Report(
+        reporter_id=user.id, target_user_id=target_id, reason=body.reason,
+        category=body.category, order_id=body.order_id, booking_id=body.booking_id,
+    )
     session.add(report)
     session.commit()
     session.refresh(report)
-    return report
+    # ⛔ Тяжёлая — железно и сразу: пауза такси цели до разбора + Telegram админу (синхронно
+    # ставим паузу, уведомления — как есть; notify внутри не роняет запрос).
+    quality.escalate_severe(session, report, user)
+    # Пуш цели — анонимный (категория БЕЗ автора). send_push без Firebase — мгновенный no-op.
+    quality.notify_target_new_report(session, report)
+    return ReportCreatedOut(id=report.id, category=report.category,
+                            status=report.status, created_at=report.created_at)
+
+
+class ResolveIn(BaseModel):
+    resolution: str = Field("", max_length=1000)
+    # Тяжёлая жалоба держит паузу «до разбора»: resolve решает — снять или оставить
+    # (оставить = перевести в честную таймерную паузу quality_pause_hours).
+    keep_pause: bool = False
+
+
+@router.post("/admin/reports/{report_id}/resolve", response_model=ReportOut)
+def admin_resolve_report(report_id: int, body: ResolveIn,
+                         user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Разбор жалобы человеком: подтверждена (resolved). Дальше лестница §9: ≥N resolved за
+    окно → авто-пауза такси цели. Тяжёлая: keep_pause=False снимает паузу разбора,
+    True — оставляет (таймерная пауза quality_pause_hours)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    r = session.get(Report, report_id)
+    if not r:
+        raise HTTPException(404, "Жалоба не найдена")
+    r.status = "resolved"
+    r.resolution = body.resolution or r.resolution
+    r.resolved_at = utcnow()
+    session.add(r)
+    session.commit()
+    session.refresh(r)
+    if r.category in quality.SEVERE_CATEGORIES:
+        if body.keep_pause:
+            # Оставить: «до разбора» → честная таймерная пауза (не вечная).
+            quality.unpause_taxi(session, r.target_user_id)
+            quality.pause_taxi(session, r.target_user_id,
+                               hours=quality.settings.quality_pause_hours,
+                               reason=quality.PAUSE_REASON_REPORTS)
+        else:
+            quality.maybe_release_review_pause(session, r.target_user_id)
+    # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
+    quality.apply_ladder_after_resolve(session, r.target_user_id)
+    return _admin_report_out(session, r)
+
+
+@router.post("/admin/reports/{report_id}/reject", response_model=ReportOut)
+def admin_reject_report(report_id: int, body: ResolveIn | None = None,
+                        user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Жалоба отклонена (не подтвердилась). Тяжёлая: если других открытых тяжёлых на цель
+    нет — пауза разбора снимается (отклонили → не наказываем)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    r = session.get(Report, report_id)
+    if not r:
+        raise HTTPException(404, "Жалоба не найдена")
+    r.status = "rejected"
+    if body is not None and body.resolution:
+        r.resolution = body.resolution
+    r.resolved_at = utcnow()
+    session.add(r)
+    session.commit()
+    session.refresh(r)
+    quality.maybe_release_review_pause(session, r.target_user_id)
+    return _admin_report_out(session, r)
+
+
+def _admin_report_out(session: Session, r: Report) -> ReportOut:
+    rep = session.get(User, r.reporter_id)
+    tgt = session.get(User, r.target_user_id)
+    return ReportOut(
+        id=r.id,
+        reporter_name=(rep.name if rep and rep.name else "—"),
+        target_name=(tgt.name if tgt and tgt.name else "—"),
+        target_phone=(tgt.phone if tgt else ""),
+        reason=r.reason, created_at=r.created_at,
+        category=r.category, status=r.status, resolution=r.resolution,
+        order_id=r.order_id, booking_id=r.booking_id, target_user_id=r.target_user_id,
+    )
+
+
+class QualityPauseIn(BaseModel):
+    hours: int = Field(72, ge=1, le=24 * 365)
+
+
+@router.post("/admin/quality/{user_id}/pause")
+def admin_quality_pause(user_id: int, body: QualityPauseIn,
+                        user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Админ вручную ставит/продлевает паузу такси (попутка работает)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    prof = quality.pause_taxi(session, user_id, hours=body.hours, reason=quality.PAUSE_REASON_ADMIN)
+    if prof is None:
+        raise HTTPException(404, "Профиль водителя не найден")
+    return {"ok": True, "taxi_paused_until": prof.taxi_paused_until.isoformat(),
+            "reason": prof.taxi_pause_reason}
+
+
+@router.post("/admin/quality/{user_id}/unpause")
+def admin_quality_unpause(user_id: int,
+                          user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Админ снимает паузу такси (разбор закончен / поставлено ошибочно)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    prof = quality.unpause_taxi(session, user_id)
+    if prof is None:
+        raise HTTPException(404, "Профиль водителя не найден")
+    return {"ok": True, "taxi_paused_until": None, "reason": None}
+
+
+@router.get("/me/restrictions")
+def my_restrictions(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Право объяснения (§9): свои активные ограничения — что, категория, до когда,
+    «попутка работает», «напиши в поддержку». БЕЗ раскрытия автора жалобы."""
+    return quality.restrictions_payload(session, user)
 
 
 class BlockIn(BaseModel):

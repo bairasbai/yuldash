@@ -311,12 +311,9 @@ def _guard_no_show(order: InstantOrder, now) -> None:
                                  f"{settings.wait_free_minutes} мин + {settings.no_show_extra_minutes} мин сверху")
 
 
-def strike_pause_until(session: Session, passenger_id: int, now=None):
-    """Пауза такси-заказов за страйки. Страйк = платная отмена пассажира ИЛИ no-show.
-    ≥ strike_limit страйков за strike_window_days → пауза strike_pause_hours от последнего
-    страйка. Возврат: datetime конца паузы или None (можно заказывать)."""
-    now = now or utcnow()
-    since = now - timedelta(days=settings.strike_window_days)
+def order_strike_times(session: Session, passenger_id: int, since) -> list:
+    """Метки времени страйков по ЗАКАЗАМ (платная отмена пассажира / no-show) за окно.
+    Волна 2 §9: общий счётчик с resolved-жалобами (см. quality.passenger_pause_until)."""
     rows = session.exec(
         select(InstantOrder).where(
             InstantOrder.passenger_id == passenger_id,
@@ -324,8 +321,17 @@ def strike_pause_until(session: Session, passenger_id: int, now=None):
             InstantOrder.cancelled_at >= since,
         )
     ).all()
-    strikes = [o.cancelled_at for o in rows
-               if o.no_show or (o.cancel_fee_kop > 0 and o.cancel_by == Actor.passenger.value)]
+    return [o.cancelled_at for o in rows
+            if o.no_show or (o.cancel_fee_kop > 0 and o.cancel_by == Actor.passenger.value)]
+
+
+def strike_pause_until(session: Session, passenger_id: int, now=None):
+    """Пауза такси-заказов за страйки. Страйк = платная отмена пассажира ИЛИ no-show.
+    ≥ strike_limit страйков за strike_window_days → пауза strike_pause_hours от последнего
+    страйка. Возврат: datetime конца паузы или None (можно заказывать)."""
+    now = now or utcnow()
+    since = now - timedelta(days=settings.strike_window_days)
+    strikes = order_strike_times(session, passenger_id, since)
     if len(strikes) < settings.strike_limit:
         return None
     until = max(strikes) + timedelta(hours=settings.strike_pause_hours)
@@ -570,7 +576,12 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
 def _score(profs: dict, did: int, dist_km: float) -> float:
     p = profs.get(did)
     rating = p.rating if p else 5.0
-    return settings.instant_w_dist / max(dist_km, 0.3) + settings.instant_w_rating * rating
+    score = settings.instant_w_dist / max(dist_km, 0.3) + settings.instant_w_rating * rating
+    # 🟠 Лестница качества (§9): просевший рейтинг → штраф к score, водитель РЕЖЕ получает
+    # заказы (не блок — вернуть место можно хорошими поездками).
+    if rating < settings.matcher_low_rating:
+        score -= settings.matcher_penalty_low_rating
+    return score
 
 
 def rank(session: Session, ids: list, dist: dict) -> list:

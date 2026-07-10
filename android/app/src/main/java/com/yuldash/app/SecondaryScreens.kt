@@ -65,6 +65,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -126,6 +127,14 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.MoneyOff
+import androidx.compose.material.icons.filled.MoodBad
+import androidx.compose.material.icons.filled.PersonOff
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -833,12 +842,21 @@ internal fun AutoCheckRow(result: String, dataJson: String) {
 @Composable
 internal fun AdminReportsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<com.yuldash.app.data.AdminReportDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    val doneMsg = appText("Готово", "Әҙер")
+    val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     // error отделяет «сеть упала» от «жалоб нет» — иначе сбой выглядит как «всё хорошо».
     fun reload() { loading = true; error = null; scope.launch { ApiClient.getAdminReports().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
+    fun act(block: suspend () -> Result<Unit>) {
+        scope.launch {
+            block().onSuccess { Toast.makeText(ctx, doneMsg, Toast.LENGTH_SHORT).show(); reload() }
+                .onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() }
+        }
+    }
     LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Жалобы", "Ялыуҙар"), onBack) }) { padding ->
         AdminReportsContent(
@@ -847,9 +865,23 @@ internal fun AdminReportsScreen(onBack: () -> Unit) {
             reports = list,
             onRetry = { reload() },
             modifier = Modifier.padding(padding),
+            onResolve = { r, keepPause -> act { ApiClient.adminResolveReport(r.id, resolution = "", keepPause = keepPause) } },
+            onReject = { r -> act { ApiClient.adminRejectReport(r.id) } },
+            onPause = { userId -> act { ApiClient.adminQualityPause(userId, hours = 72) } },
+            onUnpause = { userId -> act { ApiClient.adminQualityUnpause(userId) } },
         )
     }
 }
+
+/** Двуязычное название категории жалобы по id (для админки и карточек). */
+@Composable
+internal fun reportCategoryLabel(id: String): String {
+    val c = reportCategoriesAll().firstOrNull { it.id == id }
+    return if (c != null) appText(c.ru, c.ba) else appText("Другое", "Башҡа")
+}
+
+/** Тяжёлые категории (⛔ §9): мгновенная пауза такси до разбора. */
+internal val severeReportCategories = setOf("safety_threat", "kicked_out", "dangerous_driving")
 
 /**
  * Чистый рендер экрана жалоб: все состояния (загрузка / ошибка+повтор / пусто / список).
@@ -862,9 +894,14 @@ internal fun AdminReportsContent(
     reports: List<com.yuldash.app.data.AdminReportDto>,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    // §9 Качество: действия разбора (дефолты — совместимость со старыми вызовами/тестами).
+    onResolve: (com.yuldash.app.data.AdminReportDto, Boolean) -> Unit = { _, _ -> },
+    onReject: (com.yuldash.app.data.AdminReportDto) -> Unit = {},
+    onPause: (Int) -> Unit = {},
+    onUnpause: (Int) -> Unit = {},
 ) {
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Жалобы пользователей. Разберись — позвони, предупреди или отклони водителя в модерации.", "Ҡулланыусы ялыуҙары. Тикшер — шылтырат, иҫкәрт йәки модерацияла кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        item { Text(appText("Жалобы пользователей. Подтверди или отклони — лестница наказаний дальше считается сама. Автора видишь только ты.", "Ҡулланыусы ялыуҙары. Раҫла йәки кире ҡаҡ — язалар баҫҡысы артабан үҙе иҫәпләнә. Авторҙы тик һин күрәһең."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
         if (loading) {
             item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
         } else if (error != null) {
@@ -874,12 +911,55 @@ internal fun AdminReportsContent(
         } else {
             items(reports.size) { i ->
                 val r = reports[i]
-                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val severe = r.category in severeReportCategories
+                val open = r.status == "new" || r.status == "reviewing"
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, if (severe && open) CanonRed.copy(alpha = 0.45f) else CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // Категория (⛔ тяжёлая — красным) + статус разбора.
+                            Surface(shape = RoundedCornerShape(8.dp), color = (if (severe) CanonRed else CanonGreen2).copy(alpha = 0.12f)) {
+                                Text(reportCategoryLabel(r.category), color = if (severe) CanonRed else CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                            }
+                            val (stLabel, stColor) = when (r.status) {
+                                "resolved" -> appText("Подтверждена", "Раҫланған") to CanonGreen2
+                                "rejected" -> appText("Отклонена", "Кире ҡағылған") to CanonMuted
+                                "reviewing" -> appText("В разборе", "Тикшереүҙә") to CanonWarn
+                                else -> appText("Новая", "Яңы") to CanonWarn
+                            }
+                            Text(stLabel, color = stColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.weight(1f))
+                            if (r.createdAt.length >= 10) Text(r.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
+                        }
                         Text("${r.reporterName}  →  ${r.targetName}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
                         if (r.targetPhone.isNotBlank()) Text(r.targetPhone, color = CanonMuted, fontSize = 13.sp)
-                        Text(r.reason.ifBlank { appText("без причины", "сәбәпһеҙ") }, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
-                        if (r.createdAt.length >= 10) Text(r.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
+                        Text(r.reason.ifBlank { appText("без деталей", "ентекһеҙ") }, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                        if (r.resolution.isNotBlank()) Text(appText("Решение: ", "Ҡарар: ") + r.resolution, color = CanonMuted, fontSize = 13.sp)
+                        if (open) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { onResolve(r, false) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                                    Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                                OutlinedButton(onClick = { onReject(r) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(12.dp)) {
+                                    Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                            }
+                            if (severe) {
+                                // ⛔ Тяжёлая: пауза стоит «до разбора» — можно подтвердить, ОСТАВИВ паузу.
+                                TextButton(onClick = { onResolve(r, true) }, modifier = Modifier.fillMaxWidth()) {
+                                    Text(appText("Подтвердить и оставить паузу такси", "Раҫлап такси паузаһын ҡалдырыу"), color = CanonWarn, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        if (r.targetUserId > 0) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = { onPause(r.targetUserId) }, modifier = Modifier.weight(1f)) {
+                                    Text(appText("⏸ Пауза такси 72ч", "⏸ Такси паузаһы 72сәғ"), color = CanonWarn, fontSize = 12.sp)
+                                }
+                                TextButton(onClick = { onUnpause(r.targetUserId) }, modifier = Modifier.weight(1f)) {
+                                    Text(appText("▶ Снять паузу", "▶ Паузаны алыу"), color = CanonGreen2, fontSize = 12.sp)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1249,7 +1329,7 @@ internal fun BlocklistContent(
     }
 }
 
-/** Пожаловаться на попутчика (с кем была поездка) → POST /reports. */
+/** Пожаловаться на попутчика (с кем была поездка) → POST /reports (категория §9 + детали). */
 @Composable
 internal fun ReportScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -1258,36 +1338,25 @@ internal fun ReportScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var target by remember { mutableStateOf<com.yuldash.app.data.ReportableUserDto?>(null) }
-    var reason by remember { mutableStateOf("") }
-    val sentMsg = appText("Жалоба отправлена. Спасибо.", "Ялыу ебәрелде. Рәхмәт.")
+    val sentMsg = appText("Жалоба отправлена. Спасибо, разберёмся.", "Ялыу ебәрелде. Рәхмәт, тикшерербеҙ.")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val errMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшерегеҙ.")
     fun reload() { loading = true; error = null; scope.launch { ApiClient.getReportableUsers().onSuccess { partners = it }.onFailure { error = loadErr }; loading = false } }
     LaunchedEffect(Unit) { reload() }
     target?.let { t ->
-        AlertDialog(
-            onDismissRequest = { target = null },
-            containerColor = CanonSurface,
-            title = { Text(appText("Жалоба на", "Ялыу:") + " ${t.name}", color = CanonText, fontWeight = FontWeight.Black) },
-            text = {
-                OutlinedTextField(
-                    value = reason, onValueChange = { reason = it },
-                    placeholder = { Text(appText("Что случилось?", "Ни булды?")) },
-                    modifier = Modifier.fillMaxWidth(), minLines = 2
-                )
+        ReportCategoryDialog(
+            title = appText("Жалоба на", "Ялыу:") + " ${t.name}",
+            categories = reportCategoriesAll(),
+            onDismiss = { target = null },
+            onSend = { category, details ->
+                val id = t.id
+                scope.launch {
+                    ApiClient.reportUser(targetUserId = id, reason = details, category = category)
+                        .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
+                }
+                target = null
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    val r = reason.trim(); val id = t.id
-                    scope.launch {
-                        ApiClient.reportUser(id, r)
-                            .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
-                            .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
-                    }
-                    target = null; reason = ""
-                }) { Text(appText("Отправить", "Ебәреү"), color = CanonRed, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = { TextButton(onClick = { target = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Пожаловаться", "Ялыу"), onBack) }) { padding ->
@@ -1296,10 +1365,126 @@ internal fun ReportScreen(onBack: () -> Unit) {
             error = error,
             partners = partners,
             onRetry = { reload() },
-            onSelect = { p -> target = p; reason = "" },
+            onSelect = { p -> target = p },
             modifier = Modifier.padding(padding),
         )
     }
+}
+
+// ------------------------------ Категории жалоб (§9 Качество) ------------------------------
+/** Категория жалобы для UI: id — как на сервере (закрытый перечень), названия двуязычные. */
+internal data class ReportCategoryUi(val id: String, val icon: ImageVector, val ru: String, val ba: String)
+
+/** Жалобы НА ВОДИТЕЛЯ (пассажир жалуется). */
+internal fun reportCategoriesDriver(): List<ReportCategoryUi> = listOf(
+    ReportCategoryUi("rude", Icons.Default.MoodBad, "Нахамил", "Тупаҫланды"),
+    ReportCategoryUi("kicked_out", Icons.Default.PersonOff, "Высадил в пути", "Юлда төшөрөп ҡалдырҙы"),
+    ReportCategoryUi("dangerous_driving", Icons.Default.Speed, "Опасное вождение", "Хәүефле йөрөтөү"),
+    ReportCategoryUi("price_fraud", Icons.Default.Payments, "Обман с ценой", "Хаҡ менән алдау"),
+    ReportCategoryUi("dirty_car", Icons.Default.CleaningServices, "Грязная машина", "Бысраҡ машина"),
+    ReportCategoryUi("late", Icons.Default.Schedule, "Опоздал", "Һуңланы"),
+    ReportCategoryUi("safety_threat", Icons.Default.Warning, "Угроза безопасности", "Хәүефһеҙлеккә янау"),
+    ReportCategoryUi("other", Icons.Default.QuestionMark, "Другое", "Башҡа"),
+)
+
+/** Жалобы НА ПАССАЖИРА (водитель жалуется). */
+internal fun reportCategoriesPassenger(): List<ReportCategoryUi> = listOf(
+    ReportCategoryUi("rude", Icons.Default.MoodBad, "Нахамил", "Тупаҫланды"),
+    ReportCategoryUi("no_show", Icons.Default.EventBusy, "Не пришёл к машине", "Машинаға килмәне"),
+    ReportCategoryUi("damage", Icons.Default.Build, "Испортил машину", "Машинаны боҙҙо"),
+    ReportCategoryUi("unpaid", Icons.Default.MoneyOff, "Не заплатил", "Түләмәне"),
+    ReportCategoryUi("safety_threat", Icons.Default.Warning, "Небезопасное поведение", "Хәүефле үҙ-үҙен тотоу"),
+    ReportCategoryUi("other", Icons.Default.QuestionMark, "Другое", "Башҡа"),
+)
+
+/** Полный перечень (когда роль цели неизвестна — общий экран «Пожаловаться»). */
+internal fun reportCategoriesAll(): List<ReportCategoryUi> {
+    val driver = reportCategoriesDriver()
+    val ids = driver.map { it.id }.toSet()
+    // «Другое» — всегда последним.
+    return driver.dropLast(1) + reportCategoriesPassenger().filter { it.id !in ids } + driver.last()
+}
+
+/**
+ * Диалог жалобы: категории из перечня §9 (иконка + двуязычное название, тач-цель 48dp),
+ * поле деталей («Другое» — обязательно опиши) и честная строка «жалоба анонимна».
+ * Тёплый тон: жалоба — не донос, а способ сделать сервис безопаснее.
+ */
+@Composable
+internal fun ReportCategoryDialog(
+    title: String,
+    categories: List<ReportCategoryUi>,
+    onDismiss: () -> Unit,
+    onSend: (category: String, details: String) -> Unit,
+) {
+    var selected by remember { mutableStateOf<String?>(null) }
+    var details by remember { mutableStateOf("") }
+    val canSend = selected != null && (selected != "other" || details.isNotBlank())
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CanonSurface,
+        title = { Text(title, color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    appText("Что случилось? Выбери категорию:", "Ни булды? Категорияны һайла:"),
+                    color = CanonMuted, fontSize = 13.sp,
+                )
+                Column(
+                    Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    categories.forEach { c ->
+                        val active = selected == c.id
+                        val tint by animateColorAsState(if (active) CanonGreen2 else CanonMuted, label = "repCat")
+                        Surface(
+                            onClick = { selected = c.id },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (active) CanonGreen2.copy(alpha = 0.10f) else Color.Transparent,
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(c.icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    appText(c.ru, c.ba), color = CanonText, fontSize = 15.sp,
+                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (active) Icon(Icons.Default.CheckCircle, contentDescription = appText("Выбрано", "Һайланған"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+                AnimatedVisibility(selected != null) {
+                    OutlinedTextField(
+                        value = details, onValueChange = { details = it },
+                        placeholder = {
+                            Text(
+                                if (selected == "other") appText("Опиши, что случилось", "Ни булғанын яҙ")
+                                else appText("Детали (необязательно)", "Ентекләп (мотлаҡ түгел)")
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(), minLines = 2,
+                    )
+                }
+                Text(
+                    appText("Жалоба анонимна: человек не узнает, что она от тебя. Разбирает живой человек.",
+                        "Ялыу аноним: кеше уның һинән икәнен белмәйәсәк. Тере кеше тикшерә."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = canSend,
+                onClick = { onSend(selected ?: "other", details.trim()) },
+            ) { Text(appText("Отправить", "Ебәреү"), color = if (canSend) CanonRed else CanonMuted, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+    )
 }
 
 /**

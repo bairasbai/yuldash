@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -12,6 +13,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -51,6 +53,7 @@ import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -78,6 +81,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -335,6 +339,7 @@ internal fun InstantOrderScreen(onBack: () -> Unit, onLoginRequired: () -> Unit,
                     action = appText("Новый заказ", "Яңы заказ"),
                     onAction = { order = null },
                     onSecondary = onBack,
+                    extra = { InstantRateAndReport(current, isDriver = false) },   // §9: оценить/пожаловаться
                 )
             }
         }
@@ -836,9 +841,10 @@ private fun InstantFinalCard(
     action: String,
     onAction: () -> Unit,
     onSecondary: () -> Unit,
+    extra: (@Composable () -> Unit)? = null,   // §9: блок оценки/жалобы после done
 ) {
     Column(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -849,12 +855,90 @@ private fun InstantFinalCard(
         Text(title, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
+        if (extra != null) {
+            Spacer(Modifier.height(18.dp))
+            extra()
+        }
         Spacer(Modifier.height(28.dp))
         Button(onClick = onAction, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
             Text(action, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = onSecondary) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
+    }
+}
+
+/**
+ * §9 Качество: взаимная оценка завершённого заказа (звёзды, анонимно) + «Пожаловаться»
+ * (категории из перечня, анонимно). Обе стороны: пассажир оценивает водителя, водитель —
+ * пассажира. Плавное появление, тач-цели 40dp+, честная строка «оценка анонимна».
+ */
+@Composable
+private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var stars by remember(order.id) { mutableIntStateOf(0) }
+    var rated by remember(order.id) { mutableStateOf(false) }
+    var showReport by remember(order.id) { mutableStateOf(false) }
+    val thanksMsg = appText("Спасибо за оценку!", "Баһа өсөн рәхмәт!")
+    val rateFail = appText("Не получилось оценить. Проверь сеть.", "Баһалап булманы. Селтәрҙе тикшер.")
+    val sentMsg = appText("Жалоба отправлена. Спасибо, разберёмся.", "Ялыу ебәрелде. Рәхмәт, тикшерербеҙ.")
+    val sendFail = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер.")
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                if (isDriver) appText("Как прошла поездка с пассажиром?", "Пассажир менән сәфәр нисек үтте?")
+                else appText("Как прошла поездка?", "Сәфәр нисек үтте?"),
+                color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                (1..5).forEach { n ->
+                    val filled = n <= stars
+                    val scale by animateFloatAsState(if (filled) 1f else 0.86f, label = "star$n")
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = appText("$n звёзд", "$n йондоҙ"),
+                        tint = if (filled) CanonStar else CanonBorder,
+                        modifier = Modifier.size(40.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                            .clickable {
+                                stars = n
+                                scope.launch {
+                                    ApiClient.rateInstantOrder(order.id, n)
+                                        .onSuccess { if (!rated) { rated = true; Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show() } }
+                                        .onFailure { Toast.makeText(ctx, rateFail, Toast.LENGTH_SHORT).show() }
+                                }
+                            },
+                    )
+                }
+            }
+            Text(
+                appText("Оценка анонимна — видно только средний рейтинг.", "Баһа аноним — тик уртаса рейтинг күренә."),
+                color = CanonMuted, fontSize = 12.sp, textAlign = TextAlign.Center,
+            )
+            TextButton(onClick = { showReport = true }) {
+                Text(
+                    if (isDriver) appText("Пожаловаться на пассажира", "Пассажирға ялыу")
+                    else appText("Пожаловаться на водителя", "Водителгә ялыу"),
+                    color = CanonMuted, fontSize = 13.sp,
+                )
+            }
+        }
+    }
+    if (showReport) {
+        ReportCategoryDialog(
+            title = if (isDriver) appText("Жалоба на пассажира", "Пассажирға ялыу")
+            else appText("Жалоба на водителя", "Водителгә ялыу"),
+            categories = if (isDriver) reportCategoriesPassenger() else reportCategoriesDriver(),
+            onDismiss = { showReport = false },
+            onSend = { category, details ->
+                showReport = false
+                scope.launch {
+                    ApiClient.reportUser(reason = details, category = category, orderId = order.id)
+                        .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, sendFail, Toast.LENGTH_SHORT).show() }
+                }
+            },
+        )
     }
 }
 
@@ -1084,6 +1168,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                     title = appText("Поездка завершена", "Сәфәр тамамланды"),
                     subtitle = appText("Получено ${current.priceFinal ?: current.priceEstimate} ₽. Спасибо!", "${current.priceFinal ?: current.priceEstimate} ₽ алынды. Рәхмәт!"),
                     action = appText("Готово", "Әҙер"), onAction = onFinished, onSecondary = onFinished,
+                    extra = { InstantRateAndReport(current, isDriver = true) },   // §9: оценить/пожаловаться
                 )
                 current.status == "cancelled" -> InstantFinalCard(
                     icon = Icons.Default.Close,

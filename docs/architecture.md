@@ -414,6 +414,34 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 **Тесты:** backend `pytest -q` → **249 passed, 1 skipped** (+16 долговых). Android-сборку прогнать на машине Александра (в Linux-песочнице нет Android SDK). Вливать ПОСЛЕ #34/#36/#42.
 
+## 2026-07-10 — 🛡 Домен «Качество: жалобы + лестница наказаний» (волна 2, батч B5, §9 бизнес-плана) — ветка `feat/quality-ladder`
+
+**Принципы (утвердил Александр):** честно/прозрачно/анонимно; человек в контуре (разбор у админа, право объяснения); попутка мягче такси (все паузы — ТОЛЬКО такси); SOS/безопасность — железно. **Цель жалобы НИКОГДА не видит автора**: `reporter_id` отдаётся только в `/admin/reports`; пуш цели — категория без имени/деталей.
+
+**Модели (`models.py`):** `Report` + `category` (перечень из 11: rude/kicked_out/dangerous_driving/price_fraud/dirty_car/late/safety_threat/no_show/damage/unpaid/other; default other — совместимость), `order_id NULL`/`booking_id NULL` (привязка к поездке), `status` (new|reviewing|resolved|rejected), `resolution NULL`, `resolved_at`. `Rating.booking_id` → NULLABLE + `order_id NULL` (взаимные оценки instant-заказов; одна оценка на (rater, order) — повтор обновляет). `DriverProfile` + `taxi_paused_until`/`taxi_pause_reason` (reports|review|admin), `low_rating_advice_at` (дедуп 🟡-совета).
+
+**Ядро — `app/quality.py`:** категории+лейблы RU/BA, `SEVERE_CATEGORIES` (safety_threat/kicked_out/dangerous_driving), `PASSENGER_STRIKE_CATEGORIES` (no_show/unpaid/damage), `pause_taxi` (пауза только удлиняется)/`unpause_taxi`/`guard_taxi_quality`, `escalate_severe` (Telegram админу + пауза до разбора), `apply_ladder_after_resolve`, `passenger_pause_until` (страйки B3 + resolved-жалобы одним счётчиком), `maybe_low_rating_advice`, `restrictions_payload`.
+
+**Лестница (§9, все цифры — конфиг):** 🟡 `rating < quality_advice_rating(4.8)` → мягкий пуш-совет, дедуп `quality_advice_interval_days(7)` (хук в обоих rate-эндпоинтах). 🟠 `rating < matcher_low_rating(4.6)` → `_score -= matcher_penalty_low_rating(1.0)` в matcher (`instant_service._score`) — реже получает заказы, не блок. 🔴 ≥`quality_pause_reports(3)` resolved-жалоб за `quality_window_days(30)` → авто-пауза такси `quality_pause_hours(72)` + пуш (в `admin_resolve_report`). ⛔ тяжёлая категория при создании жалобы → немедленный `notify_admin_telegram` + пауза такси «до разбора» (reason=review, until не показываем как дату); resolve с `keep_pause` снимает/переводит в таймерную, reject снимает (если нет других открытых тяжёлых). Гейт — как долговой/отдыха: `_guard_taxi_driver` (presence/accept) + `driver_offer` (`offer:None`); активный заказ доводится; ПОПУТКА работает всегда.
+
+**Жалобы:** `POST /reports` — category + `order_id`/`booking_id` (сервер проверяет участие, цель = вторая сторона; несовпадение переданного target → 400; self → 400); старое тело `{target_user_id, reason}` совместимо (category=other). Ответ автору — `ReportCreatedOut` без reporter-полей. Пуш цели «Поступила жалоба: <категория>» — анонимный, двуязычный. Свободный `reason` (детали) остаётся.
+
+**Оценки заказов:** `POST /instant/orders/{id}/rate {stars}` — обе стороны, только после done (иначе 409), не участник → 403; агрегат `user_rating` считает ВСЕ Rating по `ratee_id` (попутка + заказы) → `DriverProfile.rating`; в ответе только агрегат (rater не раскрывается).
+
+**Пассажирские страйки:** resolved-жалобы категорий no_show/unpaid/damage = страйк пассажиру; общий счётчик с B3 (`order_strike_times` + отчёты, те же `strike_limit/strike_window_days/strike_pause_hours`) → гейт `POST /instant/orders` (403, тёплый текст B3).
+
+**Право объяснения:** `GET /me/restrictions` → `{items:[{kind: taxi_pause|orders_pause, reason, category(+RU/BA), until (null=«до разбора»), title/note RU/BA}], support RU/BA}` — без автора.
+
+**Админ:** `GET /admin/reports` (+фильтры `?status=&category=`, новые поля category/status/resolution/order_id/booking_id/target_user_id; старые поля не тронуты — совместимость), `POST /admin/reports/{id}/resolve {resolution, keep_pause}`, `/reject`, `POST /admin/quality/{user_id}/pause {hours}`, `/unpause`. Всё — только роль admin.
+
+**Config:** `quality_advice_rating=4.8`, `quality_advice_interval_days=7`, `matcher_low_rating=4.6`, `matcher_penalty_low_rating=1.0`, `quality_pause_reports=3`, `quality_window_days=30`, `quality_pause_hours=72`.
+
+**UI (Android):** `SecondaryScreens.kt` — `ReportCategoryDialog` (категории с иконками, двуязычно, 48dp, «жалоба анонимна», «Другое» требует текста) + перечни `reportCategoriesDriver/Passenger/All`; `ReportScreen` использует диалог; `AdminReportsContent` — чип категории (тяжёлая красным), статус, Подтвердить/Отклонить (+«оставить паузу» для тяжёлой), пауза 72ч/снять (совместимость со старыми вызовами — новые параметры с дефолтами). `InstantOrderScreen.kt` — `InstantRateAndReport` в done-карточках ОБЕИХ сторон (звёзды 40dp с анимацией, «оценка анонимна», «Пожаловаться» → диалог категорий с привязкой order_id); `InstantFinalCard` получил слот `extra` + прокрутку. `ProfileScreen.kt` — `RestrictionsCard` («Мои ограничения»: что/категория/до когда/«попутка работает» + диалог «Написать в поддержку» → requestCallback) в кабинетах водителя И пассажира (виден только при непустом `/me/restrictions`). `ApiClient.kt`: `reportUser(+category/orderId/bookingId)`, `rateInstantOrder`, `getMyRestrictions`, `adminResolveReport/adminRejectReport/adminQualityPause/adminQualityUnpause`, DTO `RestrictionDto/RestrictionsDto`, `AdminReportDto` + category/status/resolution/targetUserId.
+
+**Миграция:** `alembic/versions/w2_quality.py` (down=`w2_work_hours`), идемпотентна оба пути (проверено up→down→up→no-op на SQLite): +6 колонок `report`, `rating.order_id` + booking_id→NULLABLE (batch), +3 колонки `driverprofile`, индексы; FK-колонки на SQLite без констрейнта (ALTER ADD CONSTRAINT там не работает), на Postgres — честный FK.
+
+**Тесты:** `pytest -q` → **368 passed, 1 skipped** (+19 в `test_quality.py`: категории/привязка/участие/несовпадение цели/совместимость старого тела/422 на мусорную категорию; анонимность (ответ автору, /me/restrictions цели, admin-only); оценки заказов (агрегат, unique-повтор, guard'ы); 🟡 дедуп совета, 🟠 штраф в score, 🔴 3 resolved → пауза+гейт+попутка работает, ⛔ тяжёлая → Telegram+пауза, resolve keep/release, reject снимает; пассажирские страйки за no_show-жалобы; админ-права/IDOR). Вливать ПОСЛЕ #51 (feat/work-hours).
+
 ## 2026-07-10 — 🌙 Домен «8-часовой лимит + отдых водителя» (волна 2, батч B4, §8 бизнес-плана) — ветка `feat/work-hours`
 
 **Суть:** безопасность = продукт. 8 часов на линии ТАКСИ за местный день → отдых до утра. Активный заказ не рубим, попутка вне блока не ограничена вообще. Все цифры — конфиг: `taxi_shift_limit_hours=8`, `rest_hours=8`, `rest_unlock_hour=6`, `local_tz_offset_hours=5` (Уфа UTC+5), `workday_step_cap_sec=60`.

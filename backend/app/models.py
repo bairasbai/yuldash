@@ -139,6 +139,13 @@ class DriverProfile(SQLModel, table=True):
     car_color: str = ""
     car_plate: str = ""
     seats: int = 4
+    # Лестница качества (волна 2, §9). taxi_paused_until — пауза ТАКСИ (попутка работает):
+    # авто (≥N resolved-жалоб за окно / тяжёлая категория до разбора) или вручную админом.
+    # taxi_pause_reason: reports | review | admin (что показать водителю, без автора жалобы).
+    taxi_paused_until: Optional[datetime] = None
+    taxi_pause_reason: Optional[str] = None
+    # Дедуп мягкого пуш-совета при rating < quality_advice_rating (не чаще 1/нед).
+    low_rating_advice_at: Optional[datetime] = None
     docs_status: str = "none"         # none / pending / verified / rejected
     license_url: str = ""             # фото водительского удостоверения
     car_photo_url: str = ""           # фото автомобиля
@@ -279,10 +286,20 @@ class SosEvent(SQLModel, table=True):
 
 
 class Report(SQLModel, table=True):
+    """Жалоба (волна 2, §9 «Качество»). Анонимность — продукт: цель жалобы НИКОГДА не видит
+    автора (reporter_id отдаётся только админу). category — закрытый перечень (см.
+    app/quality.py); привязка к поездке (order_id/booking_id) доказывает, что стороны реально
+    ехали вместе. status: new → reviewing → resolved | rejected (разбор у админа, человек в контуре)."""
     id: Optional[int] = Field(default=None, primary_key=True)
     reporter_id: int = Field(index=True, foreign_key="user.id")
-    target_user_id: int = Field(foreign_key="user.id")
-    reason: str = ""
+    target_user_id: int = Field(index=True, foreign_key="user.id")
+    reason: str = ""                                       # свободный текст — детали (опционально)
+    category: str = Field(default="other", index=True)     # перечень в quality.REPORT_CATEGORIES
+    order_id: Optional[int] = Field(default=None, foreign_key="instantorder.id")   # быстрый заказ
+    booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")      # бронь попутки
+    status: str = Field(default="new", index=True)         # new | reviewing | resolved | rejected
+    resolution: Optional[str] = None                       # решение админа (текст разбора)
+    resolved_at: Optional[datetime] = None                 # когда разобрано (resolve/reject)
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -294,9 +311,13 @@ class Block(SQLModel, table=True):
 
 
 class Rating(SQLModel, table=True):
-    """Оценка после поездки: rater оценил ratee (1..5 звёзд). Одна на (booking, rater)."""
+    """Оценка после поездки: rater оценил ratee (1..5 звёзд). Одна на (booking, rater) ИЛИ
+    (order, rater) — волна 2 §9: взаимные оценки и у быстрых заказов. Ровно одна привязка:
+    booking_id (попутка) или order_id (такси). Оценка анонимна: в агрегат идёт среднее,
+    кто поставил — не раскрывается (rater_id не отдаём наружу)."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    booking_id: int = Field(index=True, foreign_key="booking.id")
+    booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
+    order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
     rater_id: int = Field(index=True, foreign_key="user.id")        # кто оценил
     ratee_id: int = Field(index=True, foreign_key="user.id")        # кого оценили (водитель или пассажир)
     stars: int = 5                           # 1..5

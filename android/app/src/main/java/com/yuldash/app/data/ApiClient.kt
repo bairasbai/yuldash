@@ -601,8 +601,50 @@ object ApiClient {
         call("POST", "/callback", JSONObject().put("note", note), auth = true).map { }.onSuccess { Analytics.log("callback_request") }
 
     // ---------- Жалобы и чёрный список ----------
-    suspend fun reportUser(targetUserId: Int, reason: String): Result<Unit> =
-        call("POST", "/reports", JSONObject().put("target_user_id", targetUserId).put("reason", reason), auth = true).map { }
+    /** Пожаловаться (§9 Качество). category — из закрытого перечня (см. ReportCategoryUi);
+     *  привязка к заказу/брони (orderId/bookingId) — сервер сам проверит участие и вычислит цель.
+     *  Жалоба анонимна: цель НИКОГДА не видит автора. */
+    suspend fun reportUser(
+        targetUserId: Int? = null, reason: String = "", category: String = "other",
+        orderId: Int? = null, bookingId: Int? = null,
+    ): Result<Unit> {
+        val body = JSONObject().put("reason", reason).put("category", category)
+        if (targetUserId != null) body.put("target_user_id", targetUserId)
+        if (orderId != null) body.put("order_id", orderId)
+        if (bookingId != null) body.put("booking_id", bookingId)
+        return call("POST", "/reports", body, auth = true).map { }
+            .onSuccess { Analytics.log("report_create") }
+    }
+
+    /** Мои активные ограничения (§9, право объяснения): пауза такси/заказов — что, до когда,
+     *  «попутка работает». Автор жалобы НЕ раскрывается. Пусто → items=[]. */
+    suspend fun getMyRestrictions(): Result<RestrictionsDto> =
+        call("GET", "/me/restrictions", null, auth = true).map { o ->
+            val arr = o.optJSONArray("items") ?: JSONArray()
+            RestrictionsDto(
+                items = (0 until arr.length()).map { i ->
+                    val it = arr.getJSONObject(i)
+                    RestrictionDto(
+                        kind = it.optString("kind"),
+                        reason = it.optString("reason"),
+                        category = it.optString("category"),
+                        categoryRu = it.optString("category_ru"),
+                        categoryBa = it.optString("category_ba"),
+                        until = if (it.isNull("until")) null else it.optString("until"),
+                        titleRu = it.optString("title_ru"), titleBa = it.optString("title_ba"),
+                        noteRu = it.optString("note_ru"), noteBa = it.optString("note_ba"),
+                    )
+                },
+                supportRu = o.optString("support_ru"),
+                supportBa = o.optString("support_ba"),
+            )
+        }
+
+    /** Оценить вторую сторону завершённого быстрого заказа (1..5). Оценка анонимна —
+     *  в рейтинг идёт только агрегат, «кто поставил» не раскрывается. */
+    suspend fun rateInstantOrder(orderId: Int, stars: Int): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/rate", JSONObject().put("stars", stars), auth = true).map { }
+            .onSuccess { Analytics.log("instant_order_rate") }
 
     suspend fun blockUser(userId: Int): Result<Unit> =
         call("POST", "/blocks", JSONObject().put("blocked_user_id", userId), auth = true).map { }
@@ -667,9 +709,34 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                AdminReportDto(o.optInt("id"), o.optString("reporter_name"), o.optString("target_name"), o.optString("target_phone"), o.optString("reason"), o.optString("created_at"))
+                AdminReportDto(
+                    o.optInt("id"), o.optString("reporter_name"), o.optString("target_name"),
+                    o.optString("target_phone"), o.optString("reason"), o.optString("created_at"),
+                    category = o.optString("category", "other"),
+                    status = o.optString("status", "new"),
+                    resolution = if (o.isNull("resolution")) "" else o.optString("resolution"),
+                    targetUserId = o.optInt("target_user_id"),
+                )
             }
         }
+
+    /** Админ: жалоба подтверждена (resolved). keepPause — для тяжёлой категории:
+     *  оставить паузу такси (таймерную) или снять. Лестница §9 дальше считается сервером. */
+    suspend fun adminResolveReport(id: Int, resolution: String, keepPause: Boolean = false): Result<Unit> =
+        call("POST", "/admin/reports/$id/resolve",
+            JSONObject().put("resolution", resolution).put("keep_pause", keepPause), auth = true).map { }
+
+    /** Админ: жалоба отклонена (не подтвердилась) — пауза разбора снимается. */
+    suspend fun adminRejectReport(id: Int): Result<Unit> =
+        call("POST", "/admin/reports/$id/reject", JSONObject(), auth = true).map { }
+
+    /** Админ: пауза такси водителю на N часов (продлевает). Попутка работает. */
+    suspend fun adminQualityPause(userId: Int, hours: Int): Result<Unit> =
+        call("POST", "/admin/quality/$userId/pause", JSONObject().put("hours", hours), auth = true).map { }
+
+    /** Админ: снять паузу такси (разбор закончен / поставлено ошибочно). */
+    suspend fun adminQualityUnpause(userId: Int): Result<Unit> =
+        call("POST", "/admin/quality/$userId/unpause", JSONObject(), auth = true).map { }
 
     /** Админ создаёт заявку ЗА пользователя по телефону (после звонка «перезвоните мне»). */
     suspend fun adminRequestForPhone(phone: String, name: String, fromCity: String, toCity: String, seats: Int, comment: String): Result<Unit> =
@@ -1975,7 +2042,32 @@ data class BlockDto(val blockedUserId: Int, val name: String)
 data class ReportableUserDto(val id: Int, val name: String)
 data class PendingDriverDto(val userId: Int, val name: String, val phone: String, val car: String, val licenseUrl: String, val carPhotoUrl: String,
     val autocheckResult: String = "", val autocheckScore: Double = 0.0, val autocheckData: String = "")
-data class AdminReportDto(val id: Int, val reporterName: String, val targetName: String, val targetPhone: String, val reason: String, val createdAt: String)
+data class AdminReportDto(
+    val id: Int, val reporterName: String, val targetName: String, val targetPhone: String,
+    val reason: String, val createdAt: String,
+    // §9 Качество (дефолты — совместимость со старыми вызовами/тестами).
+    val category: String = "other",      // rude|kicked_out|dangerous_driving|price_fraud|dirty_car|late|safety_threat|no_show|damage|unpaid|other
+    val status: String = "new",          // new|reviewing|resolved|rejected
+    val resolution: String = "",
+    val targetUserId: Int = 0,
+)
+
+/** Активное ограничение пользователя (§9, /me/restrictions). Тексты приходят с сервера
+ *  на двух языках — экран выбирает по LocalAppLanguage. Автор жалобы НЕ раскрывается. */
+data class RestrictionDto(
+    val kind: String,          // taxi_pause | orders_pause
+    val reason: String,        // reports | review | admin | strikes
+    val category: String = "",
+    val categoryRu: String = "", val categoryBa: String = "",
+    val until: String? = null, // ISO; null = «до разбора» (решает человек)
+    val titleRu: String = "", val titleBa: String = "",
+    val noteRu: String = "", val noteBa: String = "",
+)
+
+data class RestrictionsDto(
+    val items: List<RestrictionDto> = emptyList(),
+    val supportRu: String = "", val supportBa: String = "",
+)
 data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList())
 data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String, val driverAvatar: String = "")
 
