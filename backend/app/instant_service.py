@@ -100,6 +100,74 @@ def presence_offline(driver_id: int) -> None:
         pass
 
 
+# ============================ Сурж (честная наценка, волна 2 §5) ============================
+# Ступени спрос/предложение → k. Потолок — surge_max_k (обещание пользователям: не выше ×1.5).
+SURGE_STEPS = ((3.0, 1.5), (2.0, 1.3), (1.5, 1.2), (1.0, 1.1))
+
+
+def _surge_supply(r, lat: float, lng: float) -> int:
+    """Живые водители «на линии» в радиусе города заказа (Redis GEO + heartbeat)."""
+    try:
+        found = r.geosearch(PRESENCE_KEY, longitude=lng, latitude=lat,
+                            radius=settings.surge_radius_km, unit="km")
+    except Exception:  # noqa: BLE001 — сбой GEO → предложение неизвестно
+        return 0
+    alive = 0
+    for member in found:
+        try:
+            did = _member_driver_id(member)
+        except (ValueError, IndexError, AttributeError):
+            continue
+        if presence_alive(r, did):
+            alive += 1
+    return alive
+
+
+def _surge_demand(session: Session, lat: float, lng: float) -> int:
+    """Неудовлетворённый спрос: searching/created заказы за окно surge_window_min
+    в радиусе surge_radius_km от точки подачи."""
+    since = utcnow() - timedelta(minutes=settings.surge_window_min)
+    rows = session.exec(
+        select(InstantOrder.from_lat, InstantOrder.from_lng).where(
+            InstantOrder.status.in_([S.created, S.searching]),
+            InstantOrder.created_at >= since,
+        )
+    ).all()
+    return sum(1 for flat, flng in rows
+               if haversine_km(lat, lng, flat, flng) <= settings.surge_radius_km)
+
+
+def surge_k_for(session: Session, lat: float, lng: float) -> float:
+    """Динамический сурж-коэффициент для точки подачи. Честный: только при РЕАЛЬНОМ
+    спросе (заказов больше, чем машин рядом), с потолком surge_max_k. Ступени:
+    ratio <1 → 1.0; ≥1 → 1.1; ≥1.5 → 1.2; ≥2 → 1.3; ≥3 → 1.5.
+    Без Redis (предложение неизвестно) → 1.0: не наживаемся на слепоте, не падаем."""
+    if not settings.surge_enabled:
+        return 1.0
+    r = _redis()
+    if r is None:
+        return 1.0
+    demand = _surge_demand(session, lat, lng)
+    if demand <= 0:
+        return 1.0
+    ratio = demand / max(_surge_supply(r, lat, lng), 1)
+    for threshold, k in SURGE_STEPS:
+        if ratio >= threshold:
+            return min(k, settings.surge_max_k)
+    return 1.0
+
+
+def surge_note(k: float) -> Optional[dict]:
+    """Прозрачное объяснение наценки ДО заказа (RU + черновой BA). k=1.0 → None."""
+    if k <= 1.0:
+        return None
+    pct = int(round((k - 1.0) * 100))
+    return {
+        "ru": f"Сейчас заказов больше обычного — цена выше на {pct}%. Вызвать или подождать?",
+        "ba": f"Хәҙер заказдар ғәҙәттәгенән күберәк — хаҡ {pct}%-ҡа юғарыраҡ. Саҡырырғамы, әллә көтөргәме?",
+    }
+
+
 # ============================ Тариф (сервер считает сам) ============================
 def round_to_10(x: float) -> int:
     return int(round(x / 10.0)) * 10
@@ -121,17 +189,34 @@ def active_tariff(session: Session, zone: str, category: str) -> Optional[Tariff
     ).first()
 
 
+def _tariff_price(t: Tariff, dist_km: float, eta_min: float, surge: float) -> int:
+    """Цена по тарифу: max(min_price, (base + per_km·dist + per_min·eta) · k · surge),
+    округление до 10 ₽. Tariff.k — статичный АВАРИЙНЫЙ множитель (по умолчанию 1.0,
+    правится в БД); динамический сурж — отдельным surge (двойного счёта нет)."""
+    raw = t.base + t.per_km * dist_km + t.per_min * eta_min
+    return max(t.min_price, round_to_10(raw * t.k * surge))
+
+
 def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard") -> dict:
     """Оценка цены: сервер считает по своей формуле, ЦЕНЕ ИЗ КЛИЕНТА НЕ ВЕРИТ.
-    price = max(min_price, base + per_km·dist + per_min·eta) · k, округление до 10 ₽."""
+    price = max(min_price, (base + per_km·dist + per_min·eta) · k · surge_k), до 10 ₽.
+    Сурж прозрачен ДО заказа: surge_k + surge_note{ru,ba}. options — цены обоих классов
+    (Эконом/Комфорт) одним запросом, чтобы пассажир выбирал с открытыми глазами."""
     dist_km = max(haversine_km(frm[0], frm[1], to[0], to[1]) * settings.instant_road_k, 0.5)
     zone = zone_for_km(dist_km)
     t = active_tariff(session, zone, category)
     if not t:
         raise HTTPException(503, "Тарифы не настроены")
     eta_min = dist_km / settings.instant_avg_speed_kmh * 60
-    price = t.base + t.per_km * dist_km + t.per_min * eta_min
-    price = max(t.min_price, round_to_10(price * t.k))
+    surge = surge_k_for(session, frm[0], frm[1])
+    price = _tariff_price(t, dist_km, eta_min, surge)
+    options = []
+    for cat in ("standard", "comfort"):
+        ct = session.exec(
+            select(Tariff).where(Tariff.zone == zone, Tariff.category == cat, Tariff.active == True)  # noqa: E712
+        ).first()
+        if ct:
+            options.append({"category": cat, "price": _tariff_price(ct, dist_km, eta_min, surge)})
     return {
         "price": price,
         "distance_km": round(dist_km, 2),
@@ -139,18 +224,35 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
         "zone": zone,
         "category": category,
         "tariff_id": t.id,
+        "surge_k": surge,
+        "surge_note": surge_note(surge),
+        "options": options,
     }
 
 
 def seed_tariffs(session: Session) -> None:
-    """Базовые тарифы город/межгород в пустой БД. Нужны в проде (в отличие от seed_demo),
-    поэтому сеются всегда при пустой таблице. Значения — стартовые, правятся в БД."""
-    if session.exec(select(Tariff)).first():
-        return
-    # Стартовые цены — СИЛЬНО ниже конкурентов (правятся в БД без пересборки).
-    session.add(Tariff(zone="city", category="standard", base=70, per_km=11.0, per_min=3.0, min_price=100, k=1.0))
-    session.add(Tariff(zone="intercity", category="standard", base=80, per_km=9.0, per_min=2.0, min_price=150, k=1.0))
-    session.commit()
+    """Базовые тарифы город/межгород × Эконом/Комфорт. Нужны в проде (в отличие от
+    seed_demo), поэтому сеются идемпотентно ПО СТРОКАМ: недостающая пара (zone, category)
+    досеивается и в непустой БД (так прод получил Комфорт без ручного SQL).
+    Значения — стартовые, правятся в БД без пересборки."""
+    defaults = (
+        # Эконом — СИЛЬНО ниже конкурентов.
+        dict(zone="city", category="standard", base=70, per_km=11.0, per_min=3.0, min_price=100),
+        dict(zone="intercity", category="standard", base=80, per_km=9.0, per_min=2.0, min_price=150),
+        # Комфорт (§6): авто новее/чище, немного дороже.
+        dict(zone="city", category="comfort", base=90, per_km=14.0, per_min=4.0, min_price=130),
+        dict(zone="intercity", category="comfort", base=100, per_km=12.0, per_min=3.0, min_price=200),
+    )
+    added = False
+    for d in defaults:
+        exists = session.exec(
+            select(Tariff).where(Tariff.zone == d["zone"], Tariff.category == d["category"])
+        ).first()
+        if not exists:
+            session.add(Tariff(**d, k=1.0))
+            added = True
+    if added:
+        session.commit()
 
 
 # ============================ Машина состояний (под замком) ============================
@@ -203,8 +305,15 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     values = {"status": target, f"{target.value}_at": now}
     if target == S.accepted:
         values.update(driver_id=user_id, current_offer_driver_id=None, offer_expires_at=None)
+    if target == S.arriving:
+        # «Я на месте»: подача завершена → пошло ожидание (5 мин бесплатно, дальше платно).
+        values["waiting_started_at"] = now
+    if target == S.onboard and order.waiting_started_at is not None:
+        # Пассажир сел → фиксируем платное ожидание (целые копейки, задним числом не меняем).
+        values["waiting_fee_kop"] = waiting_fee_kop(order.waiting_started_at, now)
     if target == S.done and order.price_final is None:
-        values["price_final"] = order.price_estimate
+        # Сурж уже в price_estimate (зафиксирован при создании); ожидание — целыми ₽ сверху.
+        values["price_final"] = order.price_estimate + order.waiting_fee_kop // 100
 
     # Атомарно: сдвигаем статус ТОЛЬКО если он всё ещё source. Иначе гонку проиграли.
     result = session.execute(

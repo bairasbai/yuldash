@@ -128,6 +128,9 @@ class DriverProfile(SQLModel, table=True):
     work_zone: Optional[str] = None
     work_city: Optional[str] = None       # для work_zone=city: «мой город» (name_ru)
     work_direction_id: Optional[int] = Field(default=None, foreign_key="settlement.id")  # intercity: закреплённое направление
+    # Класс машины для такси (волна 2, §6): economy | comfort. NULL = economy (прежнее
+    # поведение). Водитель заявляет в онбординге таксиста, админ подтверждает при approve.
+    car_class: Optional[str] = None
     rating: float = 5.0
     trips_count: int = 0
     car_make: str = ""
@@ -360,6 +363,9 @@ class InstantOrder(SQLModel, table=True):
     price_estimate: int = 0
     price_final: Optional[int] = None
     tariff_id: Optional[int] = Field(default=None, foreign_key="tariff.id")
+    # Применённый сурж-коэффициент (волна 2, §5): фиксируется на заказе в момент создания,
+    # price_estimate уже с ним — цена не «уезжает» задним числом.
+    surge_k: float = 1.0
     distance_km: float = 0.0
     eta_min: float = 0.0
     # Оплата после done (Фаза 3, деньги v1). paid — факт оплаты (нал/безнал). Наличные через
@@ -375,6 +381,12 @@ class InstantOrder(SQLModel, table=True):
     # Отмена: кто и почему.
     cancel_by: str = ""              # passenger | driver | system
     cancel_reason: str = ""
+    # Отмены/ожидание (волна 2, §5, Модель А = страйки, денег не двигаем).
+    # waiting_started_at — водитель нажал «Я на месте» (подача завершена, пошло ожидание).
+    waiting_started_at: Optional[datetime] = None
+    waiting_fee_kop: int = 0         # платное ожидание сверх бесплатного, копейки (фикс на onboard)
+    cancel_fee_kop: int = 0          # штраф за позднюю отмену / no-show = подача, копейки (Модель А: только фиксируем)
+    no_show: bool = False            # «пассажир не вышел» — отмена водителем по таймингу
     # Таймстампы переходов (пишутся машиной состояний).
     created_at: datetime = Field(default_factory=utcnow)
     searching_at: Optional[datetime] = None

@@ -17,14 +17,17 @@
 
 Приватность: суммы не логируем с привязкой к персоне — только id.
 """
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Optional
 
 from sqlmodel import Session, select
 
 from .config import settings
 from .ledger import fee_kop_for
-from .models import CommissionDebt, DebtStatus, InstantOrder
+from .models import (
+    CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus,
+    TaxiApplication, TaxiApplicationStatus,
+)
 from .timeutil import utcnow
 
 
@@ -34,13 +37,67 @@ def _week_key(dt) -> str:
     return f"{y}-W{w:02d}"
 
 
-def order_commission_kop(order: InstantOrder) -> int:
+def _launch_promo_percent(session: Session, driver_id: int, now) -> Optional[float]:
+    """Промо запуска «первым водителям — 0%»: если заявка таксиста одобрена ДО даты
+    launch_promo_until (ISO, из конфига) и с одобрения прошло ≤ launch_promo_days — водитель
+    платит launch_promo_percent. Пустая дата → промо выключено (None = промо не действует)."""
+    raw = settings.launch_promo_until.strip()
+    if not raw:
+        return None
+    try:
+        promo_until = date.fromisoformat(raw)
+    except ValueError:
+        return None                     # кривая дата в конфиге → промо не применяем, не падаем
+    app = session.exec(select(TaxiApplication).where(
+        TaxiApplication.user_id == driver_id,
+        TaxiApplication.status == TaxiApplicationStatus.approved,
+    )).first()
+    if app is None:
+        return None
+    approved_at = app.reviewed_at or app.created_at
+    if approved_at is None or approved_at.date() > promo_until:
+        return None                     # одобрен после окна набора — промо не для него
+    if now > approved_at + timedelta(days=settings.launch_promo_days):
+        return None                     # промо-период истёк — дальше обычная лесенка
+    return settings.launch_promo_percent
+
+
+def driver_fee_percent(session: Session, driver_id: int, now=None) -> float:
+    """Процент комиссии для водителя (лесенка 3% → 5% → 8%, §5 Деньги).
+
+    Стаж = дни с ПЕРВОГО его завершённого (done) быстрого заказа:
+    ≤ fee_tier1_days → fee_tier1_percent; ≤ fee_tier2_days → fee_tier2_percent;
+    дальше — service_fee_percent (навсегда). Промо запуска (одобрен до launch_promo_until)
+    перекрывает лесенку на первые launch_promo_days дней."""
+    now = now or utcnow()
+    promo = _launch_promo_percent(session, driver_id, now)
+    if promo is not None:
+        return promo
+    first_done = session.exec(
+        select(InstantOrder.done_at).where(
+            InstantOrder.driver_id == driver_id,
+            InstantOrder.status == InstantOrderStatus.done,
+            InstantOrder.done_at.is_not(None),                     # noqa: E711
+        ).order_by(InstantOrder.done_at)
+    ).first()
+    if first_done is None:
+        return settings.fee_tier1_percent      # первый заказ — стаж 0 дней
+    days = (now - first_done).days
+    if days <= settings.fee_tier1_days:
+        return settings.fee_tier1_percent
+    if days <= settings.fee_tier2_days:
+        return settings.fee_tier2_percent
+    return settings.service_fee_percent
+
+
+def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -> int:
     """Комиссия платформы по завершённому такси-заказу, копейки.
-    База = финальная цена (или оценка) в ₽ → копейки; процент — service_fee_percent."""
+    База = финальная цена (или оценка) в ₽ → копейки; процент — лесенка по стажу
+    (driver_fee_percent) либо service_fee_percent, если процент не передан."""
     price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
     if price_rub <= 0:
         return 0
-    return fee_kop_for(price_rub * 100)
+    return fee_kop_for(price_rub * 100, percent)
 
 
 def accrue_for_order(session: Session, order: InstantOrder) -> Optional[CommissionDebt]:
@@ -56,10 +113,11 @@ def accrue_for_order(session: Session, order: InstantOrder) -> Optional[Commissi
     ).first()
     if existing:
         return existing                       # уже начислено — не задваиваем
-    amount = order_commission_kop(order)
-    if amount <= 0:
-        return None
     now = utcnow()
+    percent = driver_fee_percent(session, order.driver_id, now)   # лесенка 3/5/8 + промо запуска
+    amount = order_commission_kop(order, percent)
+    if amount <= 0:
+        return None                           # нулевая комиссия (промо 0% / грошовый заказ) — долг не заводим
     debt = CommissionDebt(
         driver_id=order.driver_id,
         order_id=order.id,
