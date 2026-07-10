@@ -16,6 +16,7 @@ from .. import debt as debt_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
 from .. import taxi as taxi_mod
+from .. import workday as workday_mod
 
 router = APIRouter(tags=["instant"])
 
@@ -37,11 +38,14 @@ def _guard_taxi_available(session: Session, lat: float | None = None, lng: float
 
 
 def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = None, lng: float | None = None) -> None:
-    """Водительские ручки такси: (a) флаг/город + (b) одобренная заявка таксиста (580-ФЗ) + долг."""
+    """Водительские ручки такси: (a) флаг/город + (b) одобренная заявка таксиста (580-ФЗ) +
+    долг + отдых (волна 2 §8: 8ч на линии → блок presence/offer/accept до утра;
+    активный заказ НЕ рубится — arrived/onboard/done через этот гейт не ходят)."""
     _guard_taxi_available(session, lat, lng)
     if not taxi_mod.is_approved_taxi_driver(session, driver_id):
         raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
     _guard_taxi_not_blocked(session, driver_id)
+    workday_mod.guard_taxi_rested(session, driver_id)
 
 
 # ------------------------------ схемы ------------------------------
@@ -122,6 +126,14 @@ def set_zone(body: ZoneIn, user: User = Depends(current_user), session: Session 
     return _zone_payload(session, dp)
 
 
+# ------------------------------ смена / отдых (волна 2, §8) ------------------------------
+@router.get("/instant/workday")
+def get_workday(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Сводка смены таксиста для кабинета: сколько на линии, сколько осталось, блок отдыха,
+    когда разблокировка, использован ли «один попутчик домой»."""
+    return workday_mod.summary(session, user.id)
+
+
 # ------------------------------ presence ------------------------------
 @router.post("/instant/presence")
 def presence(body: PresenceIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -130,9 +142,16 @@ def presence(body: PresenceIn, user: User = Depends(current_user), session: Sess
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
     if not dp or not dp.online:
         raise HTTPException(409, "Сначала включи «Я на линии»")
-    _guard_taxi_driver(session, user.id, body.lat, body.lng)   # флаг/город + заявка таксиста + долг
+    _guard_taxi_driver(session, user.id, body.lat, body.lng)   # флаг/город + заявка таксиста + долг + отдых
     ok = isv.presence_heartbeat(user.id, body.lat, body.lng)
-    return {"ok": ok, "ttl_sec": isv.settings.presence_ttl_sec}
+    # Учёт смены (§8): +интервал от прошлого пинга (кэп ≤ workday_step_cap_sec),
+    # предупреждения ≤60/≤15 мин, на лимите — limit_reached_at (следующий presence → 403).
+    wd = workday_mod.record_heartbeat(session, user.id)
+    return {
+        "ok": ok, "ttl_sec": isv.settings.presence_ttl_sec,
+        "shift_seconds_online": wd.seconds_online,
+        "shift_remaining_sec": max(0, workday_mod.shift_limit_sec() - wd.seconds_online),
+    }
 
 
 # ------------------------------ оценка цены ------------------------------
@@ -206,6 +225,8 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
         return {"offer": None}   # гейт (b): нет одобренной заявки таксиста — офферов нет
     if debt_mod.taxi_block_reason(session, user.id) is not None:
         return {"offer": None}   # заблокирован долгом — офферы такси не показываем
+    if workday_mod.blocking_workday(session, user.id) is not None:
+        return {"offer": None}   # отдых (§8): 8ч на линии — офферы не показываем до разблокировки
     order = session.exec(
         select(InstantOrder).where(
             InstantOrder.current_offer_driver_id == user.id,

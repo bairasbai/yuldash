@@ -19,6 +19,7 @@ from ..services import (
     notify_map_changed, public_rides_payload, rides_out, send_push, user_rating,
 )
 from ..timeutil import utcnow
+from .. import workday as workday_mod
 
 router = APIRouter(tags=["requests"])
 
@@ -284,6 +285,9 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         raise HTTPException(400, "Нельзя откликнуться на свою заявку")
     if is_blocked(session, user.id, req.passenger_id):
         raise HTTPException(403, "Недоступно")
+    # Отдых водителя (§8): во время блока такси новые обязательства не берём — домой
+    # везёт «один попутчик» из СВОЕЙ публикации (POST /rides), а не отклики на заявки.
+    workday_mod.guard_respond_request(session, user.id)
     dup = session.exec(select(RequestResponse).where(
         RequestResponse.request_id == request_id, RequestResponse.driver_id == user.id)).first()
     if dup:

@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import Ride, RideCategory, RideStatus, User
+from .. import workday as workday_mod
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import utcnow
@@ -35,6 +36,10 @@ def _hide_blocked(items, user, session):
 
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    # Отдых водителя (волна 2, §8): во время блока такси разрешена ОДНА попутка «домой»
+    # (первая публикация проходит и помечает return_ride_used, вторая → мягкий 403).
+    # ВНЕ блока попутка не ограничена вообще — guard мгновенно пропускает.
+    workday_mod.guard_publish_ride(session, user.id)
     # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
     body.seats_total = max(1, min(8, body.seats_total))
     body.price = max(0, min(100_000, body.price))

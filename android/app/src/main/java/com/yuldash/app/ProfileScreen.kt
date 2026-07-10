@@ -72,6 +72,7 @@ import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EmojiEvents
@@ -155,6 +156,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -876,6 +878,8 @@ internal fun DriverCabinetScreen(
     // Зона работы таксиста (география, волна 2): чип у тумблера + шторка выбора.
     var zone by remember { mutableStateOf<com.yuldash.app.data.InstantZoneDto?>(null) }
     var showZoneSheet by remember { mutableStateOf(false) }
+    // Смена такси (волна 2, §8 Отдых): прогресс к 8-часовому лимиту / блок отдыха.
+    var workday by remember { mutableStateOf<com.yuldash.app.data.TaxiWorkdayDto?>(null) }
     suspend fun reloadDebt() { ApiClient.getDriverDebt().onSuccess { debt = it } }
     LaunchedEffect(Unit) {
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
@@ -891,6 +895,16 @@ internal fun DriverCabinetScreen(
                 if ((e as? com.yuldash.app.data.ApiException)?.status == 404) { taxiApp = null; taxiAppLoaded = true }
             }
         reloadDebt()
+    }
+    // Прогресс смены живёт, пока водитель «на линии»: presence капает время на сервере —
+    // мягко переопрашиваем сводку раз в минуту (вне линии хватает разовой загрузки выше).
+    LaunchedEffect(online) {
+        if (!ApiClient.isLoggedIn()) return@LaunchedEffect
+        ApiClient.getTaxiWorkday().onSuccess { workday = it }
+        while (online) {
+            kotlinx.coroutines.delay(60_000)
+            ApiClient.getTaxiWorkday().onSuccess { workday = it }
+        }
     }
     val debtPaidMsg = appText("Спасибо! Ждём подтверждения — можно возить такси.", "Рәхмәт! Раҫлауҙы көтәбеҙ — такси йөрөтөргә мөмкин.")
     val debtPaidErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
@@ -950,6 +964,7 @@ internal fun DriverCabinetScreen(
             onTaxiOnboarding = onTaxiOnboarding,
             zone = zone,
             onZoneClick = { showZoneSheet = true },
+            workday = workday,
         )
     }
     // Шторка выбора зоны работы (география, волна 2): открывается с чипа или при выходе на линию без зоны.
@@ -1051,6 +1066,138 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
     }
 }
 
+/** Секунды смены → «6 ч 20 мин» / «6 сәғ 20 мин» (меньше часа — только минуты). */
+private fun shiftTimeRu(sec: Int): String {
+    val h = sec / 3600; val m = (sec % 3600) / 60
+    return if (h > 0) "$h ч $m мин" else "$m мин"
+}
+private fun shiftTimeBa(sec: Int): String {
+    val h = sec / 3600; val m = (sec % 3600) / 60
+    return if (h > 0) "$h сәғ $m мин" else "$m мин"
+}
+
+/** unlock_at (ISO, наивный UTC с сервера) → локальное «06:00» на устройстве. Кривое — null. */
+private fun unlockTimeLabel(iso: String?): String? = runCatching {
+    if (iso.isNullOrBlank()) return null
+    val local = java.time.LocalDateTime.parse(iso.removeSuffix("Z"))
+        .atOffset(java.time.ZoneOffset.UTC)
+        .atZoneSameInstant(java.time.ZoneId.systemDefault())
+    String.format(java.util.Locale.US, "%02d:%02d", local.hour, local.minute)
+}.getOrNull()
+
+/**
+ * Прогресс смены такси (волна 2, §8 Отдых): «На линии 6 ч 20 мин из 8». Спокойный зелёный,
+ * ближе к лимиту (остался ≤1 ч) — тёплый оранжевый; цвет и полоса анимируются плавно.
+ * Попутка в лимит не входит — честно говорим об этом подписью.
+ */
+@Composable
+private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
+    val warm = wd.remainingSec <= 3600                     // последний час — мягкое предупреждение
+    val accent by animateColorAsState(if (warm) CanonWarn else CanonGreen2, tween(500), label = "shiftAccent")
+    val progress by animateFloatAsState(
+        (wd.secondsOnline.toFloat() / wd.limitSec.coerceAtLeast(1)).coerceIn(0f, 1f),
+        tween(700), label = "shiftProgress",
+    )
+    Surface(color = if (warm) CanonWarnBg else CanonSurface, shape = CanonItemShape,
+        border = BorderStroke(1.dp, if (warm) CanonWarn.copy(alpha = 0.35f) else CanonBorder)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Schedule, contentDescription = appText("Смена такси", "Такси сменаһы"),
+                    tint = accent, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(appText("Смена такси", "Такси сменаһы"), color = CanonText,
+                    fontWeight = FontWeight.Black, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                Text(appText("из ${wd.limitHours} ч", "${wd.limitHours} сәғәттән"), color = CanonMuted, fontSize = 13.sp)
+            }
+            Text(
+                appText("На линии ${shiftTimeRu(wd.secondsOnline)}", "Линияла ${shiftTimeBa(wd.secondsOnline)}"),
+                color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp,
+            )
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(8.dp),
+                color = accent, trackColor = CanonBg,
+                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+            Text(
+                if (warm) appText(
+                    "До отдыха меньше часа 🌙 Спокойно заверши дела на линии.",
+                    "Ялға бер сәғәттән дә әҙерәк ҡалды 🌙 Линиялағы эштәреңде тыныс ҡына тамамла."
+                ) else appText(
+                    "После ${wd.limitHours} часов на линии — отдых до утра. Попутка в лимит не входит.",
+                    "Линияла ${wd.limitHours} сәғәттән һуң — иртәнгә тиклем ял. Юлдаш сәфәрҙәре иҫәпкә инмәй."
+                ),
+                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+        }
+    }
+}
+
+/**
+ * Карточка отдыха (блок §8): «Ты сегодня за рулём 8 часов 🌙» + когда снова на линию +
+ * «Возьми одного попутчика домой» (одна публикация попутки → создание поездки), пока
+ * return_ride_used=false. Спокойная мятная палитра — отдых, а не наказание.
+ */
+@Composable
+private fun TaxiRestCard(wd: com.yuldash.app.data.TaxiWorkdayDto, onCreateRide: () -> Unit) {
+    Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.35f))) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = CanonGreen2) {
+                    Icon(Icons.Default.Bedtime, contentDescription = appText("Отдых", "Ял"),
+                        tint = CanonBg, modifier = Modifier.padding(10.dp).size(22.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    appText("Ты сегодня за рулём ${wd.limitHours} часов 🌙", "Һин бөгөн ${wd.limitHours} сәғәт руль артында 🌙"),
+                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, lineHeight = 22.sp,
+                )
+            }
+            val unlock = unlockTimeLabel(wd.unlockAt)
+            Text(
+                if (unlock != null) appText(
+                    "Отдохни — завтра с $unlock снова на линию. Хорошо поработал 👏",
+                    "Ял ит — иртәгә $unlock-тан йәнә линияға. Яҡшы эшләнең 👏"
+                ) else appText(
+                    "Отдохни — завтра с 6 утра снова на линию. Хорошо поработал 👏",
+                    "Ял ит — иртәгә иртәнге 6-нан йәнә линияға. Яҡшы эшләнең 👏"
+                ),
+                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+            )
+            if (!wd.returnRideUsed) {
+                Surface(color = CanonSurface, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(appText("Возьми одного попутчика домой", "Бер юлдашты өйгә алып ҡайт"),
+                            color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                        Text(
+                            appText(
+                                "Машина всё равно едет назад — подвези земляка. Одна публикация попутки до конца отдыха.",
+                                "Машина барыбер кире ҡайта — яҡташыңды ултыртып ҡайт. Ял бөткәнсе бер генә юлдаш сәфәре."
+                            ),
+                            color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                        )
+                        Button(
+                            onClick = onCreateRide,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                        ) {
+                            Icon(Icons.Default.DirectionsCar, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(appText("Опубликовать поездку домой", "Өйгә сәфәр баҫтырыу"), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    appText("Попутчик домой уже опубликован 💚 Лёгкой дороги!", "Өйгә юлдаш инде баҫтырылған 💚 Юлың еңел булһын!"),
+                    color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                )
+            }
+        }
+    }
+}
+
 /**
  * CTA гейта такси (580-ФЗ) вместо тумблера «Я на линии», пока заявка таксиста не одобрена.
  * Три состояния: не подавал («Стать таксистом»), pending («на проверке»), rejected («подать снова»).
@@ -1116,6 +1263,8 @@ internal fun DriverCabinetContent(
     // Зона работы таксиста (география, волна 2): чип «Где вожу» под тумблером «Я на линии».
     zone: com.yuldash.app.data.InstantZoneDto? = null,
     onZoneClick: () -> Unit = {},
+    // Смена такси (волна 2, §8 Отдых): прогресс «На линии X из 8» / карточка отдыха.
+    workday: com.yuldash.app.data.TaxiWorkdayDto? = null,
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -1149,6 +1298,16 @@ internal fun DriverCabinetContent(
                 }
             } else {
                 TaxiOnboardingCta(taxiApplication, onTaxiOnboarding)
+            }
+        }
+        // Смена такси (волна 2, §8 Отдых): блок отдыха («8 часов за рулём» + «один попутчик
+        // домой») или прогресс к лимиту — показываем только одобренному таксисту и только
+        // когда есть что показать (на линии / время уже капало / отдых).
+        if (workday != null && (!taxiAppLoaded || taxiApplication?.status == "approved")) {
+            if (workday.blocked) {
+                item { TaxiRestCard(workday, onCreateRide) }
+            } else if (online || workday.secondsOnline > 0) {
+                item { TaxiShiftProgressCard(workday) }
             }
         }
         item {

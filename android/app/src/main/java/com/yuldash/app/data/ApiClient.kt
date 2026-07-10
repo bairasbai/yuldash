@@ -1451,6 +1451,22 @@ object ApiClient {
             auth = true,
         ).map { it.toInstantZoneDto() }.onSuccess { Analytics.log("instant_zone_set") }
 
+    /** Сводка смены таксиста (волна 2, §8 Отдых): сколько на линии, осталось, блок отдыха,
+     *  когда разблокировка, использован ли «один попутчик домой». */
+    suspend fun getTaxiWorkday(): Result<TaxiWorkdayDto> =
+        call("GET", "/instant/workday", null, auth = true).map { o ->
+            TaxiWorkdayDto(
+                day = o.optString("day"),
+                secondsOnline = o.optInt("seconds_online"),
+                limitSec = o.optInt("limit_sec"),
+                remainingSec = o.optInt("remaining_sec"),
+                limitHours = o.optInt("limit_hours", 8),
+                blocked = o.optBoolean("blocked"),
+                unlockAt = o.optString("unlock_at").ifBlank { null },
+                returnRideUsed = o.optBoolean("return_ride_used"),
+            )
+        }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -1739,6 +1755,18 @@ data class InstantZoneDto(
     val workCity: String?,
     val workDirectionId: Int?,
     val workDirection: SettlementDto?,
+)
+
+/** Смена такси за местный день (волна 2, §8 Отдых): прогресс к 8-часовому лимиту и блок отдыха. */
+data class TaxiWorkdayDto(
+    val day: String,                 // местный день учёта, ISO ("2026-07-10")
+    val secondsOnline: Int,          // такси-время на линии за день, секунд
+    val limitSec: Int,               // лимит смены, секунд (8ч)
+    val remainingSec: Int,           // сколько осталось до лимита, секунд
+    val limitHours: Int,             // лимит смены, часов (для текстов «из 8»)
+    val blocked: Boolean,            // отдых: такси закрыто до unlockAt
+    val unlockAt: String?,           // когда снова на линию (ISO, UTC-наивное), null если не заблокирован
+    val returnRideUsed: Boolean,     // «один попутчик домой» уже опубликован
 )
 
 /** Пресет популярного маршрута (Сибай–Магнитогорск…) — чип, заполняющий «откуда/куда». */

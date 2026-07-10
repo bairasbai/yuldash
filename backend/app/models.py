@@ -2,6 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 from .timeutil import utcnow
@@ -519,6 +520,28 @@ class TaxiApplication(SQLModel, table=True):
     comment: Optional[str] = None                  # комментарий админа при отклонении
     created_at: datetime = Field(default_factory=utcnow)
     reviewed_at: Optional[datetime] = None         # когда админ одобрил/отклонил
+
+
+class TaxiWorkDay(SQLModel, table=True):
+    """Учёт такси-времени водителя за ОДИН местный день (волна 2, §8 «Отдых водителя»).
+
+    seconds_online копится на каждом presence-heartbeat (шаг ≤ workday_step_cap_sec, чтобы
+    редкие пинги не накручивали). Считается ТОЛЬКО такси-время — попутка (Ride/Booking)
+    presence не шлёт и сюда не попадает. seconds_online ≥ лимита → limit_reached_at и гейт
+    такси (presence/offer/accept) до разблокировки (см. app/workday.py). Активный заказ не
+    рубим. return_ride_used — «один попутчик домой»: единственная разрешённая публикация
+    попутки во время блока. Флаги warned_*/winter_push_sent — дедуп вежливых пушей."""
+    __table_args__ = (UniqueConstraint("driver_id", "day", name="uq_taxiworkday_driver_day"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    day: date_type                                    # МЕСТНЫЙ день (UTC + local_tz_offset_hours)
+    seconds_online: int = 0                           # такси-время на линии за день, секунд
+    limit_reached_at: Optional[datetime] = None       # момент достижения лимита (UTC) → гейт
+    return_ride_used: bool = False                    # «один попутчик домой» уже опубликован
+    last_heartbeat_at: Optional[datetime] = None      # последний presence (UTC) — от него отдых rest_hours
+    warned_60: bool = False                           # пуш «остался час» отправлен (дедуп)
+    warned_15: bool = False                           # пуш «осталось 15 минут» отправлен (дедуп)
+    winter_push_sent: bool = False                    # зимний ночной совет отправлен (дедуп)
 
 
 class UploadEvent(SQLModel, table=True):

@@ -414,6 +414,28 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 
 **Тесты:** backend `pytest -q` → **249 passed, 1 skipped** (+16 долговых). Android-сборку прогнать на машине Александра (в Linux-песочнице нет Android SDK). Вливать ПОСЛЕ #34/#36/#42.
 
+## 2026-07-10 — 🌙 Домен «8-часовой лимит + отдых водителя» (волна 2, батч B4, §8 бизнес-плана) — ветка `feat/work-hours`
+
+**Суть:** безопасность = продукт. 8 часов на линии ТАКСИ за местный день → отдых до утра. Активный заказ не рубим, попутка вне блока не ограничена вообще. Все цифры — конфиг: `taxi_shift_limit_hours=8`, `rest_hours=8`, `rest_unlock_hour=6`, `local_tz_offset_hours=5` (Уфа UTC+5), `workday_step_cap_sec=60`.
+
+**Учёт (`app/workday.py` + модель `TaxiWorkDay`, `models.py`):** строка на (driver_id, местный день) — unique. На каждом `POST /instant/presence` `record_heartbeat` прибавляет интервал от прошлого пинга с кэпом ≤`workday_step_cap_sec` (редкие heartbeat не накручивают; первый пинг дня времени не даёт). Считается ТОЛЬКО такси-время: попутка presence не шлёт. Граница дня — местная полночь (UTC+`local_tz_offset_hours`); БД, как везде, наивный UTC (`timeutil`).
+
+**Лимит и гейт:** `seconds_online ≥ 8ч` → `limit_reached_at` (+пуш «Хорошо поработал 👏», один раз). `guard_taxi_rested` добавлен в `_guard_taxi_driver` (`routers/instant.py`) — в стиле долгового гейта держит `/instant/presence` (403), `/instant/driver/offer` (`offer:None`), `/accept` (403) с тёплым двуязычным текстом. Переходы активного заказа (`arrived/onboard/done`) через гейт НЕ ходят — начатую поездку доводим.
+
+**Разблокировка (`unlock_at`):** `max(следующий местный день в rest_unlock_hour(06:00); last_heartbeat_at дня лимита + rest_hours(8ч))` — покрывает все три условия §8 одной точкой времени; `blocking_workday` = последний лимитный день, пока `now < unlock_at`. После разблокировки первый heartbeat заводит новый `TaxiWorkDay` с нуля.
+
+**«Один попутчик домой»:** во время блока `POST /rides` (`guard_publish_ride`, `routers/rides.py`) пропускает ОДНУ публикацию попутки (ставит `return_ride_used`; флаг коммитится вместе с поездкой — упавшая публикация попытку не съедает), вторая → мягкий 403; отклик на заявку (`/requests/{id}/respond`, `guard_respond_request`) во время блока → 403. ВНЕ блока оба guard'а мгновенно пропускают — попутка не ограничена (rides-тесты не тронуты).
+
+**Вежливые пуши (дедуп флагами на строке дня):** `warned_60`/`warned_15` — «остался час»/«осталось 15 минут» по одному разу за смену; `winter_push_sent` — при блоке зимней ночью (ноя–мар, 20:00–07:00 местного) один совет про тепло/заряд. Итого за период отдыха ≤2 пуша (лимит + зимний).
+
+**Эндпоинты:** `GET /instant/workday` → `{day, seconds_online, limit_sec, remaining_sec, limit_hours, blocked, unlock_at, return_ride_used}`; `POST /instant/presence` теперь отдаёт ещё `shift_seconds_online`/`shift_remaining_sec`.
+
+**UI (Android):** `ProfileScreen.kt`, кабинет водителя — `TaxiShiftProgressCard` («На линии 6 ч 20 мин из 8», анимированный прогресс: спокойный зелёный, в последний час — тёплый оранжевый `CanonWarn`; переопрос сводки раз в 60с пока «на линии») и `TaxiRestCard` (блок: «Ты сегодня за рулём 8 часов 🌙» + время разблокировки из `unlock_at` + карточка «Возьми одного попутчика домой» с кнопкой на создание поездки, пока `return_ride_used=false`; после — «уже опубликован 💚»). Показываются только одобренному таксисту. `ApiClient.kt`: `getTaxiWorkday()` + `TaxiWorkdayDto`.
+
+**Миграция:** `alembic/versions/w2_work_hours.py` (down=`w2_money_rules`), идемпотентна оба пути (проверено up→down→up на SQLite): create_table `taxiworkday` (+unique driver_id+day, index driver_id).
+
+**Тесты:** `pytest -q` → **349 passed, 1 skipped** (+15 в `test_work_hours.py`: инкремент/кэп шага, новый день — новая строка, лимит на heartbeat → гейт presence/offer/accept, активный заказ доводится до done, разблокировка «следующий день/06:00/полные 8ч отдыха» (время мокается monkeypatch `workday.utcnow`), «один попутчик домой» первая/вторая/отклик/после разблокировки, попутка вне блока без ограничений, дедуп предупреждений и зимнего совета, сводка `/instant/workday`). Вливать ПОСЛЕ #50 (feat/taxi-money-rules).
+
 ## 2026-07-10 — 💸 Домен «Деньги-тонкости» (волна 2, батч B3, §5+§6 бизнес-плана) — ветка `feat/taxi-money-rules`
 
 Четыре части поверх `feat/geo-catalog`. Все цифры — в конфиге (`app/config.py`) или в БД (тарифы): Александр правит без пересборки. ПОПУТКА не затронута. Деньги — только целые копейки (int `*_kop`).
