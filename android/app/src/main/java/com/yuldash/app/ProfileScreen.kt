@@ -105,6 +105,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
@@ -858,7 +859,8 @@ internal fun DriverCabinetScreen(
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit = {},
-    onInstantTrip: (Int) -> Unit = {}   // «Быстрый заказ»: принял входящий оффер → экран поездки водителя
+    onInstantTrip: (Int) -> Unit = {},   // «Быстрый заказ»: принял входящий оффер → экран поездки водителя
+    onTaxiOnboarding: () -> Unit = {}    // гейт такси (580-ФЗ): нет одобренной заявки → «Стать таксистом»
 ) {
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
@@ -868,12 +870,22 @@ internal fun DriverCabinetScreen(
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
     var debt by remember { mutableStateOf<com.yuldash.app.data.DriverDebtDto?>(null) }
+    // Гейт такси (580-ФЗ): без одобренной заявки тумблер «Я на линии» заменяется CTA «Стать таксистом».
+    var taxiApp by remember { mutableStateOf<com.yuldash.app.data.TaxiApplicationDto?>(null) }
+    var taxiAppLoaded by remember { mutableStateOf(false) }
     suspend fun reloadDebt() { ApiClient.getDriverDebt().onSuccess { debt = it } }
     LaunchedEffect(Unit) {
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess { online = it.online }
+        ApiClient.getMyTaxiApplication()
+            .onSuccess { taxiApp = it; taxiAppLoaded = true }
+            .onFailure { e ->
+                // 404 = заявки нет (показываем CTA). Сетевая ошибка → статус неизвестен,
+                // оставляем тумблер как раньше (сервер всё равно гейтит presence/accept).
+                if ((e as? com.yuldash.app.data.ApiException)?.status == 404) { taxiApp = null; taxiAppLoaded = true }
+            }
         reloadDebt()
     }
     val debtPaidMsg = appText("Спасибо! Ждём подтверждения — можно возить такси.", "Рәхмәт! Раҫлауҙы көтәбеҙ — такси йөрөтөргә мөмкин.")
@@ -927,10 +939,15 @@ internal fun DriverCabinetScreen(
             onBoost = onBoost,
             onRequestsFeed = onRequestsFeed,
             modifier = Modifier.padding(padding),
+            taxiApplication = taxiApp,
+            taxiAppLoaded = taxiAppLoaded,
+            onTaxiOnboarding = onTaxiOnboarding,
         )
     }
     // Пока водитель «на линии» — presence-heartbeat + опрос входящего оффера; оффер рисуется поверх.
-    InstantDriverOnlineController(online = online, onOpenTrip = onInstantTrip)
+    // Гейт (580-ФЗ): точно знаем, что заявки-approved нет → зря сервер не дёргаем (там всё равно 403).
+    val taxiAllowed = !taxiAppLoaded || taxiApp?.status == "approved"
+    InstantDriverOnlineController(online = online && taxiAllowed, onOpenTrip = onInstantTrip)
     }
 }
 
@@ -1019,6 +1036,43 @@ private fun DriverDebtBanner(debt: com.yuldash.app.data.DriverDebtDto, onDeclare
 }
 
 /**
+ * CTA гейта такси (580-ФЗ) вместо тумблера «Я на линии», пока заявка таксиста не одобрена.
+ * Три состояния: не подавал («Стать таксистом»), pending («на проверке»), rejected («подать снова»).
+ * Нажатие всюду ведёт на TaxiOnboardingScreen — там форма/статус/комментарий админа.
+ */
+@Composable
+private fun TaxiOnboardingCta(app: com.yuldash.app.data.TaxiApplicationDto?, onClick: () -> Unit) {
+    val (title, sub) = when (app?.status) {
+        "pending" -> appText("Заявка таксиста на проверке", "Таксист заявкаһы тикшереүҙә") to
+            appText("Проверяем документы — скоро откроем такси. Нажми, чтобы посмотреть статус.", "Документтарҙы тикшерәбеҙ — тиҙҙән таксины асабыҙ. Статусты ҡарар өсөн баҫ.")
+        "rejected" -> appText("Заявку таксиста отклонили", "Таксист заявкаһы кире ҡағылды") to
+            appText("Открой — там комментарий и кнопка «Подать снова».", "Ас — унда комментарий һәм «Ҡабат биреү» төймәһе.")
+        else -> appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу") to
+            appText("Комиссия 3–8% и заказы рядом. Пройди проверку — и выходи на линию.", "Комиссия 3–8% һәм яҡындағы заказдар. Тикшереү үт — һәм линияға сыҡ.")
+    }
+    val accent = if (app?.status == "rejected") CanonRed else CanonTaxi
+    Surface(
+        onClick = onClick,
+        color = CanonTaxiBg, shape = CanonItemShape,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.4f)),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = CircleShape, color = CanonTaxi) {
+                Icon(Icons.Default.LocalTaxi, contentDescription = appText("Такси", "Такси"), tint = CanonTaxiInk, modifier = Modifier.padding(10.dp).size(22.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(sub, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+            Spacer(Modifier.width(8.dp))
+            Icon(Icons.Default.KeyboardArrowRight, contentDescription = appText("Открыть", "Асыу"), tint = CanonMuted)
+        }
+    }
+}
+
+/**
  * Чистый рендер кабинета водителя: тумблер «на линии», метрики (маршруты/свободно/рейтинг),
  * пусто-заглушка или список опубликованных маршрутов, блок «оцените пассажиров» и нижние действия.
  * Сеть/стейт (online-переключение, оценка) вынесены в колбэки → без сети/эффектов → тестируется на JVM.
@@ -1039,6 +1093,10 @@ internal fun DriverCabinetContent(
     modifier: Modifier = Modifier,
     debt: com.yuldash.app.data.DriverDebtDto? = null,
     onDeclareDebtPaid: () -> Unit = {},
+    // Гейт такси (580-ФЗ): taxiAppLoaded=true и заявка не approved → вместо тумблера CTA «Стать таксистом».
+    taxiApplication: com.yuldash.app.data.TaxiApplicationDto? = null,
+    taxiAppLoaded: Boolean = false,
+    onTaxiOnboarding: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -1054,14 +1112,20 @@ internal fun DriverCabinetContent(
             item { DriverDebtBanner(debt, onDeclareDebtPaid) }
         }
         item {
-            SettingsGroup {
-                SettingSwitchRow(
-                    Icons.Default.DirectionsCar,
-                    appText("Я на линии", "Мин эштә"),
-                    appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
-                    online,
-                    onToggleOnline,
-                )
+            // Гейт такси (580-ФЗ): «на линию» может выйти только одобренный таксист.
+            // Пока статус заявки не загружен — тумблер как раньше (сервер всё равно гейтит).
+            if (!taxiAppLoaded || taxiApplication?.status == "approved") {
+                SettingsGroup {
+                    SettingSwitchRow(
+                        Icons.Default.DirectionsCar,
+                        appText("Я на линии", "Мин эштә"),
+                        appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
+                        online,
+                        onToggleOnline,
+                    )
+                }
+            } else {
+                TaxiOnboardingCta(taxiApplication, onTaxiOnboarding)
             }
         }
         item {

@@ -137,7 +137,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                     )
                 }
             } else {
-                items(apps.size) { i ->
+                items(apps.size, key = { "app-" + apps[it].id }) { i ->
                     val a = apps[i]
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -237,7 +237,7 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                     )
                 }
             } else {
-                items(cities.size) { i ->
+                items(cities.size, key = { "city-" + cities[it].id }) { i ->
                     val c = cities[i]
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {

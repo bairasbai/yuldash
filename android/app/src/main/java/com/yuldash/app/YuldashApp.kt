@@ -758,7 +758,8 @@ internal fun YuldashApp() {
                 onAds = { screen = Screen.AdsCabinet },
                 onDrivers = { screen = Screen.AdminDrivers },
                 onReports = { screen = Screen.AdminReports },
-                onPaymentRequests = { screen = Screen.AdminPaymentRequests }
+                onPaymentRequests = { screen = Screen.AdminPaymentRequests },
+                onTaxi = { screen = Screen.AdminTaxi }
             )
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
@@ -796,7 +797,8 @@ internal fun YuldashApp() {
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onBoost = { screen = Screen.Boost },
                 onRequestsFeed = { screen = Screen.RequestsFeed },
-                onInstantTrip = { id -> instantTripOrderId = id; screen = Screen.InstantDriverTrip }
+                onInstantTrip = { id -> instantTripOrderId = id; screen = Screen.InstantDriverTrip },
+                onTaxiOnboarding = { screen = Screen.TaxiOnboarding }
             )
             Screen.InstantOrder -> InstantOrderScreen(
                 onBack = { goBack() },
@@ -807,6 +809,11 @@ internal fun YuldashApp() {
                 onBack = { goBack() },
                 onFinished = { screen = Screen.DriverCabinet }
             )
+            Screen.TaxiOnboarding -> TaxiOnboardingScreen(
+                onBack = { goBack() },
+                onOpenDriverCabinet = { screen = Screen.DriverCabinet }
+            )
+            Screen.AdminTaxi -> AdminTaxiScreen(onBack = { goBack() })
             Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
             Screen.RequestResponses -> ResponsesScreen(
                 requestId = responsesRequestId,

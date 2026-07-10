@@ -222,10 +222,16 @@ internal fun InstantOrderScreen(onBack: () -> Unit, onLoginRequired: () -> Unit,
     val loggedIn = ApiClient.isLoggedIn()
     var order by remember { mutableStateOf<InstantOrderDto?>(null) }
     var checking by remember { mutableStateOf(loggedIn) }   // первичная загрузка: есть ли активный заказ
+    // Гейт такси (волна 2): доступно ли такси в моей точке (глобальный флаг + города на сервере).
+    // Сеть упала → фолбэк «доступно» (обычный пикер): сервер всё равно гейтит оценку и заказ.
+    var availability by remember { mutableStateOf<com.yuldash.app.data.TaxiAvailabilityDto?>(null) }
 
-    // Восстановление активного заказа при входе на экран.
+    // Восстановление активного заказа при входе на экран + проверка доступности такси в точке.
     LaunchedEffect(Unit) {
         if (!loggedIn) { checking = false; return@LaunchedEffect }
+        val lat = LocationPrefs.lastLat ?: InstantDefaultPoint.latitude
+        val lng = LocationPrefs.lastLng ?: InstantDefaultPoint.longitude
+        ApiClient.getTaxiAvailability(lat, lng).onSuccess { availability = it }
         ApiClient.getMyInstantOrders(limit = 5)
             .onSuccess { list -> order = list.firstOrNull { !it.isTerminal } }
         checking = false
@@ -253,6 +259,12 @@ internal fun InstantOrderScreen(onBack: () -> Unit, onLoginRequired: () -> Unit,
             when {
                 !loggedIn -> InstantLoginNeeded(onLoginRequired)
                 checking -> InstantCenterLoader(appText("Проверяем заказ…", "Заказды тикшерәбеҙ…"))
+                // Гейт (a): такси выключено глобально или в этом городе → тёплая заглушка «Скоро».
+                // Активный заказ (если вдруг успел создаться до выключения) показываем как обычно.
+                current == null && availability?.enabled == false -> TaxiComingSoonCard(
+                    availability = availability!!,
+                    onBackToPooling = onBack,
+                )
                 current == null -> InstantDestinationPicker(
                     onOrderCreated = { order = it },
                 )
@@ -655,6 +667,45 @@ private fun InstantCenterLoader(text: String) {
         CircularProgressIndicator(color = CanonGreen2, strokeWidth = 3.dp)
         Spacer(Modifier.height(14.dp))
         Text(text, color = CanonMuted, fontSize = 14.sp)
+    }
+}
+
+// ------------------------------ «Такси скоро» (гейт по флагу/городу) ------------------------------
+/** Такси в этой точке пока выключено (глобальный запуск или город ещё не подключён).
+ *  Тёплая заглушка вместо пикера: серверный текст на языке приложения + путь назад к попутке. */
+@Composable
+private fun TaxiComingSoonCard(availability: com.yuldash.app.data.TaxiAvailabilityDto, onBackToPooling: () -> Unit) {
+    val title = if (availability.reason == "global_off")
+        appText("Такси Юлдаш совсем скоро 🚕", "Юлдаш таксиы бик тиҙҙән 🚕")
+    else appText("Такси скоро в твоём городе 🚕", "Тиҙҙән таксиы һинең ҡалаңда ла 🚕")
+    val serverMsg = appText(availability.messageRu, availability.messageBa)
+    val body = (if (serverMsg.isNotBlank()) "$serverMsg\n\n" else "") + appText(
+        "Мы подключаем города по очереди, чтобы машины точно были рядом. А попутка уже работает по всей республике.",
+        "Ҡалаларҙы сиратлап тоташтырабыҙ — машиналар яҡында булһын өсөн. Ә юлдаш инде бөтә республикала эшләй.",
+    )
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(shape = CircleShape, color = CanonTaxiBg) {
+            Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { Text("🚕", fontSize = 44.sp) }
+        }
+        Spacer(Modifier.height(20.dp))
+        Text(title, color = CanonText, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(8.dp))
+        Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(28.dp))
+        Button(
+            onClick = onBackToPooling,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+        ) {
+            Icon(Icons.Default.DirectionsCar, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(appText("Поехали попуткой", "Юлдаш менән киттек"), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
