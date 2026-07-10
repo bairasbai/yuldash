@@ -289,14 +289,53 @@ def busy_driver_ids(session: Session, ids: list) -> set:
     return {r for r in rows if r is not None}
 
 
+def _order_zone_ctx(session: Session, order: InstantOrder) -> tuple:
+    """Контекст зоны заказа (считаем один раз на вызов matcher'а):
+    (zone, город точки А — set имён RU/BA в casefold | None, Settlement точки Б | None)."""
+    from . import geo
+    zone = zone_for_km(order.distance_km)
+    from_city = geo.nearest_settlement(session, order.from_lat, order.from_lng)
+    from_names = None
+    if from_city is not None:
+        from_names = {from_city.name_ru.casefold()}
+        if from_city.name_ba:
+            from_names.add(from_city.name_ba.casefold())
+    to_city = geo.nearest_settlement(session, order.to_lat, order.to_lng) if zone == "intercity" else None
+    return zone, from_names, to_city
+
+
+def _zone_ok(p: DriverProfile, zone: str, from_names, to_city) -> bool:
+    """Зона работы водителя vs заказ (волна 2, география). NULL-зона = прежнее поведение
+    (водитель рядом — значит его город; radius-поиск уже отфильтровал дальних).
+    Город заказа неизвестен (нет НП ≤30 км) → fail-open, не режем подбор в глуши."""
+    if not p.work_zone:
+        return True
+    if zone == "city":
+        if p.work_zone == "city":
+            if not p.work_city or from_names is None:
+                return True
+            return p.work_city.casefold() in from_names
+        # intercity/region: городские заказы берут только БЕЗ закреплённого направления
+        return p.work_direction_id is None
+    # межгород-заказ: city-водители не получают; intercity/region — если направление
+    # не задано или совпадает с городом точки Б.
+    if p.work_zone == "city":
+        return False
+    if p.work_direction_id is None or to_city is None:
+        return True
+    return p.work_direction_id == to_city.id
+
+
 def eligible(session: Session, ids: list, order: InstantOrder) -> list:
-    """Фильтр кандидатов: онлайн + верифицирован + не занят + не в блоке пассажира + не сам пассажир."""
+    """Фильтр кандидатов: онлайн + верифицирован + не занят + не в блоке пассажира +
+    не сам пассажир + зона работы (город/межгород/регион, волна 2)."""
     if not ids:
         return []
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()}
     profs = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(ids))).all()}
     busy = busy_driver_ids(session, ids)
     blocked = blocked_user_ids(session, order.passenger_id)
+    zone, from_names, to_city = _order_zone_ctx(session, order)
     out = []
     for did in ids:
         u, p = users.get(did), profs.get(did)
@@ -305,6 +344,8 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
         if not p.online or not u.verified:
             continue
         if did in busy or did in blocked or did == order.passenger_id:
+            continue
+        if not _zone_ok(p, zone, from_names, to_city):
             continue
         out.append(did)
     return out

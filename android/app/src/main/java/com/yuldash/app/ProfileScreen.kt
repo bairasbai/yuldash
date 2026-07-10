@@ -873,12 +873,16 @@ internal fun DriverCabinetScreen(
     // Гейт такси (580-ФЗ): без одобренной заявки тумблер «Я на линии» заменяется CTA «Стать таксистом».
     var taxiApp by remember { mutableStateOf<com.yuldash.app.data.TaxiApplicationDto?>(null) }
     var taxiAppLoaded by remember { mutableStateOf(false) }
+    // Зона работы таксиста (география, волна 2): чип у тумблера + шторка выбора.
+    var zone by remember { mutableStateOf<com.yuldash.app.data.InstantZoneDto?>(null) }
+    var showZoneSheet by remember { mutableStateOf(false) }
     suspend fun reloadDebt() { ApiClient.getDriverDebt().onSuccess { debt = it } }
     LaunchedEffect(Unit) {
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess { online = it.online }
+        ApiClient.getInstantZone().onSuccess { zone = it }
         ApiClient.getMyTaxiApplication()
             .onSuccess { taxiApp = it; taxiAppLoaded = true }
             .onFailure { e ->
@@ -926,6 +930,8 @@ internal fun DriverCabinetScreen(
                         Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
                     }
                 }
+                // Вышел на линию, а зона ещё не выбрана → мягко предложим выбрать (не блокируя).
+                if (v && zone?.workZone == null) showZoneSheet = true
             },
             onRate = { bookingId, n ->
                 rateScope.launch {
@@ -942,6 +948,16 @@ internal fun DriverCabinetScreen(
             taxiApplication = taxiApp,
             taxiAppLoaded = taxiAppLoaded,
             onTaxiOnboarding = onTaxiOnboarding,
+            zone = zone,
+            onZoneClick = { showZoneSheet = true },
+        )
+    }
+    // Шторка выбора зоны работы (география, волна 2): открывается с чипа или при выходе на линию без зоны.
+    if (showZoneSheet) {
+        DriverZoneSheet(
+            current = zone,
+            onSaved = { zone = it; showZoneSheet = false },
+            onDismiss = { showZoneSheet = false },
         )
     }
     // Пока водитель «на линии» — presence-heartbeat + опрос входящего оффера; оффер рисуется поверх.
@@ -1097,6 +1113,9 @@ internal fun DriverCabinetContent(
     taxiApplication: com.yuldash.app.data.TaxiApplicationDto? = null,
     taxiAppLoaded: Boolean = false,
     onTaxiOnboarding: () -> Unit = {},
+    // Зона работы таксиста (география, волна 2): чип «Где вожу» под тумблером «Я на линии».
+    zone: com.yuldash.app.data.InstantZoneDto? = null,
+    onZoneClick: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -1115,14 +1134,18 @@ internal fun DriverCabinetContent(
             // Гейт такси (580-ФЗ): «на линию» может выйти только одобренный таксист.
             // Пока статус заявки не загружен — тумблер как раньше (сервер всё равно гейтит).
             if (!taxiAppLoaded || taxiApplication?.status == "approved") {
-                SettingsGroup {
-                    SettingSwitchRow(
-                        Icons.Default.DirectionsCar,
-                        appText("Я на линии", "Мин эштә"),
-                        appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
-                        online,
-                        onToggleOnline,
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsGroup {
+                        SettingSwitchRow(
+                            Icons.Default.DirectionsCar,
+                            appText("Я на линии", "Мин эштә"),
+                            appText("Пассажиры видят, что вы готовы везти сейчас", "Пассажирҙар хәҙер әҙер икәнегеҙҙе күрә"),
+                            online,
+                            onToggleOnline,
+                        )
+                    }
+                    // Зона работы (география, волна 2): «🏙 Мой город / 🛣 Межгород / 🌍 Соседний регион».
+                    DriverZoneChip(zone = zone, onClick = onZoneClick)
                 }
             } else {
                 TaxiOnboardingCta(taxiApplication, onTaxiOnboarding)

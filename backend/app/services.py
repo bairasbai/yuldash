@@ -426,10 +426,20 @@ CITY_COORDS = {
 
 
 def geocode_city(name: str) -> tuple[float, float] | None:
-    """Координаты города: сначала известные города БашРТ (бесплатно, без API),
-    иначе Яндекс.Геокодер (если задан ключ). Нужно для радиус-поиска поездок."""
+    """Координаты города. Приоритет (волна 2, география): 1) справочник Settlement
+    (точное имя RU/BA, без регистра), 2) старый CITY_COORDS, 3) Яндекс.Геокодер
+    (если задан ключ). Нужно для радиус-поиска поездок."""
     if not name:
         return None
+    try:
+        # Ленивый импорт: geo.py сам импортирует services (haversine) — без циклов.
+        from .geo import by_exact_name
+        with Session(engine) as _s:
+            st = by_exact_name(_s, name)
+        if st is not None:
+            return (st.lat, st.lng)
+    except Exception:  # noqa: BLE001 — таблицы ещё нет (юнит-тест без БД) → фолбэк ниже
+        pass
     c = CITY_COORDS.get(name.strip())
     if c:
         return c

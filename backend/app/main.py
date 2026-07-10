@@ -39,6 +39,8 @@ async def lifespan(app: FastAPI):
             seed_demo(session)
         from .instant_service import seed_tariffs
         seed_tariffs(session)   # тарифы «Быстрого заказа» нужны и в проде (не под seed_demo)
+        from .geo import seed_settlements
+        seed_settlements(session)   # справочник НП (география, волна 2) — тоже нужен в проде
     await init_chat_redis()   # WS pub/sub между воркерами (если есть Redis), иначе локально
     yield
 

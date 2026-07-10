@@ -240,6 +240,9 @@ import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.ConversationDto
 import com.yuldash.app.data.PopularRouteDto
+import com.yuldash.app.data.SettlementRouteDto
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import com.yuldash.app.data.FeedDto
 import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
@@ -291,6 +294,10 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var publishing by remember { mutableStateOf(false) }   // ждём ответ сервера, блок двойного нажатия
     var publishError by remember { mutableStateOf<String?>(null) }
     val publishScope = rememberCoroutineScope()
+    // Популярные направления из справочника географии — чипы над формой (тап заполняет оба поля).
+    // Ошибка сети → чипов просто нет, форма работает как раньше.
+    var geoRoutes by remember { mutableStateOf<List<SettlementRouteDto>>(emptyList()) }
+    LaunchedEffect(Unit) { ApiClient.getSettlementPopularRoutes().onSuccess { geoRoutes = it } }
     LaunchedEffect(from, to) {
         priceHint = if (from.isNotBlank() && to.isNotBlank()) {
             delay(450)
@@ -362,6 +369,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             // «Умные» поля с собственными эффектами (гео-подсказки) — слотами, чтобы Content остался чистым.
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
             toField = { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
+            routeChips = { PopularRouteChips(geoRoutes) { f, t -> from = f; to = t } },
             modifier = Modifier.padding(padding),
         )
     }
@@ -428,6 +436,7 @@ internal fun CreateRideFormContent(
     onCancel: () -> Unit,
     fromField: (@Composable () -> Unit)? = null,
     toField: (@Composable () -> Unit)? = null,
+    routeChips: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
@@ -439,6 +448,8 @@ internal fun CreateRideFormContent(
             Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Black)
             Text(appText("Укажите путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        // Чипы популярных направлений (слот): тап заполняет «откуда/куда». Пустой список — ничего не рисует.
+        routeChips?.let { chips -> item { chips() } }
         // Поля адреса: если слот дан (реальный экран с гео-подсказками) — рисуем его; иначе (тест/фолбэк) —
         // простое поле с тем же поведением ввода. Оба варианта поведенчески идентичны для пользователя.
         item {
@@ -683,6 +694,42 @@ internal fun RideTypeChip(icon: ImageVector, ru: String, ba: String, selected: B
         Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(6.dp))
         Text(appText(ru, ba), fontSize = 13.sp, maxLines = 1)
+    }
+}
+
+/**
+ * Чипы популярных направлений (из справочника /settlements/popular-routes): тап заполняет
+ * «откуда» и «куда» разом. Имена — на текущем языке (BA, если есть перевод). Пустой список —
+ * ничего не рисуем (ошибка сети/нет данных); появление — мягкое (fade + разворот).
+ */
+@Composable
+internal fun PopularRouteChips(routes: List<SettlementRouteDto>, onPick: (String, String) -> Unit) {
+    val language = LocalAppLanguage.current
+    AnimatedVisibility(
+        visible = routes.isNotEmpty(),
+        enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+        exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(appText("Популярные направления", "Популяр йүнәлештәр"), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CanonText)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(routes, key = { "${it.from.id}-${it.to.id}" }) { r ->
+                    val f = settlementTitleFor(language, r.from)
+                    val t = settlementTitleFor(language, r.to)
+                    FilledTonalButton(
+                        onClick = { onPick(f, t) },
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.heightIn(min = 48.dp),   // тач-цель ≥48dp
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
+                    ) {
+                        Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("$f → $t", fontSize = 13.sp, maxLines = 1)
+                    }
+                }
+            }
+        }
     }
 }
 

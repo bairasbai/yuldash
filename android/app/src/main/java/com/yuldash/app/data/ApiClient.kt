@@ -1400,6 +1400,47 @@ object ApiClient {
     suspend fun adminDeleteTaxiCity(id: Int): Result<Unit> =
         call("DELETE", "/admin/taxi-cities/$id", null, auth = true).map { }
 
+    // ---------- География: справочник НП + зона работы таксиста (волна 2) ----------
+    // Справочник публичный (общеизвестные города, не перс.данные) — auth не нужен.
+
+    /** Автоподсказки городов/райцентров: префиксный поиск по русскому И башкирскому имени. */
+    suspend fun searchSettlements(q: String, limit: Int = 10): Result<List<SettlementDto>> =
+        call("GET", "/settlements?q=${enc(q)}&limit=$limit", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toSettlementDto() }
+        }
+
+    /** Пресеты популярных межгород-маршрутов (Сибай–Магнитогорск, Баймак–Уфа…) — чипы в UI.
+     *  Не путать с getPopularRoutes() (/popular-routes — живая статистика реальных поездок). */
+    suspend fun getSettlementPopularRoutes(): Result<List<SettlementRouteDto>> = cachedGet("settlement-popular-routes", TTL_SLOW) {
+        call("GET", "/settlements/popular-routes", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("routes") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                SettlementRouteDto(
+                    from = o.getJSONObject("from").toSettlementDto(),
+                    to = o.getJSONObject("to").toSettlementDto(),
+                )
+            }
+        }
+    }
+
+    /** Текущая зона работы таксиста (город / межгород / соседний регион). */
+    suspend fun getInstantZone(): Result<InstantZoneDto> =
+        call("GET", "/instant/zone", null, auth = true).map { it.toInstantZoneDto() }
+
+    /** Выбор зоны работы: city (+work_city) | intercity (+опц. направление) | region.
+     *  Только водитель с одобренной заявкой таксиста (сервер вернёт 403/409 понятной строкой). */
+    suspend fun setInstantZone(workZone: String, workCity: String? = null, workDirectionId: Int? = null): Result<InstantZoneDto> =
+        call(
+            "POST", "/instant/zone",
+            JSONObject()
+                .put("work_zone", workZone)
+                .put("work_city", workCity ?: JSONObject.NULL)
+                .put("work_direction_id", workDirectionId ?: JSONObject.NULL),
+            auth = true,
+        ).map { it.toInstantZoneDto() }.onSuccess { Analytics.log("instant_zone_set") }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -1642,6 +1683,46 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
 
 /** Город, где включено такси (управляет админ). */
 data class TaxiCityDto(val id: Int, val city: String, val enabled: Boolean)
+
+/** Населённый пункт из справочника географии (волна 2).
+ *  kind: city (город РБ) | district_center (райцентр) | neighbor (соседний регион). */
+data class SettlementDto(
+    val id: Int,
+    val nameRu: String,
+    val nameBa: String?,      // черновой башкирский; null = показываем русское
+    val region: String,
+    val kind: String,
+    val lat: Double,
+    val lng: Double,
+)
+
+/** Зона работы таксиста: city | intercity | region; null = не выбрана (беру всё рядом). */
+data class InstantZoneDto(
+    val workZone: String?,
+    val workCity: String?,
+    val workDirectionId: Int?,
+    val workDirection: SettlementDto?,
+)
+
+/** Пресет популярного маршрута (Сибай–Магнитогорск…) — чип, заполняющий «откуда/куда». */
+data class SettlementRouteDto(val from: SettlementDto, val to: SettlementDto)
+
+private fun JSONObject.toSettlementDto() = SettlementDto(
+    id = optInt("id"),
+    nameRu = optString("name_ru"),
+    nameBa = optNullableString("name_ba"),
+    region = optString("region"),
+    kind = optString("kind"),
+    lat = optDouble("lat"),
+    lng = optDouble("lng"),
+)
+
+private fun JSONObject.toInstantZoneDto() = InstantZoneDto(
+    workZone = optNullableString("work_zone"),
+    workCity = optNullableString("work_city"),
+    workDirectionId = if (isNull("work_direction_id")) null else optInt("work_direction_id"),
+    workDirection = optJSONObject("work_direction")?.toSettlementDto(),
+)
 
 data class ReviewItem(val id: Int, val name: String, val city: String, val stars: Int, val text: String)
 

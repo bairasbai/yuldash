@@ -3,16 +3,17 @@
 Отдельный поток от плановых поездок (Ride/Booking) — тот не трогаем.
 Приватность: координаты не логируем; телефоны сторон — только после accept.
 """
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, User
+from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Settlement, User
 from ..security import current_user
 from .. import debt as debt_mod
+from .. import geo as geo_mod
 from .. import instant_service as isv
 from .. import taxi as taxi_mod
 
@@ -66,6 +67,58 @@ class PresenceIn(BaseModel):
 
 class CancelIn(BaseModel):
     reason: str = Field("", max_length=200)
+
+
+class ZoneIn(BaseModel):
+    work_zone: Literal["city", "intercity", "region"]
+    work_city: Optional[str] = Field(None, max_length=100)
+    work_direction_id: Optional[int] = None
+
+
+# ------------------------------ зона работы (волна 2, география) ------------------------------
+def _zone_payload(session: Session, dp: Optional[DriverProfile]) -> dict:
+    direction = None
+    if dp is not None and dp.work_direction_id is not None:
+        s = session.get(Settlement, dp.work_direction_id)
+        direction = geo_mod.settlement_payload(s) if s else None
+    return {
+        "work_zone": dp.work_zone if dp else None,
+        "work_city": dp.work_city if dp else None,
+        "work_direction_id": dp.work_direction_id if dp else None,
+        "work_direction": direction,
+    }
+
+
+@router.get("/instant/zone")
+def get_zone(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Текущая зона работы таксиста (показ в кабинете рядом с тумблером «на линии»)."""
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    return _zone_payload(session, dp)
+
+
+@router.post("/instant/zone")
+def set_zone(body: ZoneIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Выбор зоны: 🏙 мой город / 🛣 межгород (+опц. направление) / 🌍 соседний регион.
+    Только водитель с одобренной заявкой таксиста (580-ФЗ). Влияет ТОЛЬКО на такси-matcher,
+    попутка (Ride/Booking) не затрагивается."""
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    if not dp:
+        raise HTTPException(409, "Сначала стань водителем (профиль водителя не найден)")
+    if not taxi_mod.is_approved_taxi_driver(session, user.id):
+        raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
+    direction_id = body.work_direction_id
+    if body.work_zone == "city":
+        direction_id = None                      # направление имеет смысл только для межгорода
+    if direction_id is not None and session.get(Settlement, direction_id) is None:
+        raise HTTPException(404, "Направление не найдено в справочнике")
+    work_city = (body.work_city or "").strip() or None
+    dp.work_zone = body.work_zone
+    dp.work_city = work_city if body.work_zone == "city" else None
+    dp.work_direction_id = direction_id
+    session.add(dp)
+    session.commit()
+    session.refresh(dp)
+    return _zone_payload(session, dp)
 
 
 # ------------------------------ presence ------------------------------

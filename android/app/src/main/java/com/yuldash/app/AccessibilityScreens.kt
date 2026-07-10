@@ -343,7 +343,12 @@ internal fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> 
     }
 }
 
-// Поле адреса с автоподсказкой через Яндекс.Геокодер.
+/** Имя населённого пункта на выбранном языке: башкирское, если есть перевод, иначе русское. */
+internal fun settlementTitleFor(language: AppLanguage, s: com.yuldash.app.data.SettlementDto): String =
+    if (language == AppLanguage.Ba) (s.nameBa ?: s.nameRu) else s.nameRu
+
+// Поле адреса с автоподсказкой: сначала наш справочник городов/сёл (/settlements, с 1-го символа),
+// ниже — Яндекс.Геокодер (адреса, с 2-х символов). Ошибка сети → подсказок просто нет, без красного.
 @Composable
 internal fun AddressSuggestField(
     value: String,
@@ -351,14 +356,23 @@ internal fun AddressSuggestField(
     label: String,
     leadingIcon: ImageVector
 ) {
+    val language = LocalAppLanguage.current
+    var towns by remember { mutableStateOf<List<com.yuldash.app.data.SettlementDto>>(emptyList()) }
     var hits by remember { mutableStateOf<List<GeoHit>>(emptyList()) }
     var picked by remember { mutableStateOf(true) }   // не подсказывать для предзаполненных значений при открытии
     LaunchedEffect(value) {
         if (picked) { picked = false; return@LaunchedEffect }
-        if (value.trim().length < 2) { hits = emptyList(); return@LaunchedEffect }
-        delay(350)
-        hits = GeocoderClient.suggest(value)
+        val q = value.trim()
+        if (q.isEmpty()) { towns = emptyList(); hits = emptyList(); return@LaunchedEffect }
+        delay(250)   // дебаунс: не дёргаем сеть на каждую букву
+        towns = ApiClient.searchSettlements(q).getOrDefault(emptyList())
+        if (q.length < 2) { hits = emptyList(); return@LaunchedEffect }
+        delay(100)
+        // Геокодер — вторым эшелоном; дубли того, что уже дал справочник, прячем.
+        val townTitles = towns.map { it.nameRu.lowercase() }.toSet()
+        hits = GeocoderClient.suggest(value).filter { it.title.lowercase() !in townTitles }
     }
+    fun pick(text: String) { picked = true; onValueChange(text); towns = emptyList(); hits = emptyList() }
     Column(Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = value,
@@ -369,7 +383,7 @@ internal fun AddressSuggestField(
             shape = RoundedCornerShape(16.dp),
             singleLine = true
         )
-        if (hits.isNotEmpty()) {
+        AnimatedVisibility(visible = towns.isNotEmpty() || hits.isNotEmpty(), enter = fadeIn(tween(150)), exit = fadeOut(tween(120))) {
             Surface(
                 color = CanonSurface,
                 shape = RoundedCornerShape(12.dp),
@@ -377,15 +391,35 @@ internal fun AddressSuggestField(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
             ) {
                 Column {
-                    hits.forEach { hit ->
+                    towns.take(6).forEach { town ->
+                        val title = settlementTitleFor(language, town)
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { picked = true; onValueChange(hit.title); hits = emptyList() }
+                                .clickable { pick(title) }
+                                .heightIn(min = 48.dp)
                                 .padding(horizontal = 14.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(title, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (town.region.isNotBlank()) {
+                                Spacer(Modifier.width(8.dp))
+                                Text(town.region, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    hits.forEach { hit ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { pick(hit.title) }
+                                .heightIn(min = 48.dp)
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(hit.title, color = CanonText, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }

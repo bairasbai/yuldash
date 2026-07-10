@@ -104,10 +104,30 @@ class TgAuth(SQLModel, table=True):
     expires_at: datetime
 
 
+class Settlement(SQLModel, table=True):
+    """Справочник населённых пунктов (волна 2, география): 21 город респ. значения РБ +
+    центры 54 районов + приграничные города соседних регионов. Сеется идемпотентно
+    (app/geo.py, seed_settlements). kind: city | district_center | neighbor.
+    name_ba — черновой башкирский (финал названий — за Александром, носителем)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name_ru: str = Field(index=True)
+    name_ba: Optional[str] = None
+    region: str = ""                 # «РБ», «Челябинская обл.», «Татарстан»…
+    kind: str = "city"               # city | district_center | neighbor
+    lat: float = 0.0
+    lng: float = 0.0
+    active: bool = True
+
+
 class DriverProfile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, unique=True, foreign_key="user.id")
     online: bool = False
+    # Зона работы таксиста (волна 2, география). NULL = зона не выбрана → прежнее
+    # поведение matcher'а (получает всё рядом). Значения: city | intercity | region.
+    work_zone: Optional[str] = None
+    work_city: Optional[str] = None       # для work_zone=city: «мой город» (name_ru)
+    work_direction_id: Optional[int] = Field(default=None, foreign_key="settlement.id")  # intercity: закреплённое направление
     rating: float = 5.0
     trips_count: int = 0
     car_make: str = ""
