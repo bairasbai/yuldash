@@ -620,7 +620,11 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val openDriver = LocalOpenDriverProfile.current
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = if (dto.driverId > 0) Modifier.clickable { openDriver(dto.driverId) } else Modifier
+            ) {
                 SmallAvatar(dto.driverAvatar, dto.driverName, 30)
                 Spacer(Modifier.width(8.dp))
                 Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -774,7 +778,11 @@ internal fun RideCard(
                 Spacer(Modifier.width(5.dp))
                 Text(ride.timeText(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val openDriver = LocalOpenDriverProfile.current
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = if (ride.driverId > 0) Modifier.clickable { openDriver(ride.driverId) } else Modifier
+            ) {
                 SmallAvatar(ride.driverAvatar, ride.driver, 44)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {

@@ -3,7 +3,8 @@
 import json
 import os
 import uuid
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -12,9 +13,9 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import DriverProfile, User, UserRole
+from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
 from ..security import current_user
-from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url
+from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url, user_rating
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["drivers"])
@@ -221,6 +222,82 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "autocheck_score": dp.autocheck_score if dp else 0.0,
         "autocheck_data": dp.autocheck_data if dp else "",
     }
+
+
+# ----------------------------- Публичный профиль водителя -----------------------------
+class PublicReviewOut(BaseModel):
+    author: str                              # имя автора (без телефона/ПДн)
+    stars: int
+    text: str
+    created_at: datetime
+
+
+class DriverPublicOut(BaseModel):
+    """Публичная витрина водителя (тапом с карточки поездки). БЕЗ ПДн: без телефона.
+    Доверие «между своими»: стаж, поездки, средний рейтинг, отзывы прошедшие модерацию, бейдж."""
+    id: int
+    name: str
+    avatar_url: str = ""
+    verified: bool = False                   # бейдж «Проверен»
+    joined_at: datetime                      # дата регистрации → стаж в Юлдаше
+    days_in_service: int = 0                 # стаж в днях (клиент покажет «X лет/мес» на 2 языках)
+    trips_count: int = 0                     # число завершённых поездок как водитель
+    car: str = ""                            # марка+модель (без госномера — не публично)
+    rating: Optional[float] = None           # средний рейтинг (None если оценок нет)
+    rating_count: int = 0
+    reviews: List[PublicReviewOut] = []      # последние отзывы, прошедшие модерацию
+
+
+@router.get("/drivers/{driver_id}/public", response_model=DriverPublicOut)
+def driver_public(driver_id: int, limit: int = 5, session: Session = Depends(get_session)):
+    """Публичные данные водителя + агрегаты + последние модерированные текстовые отзывы.
+    Без auth и без ПДн (телефон/точные координаты не отдаём) — открывается тапом с карточки."""
+    limit = max(1, min(20, limit))
+    u = session.get(User, driver_id)
+    if not u:
+        raise HTTPException(404, "Пользователь не найден")
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
+
+    # Завершённые поездки как водитель: брони со статусом done по его поездкам.
+    ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == driver_id)).all())
+    trips_done = 0
+    if ride_ids:
+        trips_done = len(session.exec(
+            select(Booking.id).where(Booking.ride_id.in_(ride_ids), Booking.status == BookingStatus.done)
+        ).all())
+
+    avg, cnt = user_rating(session, driver_id)
+
+    # Последние текстовые отзывы, прошедшие модерацию (text_published=True), новые сверху.
+    rows = session.exec(
+        select(Rating)
+        .where(Rating.ratee_id == driver_id, Rating.text_published == True, Rating.text != "")  # noqa: E712
+        .order_by(Rating.created_at.desc())
+        .limit(limit)
+    ).all()
+    author_ids = {r.rater_id for r in rows}
+    authors = {a.id: a for a in session.exec(select(User).where(User.id.in_(author_ids))).all()} if author_ids else {}
+    reviews = [
+        PublicReviewOut(
+            author=((authors.get(r.rater_id).name if authors.get(r.rater_id) else "") or "Аноним"),
+            stars=r.stars, text=r.text, created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+    joined = u.created_at
+    now = utcnow()
+    # created_at и utcnow() оба наивные UTC → вычитание безопасно.
+    days = max(0, (now - joined).days) if joined else 0
+    car = " ".join(x for x in [dp.car_make, dp.car_model] if x).strip() if dp else ""
+
+    return DriverPublicOut(
+        id=u.id, name=(u.name or "Водитель"), avatar_url=u.avatar_url or "",
+        verified=u.verified, joined_at=joined, days_in_service=days,
+        trips_count=trips_done, car=car,
+        rating=(round(avg, 1) if cnt > 0 else None), rating_count=cnt,
+        reviews=reviews,
+    )
 
 
 class PendingDriverOut(BaseModel):

@@ -343,13 +343,19 @@ class Rating(SQLModel, table=True):
     """Оценка после поездки: rater оценил ratee (1..5 звёзд). Одна на (booking, rater) ИЛИ
     (order, rater) — волна 2 §9: взаимные оценки и у быстрых заказов. Ровно одна привязка:
     booking_id (попутка) или order_id (такси). Оценка анонимна: в агрегат идёт среднее,
-    кто поставил — не раскрывается (rater_id не отдаём наружу)."""
+    кто поставил — не раскрывается (rater_id не отдаём наружу).
+
+    Звёзды идут в средний рейтинг СРАЗУ. Текстовый отзыв (`text`, необязателен, ≤500)
+    появляется в публичном профиле ТОЛЬКО после модерации — как AppReview: `text_published`
+    по умолчанию False, админ одобряет. Пустой текст модерации не требует."""
     id: Optional[int] = Field(default=None, primary_key=True)
     booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
     rater_id: int = Field(index=True, foreign_key="user.id")        # кто оценил
     ratee_id: int = Field(index=True, foreign_key="user.id")        # кого оценили (водитель или пассажир)
     stars: int = 5                           # 1..5
+    text: str = ""                           # текстовый отзыв (опц., ≤500) — идёт на модерацию
+    text_published: bool = Field(default=False, index=True)  # текст одобрен к показу в публичном профиле
     created_at: datetime = Field(default_factory=utcnow)
 
 

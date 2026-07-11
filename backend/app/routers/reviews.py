@@ -5,6 +5,10 @@
 `GET  /reviews/public`              — одобренные отзывы для лендинга (без auth).
 `GET  /admin/reviews/pending`        — ожидающие модерации (admin).
 `POST /admin/reviews/{id}/publish`   — одобрить/снять с публикации (admin).
+
+Модерация ТЕКСТОВЫХ отзывов о поездке (Rating.text) — тот же паттерн:
+`GET  /admin/ratings/pending`        — тексты, ждущие модерации (admin).
+`POST /admin/ratings/{id}/publish`   — одобрить/снять текст (admin).
 """
 from datetime import datetime
 from typing import List
@@ -14,7 +18,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import AppReview, User, UserRole
+from ..models import AppReview, Rating, User, UserRole
 from ..security import current_user
 
 router = APIRouter(tags=["reviews"])
@@ -104,3 +108,59 @@ def publish_review(review_id: int, body: ReviewPublishIn, user: User = Depends(c
     session.commit()
     session.refresh(review)
     return review
+
+
+# ---------------- Модерация текстовых отзывов о поездке (Rating.text) ----------------
+class PendingRatingOut(BaseModel):
+    id: int
+    author: str = ""                         # кто оставил (для админа; в публичном профиле тоже без телефона)
+    ratee_id: int                            # кому адресован (водитель/пассажир)
+    stars: int
+    text: str
+    created_at: datetime
+
+
+@router.get("/admin/ratings/pending", response_model=List[PendingRatingOut])
+def pending_ratings(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Текстовые отзывы, ждущие модерации: есть текст, но ещё не опубликован."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    rows = session.exec(
+        select(Rating)
+        .where(Rating.text_published == False, Rating.text != "")  # noqa: E712
+        .order_by(Rating.created_at.desc())
+    ).all()
+    author_ids = {r.rater_id for r in rows}
+    authors = {a.id: a for a in session.exec(select(User).where(User.id.in_(author_ids))).all()} if author_ids else {}
+    return [
+        PendingRatingOut(
+            id=r.id, author=((authors.get(r.rater_id).name if authors.get(r.rater_id) else "") or "Аноним"),
+            ratee_id=r.ratee_id, stars=r.stars, text=r.text, created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+
+class RatingPublishIn(BaseModel):
+    published: bool = True
+
+
+@router.post("/admin/ratings/{rating_id}/publish", response_model=PendingRatingOut)
+def publish_rating(rating_id: int, body: RatingPublishIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Одобрить текстовый отзыв к показу в публичном профиле (или снять)."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    r = session.get(Rating, rating_id)
+    if not r:
+        raise HTTPException(404, "Отзыв не найден")
+    if not (r.text or "").strip():
+        raise HTTPException(400, "У оценки нет текста для модерации")
+    r.text_published = body.published
+    session.add(r)
+    session.commit()
+    session.refresh(r)
+    author = session.get(User, r.rater_id)
+    return PendingRatingOut(
+        id=r.id, author=((author.name if author else "") or "Аноним"),
+        ratee_id=r.ratee_id, stars=r.stars, text=r.text, created_at=r.created_at,
+    )

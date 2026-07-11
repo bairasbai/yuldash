@@ -339,8 +339,14 @@ internal enum class Screen {
     TaxiOnboarding,     // «Стать таксистом Юлдаша» (580-ФЗ): правила + заявка + статус проверки
     AdminTaxi,          // Админ: заявки таксистов (одобрить/отклонить) + города, где включено такси
     AdminWaitlist,      // Админ: лист ожидания раннего доступа (счётчики, волны) — §11 «Запуск»
-    AdminTaxiPulse      // Админ: «Пульс такси» (B7b-3) — на линии, активные заказы, по городам
+    AdminTaxiPulse,     // Админ: «Пульс такси» (B7b-3) — на линии, активные заказы, по городам
+    DriverProfile   // публичный профиль водителя (тапом с карточки поездки): стаж, поездки, рейтинг, отзывы
 }
+
+/** Действие «открыть публичный профиль водителя» — прокинуто из YuldashApp,
+ *  чтобы карточки поездки (FullRideCard/NearbyRideCard/детали) открывали профиль
+ *  без ручного протаскивания колбэка через все экраны. 0/пусто = ничего не делаем. */
+internal val LocalOpenDriverProfile = staticCompositionLocalOf<(Int) -> Unit> { {} }
 
 internal enum class HomeTab {
     Map,
@@ -462,6 +468,7 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     from = fromCity,
     to = toCity,
     time = formatDepart(departAt),
+    driverId = driverId,
     driver = driverName.ifBlank { "Водитель" },
     driverAvatar = driverAvatar,
     driverOnline = driverOnline,

@@ -78,7 +78,14 @@
 
 **Прочие новые** (`SecondaryScreens.kt`): `RulesScreen`, `PaymentInfoScreen` (СБП), `BlocklistScreen` (`/blocks`), `ReportScreen`, `FiltersScreen` (`FilterPrefs` в SharedPreferences), `ThemePickerDialog`. Код посадки — карточка в `BookingActiveTripScreen` (`getBoardingCode`). Аналитика — `data/Analytics.kt` (Firebase).
 
-**enum `Screen`** пополнен: Rules, PaymentInfo, Blocklist, Report, Filters, AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, RequestsFeed, RequestResponses — каждый ветка в `when(screen)` (`YuldashApp.kt`).
+### 🆕 F7 — Текстовые отзывы + публичный профиль водителя (ветка `feat/reviews-driver-profile`)
+- **Экран `DriverProfileScreen.kt`** (`Screen.DriverProfile`): публичная витрина доверия — фото, бейдж «Проверен», стаж в Юлдаше (плитка из даты регистрации), число завершённых поездок, средний рейтинг★, последние текстовые отзывы (прошедшие модерацию). БЕЗ ПДн (телефона нет). Все состояния: загрузка/ошибка+повтор/успех/пусто. Данные — `ApiClient.getDriverPublic(id)` → `GET /drivers/{id}/public`.
+- **Открытие** — тапом по строке водителя в карточке поездки (`RideCard` и `NearbyRideCard` в `RidesRequestsChatScreens.kt`). Навигация без протаскивания колбэков: `LocalOpenDriverProfile` (CompositionLocal в `MainActivity.kt`), провайдится в `YuldashApp.kt`; `RideDto.driverId`/`Ride.driverId` (из `driver_id` бэкенда) — кого открыть.
+- **Текстовый отзыв** — карточка оценки в `BookingActiveTripScreen` (при `bookingStatus==done`): звёзды уходят сразу, опц. поле отзыва (≤500) → `ApiClient.rateBooking(id, stars, text)`. Текст идёт на модерацию (в профиле появляется только после одобрения).
+- **Бэкенд:** `Rating.text` + `Rating.text_published` (модель + alembic `0005_rating_text_review`, идемпотентная). `family.py::rate_booking` принимает `text`; смена текста → снова на модерацию. `drivers.py::GET /drivers/{id}/public` (без auth, без телефона): агрегаты (done-брони по поездкам водителя, средний рейтинг, стаж в днях) + последние N отзывов с `text_published=True`. Модерация текста — `reviews.py`: `GET /admin/ratings/pending`, `POST /admin/ratings/{id}/publish` (паттерн 1-в-1 как у `AppReview`). Тесты — `tests/test_reviews_driver_profile.py`.
+
+**enum `Screen`** пополнен: Rules, PaymentInfo, Blocklist, Report, Filters, AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, RequestsFeed, RequestResponses, **DriverProfile** — каждый ветка в `when(screen)` (`YuldashApp.kt`).
+
 - **Application:** `android/app/src/main/java/com/yuldash/app/YuldashApplication.kt` — отдаёт ключ Яндекс MapKit (`MapKitFactory.setApiKey`) при старте. Прописан в манифесте как `android:name=".YuldashApplication"`.
 - **Ключ карты:** `local.properties` → `YANDEX_MAPKIT_KEY` (в `.gitignore`) → пробрасывается в `BuildConfig.YANDEX_MAPKIT_KEY` через `app/build.gradle.kts` (`buildConfig = true`). В коде ключ не хардкодим.
 - Тексты-ресурсы: `android/app/src/main/res/values/strings.xml` (RU) + `values-ba/strings.xml` (BA).
