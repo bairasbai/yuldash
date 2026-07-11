@@ -982,3 +982,41 @@ class PromoRedemption(SQLModel, table=True):
     promo_id: int = Field(index=True, foreign_key="promocode.id")
     user_id: int = Field(index=True, foreign_key="user.id")
     redeemed_at: datetime = Field(default_factory=utcnow)
+
+
+# ---- M3: доставка посылок между сёлами/городами (реальная боль села) ----
+
+class ParcelDelivery(SQLModel, table=True):
+    """Заявка на доставку посылки попутным курьером (лекарство/документы/вещи между сёлами).
+
+    Философия M3 (красные линии):
+    - Попутка ЛЮДЕЙ остаётся бесплатной; символический сбор берём только за ВЕЩЬ-доставку —
+      за реальную услугу «свели отправителя и попутного курьера» (fee_kop из конфига по размеру).
+    - Приватность: телефон получателя (receiver_phone) виден курьеру ТОЛЬКО после того, как он
+      принял посылку. До принятия — скрыт из /available. Телефоны не логируем.
+    - Безопасность: отправитель принимает правила «не возим запрещённое» при создании (флаг
+      rules_accepted). Мы — логистика между своими, не перевозчик запрещёнки.
+
+    Это ОТДЕЛЬНАЯ от Ride.parcel сущность (у Ride.parcel — плановая попутка-посылка). Здесь —
+    самостоятельный флоу заявки: отправитель создаёт → курьер принимает → везёт → отдаёт по коду.
+    confirm_code отправитель передаёт получателю ВНЕ приложения; получатель называет код курьеру
+    при передаче — курьер вводит код, статус → delivered (подтверждение вручения без раскрытия ПДн)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sender_id: int = Field(index=True, foreign_key="user.id")                 # отправитель посылки
+    courier_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")  # курьер, взявший посылку
+    from_city: str = Field(default="", index=True)                           # откуда (город/село отправления)
+    to_city: str = Field(default="", index=True)                             # куда (город/село назначения)
+    from_lat: Optional[float] = None                                         # координаты точки забора (опц.)
+    from_lng: Optional[float] = None
+    to_lat: Optional[float] = None                                           # координаты точки вручения (опц.)
+    to_lng: Optional[float] = None
+    size: str = Field(default="small", max_length=16)                        # small|medium|large (сбор зависит от размера)
+    description: str = ""                                                     # что за посылка (без запрещёнки)
+    receiver_name: str = ""                                                   # имя получателя (публично курьеру)
+    receiver_phone: str = ""                                                  # ПРИВАТНО: отдаём только принявшему курьеру
+    fee_kop: int = 0                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
+    status: str = Field(default="created", max_length=16)                    # created|accepted|in_transit|delivered|canceled
+    confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
+    created_at: datetime = Field(default_factory=utcnow)
+    accepted_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
