@@ -414,7 +414,8 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
         ApiClient.getCoupon(couponId).onSuccess { coupon = it }
     }
 
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(coupon.partner.name.ifBlank { appText("Купон", "Купон") }, onBack) }) { padding ->
+    val couponTitleFallback = appText("Купон", "Купон")
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(coupon.partner.name.ifBlank { couponTitleFallback }, onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).fillMaxWidth().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),

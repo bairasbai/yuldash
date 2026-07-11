@@ -222,6 +222,7 @@ private fun PromoSuccessCard(res: PromoApplyResultDto) {
 
 @Composable
 private fun PromoAppliedCard(m: MyPromoDto) {
+    val thanksFallback = appText("Спасибо, что с нами", "Беҙҙең менән булғаныңа рәхмәт")
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
@@ -230,7 +231,7 @@ private fun PromoAppliedCard(m: MyPromoDto) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(appText("Промокод активен", "Промокод актив"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp)
-                Text(m.title.ifBlank { appText("Спасибо, что с нами", "Беҙҙең менән булғаныңа рәхмәт") }, color = CanonMuted, fontSize = 14.sp)
+                Text(m.title.ifBlank { thanksFallback }, color = CanonMuted, fontSize = 14.sp)
             }
         }
         AppCard {
