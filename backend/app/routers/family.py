@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, TripShare, TrustedContact, User
+from ..models import (
+    Booking, BookingStatus, DriverProfile, InstantOrder, Rating, Ride, TripShare, TrustedContact, User,
+)
 from ..security import current_user
 from ..services import booking_and_ride_for_user, send_text, user_rating
 
@@ -72,6 +74,55 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
     session.commit()
     session.refresh(share)
     return share
+
+
+# ---- Шаринг такси-заказа близкому (B7b-2) ----
+@router.post("/instant/orders/{order_id}/share", response_model=TripShare)
+def share_instant_trip(order_id: int, body: ShareIn, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    """«Поделиться поездкой» из такси-заказа — по образцу booking-шаринга: только пассажир,
+    только свой контакт, дедуп. Близкий сразу получает SMS с маршрутом; дальше статусы
+    (сел/доехал/отмена) шлёт сервер сам на переходах заказа (см. instant_service)."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    if order.passenger_id != user.id:
+        raise HTTPException(403, "Расшарить поездку может только пассажир")
+    contact = session.get(TrustedContact, body.contact_id)
+    if not contact or contact.user_id != user.id:
+        raise HTTPException(404, "Контакт не найден")
+    existing = session.exec(
+        select(TripShare).where(TripShare.order_id == order_id, TripShare.contact_id == body.contact_id)
+    ).first()
+    if existing:
+        return existing   # дедуп: повторный share тем же контактом не плодит дубли SMS
+    share = TripShare(order_id=order_id, contact_id=body.contact_id)
+    session.add(share)
+    session.commit()
+    session.refresh(share)
+    # Близкий сразу в курсе: кто едет и куда (телефон водителя не шлём — минимум перс.данных).
+    if contact.phone:
+        who = user.name or user.phone
+        route = f"{order.from_text or 'точка А'} → {order.to_text or 'точка Б'}"
+        send_text(contact.phone, f"Юлдаш: {who} едет на такси ({route}). Сообщим, когда доедет.")
+    return share
+
+
+@router.get("/instant/orders/{order_id}/shares", response_model=List[TripShare])
+def list_instant_shares(order_id: int, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)):
+    """Мои шаринги этого заказа (пассажиру — показать «уже поделился с …»)."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    if order.passenger_id != user.id:
+        raise HTTPException(403, "Доступно только пассажиру заказа")
+    contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()]
+    if not contact_ids:
+        return []
+    return session.exec(
+        select(TripShare).where(TripShare.order_id == order_id, TripShare.contact_id.in_(contact_ids))
+    ).all()
 
 
 class TripStatusIn(BaseModel):

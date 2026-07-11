@@ -343,6 +343,14 @@ internal fun YuldashApp() {
             screen = Screen.InstantChat
         }
     }
+    val wantSosForOrder by NavSignals.openSosForOrder
+    LaunchedEffect(wantSosForOrder) {
+        if (wantSosForOrder > 0) {
+            sosOrderId = wantSosForOrder
+            NavSignals.openSosForOrder.value = 0
+            screen = Screen.Sos
+        }
+    }
     val notifPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var notifAsked by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(screen) {
@@ -742,7 +750,8 @@ internal fun YuldashApp() {
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },
-                onLoginRequired = { screen = Screen.Login }
+                onLoginRequired = { screen = Screen.Login },
+                orderId = sosOrderId.takeIf { it > 0 }   // контекст такси-заказа (B7b-2); 0 = обычный SOS
             )
             Screen.VerifyDriver -> VerifyDriverScreen(
                 onBack = { goBack() },

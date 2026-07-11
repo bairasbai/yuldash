@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
@@ -55,6 +56,7 @@ import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sos
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
@@ -83,6 +85,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -765,6 +768,7 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
         else -> appText("Водитель едет", "Водитель килә")
     }
     var confirmPaidCancel by remember { mutableStateOf(false) }
+    var showShare by remember(order.id) { mutableStateOf(false) }   // «Поделиться поездкой» (B7b-2)
     val cancelFeeRub = order.cancelFeeNowKop / 100
     // Live-трек машины (B7a-3): пока заказ активен — держим WS такси-заказа и двигаем маркер.
     // Колбэк приходит с потока OkHttp — snapshot-state потокобезопасен. Ушли с экрана → close.
@@ -844,6 +848,8 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                 if (order.status == "arriving") {
                     InstantWaitingRow(order)
                 }
+                // Безопасность (B7b-2): SOS + «Поделиться поездкой с близким» — всю активную поездку.
+                InstantSafetyRow(orderId = order.id, onShare = { showShare = true })
                 if (order.status != "onboard") {
                     OutlinedButton(
                         // Поздняя отмена платная (подача) — честно предупреждаем ДО тапа.
@@ -860,6 +866,9 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                 }
             }
         }
+    }
+    if (showShare) {
+        InstantShareDialog(orderId = order.id, onDismiss = { showShare = false })
     }
     if (confirmPaidCancel) {
         AlertDialog(
@@ -887,6 +896,99 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
             },
         )
     }
+}
+
+// ------------------------------ Безопасность в поездке (B7b-2) ------------------------------
+/** SOS + «Поделиться поездкой»: доверие = продукт (§8). Обе кнопки ≥48dp, спокойные цвета. */
+@Composable
+private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        OutlinedButton(
+            onClick = { NavSignals.openSosForOrder.value = orderId },
+            modifier = Modifier.weight(1f).height(48.dp),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, CanonRed.copy(alpha = 0.5f)),
+        ) {
+            Icon(Icons.Default.Sos, contentDescription = null, tint = CanonRed, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(appText("SOS", "SOS"), color = CanonRed, fontWeight = FontWeight.Bold)
+        }
+        if (onShare != null) {
+            OutlinedButton(
+                onClick = onShare,
+                modifier = Modifier.weight(1.6f).height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(Icons.Default.IosShare, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(appText("Поделиться поездкой", "Сәфәр менән бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** Выбор близкого для шаринга такси-заказа: близкий получит SMS о маршруте и статусах.
+ *  Состояния честные: загрузка / пусто (подсказка добавить контакт) / список / ошибка. */
+@Composable
+private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var contacts by remember { mutableStateOf<List<com.yuldash.app.data.ContactDto>?>(null) }
+    var loadError by remember { mutableStateOf(false) }
+    val sharedMsg = appText("Близкий получит SMS о поездке", "Яҡын кеше сәфәр тураһында SMS алыр")
+    val shareFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
+    LaunchedEffect(Unit) {
+        ApiClient.getContacts()
+            .onSuccess { contacts = it }
+            .onFailure { loadError = true; contacts = emptyList() }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CanonSurface,
+        title = { Text(appText("Поделиться поездкой", "Сәфәр менән бүлешеү"), color = CanonText, fontWeight = FontWeight.Bold) },
+        text = {
+            val list = contacts
+            when {
+                list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
+                    Spacer(Modifier.width(10.dp))
+                    Text(appText("Загружаем близких…", "Яҡындарҙы йөкләйбеҙ…"), color = CanonMuted, fontSize = 14.sp)
+                }
+                loadError -> Text(appText("Не удалось загрузить контакты. Проверь сеть и попробуй ещё раз.",
+                    "Контакттарҙы йөкләп булманы. Селтәрҙе тикшереп ҡабат ҡара."), color = CanonMuted, fontSize = 14.sp)
+                list.isEmpty() -> Text(appText("Добавь близкого в «Доверенные контакты» в профиле — и делись поездкой в одно касание.",
+                    "Профилдә «Ышаныслы кешеләр»гә яҡыныңды өҫтә — сәфәр менән бер баҫыуҙа бүлеш."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    list.forEach { c ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    onDismiss()
+                                    scope.launch {
+                                        ApiClient.shareInstantTrip(orderId, c.id)
+                                            .onSuccess { Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show() }
+                                            .onFailure { Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show() }
+                                    }
+                                }
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(c.name, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                if (c.relation.isNotBlank()) Text(c.relation, color = CanonMuted, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
+        },
+    )
 }
 
 // ------------------------------ «Рядом никого» (expired) ------------------------------
@@ -1568,6 +1670,8 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                             if (actionError != null) {
                                 Text(actionError!!, color = CanonRed, fontSize = 13.sp)
                             }
+                            // SOS (B7b-2): безопасность водителя — тоже продукт (обе стороны заказа).
+                            InstantSafetyRow(orderId = current.id)
                             TextButton(
                                 onClick = { scope.launch { ApiClient.instantCancel(current.id).onSuccess { order = it } } },
                                 modifier = Modifier.fillMaxWidth(),

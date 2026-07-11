@@ -91,6 +91,90 @@ def test_order_chat_ws_rejects_outsider(client, user_factory, fake_redis):
             ws.receive_text()
 
 
+# ============================ SOS с контекстом заказа (B7b-2) ============================
+def test_sos_with_order_context(client, user_factory, fake_redis):
+    """Участник заказа шлёт SOS с order_id — событие фиксируется с привязкой к заказу."""
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "SosDrv", "SosPax")
+    for who in (pax, d):   # обе стороны заказа
+        r = client.post("/sos", headers=who["auth"], json={"category": "other", "order_id": order["id"]})
+        assert r.status_code == 200, r.text
+        assert r.json()["order_id"] == order["id"]
+
+
+def test_sos_order_context_rejects_outsider(client, user_factory, fake_redis):
+    """Чужой order_id в SOS — 403 (нельзя приклеить свой SOS к чужой поездке)."""
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "SosOutD", "SosOutP")
+    outsider = user_factory("SosOutsider")
+    r = client.post("/sos", headers=outsider["auth"], json={"category": "other", "order_id": order["id"]})
+    assert r.status_code == 403
+
+
+# ============================ Шаринг такси-заказа (B7b-2) ============================
+def _contact(client, who, name="Мама", phone="+79990000001"):
+    r = client.post("/trusted-contacts", headers=who["auth"],
+                    json={"name": name, "relation": "мама", "phone": phone})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def test_order_share_create_and_view(client, user_factory, fake_redis):
+    """Пассажир делится заказом с близким: создание + дедуп + список «уже поделился»."""
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "ShDrv", "ShPax")
+    cid = _contact(client, pax)
+    r = client.post(f"/instant/orders/{order['id']}/share", headers=pax["auth"], json={"contact_id": cid})
+    assert r.status_code == 200, r.text
+    share_id = r.json()["id"]
+    assert r.json()["order_id"] == order["id"] and r.json()["booking_id"] is None
+    # Дедуп: повторный share тем же контактом возвращает ту же запись (не дубль SMS).
+    r2 = client.post(f"/instant/orders/{order['id']}/share", headers=pax["auth"], json={"contact_id": cid})
+    assert r2.status_code == 200 and r2.json()["id"] == share_id
+    shares = client.get(f"/instant/orders/{order['id']}/shares", headers=pax["auth"]).json()
+    assert [s["id"] for s in shares] == [share_id]
+
+
+def test_order_share_forbidden_for_driver_and_foreign_contact(client, user_factory, fake_redis):
+    """Шарит только пассажир (водителю 403); чужой контакт — 404."""
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "ShFbD", "ShFbP")
+    driver_contact = _contact(client, d, name="Жена", phone="+79990000002")
+    assert client.post(f"/instant/orders/{order['id']}/share", headers=d["auth"],
+                       json={"contact_id": driver_contact}).status_code == 403
+    assert client.post(f"/instant/orders/{order['id']}/share", headers=pax["auth"],
+                       json={"contact_id": driver_contact}).status_code == 404   # не его контакт
+
+
+def test_order_share_sms_on_transitions(client, user_factory, fake_redis, monkeypatch):
+    """Близкий получает SMS: сразу при шаринге, на посадке (sat) и на завершении (done);
+    повторный идемпотентный переход дублей не шлёт."""
+    from app import instant_service as isv
+    sent = []
+    monkeypatch.setattr(isv, "send_text", lambda phone, text: sent.append((phone, text)))
+    from app.routers import family as family_router
+    monkeypatch.setattr(family_router, "send_text", lambda phone, text: sent.append((phone, text)))
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "ShSmsD", "ShSmsP")
+    cid = _contact(client, pax, phone="+79990000003")
+    client.post(f"/instant/orders/{order['id']}/share", headers=pax["auth"], json={"contact_id": cid})
+    assert len(sent) == 1 and "едет на такси" in sent[0][1]
+    client.post(f"/instant/orders/{order['id']}/arrived", headers=d["auth"])
+    client.post(f"/instant/orders/{order['id']}/onboard", headers=d["auth"])
+    assert len(sent) == 2 and "сел(а) в такси" in sent[1][1]
+    client.post(f"/instant/orders/{order['id']}/onboard", headers=d["auth"])   # идемпотентный повтор
+    assert len(sent) == 2                                                      # дубля нет
+    client.post(f"/instant/orders/{order['id']}/done", headers=d["auth"])
+    assert len(sent) == 3 and "доехал" in sent[2][1]
+
+
+def test_booking_share_intact(client, user_factory, fake_redis):
+    """Booking-шаринг не сломан: share по брони работает как раньше."""
+    drv = user_factory("ShBkDrv", role=UserRole.driver)
+    pax = user_factory("ShBkPax")
+    ride_id = _ride(client, drv)
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
+    cid = _contact(client, pax, phone="+79990000004")
+    r = client.post(f"/bookings/{bid}/share", headers=pax["auth"], json={"contact_id": cid})
+    assert r.status_code == 200, r.text
+    assert r.json()["booking_id"] == bid and r.json()["order_id"] is None
+
+
 def test_booking_chat_intact_alongside_order_chat(client, user_factory, fake_redis):
     """Booking-чат не сломан: сообщение по брони живёт отдельно от чата заказа того же юзера."""
     d, pax, order = _accepted_order(client, user_factory, fake_redis, "ChBothDrv", "ChBothPax")

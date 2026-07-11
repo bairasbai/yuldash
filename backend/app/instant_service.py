@@ -25,9 +25,10 @@ from sqlalchemy import func
 
 from .config import settings
 from .models import (
-    Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, Tariff, User,
+    Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, Tariff,
+    TripShare, TrustedContact, User,
 )
-from .services import blocked_user_ids, haversine_km, send_push, user_rating
+from .services import blocked_user_ids, haversine_km, send_push, send_text, user_rating
 from .timeutil import utcnow
 
 PRESENCE_KEY = "presence"                    # Redis GEO-множество координат водителей «на линии»
@@ -748,6 +749,35 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
     )
 
 
+# «Поделиться поездкой» (B7b-2): SMS близким на ключевых переходах заказа. В отличие от
+# попутки (пассажир жмёт «сел/доехал» сам) статусы такси двигает сервер — он и уведомляет.
+_SHARE_STATUS_TEXT = {
+    "sat": "сел(а) в такси",
+    "done": "доехал(а), поездка завершена",
+    "cancelled": "поездка на такси отменилась",
+}
+
+
+def _notify_order_shares(session: Session, order: InstantOrder, share_status: str) -> None:
+    """SMS доверенным контактам, с кем пассажир поделился ЭТИМ заказом. Дедуп: у шаринга
+    хранится last_status — повтор того же перехода SMS не шлёт (идемпотентные переходы)."""
+    shares = session.exec(select(TripShare).where(TripShare.order_id == order.id)).all()
+    if not shares:
+        return
+    passenger = session.get(User, order.passenger_id)
+    who = (passenger.name if passenger and passenger.name else None) or "Твой близкий"
+    text = _SHARE_STATUS_TEXT.get(share_status)
+    for share in shares:
+        if share.last_status == share_status or text is None:
+            continue
+        share.last_status = share_status
+        session.add(share)
+        contact = session.get(TrustedContact, share.contact_id)
+        if contact and contact.phone:
+            send_text(contact.phone, f"Юлдаш: {who} {text}.")
+    session.commit()
+
+
 def _notify_transition(session: Session, order: InstantOrder, target: S) -> None:
     titles = {
         S.accepted: ("Водитель найден", "Водитель принял заказ и уже едет к тебе"),
@@ -758,6 +788,11 @@ def _notify_transition(session: Session, order: InstantOrder, target: S) -> None
     if target in titles:
         title, body = titles[target]
         send_push(session, order.passenger_id, title, body)
+    # Близким (шаринг B7b-2): сел в машину / доехал.
+    if target == S.onboard:
+        _notify_order_shares(session, order, "sat")
+    elif target == S.done:
+        _notify_order_shares(session, order, "done")
 
 
 def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
@@ -769,6 +804,8 @@ def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
             send_push(session, order.passenger_id, "Заказ отменён", "Водитель отменил заказ. Ищем другого?")
     elif actor == Actor.passenger and order.driver_id:
         send_push(session, order.driver_id, "Заказ отменён", "Пассажир отменил заказ")
+    # Близким (шаринг B7b-2): честно сообщаем, что поездка не состоялась.
+    _notify_order_shares(session, order, "cancelled")
 
 
 def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:

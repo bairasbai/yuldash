@@ -31,13 +31,25 @@ def _send_sos_sms(phones: list, text: str) -> None:
 class SosIn(BaseModel):
     category: Literal["medical", "breakdown", "other"] = "other"   # закрытый список (было: любая строка в БД/админу)
     booking_id: Optional[int] = None
+    order_id: Optional[int] = None      # контекст такси-заказа (B7b-2): админ видит, из какой поездки SOS
     note: str = Field("", max_length=2000)
+
+
+def _order_for_participant(session: Session, order_id: int, user: User) -> InstantOrder:
+    """Такси-заказ, если пользователь — его участник (пассажир или назначенный водитель)."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    if user.id != order.passenger_id and (order.driver_id is None or user.id != order.driver_id):
+        raise HTTPException(403, "Ты не участник этого заказа")
+    return order
 
 
 @router.post("/sos", response_model=SosEvent)
 def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
     if body.booking_id is not None:
         booking_and_ride_for_user(session, body.booking_id, user)
+    order = _order_for_participant(session, body.order_id, user) if body.order_id is not None else None
     # Сколько SOS уже было за последний час (ДО записи нового) — для кепа SMS.
     recent = session.exec(
         select(SosEvent).where(
@@ -59,12 +71,18 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     else:
         print(f"[SOS] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
     # Уведомление админу в Telegram — тоже в фон (httpx-вызов не держит коннект БД и не тормозит ответ SOS).
+    # Контекст такси-заказа (B7b-2): админу — маршрут и вторая сторона, чтобы среагировать по делу.
+    order_line = ""
+    if order is not None:
+        order_line = (f"Такси-заказ: #{order.id} {order.from_text or '?'} → {order.to_text or '?'}"
+                      f" (статус {order.status.value})\n")
     background.add_task(
         notify_admin_telegram,
         f"🆘 SOS (Юлдаш)\n"
         f"От: {user.name or '—'}\n"
         f"Тел: {user.phone or '—'}\n"
         f"Категория: {body.category}\n"
+        f"{order_line}"
         f"Контактов уведомлено (SMS): {notified}\n"
         f"Детали: {body.note or '—'}"
     )

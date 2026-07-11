@@ -262,7 +262,7 @@ internal data class SosService(
 )
 
 @Composable
-internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
+internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId: Int? = null) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -369,7 +369,8 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
             if (coordsText != null) append("Координаты: $coordsText (https://yandex.ru/maps/?pt=$sosLng,$sosLat&z=17)")
         }.trim().ifBlank { "SOS" }
         scope.launch {
-            val r = ApiClient.sos("other", note)   // ждём сервер, НЕ fire-and-forget (кнопка безопасности)
+            // Ждём сервер, НЕ fire-and-forget (кнопка безопасности). orderId — контекст такси-заказа (B7b-2).
+            val r = ApiClient.sos("other", note, orderId)
             sending = false
             if (r.isSuccess) {
                 sent = true

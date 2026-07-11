@@ -593,8 +593,17 @@ object ApiClient {
         }
     }
 
-    suspend fun sos(category: String, note: String): Result<Unit> =
-        call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }.onSuccess { Analytics.log("sos") }
+    /** SOS. orderId — контекст такси-заказа (B7b-2): админ увидит маршрут и вторую сторону. */
+    suspend fun sos(category: String, note: String, orderId: Int? = null): Result<Unit> {
+        val body = JSONObject().put("category", category).put("note", note)
+        if (orderId != null) body.put("order_id", orderId)
+        return call("POST", "/sos", body, auth = true).map { }.onSuccess { Analytics.log("sos") }
+    }
+
+    /** «Поделиться поездкой» из такси-заказа (B7b-2): близкий получит SMS о маршруте и статусах. */
+    suspend fun shareInstantTrip(orderId: Int, contactId: Int): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true).map { }
+            .onSuccess { Analytics.log("instant_share_trip") }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
     suspend fun requestCallback(note: String): Result<Unit> =
