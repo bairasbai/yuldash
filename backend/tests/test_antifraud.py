@@ -487,6 +487,32 @@ def test_booking_cancel_pending_with_chat_flagged(client, user_factory):
     assert r.json()["contact_then_cancel"] is True
 
 
+# ============================ B8-9: бейдж «Юлдаш ✓» (официальность) ============================
+def test_admin_message_marked_from_admin(client, user_factory):
+    """Сообщение админа в чате помечается from_admin — клиент рисует «Юлдаш ✓».
+    Флаг ставит ТОЛЬКО сервер по роли отправителя: прикинуться поддержкой нельзя."""
+    drv = user_factory("Водитель9", role=UserRole.driver)
+    admin_pax = user_factory("Админ9", role=UserRole.admin)
+    with Session(engine) as s:
+        ride = Ride(driver_id=drv["id"], from_city="Уфа", to_city="Сибай", depart_at=utcnow())
+        s.add(ride)
+        s.commit()
+        s.refresh(ride)
+        b = Booking(ride_id=ride.id, passenger_id=admin_pax["id"], status=BookingStatus.confirmed)
+        s.add(b)
+        s.commit()
+        s.refresh(b)
+        bid = b.id
+    r = client.post(f"/bookings/{bid}/messages", headers=admin_pax["auth"],
+                    json={"text": "Здравствуйте! Это поддержка Юлдаша."})
+    assert r.status_code == 200 and r.json()["from_admin"] is True
+    r = client.post(f"/bookings/{bid}/messages", headers=drv["auth"], json={"text": "Привет!"})
+    assert r.status_code == 200 and r.json()["from_admin"] is False
+    # Получатель видит флаг в истории.
+    msgs = client.get(f"/bookings/{bid}/messages", headers=drv["auth"]).json()
+    assert [m["from_admin"] for m in msgs[-2:]] == [True, False]
+
+
 # ============================ B8-5: кап оценок одной пары ============================
 def _add_rating(rater_id, ratee_id, stars, days_ago=0.0):
     with Session(engine) as s:
