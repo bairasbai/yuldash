@@ -562,3 +562,25 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - Android: поля в `InstantOrderDto`; в `InstantOfferOverlay` строка «Пассажир: ★ 4.9 · 12 поездок» / «новичок 🌱».
 
 **Тесты:** `backend/tests/test_taxi_polish.py` 🆕 — 8 шт: WS-реле водитель→пассажир, чужой/до accept/битый токен → закрытие, booking-трек цел рядом с такси-каналом; агрегат в оффере (4★ + 2 поездки, включая бронь), null-кейс новичка, приватность оффера, витрина пассажира без лишних вычислений. **Полный прогон: 387 passed, 1 skipped** (база 379 + 8).
+
+## 2026-07-11 — 🚕 Домен «Такси-полировка: связь и контроль» (батч B7b) — ветка `feat/taxi-polish-2`
+
+Финал такси end-to-end: чат в заказе, SOS/шаринг, пульс-панель админа, чек самозанятого. От `feat/taxi-polish` (вершина B7a). Миграция `w2_polish2` (down=`w2_waitlist`, идемпотентная, оба пути): `message.order_id` + `message.booking_id`→nullable, `tripshare.order_id` + `booking_id`→nullable, `sosevent.order_id`, `driverprofile.receipt_reminder_at`. FK-колонки на SQLite — без констрейнта (паттерн w2_quality).
+
+**① Чат в такси-заказе (B7b-1):**
+- Бэкенд (`routers/chat.py`): `Message` теперь с ровно ОДНОЙ привязкой (booking_id ИЛИ order_id). REST `GET/POST /instant/orders/{id}/messages` + WS `/ws/instant/{order_id}/chat` — зеркало booking-чата (токен первым сообщением, блокировки, пуш второй стороне через threadpool). Доступ: только участники (пассажир + НАЗНАЧЕННЫЙ водитель; кандидату с оффером — 403), писать — только accepted/arriving/onboard (`ORDER_CHAT_WRITABLE`), после done/отмены — read-only (GET ок, POST 409); до accept — 409. Namespace ключей `ConnectionManager`: `INSTANT_CHAT_KEY_BASE=1_500_000_000 + order_id` (не пересекается с booking-чатом >0, трек-каналами <0 и MAP_FEED_KEY=2e9). WS перепроверяет окно записи на каждом сообщении (заказ мог завершиться).
+- Android: `data/ChatSocket.forOrder(orderId)` (тот же протокол, путь параметром), `ApiClient.getOrderMessages/sendOrderMessage`, `InstantChatScreen.kt` 🆕 (`Screen.InstantChat`) — реюз чистой ленты `ChatContent`: оптимистичная отправка (WS → REST-фолбэк, откат при сбое), дотяжка истории после реконнекта, баннеры «соединение восстанавливается» и «read-only». Кнопки «Написать» (круглая, рядом с телефоном): пассажиру в `InstantDriverEnRouteCard`, водителю в `InstantDriverTripScreen` — навигация через `NavSignals.openInstantChat` (работает и из встроенного в главную режима).
+
+**② SOS и «Поделиться поездкой» в такси (B7b-2):**
+- SOS: `SosIn.order_id` (+`SosEvent.order_id`) — только участник заказа (403 чужому); админу в Telegram добавляется строка «Такси-заказ: #id A→B (статус)». Android: `SosScreen(orderId)`, `ApiClient.sos(..., orderId)`, кнопка SOS в активном заказе у ОБЕИХ сторон (`InstantSafetyRow`, `NavSignals.openSosForOrder`; `openSos()` в `YuldashApp` чистит контекст).
+- Шаринг: `POST /instant/orders/{id}/share` + `GET .../shares` (`routers/family.py`) — только пассажир, только свой контакт, дедуп (как booking-share). Близкий получает SMS сразу («едет на такси A→Б») и на переходах — `_notify_order_shares` (`instant_service.py`): onboard→«сел(а) в такси», done→«доехал(а)», отмена→«отменилась»; дедуп по `TripShare.last_status` (идемпотентные переходы дублей не шлют). Android: «Поделиться поездкой» в карточке пассажира → `InstantShareDialog` (доверенные контакты, состояния загрузка/пусто/ошибка) → `ApiClient.shareInstantTrip`.
+
+**③ Пульс-панель админа (B7b-3):**
+- `GET /admin/taxi/pulse` (`routers/taxi.py`, только админ): `drivers_online` (живой presence: Redis GEO `zrange` + heartbeat-фильтр; без Redis честно 0), `orders_active` (searching..onboard), `orders_today/done_today/cancelled_today/no_show_today` (от начала дня UTC), `avg_search_sec_today` (created→accepted, аномалии задним числом отфильтрованы), `by_city` — ближайший `Settlement` (как в availability): онлайн-водители по живым координатам, активные заказы по точке подачи. Координаты не логируются — наружу только агрегаты.
+- Android: `AdminTaxiPulseScreen.kt` 🆕 (`Screen.AdminTaxiPulse`, вход из кабинета админа «Пульс такси») — плитки цифр (акцентные «на линии»/«активные»), список городов с точками-счётчиками, автообновление 30с (сбой сети при живых данных не пугает), скелетон/ошибка/пусто, Canon*.
+
+**④ Чек самозанятого (B7b-4, напоминание — НЕ интеграция):**
+- Бэкенд: `isv.maybe_receipt_reminder` — после done пуш водителю «Не забудь чек в „Мой налог" 🧾» (RU+BA), дедуп 1/сутки (`DriverProfile.receipt_reminder_at`, паттерн `low_rating_advice_at`). Зовётся из `POST /instant/orders/{id}/done`.
+- Android: пункт «Чек после каждой поездки» в правилах онбординга таксиста (`TaxiOnboardingScreen`) + карточка `InstantReceiptReminder` на экране завершения у водителя.
+
+**Тесты:** `backend/tests/test_taxi_polish2.py` 🆕 — 18 шт: чат (REST/WS, чужой 403, до accept 409, read-only после done, booking-чат цел), SOS (участники обеих сторон, чужой 403), шаринг (создание/дедуп/403/404, SMS на переходах без дублей, booking-share цел), пульс (агрегаты + динамика done/active, только админ, без Redis не падает), чек (пуш после done, дедуп в сутки, снова через сутки). **Полный прогон: 405 passed, 1 skipped** (база 387 + 18).
