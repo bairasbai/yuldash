@@ -32,6 +32,14 @@ F21 Boost через ЮKassa · F22 клиники-партнёры · уров�
 - Дневная Telegram-сводка (первый запрос после 21:00 местного).
 - Тестовый аккаунт для модерации сторов (`REVIEW_PHONE`/`REVIEW_CODE` из env).
 
+**Надёжность и масштаб (фазы 1 и 5) — влиты для жёсткого запуска:**
+- `rate-limit` — лимит запросов (анти-абуз/боты при вирусном наплыве).
+- `observability` — Sentry (`init_sentry`, no-op без `SENTRY_DSN`) + учёт всплеска 500-х.
+- `ci-hardening` — job `android-build` в CI (реально собирает Kotlin; informational, не блокирует).
+- `backups-dr` — бэкапы БД + restore-verify (ops-скрипты).
+- `scale-ops` — масштабирование (gunicorn воркеры, PgBouncer, индексы).
+- `media-s3` — медиа в S3-совместимом хранилище (ленивый boto3; без S3-конфига — локальная папка).
+
 ---
 
 ## Как разрешены «узлы» слияния (чтобы ничего не потерять)
@@ -70,6 +78,7 @@ f22 → p4_trust → w2_extras`.
 - **Force-update:** `MIN_APP_VERSION_CODE` + `APP_STORE_URL` (0 = выключено).
 - **Модерация сторов:** `REVIEW_PHONE` / `REVIEW_CODE` — вписать в анкету магазина.
 - **Дневная сводка:** `DAILY_DIGEST_ENABLED` / `DAILY_DIGEST_HOUR` (по умолчанию вкл, 21:00).
+- **Надёжность/масштаб (фазы 1/5):** `SENTRY_DSN` (иначе Sentry no-op) · лимиты rate-limit — константы в конфиге · cron бэкапов + первый `restore-verify` · gunicorn N воркеров / PgBouncer · S3: `S3_*` ключи + бакет (без них — локальная папка media) · при желании сделать `android-build` в CI блокирующим (убрать `continue-on-error`).
 - **Инфраструктура:** на проде — `alembic upgrade head` (по `docs/deploy-migrations.md`: бэкап + откат).
   nginx: пути `/t/…` и `/r/…` фолбэчить на FastAPI (как другие неизвестные пути).
 - **Черновой башкирский:** во всех фичах сложен в `docs/tasks.md` (разделы «Переводы на проверку») —
