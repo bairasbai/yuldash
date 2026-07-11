@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Booking, BookingStatus, DriverProfile, Ride, RideCategory, RideStatus, User, UserRole
+from ..models import Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
 from .. import workday as workday_mod
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
@@ -68,6 +68,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
     body.seats_total = max(1, min(8, body.seats_total))
     body.price = max(0, min(100_000, body.price))
+    # F22: клиника-назначение (опц.). Если указана — проверяем, что она есть и активна
+    # (чтобы не осталось битой ссылки). Это ТОЛЬКО точка назначения, без мед.данных.
+    if body.partner_id is not None:
+        partner = session.get(MedicalPartner, body.partner_id)
+        if not partner or not partner.active:
+            raise HTTPException(400, "Клиника не найдена")
     # Геокодим концы маршрута (для радиус-поиска: PostGIS на проде / haversine иначе).
     frm = geocode_city(body.from_city) or (None, None)
     to = geocode_city(body.to_city) or (None, None)

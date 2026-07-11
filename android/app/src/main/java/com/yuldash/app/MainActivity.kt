@@ -345,7 +345,8 @@ internal enum class Screen {
     Trust,        // «Доверие»: уровень L0–L3 + путь к следующему (Фаза 4)
     Invites,      // «Позвать своего»: инвайт-коды в круг доверия
     Consents,     // Согласия и данные (152-ФЗ)
-    MyStats        // «Мой Юлдаш» — личная статистика попутчика (F18)
+    MyStats,       // «Мой Юлдаш» — личная статистика попутчика (F18)
+    ClinicRides    // F22: «Поездки к клинике» — справочник клиник-партнёров + попутки к выбранной клинике
 }
 
 /** Действие «открыть публичный профиль водителя» — прокинуто из YuldashApp,
@@ -518,6 +519,7 @@ internal fun rideTypeMeta(key: String): Triple<androidx.compose.ui.graphics.vect
     "parcel" -> Triple(Icons.Default.Inventory2, "Посылка", "Посылка")
     "cargo" -> Triple(Icons.Default.LocalShipping, "Груз", "Йөк")
     "urgent" -> Triple(Icons.Default.Bolt, "Срочно", "Ашығыс")
+    "hospital" -> Triple(Icons.Default.LocalHospital, "В больницу", "Дауаханаға")   // F22: поездка к клинике-партнёру
     else -> Triple(Icons.Default.DirectionsCar, "Пассажиры", "Пассажирҙар")
 }
 

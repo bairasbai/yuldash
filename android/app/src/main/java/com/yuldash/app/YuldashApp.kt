@@ -702,6 +702,7 @@ internal fun YuldashApp() {
                 onHelp = { screen = Screen.Help },
                 onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
                 onDriverCabinet = { prefs.edit().putString("preferred_role", RideRole.Driver.name).apply(); screen = Screen.DriverCabinet },
+                onClinicRides = { screen = Screen.ClinicRides },
                 onSimpleMode = { screen = Screen.SimpleMode },
                 onTrustedContacts = { openTrustedContacts(returnScreen = Screen.Home, returnHomeTab = HomeTab.Profile) },
                 onCallbackHelp = { screen = Screen.CallbackHelp },
@@ -997,6 +998,15 @@ internal fun YuldashApp() {
             )
             Screen.Invites -> InvitesScreen(onBack = { goBack() })
             Screen.Consents -> ConsentsScreen(onBack = { goBack() })
+            Screen.ClinicRides -> ClinicRidesScreen(
+                onBack = { goBack() },
+                onBookRide = { ride ->
+                    selectedRide = ride
+                    activeBookingId = null
+                    selectedBookingStatus = ""
+                    screen = Screen.Booking
+                }
+            )
         }
         }
     }
@@ -1579,6 +1589,7 @@ internal fun HomeScreen(
     onAdminAds: () -> Unit,
     onPassengerCabinet: () -> Unit,
     onDriverCabinet: () -> Unit,
+    onClinicRides: () -> Unit,   // F22: раздел «Поездки к клинике»
     onSimpleMode: () -> Unit,
     onTrustedContacts: () -> Unit,
     onCallbackHelp: () -> Unit,
@@ -1617,6 +1628,7 @@ internal fun HomeScreen(
                     onBoost = onBoost,
                     onInstantLogin = onInstantLogin,
                     onTaxiOnboarding = onTaxiOnboarding,
+                    onClinicRides = onClinicRides,
                     onRouteWatch = onRouteWatch
                 )
                 HomeTab.Rides -> RidesScreen(

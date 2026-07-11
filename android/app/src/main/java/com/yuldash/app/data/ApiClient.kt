@@ -468,6 +468,7 @@ object ApiClient {
         receiverName: String = "",   // посылка: кому отдать
         parcelSize: String = "",     // посылка: габарит/вес
         pickupPointId: Int? = null,  // F14: выбрана известная точка сбора из справочника → привязать
+        partnerId: Int? = null,      // F22: клиника-назначение (category=hospital)
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -491,9 +492,28 @@ object ApiClient {
             .put("only_trusted", onlyTrusted)
             .put("pickup_point_id", pickupPointId ?: JSONObject.NULL)
             .put("receiver_name", receiverName)
-            .put("parcel_size", parcelSize),
+            .put("parcel_size", parcelSize)
+            .put("partner_id", partnerId ?: JSONObject.NULL),
         auth = true,
     ).map { }.onSuccess { Analytics.log("publish_ride") }
+
+    // ---------- F22: клиники-партнёры (медцентры) ----------
+
+    /** Справочник клиник-партнёров (только активные). Опц. фильтр по городу. Публичные данные. */
+    suspend fun getMedicalPartners(city: String? = null): Result<List<MedicalPartnerDto>> {
+        val path = "/medical-partners" + (city?.takeIf { it.isNotBlank() }?.let { "?city=" + enc(it) } ?: "")
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toMedicalPartnerDto() }
+        }
+    }
+
+    /** Поездки «к этой клинике» — активные попутки с клиникой-назначением. Витрина публичная (без телефона). */
+    suspend fun getRidesToPartner(partnerId: Int): Result<List<RideDto>> =
+        call("GET", "/medical-partners/$partnerId/rides", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
+        }
 
     /** Забронировать поездку. Возвращает id брони.
      * payMethod/payAmount — договорённость об оплате (ЗАПИСЬ, не платёж): как решили платить.
@@ -2394,6 +2414,17 @@ private fun JSONObject.toRideDto() = RideDto(
     receiverName = optString("receiver_name"),
     parcelSize = optString("parcel_size"),
     status = optString("status", "active"),
+    partnerId = if (isNull("partner_id")) null else optInt("partner_id"),
+)
+
+private fun JSONObject.toMedicalPartnerDto() = MedicalPartnerDto(
+    id = optInt("id"),
+    name = optString("name"),
+    city = optString("city"),
+    address = optString("address"),
+    lat = if (isNull("lat")) null else optDouble("lat"),
+    lng = if (isNull("lng")) null else optDouble("lng"),
+    description = optString("description"),
 )
 
 private fun JSONObject.toRequestNearDto() = RequestNearDto(
@@ -2441,6 +2472,19 @@ data class RideDto(
     val receiverName: String = "",    // посылка: кому отдать
     val parcelSize: String = "",      // посылка: габарит/вес
     val status: String = "active",    // active / done / cancelled (для раздела «Архив»)
+    val partnerId: Int? = null,       // F22: клиника-назначение (для category=hospital)
+)
+
+/** F22: клиника-партнёр (медцентр) — точка назначения поездки «в больницу». Только логистика,
+ *  публичные данные организации. Никаких мед.данных пациента. */
+data class MedicalPartnerDto(
+    val id: Int,
+    val name: String,
+    val city: String,
+    val address: String = "",
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val description: String = "",
 )
 
 /** Публичный профиль водителя (без ПДн: без телефона). Тапом с карточки поездки. */

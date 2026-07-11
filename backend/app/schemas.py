@@ -34,6 +34,7 @@ class RideIn(BaseModel):
     recurrence: str = "none"          # none / daily / weekdays / weekly
     receiver_name: Optional[str] = Field(None, max_length=120)   # посылка: кому отдать
     parcel_size: Optional[str] = Field(None, max_length=80)      # посылка: габарит/вес
+    partner_id: Optional[int] = None  # F22: клиника-назначение (для category=hospital), опционально
 
 
 class RideOut(BaseModel):
@@ -53,6 +54,7 @@ class RideOut(BaseModel):
     pickup_lng: Optional[float] = None
     receiver_name: Optional[str] = None   # посылка: кому отдать
     parcel_size: Optional[str] = None     # посылка: габарит/вес
+    partner_id: Optional[int] = None      # F22: клиника-назначение (для category=hospital)
     pets_allowed: bool = False
     child_seat: bool = False
     women_only: bool = False

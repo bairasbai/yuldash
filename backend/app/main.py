@@ -37,6 +37,8 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         if settings.seed_demo:
             seed_demo(session)
+            from .routers.medical import seed_medical_partners  # F22: справочник клиник (идемпотентно)
+            seed_medical_partners(session)
         from .instant_service import seed_tariffs
         seed_tariffs(session)   # тарифы «Быстрого заказа» нужны и в проде (не под seed_demo)
         from .geo import seed_settlements
