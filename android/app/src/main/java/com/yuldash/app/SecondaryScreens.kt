@@ -255,6 +255,7 @@ import com.yuldash.app.data.PopularRouteDto
 import com.yuldash.app.data.FeedDto
 import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
+import com.yuldash.app.data.NotifFeed
 import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
@@ -262,23 +263,70 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit) {
+internal fun NotificationsScreen(
+    onBack: () -> Unit,
+    onSelectTab: (HomeTab) -> Unit,
+    onOpenBooking: (Int) -> Unit = {},
+    onOpenResponses: (Int) -> Unit = {},
+) {
+    val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf("all") }
     val allLabel = appText("Все", "Бөтәһе")
-    val ridesLabel = appText("Поездки", "Сәфәрҙәр")
-    val chatLabel = appText("Чат", "Чат")
+    val tripsLabel = appText("Поездки", "Сәфәрҙәр")
+    val chatLabel = appText("Сообщения", "Хәбәрҙәр")
     val systemLabel = appText("Система", "Система")
     val selectedLabel = when (selected) {
-        "rides" -> ridesLabel
+        "trips" -> tripsLabel
         "chat" -> chatLabel
         "system" -> systemLabel
         else -> allLabel
     }
-    var serverNotifs by remember { mutableStateOf<List<NotifDto>>(emptyList()) }
-    var notifsLoading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) { ApiClient.getNotifications().onSuccess { serverNotifs = it }; notifsLoading = false }
-    // Только реальные события с сервера. Пусто → честная заглушка (без демо-обмана «Рамиль едет»).
-    val notifications = serverNotifs.map { Triple(Icons.Default.ChatBubble, it.title, it.text) }
+
+    var feed by remember { mutableStateOf(NotifFeed(0, emptyList())) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(reload) {
+        loading = true
+        ApiClient.getNotifications()
+            .onSuccess { feed = it; error = false }
+            // 401 / нет сессии — не сетевая ошибка: событий просто нет, показываем дружелюбное «пусто».
+            .onFailure { e -> error = (e as? ApiException)?.status != 401 }
+        loading = false
+    }
+
+    // Локальная пометка прочитанным (мгновенно в UI) + запрос на сервер. Не блокирует навигацию.
+    fun markRead(id: Int) {
+        if (feed.items.none { it.id == id && !it.read }) return
+        feed = feed.copy(
+            unread = (feed.unread - 1).coerceAtLeast(0),
+            items = feed.items.map { if (it.id == id) it.copy(read = true) else it },
+        )
+        scope.launch { ApiClient.markNotificationsRead(id) }
+    }
+    fun markAll() {
+        if (feed.unread == 0) return
+        feed = feed.copy(unread = 0, items = feed.items.map { it.copy(read = true) })
+        scope.launch { ApiClient.markNotificationsRead(null) }
+    }
+    fun openDeepLink(n: NotifDto) {
+        markRead(n.id)
+        val ref = n.refId ?: return
+        when (n.refKind) {
+            "booking" -> onOpenBooking(ref)
+            "request" -> onOpenResponses(ref)
+        }
+    }
+
+    val visible = feed.items.filter { n ->
+        when (selected) {
+            "trips" -> n.type == "booking" || n.type == "ride"
+            "chat" -> n.type == "message"
+            "system" -> n.type == "system"
+            else -> true
+        }
+    }
+
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Chat, onSelect = onSelectTab) }
@@ -290,18 +338,25 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
         ) {
             item { Spacer(Modifier.height(10.dp)) }
             item {
-                // «Очистить всё» убрана: уведомления вычисляются из последних сообщений на сервере
-                // (не хранятся как отдельные записи) → «очистка» не могла сохраниться и при перезаходе
-                // список возвращался. Лента сама обновляется по факту прочтения переписки.
-                Text(appText("Уведомления", "Хәбәрҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(appText("Уведомления", "Хәбәрҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                    // «Прочитать всё» — только когда есть непрочитанные (тач-цель 48dp через padding).
+                    AnimatedVisibility(visible = feed.unread > 0) {
+                        Text(
+                            appText("Прочитать всё", "Барыһын да уҡыу"),
+                            color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                            modifier = Modifier.bounceClick { markAll() }.padding(horizontal = 8.dp, vertical = 12.dp)
+                        )
+                    }
+                }
             }
             item {
                 SegmentedTabs(
-                    listOf(allLabel, ridesLabel, chatLabel, systemLabel),
+                    listOf(allLabel, tripsLabel, chatLabel, systemLabel),
                     selectedLabel,
                     onSelect = {
                         selected = when (it) {
-                            ridesLabel -> "rides"
+                            tripsLabel -> "trips"
                             chatLabel -> "chat"
                             systemLabel -> "system"
                             else -> "all"
@@ -309,48 +364,87 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
                     }
                 )
             }
-            val visibleNotifications = notifications.filter { (icon, _, _) ->
-                selected == "all" ||
-                    (selected == "rides" && icon != Icons.Default.ChatBubble && icon != Icons.Default.Shield) ||
-                    (selected == "chat" && icon == Icons.Default.ChatBubble) ||
-                    (selected == "system" && icon == Icons.Default.Shield)
-            }
-            if (notifsLoading) {
-                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            } else if (visibleNotifications.isEmpty()) {
-                item {
-                    InfoCard(
-                        title = appText("Уведомлений пока нет", "Хәбәрҙәр әлегә юҡ"),
-                        text = appText("Новые события по поездкам, чату и профилю появятся здесь.", "Сәфәр, чат һәм профиль буйынса яңы ваҡиғалар бында күренә."),
-                        icon = Icons.Default.Notifications
-                    )
+            when {
+                loading && feed.items.isEmpty() -> {
+                    items(4) { SkeletonCard(lines = 2, modifier = Modifier.padding(vertical = 2.dp)) }
                 }
-            } else {
-                // Индекс в ключе: у всех уведомлений title == «Новое сообщение» (бэк) → ключ по title давал
-                // дубликаты при 2+ уведомлениях → краш экрана. Индекс гарантирует уникальность.
-                itemsIndexed(visibleNotifications, key = { i, it -> it.second + "#" + i }) { _, (icon, title, subtitle) ->
-                    NotificationRow(icon = icon, title = title, subtitle = subtitle, time = "", unread = true)
+                error && feed.items.isEmpty() -> {
+                    item { AppErrorState(onRetry = { reload++ }) }
+                }
+                visible.isEmpty() -> {
+                    item {
+                        AppEmptyState(
+                            title = appText("Уведомлений пока нет", "Хәбәрҙәр әлегә юҡ"),
+                            text = appText("Новые события по броням, поездкам и сообщениям появятся здесь.", "Броньдар, сәфәрҙәр һәм хәбәрҙәр буйынса яңы ваҡиғалар бында күренә."),
+                            icon = Icons.Default.Notifications,
+                        )
+                    }
+                }
+                else -> {
+                    itemsIndexed(visible, key = { _, n -> n.id }) { i, n ->
+                        Box(Modifier.appearIn(i)) {
+                            NotificationRow(notif = n, onClick = { openDeepLink(n) })
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+/** Иконка типа уведомления (в едином стиле, без новых сущностей). */
+private fun notifIcon(type: String): androidx.compose.ui.graphics.vector.ImageVector = when (type) {
+    "booking" -> Icons.Default.EventSeat
+    "ride" -> Icons.Default.DirectionsCar
+    "message" -> Icons.Default.ChatBubble
+    else -> Icons.Default.Notifications
+}
+
+/** Относительное время события (двуязычно). created_at — наивный UTC ISO с бэкенда. */
 @Composable
-internal fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, time: String, unread: Boolean) {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+private fun notifTimeAgo(iso: String): String {
+    val ms = remember(iso) {
+        runCatching { java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli() }
+            .getOrElse { runCatching { java.time.LocalDateTime.parse(iso).toInstant(java.time.ZoneOffset.UTC).toEpochMilli() }.getOrNull() }
+    } ?: return ""
+    val mins = ((System.currentTimeMillis() - ms) / 60000L).coerceAtLeast(0)
+    return when {
+        mins < 1 -> appText("только что", "хәҙер генә")
+        mins < 60 -> appText("$mins мин", "$mins мин")
+        mins < 1440 -> appText("${mins / 60} ч", "${mins / 60} сәғ")
+        else -> appText("${mins / 1440} дн", "${mins / 1440} көн")
+    }
+}
+
+@Composable
+internal fun NotificationRow(notif: NotifDto, onClick: () -> Unit) {
+    val isBa = LocalAppLanguage.current == AppLanguage.Ba
+    val title = (if (isBa) notif.titleBa else notif.titleRu).ifBlank { notif.titleRu }
+    val subtitle = (if (isBa) notif.bodyBa else notif.bodyRu).ifBlank { notif.bodyRu }
+    val time = notifTimeAgo(notif.createdAt)
+    // Непрочитанное — чуть плотнее (мятная подложка), прочитанное — спокойный фон.
+    val bg = if (notif.read) CanonSurface else CanonMint
+    Card(
+        modifier = Modifier.fillMaxWidth().bounceClick(onClick),
+        colors = CardDefaults.cardColors(containerColor = bg),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (notif.read) 1.dp else 2.dp),
+    ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonMint, shape = CircleShape) {
-                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
+            Surface(color = if (notif.read) CanonMint else CanonSurface, shape = CircleShape) {
+                Icon(notifIcon(notif.type), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(14.dp).size(22.dp))
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, lineHeight = 21.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (subtitle.isNotBlank()) {
+                    Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Text(time, color = CanonMuted, fontSize = 13.sp)
-                if (unread) Box(Modifier.size(8.dp).background(CanonGreen2, CircleShape))
+            Spacer(Modifier.width(10.dp))
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (time.isNotBlank()) Text(time, color = CanonMuted, fontSize = 13.sp, maxLines = 1)
+                if (!notif.read) Box(Modifier.size(9.dp).background(CanonGreen2, CircleShape))
             }
         }
     }

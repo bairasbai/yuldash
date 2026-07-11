@@ -461,6 +461,32 @@ class AdEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class NotificationType(str, Enum):
+    booking = "booking"      # событие по броне: создана / подтверждена / отменена
+    ride = "ride"            # событие по поездке: водитель выехал/подъезжает, завершена, отклик/приняли
+    system = "system"        # системное: модерация, реклама и пр.
+    message = "message"      # новое сообщение в чате брони
+
+
+class Notification(SQLModel, table=True):
+    """Уведомление Центра уведомлений. Двуязычно (RU+BA) — показываем по языку приложения.
+
+    Пишется в тех же местах, где шлётся push (services.push_notification) → лента и пуш синхронны.
+    ref_kind/ref_id — deep-link: тап открывает связанный экран (бронь/заявку). read_at — прочитано.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    type: str = Field(default=NotificationType.system.value, index=True, max_length=16)
+    title_ru: str = Field(default="", max_length=140)
+    title_ba: str = Field(default="", max_length=140)
+    body_ru: str = Field(default="", max_length=500)
+    body_ba: str = Field(default="", max_length=500)
+    ref_kind: str = Field(default="", max_length=16)   # booking / request / "" — как трактовать ref_id
+    ref_id: Optional[int] = Field(default=None)
+    read_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class Payment(SQLModel, table=True):
     """Платёж платформы. Два вида:
     1) СВОЯ услуга самозанятого (boost/ad/donate) — НЕ посредничество за проезд.

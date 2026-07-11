@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 from .config import settings
 from .db import engine
 from .models import (
-    Block, Booking, DeviceToken, DriverProfile, Rating, Ride, RideCategory,
+    Block, Booking, DeviceToken, DriverProfile, Notification, Rating, Ride, RideCategory,
     RideStatus, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
@@ -214,6 +214,45 @@ def send_push(session: Session, user_id: int, title: str, body: str,
                 print(f"[FCM] send error: {e}")
     except Exception as e:  # noqa: BLE001
         print(f"[FCM] init error: {e}")
+
+
+def push_notification(
+    session: Session,
+    user_id: int,
+    ntype: str,
+    title_ru: str,
+    title_ba: str,
+    body_ru: str,
+    body_ba: str,
+    ref_kind: str = "",
+    ref_id: "int | None" = None,
+    push: bool = True,
+) -> None:
+    """Единая точка события: пишет строку в Центр уведомлений (двуязычно RU+BA) И шлёт FCM-push.
+
+    Ставится в тех же местах, где раньше был голый send_push → лента уведомлений и пуш всегда
+    синхронны. Запись идёт в СВОЕЙ сессии: commit в переданной session сбросил бы (expire) ORM-
+    объекты вызывающего до сериализации ответа (напр. Booking в response_model → пустой ответ).
+    Уведомление вторично — ошибку БД глотаем и логируем, основную операцию не валим. Push шлём
+    на RU (FCM однострочный); в самой ленте пользователь видит текст на языке приложения.
+    """
+    try:
+        with Session(engine) as s:
+            s.add(Notification(
+                user_id=user_id,
+                type=ntype,
+                title_ru=(title_ru or "")[:140],
+                title_ba=(title_ba or "")[:140],
+                body_ru=(body_ru or "")[:500],
+                body_ba=(body_ba or "")[:500],
+                ref_kind=ref_kind or "",
+                ref_id=ref_id,
+            ))
+            s.commit()
+    except Exception as e:  # noqa: BLE001 — уведомление вторично, основную операцию не валим
+        print(f"[NOTIFY] db error: {e}")
+    if push:
+        send_push(session, user_id, title_ru, body_ru)
 
 
 # ----------------------------- SMS -----------------------------

@@ -331,8 +331,10 @@ def test_chat_conversations_notifications(client, user_factory):
     assert msgs[-1]["text"] == "Я на месте"
     convs = client.get("/conversations", headers=drv["auth"]).json()
     assert any(c["booking_id"] == bid for c in convs)
+    # Центр уведомлений: типизированная лента {unread, items}; входящее сообщение → уведомление type=message.
     notes = client.get("/notifications", headers=drv["auth"]).json()
-    assert any(n["type"] == "message" for n in notes)
+    assert notes["unread"] >= 1
+    assert any(n["type"] == "message" for n in notes["items"])
 
 
 # ----------------------------- рейтинги -----------------------------

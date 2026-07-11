@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models import Booking, BookingStatus, DriverProfile, Message, Ride, RideStatus, User
 from ..security import current_user, gen_otp
-from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, send_push, user_rating
+from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["bookings"])
@@ -102,8 +102,15 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     session.commit()
     session.refresh(booking)
     notify_map_changed()   # места убыли → если 0, поездка уходит с карты live
-    # Push водителю о новой брони.
-    send_push(session, ride.driver_id, "Новая бронь", f"{user.name or 'Пассажир'}: {ride.from_city} → {ride.to_city}, мест {body.seats}")
+    # Уведомление + push водителю о новой брони.
+    pax_name = user.name or "Пассажир"
+    route = f"{ride.from_city} → {ride.to_city}"
+    push_notification(
+        session, ride.driver_id, "booking",
+        "Новая бронь", "Яңы бронь",
+        f"{pax_name}: {route}, мест {body.seats}", f"{pax_name}: {route}, {body.seats} урын",
+        ref_kind="booking", ref_id=booking.id,
+    )
     return booking
 
 
@@ -194,7 +201,13 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
             # B8-4: реферальный бонус пригласившему за раскатавшегося водителя (идемпотентно).
             from .referral import reward_driver_referral
             reward_driver_referral(session, ride.driver_id)
-        send_push(session, booking.passenger_id, "Поездка завершена", f"{ride.from_city} → {ride.to_city}")
+        route = f"{ride.from_city} → {ride.to_city}"
+        push_notification(
+            session, booking.passenger_id, "ride",
+            "Поездка завершена", "Сәфәр тамамланды",
+            route, route,
+            ref_kind="booking", ref_id=booking.id,
+        )
         return {"ok": True, "status": "done"}
     # «выехал/подъезжает» бессмысленны на мёртвой броне — иначе push «Водитель выехал» по отменённой/завершённой.
     if booking.status in (BookingStatus.cancelled, BookingStatus.done):
@@ -202,8 +215,15 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     booking.driver_phase = body.status       # сохраняем «выехал/подъезжает» → пассажир увидит live, не только пушем
     session.add(booking)
     session.commit()
-    title = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
-    send_push(session, booking.passenger_id, title, f"{ride.from_city} → {ride.to_city}")
+    title_ru = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
+    title_ba = {"departed": "Водитель юлға сыҡты", "arriving": "Водитель яҡынлаша"}[body.status]
+    route = f"{ride.from_city} → {ride.to_city}"
+    push_notification(
+        session, booking.passenger_id, "ride",
+        title_ru, title_ba,
+        route, route,
+        ref_kind="booking", ref_id=booking.id,
+    )
     return {"ok": True, "driver_phase": body.status}
 
 
@@ -221,6 +241,14 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     session.add(booking)
     session.commit()
     session.refresh(booking)
+    # Уведомление пассажиру: бронь подтверждена водителем.
+    route = f"{ride.from_city} → {ride.to_city}"
+    push_notification(
+        session, booking.passenger_id, "booking",
+        "Бронь подтверждена", "Бронь раҫланды",
+        route, route,
+        ref_kind="booking", ref_id=booking.id,
+    )
     return booking
 
 
@@ -251,6 +279,15 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
         session.commit()
         session.refresh(booking)
         notify_map_changed()   # места вернулись → поездка снова видна на карте live
+        # Уведомление ДРУГОЙ стороне: кто не отменял (пассажир отменил → водителю, и наоборот).
+        other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
+        route = f"{ride.from_city} → {ride.to_city}"
+        push_notification(
+            session, other_id, "booking",
+            "Бронь отменена", "Бронь ҡалдырылды",
+            route, route,
+            ref_kind="booking", ref_id=booking.id,
+        )
     return booking
 
 

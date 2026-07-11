@@ -759,7 +759,16 @@ internal fun YuldashApp() {
             )
             Screen.Notifications -> NotificationsScreen(
                 onBack = { goBack() },
-                onSelectTab = { tab -> openHome(tab) }
+                onSelectTab = { tab -> openHome(tab) },
+                // Deep-link: тап по брони/поездке/сообщению → детали брони (BookingScreen сам грузит их по id).
+                onOpenBooking = { bid ->
+                    selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
+                    activeBookingId = bid
+                    selectedBookingStatus = ""
+                    screen = Screen.Booking
+                },
+                // Тап по «отклик на заявку» → экран откликов этой заявки.
+                onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses }
             )
             Screen.Privacy -> PrivacyScreen(onBack = { goBack() })
             Screen.Rules -> RulesScreen(onBack = { goBack() })
