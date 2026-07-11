@@ -27,3 +27,23 @@ def health():
 def version():
     """Версия API — для проверки, что задеплоилась нужная сборка."""
     return {"version": API_VERSION, "env": settings.env}
+
+
+# Force-update (B9b-1). Тон — тёплый, без обвинений; черновик BA → docs/tasks.md.
+MSG_FORCE_UPDATE = {
+    "ru": "Обнови Юлдаш 🙌 Вышла новая версия — эта уже не поддерживается",
+    "ba": "Юлдашты яңырт 🙌 Яңы версия сыҡты — быныһы инде эшләмәй",
+}
+
+
+@router.get("/version/min")
+def version_min():
+    """Минимальная поддерживаемая версия приложения (force-update, B9b-1).
+    min_version_code=0 → проверка выключена, клиент никого не блокирует.
+    Клиент: versionCode < min → блокирующий экран «Обнови Юлдаш» + кнопка в стор.
+    Офлайн/ошибка ручки на клиенте → пропускаем и НЕ блокируем (мягкая деградация)."""
+    return {
+        "min_version_code": settings.min_app_version_code,
+        "message": MSG_FORCE_UPDATE,
+        "store_url": settings.app_store_url,
+    }

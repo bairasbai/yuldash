@@ -351,6 +351,20 @@ internal fun YuldashApp() {
             screen = Screen.Sos
         }
     }
+    // Force-update (B9b-1): при старте ПАРАЛЛЕЛЬНО обычному запуску спрашиваем /version/min.
+    // versionCode < min с сервера → блокирующий экран «Обнови Юлдаш» (ниже, поверх всего).
+    // Офлайн / ошибка ручки / min=0 → НИЧЕГО не блокируем, приложение стартует как обычно.
+    var forceUpdateRequired by rememberSaveable { mutableStateOf(false) }
+    var forceUpdateStoreUrl by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        ApiClient.minAppVersion().onSuccess { o ->
+            val min = o.optInt("min_version_code", 0)
+            if (min > 0 && BuildConfig.VERSION_CODE < min) {
+                forceUpdateStoreUrl = o.optString("store_url", "")
+                forceUpdateRequired = true
+            }
+        }
+    }
     val notifPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var notifAsked by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(screen) {
@@ -512,6 +526,12 @@ internal fun YuldashApp() {
         }
     }
     CompositionLocalProvider(LocalAppLanguage provides language) {
+        // Force-update (B9b-1): версия ниже минимальной → блокирующий экран вместо всего приложения.
+        // Не экран навигации (enum Screen) намеренно: из него нельзя выйти «Назад» — только обновиться.
+        if (forceUpdateRequired) {
+            ForceUpdateScreen(storeUrl = forceUpdateStoreUrl)
+            return@CompositionLocalProvider
+        }
         // Мои заявки — с сервера (после входа). Точное время в Фазе 1 не храним.
         val reqWaitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
         val reqByAgreement = appText("по договорённости", "килешеү буйынса")

@@ -331,6 +331,10 @@ object ApiClient {
             auth = false,
         ).onSuccess { it.applyAuth(); Analytics.log("login", mapOf("method" to "telegram")) }
 
+    /** Минимальная поддерживаемая версия приложения (force-update, B9b-1). Без авторизации.
+     *  min_version_code=0 → проверка выключена. Ошибка/офлайн → вызывающий НЕ блокирует. */
+    suspend fun minAppVersion(): Result<JSONObject> = call("GET", "/version/min", null, auth = false)
+
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = cachedGet("me", TTL_PERSONAL) {
         call("GET", "/me", null, auth = true)
