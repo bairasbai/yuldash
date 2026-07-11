@@ -1051,6 +1051,43 @@ object ApiClient {
         return call("POST", "/notifications/read", body, auth = true).map { it.optInt("unread") }
     }
 
+    // ---------- Подписка на маршрут «карауль поездку» (F13) ----------
+    /** Подписаться на маршрут: как только появится подходящая поездка — придёт уведомление. */
+    suspend fun createRouteWatch(
+        fromCity: String,
+        toCity: String,
+        direction: String = "forward",     // forward | both (туда-обратно)
+        watchDate: String? = null,         // ISO "yyyy-MM-dd'T'HH:mm:ss" — опц. конкретный день
+    ): Result<Int> = call(
+        "POST", "/route-watch",
+        JSONObject()
+            .put("from_city", fromCity)
+            .put("to_city", toCity)
+            .put("direction", direction)
+            .apply { watchDate?.takeIf { it.isNotBlank() }?.let { put("watch_date", it) } },
+        auth = true,
+    ).map { it.optInt("id") }.onSuccess { Analytics.log("route_watch_create") }
+
+    /** Мои активные подписки на маршрут (непротухшие). */
+    suspend fun getRouteWatches(): Result<List<RouteWatchDto>> =
+        call("GET", "/route-watch", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                RouteWatchDto(
+                    id = o.optInt("id"),
+                    fromCity = o.optString("from_city"),
+                    toCity = o.optString("to_city"),
+                    direction = o.optString("direction").ifBlank { "forward" },
+                    watchDate = o.optString("watch_date").ifBlank { null },
+                )
+            }
+        }
+
+    /** Отписаться от маршрута. */
+    suspend fun deleteRouteWatch(id: Int): Result<Unit> =
+        call("DELETE", "/route-watch/$id", null, auth = true).map { }
+
     // Партнёрская реклама — сервер-управляемая.
     suspend fun getAds(): Result<List<AdDto>> =
         call("GET", "/ads", null, auth = false).map { obj ->
@@ -2380,6 +2417,15 @@ data class NotifDto(
 
 /** Лента уведомлений: непрочитанные сверху + счётчик непрочитанного (бейдж). */
 data class NotifFeed(val unread: Int, val items: List<NotifDto>)
+
+/** Подписка на маршрут «карауль поездку» (F13). */
+data class RouteWatchDto(
+    val id: Int,
+    val fromCity: String,
+    val toCity: String,
+    val direction: String,          // forward | both
+    val watchDate: String? = null,  // ISO, если задан конкретный день
+)
 
 /** Тариф поднятия (с бэкенда /boost/plans). */
 data class BoostPlanDto(val tier: String, val title: String, val price: Int, val hours: Int)

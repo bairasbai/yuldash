@@ -269,7 +269,8 @@ internal fun MapScreen(
     onSos: () -> Unit,
     onOpenPopular: (PopularRoute) -> Unit,
     onDriver: () -> Unit,
-    onBoost: () -> Unit
+    onBoost: () -> Unit,
+    onRouteWatch: (String?, String?) -> Unit = { _, _ -> }   // F13 «карауль поездку»: открыть «Мои подписки»
 ) {
     val nearbyAd = ads.forPlacement(AdPlacement.Nearby).firstOrNull { it.city == "Баймаҡ" }
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
@@ -434,7 +435,12 @@ internal fun MapScreen(
                             nearbyLoading && nearby.isEmpty() -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 NearbySkeletonCard(); NearbySkeletonCard()
                             }
-                            nearby.isEmpty() -> NearbyEmptyCard(hasRoute = focusFrom != null, onRetry = { nearbyReload++ }, error = nearbyError)
+                            nearby.isEmpty() -> NearbyEmptyCard(
+                                hasRoute = focusFrom != null,
+                                onRetry = { nearbyReload++ },
+                                error = nearbyError,
+                                onWatchRoute = if (!nearbyError) ({ onRouteWatch(focusFrom, focusTo) }) else null
+                            )
                             shownNearby.isEmpty() -> Text(
                                 appText("Нет поездок с такими условиями. Снимите часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн алығыҙ."),
                                 color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp

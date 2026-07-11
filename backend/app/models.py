@@ -459,6 +459,25 @@ class InstantOrder(SQLModel, table=True):
     expired_at: Optional[datetime] = None
 
 
+class RouteWatch(SQLModel, table=True):
+    """Подписка «карауль поездку»: пользователь ждёт попутку по маршруту.
+    При публикации подходящей поездки (rides.create_ride) сторож получает push
+    + запись в ленту уведомлений. Анти-спам: не чаще 1 пуша на подписку в день
+    (last_notified_at). Авто-протухание 14 дней (expires_at) — старые не матчатся."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    from_city: str = Field(index=True)
+    to_city: str = Field(index=True)
+    # Необязательная дата интереса: если задана — матчим только поездки в этот календарный день.
+    watch_date: Optional[datetime] = None
+    # Направление: "forward" (только from→to) / "both" (ещё и обратно to→from).
+    direction: str = "forward"
+    # Анти-спам: время последнего отправленного пуша по этой подписке (не чаще 1/сутки).
+    last_notified_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utcnow)
+    expires_at: datetime = Field(index=True)   # created_at + 14 дней; протухшие не матчим и прячем
+
+
 class AdEvent(SQLModel, table=True):
     """Событие по рекламе: показ или клик (для реальной статистики кабинета)."""
     id: Optional[int] = Field(default=None, primary_key=True)
