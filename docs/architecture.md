@@ -253,6 +253,13 @@
 - **`ApiClient`**: `getMyTrust`/`createInvite`/`getMyInvites`/`redeemInvite`/`getConsents`/`setConsent` + DTO `TrustSummaryDto`/`TrustNextDto`/`Bilingual`/`InviteDto`/`ConsentDto`; `only_trusted` в теле `publishRide`/`createRequest`.
 - Все надписи двуязычны (`appText`); черновой башкирский → `docs/tasks.md` «Переводы на проверку — Доверие». Все состояния (загрузка/ошибка/пусто), тач-цели ≥48dp, `Canon*`. ⏳ Собрать APK перед мержем; вливать ПОСЛЕ бэкенд-PR #38 (эта ветка от `feat/trust-levels`).
 
+## F8 — Бейджи и «стаж своего» (2026-07-05, ветка `feat/trust-badges`, draft PR)
+- **Агрегаты, БЕЗ новых таблиц.** `RideOut` (`schemas.py`) +2 поля: `driver_trips` (завершённых поездок = distinct done-броней водителя) и `driver_since` (`"YYYY-MM"` из `User.created_at`). Считаются батчем в `services.py`: новый хелпер `driver_trips_agg()` + расширены `drivers_bundle()` (теперь 4-кортеж) и `ride_out_with()` (принимает `trips_agg`). Один запрос на весь список карточек — без N+1. Проходят через `public_ride_payload` (не приватные).
+- **Почему done-брони, а не done-поездки:** завершение ставит `Booking.status=done`, а `Ride.status` остаётся `active` (см. `bookings.py::driver-status`), поэтому «N поездок» меряем по завершённым броням (distinct по `ride_id`).
+- **UI** (`RidesRequestsChatScreens.kt`): `DriverTrustBadges` (FlowRow-чипы Canon: Проверен · N поездок · с <мес год>) в детальной `RideCard`; `CompactTrustLine` (одна строка в weight-зоне, не растит фикс-высоту) в `NearbyRideCard`. RU-плюрал `tripsWordRu`, месяцы `f8MonthsRu/Ba`. `RideDto`/`Ride`/`toUiRide` проброшены. Длинный башкирский переносится/обрезается — вёрстка цела.
+- **Пропущено честно:** «Земляк» (нет города у `User`/`DriverProfile`), «Отвечает быстро» (нет `confirmed_at`). Появятся данные → добавим.
+- Тесты: `backend/tests/test_trust_badges.py` (6). Android — собрать (нет SDK в worktree). Черновой башкирский → `docs/tasks.md` «Переводы на проверку — F8».
+
 ## Бэкенд: премиум-поля и проверка водителя (2026-06-24, ✅ ЗАДЕПЛОЕНО на yulbash.ru)
 - `Ride` + `RideIn`/`RideOut`: новые булевы поля предпочтений — `pets_allowed` (животные), `child_seat` (детское кресло/бустер), `women_only` (только женщины), `smoking`, `baggage`, `air_conditioner`. `GET /rides` принимает их как фильтры. Дефолты `False` → обратносовместимо.
 - Проверка водителя (реальная, без платного KYC): `POST /upload/photo` (base64→`media/docs`), `POST /driver/profile` (реальное авто), `POST /driver/verify` (→`docs_status=pending` + `license_url`/`car_photo_url`), `GET /driver/status`, `POST /admin/drivers/{id}/moderate` (роль admin → `User.verified=True`). `DriverProfile` расширен (`license_url`, `car_photo_url`, `verify_submitted_at`, `docs_status` дефолт→`none`).

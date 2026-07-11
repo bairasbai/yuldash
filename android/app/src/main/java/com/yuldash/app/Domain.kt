@@ -13,6 +13,8 @@ internal data class Ride(
     val driver: String,
     val driverAvatar: String = "",
     val driverOnline: Boolean = false,
+    val driverTrips: Int = 0,        // F8: завершённых поездок водителя (бейдж «N поездок»)
+    val driverSince: String = "",    // F8: месяц регистрации "YYYY-MM" (бейдж «С нами с …»)
     val car: String,
     val carBa: String? = null,
     val price: Int,

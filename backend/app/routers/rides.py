@@ -198,7 +198,7 @@ def rides_near(
         except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк
             print(f"[GEO] PostGIS prefilter skipped: {e}")
     rides = session.exec(q.order_by(*boost_then_depart_order())).all()  # Boost первыми, затем по времени выезда ↑
-    users, profiles, rating_agg = drivers_bundle(session, {r.driver_id for r in rides})
+    users, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in rides})
     items: list = []
     for r in rides:
         dist = None
@@ -209,7 +209,7 @@ def rides_near(
                 dist = round(haversine_km(lat, lng, c[0], c[1]), 1)
         if radius_km is not None and dist is not None and dist > radius_km:
             continue
-        out = public_ride_payload(ride_out_with(r, users, profiles, rating_agg)).model_dump()
+        out = public_ride_payload(ride_out_with(r, users, profiles, rating_agg, trips_agg)).model_dump()
         out["distance_km"] = dist
         items.append(out)
     items = _hide_blocked(items, user, session)   # прячем заблокированных до подсчёта total/пагинации
