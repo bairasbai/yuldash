@@ -20,6 +20,7 @@ from ..services import (
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
     public_rides_payload, record_pickup_choice, ride_out, ride_out_with, rides_out, send_push,
 )
+from .referral import reward_driver_referral
 
 router = APIRouter(tags=["rides"])
 

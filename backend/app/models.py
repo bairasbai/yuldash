@@ -71,6 +71,9 @@ class User(SQLModel, table=True):
     # По нему: бан устройства ловит обход бана новым номером; вход с нового устройства → сигнал.
     # Приватность: наружу не отдаём, в логи не пишем.
     last_device_id: Optional[str] = Field(default=None, index=True)
+    # F19 «Позови водителя»: приглашённый стал водителем и опубликовал первый рейс →
+    # пригласивший получил бонус (бесплатный Boost). Флаг гарантирует начисление РОВНО раз.
+    driver_referral_rewarded: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
 
