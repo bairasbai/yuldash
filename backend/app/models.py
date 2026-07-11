@@ -74,6 +74,9 @@ class User(SQLModel, table=True):
     # F19 «Позови водителя»: приглашённый стал водителем и опубликовал первый рейс →
     # пригласивший получил бонус (бесплатный Boost). Флаг гарантирует начисление РОВНО раз.
     driver_referral_rewarded: bool = False
+    # Тестовый аккаунт модерации сторов (B9b-4): вход review_phone+review_code из env,
+    # реальная SMS не шлётся. Обычный пассажир БЕЗ прав (не админ, не водитель).
+    is_reviewer: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -731,6 +734,15 @@ class TaxiWorkDay(SQLModel, table=True):
     warned_60: bool = False                           # пуш «остался час» отправлен (дедуп)
     warned_15: bool = False                           # пуш «осталось 15 минут» отправлен (дедуп)
     winter_push_sent: bool = False                    # зимний ночной совет отправлен (дедуп)
+
+
+class DailyDigestLog(SQLModel, table=True):
+    """Замок дневной сводки админу (B9b-3): одна строка = сводка за МЕСТНЫЙ день отправлена.
+    UNIQUE(day) решает гонку воркеров gunicorn: второй insert падает → второй раз не шлём.
+    Без внешнего cron — триггерит первый запрос после daily_digest_hour (см. app/digest.py)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    day: date_type = Field(unique=True)               # МЕСТНЫЙ день сводки (UTC + local_tz_offset_hours)
+    sent_at: datetime = Field(default_factory=utcnow)
 
 
 class UploadEvent(SQLModel, table=True):

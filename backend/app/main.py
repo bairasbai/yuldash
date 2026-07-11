@@ -19,6 +19,7 @@ from sqlmodel import Session
 
 from .config import settings
 from .db import engine, init_db
+from .digest import DailyDigestMiddleware
 from .middleware import (
     AccessLogMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware,
     unhandled_exception_handler,
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Yuldash API", version=API_VERSION, lifespan=lifespan)
     # Порядок: последний add_middleware — внешний (выполняется первым).
     # Хотим: лимит запросов отсекает раньше всего → добавляем его последним.
+    app.add_middleware(DailyDigestMiddleware)   # дневная сводка админу (B9b-3): дешёвый гейт, отправка в фоне
     app.add_middleware(AccessLogMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(

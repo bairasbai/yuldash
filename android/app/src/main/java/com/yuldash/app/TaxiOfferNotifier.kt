@@ -23,6 +23,8 @@ import androidx.core.app.NotificationCompat
 internal object TaxiOfferNotifier {
     const val CHANNEL_ID = "taxi_offers"
     const val EXTRA_OPEN_OFFER = "yuldash_open_instant_offer"
+    // B9b-2: тап по пушу о ходе заказа (instant_status) → открыть экран заказа пассажира.
+    const val EXTRA_OPEN_ORDER = "yuldash_open_instant_order"
     private const val NOTIF_ID = 4713   // фиксированный: новый оффер заменяет прошлое уведомление
 
     /** Канал (once). Важность MAX + звук/вибрация — оффер живёт ~20с, его нельзя проспать. */
@@ -112,5 +114,8 @@ internal object NavSignals {
     // B7b: сквозная навигация из экранов такси-заказа (в т.ч. встроенных в главную) —
     // без прокидывания колбэков через все слои. 0 = сигнала нет.
     val openInstantChat = mutableStateOf(0)      // orderId → открыть чат заказа
+    // B9b-2: пуш о ходе такси-заказа (водитель принял / машина на месте / …) → экран заказа
+    // пассажира (он сам подхватывает активный заказ, orderId не нужен).
+    val openInstantOrder = mutableStateOf(false)
     val openSosForOrder = mutableStateOf(0)      // orderId → открыть SOS с контекстом заказа
 }

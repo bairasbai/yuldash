@@ -44,10 +44,12 @@ class FcmService : FirebaseMessagingService() {
         val n = msg.notification
         val title = n?.title ?: msg.data["title"] ?: "Юлдаш"
         val body = n?.body ?: msg.data["body"] ?: ""
-        showNotification(title, body)
+        // Ход такси-заказа (B9b-2): тап по уведомлению открывает экран заказа пассажира
+        // (extra ловит MainActivity.handleNavIntent → NavSignals.openInstantOrder).
+        showNotification(title, body, openInstantOrder = msg.data["type"] == "instant_status")
     }
 
-    private fun showNotification(title: String, body: String) {
+    private fun showNotification(title: String, body: String, openInstantOrder: Boolean = false) {
         val mgr = getSystemService(NotificationManager::class.java) ?: return
         val silent = !AppPrefs.sounds(this)   // тумблер «Звуки» выключен → беззвучно
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -56,9 +58,14 @@ class FcmService : FirebaseMessagingService() {
                 NotificationChannel(CHANNEL_ID, "Юлдаш · Хәбәрҙәр · Уведомления", NotificationManager.IMPORTANCE_HIGH)
             )
         }
-        val intent = Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_CLEAR_TOP }
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (openInstantOrder) putExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, true)
+        }
+        // requestCode различает интенты с нав-экстрой и без — иначе FLAG_UPDATE_CURRENT
+        // дописал бы extra в общий PendingIntent и «заразил» обычные уведомления.
         val pi = PendingIntent.getActivity(
-            this, 0, intent,
+            this, if (openInstantOrder) 1 else 0, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notif = NotificationCompat.Builder(this, CHANNEL_ID)
