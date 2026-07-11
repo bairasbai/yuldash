@@ -154,7 +154,8 @@ def test_cannot_book_own_ride(client, user_factory):
 def test_confirm_only_by_driver(client, user_factory, monkeypatch):
     drv, pax, ride, booking = _trip(client, user_factory)
     pushed = []
-    monkeypatch.setattr("app.routers.bookings.send_push", lambda s, uid, title, body: pushed.append((uid, title)))
+    # RC: бронь теперь уведомляет через services.push_notification (F5) — перехватываем send_push внутри него.
+    monkeypatch.setattr("app.services.send_push", lambda s, uid, title, body, **kw: pushed.append((uid, title)))
     # пассажир не может подтвердить
     assert client.post(f"/bookings/{booking['id']}/confirm", headers=pax["auth"]).status_code == 403
     # водитель — может
