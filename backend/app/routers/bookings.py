@@ -241,12 +241,14 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     session.add(booking)
     session.commit()
     session.refresh(booking)
-    # Уведомление пассажиру: бронь подтверждена водителем.
+    # Уведомление пассажиру: бронь подтверждена водителем (F2: подтверждение открывает
+    # телефон/точку сбора/live-гео — говорим об этом сразу).
     route = f"{ride.from_city} → {ride.to_city}"
     push_notification(
         session, booking.passenger_id, "booking",
         "Бронь подтверждена", "Бронь раҫланды",
-        route, route,
+        f"{route}: водитель подтвердил. Открыты телефон и точка сбора.",
+        f"{route}: водитель раҫланы. Телефон һәм йыйылыу урыны асыҡ.",
         ref_kind="booking", ref_id=booking.id,
     )
     return booking

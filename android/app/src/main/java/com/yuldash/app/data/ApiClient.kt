@@ -1302,6 +1302,10 @@ object ApiClient {
             .map { it.optBoolean("contact_then_cancel") }
             .onSuccess { Analytics.log("booking_cancel") }
 
+    /** F2: водитель подтверждает бронь → пассажиру открываются телефон/точка сбора, приходит push. */
+    suspend fun confirmBooking(bookingId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/confirm", JSONObject(), auth = true).map { }
+
     // ---------- Boost (поднятие объявления, оплата) ----------
 
     /** Тарифы поднятия (цены с бэкенда). */

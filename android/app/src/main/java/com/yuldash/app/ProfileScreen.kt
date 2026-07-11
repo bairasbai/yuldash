@@ -909,7 +909,8 @@ internal fun DriverCabinetScreen(
             archiveLoading = false
         }
     }
-    LaunchedEffect(Unit) {
+    var bookingsReload by remember { mutableStateOf(0) }   // F2: bump после подтверждения/отклонения брони
+    LaunchedEffect(bookingsReload) {
         if (ApiClient.isLoggedIn()) ApiClient.getMyRestrictions().onSuccess { restrictions = it }
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
@@ -940,6 +941,9 @@ internal fun DriverCabinetScreen(
     val debtPaidErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
+    val bookingConfirmedMsg = appText("Бронь подтверждена — пассажиру открыты телефон и точка сбора", "Бронь раҫланды — пассажирға телефон һәм йыйылыу урыны асылды")
+    val bookingRejectedMsg = appText("Бронь отклонена", "Бронь кире ҡағылды")
+    val bookingActionFailMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
     Box(Modifier.fillMaxSize()) {
@@ -993,6 +997,21 @@ internal fun DriverCabinetScreen(
             archiveLoading = archiveLoading,
             archiveError = archiveError,
             onRetryArchive = { loadArchive() },
+            // F2: подтвердить/отклонить бронь — ждём сервер, потом обновляем списки.
+            onConfirmBooking = { bookingId ->
+                rateScope.launch {
+                    ApiClient.confirmBooking(bookingId)
+                        .onSuccess { Toast.makeText(ctx, bookingConfirmedMsg, Toast.LENGTH_LONG).show(); bookingsReload++ }
+                        .onFailure { Toast.makeText(ctx, bookingActionFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
+            onRejectBooking = { bookingId ->
+                rateScope.launch {
+                    ApiClient.cancelBooking(bookingId)
+                        .onSuccess { Toast.makeText(ctx, bookingRejectedMsg, Toast.LENGTH_SHORT).show(); bookingsReload++ }
+                        .onFailure { Toast.makeText(ctx, bookingActionFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
             modifier = Modifier.padding(padding),
             taxiApplication = taxiApp,
             taxiAppLoaded = taxiAppLoaded,
@@ -1381,6 +1400,8 @@ internal fun DriverCabinetContent(
     archiveLoading: Boolean = false,
     archiveError: Boolean = false,
     onRetryArchive: () -> Unit = {},
+    onConfirmBooking: (Int) -> Unit = {},   // F2: подтвердить бронь (id) — пассажиру откроются телефон/точка
+    onRejectBooking: (Int) -> Unit = {},    // F2: отклонить бронь (id) — места вернутся в поездку
     modifier: Modifier = Modifier,
     debt: com.yuldash.app.data.DriverDebtDto? = null,
     onDeclareDebtPaid: () -> Unit = {},
@@ -1476,6 +1497,48 @@ internal fun DriverCabinetContent(
                     onPrimary = onBoost,
                     onSecondary = onCreateRide
                 )
+            }
+        }
+        // F2: брони, ждущие подтверждения водителя. Пока не подтвердишь — пассажир не видит
+        // твой телефон и точку сбора, а live-гео не подключится. Главная кнопка кабинета.
+        val pendingBookings = driverBookings.filter { it.status == "pending" }
+        if (pendingBookings.isNotEmpty()) {
+            item {
+                Text(appText("Ждут подтверждения", "Раҫлауҙы көтәләр"), fontWeight = FontWeight.Black, fontSize = 16.sp, color = CanonGreen)
+            }
+            items(pendingBookings, key = { "pend-${it.bookingId}" }) { b ->
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+                                Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(b.passengerName, fontWeight = FontWeight.Bold, color = CanonText)
+                                Text(b.route, color = CanonMuted, fontSize = 13.sp)
+                            }
+                            b.passengerRating?.let { r ->
+                                Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(2.dp))
+                                Text(String.format(java.util.Locale.US, "%.1f", r), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CanonText)
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = { onConfirmBooking(b.bookingId) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                            ) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                            OutlinedButton(
+                                onClick = { onRejectBooking(b.bookingId) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                }
             }
         }
         if (driverBookings.isNotEmpty()) {
