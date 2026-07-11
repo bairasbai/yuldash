@@ -383,6 +383,7 @@ object ApiClient {
         lng: Double? = null,
         radiusKm: Double? = null,
         limit: Int,
+        date: String? = null,   // F4: «когда едем» — YYYY-MM-DD, только поездки этого дня
     ): Result<NearbyPage> {
         val params = buildList {
             fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
@@ -390,6 +391,7 @@ object ApiClient {
             lat?.let { add("lat=$it") }
             lng?.let { add("lng=$it") }
             radiusKm?.let { add("radius_km=$it") }
+            date?.takeIf { it.isNotBlank() }?.let { add("date=$it") }
             add("limit=$limit")
         }
         val path = "/rides/near?" + params.joinToString("&")
