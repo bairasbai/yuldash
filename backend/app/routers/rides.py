@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Ride, RideCategory, RideStatus, User
+from ..models import DriverProfile, Ride, RideCategory, RideStatus, User
 from .. import workday as workday_mod
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
@@ -129,7 +129,12 @@ def search_rides(
     if child_seat:
         q = q.where(Ride.child_seat == True)  # noqa: E712
     if women_only:
-        q = q.where(Ride.women_only == True)  # noqa: E712
+        # F9: фильтр «только женщины» показывает и поездки с флагом women_only,
+        # И поездки, где сама водитель — женщина (opt-in gender=female). OUTER JOIN,
+        # чтобы поездки без профиля водителя не выпадали из общей проверки.
+        q = q.outerjoin(DriverProfile, DriverProfile.user_id == Ride.driver_id).where(
+            (Ride.women_only == True) | (DriverProfile.gender == "female")  # noqa: E712
+        )
     if baggage:
         q = q.where(Ride.baggage == True)  # noqa: E712
     q = q.order_by(*boost_then_depart_order())   # поднятые (Boost) — первыми

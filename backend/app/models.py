@@ -136,6 +136,10 @@ class DriverProfile(SQLModel, table=True):
     # Класс машины для такси (волна 2, §6): economy | comfort. NULL = economy (прежнее
     # поведение). Водитель заявляет в онбординге таксиста, админ подтверждает при approve.
     car_class: Optional[str] = None
+    # Пол водителя — СТРОГО opt-in. "" (по умолчанию, не указан, нигде не показывается) /
+    # female / male. Публично раскрываем ТОЛЬКО полезный сигнал «женщина за рулём»
+    # (driver_is_woman): male и "" в витрине неразличимы (см. services.ride_out_with).
+    gender: str = ""
     rating: float = 5.0
     trips_count: int = 0
     car_make: str = ""

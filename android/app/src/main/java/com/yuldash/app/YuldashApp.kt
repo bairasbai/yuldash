@@ -495,6 +495,7 @@ internal fun YuldashApp() {
                             driver = d.driverName,
                             driverAvatar = d.driverAvatar,
                             driverOnline = d.driverOnline,
+                            driverIsWoman = d.driverIsWoman,
                             car = d.driverCar,
                             price = d.price,
                             seats = d.seatsLeft,

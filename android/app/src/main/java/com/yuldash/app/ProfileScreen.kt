@@ -914,13 +914,14 @@ internal fun DriverCabinetScreen(
             archiveLoading = false
         }
     }
+    var isWomanDriver by remember { mutableStateOf(false) }   // F9: opt-in «я — женщина за рулём»
     var bookingsReload by remember { mutableStateOf(0) }   // F2: bump после подтверждения/отклонения брони
     LaunchedEffect(bookingsReload) {
         if (ApiClient.isLoggedIn()) ApiClient.getMyRestrictions().onSuccess { restrictions = it }
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
-        ApiClient.getDriverStatus().onSuccess { online = it.online; onlineLoaded = true }
+        ApiClient.getDriverStatus().onSuccess { online = it.online; onlineLoaded = true; isWomanDriver = it.gender == "female" }
         ApiClient.getInstantZone().onSuccess { zone = it }
         ApiClient.getMyTaxiApplication()
             .onSuccess { taxiApp = it; taxiAppLoaded = true }
@@ -951,6 +952,7 @@ internal fun DriverCabinetScreen(
     val bookingActionFailMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
+    val womanLoginMsg = appText("Войдите, чтобы изменить профиль", "Профильде үҙгәртер өсөн инегеҙ")
     Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = CanonBg,
@@ -958,6 +960,7 @@ internal fun DriverCabinetScreen(
     ) { padding ->
         DriverCabinetContent(
             online = online,
+            isWomanDriver = isWomanDriver,
             driverRides = driverRides,
             driverBookings = driverBookings,
             ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
@@ -967,6 +970,20 @@ internal fun DriverCabinetScreen(
                     ApiClient.declareDebtPaid()
                         .onSuccess { Toast.makeText(ctx, debtPaidMsg, Toast.LENGTH_LONG).show(); reloadDebt() }
                         .onFailure { Toast.makeText(ctx, debtPaidErrMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
+            onToggleWoman = onToggleWoman@{ v ->
+                if (!ApiClient.isLoggedIn()) {
+                    Toast.makeText(ctx, womanLoginMsg, Toast.LENGTH_SHORT).show()
+                    return@onToggleWoman
+                }
+                val prev = isWomanDriver
+                isWomanDriver = v
+                rateScope.launch {
+                    ApiClient.setDriverGender(if (v) "female" else "").onFailure {
+                        isWomanDriver = prev
+                        Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+                    }
                 }
             },
             onToggleOnline = onToggleOnline@{ v ->
@@ -1397,6 +1414,8 @@ internal fun DriverCabinetContent(
     ratingText: String,
     onToggleOnline: (Boolean) -> Unit,
     onRate: (Int, Int) -> Unit,
+    isWomanDriver: Boolean = false,                       // F9: opt-in «женщина за рулём»
+    onToggleWoman: (Boolean) -> Unit = {},
     onCreateRide: () -> Unit,
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit,
@@ -1471,6 +1490,19 @@ internal fun DriverCabinetContent(
                 item { TaxiRestCard(workday, onCreateRide) }
             } else if (online || workday.secondsOnline > 0) {
                 item { TaxiShiftProgressCard(workday) }
+            }
+        }
+        // F9 «Женщинам — водитель-женщина»: строго по желанию. Женщина за рулём может
+        // показать это пассажиркам; мужской пол нигде не запрашиваем и не показываем.
+        item {
+            SettingsGroup {
+                SettingSwitchRow(
+                    Icons.Default.Woman,
+                    appText("Я — женщина за рулём", "Мин — рулдә ҡатын-ҡыҙ"),
+                    appText("По желанию: пассажирки увидят бейдж «за рулём женщина»", "Теләк буйынса: пассажир ҡатын-ҡыҙҙар «рулдә ҡатын-ҡыҙ» билдәһен күрер"),
+                    isWomanDriver,
+                    onToggleWoman,
+                )
             }
         }
         item {

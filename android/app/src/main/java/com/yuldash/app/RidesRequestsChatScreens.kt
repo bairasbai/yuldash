@@ -632,6 +632,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                 Spacer(Modifier.width(8.dp))
                 Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (dto.driverOnline) { Spacer(Modifier.width(6.dp)); OnlineBadge() }
+                if (dto.driverIsWoman) { Spacer(Modifier.width(6.dp)); WomanDriverBadge() }
                 Spacer(Modifier.weight(1f))
                 Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(3.dp))
@@ -813,6 +814,10 @@ internal fun RideCard(
                         if (ride.driverOnline) {
                             Spacer(Modifier.width(8.dp))
                             OnlineBadge()
+                        }
+                        if (ride.driverIsWoman) {
+                            Spacer(Modifier.width(8.dp))
+                            WomanDriverBadge()
                         }
                     }
                     Text(ride.carText(), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1970,6 +1975,22 @@ internal fun OnlineBadge() {
         Box(Modifier.size(7.dp).background(CanonGreen2, CircleShape))
         Spacer(Modifier.width(3.dp))
         Text(appText("на линии", "эштә"), color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** Бейдж «Водитель-женщина» — деликатный сигнал для пассажирок (F9, строго opt-in).
+ *  Показываем ТОЛЬКО когда сама водитель указала пол «женщина». Мужской пол не выпячиваем. */
+@Composable
+internal fun WomanDriverBadge() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(CanonWomanBg, RoundedCornerShape(50))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    ) {
+        Icon(Icons.Default.Woman, contentDescription = null, tint = CanonWoman, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(3.dp))
+        Text(appText("За рулём женщина", "Рулдә ҡатын-ҡыҙ"), color = CanonWoman, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 

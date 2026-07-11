@@ -15,6 +15,7 @@ internal data class Ride(
     val driverOnline: Boolean = false,
     val driverTrips: Int = 0,        // F8: завершённых поездок водителя (бейдж «N поездок»)
     val driverSince: String = "",    // F8: месяц регистрации "YYYY-MM" (бейдж «С нами с …»)
+    val driverIsWoman: Boolean = false,   // F9: водитель — женщина (opt-in) → бейдж «Водитель-женщина»
     val car: String,
     val carBa: String? = null,
     val price: Int,
