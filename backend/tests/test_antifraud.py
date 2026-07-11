@@ -135,3 +135,39 @@ def test_login_without_device_header_still_works(client):
     """Старый клиент без X-Device-Id не ломается (и не наказывается)."""
     r = _login(client, _fresh_phone(), device="")
     assert r.status_code == 200
+
+
+# ============================ B8-2: сигнал входа с нового устройства ============================
+@pytest.fixture
+def signal_spy(monkeypatch):
+    """Перехват push+SMS сигнала нового устройства (antifraud импортирует из services локально)."""
+    calls = {"push": [], "sms": []}
+    monkeypatch.setattr("app.services.send_push",
+                        lambda session, uid, title, body, **kw: calls["push"].append((uid, title, body)))
+    monkeypatch.setattr("app.services.send_text",
+                        lambda phone, text: calls["sms"].append((phone, text)))
+    return calls
+
+
+def test_new_device_login_signals_push_and_sms(client, signal_spy):
+    phone = _fresh_phone()
+    r = _login(client, phone, device="dev-sig-A")
+    uid = r.json()["user"]["id"]
+    assert signal_spy["push"] == []          # первый вход (устройства ещё не было) — тишина
+
+    r = _login(client, phone, device="dev-sig-B")   # вход с ДРУГОГО устройства
+    assert r.status_code == 200              # не блокируем — только сигнал
+    assert len(signal_spy["push"]) == 1 and signal_spy["push"][0][0] == uid
+    assert "нов" in signal_spy["push"][0][2].lower()          # «с нового устройства»
+    assert len(signal_spy["sms"]) == 1 and signal_spy["sms"][0][0] == phone
+    assert _last_device(uid) == "dev-sig-B"  # устройство перефиксировано
+
+    _login(client, phone, device="dev-sig-B")       # то же устройство снова — сигналов больше нет
+    assert len(signal_spy["push"]) == 1 and len(signal_spy["sms"]) == 1
+
+
+def test_same_device_login_no_signal(client, signal_spy):
+    phone = _fresh_phone()
+    _login(client, phone, device="dev-same-1")
+    _login(client, phone, device="dev-same-1")
+    assert signal_spy["push"] == [] and signal_spy["sms"] == []
