@@ -737,3 +737,14 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 **Тесты:** `backend/tests/test_launch_extras.py` 🆕 — 15 шт (version/min вкл/выкл/публичность; пуш на каждом переходе — получатель/RU/BA/payload, отмены обеих сторон, expired; digest — счётчики контролируемого дня, раз-в-день (память+замок БД «второй воркер»), до 21:00 не шлёт, выкл конфигом; review — фикс-код/без SMS/is_reviewer/без прав, реальный OTP не работает, нужны ОБА env, обычным номерам не мешает). **Полный прогон: 481 passed, 1 skipped** (база 466 + 15). Alembic `w2_extras` up/down/up — зелёно. Дельта баланса скобок .kt к `origin/feat/anti-fraud` = 0.
 
 **Прод:** `alembic upgrade head`; force-update включать `MIN_APP_VERSION_CODE` + `APP_STORE_URL` в `.env`; review-аккаунт — `REVIEW_PHONE` + `REVIEW_CODE` перед подачей в стор (после модерации можно очистить).
+## 2026-07-06 — Масштаб-ops до 100k (Фаза 5, ветка feat/scale-ops)
+
+Операционная обвязка под рост (код `app/` не менялся — масштаб процессами/пулами/индексами, не переписыванием). Детальный runbook: [scale-ops-runbook.md](scale-ops-runbook.md).
+
+**Добавлено (код/доки, готово к применению Александром):**
+- **Нагрузочное (Locust):** `backend/loadtest/locustfile.py` + `README.md` + `requirements.txt`. Сценарии на горячие пути: `/rides/near`, `/rides`, `/requests/near`, `/feed` (роль ReadUser), логин+бронь (RiderUser), matcher `/instant/*` (InstantUser, флаг), WS-чат `/ws/bookings/{id}` (ChatWSUser, флаг). Вердикт p95<300мс@200RPS с ненулевым кодом выхода для CI. Гонять ТОЛЬКО против staging.
+- **Многопроцессность:** `backend/deploy/gunicorn_conf.py` (gunicorn + UvicornWorker, число воркеров из `WEB_CONCURRENCY`), `yuldash-api.service.example` (systemd, заменяет одиночный uvicorn), `nginx-yuldash-scale.conf.example` (upstream + `ip_hash` для WS-стикинга при нескольких адресах бэкенда; события между воркерами и так разносит Redis pub/sub — `app/services.py` `_CHAT_CHANNEL`).
+- **PostgreSQL:** `pgbouncer.ini.example` (`pool_mode=transaction`), заметка про managed/отдельный инстанс, EXPLAIN-чеклист по горячим запросам (ключевое: `from_city/to_city` через `LIKE '%..%'` не берут btree → нужен pg_trgm GIN; PostGIS ST_DWithin требует функционального GiST-индекса по geography).
+- **Redis:** `redis.conf.example` (пароль `requirepass`, AOF `appendonly yes`, `maxmemory-policy volatile-lru`, вынос на отдельный инстанс при росте).
+
+**Шаги Александра (прод-подъём, за пределами кода):** выбрать managed/отдельный PostgreSQL; поставить PgBouncer; включить Redis-пароль+AOF; переключить systemd на gunicorn N воркеров; прогнать Locust против staging и подтвердить p95<300мс@200RPS + отказоустойчивость (убийство воркера). Порядок — §4 runbook.

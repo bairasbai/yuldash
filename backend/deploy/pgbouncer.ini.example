@@ -1,0 +1,58 @@
+; Юлдаш — PgBouncer (пул соединений к PostgreSQL), ПРИМЕР-конфиг. Фаза 5.
+;
+; Зачем: под N воркеров gunicorn × пул SQLModel-соединений число коннектов к PostgreSQL
+; быстро упирается в max_connections. PgBouncer держит небольшой пул РЕАЛЬНЫХ соединений
+; и мультиплексирует на них сотни клиентских — экономит память Postgres и убирает
+; «too many connections» под нагрузкой.
+;
+; Установка (Debian/Ubuntu): apt install pgbouncer
+; Файл: /etc/pgbouncer/pgbouncer.ini  (пароли — в /etc/pgbouncer/userlist.txt, chmod 600, ВНЕ git)
+; После правок: systemctl restart pgbouncer
+;
+; Приложение потом смотрит в PgBouncer, а не напрямую в Postgres:
+;   DATABASE_URL=postgresql://yuldash:PASSWORD@127.0.0.1:6432/yuldash   ; порт 6432 = pgbouncer
+; (значение — в прод .env ВНЕ git; тут только пример с плейсхолдером PASSWORD)
+
+[databases]
+; слева — имя, которое видит клиент; справа — реальный адрес Postgres.
+; Замени host/port/dbname/user под свой инстанс (managed БД или отдельный сервер).
+yuldash = host=127.0.0.1 port=5432 dbname=yuldash user=yuldash
+
+[pgbouncer]
+listen_addr = 127.0.0.1
+listen_port = 6432
+
+; --- Режим пула ---
+; transaction — оптимально для FastAPI/веб: соединение отдаётся в пул после КАЖДОЙ транзакции,
+; поэтому горстка реальных коннектов обслуживает сотни клиентов.
+; ⚠️ Ограничения transaction-режима (проверь, что мы их не используем — у нас НЕ используем):
+;   • session-level LISTEN/NOTIFY, advisory-locks на сессию, SET на сессию, prepared statements
+;     на стороне сервера. SQLModel/SQLAlchemy по умолчанию prepared-стейтменты не кэширует так,
+;     чтобы ломаться; но если включишь — добавь server_reset_query или отключи кэш на стороне драйвера.
+pool_mode = transaction
+
+; --- Размеры пулов ---
+max_client_conn = 1000      ; сколько клиентов суммарно может подключиться к PgBouncer
+default_pool_size = 25      ; реальных соединений к Postgres на пару (db,user). Старт 20–25, тюнинг по нагрузочному.
+min_pool_size = 5
+reserve_pool_size = 5       ; аварийный запас, если основной пул исчерпан
+reserve_pool_timeout = 3
+
+; --- Аутентификация ---
+auth_type = scram-sha-256   ; современный, не md5. Пароли — в userlist.txt (ВНЕ git).
+auth_file = /etc/pgbouncer/userlist.txt
+
+; --- Таймауты/санитария ---
+server_reset_query = DISCARD ALL   ; чистим состояние соединения при возврате в пул
+server_idle_timeout = 600
+; server_reset_query_always = 0    ; для transaction-режима DISCARD ALL и так по границе транзакции
+
+; --- Логи ---
+admin_users = yuldash
+logfile = /var/log/pgbouncer/pgbouncer.log
+pidfile = /var/run/pgbouncer/pgbouncer.pid
+
+; userlist.txt (пример строки, НЕ коммитить реальные хэши):
+;   "yuldash" "SCRAM-SHA-256$4096:...."
+; сгенерировать хэш: подключись к Postgres и возьми rolpassword из pg_shadow,
+; или задай пароль и скопируй scram-хэш.
