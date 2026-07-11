@@ -28,9 +28,10 @@ from sqlalchemy import delete, or_, update
 from sqlmodel import Session, select
 
 from .models import (
-    Ad, AdEvent, AppReview, Block, Booking, DeviceToken, DriverProfile, Message,
-    OtpCode, Payment, Rating, RefreshToken, Report, RequestResponse, Ride,
-    RideRequest, SosEvent, TgAuth, TripShare, TrustedContact, UploadEvent, User,
+    Ad, AdEvent, AppReview, Block, Booking, Consent, DeviceToken, DriverProfile,
+    InviteCode, Message, OtpCode, Payment, Rating, RefreshToken, Report,
+    RequestResponse, Ride, RideRequest, SosEvent, TgAuth, Trust, TripShare,
+    TrustedContact, UploadEvent, User,
 )
 from .services import CHAT_DIR, DOC_DIR, MEDIA_DIR, VOICE_DIR
 
@@ -143,6 +144,12 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(delete(UploadEvent).where(UploadEvent.user_id == uid))
     session.execute(delete(AppReview).where(AppReview.user_id == uid))
     session.execute(delete(DriverProfile).where(DriverProfile.user_id == uid))
+    # 3.12b Доверие: мой уровень «свой», мои инвайт-коды, мои согласия (152-ФЗ — стираем всё).
+    session.execute(delete(Consent).where(Consent.user_id == uid))
+    session.execute(delete(InviteCode).where(InviteCode.owner_id == uid))
+    session.execute(delete(Trust).where(Trust.user_id == uid))
+    # Отвязать цепочку: те, кого я пригласил в круг своих, остаются «своими», но ссылку на меня убираем (FK).
+    session.execute(update(Trust).where(Trust.invited_by == uid).values(invited_by=None))
     # 3.13 Отвязать рефералов, кто указал меня пригласившим (FK referred_by → user.id).
     session.execute(update(User).where(User.referred_by == uid).values(referred_by=None))
     # 3.14 Наконец — сам аккаунт.

@@ -194,6 +194,7 @@ class Ride(SQLModel, table=True):
     smoking: bool = False             # курение разрешено
     baggage: bool = False             # есть место под багаж
     air_conditioner: bool = False     # кондиционер
+    only_trusted: bool = False        # «только для своих»: поездку видят/бронируют лишь L3 (свои); скрыта от L0–L2
     status: RideStatus = Field(default=RideStatus.active, index=True)   # /rides и /rides/near фильтруют active
     # Boost (платное поднятие): пока boosted_until > now — поездка выше в выдаче.
     boosted_until: Optional[datetime] = Field(default=None, index=True)
@@ -224,6 +225,7 @@ class RideRequest(SQLModel, table=True):
     wheelchair: bool = False        # нужна доступность для инвалидной коляски
     non_smoking: bool = False       # некурящий салон
     air_conditioner: bool = False   # нужен кондиционер
+    only_trusted: bool = False      # «только для своих»: заявку видят/берут лишь водители L3 (свои)
     comment: str = ""
     for_relative_name: Optional[str] = None
     voice_url: Optional[str] = None
@@ -741,3 +743,43 @@ class WaitlistEntry(SQLModel, table=True):
     role: str = Field(default="passenger", index=True)   # passenger | driver
     created_at: datetime = Field(default_factory=utcnow)
     invited_at: Optional[datetime] = None                # когда позвали (волна); NULL = ещё ждёт
+
+
+# ---- Фаза 4 (D5): формализованное доверие «между своими» ----
+
+class Trust(SQLModel, table=True):
+    """Уровень доверия «свой».
+
+    L0..L3 в основном ВЫЧИСЛЯЮТСЯ из уже имеющихся данных (телефон → +имя/фото → +документы),
+    поэтому отдельная строка здесь заводится ТОЛЬКО когда участнику дарован статус «свой» (L3)
+    по инвайту от уже проверенного участника. Храним «дарованный» уровень и того, кто пригласил
+    (цепочка приглашений). Итоговый уровень = max(вычисленный, дарованный).
+
+    L0 — нормальный, полноправный пользователь: просто ещё без части привилегий. Уровни не унижают,
+    а открывают доступ к «кругу своих» по мере доверия."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, unique=True, foreign_key="user.id")
+    level: int = 0                    # дарованный уровень (3 = «свой»); 0 = грантов нет, уровень чисто вычисляемый
+    invited_by: Optional[int] = Field(default=None, foreign_key="user.id")  # кто пригласил (для цепочки доверия)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class InviteCode(SQLModel, table=True):
+    """Инвайт-код «позови своего в круг доверия». Владелец — проверенный участник (L2+),
+    у него ограниченный запас кодов (анти-абьюз: код не бесконечен, запас на пользователя лимитирован).
+    Активация поднимает приглашённого до L3 «свой» и записывает цепочку приглашений."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str = Field(index=True, unique=True)
+    owner_id: int = Field(index=True, foreign_key="user.id")
+    uses_left: int = 1                # сколько ещё активаций осталось (не бесконечный код)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class Consent(SQLModel, table=True):
+    """Реестр согласий (152-ФЗ): доказуемый факт и время согласия пользователя на
+    оферту / политику конфиденциальности / обработку геолокации. Одна строка на вид согласия.
+    Время первого согласия не перезаписываем — это юридическое доказательство."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    kind: str = Field(index=True)     # offer / privacy / geo
+    granted_at: datetime = Field(default_factory=utcnow)
