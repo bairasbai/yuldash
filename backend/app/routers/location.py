@@ -11,11 +11,18 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session
 
 from ..db import engine
-from ..models import Booking, BookingStatus, Ride
+from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, Ride
 from ..security import authenticate_ws
 from ..services import MAP_FEED_KEY, manager
 
 router = APIRouter(tags=["location"])
+
+# Namespace ключей ConnectionManager для такси-трека (B7a-3): не пересекается ни с чатом
+# (booking_id > 0), ни с трек-каналами брони (-bid*2 / -bid*2-1 — малые по модулю),
+# ни с MAP_FEED_KEY (=2_000_000_000).
+INSTANT_LOC_BASE = 1_000_000_000
+# Live-позиция такси-заказа живёт ТОЛЬКО пока водитель назначен и заказ активен.
+INSTANT_LOC_ACTIVE = (InstantOrderStatus.accepted, InstantOrderStatus.arriving, InstantOrderStatus.onboard)
 
 
 @router.websocket("/ws/map")
@@ -125,3 +132,82 @@ async def trip_location(websocket: WebSocket, booking_id: int):
         pass
     finally:
         manager.disconnect(recv_key, websocket)   # снятие регистрации при любом выходе
+
+
+@router.websocket("/ws/instant/{order_id}/location")
+async def instant_location(websocket: WebSocket, order_id: int):
+    """Live-позиция «Быстрого заказа» (такси, B7a-3) — зеркало /ws/trip/{id}/location.
+    Водитель шлёт {"type":"loc",...}, пассажир видит движущуюся машину. Только участники
+    ЭТОГО заказа (пассажир + НАЗНАЧЕННЫЙ водитель) и только пока заказ активен
+    (accepted/arriving/onboard). Координаты не храним — чистая ретрансляция.
+    Трек брони (попутка) не затронут: свой namespace ключей (INSTANT_LOC_BASE)."""
+    await websocket.accept()
+    token = None
+    try:
+        first = json.loads(await websocket.receive_text())
+        if first.get("type") == "auth":
+            token = first.get("token")
+    except Exception:
+        token = None
+    with Session(engine) as s:
+        try:
+            user_id = authenticate_ws(token or "", s).id
+        except Exception:
+            await websocket.close(code=1008, reason="Invalid token")
+            return
+        order = s.get(InstantOrder, order_id)
+        # Анти-IDOR: участник именно этого заказа. Водитель — только НАЗНАЧЕННЫЙ (после accept);
+        # кандидат с оффером участником ещё не является (телефоны/гео до accept закрыты).
+        if not order or user_id not in (order.passenger_id, order.driver_id):
+            await websocket.close(code=1008, reason="Forbidden")
+            return
+        if order.status not in INSTANT_LOC_ACTIVE:
+            await websocket.close(code=1008, reason="Order not active")
+            return
+        driver_id = order.driver_id
+
+    role = "driver" if user_id == driver_id else "passenger"
+    # Направленные ключи (как в трек-канале брони) — без self-эхо: каждый слушает СВОЙ inbox,
+    # шлёт в inbox другого. base+oid*2 = inbox водителя, base+oid*2+1 = inbox пассажира.
+    recv_key = -(INSTANT_LOC_BASE + order_id * 2) if role == "driver" else -(INSTANT_LOC_BASE + order_id * 2 + 1)
+    send_key = -(INSTANT_LOC_BASE + order_id * 2 + 1) if role == "driver" else -(INSTANT_LOC_BASE + order_id * 2)
+    manager.register(recv_key, websocket)
+    msgs = 0
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                payload = json.loads(data)
+            except (json.JSONDecodeError, ValueError):
+                continue   # битый кадр — игнор, соединение не роняем
+            if payload.get("type") == "loc":
+                lat = payload.get("lat")
+                lng = payload.get("lng")
+                if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+                    continue
+                # Перепроверка ~раз в ~15 кадров: токен жив И заказ ещё активен —
+                # иначе стрим лил бы гео в завершённый/отменённый заказ (приватность).
+                msgs += 1
+                if msgs % 15 == 0:
+                    with Session(engine) as s2:
+                        try:
+                            authenticate_ws(token or "", s2)
+                        except Exception:
+                            await websocket.close(code=1008, reason="Token revoked")
+                            break
+                        o2 = s2.get(InstantOrder, order_id)
+                        if not o2 or o2.status not in INSTANT_LOC_ACTIVE:
+                            await websocket.close(code=1008, reason="Order ended")
+                            break
+                await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
+                    "type": "loc",
+                    "role": role,
+                    "lat": lat,
+                    "lng": lng,
+                    "bearing": payload.get("bearing"),
+                    "ts": payload.get("ts"),
+                })
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(recv_key, websocket)

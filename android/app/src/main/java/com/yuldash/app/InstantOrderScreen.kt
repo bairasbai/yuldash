@@ -169,9 +169,17 @@ internal fun rememberMyPoint(active: Boolean = true): State<Point?> {
 
 // ------------------------------ Компактная карта маршрута A→B ------------------------------
 /** Реальная Яндекс-карта: точка подачи (A) + назначения (B) + дорожный маршрут между ними.
+ *  car/carBearing (B7a-3) — live-позиция машины (нав-стрелка, как у попутки): один placemark,
+ *  двигаем geometry без пересоздания — плавно и без мигания.
  *  Локаль MapKit задаётся при первой карте приложения; тут только initialize (повторный setLocale бы упал). */
 @Composable
-internal fun InstantRouteMap(from: Point?, to: Point?, modifier: Modifier = Modifier) {
+internal fun InstantRouteMap(
+    from: Point?,
+    to: Point?,
+    modifier: Modifier = Modifier,
+    car: Point? = null,
+    carBearing: Double? = null,
+) {
     val ctx = LocalContext.current
     val mapView = remember {
         runCatching { MapKitFactory.initialize(ctx) }
@@ -238,6 +246,38 @@ internal fun InstantRouteMap(from: Point?, to: Point?, modifier: Modifier = Modi
         onDispose {
             runCatching { session?.cancel() }
             added.forEach { runCatching { map.mapObjects.remove(it) } }
+        }
+    }
+    // Маркер машины (live-трек, B7a-3): нав-стрелка (как стрелка попутчика), поворот по bearing.
+    // Placemark один на жизнь карты — обновляем geometry/direction, не пересоздаём (без мигания).
+    val carPm = remember { mutableStateOf<com.yandex.mapkit.map.PlacemarkMapObject?>(null) }
+    LaunchedEffect(car, carBearing) {
+        val map = mapView.mapWindow.map
+        val point = car
+        if (point == null) {
+            carPm.value?.let { runCatching { it.isVisible = false } }
+            return@LaunchedEffect
+        }
+        val pm = carPm.value ?: runCatching {
+            map.mapObjects.addPlacemark(point).apply {
+                setIcon(ImageProvider.fromBitmap(peerArrowBitmap()))
+                setIconStyle(
+                    com.yandex.mapkit.map.IconStyle()
+                        .setAnchor(android.graphics.PointF(0.5f, 0.5f))
+                        .setRotationType(com.yandex.mapkit.map.RotationType.ROTATE)
+                )
+            }
+        }.getOrNull()?.also { carPm.value = it } ?: return@LaunchedEffect
+        runCatching {
+            pm.isVisible = true
+            pm.geometry = point
+            carBearing?.let { pm.direction = it.toFloat() }
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            carPm.value?.let { runCatching { mapView.mapWindow.map.mapObjects.remove(it) } }
+            carPm.value = null
         }
     }
     AndroidView(factory = { mapView }, modifier = modifier)
@@ -725,11 +765,26 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
     }
     var confirmPaidCancel by remember { mutableStateOf(false) }
     val cancelFeeRub = order.cancelFeeNowKop / 100
+    // Live-трек машины (B7a-3): пока заказ активен — держим WS такси-заказа и двигаем маркер.
+    // Колбэк приходит с потока OkHttp — snapshot-state потокобезопасен. Ушли с экрана → close.
+    var carPoint by remember(order.id) { mutableStateOf<Point?>(null) }
+    var carBearing by remember(order.id) { mutableStateOf<Double?>(null) }
+    DisposableEffect(order.id) {
+        val socket = com.yuldash.app.data.InstantLocationSocket(order.id, onPeer = { peer ->
+            if (peer.role == "driver") {
+                carPoint = Point(peer.lat, peer.lng)
+                carBearing = peer.bearing
+            }
+        }).also { it.connect() }
+        onDispose { socket.close() }
+    }
     Column(Modifier.fillMaxSize()) {
         InstantRouteMap(
             from = Point(order.fromLat, order.fromLng),
             to = Point(order.toLat, order.toLng),
             modifier = Modifier.fillMaxWidth().weight(1f),
+            car = carPoint,
+            carBearing = carBearing,
         )
         Card(
             colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -1312,6 +1367,36 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
         }
     }
 
+    // Live-трек (B7a-3): пока заказ активен — шлём свою позицию пассажиру (WS, не чаще ~5с),
+    // он видит движущуюся машину. Заказ кончился / ушли с экрана → сокет закрывается.
+    val isOrderActive = order?.isActive == true
+    val trackSocket = remember { mutableStateOf<com.yuldash.app.data.InstantLocationSocket?>(null) }
+    DisposableEffect(orderId, isOrderActive) {
+        if (!isOrderActive) return@DisposableEffect onDispose { }
+        val s = com.yuldash.app.data.InstantLocationSocket(orderId, onPeer = { }).also { it.connect() }
+        trackSocket.value = s
+        onDispose { s.close(); trackSocket.value = null }
+    }
+    val myLivePoint by rememberMyPoint(active = isOrderActive)
+    var lastLocSentMs by remember { mutableStateOf(0L) }
+    var prevSentPoint by remember { mutableStateOf<Point?>(null) }
+    LaunchedEffect(myLivePoint, isOrderActive) {
+        val p = myLivePoint ?: return@LaunchedEffect
+        if (!isOrderActive) return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        if (now - lastLocSentMs < 5_000) return@LaunchedEffect
+        lastLocSentMs = now
+        // Курс из двух последних фиксов (нос стрелки по движению); стоим на месте → без поворота.
+        val bearing = prevSentPoint?.let { q ->
+            val dLat = p.latitude - q.latitude
+            val dLng = p.longitude - q.longitude
+            if (kotlin.math.abs(dLat) + kotlin.math.abs(dLng) < 0.00005) null
+            else (Math.toDegrees(kotlin.math.atan2(dLng * kotlin.math.cos(Math.toRadians(p.latitude)), dLat)) + 360) % 360
+        }
+        prevSentPoint = p
+        trackSocket.value?.sendLoc(p.latitude, p.longitude, bearing)
+    }
+
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Поездка", "Сәфәр"), onBack) }) { padding ->
         val current = order
         Box(Modifier.padding(padding).fillMaxSize()) {
@@ -1381,6 +1466,28 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                                 ),
                                 color = CanonMuted, fontSize = 13.sp,
                             )
+                            // «Навигатор» (B7a-3): до посадки ведём к подаче (А), после — к назначению (Б).
+                            // Яндекс Навигатор → Яндекс Карты → любое geo:-приложение.
+                            OutlinedButton(
+                                onClick = {
+                                    val toDest = current.status == "onboard"
+                                    openNavigator(
+                                        ctx,
+                                        if (toDest) current.toLat else current.fromLat,
+                                        if (toDest) current.toLng else current.fromLng,
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Icon(Icons.Default.Navigation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    if (current.status == "onboard") appText("Навигатор · к точке Б", "Навигатор · Б нөктәһенә")
+                                    else appText("Навигатор · к пассажиру", "Навигатор · пассажирға"),
+                                    color = CanonGreen2, fontWeight = FontWeight.Bold,
+                                )
+                            }
                             // «Я на месте» → таймер ожидания (бесплатное окно и платные минуты — как у пассажира).
                             if (current.status == "arriving") {
                                 InstantWaitingRow(current)
@@ -1473,5 +1580,19 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                 }
             },
         )
+    }
+}
+
+/** Открыть внешний навигатор к точке (B7a-3): Яндекс Навигатор → Яндекс Карты → любое geo:-приложение.
+ *  Ничего не установлено → тихо ничего (кнопка не роняет экран). */
+private fun openNavigator(ctx: Context, lat: Double, lng: Double) {
+    val uris = listOf(
+        "yandexnavi://build_route_on_map?lat_to=$lat&lon_to=$lng",
+        "yandexmaps://maps.yandex.ru/?rtext=~$lat,$lng&rtt=auto",
+        "geo:$lat,$lng?q=$lat,$lng",
+    )
+    for (u in uris) {
+        val ok = runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u))) }.isSuccess
+        if (ok) return
     }
 }
