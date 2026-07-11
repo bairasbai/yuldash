@@ -680,6 +680,12 @@ internal fun CreatePassengerRequestScreen(
     val scope = rememberCoroutineScope()
     val sendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
     var submitting by remember { mutableStateOf(false) }
+    // F14: выбранная точка сбора из подсказок (у заявки нет своей pickup-колонки — ориентир кладём в комментарий,
+    // id пополняет справочник). null = не выбрано / ручной ввод.
+    var pickupPointId by remember { mutableStateOf<Int?>(null) }
+    var pickupLabel by remember { mutableStateOf("") }
+    val isBa = LocalAppLanguage.current == AppLanguage.Ba
+    val meetPrefix = appText("Точка сбора", "Йыйылыу нөктәһе")
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Создать заявку", "Заявка булдырыу"), onBack) }) { padding ->
         CreatePassengerRequestContent(
@@ -714,16 +720,22 @@ internal fun CreatePassengerRequestScreen(
                 submitting = true
                 scope.launch {
                     // Ждём ответ сервера: «создано» показываем только при реальном успехе POST.
+                    // F14: если выбрана точка сбора — добавляем ориентир в комментарий (у заявки нет pickup-поля),
+                    // чтобы водитель видел «где встречаемся»; pickupPointId пополняет справочник.
+                    val commentWithPickup = if (pickupLabel.isNotBlank())
+                        listOf("$meetPrefix: $pickupLabel", comment.trim()).filter { it.isNotBlank() }.joinToString("\n")
+                    else comment.trim()
                     ApiClient.createRequest(
                         from.trim(), to.trim(),
                         seats.toIntOrNull() ?: 1,
-                        apiCat, withKids, comment.trim(), priceVal,
+                        apiCat, withKids, commentWithPickup, priceVal,
                         assisted = true,   // заявка за близкого → уведомить админа
                         desiredAt = desiredIso,
                         womenOnly = womenOnly, childSeat = childSeat, pets = pets,
                         wheelchair = wheelchair, nonSmoking = nonSmoking,
                         airConditioner = airConditioner, baggage = baggage,
                         onlyTrusted = onlyTrusted,
+                        pickupPointId = pickupPointId,
                     )
                         .onSuccess { newId ->
                             onCreateRequest(
@@ -748,6 +760,12 @@ internal fun CreatePassengerRequestScreen(
             // Поля адреса с гео-подсказками (собственный эффект) — слотами, чтобы Content остался чистым.
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
             toField = { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
+            pickupChips = {
+                PickupSuggestionChips(city = from, selectedId = pickupPointId) { p ->
+                    pickupPointId = p.id
+                    pickupLabel = if (isBa && p.titleBa.isNotBlank()) p.titleBa else p.titleRu
+                }
+            },
             modifier = Modifier.padding(padding),
         )
     }
@@ -803,6 +821,7 @@ internal fun CreatePassengerRequestContent(
     onSubmit: () -> Unit,
     fromField: (@Composable () -> Unit)? = null,
     toField: (@Composable () -> Unit)? = null,
+    pickupChips: (@Composable () -> Unit)? = null,   // F14: подсказки точек сбора (умный слот)
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -842,6 +861,7 @@ internal fun CreatePassengerRequestContent(
                 singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
             )
         }
+        if (pickupChips != null) item { pickupChips() }   // F14: чипы «частые точки сбора» для города отправления
         item {
             val ctxDt = LocalContext.current
             // Нативный календарь Android: башкирской локали (ba) в системе нет → русский для обоих языков (вместо англ.).

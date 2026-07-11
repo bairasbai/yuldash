@@ -16,7 +16,7 @@ from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
-    notify_map_changed, public_rides_payload, push_notification, rides_out, user_rating,
+    notify_map_changed, public_rides_payload, push_notification, record_pickup_choice, rides_out, send_push, user_rating,
 )
 from ..timeutil import utcnow
 from .. import workday as workday_mod
@@ -45,6 +45,7 @@ class RequestIn(BaseModel):
     for_relative_name: Optional[str] = Field(None, max_length=120)
     voice_url: Optional[str] = None
     transcript: Optional[str] = Field(None, max_length=4000)
+    pickup_point_id: Optional[int] = None   # F14: выбранная точка сбора (у заявки нет своей pickup-колонки — только пополняем usage справочника)
     assisted: bool = False   # заявка из «помощь»-режима (пожилой/голос/за близкого) — НЕ храним, только уведомляем админа
 
 
@@ -55,12 +56,15 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
     to = geocode_city(body.to_city) or (None, None)
     req = RideRequest(
         passenger_id=user.id,
-        **body.model_dump(exclude={"assisted"}),
+        **body.model_dump(exclude={"assisted", "pickup_point_id"}),
         from_lat=frm[0], from_lng=frm[1], to_lat=to[0], to_lng=to[1],
     )
     session.add(req)
     session.commit()
     session.refresh(req)
+    # F14: выбрана точка сбора из подсказок → поднимаем её в справочнике (usage_count).
+    if body.pickup_point_id:
+        record_pickup_choice(session, city=req.from_city, point_id=body.pickup_point_id)
     notify_map_changed()   # новая заявка → оранжевый маркер появится на карте live
     # Срочно/помощь — сразу уведомляем админа, чтобы не упустить время (пожилому может быть нужно срочно).
     if body.assisted or req.category == RideCategory.urgent:

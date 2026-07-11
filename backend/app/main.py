@@ -25,7 +25,7 @@ from .middleware import (
 )
 from .routers import all_routers
 from .routers.health import API_VERSION
-from .services import MEDIA_DIR, init_chat_redis, seed_demo
+from .services import MEDIA_DIR, init_chat_redis, seed_demo, seed_pickup_points
 
 API_V1_PREFIX = "/api/v1"
 
@@ -41,6 +41,9 @@ async def lifespan(app: FastAPI):
         seed_tariffs(session)   # тарифы «Быстрого заказа» нужны и в проде (не под seed_demo)
         from .geo import seed_settlements
         seed_settlements(session)   # справочник НП (география, волна 2) — тоже нужен в проде
+        # Ориентиры точек сбора (F14) — публичный справочник, нужен и на проде
+        # (не под флагом SEED_DEMO). Идемпотентно: повторный старт не дублирует.
+        seed_pickup_points(session)
     await init_chat_redis()   # WS pub/sub между воркерами (если есть Redis), иначе локально
     yield
 

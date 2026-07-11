@@ -432,6 +432,19 @@ object ApiClient {
 
     private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
 
+    /**
+     * F14: подсказки точек сбора по ориентирам города/села («у мечети», «автовокзал»).
+     * Публичный справочник — auth не нужен. Пусто → показываем ручной выбор на карте.
+     */
+    suspend fun getPickupPoints(city: String): Result<List<PickupPointDto>> {
+        if (city.isBlank()) return Result.success(emptyList())
+        val path = "/pickup-points?city=" + enc(city.trim())
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toPickupPointDto() }
+        }
+    }
+
     /** Опубликовать поездку (текущий пользователь = водитель). depart_at — ISO-строка. */
     suspend fun publishRide(
         fromCity: String,
@@ -454,6 +467,7 @@ object ApiClient {
         onlyTrusted: Boolean = false,   // «только для своих» — поездку видят/берут лишь L3
         receiverName: String = "",   // посылка: кому отдать
         parcelSize: String = "",     // посылка: габарит/вес
+        pickupPointId: Int? = null,  // F14: выбрана известная точка сбора из справочника → привязать
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -475,6 +489,7 @@ object ApiClient {
             .put("pickup_lat", pickupLat ?: JSONObject.NULL)
             .put("pickup_lng", pickupLng ?: JSONObject.NULL)
             .put("only_trusted", onlyTrusted)
+            .put("pickup_point_id", pickupPointId ?: JSONObject.NULL)
             .put("receiver_name", receiverName)
             .put("parcel_size", parcelSize),
         auth = true,
@@ -555,6 +570,7 @@ object ApiClient {
         airConditioner: Boolean = false,
         baggage: Boolean = false,
         onlyTrusted: Boolean = false,   // «только для своих» — заявку видят/берут лишь L3
+        pickupPointId: Int? = null,   // F14: выбрана точка сбора из подсказок (пополняет справочник)
     ): Result<Int> = call(
         "POST", "/requests",
         JSONObject()
@@ -574,6 +590,7 @@ object ApiClient {
             .put("only_trusted", onlyTrusted)
             .put("comment", comment)
             .put("assisted", assisted)
+            .put("pickup_point_id", pickupPointId ?: JSONObject.NULL)
             .apply {
                 voiceUrl?.takeIf { it.isNotBlank() }?.let { put("voice_url", it) }
                 transcript?.takeIf { it.isNotBlank() }?.let { put("transcript", it) }
@@ -2268,6 +2285,28 @@ data class PriceHintDto(val avg: Int, val count: Int)
 
 /** Страница «Ближайших»: показанные + всего на маршруте (для кнопки «Показать ещё»). */
 data class NearbyPage(val items: List<RideDto>, val total: Int)
+
+/** F14: точка сбора по ориентиру (публичный справочник). titleRu/titleBa — двуязычное название. */
+data class PickupPointDto(
+    val id: Int,
+    val city: String,
+    val titleRu: String,
+    val titleBa: String,
+    val lat: Double?,
+    val lng: Double?,
+    val usageCount: Int,
+)
+
+/** JSON точки сбора с сервера → PickupPointDto. */
+private fun JSONObject.toPickupPointDto() = PickupPointDto(
+    id = optInt("id"),
+    city = optString("city"),
+    titleRu = optString("title_ru"),
+    titleBa = optString("title_ba"),
+    lat = if (isNull("lat")) null else optDouble("lat"),
+    lng = if (isNull("lng")) null else optDouble("lng"),
+    usageCount = optInt("usage_count"),
+)
 
 /** JSON поездки с сервера → RideDto. Один шов вместо копипасты в getRides/getNearbyRides.
  *  distance_km нет в /rides → isNull(...) = null; есть в /rides/near → читаем. */

@@ -248,6 +248,25 @@ class RideRequest(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class PickupPoint(SQLModel, table=True):
+    """Точка сбора по ориентиру города/села (РБ-фишка: в сёлах адресов нет —
+    ориентир вроде «у мечети», «у Магнита», «автовокзал»).
+
+    ПУБЛИЧНЫЙ справочник ориентиров (НЕ персональные данные): двуязычные названия
+    RU+BA + координаты пина. Наполняется сидом популярных точек крупных городов и
+    ПОПОЛНЯЕТСЯ из реально выбранных водителями точек при создании поездки
+    (`usage_count` — как часто выбирают: чем выше, тем раньше в подсказках)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    city: str = Field(index=True)             # город/село, к которому относится ориентир
+    title_ru: str = ""                        # «у мечети»
+    title_ba: str = ""                        # «мәсет янында»
+    lat: Optional[float] = None               # координаты пина ориентира
+    lng: Optional[float] = None
+    usage_count: int = Field(default=0, index=True)  # сколько раз выбрали → сортировка подсказок
+    is_seed: bool = False                     # сидовый ориентир (курируемый) vs пользовательский
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class Booking(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ride_id: int = Field(index=True, foreign_key="ride.id")
