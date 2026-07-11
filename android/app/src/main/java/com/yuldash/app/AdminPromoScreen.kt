@@ -245,13 +245,14 @@ private fun PromoCreateForm(onBack: () -> Unit, onCreated: () -> Unit) {
 
     val defaultErr = appText("Не получилось создать. Повтори.", "Булдырып булманы. Ҡабатла.")
     val createdMsg = appText("Промокод создан", "Промокод булдырылды")
+    val fillCodeErr = appText("Заполни код и кампанию.", "Код һәм кампанияны тултыр.")
     val isBoost = kind == "boost"
 
     fun submit() {
         if (busy) return
         val c = code.trim()
         if (c.isBlank() || campaign.isBlank()) {
-            err = appText("Заполни код и кампанию.", "Код һәм кампанияны тултыр.")
+            err = fillCodeErr
             return
         }
         busy = true; err = null
