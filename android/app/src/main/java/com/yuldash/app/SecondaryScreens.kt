@@ -900,6 +900,25 @@ internal fun PaymentInfoScreen(onBack: () -> Unit) {
                 }
             }
             item {
+                // Честно о риске (не только о плюсе «без комиссии»): деньги мимо приложения.
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Row(Modifier.padding(18.dp), verticalAlignment = Alignment.Top) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Важно знать", "Белеп ҡуйығыҙ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Text(
+                                appText(
+                                    "Деньги идут напрямую между вами — Юлдаш их не держит и не может вернуть. Это доверие «между своими»: плати после поездки, смотри рейтинг и отзывы, а при споре напиши в поддержку — разберёмся по-человечески.",
+                                    "Аҡса тура үҙ-ара күсә — Юлдаш уны тотмай һәм кире ҡайтара алмай. Был «үҙ-ара» ышаныс: сәфәрҙән һуң түлә, баһа менән фекерҙәргә ҡара, бәхәс сыҡһа ярҙамға яҙ — кешеләрсә асыҡларбыҙ.",
+                                ),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
                 Text(appText("Скоро: оплата картой прямо в приложении.", "Тиҙҙән: ҡушымтала карта менән түләү."), color = CanonMuted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
             }
         }

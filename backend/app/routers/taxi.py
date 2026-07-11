@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import (
     Booking, DriverProfile, InstantOrder, InstantOrderStatus as S, TaxiApplication,
     TaxiApplicationStatus, TaxiCity, User, UserRole,
@@ -82,14 +83,14 @@ def _validate_apply(body: TaxiApplyIn) -> None:
     """Валидация требований 580-ФЗ/бизнес-правил. Ошибки — понятной русской строкой."""
     inn = body.inn.strip()
     if not (inn.isdigit() and 10 <= len(inn) <= 12):
-        raise HTTPException(400, "ИНН должен состоять из 10–12 цифр")
+        raise herr(400, "ИНН должен состоять из 10–12 цифр", "ИНН 10–12 һандан торорға тейеш")
     today = utcnow().date()
     if _full_years_since(body.birth_date, today) < MIN_AGE_YEARS:
-        raise HTTPException(400, f"Возить такси можно с {MIN_AGE_YEARS} лет")
+        raise herr(400, f"Возить такси можно с {MIN_AGE_YEARS} лет", f"Такси йөрөтөргә {MIN_AGE_YEARS} йәштән мөмкин")
     if body.license_since_year > today.year:
-        raise HTTPException(400, "Год получения прав не может быть в будущем")
+        raise herr(400, "Год получения прав не может быть в будущем", "Права алған йыл киләсәктә була алмай")
     if today.year - body.license_since_year < MIN_LICENSE_YEARS:
-        raise HTTPException(400, f"Нужен стаж вождения от {MIN_LICENSE_YEARS} лет")
+        raise herr(400, f"Нужен стаж вождения от {MIN_LICENSE_YEARS} лет", f"Руль артында {MIN_LICENSE_YEARS} йыл стаж кәрәк")
 
 
 def _application_payload(app: TaxiApplication) -> dict:
@@ -118,7 +119,7 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     _validate_apply(body)
     app = taxi_mod.my_application(session, user.id)
     if app and app.status == TaxiApplicationStatus.approved:
-        raise HTTPException(409, "Заявка уже одобрена — ты в такси Юлдаша")
+        raise herr(409, "Заявка уже одобрена — ты в такси Юлдаша", "Заявка раҫланған — һин Юлдаш таксиһында")
     # Фото — только СВОИ загруженные защищённые документы (анти-подмена чужих URL).
     permit_url = _ensure_owned_doc_url(body.permit_photo_url, user, None) if body.permit_photo_url.strip() else None
     osago_url = _ensure_owned_doc_url(body.osago_url, user, None) if body.osago_url.strip() else None

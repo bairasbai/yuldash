@@ -44,6 +44,42 @@ object ApiClient {
     // и сигналит о входе с нового устройства. Никогда не логируем и не показываем в UI.
     @Volatile private var deviceId: String? = null
     private val refreshMutex = Mutex()   // не даём нескольким 401 рефрешить одновременно
+    // Язык интерфейса для сообщений об ошибке. ApiClient — не Composable (appText недоступен),
+    // поэтому язык синхронизируем из UI при переключении (YuldashApp). Иначе башкир видел бы
+    // серверные/клиентские ошибки по-русски.
+    @Volatile private var langBa = false
+    /** Синхронизировать язык ошибок с UI (зовётся при смене языка). */
+    fun setUiLanguageBashkir(ba: Boolean) { langBa = ba }
+
+    /** Понятная общая ошибка по HTTP-коду (двуязычно) — когда сервер не дал перевод. */
+    private fun genericByStatus(status: Int, ba: Boolean): String = when (status) {
+        400, 422 -> if (ba) "Мәғлүмәттә хата. Тикшереп ҡабатла." else "Проверь введённые данные и повтори."
+        401 -> if (ba) "Сессия бөттө. Яңынан ин." else "Сессия истекла. Войди заново."
+        403 -> if (ba) "Был эшкә рөхсәт юҡ." else "Нет доступа к этому действию."
+        404 -> if (ba) "Табылманы." else "Не найдено."
+        409 -> if (ba) "Хәл үҙгәргән — экранды яңырт." else "Уже изменилось — обнови экран."
+        429 -> if (ba) "Артыҡ йыш. Бер аҙ көт." else "Слишком часто — подожди немного."
+        in 500..599 -> if (ba) "Сервер хатаһы. Аҙаҡ ҡабатла." else "Ошибка сервера. Попробуй позже."
+        else -> if (ba) "Булманы. Ҡабатла." else "Не получилось. Повтори."
+    }
+
+    /** Разобрать тело ошибки в сообщение по текущему языку.
+     *  detail={ru,ba} → берём по языку; строка → русскому как есть, башкиру — общий по коду;
+     *  список (валидация FastAPI) / пусто → общий по коду. Русский флоу не меняется. */
+    private fun errorMessage(status: Int, text: String): String {
+        val detail = runCatching { JSONObject(text).opt("detail") }.getOrNull()
+        when (detail) {
+            is JSONObject -> {
+                val ru = detail.optString("ru"); val ba = detail.optString("ba")
+                if (ru.isNotBlank() || ba.isNotBlank())
+                    return if (langBa && ba.isNotBlank()) ba else if (ru.isNotBlank()) ru else genericByStatus(status, langBa)
+            }
+            is String -> if (detail.isNotBlank())
+                return if (langBa) genericByStatus(status, true) else detail
+        }
+        return genericByStatus(status, langBa)
+    }
+
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
     // Долгоживущий scope для POST'ов «отправил и забыл». НЕ привязан к экрану —
@@ -2049,11 +2085,10 @@ object ApiClient {
                 if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
                 else {
                     logout()   // refresh мёртв → чистим локальную сессию, иначе isLoggedIn() врёт true и юзер «залипает» с 401 на каждом запросе
-                    Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
+                    Result.failure(ApiException(401, genericByStatus(401, langBa)))
                 }
             } else {
-                val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
-                Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)"))
+                Result.failure(ApiException(code, errorMessage(code, text)))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -2105,10 +2140,9 @@ object ApiClient {
             } else if (code == 401 && !isRetry && !refreshToken.isNullOrBlank()) {
                 conn.disconnect(); conn = null
                 if (tryRefresh(usedToken)) callMultipart(path, fileBytes, ext, filename, isRetry = true)
-                else Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
+                else Result.failure(ApiException(401, genericByStatus(401, langBa)))
             } else {
-                val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
-                Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)"))
+                Result.failure(ApiException(code, errorMessage(code, text)))
             }
         } catch (e: Exception) {
             Result.failure(e)

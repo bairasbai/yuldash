@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Rating, Settlement, User
 from ..security import current_user
 from ..services import user_rating
@@ -37,7 +38,7 @@ def _guard_taxi_available(session: Session, lat: float | None = None, lng: float
     создание заказа) и к водительским. ПОПУТКА (rides/bookings) не затрагивается."""
     av = taxi_mod.availability(session, lat, lng)
     if not av["enabled"]:
-        raise HTTPException(403, av["message"]["ru"])
+        raise herr(403, av["message"]["ru"], av["message"].get("ba", av["message"]["ru"]))
 
 
 def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = None, lng: float | None = None) -> None:
@@ -146,7 +147,7 @@ def presence(body: PresenceIn, user: User = Depends(current_user), session: Sess
     Координаты в БД/логи не пишем — только эфемерно в Redis (TTL сам чистит)."""
     dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
     if not dp or not dp.online:
-        raise HTTPException(409, "Сначала включи «Я на линии»")
+        raise herr(409, "Сначала включи «Я на линии»", "Башта «Мин линияла»-ны ҡабыҙ")
     _guard_taxi_driver(session, user.id, body.lat, body.lng)   # флаг/город + заявка таксиста + долг + отдых
     ok = isv.presence_heartbeat(user.id, body.lat, body.lng)
     # Учёт смены (§8): +интервал от прошлого пинга (кэп ≤ workday_step_cap_sec),
@@ -333,7 +334,7 @@ def rate_order(order_id: int, body: RateIn, user: User = Depends(current_user),
     else:
         raise HTTPException(403, "Нельзя оценить этот заказ")
     if order.status != S.done:
-        raise HTTPException(409, "Оценить можно только завершённую поездку")
+        raise herr(409, "Оценить можно только завершённую поездку", "Тик тамамланған сәфәрҙе генә баһалап була")
     stars = max(1, min(5, body.stars))
     existing = session.exec(
         select(Rating).where(Rating.order_id == order_id, Rating.rater_id == user.id)

@@ -557,6 +557,9 @@ internal fun YuldashApp() {
     val openDriverProfile: (Int) -> Unit = { id ->
         if (id > 0) { driverProfileId = id; screen = Screen.DriverProfile }
     }
+    // Синхронизируем язык сообщений об ошибке в слое данных (ApiClient — не Composable,
+    // appText недоступен). Иначе башкир видел бы серверные/клиентские ошибки по-русски.
+    LaunchedEffect(language) { ApiClient.setUiLanguageBashkir(language == AppLanguage.Ba) }
     CompositionLocalProvider(LocalAppLanguage provides language, LocalOpenDriverProfile provides openDriverProfile) {
         // Force-update (B9b-1): версия ниже минимальной → блокирующий экран вместо всего приложения.
         // Не экран навигации (enum Screen) намеренно: из него нельзя выйти «Назад» — только обновиться.

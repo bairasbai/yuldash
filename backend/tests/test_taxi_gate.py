@@ -168,11 +168,11 @@ def test_apply_validation(client, user_factory):
     # Возраст < 20.
     young = {**VALID_APPLY, "birth_date": f"{year - 18}-01-01"}
     r = client.post("/taxi/apply", headers=d["auth"], json=young)
-    assert r.status_code == 400 and "20" in r.json()["detail"]
+    assert r.status_code == 400 and "20" in str(r.json()["detail"])
     # Стаж < 2 лет.
     fresh = {**VALID_APPLY, "license_since_year": year}
     r = client.post("/taxi/apply", headers=d["auth"], json=fresh)
-    assert r.status_code == 400 and "стаж" in r.json()["detail"].lower()
+    assert r.status_code == 400 and "стаж" in str(r.json()["detail"]).lower()
     # Год прав в будущем.
     assert client.post("/taxi/apply", headers=d["auth"],
                        json={**VALID_APPLY, "license_since_year": year + 1}).status_code == 400
@@ -319,3 +319,14 @@ def test_admin_applications_show_checks_and_inviter(client, user_factory):
     row = mine[0]
     assert "selfie_url" in row and "criminal_record_url" in row
     assert row["invited_by"] == "Пригласивший"
+
+
+def test_apply_error_is_bilingual(client, user_factory):
+    """Ошибки валидации онбординга — двуязычный detail {ru, ba} (башкир видит не русский текст)."""
+    d = user_factory("BiErrDrv", role=UserRole.driver, taxi_approved=False)
+    bad = {**VALID_APPLY, "inn": "123"}  # короткий ИНН → 400
+    r = client.post("/taxi/apply", headers=d["auth"], json=bad)
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert isinstance(detail, dict) and detail.get("ru") and detail.get("ba")
+    assert detail["ru"] != detail["ba"]   # реально переведено, не копия

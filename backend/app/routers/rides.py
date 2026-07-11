@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
 from .. import workday as workday_mod
 from ..schemas import RideIn, RideOut
@@ -145,7 +146,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     if ride.driver_id != user.id:
         raise HTTPException(403, "Это не ваша поездка")
     if ride.status != RideStatus.active:
-        raise HTTPException(400, "Менять можно только активную поездку")
+        raise herr(400, "Менять можно только активную поездку", "Тик актив сәфәрҙе генә үҙгәртеп була")
     live = session.exec(select(Booking).where(
         Booking.ride_id == ride_id,
         Booking.status.in_((BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)),
@@ -154,7 +155,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     changed: list[str] = []
     if body.price is not None and body.price != ride.price:
         if live and body.price > ride.price:
-            raise HTTPException(409, "С активными бронями цену можно только снижать")
+            raise herr(409, "С активными бронями цену можно только снижать", "Актив брондар менән хаҡты кәметергә генә була")
         ride.price = body.price
         changed.append("цена")
     if body.comment is not None and body.comment != ride.comment:
@@ -162,12 +163,12 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         changed.append("комментарий")
     if body.depart_at is not None and body.depart_at != ride.depart_at:
         if live:
-            raise HTTPException(409, "С активными бронями время не меняют — отмените рейс и создайте новый")
+            raise herr(409, "С активными бронями время не меняют — отмените рейс и создайте новый", "Актив брондар менән ваҡытты үҙгәртеп булмай — рейсты кире алып, яңыһын төҙө")
         ride.depart_at = body.depart_at
         changed.append("время")
     if body.seats_total is not None and body.seats_total != ride.seats_total:
         if live:
-            raise HTTPException(409, "С активными бронями число мест не меняют")
+            raise herr(409, "С активными бронями число мест не меняют", "Актив брондар менән урын һанын үҙгәртеп булмай")
         ride.seats_total = body.seats_total
         ride.seats_left = body.seats_total - booked_seats   # броней нет → просто новое число мест
         changed.append("места")
