@@ -86,6 +86,7 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -665,6 +666,7 @@ internal fun CreatePassengerRequestScreen(
     var baggage by remember { mutableStateOf(false) }
     var nonSmoking by remember { mutableStateOf(false) }
     var airConditioner by remember { mutableStateOf(false) }
+    var onlyTrusted by remember { mutableStateOf(false) }   // «только для своих» (L3)
     val categories = listOf(
         "regular" to LocalizedText("Обычная", "Ғәҙәти"),
         "urgent" to LocalizedText("Срочно", "Ашығыс"),
@@ -685,6 +687,7 @@ internal fun CreatePassengerRequestScreen(
             comment = comment, categories = categories, selectedCategoryText = selectedCategoryText,
             womenOnly = womenOnly, childSeat = childSeat, pets = pets, wheelchair = wheelchair,
             baggage = baggage, nonSmoking = nonSmoking, airConditioner = airConditioner,
+            onlyTrusted = onlyTrusted,
             loading = submitting,
             onCategoryChange = { category = it }, onSeatsChange = { seats = it }, onPriceChange = { price = it },
             onCommentChange = { comment = it }, onTimeChange = { time = it },
@@ -692,6 +695,7 @@ internal fun CreatePassengerRequestScreen(
             onPetsChange = { pets = it }, onWheelchairChange = { wheelchair = it },
             onBaggageChange = { baggage = it }, onNonSmokingChange = { nonSmoking = it },
             onAirConditionerChange = { airConditioner = it },
+            onOnlyTrustedChange = { onlyTrusted = it },
             onSubmit = {
                 if (submitting) return@CreatePassengerRequestContent   // гард двойного нажатия
                 val (apiCat, withKids) = when (category) {
@@ -719,6 +723,7 @@ internal fun CreatePassengerRequestScreen(
                         womenOnly = womenOnly, childSeat = childSeat, pets = pets,
                         wheelchair = wheelchair, nonSmoking = nonSmoking,
                         airConditioner = airConditioner, baggage = baggage,
+                        onlyTrusted = onlyTrusted,
                     )
                         .onSuccess { newId ->
                             onCreateRequest(
@@ -780,6 +785,7 @@ internal fun CreatePassengerRequestContent(
     baggage: Boolean,
     nonSmoking: Boolean,
     airConditioner: Boolean,
+    onlyTrusted: Boolean,
     loading: Boolean,
     onCategoryChange: (String) -> Unit,
     onSeatsChange: (String) -> Unit,
@@ -793,6 +799,7 @@ internal fun CreatePassengerRequestContent(
     onBaggageChange: (Boolean) -> Unit,
     onNonSmokingChange: (Boolean) -> Unit,
     onAirConditionerChange: (Boolean) -> Unit,
+    onOnlyTrustedChange: (Boolean) -> Unit,
     onSubmit: () -> Unit,
     fromField: (@Composable () -> Unit)? = null,
     toField: (@Composable () -> Unit)? = null,
@@ -903,6 +910,21 @@ internal fun CreatePassengerRequestContent(
                     PrefToggleRow(Icons.Default.Luggage, appText("Есть багаж", "Багаж бар"), baggage, onBaggageChange)
                     PrefToggleRow(Icons.Default.Block, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking, onNonSmokingChange)
                     PrefToggleRow(Icons.Default.AcUnit, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
+                }
+            }
+        }
+        item {
+            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    PrefToggleRow(Icons.Default.Groups, appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"), onlyTrusted, onOnlyTrustedChange)
+                    Text(
+                        appText(
+                            "Заявку увидят и возьмут только проверенные «свои» (уровень «Свой»).",
+                            "Заявканы тик тикшерелгән «үҙебеҙҙекеләр» (Үҙебеҙҙеке кимәле) күрер һәм алыр.",
+                        ),
+                        modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 8.dp),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                    )
                 }
             }
         }

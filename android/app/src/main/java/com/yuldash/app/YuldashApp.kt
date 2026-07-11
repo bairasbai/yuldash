@@ -695,6 +695,8 @@ internal fun YuldashApp() {
                 onSafety = { screen = Screen.Safety },
                 onSettings = { screen = Screen.Settings },
                 onPrivacy = { screen = Screen.Privacy },
+                onTrust = { if (ApiClient.isLoggedIn()) screen = Screen.Trust else screen = Screen.Login },
+                onConsents = { if (ApiClient.isLoggedIn()) screen = Screen.Consents else screen = Screen.Login },
                 onHelp = { screen = Screen.Help },
                 onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
                 onDriverCabinet = { prefs.edit().putString("preferred_role", RideRole.Driver.name).apply(); screen = Screen.DriverCabinet },
@@ -812,6 +814,7 @@ internal fun YuldashApp() {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                 },
                 onPrivacy = { screen = Screen.Privacy },
+                onConsents = { screen = Screen.Consents },
                 onPayments = { screen = Screen.PaymentInfo },
                 onFilters = { screen = Screen.Filters },
                 isAdmin = isAdmin,
@@ -982,6 +985,15 @@ internal fun YuldashApp() {
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
             Screen.DriverProfile -> DriverProfileScreen(driverId = driverProfileId, onBack = { goBack() })
+            Screen.Trust -> TrustScreen(
+                onBack = { goBack() },
+                onOpenInvites = { screen = Screen.Invites },
+                onOpenConsents = { screen = Screen.Consents },
+                onEditProfile = { openHome(HomeTab.Profile) },   // L0→L1: имя и фото в профиле
+                onVerify = { screen = Screen.VerifyDriver },     // L1→L2: проверка документов
+            )
+            Screen.Invites -> InvitesScreen(onBack = { goBack() })
+            Screen.Consents -> ConsentsScreen(onBack = { goBack() })
         }
         }
     }
@@ -1556,6 +1568,8 @@ internal fun HomeScreen(
     onSafety: () -> Unit,
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
+    onTrust: () -> Unit,
+    onConsents: () -> Unit,
     onHelp: () -> Unit,
     onReview: () -> Unit,
     onAdminReviews: () -> Unit,
@@ -1638,6 +1652,8 @@ internal fun HomeScreen(
                     onSafety = onSafety,
                     onSettings = onSettings,
                     onPrivacy = onPrivacy,
+                    onTrust = onTrust,
+                    onConsents = onConsents,
                     onHelp = onHelp,
                     onReview = onReview,
                     onAdminReviews = onAdminReviews,

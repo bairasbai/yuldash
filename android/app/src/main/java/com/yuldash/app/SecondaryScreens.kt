@@ -707,6 +707,7 @@ internal fun SettingsScreen(
     onSelectTab: (HomeTab) -> Unit,
     onToggleLanguage: () -> Unit,
     onPrivacy: () -> Unit = {},
+    onConsents: () -> Unit = {},
     onPayments: () -> Unit = {},
     onFilters: () -> Unit = {},
     isAdmin: Boolean = false,
@@ -763,6 +764,7 @@ internal fun SettingsScreen(
             item {
                 SettingsGroup {
                     SettingsNavRow(Icons.Default.Shield, appText("Приватность", "Махсуслыҡ"), appText("Управление безопасностью и данными", "Хәүефһеҙлек һәм мәғлүмәт"), onClick = onPrivacy)
+                    SettingsNavRow(Icons.Default.Description, appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт"), appText("Оферта, политика, геолокация — 152-ФЗ", "Оферта, сәйәсәт, геолокация — 152-ФЗ"), onClick = onConsents)
                     SettingSwitchRow(Icons.Default.VolumeUp, appText("Звуки", "Тауыштар"), appText("Звуковые уведомления и эффекты", "Тауышлы хәбәрҙәр"), sounds) { sounds = it; AppPrefs.setSounds(ctx, it) }
                 }
             }
