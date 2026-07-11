@@ -285,6 +285,15 @@ class MainActivity : ComponentActivity() {
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)   // не сработать повторно при пересоздании
             NavSignals.openDriverCabinet.value = true
         }
+        // Пуш о ходе такси-заказа (B9b-2). Два пути: наше уведомление из FcmService (extra
+        // EXTRA_OPEN_ORDER) ИЛИ системный трей FCM в фоне (data-ключи приходят как extras интента).
+        if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) == true ||
+            i?.getStringExtra("type") == "instant_status"
+        ) {
+            i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER)
+            i.removeExtra("type")
+            NavSignals.openInstantOrder.value = true
+        }
     }
 }
 

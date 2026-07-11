@@ -351,6 +351,15 @@ internal fun YuldashApp() {
             screen = Screen.Sos
         }
     }
+    // Пуш о ходе такси-заказа (B9b-2): тап по «Водитель найден / Машина на месте / …» →
+    // экран заказа пассажира (сам подхватывает активный заказ). Ждём, пока сплэш отработает.
+    val wantInstantOrder by NavSignals.openInstantOrder
+    LaunchedEffect(wantInstantOrder, screen) {
+        if (!wantInstantOrder) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        NavSignals.openInstantOrder.value = false
+        if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder
+    }
     // Force-update (B9b-1): при старте ПАРАЛЛЕЛЬНО обычному запуску спрашиваем /version/min.
     // versionCode < min с сервера → блокирующий экран «Обнови Юлдаш» (ниже, поверх всего).
     // Офлайн / ошибка ручки / min=0 → НИЧЕГО не блокируем, приложение стартует как обычно.

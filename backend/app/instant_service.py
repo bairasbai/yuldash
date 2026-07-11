@@ -639,8 +639,11 @@ def _expire_no_drivers(session: Session, order: InstantOrder) -> InstantOrder:
     session.commit()
     _cleanup_tried(order.id)
     fresh = session.get(InstantOrder, order.id)
-    send_push(session, fresh.passenger_id, "Рядом никого",
-              "Пока не нашли водителя. Попробуй ещё раз или оставь заявку.")
+    send_push(session, fresh.passenger_id,
+              "Рядом никого · Яҡында водитель юҡ",
+              "Пока не нашли водителя. Попробуй ещё раз или оставь заявку."
+              " · Водитель табылманы әле. Тағы ҡабатлап ҡара йәки ғариза ҡалдыр.",
+              data=_status_data(fresh, "expired"))
     return fresh
 
 
@@ -787,16 +790,30 @@ def _notify_order_shares(session: Session, order: InstantOrder, share_status: st
     session.commit()
 
 
+def _status_data(order: InstantOrder, status: str) -> dict:
+    """data-payload пуша о ходе заказа (B9b-2): по type=instant_status клиент
+    открывает экран этого заказа (тап по пушу → сразу к делу)."""
+    return {"type": "instant_status", "order_id": str(order.id), "status": status}
+
+
 def _notify_transition(session: Session, order: InstantOrder, target: S) -> None:
+    """Пуш пассажиру на каждом переходе заказа (B9b-2): двуязычно (RU · BA, черновики BA →
+    docs/tasks.md) + data-payload type=instant_status. Дедуп не нужен: переходы одноразовые
+    (машина состояний не повторяет target)."""
     titles = {
-        S.accepted: ("Водитель найден", "Водитель принял заказ и уже едет к тебе"),
-        S.arriving: ("Машина на месте", f"Водитель ждёт. Бесплатное ожидание — {settings.wait_free_minutes} мин"),
-        S.onboard: ("В пути", "Хорошей поездки!"),
-        S.done: ("Поездка завершена", f"{order.from_text or ''} → {order.to_text or ''}".strip(" →")),
+        S.accepted: ("Водитель найден 🚗 · Водитель табылды 🚗",
+                     "Водитель принял заказ — уже едет к тебе"
+                     " · Водитель заказды ҡабул итте — һиңә килә инде"),
+        S.arriving: ("Машина на месте! · Машина килеп етте!",
+                     f"Водитель ждёт. Бесплатное ожидание — {settings.wait_free_minutes} мин"
+                     f" · Водитель көтә. Түләүһеҙ көтөү — {settings.wait_free_minutes} мин"),
+        S.onboard: ("В пути · Юлда", "Хорошей поездки! · Хәйерле юл!"),
+        S.done: ("Поездка завершена · Сәфәр тамамланды",
+                 f"{order.from_text or ''} → {order.to_text or ''}".strip(" →")),
     }
     if target in titles:
         title, body = titles[target]
-        send_push(session, order.passenger_id, title, body)
+        send_push(session, order.passenger_id, title, body, data=_status_data(order, target.value))
     # Близким (шаринг B7b-2): сел в машину / доехал.
     if target == S.onboard:
         _notify_order_shares(session, order, "sat")
@@ -805,14 +822,26 @@ def _notify_transition(session: Session, order: InstantOrder, target: S) -> None
 
 
 def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
+    """Отмена (B9b-2): водитель отменил → пуш пассажиру; пассажир отменил → пуш водителю.
+    Двуязычно + data type=instant_status (тап открывает заказ)."""
     if actor == Actor.driver and order.passenger_id:
         if order.no_show:
-            send_push(session, order.passenger_id, "Поездка не состоялась",
-                      "Водитель ждал, но не дождался. Частые несостоявшиеся поездки ставят такси на паузу")
+            send_push(session, order.passenger_id,
+                      "Поездка не состоялась · Сәфәр булманы",
+                      "Водитель ждал, но не дождался. Частые несостоявшиеся поездки ставят такси на паузу"
+                      " · Водитель көттө, ләкин көтөп ала алманы. Йыш ҡабатланһа — такси паузаға ҡуйыла",
+                      data=_status_data(order, "cancelled"))
         else:
-            send_push(session, order.passenger_id, "Заказ отменён", "Водитель отменил заказ. Ищем другого?")
+            send_push(session, order.passenger_id,
+                      "Заказ отменён · Заказ кире алынды",
+                      "Водитель отменил заказ. Ищем другого?"
+                      " · Водитель заказды кире алды. Башҡаһын эҙләйекме?",
+                      data=_status_data(order, "cancelled"))
     elif actor == Actor.passenger and order.driver_id:
-        send_push(session, order.driver_id, "Заказ отменён", "Пассажир отменил заказ")
+        send_push(session, order.driver_id,
+                  "Заказ отменён · Заказ кире алынды",
+                  "Пассажир отменил заказ · Пассажир заказды кире алды",
+                  data=_status_data(order, "cancelled"))
     # Близким (шаринг B7b-2): честно сообщаем, что поездка не состоялась.
     _notify_order_shares(session, order, "cancelled")
 
