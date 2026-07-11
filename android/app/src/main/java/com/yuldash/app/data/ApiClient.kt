@@ -1522,6 +1522,18 @@ object ApiClient {
             )
         }
 
+    /** Статус СВОЕГО платежа — клиент поллит после возврата из браузера ЮKassa (ON_RESUME экрана).
+     *  Сервер при pending+yookassa сам перепроверяет оплату у ЮKassa и активирует boost (go-live). */
+    suspend fun getPaymentStatus(paymentId: Int): Result<PaymentStatusDto> =
+        call("GET", "/payments/$paymentId/status", null, auth = true).map { o ->
+            PaymentStatusDto(
+                paymentId = o.optInt("payment_id"),
+                status = o.optString("status"),
+                purpose = o.optString("purpose"),
+                boostedUntil = o.optString("boosted_until").ifBlank { null },
+            )
+        }
+
     /** Донат на платформу (интерим СБП): создаёт заявку на подтверждение, возвращает реквизиты (как boost). */
     suspend fun createDonation(amount: Int): Result<BoostResultDto> =
         call("POST", "/donate", JSONObject().put("amount", amount), auth = true).map { o ->
@@ -2688,6 +2700,9 @@ data class BoostResultDto(
     val payeeBank: String?,
     val payeeName: String?,
 )
+
+/** Статус платежа для поллинга после возврата из браузера ЮKassa (go-live boost). */
+data class PaymentStatusDto(val paymentId: Int, val status: String, val purpose: String, val boostedUntil: String?)
 
 /** Заявка на оплату (буст/донат) в админ-очереди подтверждения. */
 data class PendingPaymentDto(
