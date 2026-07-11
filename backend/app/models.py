@@ -146,6 +146,8 @@ class DriverProfile(SQLModel, table=True):
     taxi_pause_reason: Optional[str] = None
     # Дедуп мягкого пуш-совета при rating < quality_advice_rating (не чаще 1/нед).
     low_rating_advice_at: Optional[datetime] = None
+    # Дедуп напоминания «выдай чек в „Мой налог"» после done такси-заказа (не чаще 1/сутки, B7b-4).
+    receipt_reminder_at: Optional[datetime] = None
     docs_status: str = "none"         # none / pending / verified / rejected
     license_url: str = ""             # фото водительского удостоверения
     car_photo_url: str = ""           # фото автомобиля
@@ -246,7 +248,10 @@ class Booking(SQLModel, table=True):
 
 class Message(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    booking_id: int = Field(index=True, foreign_key="booking.id")
+    # Ровно ОДНА привязка: booking_id (чат брони попутки) ИЛИ order_id (чат такси-заказа, B7b-1).
+    # Старые строки — все с booking_id, колонка стала nullable без потери данных.
+    booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
+    order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
     sender_id: int = Field(foreign_key="user.id")
     text: str = ""
     voice_url: Optional[str] = None
@@ -267,9 +272,11 @@ class TrustedContact(SQLModel, table=True):
 
 
 class TripShare(SQLModel, table=True):
-    """Поездка, расшаренная близкому (семейный контроль)."""
+    """Поездка, расшаренная близкому (семейный контроль). Привязка: booking_id (бронь
+    попутки) ИЛИ order_id (такси-заказ, B7b-2) — ровно одна из двух."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    booking_id: int = Field(index=True, foreign_key="booking.id")
+    booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
+    order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
     contact_id: int = Field(foreign_key="trustedcontact.id")
     last_status: str = "shared"             # shared / sat / arrived / done
     created_at: datetime = Field(default_factory=utcnow)
@@ -279,6 +286,7 @@ class SosEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")
+    order_id: Optional[int] = Field(default=None, foreign_key="instantorder.id")   # SOS из такси-заказа (B7b-2)
     category: str = "other"                 # medical / breakdown / other
     note: str = ""
     status: str = "open"                    # open / handled

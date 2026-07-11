@@ -10,7 +10,9 @@ from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
 from ..db import engine, get_session
-from ..models import Booking, BookingStatus, Message, Ride, User
+from ..models import (
+    Booking, BookingStatus, InstantOrder, InstantOrderStatus, Message, Ride, User,
+)
 from ..security import authenticate_ws, current_user
 from ..services import (
     booking_and_ride_for_user, is_blocked, manager, notify_chat_message,
@@ -18,6 +20,40 @@ from ..services import (
 )
 
 router = APIRouter(tags=["chat"])
+
+# ---- Чат такси-заказа (B7b-1) ----
+# Namespace ключей ConnectionManager: booking-чат живёт на booking_id (>0), трек-каналы — на
+# отрицательных, /ws/map — на 2_000_000_000. Чат заказа кладём на 1_500_000_000 + order_id:
+# не пересекается ни с чем (booking_id до этих величин не дорастёт).
+INSTANT_CHAT_KEY_BASE = 1_500_000_000
+# Писать можно ТОЛЬКО в активном заказе (после accept и до done/отмены).
+ORDER_CHAT_WRITABLE = (InstantOrderStatus.accepted, InstantOrderStatus.arriving, InstantOrderStatus.onboard)
+# Читать историю можно и после завершения/отмены (read-only) — для споров/чека/забытых вещей.
+ORDER_CHAT_READABLE = ORDER_CHAT_WRITABLE + (InstantOrderStatus.done, InstantOrderStatus.cancelled)
+
+
+def _order_chat_key(order_id: int) -> int:
+    return INSTANT_CHAT_KEY_BASE + order_id
+
+
+def _order_for_chat(session: Session, order_id: int, user_id: int, write: bool) -> InstantOrder:
+    """Доступ к чату заказа: ТОЛЬКО участники (пассажир + НАЗНАЧЕННЫЙ водитель — кандидат
+    с оффером участником ещё не является). Окно статусов: писать — accepted..onboard,
+    читать — плюс done/cancelled (read-only). 403 чужому, 409 вне окна."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    is_passenger = user_id == order.passenger_id
+    is_driver = order.driver_id is not None and user_id == order.driver_id
+    if not (is_passenger or is_driver):
+        raise HTTPException(403, "Нет доступа к чату этого заказа")
+    allowed = ORDER_CHAT_WRITABLE if write else ORDER_CHAT_READABLE
+    if order.status not in allowed:
+        # До accept — чата ещё нет; после done/отмены запись закрыта (история читается).
+        raise HTTPException(409, "Поездка завершена — чат только для чтения"
+                            if write and order.status in ORDER_CHAT_READABLE
+                            else "Чат доступен после принятия заказа")
+    return order
 
 
 class MessageIn(BaseModel):
@@ -96,6 +132,114 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
         pass
     finally:
         manager.disconnect(booking_id, websocket)   # снятие регистрации при ЛЮБОМ выходе — нет утечки сокета
+
+
+# ============================ Чат такси-заказа (B7b-1) ============================
+@router.websocket("/ws/instant/{order_id}/chat")
+async def instant_chat_ws(websocket: WebSocket, order_id: int):
+    """WebSocket чата такси-заказа — зеркало booking-чата. Токен ТОЛЬКО первым сообщением
+    {"type":"auth","token":...} (query-string утекает в логи прокси). Доступ: участники
+    заказа, писать можно пока заказ активен (accepted..onboard)."""
+    await websocket.accept()
+    token = None
+    try:
+        first = json.loads(await websocket.receive_text())
+        if first.get("type") == "auth":
+            token = first.get("token")
+    except Exception:
+        token = None
+    with Session(engine) as s:
+        try:
+            user_id = authenticate_ws(token or "", s).id
+        except Exception:
+            await websocket.close(code=1008, reason="Invalid token")
+            return
+        try:
+            order = _order_for_chat(s, order_id, user_id, write=True)
+        except HTTPException:
+            await websocket.close(code=1008, reason="Forbidden")
+            return
+        passenger_id, driver_id = order.passenger_id, order.driver_id
+
+    other_id = driver_id if user_id == passenger_id else passenger_id
+    key = _order_chat_key(order_id)
+    manager.register(key, websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                payload = json.loads(data)
+            except (json.JSONDecodeError, ValueError):
+                continue   # битый кадр — игнор, соединение не роняем (как в booking-чате)
+            if payload.get("type") == "message":
+                with Session(engine) as session:
+                    if is_blocked(session, user_id, other_id):
+                        continue
+                    # Заказ мог завершиться, пока сокет висел: перепроверяем окно записи —
+                    # после done/отмены новые сообщения не принимаем (read-only).
+                    o2 = session.get(InstantOrder, order_id)
+                    if not o2 or o2.status not in ORDER_CHAT_WRITABLE:
+                        break
+                    msg = Message(order_id=order_id, sender_id=user_id, text=(payload.get("text") or "")[:4000])
+                    session.add(msg)
+                    session.commit()
+                    session.refresh(msg)
+                    await manager.broadcast(key, {
+                        "type": "message",
+                        "id": msg.id,
+                        "sender_id": msg.sender_id,
+                        "text": msg.text,
+                        "timestamp": msg.created_at.isoformat(),
+                    })
+                    # Пуш второй стороне (может быть офлайн) — как в booking-чате; send_push
+                    # блокирующий → через threadpool, чтобы не морозить event-loop.
+                    sender = session.get(User, user_id)
+                    await run_in_threadpool(
+                        send_push, session, other_id,
+                        (sender.name if sender else None) or "Новое сообщение",
+                        (msg.text or "Сообщение")[:120],
+                    )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(key, websocket)
+
+
+@router.post("/instant/orders/{order_id}/messages", response_model=Message)
+def send_order_message(order_id: int, body: MessageIn, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    """REST-отправка в чат заказа (фолбэк, когда WS лежит). Голос/медиа — только наш URL."""
+    order = _order_for_chat(session, order_id, user.id, write=True)
+    other_id = order.driver_id if user.id == order.passenger_id else order.passenger_id
+    if is_blocked(session, user.id, other_id):
+        raise HTTPException(403, "Переписка недоступна")
+    if body.voice_url and not body.voice_url.startswith(public_media_url("")):
+        raise HTTPException(422, "Недопустимая ссылка на медиа")
+    msg = Message(order_id=order_id, sender_id=user.id, **body.model_dump())
+    session.add(msg)
+    session.commit()
+    session.refresh(msg)
+    # Живая доставка открытым чатам (WS) — поля совместимы с клиентским ChatSocket.
+    notify_chat_message(_order_chat_key(order_id), {
+        "type": "message",
+        "id": msg.id,
+        "sender_id": msg.sender_id,
+        "text": msg.text or "",
+        "voice_url": msg.voice_url or "",
+        "transcript": msg.transcript or "",
+        "timestamp": msg.created_at.isoformat(),
+    })
+    send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120])
+    return msg
+
+
+@router.get("/instant/orders/{order_id}/messages", response_model=List[Message])
+def list_order_messages(order_id: int, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)):
+    """История чата заказа. После done/отмены — read-only (читать можно, писать нет)."""
+    _order_for_chat(session, order_id, user.id, write=False)
+    rows = session.exec(select(Message).where(Message.order_id == order_id).order_by(Message.id)).all()
+    return [m for m in rows if user.id not in _hidden_ids(m)]
 
 
 @router.post("/bookings/{booking_id}/messages", response_model=Message)

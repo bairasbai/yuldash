@@ -24,6 +24,9 @@ class ChatSocket(
     private val bookingId: Int,
     private val onMessage: (Incoming) -> Unit,
     private val onConnected: (Boolean) -> Unit = {},
+    // Чат такси-заказа (B7b-1) живёт на другом пути (/ws/instant/{id}/chat) — тот же протокол.
+    // null → прежний booking-чат (/ws/bookings/{bookingId}); поведение старых вызовов не меняется.
+    private val path: String? = null,
 ) {
     data class Incoming(val id: Int, val senderId: Int, val text: String, val timestamp: String)
 
@@ -34,6 +37,10 @@ class ChatSocket(
     companion object {
         private const val MAX_ATTEMPTS = 10
         private const val MAX_DELAY_SEC = 30L
+
+        /** Чат такси-заказа (B7b-1): тот же сокет-протокол, путь /ws/instant/{orderId}/chat. */
+        fun forOrder(orderId: Int, onMessage: (Incoming) -> Unit, onConnected: (Boolean) -> Unit = {}) =
+            ChatSocket(orderId, onMessage, onConnected, path = "/ws/instant/$orderId/chat")
 
         // ОДИН клиент на всё приложение: пул соединений и пул потоков переиспользуются.
         private val client: OkHttpClient by lazy {
@@ -63,7 +70,7 @@ class ChatSocket(
         // бы два живых WS на один канал → дубли сообщений. Код 4999 (терминальный диапазон) → его onClosed
         // НЕ запустит реконнект (без churn). @Synchronized сериализует параллельные openSocket.
         ws?.close(4999, "replaced")
-        val url = "${ApiClient.wsBase()}/ws/bookings/$bookingId"   // токен НЕ в URL — шлём первым сообщением
+        val url = "${ApiClient.wsBase()}${path ?: "/ws/bookings/$bookingId"}"   // токен НЕ в URL — шлём первым сообщением
         ws = client.newWebSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {

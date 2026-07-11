@@ -309,6 +309,8 @@ internal fun YuldashApp() {
     var trustedContactsReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Profile) }
     var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
     var instantTripOrderId by rememberSaveable { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
+    var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
+    var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
     // Версия сессии: инкрементится при входе (onContinue), чтобы user-специфичные загрузки
@@ -330,6 +332,16 @@ internal fun YuldashApp() {
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
         NavSignals.openDriverCabinet.value = false
         if (ApiClient.isLoggedIn() && screen != Screen.InstantDriverTrip) screen = Screen.DriverCabinet
+    }
+    // Кнопки «Написать»/SOS живут глубоко в экранах такси (в т.ч. встроенных в главную) —
+    // навигация через NavSignals (паттерн openDriverCabinet), без колбэков через все слои.
+    val wantInstantChat by NavSignals.openInstantChat
+    LaunchedEffect(wantInstantChat) {
+        if (wantInstantChat > 0 && ApiClient.isLoggedIn()) {
+            instantChatOrderId = wantInstantChat
+            NavSignals.openInstantChat.value = 0
+            screen = Screen.InstantChat
+        }
     }
     val notifPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var notifAsked by rememberSaveable { mutableStateOf(false) }
@@ -401,6 +413,10 @@ internal fun YuldashApp() {
         screen = Screen.Login
     }
 
+    fun openSos(orderId: Int = 0) {
+        sosOrderId = orderId   // контекст такси-заказа (0 = обычный SOS) — не даём протечь старому
+        screen = Screen.Sos
+    }
     fun openHome(tab: HomeTab = HomeTab.Map) {
         navHistory.clear()          // Home = корень: сбрасываем трейл, чтобы «Назад» не возвращал в завершённые под-потоки
         navPopping = true           // сам переход-на-Home в историю не пишем
@@ -628,7 +644,7 @@ internal fun YuldashApp() {
                     voiceMessages.add(0, message)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Тауыш хәбәре ебәрелде" else "Голосовое отправлено", Toast.LENGTH_SHORT).show()
                 },
-                onSos = { screen = Screen.Sos },
+                onSos = { openSos() },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
                 onNotifications = { screen = Screen.Notifications },
@@ -721,7 +737,7 @@ internal fun YuldashApp() {
                 bookingId = activeBookingId,
                 onBack = { goBack() },
                 onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
-                onSos = { screen = Screen.Sos },
+                onSos = { openSos() },
                 onSupport = { screen = Screen.Support }
             )
             Screen.Sos -> SosScreen(
@@ -745,7 +761,7 @@ internal fun YuldashApp() {
             Screen.Safety -> SafetyScreen(
                 onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) },
-                onSos = { screen = Screen.Sos },
+                onSos = { openSos() },
                 onShareTrip = { openTrustedContacts(returnScreen = Screen.Safety) },
                 onRules = { screen = Screen.Rules },
                 onBlocklist = { screen = Screen.Blocklist },
@@ -824,6 +840,10 @@ internal fun YuldashApp() {
                 onBack = { goBack() },
                 onFinished = { screen = Screen.DriverCabinet }
             )
+            Screen.InstantChat -> InstantChatScreen(
+                orderId = instantChatOrderId,
+                onBack = { goBack() }
+            )
             Screen.TaxiOnboarding -> TaxiOnboardingScreen(
                 onBack = { goBack() },
                 onOpenDriverCabinet = { screen = Screen.DriverCabinet }
@@ -854,7 +874,7 @@ internal fun YuldashApp() {
                 onTrustedContacts = { if (ApiClient.isLoggedIn()) openTrustedContacts(returnScreen = Screen.SimpleMode) else screen = Screen.Login },
                 onRepeatTrip = { if (ApiClient.isLoggedIn()) screen = Screen.RepeatTrip else screen = Screen.Login },
                 onCallbackHelp = { if (ApiClient.isLoggedIn()) screen = Screen.CallbackHelp else screen = Screen.Login },
-                onSos = { screen = Screen.Sos },
+                onSos = { openSos() },
                 onChat = { if (ApiClient.isLoggedIn()) openHome(HomeTab.Chat) else screen = Screen.Login }
             )
             Screen.VoiceRequest -> VoiceRequestScreen(

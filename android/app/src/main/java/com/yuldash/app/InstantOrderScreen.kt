@@ -44,6 +44,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -821,13 +822,21 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                         }.joinToString("  ·  ")
                         if (sub.isNotBlank()) Text(sub, color = CanonMuted, fontSize = 13.sp, maxLines = 1)
                     }
+                    // «Написать» (B7b-1): чат заказа — не звоня, уточнить подъезд/этаж/ориентир.
+                    Surface(
+                        onClick = { NavSignals.openInstantChat.value = order.id },
+                        shape = CircleShape, color = CanonMint,
+                    ) {
+                        Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать водителю", "Водителгә яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(14.dp).size(20.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
                     // Телефон — ТОЛЬКО после accept (сервер отдаёт его непустым).
                     if (order.driverPhone.isNotBlank()) {
                         Surface(
                             onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.driverPhone}"))) } },
                             shape = CircleShape, color = CanonGreen2,
                         ) {
-                            Icon(Icons.Default.Phone, contentDescription = appText("Позвонить водителю", "Водителгә шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(12.dp).size(20.dp))
+                            Icon(Icons.Default.Phone, contentDescription = appText("Позвонить водителю", "Водителгә шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(14.dp).size(20.dp))
                         }
                     }
                 }
@@ -1467,9 +1476,14 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                                     Text(current.passengerName.ifBlank { appText("Пассажир", "Пассажир") }, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                     Text("${current.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${current.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}", color = CanonMuted, fontSize = 13.sp, maxLines = 1)
                                 }
+                                // «Написать» (B7b-1): чат заказа — водителю удобнее коротким текстом на месте.
+                                Surface(onClick = { NavSignals.openInstantChat.value = current.id }, shape = CircleShape, color = CanonMint) {
+                                    Icon(Icons.Default.ChatBubble, contentDescription = appText("Написать пассажиру", "Пассажирға яҙырға"), tint = CanonGreen2, modifier = Modifier.padding(14.dp).size(20.dp))
+                                }
+                                Spacer(Modifier.width(8.dp))
                                 if (current.passengerPhone.isNotBlank()) {
                                     Surface(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${current.passengerPhone}"))) } }, shape = CircleShape, color = CanonGreen2) {
-                                        Icon(Icons.Default.Phone, contentDescription = appText("Позвонить пассажиру", "Пассажирға шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(12.dp).size(20.dp))
+                                        Icon(Icons.Default.Phone, contentDescription = appText("Позвонить пассажиру", "Пассажирға шылтыратыу"), tint = CanonBg, modifier = Modifier.padding(14.dp).size(20.dp))
                                     }
                                 }
                             }

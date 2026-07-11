@@ -858,6 +858,18 @@ object ApiClient {
             }
         }
 
+    // ---------- Чат такси-заказа (B7b-1): та же механика, привязка к order_id ----------
+    /** История чата заказа. После done/отмены сервер отдаёт read-only историю. */
+    suspend fun getOrderMessages(orderId: Int): Result<List<MessageDto>> =
+        call("GET", "/instant/orders/$orderId/messages", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> parseMessageDto(arr.getJSONObject(i)) }
+        }
+
+    /** Отправить текст в чат заказа (REST-фолбэк, когда WS лежит). */
+    suspend fun sendOrderMessage(orderId: Int, text: String): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/messages", JSONObject().put("text", text), auth = true).map { }
+
     // Голосовое: загрузить аудио (multipart) → URL, затем отправить сообщение со ссылкой.
     suspend fun uploadVoice(bytes: ByteArray): Result<String> =
         callMultipart("/voice", bytes, "m4a", "voice.m4a").map { it.optString("url") }

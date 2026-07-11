@@ -109,4 +109,8 @@ internal object TaxiOfferNotifier {
  */
 internal object NavSignals {
     val openDriverCabinet = mutableStateOf(false)
+    // B7b: сквозная навигация из экранов такси-заказа (в т.ч. встроенных в главную) —
+    // без прокидывания колбэков через все слои. 0 = сигнала нет.
+    val openInstantChat = mutableStateOf(0)      // orderId → открыть чат заказа
+    val openSosForOrder = mutableStateOf(0)      // orderId → открыть SOS с контекстом заказа
 }
