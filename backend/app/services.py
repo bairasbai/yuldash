@@ -348,10 +348,39 @@ def send_sms(phone: str, code: str) -> None:
 
 
 # ----------------------------- Рейтинги / витрина водителей -----------------------------
+# Анти-фрод (B8-5): накрутка рейтинга парой аккаунтов (свои 5★ друг другу десятками).
+# От одной пары rater→ratee в агрегат идут только ПЕРВЫЕ 3 оценки за скользящие 30 дней —
+# остальные пишутся в БД (история честная), но на средний балл не влияют.
+RATING_PAIR_CAP = 3
+RATING_PAIR_WINDOW_DAYS = 30
+
+
+def _capped_stars(rows) -> list:
+    """rows: (rater_id, stars, created_at) одного ratee → список УЧИТЫВАЕМЫХ звёзд.
+    Скользящее окно: оценка учитывается, если от этого же rater'а за последние 30 дней
+    учтено меньше RATING_PAIR_CAP. Старые записи без created_at учитываем как раньше."""
+    counted: list = []
+    counted_at_by_rater: dict = {}
+    for rater_id, stars, at in sorted(rows, key=lambda x: (x[2] is None, x[2])):
+        if at is None:                       # легаси-строки без даты — не режем (совместимость)
+            counted.append(stars)
+            continue
+        w = counted_at_by_rater.setdefault(rater_id, [])
+        recent = [t for t in w if at - t <= timedelta(days=RATING_PAIR_WINDOW_DAYS)]
+        if len(recent) < RATING_PAIR_CAP:
+            counted.append(stars)
+            w.append(at)
+    return counted
+
+
 def user_rating(session: Session, user_id: int) -> tuple[float, int]:
-    """Средний рейтинг пользователя из реальных оценок (звёзды) + их число."""
-    rows = list(session.exec(select(Rating.stars).where(Rating.ratee_id == user_id)).all())
-    return (sum(rows) / len(rows), len(rows)) if rows else (0.0, 0)
+    """Средний рейтинг пользователя из реальных оценок (звёзды) + их число.
+    B8-5: повторные оценки одной пары сверх капа в агрегат не входят."""
+    rows = list(session.exec(
+        select(Rating.rater_id, Rating.stars, Rating.created_at).where(Rating.ratee_id == user_id)
+    ).all())
+    stars = _capped_stars(rows)
+    return (sum(stars) / len(stars), len(stars)) if stars else (0.0, 0)
 
 
 def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict]:
@@ -361,10 +390,17 @@ def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict]
         return {}, {}, {}
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(driver_ids))).all()}
     profiles = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(driver_ids))).all()}
-    stars_by_driver: dict = {}
-    for ratee_id, stars in session.exec(select(Rating.ratee_id, Rating.stars).where(Rating.ratee_id.in_(driver_ids))).all():
-        stars_by_driver.setdefault(ratee_id, []).append(stars)
-    rating_agg = {rid: (sum(s) / len(s), len(s)) for rid, s in stars_by_driver.items()}
+    rows_by_driver: dict = {}
+    for ratee_id, rater_id, stars, at in session.exec(
+        select(Rating.ratee_id, Rating.rater_id, Rating.stars, Rating.created_at)
+        .where(Rating.ratee_id.in_(driver_ids))
+    ).all():
+        rows_by_driver.setdefault(ratee_id, []).append((rater_id, stars, at))
+    rating_agg: dict = {}
+    for rid, rows in rows_by_driver.items():
+        s = _capped_stars(rows)   # B8-5: кап оценок одной пары — как в user_rating
+        if s:
+            rating_agg[rid] = (sum(s) / len(s), len(s))
     return users, profiles, rating_agg
 
 

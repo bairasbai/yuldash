@@ -11,6 +11,7 @@ from app import antifraud as af
 from app import instant_service as isv
 from app.db import engine
 from app.models import (
+    Rating,
     Booking, BookingStatus, InstantOrder, InstantOrderStatus, ReferralBonus, Ride, User, UserRole,
 )
 from app.routers.referral import reward_driver_referral
@@ -212,6 +213,62 @@ def test_track_guard_ws_mirror(fake_redis):
     assert g.ok(52.0014, 58.0, ts + 10)          # ~55 км/ч — честно
     assert not g.ok(53.0, 58.0, ts + 20)          # телепорт — кадр не ретранслируем
     assert g.ok(52.0028, 58.0, ts + 30)           # честный продолжает ехать как ни в чём не бывало
+
+
+# ============================ B8-5: кап оценок одной пары ============================
+def _add_rating(rater_id, ratee_id, stars, days_ago=0.0):
+    with Session(engine) as s:
+        s.add(Rating(rater_id=rater_id, ratee_id=ratee_id, stars=stars,
+                     created_at=utcnow() - timedelta(days=days_ago)))
+        s.commit()
+
+
+def test_rating_pair_cap_blocks_pumping(client, user_factory):
+    """Пара аккаунтов гоняет 5★ десятками: в агрегат идут только первые 3 за 30 дней —
+    средний балл не накручивается (пишутся все, влияют первые)."""
+    from app.services import user_rating
+    ratee = user_factory("Накручиваемый", role=UserRole.driver)
+    pumper = user_factory("Накрутчик")
+    honest = user_factory("Честный")
+    _add_rating(honest["id"], ratee["id"], 3, days_ago=5)     # честная тройка
+    for i in range(6):                                        # 6×5★ от одной пары за неделю
+        _add_rating(pumper["id"], ratee["id"], 5, days_ago=4 - i * 0.5)
+    with Session(engine) as s:
+        avg, cnt = user_rating(s, ratee["id"])
+        all_rows = len(s.exec(select(Rating).where(Rating.ratee_id == ratee["id"])).all())
+    assert all_rows == 7                    # записаны ВСЕ (история честная)
+    assert cnt == 4                         # но учтены: 1 честная + только 3 от пары
+    assert avg == pytest.approx((3 + 5 * 3) / 4)
+
+
+def test_rating_pair_cap_window_slides(client, user_factory):
+    """Старые оценки пары (за пределами 30 дней) окно не занимают — честный постоянный
+    попутчик может оценивать дальше."""
+    from app.services import user_rating
+    ratee = user_factory("Водитель5", role=UserRole.driver)
+    mate = user_factory("ПостоянныйПопутчик")
+    for days in (100, 90, 80):              # три старые — вне окна
+        _add_rating(mate["id"], ratee["id"], 4, days_ago=days)
+    for days in (10, 5, 1):                 # три свежие — в окне
+        _add_rating(mate["id"], ratee["id"], 5, days_ago=days)
+    with Session(engine) as s:
+        avg, cnt = user_rating(s, ratee["id"])
+    assert cnt == 6                         # все 6 учтены: в каждом окне ≤3
+    assert avg == pytest.approx((4 * 3 + 5 * 3) / 6)
+
+
+def test_rating_pair_cap_in_drivers_bundle(client, user_factory):
+    """Витрина списка поездок (drivers_bundle) считает с тем же капом, что и user_rating."""
+    from app.services import drivers_bundle, user_rating
+    ratee = user_factory("ВодительВитрина", role=UserRole.driver)
+    pumper = user_factory("Накрутчик2")
+    for i in range(5):
+        _add_rating(pumper["id"], ratee["id"], 5, days_ago=i * 0.1)
+    with Session(engine) as s:
+        avg_u, cnt_u = user_rating(s, ratee["id"])
+        _, _, agg = drivers_bundle(s, {ratee["id"]})
+    assert cnt_u == 3
+    assert agg[ratee["id"]] == (pytest.approx(avg_u), cnt_u)
 
 
 # ============================ B8-4: реферал-фрод (водительский бонус) ============================
