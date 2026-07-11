@@ -244,6 +244,8 @@ import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.DriverScheduleDto
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.Storefront
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MyAdDto
@@ -285,6 +287,8 @@ internal fun ProfileScreen(
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
     onMyStats: () -> Unit = {},
+    onCoupons: () -> Unit = {},
+    onPartnerCabinet: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
@@ -562,6 +566,7 @@ internal fun ProfileScreen(
                 Text(appText("Личный кабинет", "Шәхси кабинет"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
             }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Мой Юлдаш", "Минең Юлдаш"), appText("Твои километры, поездки и звание", "Километрҙарың, сәфәрҙәрең һәм исемең"), Icons.Default.Insights, onMyStats) } }
+            item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Скидки по пути", "Юл буйынса ташламалар"), appText("Скидки от местных заведений по маршруту", "Маршрут буйынса ерле урындарҙан ташлама"), Icons.Default.LocalOffer, onCoupons) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Кабинет пассажира", "Пассажир кабинеты"), appText("Мои брони, заявки и безопасность", "Брондәр, заявкалар һәм хәүефһеҙлек"), Icons.Default.EventSeat, onPassengerCabinet) } }
             item { Box(Modifier.appearIn(2)) { ProfileActionCard(appText("Кабинет водителя", "Водитель кабинеты"), appText("Маршруты, проверка и поднятие", "Маршруттар, тикшереү һәм күтәреү"), Icons.Default.DirectionsCar, onDriverCabinet) } }
             item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }
@@ -590,6 +595,7 @@ internal fun ProfileScreen(
             item {
                 Text(appText("Партнёры Юлдаш", "Юлдаш партнёрҙары"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
             }
+            item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Мой бизнес", "Минең бизнес"), appText("Разместить купоны и привлечь клиентов", "Купон ҡуйып клиент йыйыу"), Icons.Default.Storefront, onPartnerCabinet) } }
             item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Кабинет рекламы", "Реклама кабинеты"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), Icons.Default.Payments, onAdsCabinet) } }
             profileAd?.let { ad ->
                 item {

@@ -658,6 +658,8 @@ internal fun YuldashApp() {
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onSupport = { screen = Screen.Support },
                 onMyStats = { screen = Screen.MyStats },
+                onCoupons = { screen = Screen.Coupons },
+                onPartnerCabinet = { screen = Screen.PartnerCabinet },
                 onReview = { screen = Screen.AppReview },
                 onAdminReviews = { screen = Screen.AdminReviews },
                 onAdminAds = { screen = Screen.AdminAds },
@@ -882,7 +884,8 @@ internal fun YuldashApp() {
                 onPaymentRequests = { screen = Screen.AdminPaymentRequests },
                 onTaxi = { screen = Screen.AdminTaxi },
                 onWaitlist = { screen = Screen.AdminWaitlist },
-                onTaxiPulse = { screen = Screen.AdminTaxiPulse }
+                onTaxiPulse = { screen = Screen.AdminTaxiPulse },
+                onPartners = { screen = Screen.AdminPartners }
             )
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
@@ -1055,6 +1058,9 @@ internal fun YuldashApp() {
                     screen = Screen.Booking
                 }
             )
+            Screen.Coupons -> CouponsScreen(onBack = { goBack() })
+            Screen.PartnerCabinet -> PartnerCabinetScreen(onBack = { goBack() })
+            Screen.AdminPartners -> AdminPartnersScreen(onBack = { goBack() })
         }
         }
     }
@@ -1643,6 +1649,8 @@ internal fun HomeScreen(
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
     onMyStats: () -> Unit = {},
+    onCoupons: () -> Unit = {},
+    onPartnerCabinet: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit = {},
     onInstantLogin: () -> Unit = {},
@@ -1729,6 +1737,8 @@ internal fun HomeScreen(
                     onCallbackHelp = onCallbackHelp,
                     onAdsCabinet = onAdsCabinet,
                     onMyStats = onMyStats,
+                    onCoupons = onCoupons,
+                    onPartnerCabinet = onPartnerCabinet,
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,
                     onAdImpression = onAdImpression,

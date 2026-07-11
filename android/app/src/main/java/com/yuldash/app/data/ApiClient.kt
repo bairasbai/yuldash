@@ -2163,6 +2163,240 @@ object ApiClient {
             }
             .isSuccess
     }
+
+    // ═══════════ M1: Купонный маркетплейс «Скидки по пути» + кабинет партнёра ═══════════
+    // Витрина скидок от местных заведений вдоль маршрута. Клиент активирует → получает код →
+    // показывает в заведении → партнёр гасит код. Оплата подписки партнёра «на доверии» (СБП).
+
+    private fun strList(o: JSONObject, key: String): List<String> {
+        val a = o.optJSONArray(key) ?: return emptyList()
+        return (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() }
+    }
+    private fun nStr(o: JSONObject, key: String): String? =
+        if (o.isNull(key)) null else o.optString(key).takeIf { it.isNotBlank() }
+    private fun nInt(o: JSONObject, key: String): Int? = if (o.isNull(key)) null else o.optInt(key)
+    private fun nDbl(o: JSONObject, key: String): Double? = if (o.isNull(key)) null else o.optDouble(key)
+
+    private fun parseCouponPartner(o: JSONObject) = CouponPartnerDto(
+        id = o.optInt("id"), name = o.optString("name"), category = o.optString("category"),
+        city = o.optString("city"), address = o.optString("address"),
+        lat = nDbl(o, "lat"), lng = nDbl(o, "lng"), phone = o.optString("phone"),
+    )
+    private fun parseCoupon(o: JSONObject) = CouponDto(
+        id = o.optInt("id"),
+        partner = o.optJSONObject("partner")?.let { parseCouponPartner(it) }
+            ?: CouponPartnerDto(0, "", "", ""),
+        title = o.optString("title"), description = o.optString("description"),
+        discountText = o.optString("discount_text"), city = o.optString("city"),
+        routeHint = strList(o, "route_hint"),
+        validFrom = nStr(o, "valid_from"), validUntil = nStr(o, "valid_until"),
+        limitTotal = o.optInt("limit_total"), limitPerUser = o.optInt("limit_per_user"),
+        redeemedCount = o.optInt("redeemed_count"), remaining = nInt(o, "remaining"),
+        premium = o.optBoolean("premium"), status = o.optString("status", "active"),
+    )
+    private fun parsePartner(o: JSONObject) = PartnerDto(
+        id = o.optInt("id"), name = o.optString("name"), category = o.optString("category"),
+        city = o.optString("city"), address = o.optString("address"), phone = o.optString("phone"),
+        description = o.optString("description"), lat = nDbl(o, "lat"), lng = nDbl(o, "lng"),
+        status = o.optString("status", "pending"), rejectReason = o.optString("reject_reason"),
+        subscriptionPlan = o.optString("subscription_plan"), subscriptionUntil = nStr(o, "subscription_until"),
+        subscriptionActive = o.optBoolean("subscription_active"), hasPremium = o.optBoolean("has_premium"),
+        createdAt = o.optString("created_at"),
+    )
+    private fun parsePartnerCoupon(o: JSONObject) = PartnerCouponDto(
+        id = o.optInt("id"), partnerId = o.optInt("partner_id"),
+        title = o.optString("title"), description = o.optString("description"),
+        discountText = o.optString("discount_text"), city = o.optString("city"),
+        routeHint = strList(o, "route_hint"), validFrom = nStr(o, "valid_from"), validUntil = nStr(o, "valid_until"),
+        limitTotal = o.optInt("limit_total"), limitPerUser = o.optInt("limit_per_user"),
+        redeemedCount = o.optInt("redeemed_count"), activations = o.optInt("activations"),
+        premium = o.optBoolean("premium"), status = o.optString("status", "draft"),
+        createdAt = o.optString("created_at"),
+    )
+
+    /** Витрина купонов (публичная). Опц. фильтр по городу и по маршруту (from-to или город). */
+    suspend fun getCoupons(city: String? = null, route: String? = null): Result<List<CouponDto>> {
+        val q = buildList {
+            city?.takeIf { it.isNotBlank() }?.let { add("city=" + enc(it)) }
+            route?.takeIf { it.isNotBlank() }?.let { add("route=" + enc(it)) }
+        }.joinToString("&")
+        val path = "/coupons" + if (q.isNotBlank()) "?$q" else ""
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseCoupon(arr.getJSONObject(it)) }
+        }
+    }
+
+    /** Один купон (публичный). 404 если недоступен. */
+    suspend fun getCoupon(id: Int): Result<CouponDto> =
+        call("GET", "/coupons/$id", null, auth = false).map { parseCoupon(it) }
+
+    /** Активировать купон → получить код для показа в заведении. */
+    suspend fun activateCoupon(id: Int): Result<ActivatedCouponDto> =
+        call("POST", "/coupons/$id/activate", null, auth = true).map { o ->
+            ActivatedCouponDto(
+                code = o.optString("code"), status = o.optString("status", "reserved"),
+                reservedAt = o.optString("reserved_at"),
+                coupon = o.optJSONObject("coupon")?.let { parseCoupon(it) } ?: CouponDto.empty(),
+            )
+        }.onSuccess { Analytics.log("coupon_activate") }
+
+    /** Мои активированные купоны (все статусы). */
+    suspend fun getMyCoupons(): Result<List<MyCouponDto>> =
+        call("GET", "/my/coupons", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                MyCouponDto(
+                    code = o.optString("code"), status = o.optString("status", "reserved"),
+                    reservedAt = o.optString("reserved_at"), redeemedAt = nStr(o, "redeemed_at"),
+                    coupon = o.optJSONObject("coupon")?.let { parseCoupon(it) } ?: CouponDto.empty(),
+                )
+            }
+        }
+
+    /** Тарифы подписки партнёра (публичные). */
+    suspend fun getPartnerPlans(): Result<List<PartnerPlanDto>> =
+        call("GET", "/partner/plans", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                PartnerPlanDto(
+                    code = o.optString("code"), title = o.optString("title"), titleBa = o.optString("title_ba"),
+                    amountKop = o.optInt("amount_kop"), periodDays = o.optInt("period_days"),
+                    premium = o.optBoolean("premium"),
+                )
+            }
+        }
+
+    /** Зарегистрировать свой бизнес. 409 — уже есть, 422 — данные. */
+    suspend fun createPartner(
+        name: String, category: String, city: String, address: String,
+        phone: String, description: String, lat: Double? = null, lng: Double? = null,
+    ): Result<PartnerDto> = call(
+        "POST", "/partner",
+        JSONObject().put("name", name).put("category", category).put("city", city)
+            .put("address", address).put("phone", phone).put("description", description)
+            .put("lat", lat ?: JSONObject.NULL).put("lng", lng ?: JSONObject.NULL),
+        auth = true,
+    ).map { parsePartner(it) }.onSuccess { Analytics.log("partner_create") }
+
+    /** Мой бизнес + выписка (сколько погашено, к оплате). partner==null → бизнеса ещё нет. */
+    suspend fun getPartnerMe(): Result<PartnerMeDto> =
+        call("GET", "/partner/me", null, auth = true).map { o ->
+            val p = o.optJSONObject("partner")?.takeIf { !o.isNull("partner") }?.let { parsePartner(it) }
+            val s = o.optJSONObject("statement")?.let {
+                StatementDto(it.optInt("redeemed_total"), it.optInt("fee_per_redemption_kop"), it.optInt("amount_kop"))
+            }
+            PartnerMeDto(partner = p, statement = s)
+        }
+
+    /** Обновить свой бизнес (после отклонения — правка и повторная отправка). */
+    suspend fun updatePartner(
+        id: Int, name: String, category: String, city: String, address: String,
+        phone: String, description: String, lat: Double? = null, lng: Double? = null,
+    ): Result<PartnerDto> = call(
+        "POST", "/partner/$id",
+        JSONObject().put("name", name).put("category", category).put("city", city)
+            .put("address", address).put("phone", phone).put("description", description)
+            .put("lat", lat ?: JSONObject.NULL).put("lng", lng ?: JSONObject.NULL),
+        auth = true,
+    ).map { parsePartner(it) }
+
+    /** Оформить подписку по тарифу → реквизиты «на доверии» (СБП). 409 — на проверке, 422 — тариф. */
+    suspend fun subscribePartner(plan: String): Result<PartnerSubscribeDto> =
+        call("POST", "/partner/subscribe", JSONObject().put("plan", plan), auth = true).map { o ->
+            PartnerSubscribeDto(
+                paymentId = o.optInt("payment_id"), amountKop = o.optInt("amount_kop"),
+                plan = o.optString("plan"), status = o.optString("status", "pending"),
+            )
+        }.onSuccess { Analytics.log("partner_subscribe") }
+
+    /** Мои купоны (кабинет партнёра). */
+    suspend fun getPartnerCoupons(): Result<List<PartnerCouponDto>> =
+        call("GET", "/partner/coupons", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parsePartnerCoupon(arr.getJSONObject(it)) }
+        }
+
+    /** Создать купон (кабинет партнёра). */
+    suspend fun createPartnerCoupon(
+        title: String, description: String, discountText: String, city: String,
+        routeHint: List<String>, limitTotal: Int, limitPerUser: Int, premium: Boolean,
+        validFrom: String? = null, validUntil: String? = null,
+    ): Result<PartnerCouponDto> = call(
+        "POST", "/partner/coupons", couponBody(title, description, discountText, city, routeHint, limitTotal, limitPerUser, premium, validFrom, validUntil),
+        auth = true,
+    ).map { parsePartnerCoupon(it) }.onSuccess { Analytics.log("partner_coupon_create") }
+
+    /** Редактировать купон. */
+    suspend fun updatePartnerCoupon(
+        id: Int, title: String, description: String, discountText: String, city: String,
+        routeHint: List<String>, limitTotal: Int, limitPerUser: Int, premium: Boolean,
+        validFrom: String? = null, validUntil: String? = null,
+    ): Result<PartnerCouponDto> = call(
+        "POST", "/partner/coupons/$id", couponBody(title, description, discountText, city, routeHint, limitTotal, limitPerUser, premium, validFrom, validUntil),
+        auth = true,
+    ).map { parsePartnerCoupon(it) }
+
+    private fun couponBody(
+        title: String, description: String, discountText: String, city: String,
+        routeHint: List<String>, limitTotal: Int, limitPerUser: Int, premium: Boolean,
+        validFrom: String?, validUntil: String?,
+    ) = JSONObject()
+        .put("title", title).put("description", description).put("discount_text", discountText)
+        .put("city", city).put("route_hint", JSONArray(routeHint))
+        .put("limit_total", limitTotal).put("limit_per_user", limitPerUser).put("premium", premium)
+        .put("valid_from", validFrom ?: JSONObject.NULL).put("valid_until", validUntil ?: JSONObject.NULL)
+
+    /** Сменить статус купона: draft|active|paused|archived. */
+    suspend fun setPartnerCouponStatus(id: Int, status: String): Result<Unit> =
+        call("POST", "/partner/coupons/$id/status", JSONObject().put("status", status), auth = true).map { }
+
+    /** Статистика купона: активации, погашения, к оплате. */
+    suspend fun getPartnerCouponStats(id: Int): Result<CouponStatDto> =
+        call("GET", "/partner/coupons/$id/stats", null, auth = true).map { o ->
+            CouponStatDto(
+                couponId = o.optInt("coupon_id"), title = o.optString("title"), status = o.optString("status"),
+                activations = o.optInt("activations"), redeemed = o.optInt("redeemed"),
+                feePerRedemptionKop = o.optInt("fee_per_redemption_kop"), amountKop = o.optInt("amount_kop"),
+            )
+        }
+
+    /** Погасить код клиента (партнёр). 404 — не найден/чужой, 409 — уже погашён/не действует. */
+    suspend fun redeemCoupon(code: String): Result<RedeemResultDto> =
+        call("POST", "/coupons/redeem", JSONObject().put("code", code), auth = true).map { o ->
+            RedeemResultDto(
+                couponTitle = o.optString("coupon_title"), discountText = o.optString("discount_text"),
+                customerName = o.optString("customer_name"),
+            )
+        }.onSuccess { Analytics.log("coupon_redeem") }
+
+    /** Админ: все бизнесы-партнёры для модерации. */
+    suspend fun getAdminPartners(): Result<List<AdminPartnerDto>> =
+        call("GET", "/admin/partners", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                AdminPartnerDto(
+                    id = o.optInt("id"), ownerId = o.optInt("owner_id"), name = o.optString("name"),
+                    category = o.optString("category"), city = o.optString("city"), address = o.optString("address"),
+                    phone = o.optString("phone"), description = o.optString("description"),
+                    status = o.optString("status", "pending"), rejectReason = o.optString("reject_reason"),
+                    subscriptionPlan = o.optString("subscription_plan"), subscriptionUntil = nStr(o, "subscription_until"),
+                    subscriptionActive = o.optBoolean("subscription_active"), createdAt = o.optString("created_at"),
+                    reviewedAt = nStr(o, "reviewed_at"),
+                )
+            }
+        }
+
+    /** Админ: одобрить бизнес-партнёра (→active). */
+    suspend fun approvePartner(id: Int): Result<Unit> =
+        call("POST", "/admin/partners/$id/approve", null, auth = true).map { }
+
+    /** Админ: отклонить бизнес-партнёра с причиной. */
+    suspend fun rejectPartner(id: Int, reason: String): Result<Unit> =
+        call("POST", "/admin/partners/$id/reject", JSONObject().put("reason", reason), auth = true).map { }
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
@@ -2918,4 +3152,85 @@ data class AdPackageDto(val code: String, val title: String, val titleBa: String
 data class MyAdStatsDto(
     val adId: String, val impressions: Int, val clicks: Int, val ctr: Double,
     val daysLeft: Int?, val endsAt: String?,
+)
+
+// ═══════════ M1: Купоны «Скидки по пути» ═══════════
+
+/** Заведение-партнёр в карточке купона (публичные данные, телефон — для навигации/связи). */
+data class CouponPartnerDto(
+    val id: Int, val name: String, val category: String, val city: String,
+    val address: String = "", val lat: Double? = null, val lng: Double? = null, val phone: String = "",
+)
+
+/** Купон в витрине «Скидки по пути». remaining!=null → показываем «осталось N». */
+data class CouponDto(
+    val id: Int, val partner: CouponPartnerDto,
+    val title: String, val description: String, val discountText: String,
+    val city: String, val routeHint: List<String>,
+    val validFrom: String?, val validUntil: String?,
+    val limitTotal: Int, val limitPerUser: Int, val redeemedCount: Int,
+    val remaining: Int?, val premium: Boolean, val status: String,
+) {
+    companion object {
+        fun empty() = CouponDto(0, CouponPartnerDto(0, "", "", ""), "", "", "", "", emptyList(), null, null, 0, 0, 0, null, false, "active")
+    }
+}
+
+/** Активированный купон = код для показа в заведении + статус. */
+data class ActivatedCouponDto(val code: String, val status: String, val reservedAt: String, val coupon: CouponDto)
+
+/** Мой купон (все статусы: reserved/redeemed/canceled/expired). */
+data class MyCouponDto(
+    val code: String, val status: String, val reservedAt: String,
+    val redeemedAt: String?, val coupon: CouponDto,
+)
+
+/** Тариф подписки партнёра. */
+data class PartnerPlanDto(
+    val code: String, val title: String, val titleBa: String,
+    val amountKop: Int, val periodDays: Int, val premium: Boolean,
+)
+
+/** Мой бизнес (кабинет партнёра). status: pending|active|paused|rejected|archived. */
+data class PartnerDto(
+    val id: Int, val name: String, val category: String, val city: String,
+    val address: String, val phone: String, val description: String,
+    val lat: Double?, val lng: Double?, val status: String,
+    val rejectReason: String, val subscriptionPlan: String,
+    val subscriptionUntil: String?, val subscriptionActive: Boolean,
+    val hasPremium: Boolean, val createdAt: String,
+)
+
+/** Выписка: сколько купонов погашено и к оплате (доход платформы за приведённых клиентов). */
+data class StatementDto(val redeemedTotal: Int, val feePerRedemptionKop: Int, val amountKop: Int)
+
+/** Ответ /partner/me: бизнес (null если ещё нет) + выписка. */
+data class PartnerMeDto(val partner: PartnerDto?, val statement: StatementDto?)
+
+/** Реквизиты оплаты подписки «на доверии» (СБП). */
+data class PartnerSubscribeDto(val paymentId: Int, val amountKop: Int, val plan: String, val status: String)
+
+/** Купон в кабинете партнёра (свой, со счётчиками активаций/погашений). */
+data class PartnerCouponDto(
+    val id: Int, val partnerId: Int, val title: String, val description: String, val discountText: String,
+    val city: String, val routeHint: List<String>, val validFrom: String?, val validUntil: String?,
+    val limitTotal: Int, val limitPerUser: Int, val redeemedCount: Int, val activations: Int,
+    val premium: Boolean, val status: String, val createdAt: String,
+)
+
+/** Статистика купона партнёра. */
+data class CouponStatDto(
+    val couponId: Int, val title: String, val status: String,
+    val activations: Int, val redeemed: Int, val feePerRedemptionKop: Int, val amountKop: Int,
+)
+
+/** Результат погашения кода клиента (партнёр видит, какую скидку дать и кому). */
+data class RedeemResultDto(val couponTitle: String, val discountText: String, val customerName: String)
+
+/** Бизнес-партнёр в админ-модерации. */
+data class AdminPartnerDto(
+    val id: Int, val ownerId: Int, val name: String, val category: String, val city: String,
+    val address: String, val phone: String, val description: String, val status: String,
+    val rejectReason: String, val subscriptionPlan: String, val subscriptionUntil: String?,
+    val subscriptionActive: Boolean, val createdAt: String, val reviewedAt: String?,
 )
