@@ -231,6 +231,7 @@ class RequestFeedOut(BaseModel):
     seats: int
     comment: str
     responded: bool                          # уже откликался ли текущий водитель
+    my_response_id: Optional[int] = None      # id своего отклика (чтобы можно было отозвать); null если не откликался
     prefs: list = []                          # условия заявки (women/child/pets/wheelchair/baggage/nosmoke/ac)
 
 
@@ -245,7 +246,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     if not reqs:
         return []
     pax = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.passenger_id for r in reqs}))).all()}
-    mine = {rr.request_id for rr in session.exec(
+    mine = {rr.request_id: rr.id for rr in session.exec(
         select(RequestResponse).where(
             RequestResponse.driver_id == user.id,
             RequestResponse.request_id.in_([r.id for r in reqs]),
@@ -264,6 +265,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
             passenger_avatar=(p.avatar_url if p else ""),
             from_city=r.from_city, to_city=r.to_city, desired_at=r.desired_at,
             seats=r.seats, comment=r.comment, responded=(r.id in mine),
+            my_response_id=mine.get(r.id),
             prefs=request_prefs(r),
         ))
     return out
@@ -398,6 +400,23 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
         ref_kind="booking", ref_id=booking.id,
     )
     return {"booking_id": booking.id}
+
+
+@router.delete("/responses/{response_id}")
+def withdraw_response(response_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель отзывает свой отклик на заявку — пока пассажир его не принял.
+    Только автор отклика; после accept (status=accepted) отозвать нельзя → 409
+    (поездка уже создана, за ней пассажир). Удаляем строку отклика."""
+    resp = session.get(RequestResponse, response_id)
+    if not resp:
+        raise HTTPException(404, "Отклик не найден")
+    if resp.driver_id != user.id:   # только свой отклик (даже админ чужой не трогает — это личное действие водителя)
+        raise HTTPException(403, "Можно отозвать только свой отклик")
+    if resp.status == "accepted":
+        raise HTTPException(409, "Отклик уже принят — отозвать нельзя")
+    session.delete(resp)
+    session.commit()
+    return {"ok": True}
 
 
 @router.get("/match/rides", response_model=List[RideOut])

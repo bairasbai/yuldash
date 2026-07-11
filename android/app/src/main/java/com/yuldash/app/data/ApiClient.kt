@@ -694,7 +694,7 @@ object ApiClient {
                 val o = arr.getJSONObject(i)
                 val pa = o.optJSONArray("prefs")
                 val prefs = if (pa != null) (0 until pa.length()).map { pa.optString(it) } else emptyList()
-                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"), prefs)
+                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"), prefs, if (o.isNull("my_response_id")) null else o.optInt("my_response_id"))
             }
         }
 
@@ -717,6 +717,10 @@ object ApiClient {
     /** Пассажир принимает отклик → возвращает booking_id (переход в активную поездку). */
     suspend fun acceptResponse(responseId: Int): Result<Int> =
         call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }.onSuccess { Analytics.log("accept_response") }
+
+    /** Водитель отзывает свой отклик — пока пассажир его не принял (после accept сервер вернёт 409). */
+    suspend fun deleteResponse(responseId: Int): Result<Unit> =
+        call("DELETE", "/responses/$responseId", null, auth = true).map { }.onSuccess { Analytics.log("withdraw_response") }
 
     // ---------- Админ: модерация водителей + жалобы ----------
     suspend fun getPendingDrivers(): Result<List<PendingDriverDto>> =
@@ -1310,11 +1314,15 @@ object ApiClient {
     }
 
     /** Мои активные поездки (для выбора, какую поднять). */
-    suspend fun getDriverRides(): Result<List<RideDto>> =
-        call("GET", "/driver/rides", null, auth = true).map { obj ->
+    /** Поездки водителя. status=null/"active" — активные (как раньше, для Boost);
+     *  "done"/"cancelled"/"all" — для раздела «Архив» в кабинете. */
+    suspend fun getDriverRides(status: String? = null): Result<List<RideDto>> {
+        val q = if (status.isNullOrBlank()) "" else "?status=$status"
+        return call("GET", "/driver/rides$q", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
         }
+    }
 
     /** Создать платёж за поднятие поездки. Возврат: статус + реквизиты СБП / ссылка ЮKassa. */
     suspend fun createBoost(rideId: Int, tier: String): Result<BoostResultDto> =
@@ -2142,6 +2150,7 @@ private fun JSONObject.toRideDto() = RideDto(
     boosted = optBoolean("boosted"),
     receiverName = optString("receiver_name"),
     parcelSize = optString("parcel_size"),
+    status = optString("status", "active"),
 )
 
 private fun JSONObject.toRequestNearDto() = RequestNearDto(
@@ -2185,6 +2194,7 @@ data class RideDto(
     val boosted: Boolean = false,     // активный Boost (подсветка/бейдж)
     val receiverName: String = "",    // посылка: кому отдать
     val parcelSize: String = "",      // посылка: габарит/вес
+    val status: String = "active",    // active / done / cancelled (для раздела «Архив»)
 )
 
 /** Публичный профиль водителя (без ПДн: без телефона). Тапом с карточки поездки. */
@@ -2339,7 +2349,7 @@ data class RestrictionsDto(
     val items: List<RestrictionDto> = emptyList(),
     val supportRu: String = "", val supportBa: String = "",
 )
-data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList())
+data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList(), val myResponseId: Int? = null)
 data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String, val driverAvatar: String = "")
 
 data class ContactDto(

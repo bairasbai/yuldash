@@ -1637,11 +1637,41 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
     var price by remember { mutableStateOf("") }
     var comment by remember { mutableStateOf("") }
     var responding by remember { mutableStateOf(false) }   // защита от двойного тапа + чтобы показать ошибку до закрытия диалога
+    var withdrawTarget by remember { mutableStateOf<com.yuldash.app.data.RequestFeedDto?>(null) }   // заявка, чей отклик отзываем (подтверждение)
+    var withdrawing by remember { mutableStateOf(false) }
     val sentMsg = appText("Отклик отправлен", "Яуап ебәрелде")
     val respondErr = appText("Не удалось отправить отклик. Проверь сеть и повтори.", "Яуап ебәреп булманы. Сетте тикшереп ҡабатла.")
+    val withdrawnMsg = appText("Отклик отозван", "Яуап кире алынды")
+    val withdrawErr = appText("Не удалось отозвать. Проверь сеть и повтори.", "Кире алып булманы. Сетте тикшереп ҡабатла.")
+    val withdrawTakenErr = appText("Пассажир уже принял отклик — отозвать нельзя.", "Пассажир яуапты ҡабул иткән — кире алып булмай.")
     // Сбой сети больше не маскируется под «заявок нет» — показываем ошибку с «Повторить».
     fun reload() { loading = true; error = false; scope.launch { ApiClient.getRequestsFeed().onSuccess { feed = it }.onFailure { error = true }; loading = false } }
     LaunchedEffect(Unit) { reload() }
+    withdrawTarget?.let { t ->
+        AlertDialog(
+            onDismissRequest = { if (!withdrawing) withdrawTarget = null },
+            containerColor = CanonSurface,
+            title = { Text(appText("Отозвать отклик?", "Яуапты кире аларғамы?"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) },
+            text = { Text(appText("Пассажир больше не увидит ваш отклик на «${t.from} → ${t.to}».", "Пассажир «${t.from} → ${t.to}» яуабығыҙҙы башҡа күрмәйәсәк."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) },
+            confirmButton = {
+                TextButton(enabled = !withdrawing, onClick = {
+                    val respId = t.myResponseId ?: return@TextButton
+                    withdrawing = true
+                    scope.launch {
+                        ApiClient.deleteResponse(respId)
+                            .onSuccess { withdrawing = false; withdrawTarget = null; Toast.makeText(ctx, withdrawnMsg, Toast.LENGTH_SHORT).show(); reload() }
+                            .onFailure { e ->
+                                withdrawing = false
+                                val taken = (e as? com.yuldash.app.data.ApiException)?.status == 409
+                                Toast.makeText(ctx, if (taken) withdrawTakenErr else withdrawErr, Toast.LENGTH_LONG).show()
+                                if (taken) { withdrawTarget = null; reload() }   // уже принят → обновим ленту, кнопки отзыва там уже не будет
+                            }
+                    }
+                }) { Text(if (withdrawing) appText("Отзываем…", "Кире алабыҙ…") else appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(enabled = !withdrawing, onClick = { withdrawTarget = null }) { Text(appText("Оставить", "Ҡалдырыу"), color = CanonMuted) } },
+        )
+    }
     target?.let { t ->
         AlertDialog(
             onDismissRequest = { target = null },
@@ -1675,6 +1705,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
             feed = feed,
             onRetry = { reload() },
             onRespond = { r -> target = r; price = ""; comment = "" },
+            onWithdraw = { r -> withdrawTarget = r },
             modifier = Modifier.padding(padding),
         )
     }
@@ -1691,6 +1722,7 @@ internal fun RequestsFeedContent(
     feed: List<com.yuldash.app.data.RequestFeedDto>,
     onRetry: () -> Unit,
     onRespond: (com.yuldash.app.data.RequestFeedDto) -> Unit,
+    onWithdraw: (com.yuldash.app.data.RequestFeedDto) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
@@ -1728,7 +1760,17 @@ internal fun RequestsFeedContent(
                                 }
                             }
                         }
-                        if (r.responded) Text(appText("Вы откликнулись", "Яуап бирҙегеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        if (r.responded) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(appText("Вы откликнулись", "Яуап бирҙегеҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(Modifier.weight(1f))
+                            // Отозвать можно, пока пассажир не принял (после accept заявка уходит из ленты; сервер всё равно вернёт 409).
+                            if (r.myResponseId != null) TextButton(
+                                onClick = { onWithdraw(r) },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            ) { Text(appText("Отозвать отклик", "Яуапты кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                        }
                         else Button(onClick = { onRespond(r) }, modifier = Modifier.align(Alignment.End), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), fontWeight = FontWeight.Bold) }
                     }
                 }
