@@ -612,6 +612,7 @@ internal fun YuldashApp() {
                 onCreateRide = { openCreateRide(returnScreen = Screen.Home, returnHomeTab = HomeTab.Request) },
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onSupport = { screen = Screen.Support },
+                onMyStats = { screen = Screen.MyStats },
                 onReview = { screen = Screen.AppReview },
                 onAdminReviews = { screen = Screen.AdminReviews },
                 onAdminAds = { screen = Screen.AdminAds },
@@ -982,6 +983,7 @@ internal fun YuldashApp() {
                     }
                 }
             )
+            Screen.MyStats -> MyStatsScreen(onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
@@ -1581,6 +1583,7 @@ internal fun HomeScreen(
     onTrustedContacts: () -> Unit,
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
+    onMyStats: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit = {},
     onInstantLogin: () -> Unit = {},
@@ -1665,6 +1668,7 @@ internal fun HomeScreen(
                     onTrustedContacts = onTrustedContacts,
                     onCallbackHelp = onCallbackHelp,
                     onAdsCabinet = onAdsCabinet,
+                    onMyStats = onMyStats,
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,
                     onAdImpression = onAdImpression,

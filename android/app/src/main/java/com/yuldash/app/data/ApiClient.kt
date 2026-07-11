@@ -1888,6 +1888,25 @@ object ApiClient {
             )
         }
 
+    /** F18: личная статистика попутчика (км/поездки/₽/CO₂/звание). */
+    suspend fun getMyStats(): Result<MyStatsDto> =
+        call("GET", "/me/stats", null, auth = true).map { o ->
+            val rank = o.optJSONObject("rank") ?: JSONObject()
+            MyStatsDto(
+                trips = o.optInt("trips"),
+                km = o.optDouble("km", 0.0),
+                savedRub = o.optInt("saved_rub"),
+                co2SavedKg = o.optDouble("co2_saved_kg", 0.0),
+                rankLevel = rank.optInt("level"),
+                rankTitleRu = rank.optString("title_ru"),
+                rankTitleBa = rank.optString("title_ba"),
+                nextTitleRu = if (rank.isNull("next_title_ru")) null else rank.optString("next_title_ru"),
+                nextTitleBa = if (rank.isNull("next_title_ba")) null else rank.optString("next_title_ba"),
+                nextAt = if (rank.isNull("next_at")) null else rank.optInt("next_at"),
+                toNext = rank.optInt("to_next"),
+            )
+        }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -2673,6 +2692,20 @@ data class DriverDebtDto(
 data class AdminDebtDto(
     val debtId: Int, val driverId: Int, val driverName: String, val driverPhone: String,
     val amount: Int, val weeks: List<String>,
+)
+/** F18 «Мой Юлдаш» — личная статистика попутчика (GET /me/stats). */
+data class MyStatsDto(
+    val trips: Int,            // число поездок (пассажир + водитель)
+    val km: Double,            // км, проеханные вместе
+    val savedRub: Int,         // сэкономлено ₽ (vs такси-ориентир)
+    val co2SavedKg: Double,    // сэкономлено CO₂, кг
+    val rankLevel: Int,        // уровень звания (0 = новичок)
+    val rankTitleRu: String,
+    val rankTitleBa: String,
+    val nextTitleRu: String?,  // следующее звание (null = максимум)
+    val nextTitleBa: String?,
+    val nextAt: Int?,          // при скольки поездках следующее звание
+    val toNext: Int,           // сколько поездок осталось до следующего звания
 )
 data class AdDto(
     val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String,
