@@ -21,11 +21,13 @@ from fastapi import HTTPException
 from sqlalchemy import update
 from sqlmodel import Session, select
 
+from sqlalchemy import func
+
 from .config import settings
 from .models import (
-    DriverProfile, InstantOrder, InstantOrderStatus as S, Tariff, User,
+    Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, Tariff, User,
 )
-from .services import blocked_user_ids, haversine_km, send_push
+from .services import blocked_user_ids, haversine_km, send_push, user_rating
 from .timeutil import utcnow
 
 PRESENCE_KEY = "presence"                    # Redis GEO-множество координат водителей «на линии»
@@ -705,10 +707,29 @@ def decline_offer(session: Session, order_id: int, driver_id: int) -> InstantOrd
 
 
 # ============================ Push / приватность ============================
+def passenger_stats(session: Session, passenger_id: int) -> tuple:
+    """Рейтинг и опыт пассажира для оффера (B7a-4): (средняя★ | None, поездок).
+    Рейтинг — общий анонимный агрегат (Rating по ratee_id: такси + попутка).
+    Поездки = завершённые такси-заказы + завершённые брони попутки.
+    Телефон/имя этим НЕ раскрываются — приватность до accept не тронута."""
+    avg, cnt = user_rating(session, passenger_id)
+    done_orders = session.exec(
+        select(func.count(InstantOrder.id)).where(
+            InstantOrder.passenger_id == passenger_id, InstantOrder.status == S.done)
+    ).one()
+    done_bookings = session.exec(
+        select(func.count(Booking.id)).where(
+            Booking.passenger_id == passenger_id, Booking.status == BookingStatus.done)
+    ).one()
+    rating = round(avg, 1) if cnt > 0 else None
+    return rating, int(done_orders or 0) + int(done_bookings or 0)
+
+
 def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
     """Оффер водителю — data-ONLY payload (B7a-2): свёрнутое приложение получает
     onMessageReceived и рисует полноэкранную карточку «Новый заказ» само; блок notification
     убрала бы её (система показала бы обычную плашку в трее)."""
+    p_rating, p_trips = passenger_stats(session, order.passenger_id)
     send_push(
         session, driver_id, "Новый заказ",
         f"{order.from_text or 'Точка А'} → {order.to_text or 'Точка Б'} · {order.price_estimate} ₽",
@@ -719,6 +740,9 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
             "from": order.from_text or "",
             "to": order.to_text or "",
             "ttl_sec": str(settings.instant_offer_ttl_sec),
+            # Рейтинг/опыт пассажира (B7a-4): "" = новичок без оценок.
+            "passenger_rating": "" if p_rating is None else str(p_rating),
+            "passenger_trips": str(p_trips),
         },
         data_only=True,
     )
@@ -752,6 +776,10 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
     role = "driver" if (order.driver_id == viewer.id
                         or order.current_offer_driver_id == viewer.id) else "passenger"
     unlocked = order.status in UNLOCKED
+    # Рейтинг/опыт пассажира (B7a-4) — только витрине ВОДИТЕЛЯ (оффер и активный заказ):
+    # анонимный агрегат, чтобы решать по данным. Пассажиру про себя не считаем (лишние запросы).
+    p_rating, p_trips = (passenger_stats(session, order.passenger_id)
+                         if role == "driver" else (None, 0))
     driver = session.get(User, order.driver_id) if order.driver_id else None
     prof = (session.exec(select(DriverProfile).where(DriverProfile.user_id == order.driver_id)).first()
             if order.driver_id else None)
@@ -786,6 +814,10 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         # Сколько будет стоить отмена пассажиру ПРЯМО СЕЙЧАС (0 = бесплатно) — предупреждаем до тапа.
         "cancel_fee_now_kop": (passenger_cancel_fee_kop(session, order)
                                if order.status in (S.accepted, S.arriving) else 0),
+        # Пассажир глазами водителя (B7a-4): агрегат анонимен, доступен уже в оффере
+        # (телефон/имя — по-прежнему только после accept). None = новичок без оценок.
+        "passenger_rating": p_rating,
+        "passenger_trips": p_trips,
         # Раскрывается ТОЛЬКО после accept:
         "driver_name": (driver.name if (unlocked and driver) else ""),
         "driver_car": (car if unlocked else ""),

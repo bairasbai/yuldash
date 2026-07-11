@@ -1311,6 +1311,21 @@ private fun InstantOfferOverlay(order: InstantOrderDto, onAccept: () -> Unit, on
                     }
                     InstantPointRow(Icons.Default.MyLocation, appText("Подача", "Килеп алыу"), order.fromText.ifBlank { appText("Точка А", "А нөктәһе") })
                     InstantPointRow(Icons.Default.LocationOn, appText("Назначение", "Барыр урын"), order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") })
+                    // Пассажир (B7a-4): рейтинг + опыт — водитель решает по данным; новичок — честно.
+                    // Агрегат анонимен; имя/телефон откроются только после «Взять заказ».
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        val rating = order.passengerRating
+                        Text(
+                            if (rating != null) {
+                                val stars = String.format(java.util.Locale.US, "%.1f", rating)
+                                appText("Пассажир: ★ $stars · ${order.passengerTrips} поездок",
+                                    "Пассажир: ★ $stars · ${order.passengerTrips} сәфәр")
+                            } else appText("Пассажир: новичок 🌱", "Пассажир: яңы юлсы 🌱"),
+                            color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                        )
+                    }
                     val meta = buildList {
                         if (order.distanceKm > 0) add(appText("≈ ${order.distanceKm.toInt()} км поездка", "≈ ${order.distanceKm.toInt()} км сәфәр"))
                         if (order.etaMin > 0) add(appText("≈ ${order.etaMin.toInt()} мин", "≈ ${order.etaMin.toInt()} мин"))

@@ -91,3 +91,63 @@ def test_booking_track_intact_alongside_instant(client, user_factory, fake_redis
             taxi_drv_ws.send_text(json.dumps({"type": "loc", "lat": 52.62, "lng": 58.34, "ts": 2}))
             first = json.loads(taxi_pax_ws.receive_text())
             assert first["lat"] == 52.62 and first["ts"] == 2
+
+
+# ============================ Рейтинг пассажира в оффере (B7a-4) ============================
+def test_offer_payload_shows_passenger_rating_and_trips(client, user_factory, fake_redis):
+    """После завершённой поездки и оценки водителем оффер показывает ★-агрегат и число
+    поездок (такси-done + попутка-done). Телефона/имени в оффере по-прежнему нет."""
+    from sqlmodel import Session
+
+    from app.db import engine
+    from app.models import Booking, BookingStatus
+    from test_instant import _create_order, _heartbeat, ORIG
+
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "RateDrv", "RatePax")
+    oid = order["id"]
+    client.post(f"/instant/orders/{oid}/arrived", headers=d["auth"])
+    client.post(f"/instant/orders/{oid}/onboard", headers=d["auth"])
+    assert client.post(f"/instant/orders/{oid}/done", headers=d["auth"]).json()["status"] == "done"
+    assert client.post(f"/instant/orders/{oid}/rate", headers=d["auth"], json={"stars": 4}).status_code == 200
+
+    # Завершённая бронь попутки того же пассажира — тоже считается поездкой.
+    bdrv = user_factory("RateBookDrv", role=UserRole.driver)
+    ride_id = _ride(client, bdrv, seats=1)
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
+    assert client.post(f"/bookings/{bid}/confirm", headers=bdrv["auth"]).status_code == 200
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        b.status = BookingStatus.done
+        s.add(b)
+        s.commit()
+
+    # Новый заказ того же пассажира → оффер тому же водителю.
+    _heartbeat(client, d, ORIG)
+    order2 = _create_order(client, pax)
+    assert order2["status"] == "offered"
+    offer = client.get("/instant/driver/offer", headers=d["auth"]).json()["offer"]
+    assert offer is not None and offer["id"] == order2["id"]
+    assert offer["passenger_rating"] == 4.0
+    assert offer["passenger_trips"] == 2          # 1 такси-done + 1 бронь-done
+    # Приватность: до accept ни телефона, ни имени (агрегат — не персональные данные).
+    assert offer["passenger_phone"] == "" and offer["passenger_name"] == ""
+
+
+def test_offer_payload_passenger_rating_null_for_newbie(client, user_factory, fake_redis):
+    """Новичок без оценок и поездок: passenger_rating = null, passenger_trips = 0 —
+    клиент показывает честное «новичок» вместо выдуманной ★."""
+    d, pax, order = _offered_order(client, user_factory, fake_redis, "NewbDrv", "NewbPax")
+    offer = client.get("/instant/driver/offer", headers=d["auth"]).json()["offer"]
+    assert offer is not None and offer["id"] == order["id"]
+    assert offer["passenger_rating"] is None
+    assert offer["passenger_trips"] == 0
+    assert offer["passenger_phone"] == "" and offer["passenger_name"] == ""
+
+
+def test_passenger_view_has_no_rating_computation(client, user_factory, fake_redis):
+    """Витрина пассажира: агрегат «про себя» не считаем (лишние запросы) — схема стабильна
+    (passenger_rating присутствует, но None/0)."""
+    d, pax, order = _offered_order(client, user_factory, fake_redis, "SelfDrv", "SelfPax")
+    mine = client.get(f"/instant/orders/{order['id']}", headers=pax["auth"]).json()
+    assert mine["role"] == "passenger"
+    assert mine["passenger_rating"] is None and mine["passenger_trips"] == 0

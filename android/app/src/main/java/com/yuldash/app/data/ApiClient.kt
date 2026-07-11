@@ -1759,6 +1759,9 @@ data class InstantOrderDto(
     val waitFeeRubPerMin: Int,    // платное ожидание, ₽/мин (конфиг сервера)
     val noShowAt: String?,        // ISO UTC — с этого момента водителю доступна «Пассажир не вышел»
     val cancelFeeNowKop: Int,     // сколько стоила бы отмена ПРЯМО СЕЙЧАС (0 = бесплатно)
+    // Пассажир глазами водителя (B7a-4): анонимный агрегат, доступен уже в оффере.
+    val passengerRating: Double?, // null = новичок без оценок
+    val passengerTrips: Int,      // завершённые такси-заказы + брони попутки
     // Раскрыто только после accept:
     val driverName: String,
     val driverCar: String,
@@ -1804,6 +1807,8 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     waitFeeRubPerMin = optInt("wait_fee_rub_per_min", 5),
     noShowAt = if (isNull("no_show_at")) null else optString("no_show_at").ifBlank { null },
     cancelFeeNowKop = optInt("cancel_fee_now_kop"),
+    passengerRating = if (isNull("passenger_rating")) null else optDouble("passenger_rating"),
+    passengerTrips = optInt("passenger_trips"),
     driverName = optString("driver_name"),
     driverCar = optString("driver_car"),
     driverVerified = optBoolean("driver_verified"),
