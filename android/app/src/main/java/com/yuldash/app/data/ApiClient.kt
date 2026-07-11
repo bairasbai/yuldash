@@ -1121,6 +1121,45 @@ object ApiClient {
             }
         }
 
+    // --- F17: постоянные (регулярные) маршруты водителя ---
+    private fun JSONObject.toDriverScheduleDto() = DriverScheduleDto(
+        id = optInt("id"),
+        driverId = optInt("driver_id"),
+        fromCity = optString("from_city"),
+        toCity = optString("to_city"),
+        weekdays = optString("weekdays"),
+        time = optString("time"),
+        comment = optString("comment"),
+        active = optBoolean("active", true),
+    )
+
+    /** Создать своё расписание (маршрут + дни недели CSV ISO 1..7 + время ЧЧ:ММ). */
+    suspend fun createDriverSchedule(fromCity: String, toCity: String, weekdays: String, time: String, comment: String = ""): Result<DriverScheduleDto> =
+        call(
+            "POST", "/driver/schedule",
+            JSONObject().put("from_city", fromCity).put("to_city", toCity)
+                .put("weekdays", weekdays).put("time", time).put("comment", comment),
+            auth = true,
+        ).map { it.toDriverScheduleDto() }
+
+    /** Мои регулярные маршруты (все, включая скрытые). */
+    suspend fun getMyDriverSchedules(): Result<List<DriverScheduleDto>> =
+        call("GET", "/driver/schedule", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> arr.getJSONObject(i).toDriverScheduleDto() }
+        }
+
+    /** Публичные регулярные маршруты водителя (для профиля/поиска, без auth). */
+    suspend fun getPublicDriverSchedules(driverId: Int): Result<List<DriverScheduleDto>> =
+        call("GET", "/drivers/$driverId/schedule", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> arr.getJSONObject(i).toDriverScheduleDto() }
+        }
+
+    /** Удалить своё расписание. */
+    suspend fun deleteDriverSchedule(scheduleId: Int): Result<Unit> =
+        call("DELETE", "/driver/schedule/$scheduleId", null, auth = true).map { }
+
     // Инбокс: брони с сообщениями (как пассажир и как водитель).
     suspend fun getConversations(): Result<List<ConversationDto>> =
         call("GET", "/conversations", null, auth = true).map { obj ->
@@ -2540,6 +2579,19 @@ data class DriverStatusDto(
     val gender: String = "",             // "" не указан / female / male — виден только самому водителю (opt-in)
     val autocheckResult: String = "",   // "" / pass / needs_human / reject / error
     val autocheckData: String = "",      // JSON: распознанные поля + коды причин
+)
+
+/** F17 — постоянный (регулярный) маршрут водителя: «Баймаҡ→Уфа по пятницам в 8:00».
+ *  weekdays — дни недели ISO 1=Пн..7=Вс через запятую (напр. "1,3,5"). */
+data class DriverScheduleDto(
+    val id: Int,
+    val driverId: Int,
+    val fromCity: String,
+    val toCity: String,
+    val weekdays: String,
+    val time: String,
+    val comment: String = "",
+    val active: Boolean = true,
 )
 
 /** Бронь на поездку водителя — для оценки пассажира. */

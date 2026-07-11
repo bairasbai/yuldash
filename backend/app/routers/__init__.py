@@ -4,7 +4,7 @@
 объявлен в rides ПОСЛЕ статических `/rides/near`,`/rides/price_hint` — порядок
 внутри файла сохранён, поэтому динамический путь не перехватывает их.
 """
-from . import ads, antifraud, auth, bookings, chat, debt, discovery, drivers, family, health, instant, location, medical, notifications, payments, pickup, referral, requests, reviews, rides, route_watch, safety, settlements, share, stats, taxi, trust, waitlist, wallet
+from . import ads, antifraud, auth, bookings, chat, debt, discovery, driver_schedule, drivers, family, health, instant, location, medical, notifications, payments, pickup, referral, requests, reviews, rides, route_watch, safety, settlements, share, stats, taxi, trust, waitlist, wallet
 
 all_routers = [
     health.router,
@@ -13,6 +13,7 @@ all_routers = [
     requests.router,
     bookings.router,
     drivers.router,
+    driver_schedule.router,
     chat.router,
     location.router,
     discovery.router,
