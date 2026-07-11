@@ -658,6 +658,10 @@ internal object AppPrefs {
     private fun sp(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     fun notifications(ctx: Context) = sp(ctx).getBoolean("notifications", true)
     fun sounds(ctx: Context) = sp(ctx).getBoolean("sounds", true)
+    /** Язык интерфейса для мира БЕЗ Compose (FCM/фоновые сервисы) — YuldashApp пишет при смене языка. */
+    fun language(ctx: Context): AppLanguage =
+        runCatching { AppLanguage.valueOf(sp(ctx).getString("app_language", "") ?: "") }.getOrDefault(AppLanguage.Ru)
+    fun setLanguage(ctx: Context, v: AppLanguage) = sp(ctx).edit().putString("app_language", v.name).apply()
     fun verifiedOnly(ctx: Context) = sp(ctx).getBoolean("verified_only", false)
     fun hidePhone(ctx: Context) = sp(ctx).getBoolean("hide_phone", true)
     fun setNotifications(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("notifications", v).apply()

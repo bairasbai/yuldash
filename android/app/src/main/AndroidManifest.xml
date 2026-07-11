@@ -9,9 +9,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Push-уведомления (FCM). На Android 13+ запрашивается в рантайме. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Foreground-сервис live-позиции: слать GPS попутчику во время активной поездки (с погасшим экраном). -->
+    <!-- Foreground-сервисы: live-позиция поездки + «Я на линии» (такси) — работают с погасшим экраном. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Полноэкранный входящий заказ такси (как звонок) + вибрация оффера. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".YuldashApplication"
@@ -48,6 +51,12 @@
         <!-- Foreground-сервис live-позиции в активной поездке. -->
         <service
             android:name=".TripLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Foreground-сервис «Я на линии» (такси): presence-heartbeat + опрос оффера из фона. -->
+        <service
+            android:name=".TaxiLineService"
             android:exported="false"
             android:foregroundServiceType="location" />
     </application>

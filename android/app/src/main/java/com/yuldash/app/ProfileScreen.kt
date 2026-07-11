@@ -881,6 +881,7 @@ internal fun DriverCabinetScreen(
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
+    var onlineLoaded by remember { mutableStateOf(false) }   // статус пришёл с сервера → можно синкать фоновый сервис
     var debt by remember { mutableStateOf<com.yuldash.app.data.DriverDebtDto?>(null) }
     // Гейт такси (580-ФЗ): без одобренной заявки тумблер «Я на линии» заменяется CTA «Стать таксистом».
     var taxiApp by remember { mutableStateOf<com.yuldash.app.data.TaxiApplicationDto?>(null) }
@@ -898,7 +899,7 @@ internal fun DriverCabinetScreen(
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
-        ApiClient.getDriverStatus().onSuccess { online = it.online }
+        ApiClient.getDriverStatus().onSuccess { online = it.online; onlineLoaded = true }
         ApiClient.getInstantZone().onSuccess { zone = it }
         ApiClient.getMyTaxiApplication()
             .onSuccess { taxiApp = it; taxiAppLoaded = true }
@@ -951,6 +952,7 @@ internal fun DriverCabinetScreen(
                 }
                 val prev = online
                 online = v
+                onlineLoaded = true   // явное действие водителя — статус достоверен, сервис можно синкать
                 rateScope.launch {
                     ApiClient.setOnline(v).onFailure {
                         online = prev
@@ -993,6 +995,16 @@ internal fun DriverCabinetScreen(
     // Гейт (580-ФЗ): точно знаем, что заявки-approved нет → зря сервер не дёргаем (там всё равно 403).
     val taxiAllowed = !taxiAppLoaded || taxiApp?.status == "approved"
     InstantDriverOnlineController(online = online && taxiAllowed, onOpenTrip = onInstantTrip)
+    // Фоновый режим линии (B7a-1): экран погас/приложение свёрнуто → TaxiLineService держит
+    // presence (~15с) и ловит офферы (~5с). Синкаем ТОЛЬКО после ответа сервера (onlineLoaded),
+    // чтобы не глушить живой сервис из-за ещё не загрузившегося статуса. Тумблер выключен /
+    // такси не одобрено → стоп; блок долгом/8ч/выходом сервис ловит сам (presence 401/403/409).
+    val appLang = LocalAppLanguage.current
+    LaunchedEffect(online, onlineLoaded, taxiAllowed, appLang) {
+        if (!onlineLoaded) return@LaunchedEffect
+        if (online && taxiAllowed && ApiClient.isLoggedIn()) TaxiLineService.start(ctx, appLang)
+        else TaxiLineService.stop(ctx)
+    }
     }
 }
 

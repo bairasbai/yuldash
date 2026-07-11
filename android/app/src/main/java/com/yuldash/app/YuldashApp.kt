@@ -319,6 +319,8 @@ internal fun YuldashApp() {
     // Android 13+ требует РАНТАЙМ-разрешение на уведомления — без него пуши тихо не показываются
     // (FCM настроен end-to-end, но без этого запроса доставка на новых телефонах = no-op).
     // Просим один раз, когда пользователь уже в приложении (не на онбординге/входе).
+    // Язык дублируем на диск (AppPrefs): FCM и фоновые сервисы живут вне Compose и берут его оттуда.
+    LaunchedEffect(language) { AppPrefs.setLanguage(context, language) }
     val notifPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var notifAsked by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(screen) {
