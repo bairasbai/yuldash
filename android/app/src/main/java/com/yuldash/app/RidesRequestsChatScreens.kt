@@ -750,6 +750,7 @@ internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Bool
 @Composable
 internal fun InviteDriverCallout() {
     val ctx = LocalContext.current
+    val lang = LocalAppLanguage.current   // читаем в @Composable-теле; в onClick — appTextFor (не @Composable)
     var refCode by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { ApiClient.getReferral().onSuccess { refCode = it.code } }
 
@@ -787,10 +788,10 @@ internal fun InviteDriverCallout() {
         Button(
             onClick = {
                 val code = refCode
-                val shareTxt = if (code != null) appText(
+                val shareTxt = if (code != null) appTextFor(lang,
                     "Юлдаш — попутки между своими по Башкортостану. Становись водителем по моему приглашению: сделаешь первый рейс — обоим бонус. Мой код: $code. Скачать: https://yulbash.ru",
                     "Юлдаш — Башҡортостан буйлап үҙ-ара юлдаштар. Минең саҡырыу буйынса водитель бул: тәүге сәфәреңде яһаһаң — икәүгә лә бонус. Минең код: $code. Йөкләү: https://yulbash.ru"
-                ) else appText(
+                ) else appTextFor(lang,
                     "Юлдаш — попутки между своими по Башкортостану. Становись водителем — вози соседей и зарабатывай. Скачать: https://yulbash.ru",
                     "Юлдаш — Башҡортостан буйлап үҙ-ара юлдаштар. Водитель бул — күршеләреңде йөрөт, аҡса эшлә. Йөкләү: https://yulbash.ru"
                 )

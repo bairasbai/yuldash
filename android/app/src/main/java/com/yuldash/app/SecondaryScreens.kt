@@ -546,12 +546,13 @@ internal fun RouteWatchesScreen(
                             Text(appText("И в обратную сторону", "Кире яҡҡа ла"), color = CanonText, fontSize = 15.sp, modifier = Modifier.weight(1f))
                             Switch(checked = bothWays, onCheckedChange = { bothWays = it })
                         }
+                        val needBothMsg = appText("Укажи откуда и куда", "Ҡайҙан һәм ҡайҙа икәнен яҙ")
                         AppButton(
                             text = appText("Следить за маршрутом", "Маршрутты күҙәтеү"),
                             onClick = {
                                 val f = from.trim(); val t = to.trim()
                                 if (f.isBlank() || t.isBlank()) {
-                                    Toast.makeText(ctx, appText("Укажи откуда и куда", "Ҡайҙан һәм ҡайҙа икәнен яҙ"), Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(ctx, needBothMsg, Toast.LENGTH_SHORT).show()
                                     return@AppButton
                                 }
                                 submitting = true
