@@ -146,6 +146,8 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                                 TaxiStatusBadge(a.status)
                             }
                             if (a.phone.isNotBlank()) Text(a.phone, color = CanonMuted, fontSize = 13.sp)
+                            // Доверие «между своими»: кто пригласил этого водителя (если по реф-коду).
+                            a.invitedBy?.let { Text(appText("Пригласил: ", "Саҡырҙы: ") + it, color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
                             // ИНН + разрешение + возраст/стаж.
                             val age = taxiAgeYears(a.birthDate)
                             val currentYear = remember { java.time.LocalDate.now().year }
@@ -164,6 +166,14 @@ internal fun AdminTaxiScreen(onBack: () -> Unit) {
                             if (a.osagoUrl.isNotBlank()) {
                                 Text(appText("Полис ОСАГО", "ОСАГО полисы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 TaxiDocImage(a.osagoUrl, token)
+                            }
+                            if (a.selfieUrl.isNotBlank()) {
+                                Text(appText("Селфи с правами (сверь лицо)", "Права менән селфи (йөҙҙө сағыштыр)"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                TaxiDocImage(a.selfieUrl, token)
+                            }
+                            if (a.criminalRecordUrl.isNotBlank()) {
+                                Text(appText("Справка о несудимости", "Судимлек юҡлығы белешмәһе"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                TaxiDocImage(a.criminalRecordUrl, token)
                             }
                             if (a.status == "rejected" && a.comment.isNotBlank()) {
                                 Text(appText("Комментарий: ", "Комментарий: ") + a.comment, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp)

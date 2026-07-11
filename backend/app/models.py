@@ -706,6 +706,9 @@ class TaxiApplication(SQLModel, table=True):
     permit_number: str = ""                        # № разрешения на такси (реестр перевозчиков)
     permit_photo_url: Optional[str] = None         # фото разрешения (защищённый URL)
     osago_url: Optional[str] = None                # фото полиса ОСАГО (защищённый URL)
+    # Проверки водителя, Уровень 1 (сверка «между своими», ручная модерация админом):
+    selfie_url: Optional[str] = None               # селфи с правами в руках — сверка лица с документом
+    criminal_record_url: Optional[str] = None      # справка о несудимости (Госуслуги/МВД) — опц., рекомендуется
     birth_date: date_type = date_type(1970, 1, 1)  # для проверки «возраст 20+»
     license_since_year: int = 0                    # год получения прав (стаж от 2 лет)
     status: TaxiApplicationStatus = Field(default=TaxiApplicationStatus.pending, index=True)

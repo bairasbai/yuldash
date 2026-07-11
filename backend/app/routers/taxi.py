@@ -55,6 +55,9 @@ class TaxiApplyIn(BaseModel):
     license_since_year: int = Field(..., ge=1900, le=2100)
     permit_photo_url: str = Field("", max_length=500)
     osago_url: str = Field("", max_length=500)
+    # Проверки водителя, Уровень 1: селфи с правами в руках (сверка лица) + справка о несудимости (опц.).
+    selfie_url: str = Field("", max_length=500)
+    criminal_record_url: str = Field("", max_length=500)
     # Класс машины (§6): водитель ЗАЯВЛЯЕТ в онбординге, админ подтверждает/меняет при approve.
     car_class: Literal["economy", "comfort"] = "economy"
 
@@ -97,6 +100,8 @@ def _application_payload(app: TaxiApplication) -> dict:
         "permit_number": app.permit_number,
         "permit_photo_url": app.permit_photo_url or "",
         "osago_url": app.osago_url or "",
+        "selfie_url": app.selfie_url or "",
+        "criminal_record_url": app.criminal_record_url or "",
         "birth_date": app.birth_date.isoformat(),
         "license_since_year": app.license_since_year,
         "comment": app.comment or "",
@@ -117,12 +122,16 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     # Фото — только СВОИ загруженные защищённые документы (анти-подмена чужих URL).
     permit_url = _ensure_owned_doc_url(body.permit_photo_url, user, None) if body.permit_photo_url.strip() else None
     osago_url = _ensure_owned_doc_url(body.osago_url, user, None) if body.osago_url.strip() else None
+    selfie_url = _ensure_owned_doc_url(body.selfie_url, user, None) if body.selfie_url.strip() else None
+    criminal_url = _ensure_owned_doc_url(body.criminal_record_url, user, None) if body.criminal_record_url.strip() else None
     if app is None:
         app = TaxiApplication(user_id=user.id)
     app.inn = body.inn.strip()
     app.permit_number = body.permit_number.strip()
     app.permit_photo_url = permit_url
     app.osago_url = osago_url
+    app.selfie_url = selfie_url
+    app.criminal_record_url = criminal_url
     app.birth_date = body.birth_date
     app.license_since_year = body.license_since_year
     app.status = TaxiApplicationStatus.pending
@@ -168,16 +177,21 @@ def admin_taxi_applications(status: str = "pending", user: User = Depends(curren
     ids = {a.user_id for a in apps}
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()}
     profs = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(ids))).all()}
+    # «Кто пригласил» (доверие «между своими»): имя пригласившего по User.referred_by.
+    ref_ids = {u.referred_by for u in users.values() if u.referred_by}
+    referrers = {u.id: u for u in session.exec(select(User).where(User.id.in_(ref_ids))).all()} if ref_ids else {}
     out = []
     for a in apps:
         u = users.get(a.user_id)
         p = profs.get(a.user_id)
+        ref = referrers.get(u.referred_by) if (u and u.referred_by) else None
         out.append({
             **_application_payload(a),
             "user_id": a.user_id,
             "name": (u.name if u and u.name else "Водитель"),
             "phone": (u.phone if u else ""),
             "car_class": ((p.car_class if p and p.car_class else "economy")),  # заявленный класс (§6)
+            "invited_by": (ref.name if ref and ref.name else None),   # кто пригласил (доверие между своими)
         })
     return out
 

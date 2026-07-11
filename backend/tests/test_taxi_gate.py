@@ -291,3 +291,31 @@ def test_admin_cities_crud(client, user_factory):
     # Удаление.
     assert client.delete(f"/admin/taxi-cities/{row['id']}", headers=admin["auth"]).json()["ok"] is True
     assert client.delete(f"/admin/taxi-cities/{row['id']}", headers=admin["auth"]).status_code == 404
+
+
+# ---- Проверки водителя, Уровень 1: селфи + справка о несудимости + «кто пригласил» ----
+
+def test_apply_carries_driver_check_fields(client, user_factory):
+    """Заявка отдаёт новые поля проверок (селфи/справка). Без загрузки — пустые (не ломает старый флоу)."""
+    d = user_factory("SelfieDrv", role=UserRole.driver, taxi_approved=False)
+    r = client.post("/taxi/apply", headers=d["auth"], json=VALID_APPLY)
+    assert r.status_code == 200, r.text
+    app = client.get("/taxi/application", headers=d["auth"]).json()
+    assert "selfie_url" in app and "criminal_record_url" in app
+    assert app["selfie_url"] == "" and app["criminal_record_url"] == ""
+
+
+def test_admin_applications_show_checks_and_inviter(client, user_factory):
+    """Админ-очередь заявок отдаёт поля проверок и «кто пригласил» (доверие между своими)."""
+    admin = user_factory("ChkAdmin", role=UserRole.admin)
+    inviter = user_factory("Пригласивший")
+    code = client.get("/referral/me", headers=inviter["auth"]).json()["code"]
+    invited = user_factory("Приглашённый", role=UserRole.driver, taxi_approved=False)
+    client.post("/referral/redeem", headers=invited["auth"], json={"code": code})
+    client.post("/taxi/apply", headers=invited["auth"], json=VALID_APPLY)
+    rows = client.get("/admin/taxi-applications?status=pending", headers=admin["auth"]).json()
+    mine = [x for x in rows if x["user_id"] == invited["id"]]
+    assert mine, "заявка приглашённого должна быть в очереди"
+    row = mine[0]
+    assert "selfie_url" in row and "criminal_record_url" in row
+    assert row["invited_by"] == "Пригласивший"

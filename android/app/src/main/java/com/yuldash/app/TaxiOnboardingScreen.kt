@@ -186,8 +186,13 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
     var birthText by remember { mutableStateOf(prefill?.birthDate?.takeIf { it.isNotBlank() }?.let { isoToRuDate(it) } ?: "") }
     var permitPhotoUrl by remember { mutableStateOf(prefill?.permitPhotoUrl?.takeIf { it.isNotBlank() }) }
     var osagoUrl by remember { mutableStateOf(prefill?.osagoUrl?.takeIf { it.isNotBlank() }) }
+    // Проверки водителя, Уровень 1: селфи с правами (обязательно, сверка лица) + справка о несудимости (опц.).
+    var selfieUrl by remember { mutableStateOf(prefill?.selfieUrl?.takeIf { it.isNotBlank() }) }
+    var criminalUrl by remember { mutableStateOf(prefill?.criminalRecordUrl?.takeIf { it.isNotBlank() }) }
     var uploadingPermit by remember { mutableStateOf(false) }
     var uploadingOsago by remember { mutableStateOf(false) }
+    var uploadingSelfie by remember { mutableStateOf(false) }
+    var uploadingCriminal by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
     var submitError by remember { mutableStateOf<String?>(null) }
     var carClass by remember { mutableStateOf("economy") }   // §6: заявляет водитель, подтверждает админ
@@ -201,7 +206,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
     val birthIso = ruDateToIso(birthText)
     val age = birthIso?.let { taxiAgeYears(it) }
     val ageOk = age != null && age >= 20
-    val photosOk = permitPhotoUrl != null && osagoUrl != null
+    val photosOk = permitPhotoUrl != null && osagoUrl != null && selfieUrl != null   // селфи обязательно (сверка лица)
     val canSubmit = innOk && permitNumber.trim().isNotBlank() && yearOk && ageOk && photosOk && !submitting
 
     val uploadFailMsg = appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләп булманы, тағы ҡабатла")
@@ -228,6 +233,30 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                 if (url != null) osagoUrl = url
                 else android.widget.Toast.makeText(ctx, uploadFailMsg, android.widget.Toast.LENGTH_SHORT).show()
                 uploadingOsago = false
+            }
+        }
+    }
+    val pickSelfie = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            uploadingSelfie = true
+            scope.launch {
+                val bytes = runCatching { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                val url = if (bytes != null) ApiClient.uploadPhoto(bytes).getOrNull() else null
+                if (url != null) selfieUrl = url
+                else android.widget.Toast.makeText(ctx, uploadFailMsg, android.widget.Toast.LENGTH_SHORT).show()
+                uploadingSelfie = false
+            }
+        }
+    }
+    val pickCriminal = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            uploadingCriminal = true
+            scope.launch {
+                val bytes = runCatching { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                val url = if (bytes != null) ApiClient.uploadPhoto(bytes).getOrNull() else null
+                if (url != null) criminalUrl = url
+                else android.widget.Toast.makeText(ctx, uploadFailMsg, android.widget.Toast.LENGTH_SHORT).show()
+                uploadingCriminal = false
             }
         }
     }
@@ -403,6 +432,22 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
         item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
         item { UploadTile(appText("Фото разрешения на такси", "Такси рөхсәте фотоһы"), permitPhotoUrl != null, uploadingPermit) { pickPermit.launch("image/*") } }
         item { UploadTile(appText("Фото полиса ОСАГО", "ОСАГО полисы фотоһы"), osagoUrl != null, uploadingOsago) { pickOsago.launch("image/*") } }
+        item {
+            Text(
+                appText("Селфи с правами в руках — чтобы за рулём был именно ты (как в Яндекс.Такси).",
+                        "Ҡулыңда права менән селфи — рулдә нәҡ һин булыуың өсөн (Яндекс.Такси кеүек)."),
+                color = CanonMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+        item { UploadTile(appText("Селфи с правами в руках", "Ҡулыңда права менән селфи"), selfieUrl != null, uploadingSelfie) { pickSelfie.launch("image/*") } }
+        item {
+            Text(
+                appText("Справка о несудимости (Госуслуги) — по желанию, но повышает доверие соседей.",
+                        "Судимлек юҡлығы тураһында белешмә (Госуслуги) — теләк буйынса, әммә күршеләр ышанысын арттыра."),
+                color = CanonMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+        item { UploadTile(appText("Справка о несудимости (по желанию)", "Судимлек юҡлығы белешмәһе (теләк буйынса)"), criminalUrl != null, uploadingCriminal) { pickCriminal.launch("image/*") } }
         // Ошибка отправки (текст сервера — например «стаж меньше 2 лет»).
         item {
             AnimatedVisibility(visible = submitError != null) {
@@ -423,7 +468,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                     val y = year ?: return@AppButton
                     submitting = true; submitError = null
                     scope.launch {
-                        ApiClient.applyTaxi(innDigits, permitNumber.trim(), iso, y, permitPhotoUrl ?: "", osagoUrl ?: "", carClass)
+                        ApiClient.applyTaxi(innDigits, permitNumber.trim(), iso, y, permitPhotoUrl ?: "", osagoUrl ?: "", selfieUrl ?: "", criminalUrl ?: "", carClass)
                             .onSuccess { onSubmitted(it) }
                             .onFailure { submitError = (it as? ApiException)?.message ?: submitFailMsg }
                         submitting = false

@@ -1827,7 +1827,8 @@ object ApiClient {
      *  Сервер валидирует возраст 20+/стаж 2+/ИНН 10–12 цифр → 400 с русским detail (покажем как есть). */
     suspend fun applyTaxi(
         inn: String, permitNumber: String, birthDate: String, licenseSinceYear: Int,
-        permitPhotoUrl: String, osagoUrl: String, carClass: String = "economy",
+        permitPhotoUrl: String, osagoUrl: String,
+        selfieUrl: String, criminalRecordUrl: String, carClass: String = "economy",
     ): Result<TaxiApplicationDto> =
         call(
             "POST", "/taxi/apply",
@@ -1835,6 +1836,7 @@ object ApiClient {
                 .put("inn", inn).put("permit_number", permitNumber)
                 .put("birth_date", birthDate).put("license_since_year", licenseSinceYear)
                 .put("permit_photo_url", permitPhotoUrl).put("osago_url", osagoUrl)
+                .put("selfie_url", selfieUrl).put("criminal_record_url", criminalRecordUrl)
                 .put("car_class", carClass),   // §6: заявленный класс, админ подтверждает при approve
             auth = true,
         ).map { it.toTaxiApplicationDto() }.onSuccess { Analytics.log("taxi_apply") }
@@ -2290,6 +2292,8 @@ data class TaxiApplicationDto(
     val permitNumber: String,
     val permitPhotoUrl: String,
     val osagoUrl: String,
+    val selfieUrl: String,           // селфи с правами в руках (сверка лица) — Уровень 1
+    val criminalRecordUrl: String,   // справка о несудимости (опц.)
     val birthDate: String,       // YYYY-MM-DD
     val licenseSinceYear: Int,
     val comment: String,         // комментарий админа при отклонении
@@ -2299,6 +2303,7 @@ data class TaxiApplicationDto(
     val userId: Int = 0,
     val name: String = "",
     val phone: String = "",
+    val invitedBy: String? = null,   // «кто пригласил» (доверие между своими) — только в админ-списке
 )
 
 private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
@@ -2308,6 +2313,8 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
     permitNumber = optString("permit_number"),
     permitPhotoUrl = optString("permit_photo_url"),
     osagoUrl = optString("osago_url"),
+    selfieUrl = optString("selfie_url"),
+    criminalRecordUrl = optString("criminal_record_url"),
     birthDate = optString("birth_date"),
     licenseSinceYear = optInt("license_since_year"),
     comment = optString("comment"),
@@ -2316,6 +2323,7 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
     userId = optInt("user_id"),
     name = optString("name"),
     phone = optString("phone"),
+    invitedBy = if (isNull("invited_by")) null else optString("invited_by").ifBlank { null },
 )
 
 /** Город, где включено такси (управляет админ). */
