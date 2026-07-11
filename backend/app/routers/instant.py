@@ -302,6 +302,8 @@ def done(order_id: int, user: User = Depends(current_user), session: Session = D
     order = isv.transition(session, order_id, isv.Actor.driver, S.done, user.id)
     if order.status == S.done:
         debt_mod.accrue_for_order(session, order)
+        # B7b-4: мягкое напоминание про чек «Мой налог» (дедуп 1/сутки внутри).
+        isv.maybe_receipt_reminder(session, order.driver_id)
     return isv.order_payload(session, order, user)
 
 

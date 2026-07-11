@@ -808,6 +808,29 @@ def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
     _notify_order_shares(session, order, "cancelled")
 
 
+def maybe_receipt_reminder(session: Session, driver_id: Optional[int], now=None) -> bool:
+    """B7b-4: после done — мягкое напоминание водителю про чек в «Мой налог» (обязанность
+    самозанятого). НЕ интеграция с ФНС — только пуш. Дедуп: не чаще 1/сутки на водителя
+    (метка receipt_reminder_at на DriverProfile — паттерн low_rating_advice_at)."""
+    if driver_id is None:
+        return False
+    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
+    if prof is None:
+        return False
+    now = now or utcnow()
+    if prof.receipt_reminder_at is not None and now - prof.receipt_reminder_at < timedelta(days=1):
+        return False
+    prof.receipt_reminder_at = now
+    session.add(prof)
+    session.commit()
+    send_push(
+        session, driver_id, "Не забудь чек в «Мой налог» 🧾",
+        "После поездки самозанятый выдаёт чек пассажиру — пара касаний в приложении «Мой налог»"
+        " · Сәфәрҙән һуң үҙмәшғүл пассажирға чек бирә — «Мой налог» ҡушымтаһында бер-ике баҫыу",
+    )
+    return True
+
+
 def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
     """Витрина заказа. Приватность: телефоны и контакты сторон — ТОЛЬКО после accept."""
     role = "driver" if (order.driver_id == viewer.id

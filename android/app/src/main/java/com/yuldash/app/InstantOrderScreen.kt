@@ -1539,7 +1539,12 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                     title = appText("Поездка завершена", "Сәфәр тамамланды"),
                     subtitle = appText("Получено ${current.priceFinal ?: current.priceEstimate} ₽. Спасибо!", "${current.priceFinal ?: current.priceEstimate} ₽ алынды. Рәхмәт!"),
                     action = appText("Готово", "Әҙер"), onAction = onFinished, onSecondary = onFinished,
-                    extra = { InstantRateAndReport(current, isDriver = true) },   // §9: оценить/пожаловаться
+                    extra = {
+                        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                            InstantReceiptReminder()   // B7b-4: чек самозанятого — мягко, не назидательно
+                            InstantRateAndReport(current, isDriver = true)   // §9: оценить/пожаловаться
+                        }
+                    },
                 )
                 current.status == "cancelled" -> InstantFinalCard(
                     icon = Icons.Default.Close,
@@ -1713,6 +1718,23 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                 }
             },
         )
+    }
+}
+
+/** B7b-4: мягкое напоминание самозанятому о чеке после завершённой поездки (не интеграция —
+ *  просто тёплая подсказка; пуш-напоминание с дедупом 1/сутки шлёт сервер). */
+@Composable
+private fun InstantReceiptReminder() {
+    Surface(shape = CanonItemShape, color = CanonMint, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("🧾", fontSize = 22.sp)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                appText("Не забудь чек в «Мой налог» — пара касаний, и обязанность самозанятого выполнена 💚",
+                    "«Мой налог»да чек бирергә онотма — бер-ике баҫыу, һәм үҙмәшғүл бурысы үтәлде 💚"),
+                color = CanonText, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+        }
     }
 }
 

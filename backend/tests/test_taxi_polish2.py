@@ -91,6 +91,48 @@ def test_order_chat_ws_rejects_outsider(client, user_factory, fake_redis):
             ws.receive_text()
 
 
+# ============================ Напоминание о чеке «Мой налог» (B7b-4) ============================
+def _finish_order(client, d, order_id):
+    for step in ("arrived", "onboard", "done"):
+        r = client.post(f"/instant/orders/{order_id}/{step}", headers=d["auth"])
+        assert r.status_code == 200, r.text
+
+
+def test_receipt_reminder_once_per_day(client, user_factory, fake_redis, monkeypatch):
+    """После done водителю уходит пуш про чек; вторая поездка в тот же день — БЕЗ повтора (дедуп)."""
+    from app import instant_service as isv
+    pushes = []
+    monkeypatch.setattr(isv, "send_push", lambda session, uid, title, body, **kw: pushes.append((uid, title)))
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "ChkDrv", "ChkPax")
+    _finish_order(client, d, order["id"])
+    receipt = [p for p in pushes if "Мой налог" in p[1]]
+    assert len(receipt) == 1 and receipt[0][0] == d["id"]
+    # «Вторая поездка» того же водителя в тот же день → напоминание НЕ дублируется (дедуп).
+    from sqlmodel import Session
+
+    from app.db import engine
+    with Session(engine) as s:
+        assert isv.maybe_receipt_reminder(s, d["id"]) is False   # сутки не прошли
+    receipt2 = [p for p in pushes if "Мой налог" in p[1]]
+    assert len(receipt2) == 1
+
+
+def test_receipt_reminder_after_a_day(client, user_factory, fake_redis):
+    """Через сутки напоминание снова доступно (метка receipt_reminder_at сдвигается)."""
+    from datetime import timedelta
+
+    from sqlmodel import Session
+
+    from app import instant_service as isv
+    from app.db import engine
+    from app.timeutil import utcnow
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "ChkDayD", "ChkDayP")
+    _finish_order(client, d, order["id"])
+    with Session(engine) as s:
+        assert isv.maybe_receipt_reminder(s, d["id"]) is False                       # тот же день
+        assert isv.maybe_receipt_reminder(s, d["id"], now=utcnow() + timedelta(days=1, minutes=1)) is True
+
+
 # ============================ Пульс-панель админа (B7b-3) ============================
 def _admin(user_factory):
     from sqlmodel import Session
