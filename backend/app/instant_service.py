@@ -71,10 +71,15 @@ def _redis():
 
 def presence_heartbeat(driver_id: int, lat: float, lng: float) -> bool:
     """Водитель «на линии» шлёт координаты (~раз в 10-15с). Пишем в GEO + ключ-heartbeat с TTL.
-    Пропал heartbeat → TTL сам чистит, водитель становится невидим. Без Redis — no-op (False)."""
+    Пропал heartbeat → TTL сам чистит, водитель становится невидим. Без Redis — no-op (False).
+    Анти-фрод (B8-3): телепорт (скорость > 200 км/ч от прошлой точки) → точку НЕ публикуем,
+    только копим счётчик подозрительности (3+/час → флаг админу). Запрос не роняем."""
     r = _redis()
     if r is None:
         return False
+    from . import antifraud as af   # локальный импорт — без циклов на старте
+    if not af.teleport_filter(r, driver_id, lat, lng):
+        return False   # GPS-спуфинг/телепорт: точка игнорируется, водитель не двигается в GEO
     try:
         r.geoadd(PRESENCE_KEY, (lng, lat, f"driver:{driver_id}"))
         r.set(f"presence:hb:{driver_id}", "1", ex=settings.presence_ttl_sec)

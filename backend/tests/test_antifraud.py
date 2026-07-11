@@ -171,3 +171,65 @@ def test_same_device_login_no_signal(client, signal_spy):
     _login(client, phone, device="dev-same-1")
     _login(client, phone, device="dev-same-1")
     assert signal_spy["push"] == [] and signal_spy["sms"] == []
+
+
+# ============================ B8-3: анти-телепорт GPS ============================
+def test_teleport_filter_honest_track_passes(fake_redis):
+    """Честный водитель ~55 км/ч, точки раз в 10 секунд — всё проходит."""
+    ts = 1_000_000.0
+    assert af.teleport_filter(fake_redis, 42, 52.0000, 58.0, ts)
+    assert af.teleport_filter(fake_redis, 42, 52.0014, 58.0, ts + 10)
+    assert af.teleport_filter(fake_redis, 42, 52.0028, 58.0, ts + 20)
+    assert af.gps_suspects_today(fake_redis) == 0
+
+
+def test_teleport_filter_blocks_and_flags(fake_redis):
+    """Телепорт (111 км за 5 с) игнорируется; якорь не двигается; 3 за час → флаг админу."""
+    ts = 1_000_000.0
+    assert af.teleport_filter(fake_redis, 43, 52.0, 58.0, ts)
+    assert not af.teleport_filter(fake_redis, 43, 53.0, 58.0, ts + 5)
+    assert not af.teleport_filter(fake_redis, 43, 53.0, 58.0, ts + 10)   # якорь всё ещё честный
+    assert af.gps_suspects_today(fake_redis) == 0                        # 2 — ещё не флаг
+    assert not af.teleport_filter(fake_redis, 43, 54.0, 58.0, ts + 15)
+    assert af.gps_suspects_today(fake_redis) == 1                        # 3-й — пометили
+
+
+def test_teleport_filter_first_point_after_pause_ok(fake_redis):
+    """Честного не роняем: после паузы 2 часа переезд на 111 км — это 55 км/ч, проходит."""
+    ts = 1_000_000.0
+    assert af.teleport_filter(fake_redis, 44, 52.0, 58.0, ts)
+    assert af.teleport_filter(fake_redis, 44, 53.0, 58.0, ts + 7200)
+
+
+def test_track_guard_ws_mirror(fake_redis):
+    """TrackGuard (WS-треки) — та же физика: честный кадр идёт, телепорт-кадр глушится."""
+    g = af.TrackGuard(user_id=45)
+    ts = 1_000_000.0
+    assert g.ok(52.0000, 58.0, ts)
+    assert g.ok(52.0014, 58.0, ts + 10)          # ~55 км/ч — честно
+    assert not g.ok(53.0, 58.0, ts + 20)          # телепорт — кадр не ретранслируем
+    assert g.ok(52.0028, 58.0, ts + 30)           # честный продолжает ехать как ни в чём не бывало
+
+
+def test_presence_teleport_not_published(client, user_factory, fake_redis):
+    """Presence: телепорт-точка не публикуется (водитель в GEO не «прыгает»), ok=False,
+    честный heartbeat в той же точке дальше работает; пульс админа видит подозрительных."""
+    d = user_factory("ГонщикGPS", role=UserRole.driver)
+    assert client.post("/driver/online", headers=d["auth"], json={"online": True}).status_code == 200
+    orig = (52.591, 58.317)
+    far = (53.591, 58.317)   # ~111 км — телепорт при мгновенной отправке
+    r = client.post("/instant/presence", headers=d["auth"], json={"lat": orig[0], "lng": orig[1]})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    member = f"driver:{d['id']}"
+    pos_before = fake_redis.geopos(isv.PRESENCE_KEY, member)
+    for _ in range(3):   # три телепорта подряд → флаг
+        r = client.post("/instant/presence", headers=d["auth"], json={"lat": far[0], "lng": far[1]})
+        assert r.status_code == 200          # запрос не падает — точка просто игнорируется
+        assert r.json()["ok"] is False
+    assert fake_redis.geopos(isv.PRESENCE_KEY, member) == pos_before   # в GEO не сдвинулся
+    # Повтор честной точки (та же координата) — проходит: автоматика не наказывает.
+    r = client.post("/instant/presence", headers=d["auth"], json={"lat": orig[0], "lng": orig[1]})
+    assert r.json()["ok"] is True
+    admin = user_factory("Admin", role=UserRole.admin)
+    pulse = client.get("/admin/taxi/pulse", headers=admin["auth"]).json()
+    assert pulse["gps_suspects_today"] >= 1

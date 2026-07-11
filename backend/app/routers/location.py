@@ -10,6 +10,7 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session
 
+from ..antifraud import TrackGuard
 from ..db import engine
 from ..livepos import livepos_set
 from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, Ride
@@ -94,6 +95,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     recv_key = (-booking_id * 2) if role == "driver" else (-booking_id * 2 - 1)
     send_key = (-booking_id * 2 - 1) if role == "driver" else (-booking_id * 2)
     manager.register(recv_key, websocket)
+    guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
     msgs = 0
     try:
         while True:
@@ -121,6 +123,10 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                         if not b2 or b2.status not in (BookingStatus.confirmed, BookingStatus.onboard):
                             await websocket.close(code=1008, reason="Trip ended")
                             break
+                # Анти-телепорт (B8-3): скорость > 200 км/ч от прошлой точки → кадр игнорируем
+                # (счётчик подозрительности копится), соединение честного юзера не рвём.
+                if not guard.ok(float(lat), float(lng)):
+                    continue
                 if role == "driver":
                     # Live-ссылка близкому (B7c): последняя позиция машины → Redis (TTL ~2 мин),
                     # публичный /t/{token}/state.json читает её. В БД/лог координаты НЕ пишем.
@@ -177,6 +183,7 @@ async def instant_location(websocket: WebSocket, order_id: int):
     recv_key = -(INSTANT_LOC_BASE + order_id * 2) if role == "driver" else -(INSTANT_LOC_BASE + order_id * 2 + 1)
     send_key = -(INSTANT_LOC_BASE + order_id * 2 + 1) if role == "driver" else -(INSTANT_LOC_BASE + order_id * 2)
     manager.register(recv_key, websocket)
+    guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
     msgs = 0
     try:
         while True:
@@ -204,6 +211,9 @@ async def instant_location(websocket: WebSocket, order_id: int):
                         if not o2 or o2.status not in INSTANT_LOC_ACTIVE:
                             await websocket.close(code=1008, reason="Order ended")
                             break
+                # Анти-телепорт (B8-3): фейковый скачок игнорируем, соединение не рвём.
+                if not guard.ok(float(lat), float(lng)):
+                    continue
                 if role == "driver":
                     # Live-ссылка близкому (B7c): позиция машины → Redis-кэш (см. трек брони выше).
                     livepos_set("order", order_id, lat, lng, payload.get("bearing"))

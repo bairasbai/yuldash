@@ -22,6 +22,7 @@ from ..models import (
 from ..security import current_user
 from ..services import send_push
 from ..timeutil import utcnow
+from .. import antifraud as af_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
 from .. import taxi as taxi_mod
@@ -314,6 +315,9 @@ def admin_taxi_pulse(user: User = Depends(current_user), session: Session = Depe
         "done_today": done_today,
         "cancelled_today": len(cancelled_rows),
         "no_show_today": sum(1 for o in cancelled_rows if o.no_show),
+        # Анти-фрод (B8-3): сколько пользователей сегодня помечено GPS-подозрительными
+        # (3+ телепорта за час; их точки игнорируются, разбирается человек).
+        "gps_suspects_today": af_mod.gps_suspects_today(isv._redis()),
         "avg_search_sec_today": (round(sum(waits) / len(waits), 1) if waits else None),
         "by_city": [
             {"city": city, **counts}

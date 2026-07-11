@@ -158,3 +158,35 @@ def gps_suspects_today(r) -> int:
         return int(r.scard(_tp_day_key()))
     except Exception:  # noqa: BLE001
         return 0
+
+
+class TrackGuard:
+    """Анти-телепорт для WS-треков (пер-соединение): якорь — в памяти соединения (сокет и есть
+    непрерывный поток одного клиента, Redis не нужен). Телепорт-кадр не ретранслируем, счётчик
+    подозрительности копится в Redis (если он есть) — тем же путём, что presence."""
+
+    def __init__(self, user_id: int):
+        self.user_id = user_id
+        self._anchor: Optional[tuple] = None   # (lat, lng, ts) последней ЧЕСТНОЙ точки
+
+    def ok(self, lat: float, lng: float, now_ts: Optional[float] = None) -> bool:
+        from .services import haversine_km
+        now_ts = now_ts if now_ts is not None else utcnow().timestamp()
+        if self._anchor is not None:
+            p_lat, p_lng, p_ts = self._anchor
+            elapsed_h = max(now_ts - p_ts, 1.0) / 3600.0
+            if haversine_km(p_lat, p_lng, lat, lng) / elapsed_h > TELEPORT_MAX_KMH:
+                self._note_teleport()
+                return False              # якорь не двигаем: два телепорта подряд не «легализуются»
+        self._anchor = (lat, lng, now_ts)
+        return True
+
+    def _note_teleport(self) -> None:
+        from . import instant_service as isv   # локальный импорт: без циклов на старте
+        r = isv._redis()
+        if r is None:
+            return
+        try:
+            _count_teleport(r, self.user_id)
+        except Exception:  # noqa: BLE001 — счётчик не должен ронять сокет
+            pass
