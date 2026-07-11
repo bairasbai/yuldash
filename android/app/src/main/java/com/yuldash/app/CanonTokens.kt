@@ -58,8 +58,10 @@ internal val CanonTaxiInk: Color = Color(0xFF3A2A00)                            
 internal val CanonPooling: Color @Composable get() = if (appIsDark()) Color(0xFF27A463) else Color(0xFF0B6B3A)     // акцент попутки (бренд-зелёный)
 internal val CanonPoolingBg: Color @Composable get() = if (appIsDark()) Color(0xFF0F2419) else Color(0xFFE7F5EC)   // мягкая подложка активного сегмента «Попутка»
 // Тонкая зелёная разделительная линия (border карточек) — была хардкод 0x1A0B6B3A в нескольких экранах.
-internal val CanonHairlineGreen: Color = Color(0x1A0B6B3A)
+// Теперь адаптивна: тёмный зелёный почти невидим на тёмном фоне → в тёмной теме светлая мятная линия.
+internal val CanonHairlineGreen: Color @Composable get() = if (appIsDark()) Color(0x2E7FE3AB) else Color(0x1A0B6B3A)
 // Тонкая красная рамка danger-карточек (SOS) — была хардкод 0x33D93025 в SafetyScreen.
-internal val CanonDangerBorder: Color = Color(0x33D93025)
+// Адаптивна: в тёмной теме чуть светлее и заметнее на тёмном danger-bg.
+internal val CanonDangerBorder: Color @Composable get() = if (appIsDark()) Color(0x55F25A4D) else Color(0x33D93025)
 internal val CanonCardShape = RoundedCornerShape(28.dp)
 internal val CanonItemShape = RoundedCornerShape(22.dp)

@@ -205,7 +205,7 @@ class ProfileDeep4ContentTest {
             onRate = { id, n -> ratedBooking = id; ratedStars = n },
         )
         // Звёзды — иконки-кнопки с contentDescription "1".."5". Жмём 4-ю.
-        composeRule.onNodeWithContentDescription("4").performClick()
+        composeRule.onNodeWithContentDescription("4 звезды").performClick()
         assertEquals(77, ratedBooking)
         assertEquals(4, ratedStars)
     }

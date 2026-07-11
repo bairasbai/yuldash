@@ -52,7 +52,8 @@ class FcmService : FirebaseMessagingService() {
         val silent = !AppPrefs.sounds(this)   // тумблер «Звуки» выключен → беззвучно
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             mgr.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Уведомления Юлдаш", NotificationManager.IMPORTANCE_HIGH)
+                // Имя канала видно в системных настройках — двуязычно (BA · RU), сервис не Composable.
+                NotificationChannel(CHANNEL_ID, "Юлдаш · Хәбәрҙәр · Уведомления", NotificationManager.IMPORTANCE_HIGH)
             )
         }
         val intent = Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_CLEAR_TOP }

@@ -159,7 +159,9 @@ class BookingActiveTripDeep3ContentTest {
                 CompactProfileBanner()
             }
         }
-        composeRule.onNodeWithText("Пассажир · Баймаҡ").assertIsDisplayed()
+        // Роль теперь из ApiClient.cachedRole() (null без логина → строка роли не рисуется, «Баймаҡ» убран).
+        // Проверяем имя-фолбэк «Я» и подпись о телефоне.
+        composeRule.onNodeWithText("Я").assertIsDisplayed()
         composeRule.onNodeWithText("Телефон скрыт до подтверждения").assertIsDisplayed()
     }
 

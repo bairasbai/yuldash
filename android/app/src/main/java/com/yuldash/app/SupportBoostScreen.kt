@@ -742,8 +742,7 @@ internal fun BoostRideRow(ride: RideDto, selected: Boolean, onClick: () -> Unit)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("${ride.fromCity} → ${ride.toCity}", fontWeight = FontWeight.Bold, color = CanonText)
-                Text(appText("${ride.seatsLeft} мест · ${ride.price} ₽", "${ride.seatsLeft} урын · ${ride.price} ₽"),
-                    fontSize = 13.sp, color = CanonMuted)
+                Text("${seatsText(ride.seatsLeft)} · ${ride.price} ₽", fontSize = 13.sp, color = CanonMuted)
             }
             if (ride.boosted) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

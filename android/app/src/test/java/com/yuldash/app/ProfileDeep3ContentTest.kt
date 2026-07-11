@@ -227,7 +227,7 @@ class ProfileDeep3ContentTest {
         composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
             .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
         // Звёзды помечены contentDescription "1".."5" (не text) → четвёртая = "4".
-        composeRule.onNodeWithContentDescription("4").performClick()
+        composeRule.onNodeWithContentDescription("4 звезды").performClick()
         assertEquals(77, ratedBooking)
         assertEquals(4, ratedStars)
     }

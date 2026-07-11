@@ -775,7 +775,7 @@ private fun HomeHeader(onSos: () -> Unit) {
                     themeCtx.getSharedPreferences("yuldash_theme", Context.MODE_PRIVATE)
                         .edit().putBoolean("dark_override", newDark).apply()
                 }
-                .size(44.dp),
+                .size(48.dp),   // тач-цель 48dp (a11y §4.5): было 44dp
             shape = RoundedCornerShape(16.dp),
             color = CanonSurface,
             border = BorderStroke(1.dp, CanonBorder)
@@ -1540,7 +1540,7 @@ private fun YandexMapCard(
             // top=120: зум-стек (2×48dp + делитель ≈97dp от top=14 → низ ~111dp); ставим «где я» ниже с зазором ~9dp.
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 120.dp, end = 14.dp).size(48.dp).zIndex(6f),  // тач-цель ≥48dp
             shape = RoundedCornerShape(13.dp),
-            color = Color.White,
+            color = CanonSurface,   // адаптивно: белая кнопка была нечитаема-инородна в тёмной теме
             shadowElevation = 4.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -1674,7 +1674,7 @@ internal fun RequestPreviewCard(
             }
             Text("${req.fromCity}  →  ${req.toCity}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             val meta = buildList {
-                if (req.seats > 0) add(appText("${req.seats} мест", "${req.seats} урын"))
+                if (req.seats > 0) add(seatsText(req.seats))
                 req.distanceKm?.let { add(appText("≈ ${it.toInt()} км рядом", "≈ ${it.toInt()} км яҡын")) }
             }.joinToString("  ·  ")
             if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
@@ -1889,10 +1889,10 @@ internal fun MapLabel(text: String, modifier: Modifier) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
-        color = Color.White,
+        color = CanonSurface,   // адаптивно: белый ярлык на тёмной карте заменён на surface темы
         shadowElevation = 3.dp
     ) {
-        Text(text, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontWeight = FontWeight.Bold)
+        Text(text, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontWeight = FontWeight.Bold, color = CanonText)
     }
 }
 
@@ -1900,7 +1900,7 @@ internal fun MapLabel(text: String, modifier: Modifier) {
 // Чистые: сам зум делает вызывающий через колбэки (карта тут не упоминается) → internal, покрыто Robolectric.
 @Composable
 internal fun MapZoomControls(modifier: Modifier = Modifier, onZoomIn: () -> Unit, onZoomOut: () -> Unit) {
-    Surface(modifier = modifier, color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(13.dp), shadowElevation = 3.dp) {
+    Surface(modifier = modifier, color = CanonSurface, shape = RoundedCornerShape(13.dp), shadowElevation = 3.dp) {   // адаптивно (тёмная тема): было хардкод-белое
         Column {
             IconButton(onClick = onZoomIn, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp (a11y §4.5)
                 Icon(Icons.Default.Add, contentDescription = appText("Приблизить", "Яҡынайтыу"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
