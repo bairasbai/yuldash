@@ -61,6 +61,9 @@ class User(SQLModel, table=True):
     # По нему: бан устройства ловит обход бана новым номером; вход с нового устройства → сигнал.
     # Приватность: наружу не отдаём, в логи не пишем.
     last_device_id: Optional[str] = Field(default=None, index=True)
+    # Тестовый аккаунт модерации сторов (B9b-4): вход review_phone+review_code из env,
+    # реальная SMS не шлётся. Обычный пассажир БЕЗ прав (не админ, не водитель).
+    is_reviewer: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
 

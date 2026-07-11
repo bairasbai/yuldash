@@ -41,6 +41,13 @@ def _norm_phone(raw: str) -> str:
     return ("+" + d) if d else ""
 
 
+def _review_login_active(phone: str) -> bool:
+    """Тестовый аккаунт модерации сторов (B9b-4). Активен ТОЛЬКО когда в env заданы ОБА
+    review_phone и review_code — иначе номер живёт обычной SMS-жизнью. Код не логируем."""
+    return bool(settings.review_phone and settings.review_code
+                and phone == settings.review_phone)
+
+
 def _set_user_phone(session: Session, user: User, phone: str) -> None:
     """Сохранить реальный номер юзеру. Не перезаписываем, если номер уже занят
     другим юзером (User.phone unique) — тогда тихо оставляем как есть."""
@@ -71,6 +78,10 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session),
     # Анти-фрод (B8-1): забаненное устройство не регистрируется даже новым номером
     # (гейт до отправки SMS — не тратим деньги на код мошеннику).
     guard_device_not_banned(session, x_device_id)
+    # Тестовый аккаунт модерации сторов (B9b-4): реальную SMS не шлём и OTP не создаём —
+    # verify примет ТОЛЬКО фикс-код из env. Ответ обычный (dev_code не утекает).
+    if _review_login_active(body.phone):
+        return {"sent": True}
     # Throttle: ≤3 кода в минуту на номер (анти-флуд: расходы на SMS + защита от забивания OtpCode).
     recent = session.exec(
         select(OtpCode).where(
@@ -98,6 +109,26 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
            x_device_id: str = Header(default="", alias="X-Device-Id")):
     # Анти-фрод (B8-1): забаненное устройство → 403 (обход бана новым номером закрыт).
     guard_device_not_banned(session, x_device_id)
+    # Тестовый аккаунт модерации сторов (B9b-4): для review_phone работает ТОЛЬКО фикс-код
+    # из env (даже случайно созданные OTP этого номера игнорируются). Ошибка — тот же текст,
+    # что у обычного кода (не раскрываем существование режима). Код не логируем.
+    if _review_login_active(body.phone):
+        if not hmac.compare_digest(settings.review_code, body.code or ""):
+            raise HTTPException(400, "Неверный или просроченный код")
+        user = session.exec(select(User).where(User.phone == body.phone)).first()
+        if not user:
+            user = User(phone=body.phone, name=body.name or "Проверка стора",
+                        verified=True, is_reviewer=True)
+        user.is_reviewer = True
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        # НЕ вызываем _maybe_promote_admin: ревьюер — всегда обычный пассажир без прав,
+        # даже если этот номер случайно совпал со списком админов.
+        remember_login_device(session, user, x_device_id)
+        tokens = issue_tokens(session, user.id)
+        session.refresh(user)
+        return {**tokens, "user": user}
     otp = session.exec(
         select(OtpCode).where(OtpCode.phone == body.phone).order_by(OtpCode.id.desc())
     ).first()

@@ -216,6 +216,77 @@ def test_digest_not_before_hour(client, monkeypatch):
     assert sent == []
 
 
+# ============================ Review-аккаунт для модерации сторов (B9b-4) ============================
+REVIEW_PHONE = "+79990001122"
+REVIEW_CODE = "424242"
+
+
+def _enable_review(monkeypatch):
+    monkeypatch.setattr(settings, "review_phone", REVIEW_PHONE)
+    monkeypatch.setattr(settings, "review_code", REVIEW_CODE)
+
+
+def test_review_login_fixed_code_no_sms(client, monkeypatch):
+    """Оба env заданы: SMS не шлётся (нет dev_code), входит ТОЛЬКО фикс-код,
+    аккаунт помечен is_reviewer и остаётся обычным пассажиром без прав."""
+    _enable_review(monkeypatch)
+    r = client.post("/auth/request-code", json={"phone": REVIEW_PHONE})
+    assert r.status_code == 200 and r.json() == {"sent": True}   # dev_code НЕ утекает
+    # Неверный код → та же ошибка, что у обычного кода (режим не раскрываем).
+    bad = client.post("/auth/verify", json={"phone": REVIEW_PHONE, "code": "000000"})
+    assert bad.status_code == 400
+    ok = client.post("/auth/verify", json={"phone": REVIEW_PHONE, "code": REVIEW_CODE})
+    assert ok.status_code == 200, ok.text
+    data = ok.json()
+    assert data["user"]["is_reviewer"] is True
+    assert data["user"]["role"] == "passenger"                   # без прав
+    me = client.get("/me", headers={"Authorization": f"Bearer {data['access_token']}"})
+    assert me.status_code == 200 and me.json()["is_reviewer"] is True
+
+
+def test_review_login_ignores_real_otp(client, monkeypatch):
+    """Даже существующий OTP для review-номера НЕ работает — только фикс-код из env."""
+    from datetime import timedelta
+
+    from sqlmodel import Session
+
+    from app.db import engine
+    from app.models import OtpCode
+    from app.timeutil import utcnow
+    _enable_review(monkeypatch)
+    with Session(engine) as s:
+        s.add(OtpCode(phone=REVIEW_PHONE, code="111111",
+                      expires_at=utcnow() + timedelta(minutes=5)))
+        s.commit()
+    r = client.post("/auth/verify", json={"phone": REVIEW_PHONE, "code": "111111"})
+    assert r.status_code == 400
+
+
+def test_review_login_requires_both_env(client, monkeypatch):
+    """Задан только номер (без кода) → режим ВЫКЛЮЧЕН: номер живёт обычной SMS-жизнью,
+    фикс-код не подходит. Отдельный номер — прошлые тесты уже пометили REVIEW_PHONE."""
+    phone = "+79990002233"
+    monkeypatch.setattr(settings, "review_phone", phone)
+    monkeypatch.setattr(settings, "review_code", "")
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 200 and "dev_code" in r.json()       # обычный OTP-поток (env=dev)
+    bad = client.post("/auth/verify", json={"phone": phone, "code": REVIEW_CODE})
+    assert bad.status_code == 400                                # фикс-код не работает
+    ok = client.post("/auth/verify", json={"phone": phone, "code": r.json()["dev_code"]})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["user"]["is_reviewer"] is False
+
+
+def test_review_login_does_not_affect_real_numbers(client, monkeypatch):
+    """Режим включён → обычные номера входят по SMS как раньше и НЕ помечаются is_reviewer."""
+    _enable_review(monkeypatch)
+    phone = "+79995556677"
+    code = client.post("/auth/request-code", json={"phone": phone}).json()["dev_code"]
+    ok = client.post("/auth/verify", json={"phone": phone, "code": code})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["user"]["is_reviewer"] is False
+
+
 def test_digest_disabled_by_config(client, monkeypatch):
     """DAILY_DIGEST_ENABLED=false → сводка полностью выключена (даже после 21:00)."""
     from datetime import datetime
