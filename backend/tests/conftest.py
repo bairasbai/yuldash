@@ -21,6 +21,9 @@ os.environ["RATE_LIMIT_ENABLED"] = "false"
 # Гейт такси (волна 2): в тестах такси ВКЛЮЧЕНО (иначе весь instant-стек отдаёт 403 «скоро»).
 # Сам гейт (выключенный флаг/города) проверяется в test_taxi_gate.py через monkeypatch.
 os.environ["TAXI_ENABLED"] = "true"
+# Дневная сводка (B9b-3): middleware выключен, чтобы прогон после 21:00 местного не слал
+# фоновую «сводку» посреди тестов. Сама логика проверяется в test_launch_extras.py напрямую.
+os.environ["DAILY_DIGEST_ENABLED"] = "false"
 
 from datetime import date  # noqa: E402
 

@@ -157,6 +157,13 @@ class Settings(BaseSettings):
     min_app_version_code: int = 0
     app_store_url: str = ""            # ссылка на стор (RuStore/Google Play) для кнопки «Обновить»
 
+    # --- Дневная сводка админу в Telegram (B9b-3) ---
+    # Без внешнего cron: первый запрос ПОСЛЕ daily_digest_hour местного времени (Уфа, UTC+5)
+    # запускает отправку; «сегодня уже отправлено» — строка-замок в БД (UNIQUE(day) решает
+    # гонку воркеров) + память процесса, чтобы не дёргать БД на каждом запросе.
+    daily_digest_enabled: bool = True
+    daily_digest_hour: int = 21        # местный час, после которого шлём сводку за день
+
     # --- Redis (масштаб) ---
     # Один URL на всё: общий rate-limit между воркерами + WS-чат pub/sub между процессами.
     # Пусто → rate-limit in-memory на воркер, WS — локальный режим (один воркер). Пример: redis://127.0.0.1:6379/0

@@ -597,6 +597,15 @@ class TaxiWorkDay(SQLModel, table=True):
     winter_push_sent: bool = False                    # зимний ночной совет отправлен (дедуп)
 
 
+class DailyDigestLog(SQLModel, table=True):
+    """Замок дневной сводки админу (B9b-3): одна строка = сводка за МЕСТНЫЙ день отправлена.
+    UNIQUE(day) решает гонку воркеров gunicorn: второй insert падает → второй раз не шлём.
+    Без внешнего cron — триггерит первый запрос после daily_digest_hour (см. app/digest.py)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    day: date_type = Field(unique=True)               # МЕСТНЫЙ день сводки (UTC + local_tz_offset_hours)
+    sent_at: datetime = Field(default_factory=utcnow)
+
+
 class UploadEvent(SQLModel, table=True):
     """Факт загрузки файла юзером (фото/голос) — для суточной квоты (анти disk-fill / спам).
     Лёгкая строка на каждую загрузку; считаем за последние 24ч."""
