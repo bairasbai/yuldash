@@ -1208,9 +1208,12 @@ object ApiClient {
     suspend fun rateBooking(bookingId: Int, stars: Int): Result<Unit> =
         call("POST", "/bookings/$bookingId/rate", JSONObject().put("stars", stars), auth = true).map { }
 
-    /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку. */
-    suspend fun cancelBooking(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/cancel", null, auth = true).map { }
+    /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку.
+     *  Возврат: contact_then_cancel (B8-8) — отмена после открытия телефона/чата →
+     *  UI показывает мягкий баннер «заверши поездку в приложении». */
+    suspend fun cancelBooking(bookingId: Int): Result<Boolean> =
+        call("POST", "/bookings/$bookingId/cancel", null, auth = true)
+            .map { it.optBoolean("contact_then_cancel") }
             .onSuccess { Analytics.log("booking_cancel") }
 
     // ---------- Boost (поднятие объявления, оплата) ----------
@@ -1826,6 +1829,7 @@ data class InstantOrderDto(
     val offerExpiresAt: String?,  // ISO — когда протухнет текущий оффер (таймер водителя ведём локально)
     val cancelBy: String,         // "" | passenger | driver
     val cancelReason: String,
+    val contactThenCancel: Boolean = false,  // B8-8: отмена после открытия телефона/чата → мягкий баннер
     // Деньги-правила (волна 2 §5): сурж/ожидание/отмены. Всё считает сервер, UI только показывает.
     val surgeK: Double,           // применённый сурж (зафиксирован при создании)
     val waitingStartedAt: String?, // ISO UTC — водитель нажал «Я на месте» (пошло ожидание)
@@ -1875,6 +1879,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     offerExpiresAt = if (isNull("offer_expires_at")) null else optString("offer_expires_at").ifBlank { null },
     cancelBy = optString("cancel_by"),
     cancelReason = optString("cancel_reason"),
+    contactThenCancel = optBoolean("contact_then_cancel"),
     surgeK = optDouble("surge_k", 1.0),
     waitingStartedAt = if (isNull("waiting_started_at")) null else optString("waiting_started_at").ifBlank { null },
     waitingFeeKop = optInt("waiting_fee_kop"),

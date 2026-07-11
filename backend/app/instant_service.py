@@ -454,6 +454,10 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     now = utcnow()
     values = dict(status=S.cancelled, cancelled_at=now, cancel_by=actor.value,
                   cancel_reason=(reason or "")[:200], current_offer_driver_id=None, offer_expires_at=None)
+    # Анти-фрод (B8-8, «увод мимо приложения»): отмена ПОСЛЕ accept = телефоны/чат уже
+    # открылись (contact-then-cancel). Только помечаем (счётчик в админ-пульсе) — не наказываем.
+    if order.accepted_at is not None:
+        values["contact_then_cancel"] = True
     if actor == Actor.passenger:
         fee = passenger_cancel_fee_kop(session, order, now)
         if fee > 0:
@@ -867,6 +871,9 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         "offer_expires_at": order.offer_expires_at.isoformat() if order.offer_expires_at else None,
         "cancel_by": order.cancel_by,
         "cancel_reason": order.cancel_reason,
+        # B8-8: отмена после открытия телефона/чата — клиент показывает пассажиру мягкий
+        # баннер «Договорились ехать? Заверши поездку в приложении…».
+        "contact_then_cancel": order.contact_then_cancel,
         # Ожидание/отмены (волна 2 §5): всё для честных таймеров и предупреждений в UI.
         "waiting_started_at": order.waiting_started_at.isoformat() if order.waiting_started_at else None,
         "waiting_fee_kop": order.waiting_fee_kop,

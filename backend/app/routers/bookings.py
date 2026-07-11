@@ -7,9 +7,10 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Booking, BookingStatus, DriverProfile, Ride, RideStatus, User
+from ..models import Booking, BookingStatus, DriverProfile, Message, Ride, RideStatus, User
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, send_push, user_rating
+from ..timeutil import utcnow
 
 router = APIRouter(tags=["bookings"])
 
@@ -225,7 +226,10 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
 
 @router.post("/bookings/{booking_id}/cancel", response_model=Booking)
 def cancel_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Отмена поездки пассажиром или водителем. Места возвращаются в поездку."""
+    """Отмена поездки пассажиром или водителем. Места возвращаются в поездку.
+    B8-8 («увод мимо приложения»): отмена ПОСЛЕ открытия контакта (бронь подтверждена —
+    телефон виден — или в чате уже переписывались) помечается contact_then_cancel —
+    только сигнал в админ-пульс, честных не наказываем."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if booking.status not in (BookingStatus.cancelled, BookingStatus.done):
         # Блокируем строки брони и поездки → две одновременные отмены не вернут места ДВАЖДЫ.
@@ -233,8 +237,14 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
         booking = session.exec(select(Booking).where(Booking.id == booking_id).with_for_update()).first()
         if booking.status in (BookingStatus.cancelled, BookingStatus.done):
             return booking                     # другая параллельная отмена опередила — места уже возвращены
+        contact_opened = booking.status in (BookingStatus.confirmed, BookingStatus.onboard) or (
+            session.exec(select(Message.id).where(Message.booking_id == booking_id).limit(1)).first()
+            is not None
+        )
         ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
         booking.status = BookingStatus.cancelled
+        booking.cancelled_at = utcnow()
+        booking.contact_then_cancel = contact_opened
         ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
         session.add(booking)
         session.add(ride)

@@ -404,6 +404,89 @@ def test_unpaid_strike_disappears_after_admin_reject(client, user_factory):
         assert quality.passenger_pause_until(s, pax["id"]) is None
 
 
+# ============================ B8-8: contact-then-cancel («увод мимо приложения») ============================
+def test_order_cancel_after_accept_flagged(client, user_factory):
+    """Такси: отмена ПОСЛЕ accept (телефон/чат открыты) → contact_then_cancel на заказе."""
+    drv = user_factory("Водитель8", role=UserRole.driver)
+    pax = user_factory("Пассажир8")
+    with Session(engine) as s:
+        o = InstantOrder(passenger_id=pax["id"], driver_id=drv["id"],
+                         status=InstantOrderStatus.accepted, accepted_at=utcnow())
+        s.add(o)
+        s.commit()
+        s.refresh(o)
+        oid = o.id
+    r = client.post(f"/instant/orders/{oid}/cancel", headers=pax["auth"], json={"reason": ""})
+    assert r.status_code == 200
+    assert r.json()["contact_then_cancel"] is True   # клиент покажет мягкий баннер
+    with Session(engine) as s:
+        assert s.get(InstantOrder, oid).contact_then_cancel is True
+
+
+def test_order_cancel_before_accept_not_flagged(client, user_factory):
+    """Отмена ДО accept (контакты ещё закрыты) — честная, флага нет."""
+    pax = user_factory("Пассажир8б")
+    with Session(engine) as s:
+        o = InstantOrder(passenger_id=pax["id"], status=InstantOrderStatus.searching)
+        s.add(o)
+        s.commit()
+        s.refresh(o)
+        oid = o.id
+    r = client.post(f"/instant/orders/{oid}/cancel", headers=pax["auth"], json={"reason": ""})
+    assert r.status_code == 200
+    assert r.json()["contact_then_cancel"] is False
+
+
+def test_booking_cancel_after_contact_flagged_and_in_pulse(client, user_factory):
+    """Попутка: отмена подтверждённой брони (телефон открыт) → флаг; счётчик в админ-пульсе."""
+    drv, pax, bid = _make_booking_pair(user_factory)   # бронь confirmed → контакт открыт
+    r = client.post(f"/bookings/{bid}/cancel", headers=pax["auth"])
+    assert r.status_code == 200
+    assert r.json()["contact_then_cancel"] is True
+    admin = user_factory("Admin", role=UserRole.admin)
+    pulse = client.get("/admin/taxi/pulse", headers=admin["auth"]).json()
+    assert pulse["contact_then_cancel_today"] >= 1
+
+
+def test_booking_cancel_pending_without_chat_not_flagged(client, user_factory):
+    """Pending-бронь без переписки: контакт не открывался — отмена без флага."""
+    drv = user_factory("Водитель8в", role=UserRole.driver)
+    pax = user_factory("Пассажир8в")
+    with Session(engine) as s:
+        ride = Ride(driver_id=drv["id"], from_city="Уфа", to_city="Сибай", depart_at=utcnow())
+        s.add(ride)
+        s.commit()
+        s.refresh(ride)
+        b = Booking(ride_id=ride.id, passenger_id=pax["id"], status=BookingStatus.pending)
+        s.add(b)
+        s.commit()
+        s.refresh(b)
+        bid = b.id
+    r = client.post(f"/bookings/{bid}/cancel", headers=pax["auth"])
+    assert r.status_code == 200
+    assert r.json()["contact_then_cancel"] is False
+
+
+def test_booking_cancel_pending_with_chat_flagged(client, user_factory):
+    """Pending-бронь, но в чате уже переписывались → контакт был, отмена с флагом."""
+    drv = user_factory("Водитель8г", role=UserRole.driver)
+    pax = user_factory("Пассажир8г")
+    with Session(engine) as s:
+        ride = Ride(driver_id=drv["id"], from_city="Уфа", to_city="Сибай", depart_at=utcnow())
+        s.add(ride)
+        s.commit()
+        s.refresh(ride)
+        b = Booking(ride_id=ride.id, passenger_id=pax["id"], status=BookingStatus.pending)
+        s.add(b)
+        s.commit()
+        s.refresh(b)
+        bid = b.id
+    client.post(f"/bookings/{bid}/messages", headers=pax["auth"], json={"text": "Здравствуйте!"})
+    r = client.post(f"/bookings/{bid}/cancel", headers=pax["auth"])
+    assert r.status_code == 200
+    assert r.json()["contact_then_cancel"] is True
+
+
 # ============================ B8-5: кап оценок одной пары ============================
 def _add_rating(rater_id, ratee_id, stars, days_ago=0.0):
     with Session(engine) as s:

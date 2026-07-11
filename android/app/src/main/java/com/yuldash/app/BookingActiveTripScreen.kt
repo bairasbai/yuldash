@@ -1036,6 +1036,11 @@ internal fun ActiveTripScreen(
             if (bookingId == null || bookingStatus == "confirmed") item {
                 var showCancel by remember { mutableStateOf(false) }
                 val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
+                // B8-8: отмена после открытия телефона/чата — мягкое напоминание (не обвиняем).
+                val contactCancelMsg = appText(
+                    "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
+                    "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
+                )
                 val cancelFailMsg = appText("Не удалось отменить", "Кире алып булманы")
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
@@ -1061,7 +1066,12 @@ internal fun ActiveTripScreen(
                                 bookingId?.let { id ->
                                     voiceScope.launch {
                                         ApiClient.cancelBooking(id)
-                                            .onSuccess { Toast.makeText(context, cancelOkMsg, Toast.LENGTH_SHORT).show(); onTripEnd() }
+                                            .onSuccess { contactThenCancel ->
+                                                // B8-8: телефон/чат уже открывались → мягко напоминаем про защиту в приложении.
+                                                val msg = if (contactThenCancel) contactCancelMsg else cancelOkMsg
+                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                                onTripEnd()
+                                            }
                                             .onFailure { Toast.makeText(context, cancelFailMsg, Toast.LENGTH_SHORT).show() }
                                     }
                                 } ?: onTripEnd()

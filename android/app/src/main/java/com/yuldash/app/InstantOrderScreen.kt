@@ -383,6 +383,8 @@ internal fun InstantOrderScreen(
                     action = appText("Новый заказ", "Яңы заказ"),
                     onAction = { order = null },
                     onSecondary = onBack,
+                    // B8-8: телефон/чат уже открывались → мягко напоминаем завершать поездку в приложении.
+                    extra = if (current.contactThenCancel) ({ ContactCancelSoftBanner() }) else null,
                 )
                 else -> InstantFinalCard(   // done
                     icon = Icons.Default.CheckCircle,
@@ -1135,6 +1137,28 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
         )
     }
 }
+
+/**
+ * B8-8: мягкий баннер пассажиру после отмены, когда телефон/чат уже открывались
+ * («увод мимо приложения»). Не обвиняем — по-добрососедски напоминаем про защиту и SOS.
+ */
+@Composable
+internal fun ContactCancelSoftBanner(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            appText(
+                "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
+                "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
+            ),
+            color = CanonGreen2, fontSize = 13.sp, lineHeight = 17.sp,
+        )
+    }
+}
+
 
 /**
  * B8-7: «Пассажир не заплатил» — одним тапом на экране завершённой поездки (такси и попутка).

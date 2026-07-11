@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import (
-    DriverProfile, InstantOrder, InstantOrderStatus as S, TaxiApplication,
+    Booking, DriverProfile, InstantOrder, InstantOrderStatus as S, TaxiApplication,
     TaxiApplicationStatus, TaxiCity, User, UserRole,
 )
 from ..security import current_user
@@ -292,6 +292,15 @@ def admin_taxi_pulse(user: User = Depends(current_user), session: Session = Depe
     cancelled_rows = session.exec(
         select(InstantOrder).where(InstantOrder.status == S.cancelled, InstantOrder.cancelled_at >= day_start)
     ).all()
+    # B8-8: «увод мимо приложения» за день — отмены ПОСЛЕ открытия телефона/чата
+    # (такси + попутка). Паттерн виден админу, наказывает только человек.
+    ctc_bookings = len(session.exec(
+        select(Booking.id).where(
+            Booking.contact_then_cancel == True,  # noqa: E712
+            Booking.cancelled_at >= day_start,
+        )
+    ).all())
+    ctc_today = sum(1 for o in cancelled_rows if o.contact_then_cancel) + ctc_bookings
     # Средний подбор: created → accepted по принятым СЕГОДНЯ заказам (сколько пассажир ждал машину).
     waits = [
         (o.accepted_at - o.created_at).total_seconds()
@@ -318,6 +327,8 @@ def admin_taxi_pulse(user: User = Depends(current_user), session: Session = Depe
         # Анти-фрод (B8-3): сколько пользователей сегодня помечено GPS-подозрительными
         # (3+ телепорта за час; их точки игнорируются, разбирается человек).
         "gps_suspects_today": af_mod.gps_suspects_today(isv._redis()),
+        # Анти-фрод (B8-8): отмены после открытия телефона/чата за день (такси + попутка).
+        "contact_then_cancel_today": ctc_today,
         "avg_search_sec_today": (round(sum(waits) / len(waits), 1) if waits else None),
         "by_city": [
             {"city": city, **counts}
