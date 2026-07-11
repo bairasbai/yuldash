@@ -242,6 +242,8 @@ import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
+import com.yuldash.app.data.DriverScheduleDto
+import androidx.compose.material.icons.filled.Insights
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MyAdDto
@@ -1880,7 +1882,12 @@ private fun weekdaysSummary(csv: String): String {
     if (days == WEEKDAY_ORDER) return appText("Каждый день", "Һәр көн")
     if (days == listOf(1, 2, 3, 4, 5)) return appText("По будням", "Эш көндәре")
     if (days == listOf(6, 7)) return appText("Выходные", "Ял көндәре")
-    return days.joinToString(" · ") { weekdayShort(it) }
+    // Ярлыки считаем в @Composable-теле (appText требует контекста), лямбда joinToString — только индекс.
+    val short = listOf(
+        appText("Пн", "Дш"), appText("Вт", "Шш"), appText("Ср", "Шр"),
+        appText("Чт", "Кс"), appText("Пт", "Йм"), appText("Сб", "Шб"), appText("Вс", "Йҡ"),
+    )
+    return days.joinToString(" · ") { short[it - 1] }
 }
 
 /**

@@ -137,7 +137,7 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             StatTile(
                                 Modifier.weight(1f), Icons.Default.Route, CanonGreen2,
-                                fmtKm(s.km), appText("км вместе", "км бергә"),
+                                fmtKmStat(s.km), appText("км вместе", "км бергә"),
                             )
                             StatTile(
                                 Modifier.weight(1f), Icons.Default.DirectionsCar, CanonGreen2,
@@ -245,7 +245,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
             // Крупный акцент — километры вместе.
             Column {
                 Text(
-                    fmtKm(s.km),
+                    fmtKmStat(s.km),
                     color = Color.White, fontSize = 46.sp, lineHeight = 48.sp, fontWeight = FontWeight.Black,
                 )
                 Text(
@@ -348,7 +348,7 @@ private fun RankProgressCard(s: MyStatsDto, language: AppLanguage) {
 
 private fun fmtInt(n: Int): String = "%,d".format(n).replace(',', ' ')
 
-private fun fmtKm(km: Double): String {
+private fun fmtKmStat(km: Double): String {
     if (km >= 1000) return fmtInt(km.toInt())
     val whole = km % 1.0 == 0.0
     return if (whole) "%.0f".format(km) else "%.1f".format(km)
@@ -376,10 +376,10 @@ private fun tripsWord(n: Int): String {
 private fun shareCaption(s: MyStatsDto, language: AppLanguage): String {
     val rank = if (language == AppLanguage.Ba) s.rankTitleBa else s.rankTitleRu
     return if (language == AppLanguage.Ba) {
-        "Минең Юлдаш: ${fmtInt(s.trips)} сәфәр, ${fmtKm(s.km)} км бергә, ${fmtInt(s.savedRub)} ₽ янға ҡалды. " +
+        "Минең Юлдаш: ${fmtInt(s.trips)} сәфәр, ${fmtKmStat(s.km)} км бергә, ${fmtInt(s.savedRub)} ₽ янға ҡалды. " +
             "Исемем — «$rank». Юлдашҡа ҡушыл: yulbash.ru"
     } else {
-        "Мой Юлдаш: ${fmtInt(s.trips)} ${tripsWord(s.trips)}, ${fmtKm(s.km)} км вместе, сэкономил ~${fmtInt(s.savedRub)} ₽. " +
+        "Мой Юлдаш: ${fmtInt(s.trips)} ${tripsWord(s.trips)}, ${fmtKmStat(s.km)} км вместе, сэкономил ~${fmtInt(s.savedRub)} ₽. " +
             "Звание — «$rank». Присоединяйся: yulbash.ru"
     }
 }
@@ -424,7 +424,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     text("🏆", w - pad - 78f, 172f, 66f, white, regular)
 
     // Крупные километры.
-    text(fmtKm(s.km), pad, 560f, 210f, white, bold)
+    text(fmtKmStat(s.km), pad, 560f, 210f, white, bold)
     text(appTextFor(language, "километров вместе", "километр бергә"), pad, 620f, 42f, mint, regular)
 
     // Три мини-блока.

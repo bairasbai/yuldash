@@ -85,6 +85,7 @@ internal fun PassengerModeHome(
     onBoost: () -> Unit,
     onInstantLogin: () -> Unit,
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» — в онбординг таксиста
+    onClinicRides: () -> Unit = {},       // F22: раздел «Поездки к клинике» (проброс в карту попутки)
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE) }
@@ -125,6 +126,7 @@ internal fun PassengerModeHome(
                         onOpenPopular = onOpenPopular,
                         onDriver = onDriver,
                         onBoost = onBoost,
+                        onClinicRides = onClinicRides,
                     )
                     RideMode.Taxi -> InstantOrderScreen(
                         onBack = { mode = RideMode.Pooling },        // «назад» из встроенного такси → к попутке
