@@ -303,6 +303,107 @@ def test_order_chat_message_flagged(client, user_factory):
     assert msgs[-1]["flag"] == "warn"
 
 
+# ============================ B8-7: «Пассажир не заплатил» одним тапом ============================
+def _make_done_order(driver_id, passenger_id):
+    with Session(engine) as s:
+        o = InstantOrder(passenger_id=passenger_id, driver_id=driver_id,
+                         status=InstantOrderStatus.done, distance_km=8.0, done_at=utcnow())
+        s.add(o)
+        s.commit()
+        s.refresh(o)
+        return o.id
+
+
+def test_unpaid_tap_creates_report_strike_and_marks_order(client, user_factory):
+    drv = user_factory("Водитель7", role=UserRole.driver)
+    pax = user_factory("Должник")
+    oid = _make_done_order(drv["id"], pax["id"])
+    r = client.post("/reports", headers=drv["auth"], json={"category": "unpaid", "order_id": oid})
+    assert r.status_code == 200
+    rid = r.json()["id"]
+    # Дедуп: повторный тап → та же жалоба, вторая не создаётся.
+    r2 = client.post("/reports", headers=drv["auth"], json={"category": "unpaid", "order_id": oid})
+    assert r2.status_code == 200 and r2.json()["id"] == rid
+    with Session(engine) as s:
+        assert s.get(InstantOrder, oid).unpaid_reported is True   # пометка на заказе
+    # Страйк действует сразу (механика B3/B5): 3 unpaid по трём поездкам → пауза заказов.
+    from app import quality
+    oid2 = _make_done_order(drv["id"], pax["id"])
+    oid3 = _make_done_order(drv["id"], pax["id"])
+    client.post("/reports", headers=drv["auth"], json={"category": "unpaid", "order_id": oid2})
+    client.post("/reports", headers=drv["auth"], json={"category": "unpaid", "order_id": oid3})
+    with Session(engine) as s:
+        assert quality.passenger_pause_until(s, pax["id"]) is not None
+    # Пассажир с паузой не может создать новый заказ (403) — переиспользованная механика B3.
+    r = client.post("/instant/orders", headers=pax["auth"], json={
+        "from_lat": 52.591, "from_lng": 58.317, "to_lat": 52.716, "to_lng": 58.664,
+    })
+    assert r.status_code == 403
+
+
+def test_unpaid_tap_only_driver_and_only_done(client, user_factory):
+    drv = user_factory("Водитель7б", role=UserRole.driver)
+    pax = user_factory("Пассажир7б")
+    # Не done → 409.
+    with Session(engine) as s:
+        o = InstantOrder(passenger_id=pax["id"], driver_id=drv["id"],
+                         status=InstantOrderStatus.onboard)
+        s.add(o)
+        s.commit()
+        s.refresh(o)
+        active_oid = o.id
+    r = client.post("/reports", headers=drv["auth"], json={"category": "unpaid", "order_id": active_oid})
+    assert r.status_code == 409
+    # Пассажир не может отметить unpaid по своей поездке (только водитель).
+    done_oid = _make_done_order(drv["id"], pax["id"])
+    r = client.post("/reports", headers=pax["auth"], json={"category": "unpaid", "order_id": done_oid})
+    assert r.status_code == 403
+    # Чужой пользователь вообще не участник → 403 (IDOR).
+    stranger = user_factory("Чужой7")
+    r = client.post("/reports", headers=stranger["auth"], json={"category": "unpaid", "order_id": done_oid})
+    assert r.status_code == 403
+
+
+def test_unpaid_tap_on_booking(client, user_factory):
+    """Попутка: водитель отмечает «не заплатил» по done-брони; дедуп; пометка на брони."""
+    drv, pax, bid = _make_booking_pair(user_factory)
+    with Session(engine) as s:   # довозим бронь до done
+        b = s.get(Booking, bid)
+        b.status = BookingStatus.done
+        s.add(b)
+        s.commit()
+    r = client.post("/reports", headers=drv["auth"], json={"category": "unpaid", "booking_id": bid})
+    assert r.status_code == 200
+    rid = r.json()["id"]
+    assert client.post("/reports", headers=drv["auth"],
+                       json={"category": "unpaid", "booking_id": bid}).json()["id"] == rid
+    with Session(engine) as s:
+        assert s.get(Booking, bid).unpaid_reported is True
+    # Пассажир попутки отметить unpaid не может.
+    r = client.post("/reports", headers=pax["auth"], json={"category": "unpaid", "booking_id": bid})
+    assert r.status_code == 403
+
+
+def test_unpaid_strike_disappears_after_admin_reject(client, user_factory):
+    """Честность: админ отклонил жалобу → страйк исчезает (человек в контуре)."""
+    from app import quality
+    drv = user_factory("Водитель7в", role=UserRole.driver)
+    pax = user_factory("Оклеветанный")
+    admin = user_factory("Admin", role=UserRole.admin)
+    ids = [_make_done_order(drv["id"], pax["id"]) for _ in range(3)]
+    report_ids = [
+        client.post("/reports", headers=drv["auth"],
+                    json={"category": "unpaid", "order_id": oid}).json()["id"]
+        for oid in ids
+    ]
+    with Session(engine) as s:
+        assert quality.passenger_pause_until(s, pax["id"]) is not None
+    for rid in report_ids:
+        assert client.post(f"/admin/reports/{rid}/reject", headers=admin["auth"], json={}).status_code == 200
+    with Session(engine) as s:
+        assert quality.passenger_pause_until(s, pax["id"]) is None
+
+
 # ============================ B8-5: кап оценок одной пары ============================
 def _add_rating(rater_id, ratee_id, stars, days_ago=0.0):
     with Session(engine) as s:

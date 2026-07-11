@@ -1487,6 +1487,8 @@ internal fun DriverCabinetContent(
                                 )
                             }
                         }
+                        // B8-7: «пассажир не заплатил» одним тапом — только по завершённой поездке.
+                        if (b.status == "done") UnpaidReportButton(bookingId = b.bookingId)
                     }
                 }
             }

@@ -214,12 +214,50 @@ def admin_reports(status: Optional[str] = None, category: Optional[str] = None,
     return out
 
 
+def _guard_unpaid_report(session: Session, user: User, body: ReportIn) -> Optional[Report]:
+    """B8-7 «Пассажир не заплатил» одним тапом. Правила для category=unpaid с привязкой:
+    жалуется ТОЛЬКО водитель, поездка ЗАВЕРШЕНА (done), одна жалоба на заказ/бронь (дедуп —
+    повтор возвращает существующую). Возврат: существующая жалоба (дедуп) или None (создаём)."""
+    if body.category != "unpaid" or (body.order_id is None and body.booking_id is None):
+        return None
+    if body.order_id is not None:
+        order = session.get(InstantOrder, body.order_id)   # существование проверено в _report_counterparty
+        if order.driver_id != user.id:
+            raise HTTPException(403, "«Не заплатил» отмечает водитель поездки")
+        if order.status.value != "done":
+            raise HTTPException(409, "Отметить можно только завершённую поездку")
+        dup = session.exec(select(Report).where(
+            Report.order_id == body.order_id, Report.category == "unpaid",
+        )).first()
+        if dup:
+            return dup
+        order.unpaid_reported = True   # пометка на заказе (для истории/админа)
+        session.add(order)
+    else:
+        b = session.get(Booking, body.booking_id)
+        ride = session.get(Ride, b.ride_id)
+        if ride.driver_id != user.id:
+            raise HTTPException(403, "«Не заплатил» отмечает водитель поездки")
+        if (b.status.value if hasattr(b.status, "value") else b.status) != "done":
+            raise HTTPException(409, "Отметить можно только завершённую поездку")
+        dup = session.exec(select(Report).where(
+            Report.booking_id == body.booking_id, Report.category == "unpaid",
+        )).first()
+        if dup:
+            return dup
+        b.unpaid_reported = True
+        session.add(b)
+    return None
+
+
 @router.post("/reports", response_model=ReportCreatedOut)
 def create_report(body: ReportIn,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Пожаловаться (§9). Категория из перечня + опциональная привязка к поездке/заказу
     (тогда цель = вторая сторона, участие проверяется). Анонимно: цель получает пуш с
-    категорией БЕЗ автора; тяжёлая категория → мгновенно админу + пауза такси до разбора."""
+    категорией БЕЗ автора; тяжёлая категория → мгновенно админу + пауза такси до разбора.
+    B8-7: category=unpaid с привязкой — кнопка «Пассажир не заплатил» (только водитель,
+    только done, дедуп на заказ/бронь; страйк пассажиру через механику B3/B5)."""
     target_id = _report_counterparty(session, user, body)
     if body.target_user_id is not None and body.target_user_id != target_id:
         raise HTTPException(400, "Цель жалобы не совпадает со второй стороной поездки")
@@ -227,6 +265,10 @@ def create_report(body: ReportIn,
         raise HTTPException(400, "Нельзя пожаловаться на себя")
     if not session.get(User, target_id):
         raise HTTPException(404, "Пользователь не найден")
+    dup = _guard_unpaid_report(session, user, body)
+    if dup is not None:   # дедуп: одна unpaid-жалоба на заказ — повторный тап идемпотентен
+        return ReportCreatedOut(id=dup.id, category=dup.category,
+                                status=dup.status, created_at=dup.created_at)
     report = Report(
         reporter_id=user.id, target_user_id=target_id, reason=body.reason,
         category=body.category, order_id=body.order_id, booking_id=body.booking_id,

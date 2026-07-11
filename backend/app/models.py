@@ -245,6 +245,12 @@ class Booking(SQLModel, table=True):
     # (ledger не двигаем), безнал (ЮKassa) начисляет водителю через ledger.
     paid: bool = False
     payment_method: str = ""         # "" / cash / card / sbp / yookassa
+    # Анти-фрод (B8-7/8): пометки на брони. unpaid_reported — водитель нажал «Пассажир не
+    # заплатил» (жалоба unpaid, дедуп). contact_then_cancel — отмена ПОСЛЕ открытия
+    # телефона/чата (паттерн «увод мимо приложения», счётчик в админ-пульсе).
+    unpaid_reported: bool = False
+    contact_then_cancel: bool = False
+    cancelled_at: Optional[datetime] = None   # когда бронь отменили (для счётчиков за день)
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -426,6 +432,9 @@ class InstantOrder(SQLModel, table=True):
     # Отмена: кто и почему.
     cancel_by: str = ""              # passenger | driver | system
     cancel_reason: str = ""
+    # Анти-фрод (B8-7/8): пометки на заказе (см. одноимённые поля Booking).
+    unpaid_reported: bool = False
+    contact_then_cancel: bool = False
     # Отмены/ожидание (волна 2, §5, Модель А = страйки, денег не двигаем).
     # waiting_started_at — водитель нажал «Я на месте» (подача завершена, пошло ожидание).
     waiting_started_at: Optional[datetime] = None

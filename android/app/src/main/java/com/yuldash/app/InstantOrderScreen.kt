@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1135,6 +1136,54 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
     }
 }
 
+/**
+ * B8-7: «Пассажир не заплатил» — одним тапом на экране завершённой поездки (такси и попутка).
+ * Создаёт жалобу категории unpaid (сервер: только водитель, только done, дедуп — одна на
+ * поездку) → пассажиру страйк по механике §5/§9 + пометка на заказе. Повторный тап безопасен.
+ */
+@Composable
+internal fun UnpaidReportButton(orderId: Int? = null, bookingId: Int? = null, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var sent by remember(orderId, bookingId) { mutableStateOf(false) }
+    var sending by remember(orderId, bookingId) { mutableStateOf(false) }
+    val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
+    if (sent) {
+        Row(
+            modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                appText("Отмечено: пассажир не заплатил. Мы разберёмся.",
+                        "Билдәләнде: пассажир түләмәгән. Беҙ тикшерербеҙ."),
+                color = CanonGreen2, fontSize = 13.sp, lineHeight = 17.sp,
+            )
+        }
+    } else {
+        OutlinedButton(
+            onClick = {
+                if (sending) return@OutlinedButton
+                sending = true
+                scope.launch {
+                    ApiClient.reportUser(category = "unpaid", orderId = orderId, bookingId = bookingId)
+                        .onSuccess { sent = true }
+                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                    sending = false
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, CanonRed),
+            modifier = modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) {
+            Text(appText("Пассажир не заплатил", "Пассажир түләмәне"), color = CanonRed, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+
 @Composable
 private fun InstantCenterLoader(text: String) {
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -1562,6 +1611,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                             InstantReceiptReminder()   // B7b-4: чек самозанятого — мягко, не назидательно
                             InstantRateAndReport(current, isDriver = true)   // §9: оценить/пожаловаться
+                            UnpaidReportButton(orderId = current.id)   // B8-7: «пассажир не заплатил» одним тапом
                         }
                     },
                 )

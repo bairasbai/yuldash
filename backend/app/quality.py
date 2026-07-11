@@ -228,15 +228,33 @@ def maybe_release_review_pause(session: Session, target_id: int) -> None:
 
 
 # ------------------------------ пассажирские страйки (механика B3) ------------------------------
+def unpaid_tap_strike_times(session: Session, target_id: int, since: datetime) -> list[datetime]:
+    """B8-7 «Пассажир не заплатил» одним тапом: страйк действует сразу (не ждём разбора),
+    ПОКА жалобу не отклонил админ (rejected → страйк исчезает; честность в контуре человека).
+    Считаем только unpaid-жалобы С ПРИВЯЗКОЙ к заказу/брони (стороны реально ехали вместе)
+    и только в статусах new/reviewing — resolved уже считает resolved_report_times (не двоим)."""
+    rows = session.exec(
+        select(Report).where(
+            Report.target_user_id == target_id,
+            Report.category == "unpaid",
+            Report.status.in_(["new", "reviewing"]),
+            Report.created_at >= since,
+        )
+    ).all()
+    return [r.created_at for r in rows if r.order_id is not None or r.booking_id is not None]
+
+
 def passenger_pause_until(session: Session, passenger_id: int, now: Optional[datetime] = None) -> Optional[datetime]:
     """Пауза такси-ЗАКАЗОВ пассажира: страйки B3 (платные отмены/no-show заказов) +
-    resolved-жалобы категорий no_show/unpaid/damage. Общий счётчик, те же лимит/окно/
-    длительность (strike_limit / strike_window_days / strike_pause_hours). Попутка работает."""
+    resolved-жалобы категорий no_show/unpaid/damage + свежие «не заплатил» одним тапом (B8-7).
+    Общий счётчик, те же лимит/окно/длительность (strike_limit / strike_window_days /
+    strike_pause_hours). Попутка работает."""
     from . import instant_service as isv   # локальный импорт: без циклов на старте
     now = now or utcnow()
     since = now - timedelta(days=settings.strike_window_days)
     times = list(isv.order_strike_times(session, passenger_id, since))
     times += resolved_report_times(session, passenger_id, since, PASSENGER_STRIKE_CATEGORIES)
+    times += unpaid_tap_strike_times(session, passenger_id, since)
     if len(times) < settings.strike_limit:
         return None
     until = max(times) + timedelta(hours=settings.strike_pause_hours)

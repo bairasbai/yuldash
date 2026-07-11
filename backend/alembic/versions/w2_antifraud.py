@@ -81,6 +81,14 @@ def upgrade() -> None:
     _add_col(bind, "message", sa.Column("from_admin", sa.Boolean(), nullable=False,
                                         server_default=sa.false()))
 
+    # --- B8-7/8: «не заплатил» + contact-then-cancel — пометки на заказе/брони ---
+    for table in ("booking", "instantorder"):
+        _add_col(bind, table, sa.Column("unpaid_reported", sa.Boolean(), nullable=False,
+                                        server_default=sa.false()))
+        _add_col(bind, table, sa.Column("contact_then_cancel", sa.Boolean(), nullable=False,
+                                        server_default=sa.false()))
+    _add_col(bind, "booking", sa.Column("cancelled_at", sa.DateTime(), nullable=True))
+
     # --- B8-4: выданные водительские реферальные бонусы (анти-накрутка) ---
     if "referralbonus" not in _tables(bind):
         op.create_table(
@@ -102,6 +110,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    _drop_col(bind, "booking", "cancelled_at")
+    for table in ("booking", "instantorder"):
+        _drop_col(bind, table, "contact_then_cancel")
+        _drop_col(bind, table, "unpaid_reported")
     _drop_col(bind, "message", "from_admin")
     _drop_col(bind, "message", "flag")
     if "referralbonus" in _tables(bind):
