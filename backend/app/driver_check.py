@@ -15,6 +15,7 @@ from datetime import date
 
 from .config import settings
 from .services import DOC_DIR
+from .storage import get_storage
 from .timeutil import utcnow
 
 # Расширение → mimeType Yandex OCR. webp и прочее OCR не поддерживает → пропускаем OCR.
@@ -25,11 +26,17 @@ _LICENSE_RE = re.compile(r"(?<!\d)(\d{2}\s?\d{2}\s?\d{6})(?!\d)")
 _DATE_RE = re.compile(r"\b(\d{2})\.(\d{2})\.(\d{4})\b")
 
 
-def _doc_path(url: str) -> str | None:
-    """URL защищённого документа → путь файла в DOC_DIR (только имя — анти path-traversal)."""
+def _doc_name(url: str) -> str | None:
+    """URL защищённого документа → безопасное имя файла (только basename — анти path-traversal)."""
     if not url:
         return None
     name = os.path.basename(url.split("?")[0].rstrip("/"))
+    return name or None
+
+
+def _doc_path(url: str) -> str | None:
+    """URL защищённого документа → путь файла в DOC_DIR (локальный диск), если файл есть."""
+    name = _doc_name(url)
     if not name:
         return None
     path = os.path.join(DOC_DIR, name)
@@ -120,14 +127,16 @@ def check_driver_docs(license_url: str, car_photo_url: str) -> dict:
     reasons в data — машинные коды (клиент рисует на двух языках через appText).
     """
     data: dict = {"reasons": [], "ocr_used": False}
-    path = _doc_path(license_url)
-    if not path:
+    name = _doc_name(license_url)
+    if not name:
         return {"result": "error", "score": 0.0, "data": {"reasons": ["doc_not_found"]}}
 
-    ext = os.path.splitext(path)[1].lstrip(".").lower()
+    ext = os.path.splitext(name)[1].lstrip(".").lower()
+    # Байты документа берём из хранилища (диск или S3) — единая точка чтения.
     try:
-        with open(path, "rb") as f:
-            img = f.read()
+        img = get_storage().load(f"docs/{name}")
+    except FileNotFoundError:
+        return {"result": "error", "score": 0.0, "data": {"reasons": ["doc_not_found"]}}
     except OSError:
         return {"result": "error", "score": 0.0, "data": {"reasons": ["doc_read_error"]}}
 

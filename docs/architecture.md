@@ -756,3 +756,25 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - **Redis:** `redis.conf.example` (пароль `requirepass`, AOF `appendonly yes`, `maxmemory-policy volatile-lru`, вынос на отдельный инстанс при росте).
 
 **Шаги Александра (прод-подъём, за пределами кода):** выбрать managed/отдельный PostgreSQL; поставить PgBouncer; включить Redis-пароль+AOF; переключить systemd на gunicorn N воркеров; прогнать Locust против staging и подтвердить p95<300мс@200RPS + отказоустойчивость (убийство воркера). Порядок — §4 runbook.
+## 2026-07-06 — Медиа в облако: абстракция хранилища (Storage, Фаза 5.3)
+
+**Зачем.** Фото машин/документов/чеков раньше лежали ТОЛЬКО на диске сервера (`backend/media`, `backend/private`). При переезде/масштабировании (несколько воркеров, новый сервер) файлы терялись. Ввели единую абстракцию — а КУДА писать (диск или облако) решает конфиг.
+
+**Новый файл `backend/app/storage.py`:**
+- `Storage` (абстракция) + две реализации: `LocalStorage` (диск, дефолт) и `S3Storage` (S3-совместимое — Timeweb/VK Cloud/Selectel/AWS, через `boto3`).
+- Методы: `save(key, data)`, `load(key)→bytes`, `exists(key)`, `delete(key)`, `url(key)`. Ключи: `voice/<файл>`, `chat/<файл>` (публичные), `docs/<файл>` (приватные документы, 152-ФЗ).
+- Фабрика `get_storage()` (синглтон) + `reset_storage()` (для тестов). Выбор бэкенда — `settings.storage_is_s3`.
+- `boto3` импортируется **лениво** (внутри `S3Storage.__init__`) — без S3-конфига на рантайме не нужен. В `requirements.txt` добавлен `boto3>=1.34`.
+
+**Конфиг (`config.py`, всё из .env, секреты НЕ в git):** `STORAGE_BACKEND` (`""`=авто / `local` / `s3`), `S3_ENDPOINT_URL`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_SIGNED_URL_TTL`. Авто-режим включает S3, только если задан бакет + оба ключа; иначе — локальный диск (полный фолбэк, прод работает как раньше). Прод-гвард ругается, если `STORAGE_BACKEND=s3` без бакета/ключей.
+
+**Что мигрировано на абстракцию (внешнее поведение в локальном режиме — 1:1):**
+- `routers/discovery.py`: `/voice`, `/upload/chat-photo` → `get_storage().save("voice|chat/...", data)`.
+- `routers/drivers.py`: `/upload/photo` → `save("docs/...")`; `/secure/docs/{name}` — авторизация приложения сохранена всегда; локально `FileResponse`, в S3-режиме после проверки доступа `RedirectResponse` на подписанный (presigned) URL.
+- `driver_check.py`: чтение байтов документа для OCR → `get_storage().load("docs/...")` (работает и с диска, и из S3). `_doc_path` оставлен для локального резолвинга.
+- `account.py`: удаление медиа при удалении аккаунта → `get_storage().delete(...)` по всем областям.
+- `main.py`: локально `/media` раздаёт `StaticFiles`; в S3-режиме тот же путь `/media/{path}` редиректит на presigned URL. **Стабильные app-URL (`/media/...`, `/secure/docs/...`) в БД и в валидации `voice_url` чата НЕ меняются** — меняется только КАК путь резолвится (диск vs redirect на облако).
+
+**Тесты `backend/tests/test_storage.py` (13 шт.):** фолбэк на диск без ключей; локальный roundtrip + совпадение URL со старыми хелперами; разделение публичного/приватного дерева; нейтрализация path-traversal; S3-режим (мок boto3-клиента) — put/get/head/delete + presigned URL; фабрика выбирает S3 при полном наборе ключей. Полный прогон: `pytest -q` → **194 passed, 1 skipped**.
+
+**Шаги Александра для включения облака (пока НЕ включено, дефолт — диск):** 1) завести бакет у провайдера (Timeweb/VK Cloud/Selectel); 2) положить в `.env` `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_ENDPOINT_URL` (+`S3_REGION`), при желании `STORAGE_BACKEND=s3`; 3) один раз перенести существующие файлы из `backend/media` и `backend/private/docs` в бакет (скрипт-миграция — отдельной задачей). Без этих ключей всё работает как сейчас — с диска.

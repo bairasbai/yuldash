@@ -1,9 +1,18 @@
 """Unit tests for driver document autocheck without external OCR calls."""
 
 import httpx
+import pytest
 
 from app.config import settings
 from app import driver_check
+from app import storage as storage_mod
+
+
+@pytest.fixture(autouse=True)
+def _reset_storage_singleton():
+    """Тесты подменяют корень хранилища — вернём синглтон в исходное после каждого."""
+    yield
+    storage_mod.reset_storage(None)
 
 
 class FakeResponse:
@@ -16,7 +25,13 @@ class FakeResponse:
 
 
 def _doc(tmp_path, monkeypatch, name="license.jpg", content=b"fake image"):
+    # _doc_path (локальный резолвер) читает DOC_DIR/<name> напрямую.
     monkeypatch.setattr(driver_check, "DOC_DIR", str(tmp_path))
+    # check_driver_docs теперь читает байты через storage → ключ docs/<name> из PRIVATE_DIR/docs.
+    monkeypatch.setattr(storage_mod, "PRIVATE_DIR", str(tmp_path))
+    storage_mod.reset_storage(storage_mod.LocalStorage())
+    (tmp_path / "docs").mkdir(exist_ok=True)
+    (tmp_path / "docs" / name).write_bytes(content)
     path = tmp_path / name
     path.write_bytes(content)
     return path

@@ -207,6 +207,17 @@ class Settings(BaseSettings):
     allowed_image_ext: str = "jpg,jpeg,png,webp"  # разрешённые расширения фото
     allowed_audio_ext: str = "m4a,mp3,ogg,wav,aac"  # разрешённые расширения аудио
 
+    # --- Хранилище медиа (фото/документы/голос): диск сервера или облако S3 ---
+    # Пусто → авто: заданы бакет+ключи S3 → облако; иначе локальный диск (как раньше, полный фолбэк).
+    # Явно: STORAGE_BACKEND=local|s3. Секреты S3 (ключи/бакет/endpoint) — только .env, НЕ в git.
+    storage_backend: str = ""
+    s3_endpoint_url: str = ""       # endpoint S3-совместимого хранилища (Timeweb/VK Cloud/Selectel). Пусто → AWS.
+    s3_region: str = ""             # регион бакета (напр. ru-1). Опционально.
+    s3_bucket: str = ""             # имя бакета. НЕ в git — в .env.
+    s3_access_key: str = ""         # Access Key ID. НЕ в git — в .env.
+    s3_secret_key: str = ""         # Secret Access Key. НЕ в git — в .env.
+    s3_signed_url_ttl: int = 3600   # TTL подписанного (presigned) URL, сек (по умолч. 1 час)
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
@@ -216,6 +227,17 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()] or ["*"]
+
+    @property
+    def storage_is_s3(self) -> bool:
+        """Использовать облако S3? Явный STORAGE_BACKEND главнее; иначе авто по наличию ключей."""
+        mode = (self.storage_backend or "").strip().lower()
+        if mode == "s3":
+            return True
+        if mode in ("local", "disk", "file"):
+            return False
+        # авто: включаем S3, только если задан минимум для работы (бакет + оба ключа)
+        return bool(self.s3_bucket and self.s3_access_key and self.s3_secret_key)
 
     @property
     def image_ext_set(self) -> set[str]:
@@ -265,6 +287,11 @@ class Settings(BaseSettings):
         # Авто-одобрять водителей без OCR нельзя — это пустит непроверенных. Нужен ключ Vision.
         if self.driver_autoapprove_enabled and not self.yandex_vision_key:
             problems.append("YANDEX_VISION_KEY обязателен при DRIVER_AUTOAPPROVE_ENABLED (нельзя авто-одобрять без OCR)")
+        # S3 включён явно, но без бакета/ключей — медиа некуда писать. Требуем полный набор.
+        if (self.storage_backend or "").strip().lower() == "s3" and not (
+            self.s3_bucket and self.s3_access_key and self.s3_secret_key
+        ):
+            problems.append("S3_BUCKET, S3_ACCESS_KEY и S3_SECRET_KEY обязательны при STORAGE_BACKEND=s3")
         if self.database_url.startswith("sqlite"):
             problems.append("DATABASE_URL не должен быть sqlite в проде")
         media_base = self.media_base_url.lower()
