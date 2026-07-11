@@ -38,6 +38,16 @@ class BookingStatus(str, Enum):
     cancelled = "cancelled"
 
 
+class PayMethod(str, Enum):
+    """Как договорились платить — это ЗАПИСЬ ДОГОВОРЁННОСТИ, а не платёж и не движение денег.
+    Юр-модель не меняется: деньги пассажир и водитель передают сами (СБП «на доверии»).
+    Поле лишь фиксирует, о чём договорились, видно обеим сторонам (полезно в споре:
+    «мы же договаривались о 400»)."""
+    cash = "cash"            # наличными
+    sbp = "sbp"              # переводом по СБП
+    negotiate = "negotiate"  # договоримся на месте
+
+
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     phone: str = Field(index=True, unique=True)
@@ -257,6 +267,10 @@ class Booking(SQLModel, table=True):
     unpaid_reported: bool = False
     contact_then_cancel: bool = False
     cancelled_at: Optional[datetime] = None   # когда бронь отменили (для счётчиков за день)
+    # Договорённость об оплате (НЕ платёж, деньги через приложение не идут): как решили платить.
+    # Видно обеим сторонам, помогает в споре. Способ по умолчанию — «договоримся».
+    pay_method: PayMethod = PayMethod.negotiate
+    pay_amount: Optional[int] = None  # сумма, о которой договорились, ₽ (опц.; None = не фиксировали)
     created_at: datetime = Field(default_factory=utcnow)
 
 

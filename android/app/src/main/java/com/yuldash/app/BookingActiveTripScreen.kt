@@ -90,6 +90,7 @@ import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
@@ -274,11 +275,15 @@ internal fun BookingScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
     canOpenActiveTrip: Boolean = true,
-    onConfirmRide: () -> Unit
+    onConfirmRide: (payMethod: String, payAmount: Int?) -> Unit
 ) {
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
     var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
+    // Договорённость об оплате (ЗАПИСЬ, не платёж): что выбрал пассажир до брони.
+    // Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены поездки.
+    var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
+    var payAmountText by remember(bookingId) { mutableStateOf(if (ride.price > 0) ride.price.toString() else "") }
     var detailsLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
     var detailsError by remember(bookingId) { mutableStateOf(false) }
     var detailsReload by remember(bookingId) { mutableIntStateOf(0) }
@@ -477,6 +482,14 @@ internal fun BookingScreen(
                                 icon = Icons.Default.Lock
                             )
                         }
+                        PayAgreementBlock(
+                            editable = bookingId == null,
+                            method = if (bookingId == null) payMethod else (details?.payMethod ?: "negotiate"),
+                            amountText = payAmountText,
+                            summaryAmount = details?.payAmount,
+                            onMethod = { payMethod = it },
+                            onAmount = { payAmountText = it }
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
                                 onClick = onMessage,
@@ -489,7 +502,7 @@ internal fun BookingScreen(
                                 Text(appText("Написать", "Яҙырға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                             }
                             Button(
-                                onClick = onConfirmRide,
+                                onClick = { onConfirmRide(payMethod, payAmountText.trim().toIntOrNull()) },
                                 enabled = bookingId == null || canOpenActiveTrip,
                                 modifier = Modifier.weight(1.15f).height(54.dp),
                                 shape = RoundedCornerShape(18.dp),
@@ -523,6 +536,92 @@ internal fun BookingScreen(
                     text = appText("Все поездки защищены и отслеживаются службой поддержки Юлдаш.", "Бөтә сәфәрҙәр Юлдаш ярҙам хеҙмәте тарафынан күҙәтелә."),
                     icon = Icons.Default.Shield
                 )
+            }
+        }
+    }
+}
+
+/** Способы оплаты-договорённости: ключ на бэке + иконка + двуязычная подпись.
+ * Это ЗАПИСЬ «как договорились платить», НЕ платёж и не движение денег. */
+internal val payMethodKeys = listOf("cash", "sbp", "negotiate")
+
+@Composable
+internal fun payMethodLabel(method: String): String = when (method) {
+    "cash" -> appText("Наличными", "Аҡса менән")
+    "sbp" -> appText("Перевод по СБП", "СБП аша күсереү")
+    else -> appText("Договоримся", "Килешербеҙ")
+}
+
+internal fun payMethodIcon(method: String) = when (method) {
+    "cash" -> Icons.Default.Payments
+    "sbp" -> Icons.Default.CreditCard
+    else -> Icons.Default.VolunteerActivism
+}
+
+/**
+ * Блок «Как договорились платить» в деталях брони.
+ * editable=true (до брони) — пассажир выбирает способ (чипы) и сумму.
+ * editable=false (бронь есть) — только показ договорённости обеим сторонам.
+ * ВАЖНО: это запись договорённости, а НЕ оплата — деньги через приложение не идут.
+ */
+@Composable
+internal fun PayAgreementBlock(
+    editable: Boolean,
+    method: String,
+    amountText: String,
+    summaryAmount: Int?,
+    onMethod: (String) -> Unit,
+    onAmount: (String) -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, CanonBorder, CanonItemShape)
+            .background(CanonBg, CanonItemShape)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Handshake, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(appText("Как договорились платить", "Түләү тураһында нисек килешкәнбеҙ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+        }
+        Text(
+            appText(
+                "Это просто запись договорённости — деньги через приложение не проходят.",
+                "Был — тик килешеү яҙмаһы, аҡса ҡулланма аша үтмәй."
+            ),
+            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
+        )
+        if (editable) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                payMethodKeys.forEach { key ->
+                    NearbyFilterChip(payMethodIcon(key), payMethodLabel(key), method == key) { onMethod(key) }
+                }
+            }
+            OutlinedTextField(
+                value = amountText,
+                onValueChange = { new -> onAmount(new.filter { it.isDigit() }.take(6)) },
+                label = { Text(appText("Сумма, ₽ (необязательно)", "Сумма, ₽ (мотлаҡ түгел)")) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
+                    Row(Modifier.padding(horizontal = 11.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(payMethodIcon(method), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(payMethodLabel(method), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+                if (summaryAmount != null && summaryAmount > 0) {
+                    Text("$summaryAmount ₽", color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                }
             }
         }
     }
@@ -795,6 +894,9 @@ internal fun ActiveTripScreen(
     var failedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
     var tempSeq by remember(bookingId) { mutableStateOf(-2) }
     var boardingCode by remember(bookingId) { mutableStateOf("") }
+    // Договорённость об оплате (ЗАПИСЬ, не платёж) — показываем обеим сторонам в активной поездке.
+    var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
+    var payAmount by remember(bookingId) { mutableStateOf<Int?>(null) }
     val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
     // Состояние первой загрузки истории чата: спиннер, ошибка (с «Повторить»), пусто.
     var historyLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
@@ -811,6 +913,7 @@ internal fun ActiveTripScreen(
             .onFailure { historyError = true }
         historyLoading = false
         ApiClient.getBoardingCode(id).onSuccess { boardingCode = it }
+        ApiClient.getBookingDetails(id).onSuccess { d -> payMethod = d.payMethod; payAmount = d.payAmount }
     }
 
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
@@ -914,6 +1017,20 @@ internal fun ActiveTripScreen(
             if (boardingCode.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus)) {
                 item {
                     BoardingCodeCard(code = boardingCode, modifier = Modifier.appearIn(1))
+                }
+            }
+            if (bookingId != null) {
+                item {
+                    Box(Modifier.appearIn(1)) {
+                        PayAgreementBlock(
+                            editable = false,
+                            method = payMethod,
+                            amountText = "",
+                            summaryAmount = payAmount,
+                            onMethod = {},
+                            onAmount = {}
+                        )
+                    }
                 }
             }
             val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
