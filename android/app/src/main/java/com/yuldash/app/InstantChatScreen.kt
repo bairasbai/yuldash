@@ -93,10 +93,11 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
             onMessage = { inc ->
                 scope.launch {
                     val optIdx = messages.indexOfFirst { it.id < 0 && it.senderId == myId && it.text == inc.text }
+                    val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
                     messages = when {
-                        optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = MessageDto(inc.id, inc.text, inc.senderId) }
+                        optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = dto }
                         inc.id > 0 && messages.any { it.id == inc.id } -> messages
-                        else -> messages + MessageDto(inc.id, inc.text, inc.senderId)
+                        else -> messages + dto
                     }
                 }
             },

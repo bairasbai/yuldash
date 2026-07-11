@@ -4,6 +4,7 @@
 жёстко банит ЧЕЛОВЕК. Честного пользователя автоматика не наказывает.
 Приватность: device_id, координаты и телефоны в логи открытым текстом НЕ пишем.
 """
+import re
 from typing import Optional
 
 from fastapi import HTTPException
@@ -158,6 +159,32 @@ def gps_suspects_today(r) -> int:
         return int(r.scard(_tp_day_key()))
     except Exception:  # noqa: BLE001
         return 0
+
+
+# ------------------------------ чат: анти-фишинг (B8-6) ------------------------------
+# Сообщение НЕ блокируем (свобода честного разговора) — только помечаем flag="warn",
+# клиент показывает получателю плашку «Никому не сообщай коды из SMS…».
+# Паттерны узкие, чтобы не флажить честные сообщения (код посадки, «буду через 5 минут»):
+#   1) просьба кода ИЗ SMS / кода подтверждения / кода для входа;
+#   2) номер банковской карты (16 цифр, с пробелами/дефисами или слитно);
+#   3) «переведи на другой номер / другую карту» (увод оплаты не тому человеку).
+MESSAGE_FLAG_WARN = "warn"
+
+_PHISHING_RES = (
+    re.compile(r"код\w*[^.!?\n]{0,40}\b(?:смс|sms)\b", re.IGNORECASE),
+    re.compile(r"\b(?:смс|sms)\b[^.!?\n]{0,40}код", re.IGNORECASE),
+    re.compile(r"код\w*\s+(?:подтвержден\w*|для\s+входа|из\s+приложени\w*)", re.IGNORECASE),
+    re.compile(r"\b\d{4}[ \-]?\d{4}[ \-]?\d{4}[ \-]?\d{4}\b"),
+    re.compile(r"перевед\w*[^.!?\n]{0,30}на\s+друг(?:ой|ую)\s+(?:номер|карт\w*)", re.IGNORECASE),
+)
+
+
+def phishing_flag(text: Optional[str]) -> str:
+    """'' — обычное сообщение, 'warn' — похоже на развод (см. паттерны выше)."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    return MESSAGE_FLAG_WARN if any(rx.search(t) for rx in _PHISHING_RES) else ""
 
 
 class TrackGuard:

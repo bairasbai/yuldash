@@ -9,9 +9,10 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
+from ..antifraud import phishing_flag
 from ..db import engine, get_session
 from ..models import (
-    Booking, BookingStatus, InstantOrder, InstantOrderStatus, Message, Ride, User,
+    Booking, BookingStatus, InstantOrder, InstantOrderStatus, Message, Ride, User, UserRole,
 )
 from ..security import authenticate_ws, current_user
 from ..services import (
@@ -108,7 +109,12 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                     # Блокировка (как в REST send_message): заблокированный не пишет — тихо игнор.
                     if is_blocked(session, user_id, other_id):
                         continue
-                    msg = Message(booking_id=booking_id, sender_id=user_id, text=(payload.get("text") or "")[:4000])
+                    sender = session.get(User, user_id)
+                    text = (payload.get("text") or "")[:4000]
+                    # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
+                    msg = Message(booking_id=booking_id, sender_id=user_id, text=text,
+                                  flag=phishing_flag(text),
+                                  from_admin=bool(sender and sender.role == UserRole.admin))
                     session.add(msg)
                     session.commit()
                     session.refresh(msg)
@@ -117,12 +123,13 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                         "id": msg.id,
                         "sender_id": msg.sender_id,
                         "text": msg.text,
+                        "flag": msg.flag,
+                        "from_admin": msg.from_admin,
                         "timestamp": msg.created_at.isoformat()
                     })
                     # Push другой стороне (она может быть офлайн / не в чате). send_push — блокирующий
                     # сетевой вызов к FCM; в async-WS гоним через threadpool, иначе залипший запрос к
                     # Google морозит event-loop и ВСЕ WS-соединения воркера.
-                    sender = session.get(User, user_id)
                     await run_in_threadpool(
                         send_push, session, other_id,
                         (sender.name if sender else None) or "Новое сообщение",
@@ -180,7 +187,12 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
                     o2 = session.get(InstantOrder, order_id)
                     if not o2 or o2.status not in ORDER_CHAT_WRITABLE:
                         break
-                    msg = Message(order_id=order_id, sender_id=user_id, text=(payload.get("text") or "")[:4000])
+                    sender = session.get(User, user_id)
+                    text = (payload.get("text") or "")[:4000]
+                    # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
+                    msg = Message(order_id=order_id, sender_id=user_id, text=text,
+                                  flag=phishing_flag(text),
+                                  from_admin=bool(sender and sender.role == UserRole.admin))
                     session.add(msg)
                     session.commit()
                     session.refresh(msg)
@@ -189,11 +201,12 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
                         "id": msg.id,
                         "sender_id": msg.sender_id,
                         "text": msg.text,
+                        "flag": msg.flag,
+                        "from_admin": msg.from_admin,
                         "timestamp": msg.created_at.isoformat(),
                     })
                     # Пуш второй стороне (может быть офлайн) — как в booking-чате; send_push
                     # блокирующий → через threadpool, чтобы не морозить event-loop.
-                    sender = session.get(User, user_id)
                     await run_in_threadpool(
                         send_push, session, other_id,
                         (sender.name if sender else None) or "Новое сообщение",
@@ -215,7 +228,9 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
         raise HTTPException(403, "Переписка недоступна")
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise HTTPException(422, "Недопустимая ссылка на медиа")
-    msg = Message(order_id=order_id, sender_id=user.id, **body.model_dump())
+    # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
+    msg = Message(order_id=order_id, sender_id=user.id, flag=phishing_flag(body.text),
+                  from_admin=(user.role == UserRole.admin), **body.model_dump())
     session.add(msg)
     session.commit()
     session.refresh(msg)
@@ -227,6 +242,8 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
         "text": msg.text or "",
         "voice_url": msg.voice_url or "",
         "transcript": msg.transcript or "",
+        "flag": msg.flag,
+        "from_admin": msg.from_admin,
         "timestamp": msg.created_at.isoformat(),
     })
     send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120])
@@ -252,7 +269,9 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     # и приложение собеседника её подгрузило бы (утечка IP / трекинг / чужой контент).
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise HTTPException(422, "Недопустимая ссылка на медиа")
-    msg = Message(booking_id=booking_id, sender_id=user.id, **body.model_dump())
+    # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
+    msg = Message(booking_id=booking_id, sender_id=user.id, flag=phishing_flag(body.text),
+                  from_admin=(user.role == UserRole.admin), **body.model_dump())
     session.add(msg)
     session.commit()
     session.refresh(msg)
@@ -265,6 +284,8 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         "text": msg.text or "",
         "voice_url": msg.voice_url or "",
         "transcript": msg.transcript or "",
+        "flag": msg.flag,
+        "from_admin": msg.from_admin,
         "timestamp": msg.created_at.isoformat(),
     })
     # Push другой стороне брони (кто не отправитель).
@@ -313,6 +334,7 @@ def edit_message(booking_id: int, message_id: int, body: MessageEditIn,
         raise HTTPException(400, "Пустое сообщение")
     msg.text = text
     msg.edited = True
+    msg.flag = phishing_flag(text)   # B8-6: обход через «отправил безобидное → отредактировал в фишинг» закрыт
     session.add(msg)
     session.commit()
     session.refresh(msg)

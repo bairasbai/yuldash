@@ -1393,6 +1393,8 @@ internal fun ChatContent(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item { Spacer(Modifier.height(8.dp)) }
+            // B8-6: дисклеймер безопасности при первом открытии чата (закрывается «Понятно»).
+            item { ChatSafetyDisclaimer() }
             if (visibleMessages.isEmpty()) {
                 when {
                     loading -> item {
@@ -1416,7 +1418,10 @@ internal fun ChatContent(
                 }
             }
             items(visibleMessages, key = { it.id }) { m ->
-                ChatFeedBubble(text = m.text, voiceUrl = m.voiceUrl, deleted = m.deleted, mine = m.senderId == myId)
+                ChatFeedBubble(
+                    text = m.text, voiceUrl = m.voiceUrl, deleted = m.deleted, mine = m.senderId == myId,
+                    warn = m.flag == "warn", fromAdmin = m.fromAdmin,
+                )
             }
         }
         Card(
@@ -1466,10 +1471,16 @@ internal fun ChatContent(
 /**
  * Один пузырь ленты (только рендер): удалённое / голос / фото / текст, свой справа-зелёный,
  * чужой слева-светлый. Логика меню/повтора/плеера остаётся в умном `MessageBubble` боевого экрана.
+ * B8-6: warn у чужого сообщения → плашка «не сообщай коды из SMS»; B8-9: fromAdmin → бейдж «Юлдаш ✓».
  */
 @Composable
-private fun ChatFeedBubble(text: String, voiceUrl: String?, deleted: Boolean, mine: Boolean) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+private fun ChatFeedBubble(
+    text: String, voiceUrl: String?, deleted: Boolean, mine: Boolean,
+    warn: Boolean = false, fromAdmin: Boolean = false,
+) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+        if (fromAdmin && !deleted) YuldashOfficialBadge(Modifier.padding(bottom = 2.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Surface(
             color = if (deleted) CanonSurface else if (mine) CanonGreen2 else CanonSurface,
             shape = RoundedCornerShape(18.dp),
@@ -1493,6 +1504,82 @@ private fun ChatFeedBubble(text: String, voiceUrl: String?, deleted: Boolean, mi
                     color = if (mine) Color.White else CanonText, fontSize = 15.sp
                 )
             }
+        }
+        }
+        if (warn && !mine && !deleted) PhishingWarnPlate(Modifier.padding(top = 3.dp))
+    }
+}
+
+
+/** B8-6: плашка под подозрительным сообщением собеседника (сервер пометил flag=warn). */
+@Composable
+internal fun PhishingWarnPlate(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .background(CanonWarnBg, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "⚠️ " + appText(
+                "Никому не сообщай коды из SMS. Юлдаш никогда их не просит",
+                "СМС-тағы кодтарҙы бер кемгә лә әйтмә. Юлдаш уларҙы бер ҡасан да һорамай",
+            ),
+            color = CanonWarn, fontSize = 12.sp, lineHeight = 16.sp,
+        )
+    }
+}
+
+
+/** B8-9: бейдж официальности «Юлдаш ✓» — только по серверному флагу from_admin
+ *  (мошенник не может прикинуться поддержкой: флаг ставит сервер по роли отправителя). */
+@Composable
+internal fun YuldashOfficialBadge(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .background(CanonMint, RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Юлдаш ✓", color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+
+/** B8-6: тонкий баннер-дисклеймер безопасности при первом открытии чата. «Понятно» —
+ *  больше не показываем (метка в prefs). Появляется/уходит мягко (AnimatedVisibility). */
+@Composable
+internal fun ChatSafetyDisclaimer(modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("yuldash", android.content.Context.MODE_PRIVATE) }
+    var visible by remember { mutableStateOf(!prefs.getBoolean("chat_safety_seen", false)) }
+    AnimatedVisibility(visible = visible) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .background(CanonWarnBg, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "⚠️ " + appText(
+                    "Никому не сообщай коды из SMS и не переводи деньги «на другой номер». Юлдаш никогда их не просит",
+                    "СМС-тағы кодтарҙы бер кемгә лә әйтмә һәм «башҡа номерға» аҡса күсермә. Юлдаш уларҙы бер ҡасан да һорамай",
+                ),
+                color = CanonWarn, fontSize = 12.sp, lineHeight = 16.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                appText("Понятно", "Аңлашылды"),
+                color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .bounceClick {
+                        prefs.edit().putBoolean("chat_safety_seen", true).apply()
+                        visible = false
+                    }
+                    .padding(6.dp),
+            )
         }
     }
 }

@@ -824,10 +824,11 @@ internal fun ActiveTripScreen(
                     voiceScope.launch {
                         // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
                         val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
+                        val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
                         messages = when {
-                            optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = MessageDto(inc.id, inc.text, inc.senderId) }
+                            optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = dto }
                             inc.id > 0 && messages.any { it.id == inc.id } -> messages   // дубль по id — пропустить
-                            else -> messages + MessageDto(inc.id, inc.text, inc.senderId)
+                            else -> messages + dto
                         }
                     }
                 },
@@ -1130,6 +1131,8 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
+            // B8-6: дисклеймер безопасности при первом открытии чата (закрывается «Понятно»).
+            item { ChatSafetyDisclaimer() }
             items(visibleMessages, key = { it.id }) { m ->
                 val saved = m.id > 0   // оптимистичные (id<0) ещё не на сервере — без меню
                 MessageBubble(
@@ -1139,6 +1142,8 @@ internal fun ActiveTripScreen(
                     failed = m.id in failedIds,
                     deleted = m.deleted,
                     edited = m.edited,
+                    warn = m.flag == "warn",
+                    fromAdmin = m.fromAdmin,
                     canEdit = saved && m.senderId == myId && m.voiceUrl == null && !m.deleted,
                     canDeleteAll = saved && m.senderId == myId && !m.deleted,
                     canDeleteMine = saved && !m.deleted,
@@ -1423,6 +1428,8 @@ internal fun MessageBubble(
     failed: Boolean = false,
     deleted: Boolean = false,
     edited: Boolean = false,
+    warn: Boolean = false,       // B8-6: сервер пометил flag=warn → плашка получателю
+    fromAdmin: Boolean = false,  // B8-9: бейдж «Юлдаш ✓» (только серверный флаг)
     canEdit: Boolean = false,
     canDeleteAll: Boolean = false,
     canDeleteMine: Boolean = false,
@@ -1436,6 +1443,7 @@ internal fun MessageBubble(
     var menu by remember { mutableStateOf(false) }
     val showMenu = !deleted && (canEdit || canDeleteAll || canDeleteMine)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+    if (fromAdmin && !deleted) YuldashOfficialBadge(Modifier.padding(bottom = 2.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Box {
         Surface(
@@ -1512,6 +1520,10 @@ internal fun MessageBubble(
             }
         }
     }
+        if (warn && !mine && !deleted) {
+            // B8-6: предупреждение получателю — сообщение похоже на развод (коды из SMS/карта/увод оплаты).
+            PhishingWarnPlate(Modifier.padding(top = 3.dp))
+        }
         if (edited && !deleted) {
             Text(
                 appText("изменено", "үҙгәртелде"),

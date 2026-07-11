@@ -215,6 +215,94 @@ def test_track_guard_ws_mirror(fake_redis):
     assert g.ok(52.0028, 58.0, ts + 30)           # честный продолжает ехать как ни в чём не бывало
 
 
+# ============================ B8-6: анти-фишинг чата ============================
+@pytest.mark.parametrize("text", [
+    "Продиктуй код из СМС, я водитель поддержки",
+    "пришли смс-код скорее",
+    "скажи код подтверждения",
+    "назови код для входа",
+    "Оплати на карту 2202 2005 1234 5678",
+    "переведи на другой номер +79991234567",
+    "лучше переведи на другую карту, эта не работает",
+])
+def test_phishing_patterns_flagged(text):
+    assert af.phishing_flag(text) == "warn"
+
+
+@pytest.mark.parametrize("text", [
+    "Буду через 5 минут, жди у подъезда",
+    "Код посадки 482913",                      # честный флоу посадки — не фишинг
+    "Назови код посадки, пожалуйста",
+    "Переведи по СБП как договорились",       # обычная оплата — без «другого номера»
+    "Заберу у дома 12, квартира 34",
+    "",
+])
+def test_ordinary_messages_not_flagged(text):
+    assert af.phishing_flag(text) == ""
+
+
+def _make_booking_pair(user_factory):
+    """Водитель + пассажир + бронь (для чата) — напрямую в БД, без полного флоу."""
+    drv = user_factory("Водитель", role=UserRole.driver)
+    pax = user_factory("Пассажир")
+    with Session(engine) as s:
+        ride = Ride(driver_id=drv["id"], from_city="Уфа", to_city="Сибай", depart_at=utcnow())
+        s.add(ride)
+        s.commit()
+        s.refresh(ride)
+        b = Booking(ride_id=ride.id, passenger_id=pax["id"], status=BookingStatus.confirmed)
+        s.add(b)
+        s.commit()
+        s.refresh(b)
+        return drv, pax, b.id
+
+
+def test_chat_message_flagged_and_visible_to_recipient(client, user_factory):
+    """Фишинговое сообщение в чате брони: не блокируется, но flag=warn и получатель его видит."""
+    drv, pax, bid = _make_booking_pair(user_factory)
+    r = client.post(f"/bookings/{bid}/messages", headers=drv["auth"],
+                    json={"text": "Продиктуй код из смс"})
+    assert r.status_code == 200
+    assert r.json()["flag"] == "warn"
+    msgs = client.get(f"/bookings/{bid}/messages", headers=pax["auth"]).json()
+    assert msgs[-1]["flag"] == "warn"
+
+
+def test_chat_ordinary_message_not_flagged(client, user_factory):
+    drv, pax, bid = _make_booking_pair(user_factory)
+    r = client.post(f"/bookings/{bid}/messages", headers=pax["auth"],
+                    json={"text": "Выезжаю, буду через 10 минут"})
+    assert r.status_code == 200 and r.json()["flag"] == ""
+
+
+def test_chat_edit_recomputes_flag(client, user_factory):
+    """Обход «отправил безобидное → отредактировал в фишинг» закрыт."""
+    drv, pax, bid = _make_booking_pair(user_factory)
+    mid = client.post(f"/bookings/{bid}/messages", headers=drv["auth"],
+                      json={"text": "привет"}).json()["id"]
+    r = client.post(f"/bookings/{bid}/messages/{mid}/edit", headers=drv["auth"],
+                    json={"text": "скинь код из смс"})
+    assert r.status_code == 200 and r.json()["flag"] == "warn"
+
+
+def test_order_chat_message_flagged(client, user_factory):
+    """Чат такси-заказа — та же защита."""
+    drv = user_factory("Таксист", role=UserRole.driver)
+    pax = user_factory("Клиент")
+    with Session(engine) as s:
+        o = InstantOrder(passenger_id=pax["id"], driver_id=drv["id"],
+                         status=InstantOrderStatus.accepted)
+        s.add(o)
+        s.commit()
+        s.refresh(o)
+        oid = o.id
+    r = client.post(f"/instant/orders/{oid}/messages", headers=drv["auth"],
+                    json={"text": "переведи на другой номер"})
+    assert r.status_code == 200 and r.json()["flag"] == "warn"
+    msgs = client.get(f"/instant/orders/{oid}/messages", headers=pax["auth"]).json()
+    assert msgs[-1]["flag"] == "warn"
+
+
 # ============================ B8-5: кап оценок одной пары ============================
 def _add_rating(rater_id, ratee_id, stars, days_ago=0.0):
     with Session(engine) as s:

@@ -28,7 +28,11 @@ class ChatSocket(
     // null → прежний booking-чат (/ws/bookings/{bookingId}); поведение старых вызовов не меняется.
     private val path: String? = null,
 ) {
-    data class Incoming(val id: Int, val senderId: Int, val text: String, val timestamp: String)
+    data class Incoming(
+        val id: Int, val senderId: Int, val text: String, val timestamp: String,
+        val flag: String = "",           // анти-фишинг (B8-6): "warn" → плашка получателю
+        val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓»
+    )
 
     private var ws: WebSocket? = null
     @Volatile private var closed = false   // выставлен из UI-потока в close(), читается из ws-потока
@@ -89,6 +93,8 @@ class ChatSocket(
                                     senderId = o.optInt("sender_id"),
                                     text = o.optString("text"),
                                     timestamp = o.optString("timestamp"),
+                                    flag = o.optString("flag"),
+                                    fromAdmin = o.optBoolean("from_admin"),
                                 )
                             )
                         }

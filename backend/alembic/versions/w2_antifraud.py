@@ -76,6 +76,11 @@ def upgrade() -> None:
     if "ix_user_last_device_id" not in _indexes(bind, "user"):
         op.create_index("ix_user_last_device_id", "user", ["last_device_id"])
 
+    # --- B8-6/9: чат — флаг анти-фишинга + бейдж официальности ---
+    _add_col(bind, "message", sa.Column("flag", sa.String(), nullable=False, server_default=""))
+    _add_col(bind, "message", sa.Column("from_admin", sa.Boolean(), nullable=False,
+                                        server_default=sa.false()))
+
     # --- B8-4: выданные водительские реферальные бонусы (анти-накрутка) ---
     if "referralbonus" not in _tables(bind):
         op.create_table(
@@ -97,6 +102,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    _drop_col(bind, "message", "from_admin")
+    _drop_col(bind, "message", "flag")
     if "referralbonus" in _tables(bind):
         op.drop_table("referralbonus")
     if "ix_user_last_device_id" in _indexes(bind, "user"):

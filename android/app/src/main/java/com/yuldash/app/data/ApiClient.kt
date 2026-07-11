@@ -2247,6 +2247,8 @@ data class MessageDto(
     val voiceUrl: String? = null,
     val deleted: Boolean = false,
     val edited: Boolean = false,
+    val flag: String = "",           // анти-фишинг (B8-6): "warn" → плашка-предупреждение получателю
+    val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓» у сообщений админа/системы
 )
 
 internal fun parseMessageDto(o: JSONObject): MessageDto =
@@ -2257,6 +2259,8 @@ internal fun parseMessageDto(o: JSONObject): MessageDto =
         voiceUrl = o.optNullableString("voice_url"),
         deleted = o.optBoolean("deleted"),
         edited = o.optBoolean("edited"),
+        flag = o.optString("flag"),
+        fromAdmin = o.optBoolean("from_admin"),
     )
 
 private fun JSONObject.optNullableString(key: String): String? {
