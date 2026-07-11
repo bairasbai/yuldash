@@ -2397,6 +2397,82 @@ object ApiClient {
     /** Админ: отклонить бизнес-партнёра с причиной. */
     suspend fun rejectPartner(id: Int, reason: String): Result<Unit> =
         call("POST", "/admin/partners/$id/reject", JSONObject().put("reason", reason), auth = true).map { }
+
+    // ═══════════ M2: Промокоды и кампании ═══════════
+
+    /** Применить промокод. 404 не найден, 422 срок истёк, 409 (уже активировал / свой код / исчерпан). */
+    suspend fun applyPromo(code: String): Result<PromoApplyResultDto> =
+        call("POST", "/promo/apply", JSONObject().put("code", code.trim().uppercase()), auth = true).map { o ->
+            PromoApplyResultDto(
+                ok = o.optBoolean("ok", true), kind = o.optString("kind"),
+                perkValue = o.optInt("perk_value"),
+                messageRu = o.optString("message_ru"), messageBa = o.optString("message_ba"),
+            )
+        }.onSuccess { Analytics.log("promo_apply") }
+
+    /** Мой активированный промокод (один на аккаунт) или null, если ещё не вводил. */
+    suspend fun getMyPromo(): Result<MyPromoDto?> =
+        call("GET", "/promo/mine", null, auth = true).map { o ->
+            val p = o.optJSONObject("promo") ?: return@map null
+            MyPromoDto(
+                code = p.optString("code"), title = p.optString("title"),
+                kind = p.optString("kind"), perkValue = p.optInt("perk_value"),
+                redeemedAt = nStr(o, "redeemed_at"),
+            )
+        }
+
+    /** Статистика по коду (для владельца/админа): воронка applied → active. */
+    suspend fun getPromoStats(code: String): Result<PromoStatDto> =
+        call("GET", "/promo/${enc(code.trim().uppercase())}/stats", null, auth = true).map { o ->
+            PromoStatDto(
+                code = o.optString("code"), title = o.optString("title"),
+                campaign = o.optString("campaign"),
+                applied = o.optInt("applied"), active = o.optInt("active"),
+            )
+        }
+
+    private fun parseAdminPromo(o: JSONObject) = AdminPromoDto(
+        id = o.optInt("id"), code = o.optString("code"), title = o.optString("title"),
+        description = o.optString("description"), ownerId = if (o.isNull("owner_id")) null else o.optInt("owner_id"),
+        campaign = o.optString("campaign"), kind = o.optString("kind"), perkValue = o.optInt("perk_value"),
+        limitTotal = o.optInt("limit_total"), limitPerUser = o.optInt("limit_per_user"),
+        redeemedCount = o.optInt("redeemed_count"), applied = o.optInt("applied"), active = o.optInt("active"),
+        validFrom = nStr(o, "valid_from"), validUntil = nStr(o, "valid_until"),
+        activeFlag = o.optBoolean("active_flag", true), createdAt = o.optString("created_at"),
+    )
+
+    /** Админ: список всех промокодов/кампаний со счётчиками. */
+    suspend fun adminListPromo(): Result<List<AdminPromoDto>> =
+        call("GET", "/admin/promo", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseAdminPromo(arr.getJSONObject(it)) }
+        }
+
+    /** Админ: создать промокод/кампанию. 409 — дубль кода. */
+    suspend fun adminCreatePromo(
+        code: String, title: String, description: String, campaign: String,
+        kind: String, perkValue: Int, limitTotal: Int, limitPerUser: Int,
+        ownerPhone: String? = null, validFrom: String? = null, validUntil: String? = null,
+    ): Result<AdminPromoDto> {
+        val body = JSONObject()
+            .put("code", code.trim().uppercase())
+            .put("title", title.trim())
+            .put("description", description.trim())
+            .put("campaign", campaign.trim())
+            .put("kind", kind)
+            .put("perk_value", perkValue)
+            .put("limit_total", limitTotal)
+            .put("limit_per_user", limitPerUser)
+        ownerPhone?.takeIf { it.isNotBlank() }?.let { body.put("owner_phone", it.trim()) }
+        validFrom?.takeIf { it.isNotBlank() }?.let { body.put("valid_from", it) }
+        validUntil?.takeIf { it.isNotBlank() }?.let { body.put("valid_until", it) }
+        return call("POST", "/admin/promo", body, auth = true).map { parseAdminPromo(it) }
+            .onSuccess { Analytics.log("promo_create") }
+    }
+
+    /** Админ: включить/выключить кампанию. */
+    suspend fun adminSetPromoStatus(id: Int, active: Boolean): Result<Unit> =
+        call("POST", "/admin/promo/$id/status", JSONObject().put("active", active), auth = true).map { }
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
@@ -3233,4 +3309,33 @@ data class AdminPartnerDto(
     val address: String, val phone: String, val description: String, val status: String,
     val rejectReason: String, val subscriptionPlan: String, val subscriptionUntil: String?,
     val subscriptionActive: Boolean, val createdAt: String, val reviewedAt: String?,
+)
+
+// ═══════════ M2: Промокоды и кампании ═══════════
+
+/** Результат применения промокода. kind: "welcome" (приветствие) | "boost" (N бесплатных поднятий). */
+data class PromoApplyResultDto(
+    val ok: Boolean, val kind: String, val perkValue: Int,
+    val messageRu: String, val messageBa: String,
+)
+
+/** Мой активированный промокод (один на аккаунт). */
+data class MyPromoDto(
+    val code: String, val title: String, val kind: String, val perkValue: Int,
+    val redeemedAt: String?,
+)
+
+/** Статистика кода: воронка applied (ввели) → active (стали активными). */
+data class PromoStatDto(
+    val code: String, val title: String, val campaign: String,
+    val applied: Int, val active: Int,
+)
+
+/** Промокод/кампания в админ-панели. active = «живые» приведённые; activeFlag = вкл/выкл кампании. */
+data class AdminPromoDto(
+    val id: Int, val code: String, val title: String, val description: String,
+    val ownerId: Int?, val campaign: String, val kind: String, val perkValue: Int,
+    val limitTotal: Int, val limitPerUser: Int, val redeemedCount: Int,
+    val applied: Int, val active: Int,
+    val validFrom: String?, val validUntil: String?, val activeFlag: Boolean, val createdAt: String,
 )

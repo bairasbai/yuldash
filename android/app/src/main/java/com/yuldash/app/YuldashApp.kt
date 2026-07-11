@@ -659,6 +659,7 @@ internal fun YuldashApp() {
                 onSupport = { screen = Screen.Support },
                 onMyStats = { screen = Screen.MyStats },
                 onCoupons = { screen = Screen.Coupons },
+                onPromo = { screen = Screen.PromoCode },
                 onPartnerCabinet = { screen = Screen.PartnerCabinet },
                 onReview = { screen = Screen.AppReview },
                 onAdminReviews = { screen = Screen.AdminReviews },
@@ -885,7 +886,8 @@ internal fun YuldashApp() {
                 onTaxi = { screen = Screen.AdminTaxi },
                 onWaitlist = { screen = Screen.AdminWaitlist },
                 onTaxiPulse = { screen = Screen.AdminTaxiPulse },
-                onPartners = { screen = Screen.AdminPartners }
+                onPartners = { screen = Screen.AdminPartners },
+                onPromoAdmin = { screen = Screen.AdminPromo }
             )
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
@@ -1061,6 +1063,8 @@ internal fun YuldashApp() {
             Screen.Coupons -> CouponsScreen(onBack = { goBack() })
             Screen.PartnerCabinet -> PartnerCabinetScreen(onBack = { goBack() })
             Screen.AdminPartners -> AdminPartnersScreen(onBack = { goBack() })
+            Screen.PromoCode -> PromoCodeScreen(onBack = { goBack() })
+            Screen.AdminPromo -> AdminPromoScreen(onBack = { goBack() })
         }
         }
     }
@@ -1651,6 +1655,7 @@ internal fun HomeScreen(
     onMyStats: () -> Unit = {},
     onCoupons: () -> Unit = {},
     onPartnerCabinet: () -> Unit = {},
+    onPromo: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit = {},
     onInstantLogin: () -> Unit = {},
@@ -1738,6 +1743,7 @@ internal fun HomeScreen(
                     onAdsCabinet = onAdsCabinet,
                     onMyStats = onMyStats,
                     onCoupons = onCoupons,
+                    onPromo = onPromo,
                     onPartnerCabinet = onPartnerCabinet,
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,
