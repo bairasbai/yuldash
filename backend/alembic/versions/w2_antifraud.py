@@ -76,9 +76,29 @@ def upgrade() -> None:
     if "ix_user_last_device_id" not in _indexes(bind, "user"):
         op.create_index("ix_user_last_device_id", "user", ["last_device_id"])
 
+    # --- B8-4: выданные водительские реферальные бонусы (анти-накрутка) ---
+    if "referralbonus" not in _tables(bind):
+        op.create_table(
+            "referralbonus",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("referrer_id", sa.Integer(), sa.ForeignKey("user.id"), nullable=False),
+            sa.Column("invited_user_id", sa.Integer(), sa.ForeignKey("user.id"), nullable=False),
+            sa.Column("kind", sa.String(), nullable=False, server_default="driver"),
+            sa.Column("created_at", sa.DateTime(), nullable=False),
+        )
+    for ix, cols, uniq in (
+        ("ix_referralbonus_referrer_id", ["referrer_id"], False),
+        ("ix_referralbonus_invited_user_id", ["invited_user_id"], True),
+        ("ix_referralbonus_created_at", ["created_at"], False),
+    ):
+        if ix not in _indexes(bind, "referralbonus"):
+            op.create_index(ix, "referralbonus", cols, unique=uniq)
+
 
 def downgrade() -> None:
     bind = op.get_bind()
+    if "referralbonus" in _tables(bind):
+        op.drop_table("referralbonus")
     if "ix_user_last_device_id" in _indexes(bind, "user"):
         op.drop_index("ix_user_last_device_id", table_name="user")
     _drop_col(bind, "user", "last_device_id")

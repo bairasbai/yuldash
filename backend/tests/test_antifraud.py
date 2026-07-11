@@ -10,7 +10,10 @@ from sqlmodel import Session, select
 from app import antifraud as af
 from app import instant_service as isv
 from app.db import engine
-from app.models import DeviceBan, User, UserRole
+from app.models import (
+    Booking, BookingStatus, InstantOrder, InstantOrderStatus, ReferralBonus, Ride, User, UserRole,
+)
+from app.routers.referral import reward_driver_referral
 from app.timeutil import utcnow
 
 
@@ -209,6 +212,127 @@ def test_track_guard_ws_mirror(fake_redis):
     assert g.ok(52.0014, 58.0, ts + 10)          # ~55 км/ч — честно
     assert not g.ok(53.0, 58.0, ts + 20)          # телепорт — кадр не ретранслируем
     assert g.ok(52.0028, 58.0, ts + 30)           # честный продолжает ехать как ни в чём не бывало
+
+
+# ============================ B8-4: реферал-фрод (водительский бонус) ============================
+def _make_referred_driver(user_factory, referrer_id):
+    d = user_factory("ПриглашённыйВодитель", role=UserRole.driver)
+    with Session(engine) as s:
+        u = s.get(User, d["id"])
+        u.referred_by = referrer_id
+        s.add(u)
+        s.commit()
+    return d
+
+
+def _add_done_order(driver_id, passenger_id, distance_km=10.0, minutes=15):
+    now = utcnow()
+    with Session(engine) as s:
+        s.add(InstantOrder(
+            passenger_id=passenger_id, driver_id=driver_id,
+            status=InstantOrderStatus.done, distance_km=distance_km,
+            onboard_at=now - timedelta(minutes=minutes), done_at=now,
+        ))
+        s.commit()
+
+
+def _credits(user_id):
+    with Session(engine) as s:
+        return s.get(User, user_id).referral_credits
+
+
+def test_referral_bonus_needs_three_distinct_passengers(client, user_factory):
+    """Накрутка той же парой (один пассажир гоняет 3 фейк-поездки) бонуса НЕ даёт;
+    3 живые поездки с 3 разными пассажирами — даёт, ровно один раз."""
+    referrer = user_factory("Пригласивший")
+    driver = _make_referred_driver(user_factory, referrer["id"])
+    accomplice = user_factory("Сообщник")
+    for _ in range(3):   # та же пара × 3 — «поездки» есть, пассажир один
+        _add_done_order(driver["id"], accomplice["id"])
+    with Session(engine) as s:
+        assert reward_driver_referral(s, driver["id"]) is False
+    assert _credits(referrer["id"]) == 0
+
+    p2, p3 = user_factory("Пасс2"), user_factory("Пасс3")
+    _add_done_order(driver["id"], p2["id"])
+    _add_done_order(driver["id"], p3["id"])
+    with Session(engine) as s:
+        assert reward_driver_referral(s, driver["id"]) is True
+    assert _credits(referrer["id"]) == 1
+    with Session(engine) as s:   # повторный done → бонус не дублируется (unique на приглашённого)
+        assert reward_driver_referral(s, driver["id"]) is False
+    assert _credits(referrer["id"]) == 1
+
+
+def test_referral_bonus_requires_live_trips(client, user_factory):
+    """«Мёртвые» поездки (без движения: <1 км и <5 мин) не считаются живыми — бонуса нет."""
+    referrer = user_factory("Пригласивший2")
+    driver = _make_referred_driver(user_factory, referrer["id"])
+    for name in ("Ф1", "Ф2", "Ф3"):
+        p = user_factory(name)
+        _add_done_order(driver["id"], p["id"], distance_km=0.3, minutes=2)
+    with Session(engine) as s:
+        assert reward_driver_referral(s, driver["id"]) is False
+    assert _credits(referrer["id"]) == 0
+
+
+def test_referral_bonus_counts_live_poputka(client, user_factory):
+    """Попутка тоже считается живой поездкой: done-бронь на маршруте длиннее 1 км."""
+    referrer = user_factory("Пригласивший3")
+    driver = _make_referred_driver(user_factory, referrer["id"])
+    p1, p2, p3 = user_factory("П1"), user_factory("П2"), user_factory("П3")
+    with Session(engine) as s:
+        ride = Ride(driver_id=driver["id"], from_city="Баймак", to_city="Сибай",
+                    depart_at=utcnow(), from_lat=52.591, from_lng=58.317,
+                    to_lat=52.716, to_lng=58.664)
+        s.add(ride)
+        s.commit()
+        s.refresh(ride)
+        for p in (p1, p2, p3):
+            s.add(Booking(ride_id=ride.id, passenger_id=p["id"], status=BookingStatus.done))
+        s.commit()
+        assert reward_driver_referral(s, driver["id"]) is True
+    assert _credits(referrer["id"]) == 1
+
+
+def test_referral_bonus_monthly_cap(client, user_factory):
+    """≤5 водительских бонусов на пригласившего в месяц: шестой не выдаётся."""
+    referrer = user_factory("Хаб")
+    with Session(engine) as s:
+        for i in range(5):
+            fake_invited = user_factory(f"Р{i}")
+            s.add(ReferralBonus(referrer_id=referrer["id"], invited_user_id=fake_invited["id"]))
+        s.commit()
+    driver = _make_referred_driver(user_factory, referrer["id"])
+    for name in ("К1", "К2", "К3"):
+        p = user_factory(name)
+        _add_done_order(driver["id"], p["id"])
+    with Session(engine) as s:
+        assert reward_driver_referral(s, driver["id"]) is False   # кэп месяца
+    assert _credits(referrer["id"]) == 0
+
+
+def test_referral_bonus_fires_from_done_endpoint(client, user_factory, fake_redis):
+    """Интеграция: бонус выдаётся сам после done 3-й живой поездки (хук в /instant/.../done)."""
+    referrer = user_factory("Дед")
+    driver = _make_referred_driver(user_factory, referrer["id"])
+    assert client.post("/driver/online", headers=driver["auth"], json={"online": True}).status_code == 200
+    orig, dest = (52.591, 58.317), (52.716, 58.664)
+    for name in ("Гость1", "Гость2", "Гость3"):
+        pax = user_factory(name)
+        client.post("/instant/presence", headers=driver["auth"],
+                    json={"lat": orig[0], "lng": orig[1]})
+        r = client.post("/instant/orders", headers=pax["auth"], json={
+            "from_lat": orig[0], "from_lng": orig[1], "to_lat": dest[0], "to_lng": dest[1],
+            "from_text": "Баймак", "to_text": "Сибай",
+        })
+        assert r.status_code == 200, r.text
+        oid = r.json()["id"]
+        assert client.post(f"/instant/orders/{oid}/accept", headers=driver["auth"]).status_code == 200
+        assert client.post(f"/instant/orders/{oid}/arrived", headers=driver["auth"]).status_code == 200
+        assert client.post(f"/instant/orders/{oid}/onboard", headers=driver["auth"]).status_code == 200
+        assert client.post(f"/instant/orders/{oid}/done", headers=driver["auth"]).status_code == 200
+    assert _credits(referrer["id"]) == 1
 
 
 def test_presence_teleport_not_published(client, user_factory, fake_redis):

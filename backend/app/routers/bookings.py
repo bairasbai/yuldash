@@ -190,6 +190,9 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
             booking.driver_phase = ""        # поездка кончилась — фазу сбрасываем
             session.add(booking)
             session.commit()
+            # B8-4: реферальный бонус пригласившему за раскатавшегося водителя (идемпотентно).
+            from .referral import reward_driver_referral
+            reward_driver_referral(session, ride.driver_id)
         send_push(session, booking.passenger_id, "Поездка завершена", f"{ride.from_city} → {ride.to_city}")
         return {"ok": True, "status": "done"}
     # «выехал/подъезжает» бессмысленны на мёртвой броне — иначе push «Водитель выехал» по отменённой/завершённой.

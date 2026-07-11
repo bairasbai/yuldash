@@ -633,6 +633,20 @@ class Ad(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class ReferralBonus(SQLModel, table=True):
+    """Выданный «водительский» реферальный бонус (B8-4, анти-накрутка фейк-поездками).
+
+    Выдаётся пригласившему, когда приглашённый ВОДИТЕЛЬ реально раскатался:
+    ≥3 done-поездок с ≥3 РАЗНЫМИ пассажирами, поездки «живые» (есть движение/длительность).
+    Один бонус на приглашённого (invited_user_id unique) + ≤5 бонусов на пригласившего
+    в календарный месяц (см. routers/referral.py)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    referrer_id: int = Field(index=True, foreign_key="user.id")
+    invited_user_id: int = Field(index=True, unique=True, foreign_key="user.id")
+    kind: str = "driver"
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class DeviceBan(SQLModel, table=True):
     """Бан устройства (анти-фрод B8-1, обход бана новым номером).
 

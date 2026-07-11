@@ -201,6 +201,11 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         booking.status = BookingStatus.done
         session.add(booking)
         session.commit()
+        # B8-4: пассажир завершил поездку → проверяем реферальный бонус за водителя (идемпотентно).
+        ride = session.get(Ride, booking.ride_id)
+        if ride:
+            from .referral import reward_driver_referral
+            reward_driver_referral(session, ride.driver_id)
     contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()]
     if not contact_ids:
         return []

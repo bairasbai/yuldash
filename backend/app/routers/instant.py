@@ -13,6 +13,7 @@ from ..db import get_session
 from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Rating, Settlement, User
 from ..security import current_user
 from ..services import user_rating
+from .referral import reward_driver_referral
 from .. import debt as debt_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
@@ -304,6 +305,9 @@ def done(order_id: int, user: User = Depends(current_user), session: Session = D
         debt_mod.accrue_for_order(session, order)
         # B7b-4: мягкое напоминание про чек «Мой налог» (дедуп 1/сутки внутри).
         isv.maybe_receipt_reminder(session, order.driver_id)
+        # B8-4: реферальный бонус пригласившему — только когда водитель реально раскатался
+        # (≥3 живых done-поездок с ≥3 разными пассажирами; идемпотентно внутри).
+        reward_driver_referral(session, order.driver_id)
     return isv.order_payload(session, order, user)
 
 
