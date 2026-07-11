@@ -22,7 +22,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "f14_pickup_points"
-down_revision = "0004_booking_boarding_code"
+down_revision = "f12_winter_safety"
 branch_labels = None
 depends_on = None
 

@@ -19,7 +19,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "f17_driver_schedule"
-down_revision = "0004_booking_boarding_code"
+down_revision = "f14_pickup_points"
 branch_labels = None
 depends_on = None
 

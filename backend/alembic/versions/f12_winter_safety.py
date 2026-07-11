@@ -21,7 +21,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "f12_winter_safety"
-down_revision = "0004_booking_boarding_code"
+down_revision = "f10_payment_agreement"
 branch_labels = None
 depends_on = None
 

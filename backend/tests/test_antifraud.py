@@ -564,7 +564,7 @@ def test_rating_pair_cap_in_drivers_bundle(client, user_factory):
         _add_rating(pumper["id"], ratee["id"], 5, days_ago=i * 0.1)
     with Session(engine) as s:
         avg_u, cnt_u = user_rating(s, ratee["id"])
-        _, _, agg = drivers_bundle(s, {ratee["id"]})
+        _, _, agg, _ = drivers_bundle(s, {ratee["id"]})
     assert cnt_u == 3
     assert agg[ratee["id"]] == (pytest.approx(avg_u), cnt_u)
 

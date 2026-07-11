@@ -20,7 +20,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "p4_trust"
-down_revision = "0004_booking_boarding_code"
+down_revision = "f22_medical_partner"
 branch_labels = None
 depends_on = None
 

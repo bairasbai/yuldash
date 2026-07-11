@@ -24,7 +24,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "f10_payment_agreement"
-down_revision = "0004_booking_boarding_code"
+down_revision = "f9_driver_gender"
 branch_labels = None
 depends_on = None
 

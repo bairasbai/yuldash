@@ -19,7 +19,7 @@ import app.models  # noqa: F401 — регистрирует таблицы в S
 from app.models import Notification
 
 revision = "0005_notification_table"
-down_revision = "0004_booking_boarding_code"
+down_revision = "w2_antifraud"
 branch_labels = None
 depends_on = None
 

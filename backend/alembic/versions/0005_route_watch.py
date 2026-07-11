@@ -21,7 +21,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "0005_route_watch"
-down_revision = "0004_booking_boarding_code"
+down_revision = "0005_rating_text_review"
 branch_labels = None
 depends_on = None
 

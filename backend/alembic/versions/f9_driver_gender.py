@@ -22,7 +22,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "f9_driver_gender"
-down_revision = "0004_booking_boarding_code"
+down_revision = "0005_route_watch"
 branch_labels = None
 depends_on = None
 

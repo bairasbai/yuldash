@@ -24,7 +24,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "f19_invite_drivers"
-down_revision = "0004_booking_boarding_code"
+down_revision = "f17_driver_schedule"
 branch_labels = None
 depends_on = None
 

@@ -19,7 +19,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "0005_rating_text_review"
-down_revision = "0004_booking_boarding_code"
+down_revision = "0005_notification_table"
 branch_labels = None
 depends_on = None
 

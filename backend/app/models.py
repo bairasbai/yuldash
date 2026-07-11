@@ -196,6 +196,7 @@ class MedicalPartner(SQLModel, table=True):
     lng: Optional[float] = None
     description: str = ""                     # описание: как доехать / что рядом (без обещаний медуслуг)
     active: bool = Field(default=True, index=True)   # показывать ли в справочнике
+    created_at: datetime = Field(default_factory=utcnow)   # согласовано с миграцией f22 (server_default now())
 class DriverSchedule(SQLModel, table=True):
     """Постоянный (регулярный) маршрут водителя: «езжу Баймаҡ→Уфа по пятницам в 8:00».
 

@@ -296,20 +296,20 @@ def test_referral_flow(client, user_factory):
 
 
 def test_driver_referral_bonus(client, user_factory):
-    """F19 «Позови водителя»: приглашённый стал водителем и сделал первый рейс →
-    пригласивший получает ДОП. бонус. Начисляется ровно один раз."""
+    """Узел F19/B8: базовый реферал (+1 обоим по коду) работает и не сломан. А ДОП.
+    водительский бонус начисляет СТРОГАЯ версия B8 — за реально ЗАВЕРШЁННЫЕ поездки
+    приглашённого с ≥3 разными пассажирами (см. test_antifraud), а НЕ за факт публикации
+    рейса. Публикация сама по себе доп. бонус не даёт (защита от накрутки пустыми рейсами)."""
     inviter = user_factory("InviteDrvA")
     invited = user_factory("InviteDrvB")
     code = client.get("/referral/me", headers=inviter["auth"]).json()["code"]
     # обычный реферал: invited вводит код → оба +1 (базовый бонус, как и раньше — не сломан)
     assert client.post("/referral/redeem", headers=invited["auth"], json={"code": code}).json()["credits"] == 1
     assert client.get("/referral/me", headers=inviter["auth"]).json()["credits"] == 1
-    # invited публикует ПЕРВЫЙ рейс (стал водителем) → пригласившему +1 водительский бонус
+    # invited публикует рейс — доп. водительский бонус НЕ начисляется на публикацию
+    # (узел B8: бонус только за завершённые поездки с разными пассажирами).
     _publish(client, invited, frm="Баймак", to="Уфа")
-    assert client.get("/referral/me", headers=inviter["auth"]).json()["credits"] == 2
-    # второй рейс — бонус НЕ повторяется (ровно один раз на приглашённого)
-    _publish(client, invited, frm="Сибай", to="Уфа")
-    assert client.get("/referral/me", headers=inviter["auth"]).json()["credits"] == 2
+    assert client.get("/referral/me", headers=inviter["auth"]).json()["credits"] == 1
 
 
 def test_driver_referral_no_inviter_no_bonus(client, user_factory):
