@@ -266,10 +266,24 @@ class MainActivity : ComponentActivity() {
         // Восстановить выбор темы день/ночь (если пользователь переключал тумблером в шапке).
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
+        handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
         setContent {
             YuldashTheme(darkTheme = appIsDark()) {
                 YuldashApp()
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleNavIntent(intent)   // activity уже жива (SINGLE_TOP) → сигнал без пересоздания
+    }
+
+    /** Уведомление «Новый заказ 🚕» → сигнал YuldashApp открыть кабинет водителя (карточка оффера). */
+    private fun handleNavIntent(i: android.content.Intent?) {
+        if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) == true) {
+            i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)   // не сработать повторно при пересоздании
+            NavSignals.openDriverCabinet.value = true
         }
     }
 }

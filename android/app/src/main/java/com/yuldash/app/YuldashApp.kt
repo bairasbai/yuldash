@@ -321,6 +321,16 @@ internal fun YuldashApp() {
     // Просим один раз, когда пользователь уже в приложении (не на онбординге/входе).
     // Язык дублируем на диск (AppPrefs): FCM и фоновые сервисы живут вне Compose и берут его оттуда.
     LaunchedEffect(language) { AppPrefs.setLanguage(context, language) }
+    // Полноэкранный оффер такси (B7a-2): тап/фуллскрин уведомления «Новый заказ» → MainActivity
+    // ставит NavSignals → открываем кабинет водителя (там InstantOfferOverlay). Ждём, пока сплэш
+    // отработает (он перезаписал бы screen), и не дёргаем навигацию на входе/онбординге.
+    val wantDriverCabinet by NavSignals.openDriverCabinet
+    LaunchedEffect(wantDriverCabinet, screen) {
+        if (!wantDriverCabinet) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        NavSignals.openDriverCabinet.value = false
+        if (ApiClient.isLoggedIn() && screen != Screen.InstantDriverTrip) screen = Screen.DriverCabinet
+    }
     val notifPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var notifAsked by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(screen) {

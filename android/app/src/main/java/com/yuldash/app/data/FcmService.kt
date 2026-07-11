@@ -11,6 +11,7 @@ import com.google.firebase.messaging.RemoteMessage
 import com.yuldash.app.AppPrefs
 import com.yuldash.app.MainActivity
 import com.yuldash.app.R
+import com.yuldash.app.TaxiOfferNotifier
 
 /**
  * Приём push-уведомлений (FCM). Работает после добавления app/google-services.json.
@@ -26,6 +27,20 @@ class FcmService : FirebaseMessagingService() {
     override fun onMessageReceived(msg: RemoteMessage) {
         // Тумблер «Уведомления» (Настройки) выключен → не показываем пуш (клиентское заглушение).
         if (!AppPrefs.notifications(this)) return
+        // Оффер такси (B7a-2): data-only пуш от matcher'а → полноэкранная карточка «Новый заказ 🚕»
+        // (канал «Заказы такси», важность MAX, звук+вибро, full-screen intent → кабинет водителя).
+        if (msg.data["type"] == "instant_offer") {
+            TaxiOfferNotifier.show(
+                this,
+                orderId = msg.data["order_id"]?.toIntOrNull() ?: 0,
+                fromText = msg.data["from"] ?: "",
+                toText = msg.data["to"] ?: "",
+                priceRub = msg.data["price"]?.toIntOrNull() ?: 0,
+                lang = AppPrefs.language(this),
+                ttlSec = msg.data["ttl_sec"]?.toIntOrNull() ?: 20,
+            )
+            return
+        }
         val n = msg.notification
         val title = n?.title ?: msg.data["title"] ?: "Юлдаш"
         val body = n?.body ?: msg.data["body"] ?: ""

@@ -177,10 +177,15 @@ def blocked_user_ids(session: Session, uid: int) -> set[int]:
 _fcm_app = None
 
 
-def send_push(session: Session, user_id: int, title: str, body: str, data: dict | None = None) -> None:
+def send_push(session: Session, user_id: int, title: str, body: str,
+              data: dict | None = None, data_only: bool = False) -> None:
     """Push на все устройства пользователя. Тихо ничего, если Firebase не настроен (нет ключа).
     `data` — необязательный data-payload (напр. оффер «Быстрого заказа» → полноэкранная карточка
-    на клиенте). FCM требует строковые значения в data — приводим к str на всякий случай."""
+    на клиенте). FCM требует строковые значения в data — приводим к str на всякий случай.
+
+    `data_only=True` (оффер такси, B7a-2): БЕЗ блока notification + AndroidConfig(priority=high).
+    Иначе свёрнутое приложение получает системную плашку вместо onMessageReceived → полноэкранная
+    карточка «Новый заказ» не всплывает. title/body кладём в data — клиент сам рисует уведомление."""
     if not settings.firebase_credentials:
         return
     try:
@@ -190,10 +195,18 @@ def send_push(session: Session, user_id: int, title: str, body: str, data: dict 
         if _fcm_app is None:
             _fcm_app = firebase_admin.initialize_app(credentials.Certificate(settings.firebase_credentials))
         payload_data = {k: str(v) for k, v in data.items()} if data else None
+        if data_only:
+            payload_data = payload_data or {}
+            payload_data.setdefault("title", title)
+            payload_data.setdefault("body", body)
         tokens = [d.token for d in session.exec(select(DeviceToken).where(DeviceToken.user_id == user_id)).all()]
         for t in tokens:
             try:
-                msg_kwargs = {"notification": messaging.Notification(title=title, body=body), "token": t}
+                msg_kwargs = {"token": t}
+                if not data_only:
+                    msg_kwargs["notification"] = messaging.Notification(title=title, body=body)
+                else:
+                    msg_kwargs["android"] = messaging.AndroidConfig(priority="high")   # будим из doze
                 if payload_data:                         # data-payload только когда есть (не ломаем прежних вызовов)
                     msg_kwargs["data"] = payload_data
                 messaging.send(messaging.Message(**msg_kwargs))

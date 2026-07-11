@@ -706,7 +706,9 @@ def decline_offer(session: Session, order_id: int, driver_id: int) -> InstantOrd
 
 # ============================ Push / приватность ============================
 def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
-    """Оффер водителю — data-payload (полноэкранная карточка с таймером на клиенте)."""
+    """Оффер водителю — data-ONLY payload (B7a-2): свёрнутое приложение получает
+    onMessageReceived и рисует полноэкранную карточку «Новый заказ» само; блок notification
+    убрала бы её (система показала бы обычную плашку в трее)."""
     send_push(
         session, driver_id, "Новый заказ",
         f"{order.from_text or 'Точка А'} → {order.to_text or 'Точка Б'} · {order.price_estimate} ₽",
@@ -718,6 +720,7 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
             "to": order.to_text or "",
             "ttl_sec": str(settings.instant_offer_ttl_sec),
         },
+        data_only=True,
     )
 
 
