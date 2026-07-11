@@ -177,6 +177,10 @@ class Settings(BaseSettings):
     review_phone: str = ""
     review_code: str = ""
 
+    # --- «Скидки по пути» (M1: партнёрский слой + купоны) ---
+    # Мастер-флаг раздела. False → витрина купонов и кабинет партнёра отдают «скоро»/пусто.
+    coupons_enabled: bool = True
+
     # --- Redis (масштаб) ---
     # Один URL на всё: общий rate-limit между воркерами + WS-чат pub/sub между процессами.
     # Пусто → rate-limit in-memory на воркер, WS — локальный режим (один воркер). Пример: redis://127.0.0.1:6379/0

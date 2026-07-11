@@ -1,0 +1,746 @@
+"""M1 — партнёрский слой + купонный маркетплейс «Скидки по пути».
+
+Философия (красные линии):
+- Купон = РЕАЛЬНАЯ скидка от бизнеса: честно, срок/лимит/скидка видны, без скрытых наценок.
+- Зарабатываем на БИЗНЕСЕ (подписка партнёра + оплата за погашённый купон), НЕ на пассажирах.
+- Приватность: при погашении бизнес видит только код и максимум имя — НЕ телефон, НЕ гео.
+- Все пользовательские ошибки 4xx — двуязычные через herr(status, ru, ba).
+
+Устройство повторяет ads.py (F20): тарифы в конфиге как AD_PACKAGES; подписка партнёра —
+Payment(purpose="partner_sub", status=pending) → админ подтверждает в Telegram (pay:ok/pay:no) →
+_activate_payment продлевает subscription_until. Витрина показывает купон только у active-партнёра
+с оплаченной подпиской (гейт как у платной рекламы).
+"""
+import secrets
+from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import func
+from sqlmodel import Session, select
+
+from ..db import get_session
+from ..errors import herr
+from ..models import Coupon, CouponRedemption, Partner, Payment, User, UserRole
+from ..security import current_user
+from ..services import notify_admin_telegram, send_push
+from ..timeutil import utcnow
+
+router = APIRouter(tags=["coupons"])
+
+# Тарифы подписки бизнеса в «Скидки по пути». Цены — стартовая гипотеза, правятся ЗДЕСЬ
+# без пересборки клиента. amount_kop — стоимость за period_days. premium=True даёт право
+# на выделенную метку купона на карте. Порядок = порядок показа в кабинете/прайсе.
+PARTNER_PLANS = {
+    "basic":    {"title": "Базовый",  "title_ba": "Базалы",   "amount_kop":  99_000, "period_days": 30, "premium": False},
+    "standard": {"title": "Стандарт", "title_ba": "Стандарт", "amount_kop": 199_000, "period_days": 30, "premium": False},
+    "premium":  {"title": "Премиум",  "title_ba": "Премиум",  "amount_kop": 299_000, "period_days": 30, "premium": True},
+}
+
+# Комиссия платформы «за одно погашение» (для statement кабинета). Держим в коде роутера,
+# а не в .env: это тариф продукта, меняется здесь без пересборки. 1000 коп = 10 ₽.
+PARTNER_REDEMPTION_FEE_KOP = 1000
+
+# Анти-спам: не даём одному бизнесу плодить бесконечно купонов.
+MAX_COUPONS_PER_PARTNER = 50
+
+# Алфавит кода погашения — без похожих символов (0/O, 1/I), чтобы диктовать/вводить без ошибок.
+_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_CODE_LEN = 6
+
+# Статусы, при которых бронь «занимает» лимит (общий и на пользователя).
+_ACTIVE_REDEMPTION_STATUSES = ("reserved", "redeemed")
+
+
+# ---------- Тела запросов ----------
+
+class RedeemIn(BaseModel):
+    code: str = Field("", max_length=12)
+
+
+class SubscribeIn(BaseModel):
+    plan: str = Field("", max_length=20)
+
+
+class PartnerIn(BaseModel):
+    name: str = Field("", max_length=120)
+    category: str = Field("other", max_length=20)
+    city: str = Field("", max_length=80)
+    address: str = Field("", max_length=200)
+    phone: str = Field("", max_length=40)
+    description: str = Field("", max_length=2000)
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+
+class CouponIn(BaseModel):
+    title: str = Field("", max_length=120)
+    description: str = Field("", max_length=2000)
+    discount_text: str = Field("", max_length=80)
+    city: str = Field("", max_length=80)
+    route_hint: str = Field("", max_length=300)
+    valid_from: Optional[datetime] = None
+    valid_until: Optional[datetime] = None
+    limit_total: int = 0
+    limit_per_user: int = 1
+    premium: bool = False
+
+
+class CouponStatusIn(BaseModel):
+    status: str
+
+
+def _csv(s: str) -> List[str]:
+    return [x.strip() for x in (s or "").split(",") if x.strip()]
+
+
+def _gen_code(session: Session) -> str:
+    """Уникальный короткий код погашения (проверка коллизии по БД)."""
+    for _ in range(20):
+        code = "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LEN))
+        exists = session.exec(select(CouponRedemption.id).where(CouponRedemption.code == code)).first()
+        if not exists:
+            return code
+    # практически недостижимо (32^6 пространство) — на всякий случай удлиняем
+    return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LEN + 2))
+
+
+def _sub_active(partner: Partner, now: datetime) -> bool:
+    """Подписка бизнеса оплачена и не истекла (гейт места в витрине)."""
+    return partner.subscription_until is not None and partner.subscription_until > now
+
+
+def _partner_has_premium(partner: Partner) -> bool:
+    """Право на premium-метку купона: активная подписка premium-тарифа."""
+    plan = PARTNER_PLANS.get(partner.subscription_plan)
+    return bool(plan and plan.get("premium")) and _sub_active(partner, utcnow())
+
+
+def _in_window(coupon: Coupon, now: datetime) -> bool:
+    if coupon.valid_from and coupon.valid_from > now:
+        return False
+    if coupon.valid_until and coupon.valid_until <= now:
+        return False
+    return True
+
+
+def _total_exhausted(coupon: Coupon) -> bool:
+    return coupon.limit_total > 0 and coupon.redeemed_count >= coupon.limit_total
+
+
+def _coupon_visible(coupon: Coupon, partner: Optional[Partner], now: datetime) -> bool:
+    """Виден ли купон в публичной витрине: партнёр active + подписка оплачена +
+    купон active + в окне дат + общий лимит не исчерпан."""
+    if partner is None or partner.status != "active" or not _sub_active(partner, now):
+        return False
+    if coupon.status != "active":
+        return False
+    if not _in_window(coupon, now):
+        return False
+    if _total_exhausted(coupon):
+        return False
+    return True
+
+
+def _partner_public(partner: Partner) -> dict:
+    """Публичные данные бизнеса для карточки купона (без приватного)."""
+    return {
+        "id": partner.id,
+        "name": partner.name,
+        "category": partner.category,
+        "city": partner.city,
+        "address": partner.address,
+        "lat": partner.lat,
+        "lng": partner.lng,
+        "phone": partner.phone,      # публичный контакт БИЗНЕСА (не пользователя)
+    }
+
+
+def _coupon_public(coupon: Coupon, partner: Optional[Partner]) -> dict:
+    remaining = None
+    if coupon.limit_total > 0:
+        remaining = max(0, coupon.limit_total - coupon.redeemed_count)
+    return {
+        "id": coupon.id,
+        "partner": _partner_public(partner) if partner else None,
+        "title": coupon.title,
+        "description": coupon.description,
+        "discount_text": coupon.discount_text,
+        "city": coupon.city,
+        "route_hint": _csv(coupon.route_hint),
+        "valid_from": coupon.valid_from.isoformat() if coupon.valid_from else None,
+        "valid_until": coupon.valid_until.isoformat() if coupon.valid_until else None,
+        "limit_total": coupon.limit_total,
+        "limit_per_user": coupon.limit_per_user,
+        "redeemed_count": coupon.redeemed_count,
+        "remaining": remaining,          # null = без общего лимита
+        "premium": coupon.premium,
+        "status": coupon.status,
+    }
+
+
+# ---------- Публичная витрина ----------
+
+@router.get("/coupons")
+def coupons_list(
+    city: Optional[str] = None,
+    route: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    """Активные купоны «Скидки по пути». Видны только у active-партнёра с оплаченной подпиской,
+    в окне дат и с неисчерпанным общим лимитом. Premium выше. Просмотр без входа."""
+    now = utcnow()
+    coupons = session.exec(select(Coupon).where(Coupon.status == "active")).all()
+    if not coupons:
+        return []
+    partner_ids = list({c.partner_id for c in coupons})
+    partners = {p.id: p for p in session.exec(select(Partner).where(Partner.id.in_(partner_ids))).all()}
+    live = [c for c in coupons if _coupon_visible(c, partners.get(c.partner_id), now)]
+    if city:
+        cl = city.strip().lower()
+        live = [c for c in live if c.city and c.city.strip().lower() == cl]
+    if route:
+        rl = route.strip().lower()
+        live = [c for c in live if rl in [x.lower() for x in _csv(c.route_hint)] or (c.city and c.city.strip().lower() == rl)]
+    # premium выше; внутри — свежие сверху
+    live.sort(key=lambda c: (1 if c.premium else 0, c.created_at or now), reverse=True)
+    return [_coupon_public(c, partners.get(c.partner_id)) for c in live]
+
+
+@router.post("/coupons/redeem")
+def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Бизнес гасит код у себя. Право — только владелец партнёра этого купона.
+    Чужой/несуществующий код → 404 (не раскрываем существование). Уже погашён → 409.
+    Приватность: возвращаем максимум имя держателя, НЕ телефон и НЕ гео."""
+    code = (body.code or "").strip().upper()
+    red = None
+    if code:
+        red = session.exec(select(CouponRedemption).where(CouponRedemption.code == code)).first()
+    if not red:
+        raise herr(404, "Код не найден", "Код табылманы")
+    coupon = session.get(Coupon, red.coupon_id)
+    partner = session.get(Partner, coupon.partner_id) if coupon else None
+    # Право гасить — только владелец бизнеса. Чужому отдаём тот же 404 (не раскрываем код).
+    if not partner or partner.owner_id != user.id:
+        raise herr(404, "Код не найден", "Код табылманы")
+    if red.status == "redeemed":
+        raise herr(409, "Код уже погашён", "Код инде ҡулланылған")
+    if red.status in ("canceled", "expired"):
+        raise herr(409, "Код больше не действует", "Код артыҡ ғәмәлдә түгел")
+    red.status = "redeemed"
+    red.redeemed_at = utcnow()
+    red.redeemed_by = user.id
+    coupon.redeemed_count += 1
+    session.add(red)
+    session.add(coupon)
+    session.commit()
+    holder = session.get(User, red.user_id)
+    return {
+        "ok": True,
+        "coupon_title": coupon.title,
+        "discount_text": coupon.discount_text,
+        "customer_name": (holder.name if holder and holder.name else ""),  # максимум имя, без телефона/гео
+    }
+
+
+@router.get("/coupons/{coupon_id}")
+def coupon_detail(coupon_id: int, session: Session = Depends(get_session)):
+    """Деталь купона (та же видимость, что в витрине)."""
+    coupon = session.get(Coupon, coupon_id)
+    partner = session.get(Partner, coupon.partner_id) if coupon else None
+    if not coupon or not _coupon_visible(coupon, partner, utcnow()):
+        raise herr(404, "Купон не найден", "Купон табылманы")
+    return _coupon_public(coupon, partner)
+
+
+@router.post("/coupons/{coupon_id}/activate")
+def coupon_activate(coupon_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пользователь бронирует погашение купона → получает короткий код.
+    Идемпотентность: активная reserved-бронь этого юзера на этот купон возвращается как есть.
+
+    Гранулярные ошибки (не общий 404): срок истёк → 422, лимиты → 409. «Недоступен вообще»
+    (нет партнёра / не одобрен / подписка не оплачена / купон не active) → 404, как в витрине."""
+    now = utcnow()
+    coupon = session.get(Coupon, coupon_id)
+    partner = session.get(Partner, coupon.partner_id) if coupon else None
+    # Базовая доступность (без окна дат и лимитов — их проверяем отдельно ниже с точными кодами).
+    available = (
+        coupon is not None and partner is not None
+        and partner.status == "active" and _sub_active(partner, now)
+        and coupon.status == "active"
+    )
+    if not available:
+        raise herr(404, "Купон не найден", "Купон табылманы")
+
+    # Идемпотентность: уже есть активная бронь → возвращаем её же (тот же код), не плодим.
+    existing = session.exec(
+        select(CouponRedemption).where(
+            CouponRedemption.coupon_id == coupon.id,
+            CouponRedemption.user_id == user.id,
+            CouponRedemption.status == "reserved",
+        )
+    ).first()
+    if existing:
+        return _activation_out(existing, coupon, partner)
+
+    if not _in_window(coupon, now):
+        raise herr(422, "Срок купона истёк", "Купон ваҡыты үтте")
+
+    # Общий лимит: считаем занятые брони (reserved+redeemed) против limit_total.
+    if coupon.limit_total > 0:
+        taken = session.exec(
+            select(func.count()).select_from(CouponRedemption).where(
+                CouponRedemption.coupon_id == coupon.id,
+                CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
+            )
+        ).one()
+        if taken >= coupon.limit_total:
+            raise herr(409, "Купоны закончились", "Купондар бөттө")
+
+    # Лимит на пользователя.
+    mine = session.exec(
+        select(func.count()).select_from(CouponRedemption).where(
+            CouponRedemption.coupon_id == coupon.id,
+            CouponRedemption.user_id == user.id,
+            CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
+        )
+    ).one()
+    if mine >= max(1, coupon.limit_per_user):
+        raise herr(409, "Ты уже воспользовался этим купоном", "Һин был купондан файҙаландың инде")
+
+    red = CouponRedemption(coupon_id=coupon.id, user_id=user.id, code=_gen_code(session), status="reserved")
+    session.add(red)
+    session.commit()
+    session.refresh(red)
+    return _activation_out(red, coupon, partner)
+
+
+def _activation_out(red: CouponRedemption, coupon: Coupon, partner: Optional[Partner]) -> dict:
+    return {
+        "code": red.code,
+        "status": red.status,
+        "reserved_at": red.reserved_at.isoformat() if red.reserved_at else None,
+        "coupon": _coupon_public(coupon, partner),
+    }
+
+
+@router.get("/my/coupons")
+def my_coupons(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мои брони купонов (активные коды + история), новые сверху."""
+    rows = session.exec(
+        select(CouponRedemption).where(CouponRedemption.user_id == user.id).order_by(CouponRedemption.id.desc())
+    ).all()
+    if not rows:
+        return []
+    coupon_ids = list({r.coupon_id for r in rows})
+    coupons = {c.id: c for c in session.exec(select(Coupon).where(Coupon.id.in_(coupon_ids))).all()}
+    partner_ids = list({c.partner_id for c in coupons.values()})
+    partners = {p.id: p for p in session.exec(select(Partner).where(Partner.id.in_(partner_ids))).all()} if partner_ids else {}
+    out = []
+    for r in rows:
+        c = coupons.get(r.coupon_id)
+        out.append({
+            "code": r.code,
+            "status": r.status,
+            "reserved_at": r.reserved_at.isoformat() if r.reserved_at else None,
+            "redeemed_at": r.redeemed_at.isoformat() if r.redeemed_at else None,
+            "coupon": _coupon_public(c, partners.get(c.partner_id)) if c else None,
+        })
+    return out
+
+
+# ---------- Кабинет партнёра ----------
+
+@router.get("/partner/plans")
+def partner_plans():
+    """Тарифы подписки бизнеса (из PARTNER_PLANS) — прайс для кабинета. Без авторизации."""
+    return [
+        {"code": code, "title": p["title"], "title_ba": p["title_ba"],
+         "amount_kop": p["amount_kop"], "period_days": p["period_days"], "premium": p["premium"]}
+        for code, p in PARTNER_PLANS.items()
+    ]
+
+
+def _partner_mine(partner: Partner) -> dict:
+    """Сериализация СВОЕГО бизнеса для кабинета (статус модерации, подписка, причина отказа)."""
+    now = utcnow()
+    return {
+        "id": partner.id,
+        "name": partner.name,
+        "category": partner.category,
+        "city": partner.city,
+        "address": partner.address,
+        "phone": partner.phone,
+        "description": partner.description,
+        "lat": partner.lat,
+        "lng": partner.lng,
+        "status": partner.status,
+        "reject_reason": partner.reject_reason,
+        "subscription_plan": partner.subscription_plan,
+        "subscription_until": partner.subscription_until.isoformat() if partner.subscription_until else None,
+        "subscription_active": _sub_active(partner, now),
+        "has_premium": _partner_has_premium(partner),
+        "created_at": partner.created_at.isoformat() if partner.created_at else None,
+    }
+
+
+@router.post("/partner")
+def partner_register(body: PartnerIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Зарегистрировать МОЙ бизнес (один owner = один партнёр). status=pending (модерация админом)."""
+    existing = session.exec(select(Partner).where(Partner.owner_id == user.id)).first()
+    if existing:
+        raise herr(409, "У тебя уже есть бизнес", "Һинең бизнесың бар инде")
+    name = body.name.strip()
+    if not name:
+        raise herr(422, "Название бизнеса обязательно", "Бизнес исеме мотлаҡ")
+    city = body.city.strip()
+    if not city:
+        raise herr(422, "Укажи город бизнеса", "Бизнес ҡалаһын күрһәт")
+    partner = Partner(
+        owner_id=user.id, name=name, category=(body.category.strip() or "other"), city=city,
+        address=body.address.strip(), phone=body.phone.strip(), description=body.description.strip(),
+        lat=body.lat, lng=body.lng, status="pending",
+    )
+    session.add(partner)
+    session.commit()
+    session.refresh(partner)
+    try:  # уведомление админа — best-effort (не роняем регистрацию)
+        notify_admin_telegram(
+            f"🏪 Новый бизнес на модерации\n"
+            f"ID: {partner.id}\n"
+            f"Название: «{partner.name}»\n"
+            f"Категория: {partner.category}\n"
+            f"Город: {partner.city}\n"
+            f"От: {user.name or 'партнёр'}"
+        )
+    except Exception:
+        pass
+    return _partner_mine(partner)
+
+
+@router.get("/partner/me")
+def partner_me(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мой бизнес + статус подписки + statement (сколько погашений и сумма к оплате платформе)."""
+    partner = session.exec(select(Partner).where(Partner.owner_id == user.id)).first()
+    if not partner:
+        return {"partner": None}
+    # Statement: сумма погашений по всем моим купонам × комиссия за погашение.
+    redeemed_total = session.exec(
+        select(func.coalesce(func.sum(Coupon.redeemed_count), 0)).where(Coupon.partner_id == partner.id)
+    ).one()
+    redeemed_total = int(redeemed_total or 0)
+    return {
+        "partner": _partner_mine(partner),
+        "statement": {
+            "redeemed_total": redeemed_total,
+            "fee_per_redemption_kop": PARTNER_REDEMPTION_FEE_KOP,
+            "amount_kop": redeemed_total * PARTNER_REDEMPTION_FEE_KOP,
+        },
+    }
+
+
+def _own_partner(partner_id: int, user: User, session: Session) -> Partner:
+    """Достать СВОЙ бизнес или 404 (чужой не раскрываем — IDOR закрыт)."""
+    partner = session.get(Partner, partner_id)
+    if not partner or partner.owner_id != user.id:
+        raise herr(404, "Бизнес не найден", "Бизнес табылманы")
+    return partner
+
+
+@router.post("/partner/subscribe")
+def partner_subscribe(body: SubscribeIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Создать платёж подписки бизнеса (СБП «на доверии», подтверждает админ).
+    Бизнес должен быть одобрен (active). Идемпотентно: существующий pending → возвращаем его."""
+    partner = session.exec(select(Partner).where(Partner.owner_id == user.id)).first()
+    if not partner:
+        raise herr(404, "Сначала зарегистрируй бизнес", "Башта бизнесты теркә")
+    plan_code = (body.plan or "").strip()
+    plan = PARTNER_PLANS.get(plan_code)
+    if not plan:
+        raise herr(422, "Неизвестный тариф", "Билдәһеҙ тариф")
+    if partner.status != "active":
+        raise herr(409, "Бизнес ещё на проверке", "Бизнес әле тикшереүҙә")
+    # Идемпотентность: повторное нажатие «Оплатить» не плодит заявки.
+    existing = session.exec(
+        select(Payment).where(
+            Payment.purpose == "partner_sub", Payment.partner_id == partner.id, Payment.status == "pending"
+        )
+    ).first()
+    if existing:
+        return {"payment_id": existing.id, "amount_kop": existing.amount_kop, "plan": existing.tier, "status": "pending"}
+    payment = Payment(
+        user_id=user.id, purpose="partner_sub", partner_id=partner.id,
+        tier=plan_code, amount_kop=plan["amount_kop"], status="pending",
+    )
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    try:
+        notify_admin_telegram(
+            (
+                f"💳 Подписка бизнеса СБП\n"
+                f"ID платежа: {payment.id}\n"
+                f"Бизнес: «{partner.name}»\n"
+                f"Тариф: {plan['title']} · {plan['amount_kop'] // 100} ₽ / {plan['period_days']}дн\n"
+                f"От: {user.name or 'партнёра'}\n\n"
+                "Сначала проверь поступление в банке, потом подтверди здесь."
+            ),
+            reply_markup={
+                "inline_keyboard": [[
+                    {"text": "✅ Подтвердить", "callback_data": f"pay:ok:{payment.id}"},
+                    {"text": "❌ Отклонить", "callback_data": f"pay:no:{payment.id}"},
+                ]]
+            },
+        )
+    except Exception:
+        pass
+    return {"payment_id": payment.id, "amount_kop": payment.amount_kop, "plan": plan_code, "status": "pending"}
+
+
+# ---------- Купоны партнёра ----------
+
+def _coupon_mine(coupon: Coupon, session: Session) -> dict:
+    """Сериализация СВОЕГО купона для кабинета (все статусы + счётчики)."""
+    active = session.exec(
+        select(func.count()).select_from(CouponRedemption).where(
+            CouponRedemption.coupon_id == coupon.id,
+            CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
+        )
+    ).one()
+    return {
+        "id": coupon.id,
+        "partner_id": coupon.partner_id,
+        "title": coupon.title,
+        "description": coupon.description,
+        "discount_text": coupon.discount_text,
+        "city": coupon.city,
+        "route_hint": _csv(coupon.route_hint),
+        "valid_from": coupon.valid_from.isoformat() if coupon.valid_from else None,
+        "valid_until": coupon.valid_until.isoformat() if coupon.valid_until else None,
+        "limit_total": coupon.limit_total,
+        "limit_per_user": coupon.limit_per_user,
+        "redeemed_count": coupon.redeemed_count,
+        "activations": int(active),        # reserved + redeemed
+        "premium": coupon.premium,
+        "status": coupon.status,
+        "created_at": coupon.created_at.isoformat() if coupon.created_at else None,
+    }
+
+
+def _my_active_partner(user: User, session: Session) -> Partner:
+    """Мой бизнес; для операций с купонами он должен быть одобрен (active)."""
+    partner = session.exec(select(Partner).where(Partner.owner_id == user.id)).first()
+    if not partner:
+        raise herr(404, "Сначала зарегистрируй бизнес", "Башта бизнесты теркә")
+    if partner.status != "active":
+        raise herr(409, "Бизнес ещё на проверке", "Бизнес әле тикшереүҙә")
+    return partner
+
+
+@router.get("/partner/coupons")
+def partner_coupons(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мои купоны — все статусы, новые сверху. Нет бизнеса → пусто."""
+    partner = session.exec(select(Partner).where(Partner.owner_id == user.id)).first()
+    if not partner:
+        return []
+    rows = session.exec(
+        select(Coupon).where(Coupon.partner_id == partner.id).order_by(Coupon.id.desc())
+    ).all()
+    return [_coupon_mine(c, session) for c in rows]
+
+
+@router.post("/partner/coupons")
+def partner_coupon_create(body: CouponIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Создать купон (draft). Бизнес должен быть active. Анти-спам: лимит купонов на бизнес."""
+    partner = _my_active_partner(user, session)
+    count = session.exec(select(func.count()).select_from(Coupon).where(Coupon.partner_id == partner.id)).one()
+    if count >= MAX_COUPONS_PER_PARTNER:
+        raise herr(429, "Слишком много купонов — удали лишние", "Купондар артыҡ күп — артыҡтарын бетер")
+    title = body.title.strip()
+    if not title:
+        raise herr(422, "Заголовок купона обязателен", "Купон исеме мотлаҡ")
+    coupon = Coupon(
+        partner_id=partner.id, title=title, description=body.description.strip(),
+        discount_text=body.discount_text.strip(),
+        city=(body.city.strip() or partner.city), route_hint=body.route_hint.strip(),
+        valid_from=body.valid_from, valid_until=body.valid_until,
+        limit_total=max(0, body.limit_total), limit_per_user=max(1, body.limit_per_user),
+        premium=bool(body.premium) and _partner_has_premium(partner),   # premium-метка только на premium-подписке
+        status="draft",
+    )
+    session.add(coupon)
+    session.commit()
+    session.refresh(coupon)
+    return _coupon_mine(coupon, session)
+
+
+def _own_coupon(coupon_id: int, user: User, session: Session) -> Coupon:
+    """Достать СВОЙ купон (по владельцу бизнеса) или 404."""
+    coupon = session.get(Coupon, coupon_id)
+    if coupon:
+        partner = session.get(Partner, coupon.partner_id)
+        if partner and partner.owner_id == user.id:
+            return coupon
+    raise herr(404, "Купон не найден", "Купон табылманы")
+
+
+@router.post("/partner/coupons/{coupon_id}")
+def partner_coupon_update(coupon_id: int, body: CouponIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Правка своего купона. Чужой → 404."""
+    coupon = _own_coupon(coupon_id, user, session)
+    partner = session.get(Partner, coupon.partner_id)
+    if body.title.strip():
+        coupon.title = body.title.strip()
+    coupon.description = body.description.strip()
+    coupon.discount_text = body.discount_text.strip()
+    if body.city.strip():
+        coupon.city = body.city.strip()
+    coupon.route_hint = body.route_hint.strip()
+    coupon.valid_from = body.valid_from
+    coupon.valid_until = body.valid_until
+    coupon.limit_total = max(0, body.limit_total)
+    coupon.limit_per_user = max(1, body.limit_per_user)
+    coupon.premium = bool(body.premium) and _partner_has_premium(partner)
+    session.add(coupon)
+    session.commit()
+    session.refresh(coupon)
+    return _coupon_mine(coupon, session)
+
+
+@router.post("/partner/coupons/{coupon_id}/status")
+def partner_coupon_status(coupon_id: int, body: CouponStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Сменить статус купона (draft↔active↔paused↔archived)."""
+    coupon = _own_coupon(coupon_id, user, session)
+    new_status = (body.status or "").strip()
+    if new_status not in ("draft", "active", "paused", "archived"):
+        raise herr(422, "Недопустимый статус", "Ярамаған статус")
+    coupon.status = new_status
+    session.add(coupon)
+    session.commit()
+    session.refresh(coupon)
+    return _coupon_mine(coupon, session)
+
+
+@router.get("/partner/coupons/{coupon_id}/stats")
+def partner_coupon_stats(coupon_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Статистика купона: активации (reserved+redeemed), погашения, сумма к оплате платформе."""
+    coupon = _own_coupon(coupon_id, user, session)
+    activations = session.exec(
+        select(func.count()).select_from(CouponRedemption).where(
+            CouponRedemption.coupon_id == coupon.id,
+            CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
+        )
+    ).one()
+    return {
+        "coupon_id": coupon.id,
+        "title": coupon.title,
+        "status": coupon.status,
+        "activations": int(activations),          # reserved + redeemed
+        "redeemed": coupon.redeemed_count,
+        "fee_per_redemption_kop": PARTNER_REDEMPTION_FEE_KOP,
+        "amount_kop": coupon.redeemed_count * PARTNER_REDEMPTION_FEE_KOP,
+    }
+
+
+# Динамический /partner/{id} регистрируем ПОСЛЕ статических /partner/coupons и /partner/subscribe:
+# FastAPI не сужает int-path на уровне роутинга, иначе «coupons»/«subscribe» ловились бы сюда → 422.
+@router.post("/partner/{partner_id}")
+def partner_update(partner_id: int, body: PartnerIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Правка своего бизнеса (name/category/address/phone/description/lat/lng). Чужой → 404."""
+    partner = _own_partner(partner_id, user, session)
+    if body.name.strip():
+        partner.name = body.name.strip()
+    if body.category.strip():
+        partner.category = body.category.strip()
+    if body.city.strip():
+        partner.city = body.city.strip()
+    partner.address = body.address.strip()
+    partner.phone = body.phone.strip()
+    partner.description = body.description.strip()
+    if body.lat is not None:
+        partner.lat = body.lat
+    if body.lng is not None:
+        partner.lng = body.lng
+    session.add(partner)
+    session.commit()
+    session.refresh(partner)
+    return _partner_mine(partner)
+
+
+# ---------- Админ: модерация бизнеса ----------
+# Админские ошибки — обычный HTTPException со строкой (двуязычие требуется только для 4xx пользователю).
+
+def _require_admin(user: User) -> None:
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+
+
+def _partner_admin(partner: Partner) -> dict:
+    """Карточка бизнеса для админ-очереди модерации."""
+    now = utcnow()
+    return {
+        "id": partner.id,
+        "owner_id": partner.owner_id,
+        "name": partner.name,
+        "category": partner.category,
+        "city": partner.city,
+        "address": partner.address,
+        "phone": partner.phone,
+        "description": partner.description,
+        "status": partner.status,
+        "reject_reason": partner.reject_reason,
+        "subscription_plan": partner.subscription_plan,
+        "subscription_until": partner.subscription_until.isoformat() if partner.subscription_until else None,
+        "subscription_active": _sub_active(partner, now),
+        "created_at": partner.created_at.isoformat() if partner.created_at else None,
+        "reviewed_at": partner.reviewed_at.isoformat() if partner.reviewed_at else None,
+    }
+
+
+class RejectIn(BaseModel):
+    reason: str = ""
+
+
+@router.get("/admin/partners")
+def admin_partners(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Все бизнесы (очередь модерации), pending сверху."""
+    _require_admin(user)
+    rows = session.exec(select(Partner)).all()
+    order = {"pending": 0, "active": 1, "paused": 2, "rejected": 3, "archived": 4}
+    rows.sort(key=lambda p: (order.get(p.status, 9), -(p.id or 0)))
+    return [_partner_admin(p) for p in rows]
+
+
+@router.post("/admin/partners/{partner_id}/approve")
+def admin_partner_approve(partner_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Одобрить бизнес (→ active). Место в витрине даёт оплаченная подписка."""
+    _require_admin(user)
+    partner = session.get(Partner, partner_id)
+    if not partner:
+        raise HTTPException(404, "Бизнес не найден")
+    partner.status = "active"
+    partner.reject_reason = ""
+    partner.reviewed_at = utcnow()
+    session.add(partner)
+    session.commit()
+    session.refresh(partner)
+    send_push(session, partner.owner_id, "Бизнес одобрен", f"«{partner.name}» прошёл проверку. Осталось выбрать тариф и разместить купоны.")
+    return _partner_admin(partner)
+
+
+@router.post("/admin/partners/{partner_id}/reject")
+def admin_partner_reject(partner_id: int, body: RejectIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отклонить бизнес (→ rejected) с причиной."""
+    _require_admin(user)
+    partner = session.get(Partner, partner_id)
+    if not partner:
+        raise HTTPException(404, "Бизнес не найден")
+    partner.status = "rejected"
+    partner.reject_reason = body.reason.strip()[:500]
+    partner.reviewed_at = utcnow()
+    session.add(partner)
+    session.commit()
+    session.refresh(partner)
+    send_push(session, partner.owner_id, "Бизнес отклонён", (partner.reject_reason or "Проверь данные и отправь снова")[:120])
+    return _partner_admin(partner)

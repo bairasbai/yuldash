@@ -608,13 +608,14 @@ class Payment(SQLModel, table=True):
     provider_id — id платежа в ЮKassa (или mock-id в dev)."""
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")   # плательщик (для ride — пассажир)
-    purpose: str = "boost"                       # boost | ad | donate | ride | booking
+    purpose: str = "boost"                       # boost | ad | donate | ride | booking | partner_sub | support
     provider_id: str = Field(default="", index=True)  # id платежа в ЮKassa
     ride_id: Optional[int] = Field(default=None, foreign_key="ride.id")  # для boost
     ad_id: Optional[int] = Field(default=None, foreign_key="ad.id")       # для оплаты рекламы (purpose=ad)
     order_id: Optional[int] = Field(default=None, foreign_key="instantorder.id")  # для purpose=ride (быстрый заказ)
     booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")     # для purpose=booking (бронь плановой поездки)
-    tier: str = ""                               # quick / day / urgent (для boost)
+    partner_id: Optional[int] = Field(default=None, foreign_key="partner.id")     # для purpose=partner_sub (подписка бизнеса в «Скидки по пути», M1)
+    tier: str = ""                               # quick / day / urgent (boost) | код тарифа PARTNER_PLANS (partner_sub)
     method: str = ""                             # cash | card | sbp | yookassa (способ оплаты поездки)
     amount_kop: int = 0                          # сумма в копейках
     status: str = "pending"                      # pending | succeeded | canceled
@@ -881,3 +882,65 @@ class Consent(SQLModel, table=True):
     user_id: int = Field(index=True, foreign_key="user.id")
     kind: str = Field(index=True)     # offer / privacy / geo
     granted_at: datetime = Field(default_factory=utcnow)
+
+
+# ---- M1 (монетизация): партнёрский слой + купонный маркетплейс «Скидки по пути» ----
+
+class Partner(SQLModel, table=True):
+    """Бизнес-партнёр (кафе/АЗС/шиномонтаж/магазин/аптека/сервис) в разделе «Скидки по пути».
+
+    Философия M1: зарабатываем на БИЗНЕСЕ (подписка за место + оплата за погашённый купон),
+    НЕ на пассажирах. Купон = реальная скидка от бизнеса, честно и прозрачно.
+    Приватность: при погашении бизнес видит только код и максимум имя — НЕ телефон, НЕ гео.
+
+    Модерация бизнеса — вручную админом (status). Место в выдаче даёт активная подписка
+    (subscription_until > now) — точный аналог платного гейта у рекламы (F20)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: int = Field(index=True, foreign_key="user.id")   # владелец бизнеса (один owner = один партнёр)
+    name: str = Field(index=True)                              # название бизнеса (публичное)
+    category: str = Field(default="other", max_length=20)     # cafe|azs|tire|store|pharmacy|service|other
+    city: str = Field(default="", index=True)                 # город бизнеса (фильтр витрины)
+    address: str = ""                                          # адрес (публичный)
+    lat: Optional[float] = None                               # координаты пина на карте
+    lng: Optional[float] = None
+    phone: str = ""                                           # публичный контакт бизнеса (НЕ телефон пользователя)
+    description: str = ""                                     # описание бизнеса
+    status: str = Field(default="pending", max_length=16)    # pending|active|paused|rejected|archived (модерация)
+    subscription_until: Optional[datetime] = None            # до какой даты оплачено место в «Скидки по пути»
+    subscription_plan: str = Field(default="", max_length=20)  # код тарифа из PARTNER_PLANS (зафиксирован при оплате)
+    reject_reason: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+    reviewed_at: Optional[datetime] = None
+
+
+class Coupon(SQLModel, table=True):
+    """Купон бизнеса — честная скидка «по пути». Виден в витрине, только пока партнёр active
+    и подписка оплачена (гейт как у платной рекламы). Срок/лимит/текст скидки — на виду."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    partner_id: int = Field(index=True, foreign_key="partner.id")
+    title: str = Field(index=True)                            # заголовок купона
+    description: str = ""                                     # подробности предложения
+    discount_text: str = Field(default="", max_length=80)    # честный текст скидки («−20%», «2 по цене 1»)
+    city: str = Field(default="", index=True)                # денормализовано от партнёра (фильтр витрины)
+    route_hint: str = ""                                      # CSV городов «по пути» (опц.)
+    valid_from: Optional[datetime] = None                    # окно действия (null = без нижней границы)
+    valid_until: Optional[datetime] = None                   # окно действия (null = бессрочно)
+    limit_total: int = 0                                     # общий лимит погашений (0 = без лимита)
+    limit_per_user: int = 1                                  # лимит на одного пользователя
+    redeemed_count: int = 0                                  # денормализованный счётчик погашений
+    premium: bool = False                                    # выделенная метка на карте (фича premium-подписки)
+    status: str = Field(default="draft", max_length=16)     # draft|active|paused|archived
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class CouponRedemption(SQLModel, table=True):
+    """Бронь/погашение купона. Пользователь активирует → получает короткий код; бизнес
+    гасит код у себя. Приватность: код не привязан ни к телефону, ни к координатам."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    coupon_id: int = Field(index=True, foreign_key="coupon.id")
+    user_id: int = Field(index=True, foreign_key="user.id")
+    code: str = Field(index=True, max_length=12)             # короткий уникальный код погашения (6 симв)
+    status: str = Field(default="reserved", max_length=16)  # reserved|redeemed|canceled|expired
+    reserved_at: datetime = Field(default_factory=utcnow)
+    redeemed_at: Optional[datetime] = None
+    redeemed_by: Optional[int] = Field(default=None, foreign_key="user.id")  # сотрудник партнёра, подтвердивший

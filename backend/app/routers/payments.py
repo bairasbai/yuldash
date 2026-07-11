@@ -71,6 +71,21 @@ def _activate_payment(session: Session, payment: Payment) -> None:
                 ad.starts_at = utcnow()
                 ad.ends_at = utcnow() + timedelta(days=ad.period_days)
             session.add(ad)
+    elif payment.purpose == "partner_sub" and payment.partner_id is not None:
+        # Подписка бизнеса «Скидки по пути» (M1). Продление добавляет период к остатку
+        # (как реклама даёт полный оплаченный период): если подписка ещё активна —
+        # считаем от её конца, иначе от now. Тариф зафиксирован в payment.tier.
+        from ..models import Partner
+        from .coupons import PARTNER_PLANS
+        partner = session.get(Partner, payment.partner_id)
+        plan = PARTNER_PLANS.get(payment.tier)
+        if partner and plan:
+            now = utcnow()
+            base = partner.subscription_until if (partner.subscription_until and partner.subscription_until > now) else now
+            partner.subscription_until = base + timedelta(days=plan["period_days"])
+            partner.subscription_plan = payment.tier
+            partner.status = "active"     # оплата не понижает статус одобренного бизнеса
+            session.add(partner)
     session.commit()
 
 
