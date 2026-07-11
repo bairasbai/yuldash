@@ -152,7 +152,7 @@ _PAGE_HTML = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Юлдаш — живая поездка</title>
+<title>Юлдаш — живая поездка · тере сәфәр</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <style>
@@ -200,7 +200,7 @@ _PAGE_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot"></span>Юлдаш · живая поездка</div>
+  <div class="brand"><span class="dot"></span>Юлдаш · живая поездка · тере сәфәр</div>
   <h1 id="title">Загружаем поездку…</h1>
   <div class="ba" id="title-ba">Сәфәр тураһында мәғлүмәт тейәйбеҙ…</div>
   <div class="route" id="route"></div>

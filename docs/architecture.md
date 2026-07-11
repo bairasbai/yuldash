@@ -584,3 +584,24 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - Android: пункт «Чек после каждой поездки» в правилах онбординга таксиста (`TaxiOnboardingScreen`) + карточка `InstantReceiptReminder` на экране завершения у водителя.
 
 **Тесты:** `backend/tests/test_taxi_polish2.py` 🆕 — 18 шт: чат (REST/WS, чужой 403, до accept 409, read-only после done, booking-чат цел), SOS (участники обеих сторон, чужой 403), шаринг (создание/дедуп/403/404, SMS на переходах без дублей, booking-share цел), пульс (агрегаты + динамика done/active, только админ, без Redis не падает), чек (пуш после done, дедуп в сутки, снова через сутки). **Полный прогон: 405 passed, 1 skipped** (база 387 + 18).
+
+## 2026-07-11 — 🔗 Домен «Live-ссылка поездки для близких» (батч B7c) — ветка `feat/trip-live-link`
+
+Пассажир жмёт «Поделиться поездкой» → близкий получает SMS со ссылкой `https://yulbash.ru/t/{токен}` → открывает В БРАУЗЕРЕ (без приложения) живую карту поездки. Работает для такси (order) и попутки (booking). От `feat/taxi-polish-2` (вершина B7b). Миграция `w2_livelink` (down=`w2_polish2`, идемпотентная): `tripshare.token` (NULL, unique) — старые строки получают токен лениво при следующем share.
+
+**① Публичные ручки (`routers/share.py` 🆕, без auth, только по токену):**
+- `GET /t/{token}` — server-rendered самодостаточная HTML-страница (inline CSS/JS, RU основной + BA подписи, мобильная, тёмная тема через `prefers-color-scheme`). Карта — **Leaflet + OpenStreetMap-тайлы** (решение: без API-ключей; Яндекс JS-API требует ключ — для одноразовой публичной странички OSM прагматичнее). Нет CDN — статусы работают без карты. Все данные страница тянет из state.json и вставляет через `textContent` (анти-XSS), в HTML user-контента нет.
+- `GET /t/{token}/state.json` — `{status, phase_text{ru,ba}, from{lat,lng,text}, to{lat,lng,text}, car{lat,lng,bearing}|null, passenger_first_name, updated_at}`; страница поллит ~5с и двигает маркер машины. Фазы упрощённые: search / wait / to_pickup / onboard / finished (внутренние статусы наружу не отдаются).
+- Заголовки: `Cache-Control: no-store`, `X-Robots-Tag: noindex`.
+
+**② Позиция машины (`livepos.py` 🆕):** WS-хендлеры `location.py` при кадре ВОДИТЕЛЯ дополнительно кладут last-position в Redis (`livepos:order:{id}` / `livepos:booking:{id}`, TTL 120с; клиент — общий с presence/matcher, тесты подменяют через `isv._redis_override`). В БД координаты по-прежнему НЕ пишутся. Без Redis — `car=null`, страница показывает статусы без машины, не падает.
+
+**③ Безопасность:** токен — `secrets.token_urlsafe(16)` (≥16 случайных байт, unique-индекс); короткий/пустой токен даже не ищется (анти-перебор). Пока поездка активна — маршрут+машина; после done/отмены — «Поездка завершена ✅» БЕЗ координат (ключей from/to/car в ответе нет). Наружу ТОЛЬКО имя пассажира (первое слово `User.name`) — ни фамилий, ни телефонов, ни внутренних id. Отзыв share — `DELETE /instant/orders/{id}/share/{share_id}` и `DELETE /bookings/{id}/share/{share_id}` 🆕 (`family.py`, только пассажир, только свой контакт) — удаляет строку → токен «сгорает» (404). Access-лог и лог 500 маскируют `/t/{token}` → `/t/***` (`middleware.py`). Координаты не логируются.
+
+**④ SMS близкому (`family.py`):** к SMS при share (такси — было, попутка — добавлено) дописана ссылка «Следи за поездкой: {public_base_url}/t/{token}»; `public_base_url` — новый конфиг (дефолт `https://yulbash.ru`).
+
+**⑤ Android:** `ApiClient.shareTrip/shareInstantTrip` теперь возвращают live-ссылку (`BASE/t/{token}`; на старом сервере null → прежнее поведение). `TripLiveLink.kt` 🆕 — `LiveLinkCard` (ссылка + «Скопировать» + системный share-sheet ACTION_SEND, RU+BA). Листы «Поделиться поездкой» такси (`InstantShareDialog`) и попутки (`BookingActiveTripScreen`) после выбора близкого показывают ссылку, закрытие — «Готово».
+
+**Тесты:** `backend/tests/test_live_link.py` 🆕 — 11 шт: токен+SMS со ссылкой (такси и попутка), страница/state по валидному токену, невалидный/короткий токен 404, телефоны/фамилии/id не текут, WS-кадр водителя пишет livepos-кэш (fakeredis) и state отдаёт машину, без Redis car=null не падает, после done координат нет вообще, отзыв гасит токен (чужой/водитель 403), ленивый токен для строк до миграции. **Полный прогон: 416 passed, 1 skipped** (база 405 + 11).
+
+**Прод:** `alembic upgrade head`; проверить, что nginx фолбэчит `/t/…` на FastAPI (как остальные неизвестные пути).
