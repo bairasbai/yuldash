@@ -605,3 +605,29 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 **Тесты:** `backend/tests/test_live_link.py` 🆕 — 11 шт: токен+SMS со ссылкой (такси и попутка), страница/state по валидному токену, невалидный/короткий токен 404, телефоны/фамилии/id не текут, WS-кадр водителя пишет livepos-кэш (fakeredis) и state отдаёт машину, без Redis car=null не падает, после done координат нет вообще, отзыв гасит токен (чужой/водитель 403), ленивый токен для строк до миграции. **Полный прогон: 416 passed, 1 skipped** (база 405 + 11).
 
 **Прод:** `alembic upgrade head`; проверить, что nginx фолбэчит `/t/…` на FastAPI (как остальные неизвестные пути).
+
+## 2026-07-11 — 🛡 Домен «Анти-фрод» (батч B8) — ветка `feat/anti-fraud`
+
+Защита от мошенников с обеих сторон (водитель и пассажир), прагматичный v1 без ML. **Принцип: автоматика только ПОМЕЧАЕТ (флаги/сигналы/счётчики админу), жёстко банит человек.** От `feat/trip-live-link` (вершина B7c). Миграция `w2_antifraud` (down=`w2_livelink`, идемпотентная, оба пути): таблицы `deviceban`, `referralbonus`; `user.last_device_id`; `message.flag`, `message.from_admin`; `booking/instantorder.unpaid_reported + contact_then_cancel`; `booking.cancelled_at`. Ядро — `app/antifraud.py` 🆕, админ-ручки — `routers/antifraud.py` 🆕.
+
+**① Бан устройства (обход бана новым номером).** Android шлёт стабильный `X-Device-Id` (ANDROID_ID) со ВСЕМИ запросами (`ApiClient.call/callMultipart/logout`). Логин/регистрация (`/auth/request-code`, `/auth/verify`, `/auth/tg/verify`) фиксируют `last_device_id` и режутся 403 «Аккаунт заблокирован — напиши в поддержку», если устройство в `DeviceBan`. Админ: `POST /admin/bans/device {device_id|user_id, reason}` (по user_id баним его последнее устройство — «блокируешь юзера → баним и устройство»), `DELETE /admin/bans/device/{device_id}`, `GET /admin/bans`. Старый клиент без заголовка не наказывается. device_id наружу/в логи не отдаётся.
+
+**② Сигнал нового устройства.** Вход с device_id ≠ последнего → push + SMS «Вход в Юлдаш с нового устройства. Это не ты — смени номер и напиши в поддержку» (`antifraud.remember_login_device`). Не блокируем — только сигнал; первый вход тишина.
+
+**③ Анти-телепорт GPS.** Скорость между последовательными точками > 200 км/ч → точка фейковая: presence (`isv.presence_heartbeat` → `antifraud.teleport_filter`, якорь+счётчик в Redis) её НЕ публикует (водитель не прыгает в GEO, ok=false, запрос не падает); WS-треки (попутка+такси, `location.py` → `TrackGuard` пер-соединение) кадр не ретранслируют. Якорь — последняя честная точка (два телепорта подряд не «легализуются»); первая точка после паузы проходит (время выросло → скорость упала). 3+ телепорта/час → флаг в суточный Redis-набор + лог (без координат); админ-пульс: `gps_suspects_today`.
+
+**④ Реферал-фрод.** `reward_driver_referral` (`routers/referral.py`): бонус пригласившему — только когда приглашённый водитель сделал ≥3 «живых» done-поездок (такси: `distance_km`>1 ИЛИ onboard→done >5 мин; попутка: маршрут >1 км) с ≥3 РАЗНЫМИ пассажирами. Один бонус на приглашённого (`ReferralBonus.invited_user_id` unique) + ≤5 бонусов/месяц на пригласившего. Хуки на done: `instant.done`, `bookings.driver-status`, `family.trip-status`. Накрутка той же парой не проходит.
+
+**⑤ Кап оценок пары.** `services.user_rating` + `drivers_bundle` (`_capped_stars`): от одной пары rater→ratee в агрегат идут только первые 3 оценки за скользящие 30 дней; остальные пишутся, но не влияют. Легаси-строки без даты не режутся.
+
+**⑥ Анти-фишинг чата.** `antifraud.phishing_flag`: узкие паттерны (просьба кода из SMS/подтверждения/входа, 16-значный номер карты, «переведи на другой номер/карту») → `Message.flag="warn"` во всех 4 путях отправки (WS+REST, бронь+заказ) и при редактировании. НЕ блокируем. Android: плашка «⚠️ Никому не сообщай коды из SMS…» под чужим warn-сообщением (`PhishingWarnPlate`, оба чата) + дисклеймер при первом открытии чата (`ChatSafetyDisclaimer`, prefs `chat_safety_seen`). Честные «код посадки» / «буду через 5 минут» / обычный СБП не флажатся.
+
+**⑦ «Пассажир не заплатил» одним тапом.** `POST /reports {category:"unpaid", order_id|booking_id}`: только водитель, только done-поездка, одна жалоба на заказ/бронь (повтор идемпотентен), пометка `unpaid_reported`. Страйк пассажиру — через СУЩЕСТВУЮЩУЮ механику B3/B5 (`quality.passenger_pause_until` + `unpaid_tap_strike_times`): свежие unpaid (new/reviewing) считаются сразу, reject админа снимает страйк, resolved считаются старым путём (не двоятся). Android: `UnpaidReportButton` (такси done-экран + карточки пассажиров попутки в кабинете водителя).
+
+**⑧ Увод мимо приложения (contact-then-cancel).** Такси: отмена ПОСЛЕ accept → `contact_then_cancel` на заказе (в `isv.cancel_order`). Попутка: отмена confirmed/onboard-брони ИЛИ pending с перепиской → флаг + `cancelled_at`. Админ-пульс: `contact_then_cancel_today` (такси+попутка). Android: пассажиру после такой отмены — мягкий баннер «Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚» (`ContactCancelSoftBanner` + тост при отмене брони).
+
+**⑨ Официальность «Юлдаш ✓».** `Message.from_admin` ставит ТОЛЬКО сервер по роли отправителя (admin) → клиент рисует бейдж `YuldashOfficialBadge` над пузырём (оба чата). Прикинуться поддержкой нельзя.
+
+**Тесты:** `backend/tests/test_antifraud.py` 🆕 — 50 шт (баны+IDOR, сигнал устройства, телепорт-фильтр/пульс, реферал (пара/живость/кэп/интеграция через done), кап рейтинга, фишинг-паттерны и не-флаг честных, unpaid (страйк/дедуп/права/reject), contact-then-cancel (такси/попутка/пульс), бейдж админа). **Полный прогон: 466 passed, 1 skipped** (база 416 + 50 новых). Alembic `w2_antifraud`: upgrade/downgrade/upgrade — зелёно. Баланс скобок изменённых .kt — дельта 0.
+
+**Прод:** `alembic upgrade head`. Банит человек: `POST /admin/bans/device`; пульс расширен полями `gps_suspects_today`, `contact_then_cancel_today`.
