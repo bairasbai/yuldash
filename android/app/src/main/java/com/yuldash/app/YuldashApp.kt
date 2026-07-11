@@ -798,7 +798,8 @@ internal fun YuldashApp() {
                 onReports = { screen = Screen.AdminReports },
                 onPaymentRequests = { screen = Screen.AdminPaymentRequests },
                 onTaxi = { screen = Screen.AdminTaxi },
-                onWaitlist = { screen = Screen.AdminWaitlist }
+                onWaitlist = { screen = Screen.AdminWaitlist },
+                onTaxiPulse = { screen = Screen.AdminTaxiPulse }
             )
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
@@ -859,6 +860,7 @@ internal fun YuldashApp() {
             )
             Screen.AdminTaxi -> AdminTaxiScreen(onBack = { goBack() })
             Screen.AdminWaitlist -> AdminWaitlistScreen(onBack = { goBack() })
+            Screen.AdminTaxiPulse -> AdminTaxiPulseScreen(onBack = { goBack() })
             Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
             Screen.RequestResponses -> ResponsesScreen(
                 requestId = responsesRequestId,

@@ -15,10 +15,15 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import DriverProfile, TaxiApplication, TaxiApplicationStatus, TaxiCity, User, UserRole
+from ..models import (
+    DriverProfile, InstantOrder, InstantOrderStatus as S, TaxiApplication,
+    TaxiApplicationStatus, TaxiCity, User, UserRole,
+)
 from ..security import current_user
 from ..services import send_push
 from ..timeutil import utcnow
+from .. import geo as geo_mod
+from .. import instant_service as isv
 from .. import taxi as taxi_mod
 from .drivers import _ensure_owned_doc_url
 
@@ -225,6 +230,96 @@ def admin_reject_taxi(app_id: int, body: RejectIn, user: User = Depends(current_
     send_push(session, app.user_id, "Заявка в такси отклонена",
               "Поправь документы и подай снова · Документтарҙы төҙәт тә яңынан ебәр")
     return {"id": app.id, "status": app.status.value}
+
+
+# ------------------------------ админ: пульс такси (B7b-3) ------------------------------
+ORDER_ACTIVE_STATUSES = (S.searching, S.offered, S.accepted, S.arriving, S.onboard)
+
+
+def _online_driver_positions() -> dict:
+    """Живые водители «на линии» из Redis GEO: {driver_id: (lat, lng)}. Без Redis — пусто
+    (панель честно показывает 0, не падает). Координаты НЕ логируем — только агрегат по городам."""
+    r = isv._redis()
+    if r is None:
+        return {}
+    out: dict = {}
+    try:
+        members = r.zrange(isv.PRESENCE_KEY, 0, -1)
+    except Exception:  # noqa: BLE001 — сбой Redis → панель без presence, не 500
+        return {}
+    for m in members:
+        try:
+            did = isv._member_driver_id(m)
+        except (ValueError, IndexError, AttributeError):
+            continue
+        if not isv.presence_alive(r, did):
+            continue   # «залипшие» координаты без свежего heartbeat — не считаем
+        try:
+            pos = r.geopos(isv.PRESENCE_KEY, m)
+        except Exception:  # noqa: BLE001
+            pos = None
+        lnglat = pos[0] if pos else None
+        out[did] = (float(lnglat[1]), float(lnglat[0])) if lnglat else None
+    return out
+
+
+def _city_of(session: Session, lat: Optional[float], lng: Optional[float]) -> str:
+    if lat is None or lng is None:
+        return "—"
+    st = geo_mod.nearest_settlement(session, lat, lng)
+    return st.name_ru if st else "—"
+
+
+@router.get("/admin/taxi/pulse")
+def admin_taxi_pulse(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """«Пульс такси» — живая сводка для админа: кто на линии (живой presence из Redis),
+    активные заказы, счётчики дня, средний подбор и разбивка по городам (ближайший
+    Settlement, как в availability). Прагматично: без Redis presence = 0."""
+    _require_admin(user)
+    now = utcnow()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Заказы: активные (по статусу) + все созданные/закрытые сегодня — двумя запросами.
+    active_orders = session.exec(
+        select(InstantOrder).where(InstantOrder.status.in_(ORDER_ACTIVE_STATUSES))
+    ).all()
+    today_orders = session.exec(
+        select(InstantOrder).where(InstantOrder.created_at >= day_start)
+    ).all()
+    done_today = len(session.exec(
+        select(InstantOrder.id).where(InstantOrder.status == S.done, InstantOrder.done_at >= day_start)
+    ).all())
+    cancelled_rows = session.exec(
+        select(InstantOrder).where(InstantOrder.status == S.cancelled, InstantOrder.cancelled_at >= day_start)
+    ).all()
+    # Средний подбор: created → accepted по принятым СЕГОДНЯ заказам (сколько пассажир ждал машину).
+    waits = [
+        (o.accepted_at - o.created_at).total_seconds()
+        for o in session.exec(select(InstantOrder).where(InstantOrder.accepted_at >= day_start)).all()
+        if o.accepted_at is not None and o.created_at is not None
+        and o.accepted_at >= o.created_at   # аномалии (правленые задним числом записи) не портят метрику
+    ]
+    positions = _online_driver_positions()
+    # Разбивка по городам: онлайн-водители по их живым координатам, активные заказы — по точке подачи.
+    by_city: dict = {}
+    for latlng in positions.values():
+        city = _city_of(session, *(latlng or (None, None)))
+        by_city.setdefault(city, {"online": 0, "active": 0})["online"] += 1
+    for o in active_orders:
+        city = _city_of(session, o.from_lat, o.from_lng)
+        by_city.setdefault(city, {"online": 0, "active": 0})["active"] += 1
+    return {
+        "drivers_online": len(positions),
+        "orders_active": len(active_orders),
+        "orders_today": len(today_orders),
+        "done_today": done_today,
+        "cancelled_today": len(cancelled_rows),
+        "no_show_today": sum(1 for o in cancelled_rows if o.no_show),
+        "avg_search_sec_today": (round(sum(waits) / len(waits), 1) if waits else None),
+        "by_city": [
+            {"city": city, **counts}
+            for city, counts in sorted(by_city.items(), key=lambda kv: -(kv[1]["online"] + kv[1]["active"]))
+        ],
+    }
 
 
 # ------------------------------ админ: города такси ------------------------------

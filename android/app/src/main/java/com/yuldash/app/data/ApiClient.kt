@@ -1346,6 +1346,25 @@ object ApiClient {
 
     /** Водитель «на линии» шлёт координаты (heartbeat ~раз в 12с) → Redis GEO. Координаты не логируем.
      *  ok=false, если Redis на сервере недоступен (заказ тогда «рядом никого», но запрос не падает). */
+    /** «Пульс такси» (B7b-3, только админ): на линии, активные заказы, счётчики дня, по городам. */
+    suspend fun getTaxiPulse(): Result<TaxiPulseDto> =
+        call("GET", "/admin/taxi/pulse", null, auth = true).map { o ->
+            val arr = o.optJSONArray("by_city") ?: JSONArray()
+            TaxiPulseDto(
+                driversOnline = o.optInt("drivers_online"),
+                ordersActive = o.optInt("orders_active"),
+                ordersToday = o.optInt("orders_today"),
+                doneToday = o.optInt("done_today"),
+                cancelledToday = o.optInt("cancelled_today"),
+                noShowToday = o.optInt("no_show_today"),
+                avgSearchSec = if (o.isNull("avg_search_sec_today")) null else o.optDouble("avg_search_sec_today"),
+                byCity = (0 until arr.length()).map { i ->
+                    val c = arr.getJSONObject(i)
+                    TaxiPulseCityDto(c.optString("city"), c.optInt("online"), c.optInt("active"))
+                },
+            )
+        }
+
     suspend fun instantPresence(lat: Double, lng: Double): Result<Boolean> =
         call("POST", "/instant/presence", JSONObject().put("lat", lat).put("lng", lng), auth = true).map { it.optBoolean("ok") }
 
@@ -1754,6 +1773,20 @@ data class InstantEstimateDto(
 )
 
 /** Быстрый заказ (такси-режим) с сервера. Имя/телефон стороны приходят пустыми до accept (приватность). */
+// «Пульс такси» (B7b-3): живая сводка для админа.
+data class TaxiPulseCityDto(val city: String, val online: Int, val active: Int)
+
+data class TaxiPulseDto(
+    val driversOnline: Int,       // живой presence (heartbeat в Redis)
+    val ordersActive: Int,        // searching/offered/accepted/arriving/onboard
+    val ordersToday: Int,
+    val doneToday: Int,
+    val cancelledToday: Int,
+    val noShowToday: Int,
+    val avgSearchSec: Double?,    // средний подбор (created→accepted) сегодня; null = не было
+    val byCity: List<TaxiPulseCityDto>,
+)
+
 data class InstantOrderDto(
     val id: Int,
     val status: String,           // created/searching/offered/accepted/arriving/onboard/done/cancelled/expired

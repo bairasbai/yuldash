@@ -91,6 +91,57 @@ def test_order_chat_ws_rejects_outsider(client, user_factory, fake_redis):
             ws.receive_text()
 
 
+# ============================ Пульс-панель админа (B7b-3) ============================
+def _admin(user_factory):
+    from sqlmodel import Session
+
+    from app.db import engine
+    from app.models import User
+    a = user_factory("PulseAdmin")
+    with Session(engine) as s:
+        u = s.get(User, a["id"])
+        u.role = UserRole.admin
+        s.add(u)
+        s.commit()
+    return a
+
+
+def test_taxi_pulse_admin_only(client, user_factory, fake_redis):
+    """Пульс — только админу: обычному пользователю 403."""
+    someone = user_factory("PulseNobody")
+    assert client.get("/admin/taxi/pulse", headers=someone["auth"]).status_code == 403
+
+
+def test_taxi_pulse_aggregates(client, user_factory, fake_redis):
+    """Агрегаты пульса: живой presence, активный заказ, счётчики дня, средний подбор, города."""
+    admin = _admin(user_factory)
+    d, pax, order = _accepted_order(client, user_factory, fake_redis, "PulseDrv", "PulsePax")
+    r = client.get("/admin/taxi/pulse", headers=admin["auth"])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["drivers_online"] >= 1          # водитель с живым heartbeat
+    assert body["orders_active"] >= 1           # accepted-заказ активен
+    assert body["orders_today"] >= 1
+    assert body["avg_search_sec_today"] is not None and body["avg_search_sec_today"] >= 0
+    assert isinstance(body["by_city"], list) and body["by_city"]
+    cities = {c["city"] for c in body["by_city"]}
+    assert any(c for c in cities)               # ближайший Settlement определился (Баймак)
+    # Завершаем заказ → done_today растёт, активных меньше.
+    for step in ("arrived", "onboard", "done"):
+        client.post(f"/instant/orders/{order['id']}/{step}", headers=d["auth"])
+    body2 = client.get("/admin/taxi/pulse", headers=admin["auth"]).json()
+    assert body2["done_today"] >= 1
+    assert body2["orders_active"] == body["orders_active"] - 1
+
+
+def test_taxi_pulse_without_redis(client, user_factory):
+    """Без Redis панель не падает: presence честно 0, остальные счётчики живые."""
+    admin = _admin(user_factory)
+    r = client.get("/admin/taxi/pulse", headers=admin["auth"])
+    assert r.status_code == 200, r.text
+    assert r.json()["drivers_online"] == 0
+
+
 # ============================ SOS с контекстом заказа (B7b-2) ============================
 def test_sos_with_order_context(client, user_factory, fake_redis):
     """Участник заказа шлёт SOS с order_id — событие фиксируется с привязкой к заказу."""
