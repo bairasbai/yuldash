@@ -6,11 +6,13 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 менеджер WebSocket-соединений. Роутеры импортируют отсюда — так монолит
 `main.py` разрезан без дублирования логики (поведение 1:1).
 """
+from collections import deque
 from datetime import timedelta
 import base64
 import json
 import math
 import os
+import time
 
 from fastapi import HTTPException
 from sqlalchemy import case, distinct, func
@@ -358,6 +360,50 @@ def notify_admin_telegram(text: str, reply_markup: dict | None = None) -> None:
         )
     except Exception as e:  # noqa: BLE001 — уведомление не должно ронять запрос
         print(f"[ADMIN_TG] error {e}")
+
+
+# ------------------- Алерт при всплеске 5xx (наблюдаемость) -------------------
+# Прагматично, без внешних систем: считаем серверные ошибки (5xx) в скользящем окне.
+# Перевалили порог → ОДНО сообщение админу в Telegram, потом «остываем» (cooldown),
+# чтобы не заспамить. Счётчик — в памяти воркера (для алерта «что-то горит» этого хватает;
+# на несколько воркеров каждый шлёт максимум один раз за cooldown, не лавина).
+_err_times: deque = deque()
+# None = алерта ещё не было. НЕ 0.0: sentinel сравнивается с time.monotonic(), а он на
+# свежем сервере/CI-раннере может быть < cooldown → 0.0 давал ложное «ещё остываем».
+_last_error_alert: float | None = None
+
+
+def reset_error_counter() -> None:
+    """Сброс окна и cooldown — для тестов и ручного сброса."""
+    global _last_error_alert
+    _err_times.clear()
+    _last_error_alert = None
+
+
+def record_server_error(path: str = "") -> None:
+    """Зарегистрировать один серверный сбой (5xx). При превышении порога в окне —
+    один алерт админу в Telegram (с cooldown). Никогда не бросает исключений:
+    наблюдаемость не должна ронять сам запрос."""
+    global _last_error_alert
+    try:
+        threshold = max(1, settings.error_alert_threshold)
+        window = max(1, settings.error_alert_window_sec)
+        cooldown = max(0, settings.error_alert_cooldown_sec)
+        now = time.monotonic()
+        edge = now - window
+        while _err_times and _err_times[0] < edge:
+            _err_times.popleft()
+        _err_times.append(now)
+        if len(_err_times) >= threshold and (_last_error_alert is None or (now - _last_error_alert) >= cooldown):
+            _last_error_alert = now
+            count = len(_err_times)
+            _err_times.clear()  # окно закрыто одним алертом — не копим на следующий тик
+            notify_admin_telegram(
+                f"⚠️ Юлдаш: всплеск серверных ошибок — {count} шт. за ~{window}с (5xx). "
+                f"Последний путь: {path or '—'}. Проверь логи: journalctl -u yuldash-api"
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[ERR_ALERT] record failed: {e}")
 
 
 def send_text(phone: str, text: str) -> None:

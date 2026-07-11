@@ -24,6 +24,7 @@ from .middleware import (
     AccessLogMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware,
     unhandled_exception_handler,
 )
+from .observability import init_sentry
 from .routers import all_routers
 from .routers.health import API_VERSION
 from .services import MEDIA_DIR, init_chat_redis, seed_demo, seed_pickup_points
@@ -52,6 +53,9 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # Sentry — до создания приложения (чтобы перехват стоял с первого запроса каждого
+    # воркера). Без SENTRY_DSN это полный no-op — прод работает как раньше.
+    init_sentry()
     app = FastAPI(title="Yuldash API", version=API_VERSION, lifespan=lifespan)
     # Порядок: последний add_middleware — внешний (выполняется первым).
     # Хотим: лимит запросов отсекает раньше всего → добавляем его последним.

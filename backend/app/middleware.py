@@ -136,6 +136,11 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         if path.startswith("/t/") or path.startswith("/api/v1/t/"):
             path = path[: path.index("/t/") + 3] + "***"
         print(f"[REQ] {request.method} {path} -> {resp.status_code} {ms:.0f}ms")
+        # Явные серверные ошибки (500/503 и т.п.) считаем для алерта о всплеске.
+        # /health* исключаем: 503 от readiness-пробы — ожидаемый сигнал (его отслеживает monitor.sh).
+        if resp.status_code >= 500 and not path.startswith("/health"):
+            from .services import record_server_error
+            record_server_error(path)
         return resp
 
 
@@ -145,4 +150,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     if path.startswith("/t/") or path.startswith("/api/v1/t/"):
         path = path[: path.index("/t/") + 3] + "***"   # токен live-ссылки — секрет (B7c)
     print(f"[ERR] {request.method} {path}: {type(exc).__name__}: {exc}")
+    # Реальный краш (проброшенное исключение) до AccessLogMiddleware не доходит —
+    # считаем его здесь, у источника 500.
+    from .services import record_server_error
+    record_server_error(request.url.path)
     return JSONResponse({"detail": "Внутренняя ошибка сервера"}, status_code=500)
