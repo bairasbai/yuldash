@@ -7,13 +7,17 @@ from sqlmodel import Session, select
 from typing import List, Literal, Optional
 
 from ..db import get_session
-from ..models import Block, Booking, InstantOrder, Report, Ride, SosEvent, TrustedContact, User, UserRole
+from ..models import Block, Booking, BookingStatus, InstantOrder, Report, Ride, SosEvent, TripShare, TrustedContact, User, UserRole
 from ..security import current_user
-from ..services import booking_and_ride_for_user, notify_admin_telegram, send_text
+from ..services import booking_and_ride_for_user, notify_admin_telegram, send_push, send_text
 from ..timeutil import utcnow
 from .. import quality
 
 router = APIRouter(tags=["safety"])
+
+# F12 «Зимний протокол»: авто-проверка «доехал?».
+# Если участник не подтвердил «всё в порядке» за это время после пуша — эскалация доверенным контактам.
+WINTER_ESCALATE_AFTER_MIN = 30
 
 # Анти-спам SMS: SOS-событие пишем ВСЕГДА (жизнь дороже), но рассылку доверенным контактам
 # глушим, если за последний час их уже оповещали > N раз — иначе мэш-кнопка = поток SMS и расходы.
@@ -475,3 +479,141 @@ def reportable_users(user: User = Depends(current_user), session: Session = Depe
         return []
     users = session.exec(select(User).where(User.id.in_(ids))).all()
     return [ReportableUser(id=u.id, name=(u.name or "Пользователь")) for u in users]
+
+
+# ============================ F12 «Зимний протокол безопасности» ============================
+# РБ-фишка «между своими = заботимся»: зимой на трассе между сёлами связь рвётся, темнеет рано,
+# мороз опасен. Две живые кнопки + авто-проверка «доехал?». Переиспользуем SosEvent/TripShare/
+# TrustedContact/send_push/send_text — новых сущностей не плодим.
+
+def _maps_link(lat: Optional[float], lng: Optional[float]) -> str:
+    """Ссылка на точку в Яндекс.Картах для доверенного контакта (найти человека на трассе)."""
+    if lat is None or lng is None:
+        return ""
+    return f"https://yandex.ru/maps/?ll={lng},{lat}&z=16&pt={lng},{lat}"
+
+
+class StuckIn(BaseModel):
+    # Координаты необязательны (GPS мог не схватиться) — тогда шлём хотя бы сигнал «нужна помощь».
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    note: str = Field("", max_length=500)
+
+
+@router.post("/bookings/{booking_id}/stuck", response_model=SosEvent)
+def roadside_help(
+    booking_id: int,
+    body: StuckIn,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """«Я застрял / нужна помощь на трассе» — уровень мягче паники SOS, но реальный: координаты
+    уходят доверенным контактам, событие пишется в SOS-ленту админа. Доступно только участнику поездки."""
+    booking_and_ride_for_user(session, booking_id, user)   # 403/404 если чужой/нет брони
+    link = _maps_link(body.lat, body.lng)
+    where = f" Место: {link}" if link else ""
+    # Событие в SOS-ленту админа фиксируем СИНХРОННО (не теряем сигнал о помощи).
+    note = (f"Застрял на трассе (зимний протокол). {body.note}".strip() + where).strip()
+    event = SosEvent(user_id=user.id, booking_id=booking_id, category="breakdown", note=note)
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    # Телефоны доверенных собираем ПОКА сессия открыта; SMS/Telegram — в фон (не держим коннект,
+    # не заставляем человека на морозе ждать sms.ru). Координаты в stdout НЕ пишем (152-ФЗ).
+    contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+    phones = [c.phone for c in contacts if c.phone]
+    who = user.name or user.phone
+    msg = f"Юлдаш: {who} застрял на трассе, нужна помощь.{where}".strip()
+    background.add_task(_send_sos_sms, phones, msg)
+    background.add_task(
+        notify_admin_telegram,
+        f"🛟 Помощь на трассе (Юлдаш)\n"
+        f"От: {user.name or '—'}\n"
+        f"Тел: {user.phone or '—'}\n"
+        f"Контактов уведомлено: {len(phones)}\n"
+        f"Детали: {body.note or '—'}{where}"
+    )
+    print(f"[ROADSIDE] user={user.id} booking={booking_id} contacts_notified={len(phones)}")
+    return event
+
+
+@router.post("/bookings/{booking_id}/winter-check")
+def winter_check(
+    booking_id: int,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """Авто-проверка «доехал?» (прагматично для v1: вызывается клиентом/по флагу, когда его ETA+буфер истёк).
+    Идемпотентна и вызывается повторно:
+      1) поездка ещё не закрыта и пуш ещё не слали → шлём обеим сторонам «всё в порядке?», помечаем sent_at;
+      2) пуш уже был, ответа нет ≥30 мин, есть активный шаринг → уведомляем доверенный контакт + SOS-событие;
+      3) поездка done/cancelled или участник уже нажал «всё хорошо» → ничего не делаем.
+    Доступно только участнику поездки."""
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    now = utcnow()
+    # (3a) Поездка закрыта — проверять нечего.
+    if booking.status in (BookingStatus.done, BookingStatus.cancelled):
+        return {"state": "closed"}
+    # (3b) Уже подтвердили «всё в порядке» — эскалацию не запускаем.
+    if booking.winter_check_ack_at is not None:
+        return {"state": "ok"}
+    # (1) Первый заход: шлём пуш «всё в порядке?» обеим сторонам.
+    if booking.winter_check_sent_at is None:
+        # Санити-гейт: поездка должна была реально начаться (клиент считает ETA сам, сервер страхует по depart_at).
+        if ride.depart_at and now < ride.depart_at:
+            return {"state": "too_early"}
+        booking.winter_check_sent_at = now
+        session.add(booking)
+        session.commit()
+        title = "Юлдаш"
+        text = "Всё в порядке? Отметь, что доехал(а)."
+        send_push(session, booking.passenger_id, title, text)
+        send_push(session, ride.driver_id, title, text)
+        return {"state": "check_sent"}
+    # (2) Пуш уже был — ждём ответа. Эскалация только после порога и только при активном шаринге.
+    waited_min = (now - booking.winter_check_sent_at).total_seconds() / 60.0
+    if waited_min < WINTER_ESCALATE_AFTER_MIN:
+        return {"state": "waiting", "waited_min": round(waited_min, 1)}
+    # Активный шаринг поездки близкому (пассажир расшарил) — иначе некому эскалировать.
+    shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id)).all()
+    if not shares:
+        return {"state": "no_share"}
+    # Эскалация: SOS-событие от имени пассажира (его контакты) + SMS доверенным.
+    escalate = SosEvent(
+        user_id=booking.passenger_id, booking_id=booking_id, category="other",
+        note=f"Зимний протокол: нет ответа {WINTER_ESCALATE_AFTER_MIN} мин после проверки «доехал?»",
+    )
+    session.add(escalate)
+    session.commit()
+    session.refresh(escalate)
+    contact_ids = [s.contact_id for s in shares]
+    phones = [
+        c.phone
+        for c in session.exec(select(TrustedContact).where(TrustedContact.id.in_(contact_ids))).all()
+        if c.phone
+    ]
+    pax = session.get(User, booking.passenger_id)
+    who = (pax.name or pax.phone) if pax else "попутчик"
+    background.add_task(_send_sos_sms, phones, f"Юлдаш: {who} не отметил(а), что доехал(а). Позвони, проверь, всё ли хорошо.")
+    background.add_task(
+        notify_admin_telegram,
+        f"❄️ Зимний протокол: нет ответа (Юлдаш)\nПоездка #{booking_id}\nКонтактов уведомлено: {len(phones)}"
+    )
+    return {"state": "escalated", "sos_event_id": escalate.id, "contacts_notified": len(phones)}
+
+
+@router.post("/bookings/{booking_id}/winter-check/ok")
+def winter_check_ack(
+    booking_id: int,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """Участник ответил «всё в порядке» на проверку «доехал?» — гасит эскалацию доверенным."""
+    booking, _ = booking_and_ride_for_user(session, booking_id, user)
+    if booking.winter_check_ack_at is None:
+        booking.winter_check_ack_at = utcnow()
+        session.add(booking)
+        session.commit()
+    return {"ok": True}

@@ -271,6 +271,10 @@ class Booking(SQLModel, table=True):
     # Видно обеим сторонам, помогает в споре. Способ по умолчанию — «договоримся».
     pay_method: PayMethod = PayMethod.negotiate
     pay_amount: Optional[int] = None  # сумма, о которой договорились, ₽ (опц.; None = не фиксировали)
+    # F12 «Зимний протокол»: авто-проверка «доехал?». sent_at — когда обеим сторонам ушёл пуш
+    # «всё в порядке?»; ack_at — когда участник подтвердил, что доехал/всё хорошо (гасит эскалацию).
+    winter_check_sent_at: Optional[datetime] = None
+    winter_check_ack_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow)
 
 

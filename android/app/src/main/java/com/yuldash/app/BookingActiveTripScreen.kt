@@ -145,6 +145,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -933,6 +934,7 @@ internal fun ActiveTripScreen(
     val tripSharedPrefix = appText("Поездка отправлена", "Сәфәр ебәрелде")
 
     val myId = remember { ApiClient.myUserId() ?: -1 }
+    val frostyNight = remember { isFrostyWinterNight() }   // F12: морозная ночь — считаем один раз (LazyListScope не @Composable)
     var wsConnected by remember { mutableStateOf(false) }
     // Оптимистичные (ещё не подтверждённые сервером) сообщения получают уникальный
     // отрицательный id (-2, -3, …). failedIds — те, что не доставились (показываем «Повторить»).
@@ -1100,6 +1102,10 @@ internal fun ActiveTripScreen(
             if (offline && tripPass != null) {
                 item { OfflineTripBanner(modifier = Modifier.appearIn(0)) }
                 item { TripPassCard(pass = tripPass!!, modifier = Modifier.appearIn(1)) }
+            }
+            // F12 «Зимний протокол»: спокойное напоминание в морозную ночь (ноя–мар + ночь).
+            if (frostyNight) {
+                item { FrostyNightBanner(modifier = Modifier.appearIn(1)) }
             }
             // Live-баннер пассажиру: водитель выехал/подъезжает (опрос статуса раз в ~12с, не только пуш).
             if (role == "passenger" && (driverPhase == "departed" || driverPhase == "arriving")) {
@@ -1503,6 +1509,49 @@ internal fun ActiveTripScreen(
                     }
                 )
             }
+            // F12 «Застрял на трассе» — уровень мягче паники SOS: зовём своих на помощь в дороге.
+            // Только в реальной активной поездке (есть бронь и посадка подтверждена).
+            if (bookingId != null && bookingStatusAllowsBoarding(bookingStatus)) {
+                item {
+                    var stuckSending by remember { mutableStateOf(false) }
+                    var stuckSent by remember { mutableStateOf(false) }
+                    var showStuck by remember { mutableStateOf(false) }
+                    val stuckOkMsg = appText("Своим отправлен сигнал о помощи", "Үҙеңдекеләргә ярҙам сигналы ебәрелде")
+                    val stuckFailMsg = appText("Не удалось отправить. Попробуй ещё раз.", "Ебәреп булманы. Тағы бер тапҡыр ҡарап ҡара.")
+                    RoadsideHelpButton(
+                        sending = stuckSending,
+                        sent = stuckSent,
+                        onClick = { showStuck = true },
+                        modifier = Modifier.appearIn(5),
+                    )
+                    if (showStuck) {
+                        AlertDialog(
+                            onDismissRequest = { showStuck = false },
+                            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = CanonWarn) },
+                            title = { Text(appText("Нужна помощь на трассе?", "Юлда ярҙам кәрәкме?")) },
+                            text = { Text(appText(
+                                "Отправим твоим доверенным контактам сигнал и координаты, чтобы тебя нашли. Это не экстренный вызов 112 — для угрозы жизни жми SOS.",
+                                "Ышаныслы кешеләреңә сигнал һәм координаталар ебәрәбеҙ — һине табыр өсөн. Был 112 ашығыс саҡырыу түгел — тормошҡа хәүеф булһа, SOS баҫ.",
+                            )) },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showStuck = false
+                                    val bid = bookingId
+                                    if (bid != null) {
+                                        stuckSending = true
+                                        voiceScope.launch {
+                                            ApiClient.roadsideHelp(bid, LocationPrefs.lastLat, LocationPrefs.lastLng, "")
+                                                .onSuccess { stuckSending = false; stuckSent = true; Toast.makeText(context, stuckOkMsg, Toast.LENGTH_LONG).show() }
+                                                .onFailure { stuckSending = false; Toast.makeText(context, stuckFailMsg, Toast.LENGTH_SHORT).show() }
+                                        }
+                                    }
+                                }) { Text(appText("Позвать на помощь", "Ярҙамға саҡырырға"), color = CanonWarn, fontWeight = FontWeight.Bold) }
+                            },
+                            dismissButton = { TextButton(onClick = { showStuck = false }) { Text(appText("Назад", "Кире")) } }
+                        )
+                    }
+                }
+            }
             item {
                 Button(
                     onClick = onSos,
@@ -1578,6 +1627,70 @@ internal fun ActiveTripScreen(
 // Surface/Card. Двуязычие считается внутри через appText (по LocalAppLanguage). Анимацию появления
 // (`appearIn`) экран навешивает снаружи через modifier — тела остаются без анимаций/эффектов, что
 // делает их покрываемыми на JVM (Robolectric). Поведение 1:1 с прежним инлайном.
+
+/** F12 «Зимний протокол»: сейчас морозная ночь? Зима по МЕСЯЦУ (ноя–мар) + ночное время
+ *  (20:00–07:00) по календарю устройства. Без внешних API/погоды в v1 — простое и честное правило. */
+internal fun isFrostyWinterNight(now: java.util.Calendar = java.util.Calendar.getInstance()): Boolean {
+    val month = now.get(java.util.Calendar.MONTH)   // 0=янв … 11=дек
+    val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
+    val winter = month == java.util.Calendar.NOVEMBER || month == java.util.Calendar.DECEMBER ||
+        month == java.util.Calendar.JANUARY || month == java.util.Calendar.FEBRUARY || month == java.util.Calendar.MARCH
+    val night = hour >= 20 || hour < 7
+    return winter && night
+}
+
+/** Спокойный баннер морозной ночи: напомнить взять тепло и проверить заряд. Тон — заботливый, не тревожный. */
+@Composable
+internal fun FrostyNightBanner(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = CanonMint),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.AcUnit, contentDescription = appText("Морозная ночь", "Һыуыҡ төн"), tint = CanonGreen2, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(appText("Морозная ночь", "Һыуыҡ төн"), fontWeight = FontWeight.Bold, color = CanonGreen2)
+                Text(
+                    appText(
+                        "Возьми тёплые вещи и проверь заряд телефона перед дорогой. Поделись поездкой со своими.",
+                        "Йылы кейем ал һәм юлға сыҡҡанға тиклем телефон зарядын тикшер. Сәфәреңде үҙеңдекеләр менән уртаҡлаш.",
+                    ),
+                    color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            }
+        }
+    }
+}
+
+/** F12 «Застрял на трассе»: заметная, но спокойная (амбер), отдельный уровень от красной паники SOS.
+ *  Состояния: обычная / отправка / отправлено. Двуязычие внутри. */
+@Composable
+internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = !sending && !sent,
+        modifier = modifier.fillMaxWidth().height(50.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = CanonWarnBg, contentColor = CanonWarn),
+        border = BorderStroke(1.dp, CanonWarn),
+    ) {
+        if (sending) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonWarn)
+            Spacer(Modifier.width(8.dp))
+            Text(appText("Отправляем…", "Ебәрелә…"), color = CanonWarn, fontWeight = FontWeight.Bold)
+        } else {
+            Icon(if (sent) Icons.Default.CheckCircle else Icons.Default.Warning, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (sent) appText("Помощь позвана", "Ярҙам саҡырылды") else appText("Застрял на трассе", "Юлда ҡалдым"),
+                color = CanonWarn, fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
 
 /** Шапка активной поездки: «откуда → куда», водитель, время. Пустые значения → «—». */
 @Composable

@@ -684,3 +684,12 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 **Тесты:** `backend/tests/test_antifraud.py` 🆕 — 50 шт (баны+IDOR, сигнал устройства, телепорт-фильтр/пульс, реферал (пара/живость/кэп/интеграция через done), кап рейтинга, фишинг-паттерны и не-флаг честных, unpaid (страйк/дедуп/права/reject), contact-then-cancel (такси/попутка/пульс), бейдж админа). **Полный прогон: 466 passed, 1 skipped** (база 416 + 50 новых). Alembic `w2_antifraud`: upgrade/downgrade/upgrade — зелёно. Баланс скобок изменённых .kt — дельта 0.
 
 **Прод:** `alembic upgrade head`. Банит человек: `POST /admin/bans/device`; пульс расширен полями `gps_suspects_today`, `contact_then_cancel_today`.
+## ❄️ F12 «Зимний протокол безопасности» (ветка feat/winter-safety, 2026-07-05)
+> РБ-фишка «между своими = заботимся»: зимняя трасса между сёлами опасна. Всё переиспользует существующие сущности — новых таблиц (кроме 2 колонок) нет.
+- **Бэкенд `routers/safety.py`** (3 новых эндпоинта, участник поездки only):
+  - `POST /bookings/{id}/stuck` — «Застрял на трассе»: координаты → доверенным контактам (SMS в фоне) + запись в SOS-ленту (`SosEvent category=breakdown`) + Telegram админу. Уровень мягче паники SOS.
+  - `POST /bookings/{id}/winter-check` — авто-проверка «доехал?» (прагматично v1: вызывается клиентом/по флагу, когда его ETA+буфер истёк). Идемпотентна: 1) не закрыта + пуш не слали → пуш «всё в порядке?» обеим сторонам (`send_push`), помечает `winter_check_sent_at`; 2) ответа нет ≥30 мин + активный `TripShare` → уведомление доверенному (SMS) + `SosEvent`; ветки `closed/ok/too_early/waiting/no_share/escalated`.
+  - `POST /bookings/{id}/winter-check/ok` — участник подтвердил «всё в порядке» (`winter_check_ack_at`) → гасит эскалацию.
+- **Модель `Booking` +2 колонки:** `winter_check_sent_at`, `winter_check_ack_at`. Миграция `alembic/versions/f12_winter_safety.py` (идемпотентна; на проде миграции F-веток сведёт лид).
+- **Android `BookingActiveTripScreen.kt`:** баннер «Морозная ночь» (`FrostyNightBanner`, показывается по `isFrostyWinterNight()` = месяц ноя–мар + время 20:00–07:00, без внешних API) + кнопка «Застрял на трассе» (`RoadsideHelpButton`, амбер `CanonWarn`, отдельный уровень от красной SOS, с подтверждением). `ApiClient.roadsideHelp(bookingId, lat, lng, note)` → `/stuck` (координаты из `LocationPrefs`).
+- **Тесты:** `backend/tests/test_winter_safety.py` (9 тестов: stuck пишет SOS+шлёт доверенным, права участника, все ветки авто-чека, ack гасит эскалацию).
