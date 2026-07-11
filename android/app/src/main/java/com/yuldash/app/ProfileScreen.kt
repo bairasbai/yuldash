@@ -954,6 +954,11 @@ internal fun DriverCabinetScreen(
     val rideCancelledMsg = appText("Поездка снята. Пассажиры уведомлены.", "Сәфәр алынды. Пассажирҙар хәбәрҙар ителде.")
     val rideDoneMsg = appText("Рейс завершён. Хорошей дороги домой!", "Рейс тамамланды. Юлың уң булһын!")
     val rideActionFailMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
+    val editSavedMsg = appText("Поездка обновлена", "Сәфәр яңыртылды")
+    // Точные тексты под причину отказа (сервер различает их HTTP-кодом), все на двух языках.
+    val editPriceDownMsg = appText("Поездку уже забронировали — цену можно только снизить.", "Сәфәр брондалған — хаҡты кәметергә генә була.")
+    val editNotActiveMsg = appText("Менять можно только активную поездку.", "Тик актив сәфәрҙе генә үҙгәртеп була.")
+    val editNetMsg = appText("Не получилось изменить. Проверь интернет и повтори.", "Үҙгәртеп булманы. Интернетты тикшереп ҡабатла.")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
     val womanLoginMsg = appText("Войдите, чтобы изменить профиль", "Профильде үҙгәртер өсөн инегеҙ")
@@ -1051,6 +1056,25 @@ internal fun DriverCabinetScreen(
                     ApiClient.completeRide(rideId)
                         .onSuccess { Toast.makeText(ctx, rideDoneMsg, Toast.LENGTH_LONG).show(); ridesReload++ }
                         .onFailure { Toast.makeText(ctx, rideActionFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
+            onEditRide = { rideId, price, comment ->
+                rateScope.launch {
+                    ApiClient.editRide(rideId, price, comment)
+                        .onSuccess {
+                            Toast.makeText(ctx, editSavedMsg, Toast.LENGTH_SHORT).show()
+                            ridesReload++
+                        }
+                        .onFailure { e ->
+                            // Понятная причина под ошибку: 409 — цена вверх при бронях, 400 — поездка уже неактивна,
+                            // остальное (нет сети и т.п.) — общий текст с «повтори».
+                            val msg = when ((e as? ApiException)?.status) {
+                                409 -> editPriceDownMsg
+                                400 -> editNotActiveMsg
+                                else -> editNetMsg
+                            }
+                            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                        }
                 }
             },
             modifier = Modifier.padding(padding),
@@ -1447,6 +1471,7 @@ internal fun DriverCabinetContent(
     onRejectBooking: (Int) -> Unit = {},    // F2: отклонить бронь (id) — места вернутся в поездку
     onCancelRide: (Int) -> Unit = {},     // F1: снять поездку (id) — сервер уведомит пассажиров
     onCompleteRide: (Int) -> Unit = {},   // F1: завершить рейс (id)
+    onEditRide: (Int, Int?, String?) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier,
     debt: com.yuldash.app.data.DriverDebtDto? = null,
     onDeclareDebtPaid: () -> Unit = {},
@@ -1486,6 +1511,8 @@ internal fun DriverCabinetContent(
             }
         )
     }
+    // F3: какая поездка правится сейчас (null = диалог закрыт).
+    var editing by remember { mutableStateOf<Ride?>(null) }
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1589,6 +1616,17 @@ internal fun DriverCabinetContent(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         ) { Text(appText("Снять поездку", "Сәфәрҙе алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    }
+                    // F3: правка цены и комментария. Если поездку уже забронировали — сервер
+                    // разрешит только снизить цену и поправить комментарий (иначе понятная ошибка).
+                    TextButton(
+                        onClick = { editing = ride },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = appText("Изменить поездку", "Сәфәрҙе үҙгәртеү"), modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(appText("Изменить цену и комментарий", "Хаҡ һәм аңлатма үҙгәртеү"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }
@@ -1710,6 +1748,63 @@ internal fun DriverCabinetContent(
                 SettingsNavRow(Icons.Default.TrendingUp, appText("Поднять маршрут", "Маршрутты күтәреү"), appText("Показать выше в списке поездок", "Сәфәрҙәр исемлегендә өҫтәрәк күрһәтеү"), onClick = onBoost)
             }
         }
+    }
+
+    // F3: диалог правки поездки. Цена — число; комментарий — свободный текст (напр. «заеду через Темясово»).
+    editing?.let { ride ->
+        var priceText by remember(ride.id) { mutableStateOf(ride.price.toString()) }
+        var commentText by remember(ride.id) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { editing = null },
+            containerColor = CanonSurface,
+            shape = CanonCardShape,
+            title = { Text(appText("Изменить поездку", "Сәфәрҙе үҙгәртеү"), fontWeight = FontWeight.Black, fontSize = 20.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("${ride.from} → ${ride.to}", color = CanonMuted, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    OutlinedTextField(
+                        value = priceText,
+                        onValueChange = { s -> priceText = s.filter { it.isDigit() }.take(6) },
+                        label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commentText,
+                        onValueChange = { if (it.length <= 2000) commentText = it },
+                        label = { Text(appText("Комментарий (по желанию)", "Аңлатма (теләк буйынса)")) },
+                        placeholder = { Text(appText("Напр. заеду через Темясово", "Мәҫ. Темәс аша үтәм")) },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        appText("Если поездку уже забронировали — цену можно только снизить.", "Әгәр сәфәр брондалған булһа — хаҡты кәметергә генә була."),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val id = ride.id.toIntOrNull()
+                        if (id != null) {
+                            val newPrice = priceText.toIntOrNull()?.takeIf { it != ride.price }
+                            val newComment = commentText.trim().takeIf { it.isNotEmpty() }
+                            onEditRide(id, newPrice, newComment)
+                        }
+                        editing = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2)
+                ) { Text(appText("Сохранить", "Һаҡлау"), fontWeight = FontWeight.Black) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editing = null }, colors = ButtonDefaults.textButtonColors(contentColor = CanonMuted)) {
+                    Text(appText("Отмена", "Баш тартыу"))
+                }
+            }
+        )
     }
 }
 

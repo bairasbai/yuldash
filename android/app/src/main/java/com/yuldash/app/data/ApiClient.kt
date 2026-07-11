@@ -1434,6 +1434,15 @@ object ApiClient {
     suspend fun completeRide(rideId: Int): Result<Unit> =
         call("POST", "/rides/$rideId/complete", JSONObject(), auth = true).map { }
 
+    /** F3: правка своей поездки (null = поле не менять). POST-алиас /edit: HttpURLConnection не умеет PATCH.
+     *  С активными бронями сервер разрешит только комментарий и цену ВНИЗ (иначе 409 с понятным текстом). */
+    suspend fun editRide(rideId: Int, price: Int? = null, comment: String? = null): Result<Unit> {
+        val body = JSONObject()
+        price?.let { body.put("price", it) }
+        comment?.let { body.put("comment", it) }
+        return call("POST", "/rides/$rideId/edit", body, auth = true).map { }
+    }
+
     /** Создать платёж за поднятие поездки. Возврат: статус + реквизиты СБП / ссылка ЮKassa. */
     suspend fun createBoost(rideId: Int, tier: String): Result<BoostResultDto> =
         call("POST", "/boost/create", JSONObject().put("ride_id", rideId).put("tier", tier), auth = true).map { o ->

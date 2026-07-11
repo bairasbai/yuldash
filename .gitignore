@@ -87,3 +87,5 @@ test_artifacts/
 # Временные файлы pytest (TMPDIR прогонов бэкенда) — не артефакт для git
 backend/.pt/
 .pt/
+# Изоляция суб-агентов Claude Code (worktree) — локальные, не в git
+.claude/worktrees/

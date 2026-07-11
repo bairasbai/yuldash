@@ -189,6 +189,51 @@ def my_requests(
     return session.exec(q).all()
 
 
+class RequestEditIn(BaseModel):
+    """F3: правка своей активной заявки. Все поля опциональны — меняется только присланное."""
+    from_city: Optional[str] = Field(None, max_length=120)
+    to_city: Optional[str] = Field(None, max_length=120)
+    desired_at: Optional[datetime] = None
+    seats: Optional[int] = Field(None, ge=1, le=8)
+    max_price: Optional[int] = Field(None, ge=0, le=1_000_000)
+    comment: Optional[str] = Field(None, max_length=2000)
+
+
+@router.patch("/requests/{request_id}", response_model=RideRequest)
+@router.post("/requests/{request_id}/edit", response_model=RideRequest)   # алиас: Android HttpURLConnection не умеет PATCH
+def edit_request(request_id: int, body: RequestEditIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """F3: пассажир правит свою заявку (опечатка в маршруте/времени была неисправимой —
+    только отмена и пересоздание). Править можно ТОЛЬКО активную (matched уже стала поездкой).
+    Смена маршрута перегеокодит концы (карта водителя показывает верную точку)."""
+    req = session.get(RideRequest, request_id)
+    if not req:
+        raise HTTPException(404, "Заявка не найдена")
+    if req.passenger_id != user.id and user.role != UserRole.admin:
+        raise HTTPException(403, "Можно править только свою заявку")
+    if req.status != "active":
+        raise HTTPException(400, "Править можно только активную заявку")
+    changed = False
+    for field in ("from_city", "to_city", "desired_at", "seats", "max_price", "comment"):
+        val = getattr(body, field)
+        if val is not None and val != getattr(req, field):
+            setattr(req, field, val)
+            changed = True
+    if not changed:
+        return req   # нечего менять — no-op
+    # Маршрут мог смениться → перегеокодим концы (иначе маркер заявки останется в старом городе).
+    if body.from_city is not None:
+        frm = geocode_city(req.from_city) or (None, None)
+        req.from_lat, req.from_lng = frm
+    if body.to_city is not None:
+        to = geocode_city(req.to_city) or (None, None)
+        req.to_lat, req.to_lng = to
+    session.add(req)
+    session.commit()
+    session.refresh(req)
+    notify_map_changed()   # маркер/карточка заявки обновится live
+    return req
+
+
 @router.post("/requests/{request_id}/cancel", response_model=RideRequest)
 def cancel_request(request_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Пассажир отменяет свою заявку → статус `cancelled`. Отменённая уходит из ленты
