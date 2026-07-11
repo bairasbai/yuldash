@@ -89,6 +89,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.Delete
@@ -258,9 +259,41 @@ import com.yuldash.app.data.FeedDto
 import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
 import com.yuldash.app.data.AdDto
+import com.yuldash.app.data.TripPass
+import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.Outbox
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * F11 — сохранить офлайн-паспорт брони из подтверждённых деталей. Дотягивает код посадки,
+ * чтобы паспорт был полным ещё до входа в активную поездку. Телефон водителя (ПДн) уходит
+ * в secure-хранилище TripPassStore и НЕ логируется.
+ */
+private suspend fun saveTripPass(context: android.content.Context, d: com.yuldash.app.data.BookingDetailsDto) {
+    val code = ApiClient.getBoardingCode(d.bookingId).getOrNull().orEmpty()
+    TripPassStore.save(
+        context,
+        TripPass(
+            bookingId = d.bookingId,
+            fromCity = d.fromCity,
+            toCity = d.toCity,
+            departAt = d.departAt,
+            driverName = d.driverName,
+            driverCar = d.driverCar,
+            driverPhone = d.driverPhone,
+            boardingCode = code,
+            pickup = d.pickup,
+            pickupLat = d.pickupLat,
+            pickupLng = d.pickupLng,
+            price = d.price,
+            seats = d.seats,
+            paymentNote = "",   // явной договорённости от бэка нет — оплату показываем из price (двуязычно на экране)
+            savedAt = System.currentTimeMillis(),
+        ),
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -291,7 +324,12 @@ internal fun BookingScreen(
         val bid = bookingId ?: return@LaunchedEffect
         detailsLoading = true
         ApiClient.getBookingDetails(bid)
-            .onSuccess { loaded -> details = loaded; detailsError = false }
+            .onSuccess { loaded ->
+                details = loaded; detailsError = false
+                // F11: как только бронь подтверждена (телефон/встреча открыты) — сохраняем офлайн-паспорт.
+                // Так экран активной поездки поднимет данные без сети на трассе без связи.
+                if (loaded.contactUnlocked) saveTripPass(context, loaded)
+            }
             .onFailure { detailsError = true }
         detailsLoading = false
     }
@@ -866,6 +904,10 @@ internal fun ActiveTripScreen(
     var role by remember(bookingId) { mutableStateOf("") }
     var driverPhase by remember(bookingId) { mutableStateOf("") }   // ""/departed/arriving — для live-баннера пассажиру
     var bookingStatus by remember(bookingId) { mutableStateOf("") }
+    // F11: офлайн-паспорт брони. Читаем СРАЗУ из локального (secure) хранилища — данные видны без сети.
+    var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
+    // offline = последний опрос состояния упал по СЕТИ (не по ответу сервера). Тогда показываем паспорт+плашку.
+    var offline by remember(bookingId) { mutableStateOf(false) }
     // Опрос состояния поездки раз в ~12с: роль + подфаза водителя. Так пассажир видит «водитель выехал/
     // подъезжает» LIVE (раньше это приходило только пушем — его легко пропустить, а UI не обновлялся).
     // На паузе в фоне (repeatOnLifecycle RESUMED) — не дёргаем сервер и батарею, когда приложение свёрнуто.
@@ -874,7 +916,10 @@ internal fun ActiveTripScreen(
         val id = bookingId ?: return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
-                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; bookingStatus = st.status }
+                ApiClient.getTripState(id)
+                    .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; bookingStatus = st.status; offline = false }
+                    // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
+                    .onFailure { e -> if (e !is ApiException) offline = true }
                 kotlinx.coroutines.delay(12_000)
             }
         }
@@ -892,12 +937,15 @@ internal fun ActiveTripScreen(
     // Оптимистичные (ещё не подтверждённые сервером) сообщения получают уникальный
     // отрицательный id (-2, -3, …). failedIds — те, что не доставились (показываем «Повторить»).
     var failedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
+    // F11: сообщения, поставленные в очередь при отсутствии сети (уйдут авто-ретраем).
+    var queuedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
     var tempSeq by remember(bookingId) { mutableStateOf(-2) }
     var boardingCode by remember(bookingId) { mutableStateOf("") }
     // Договорённость об оплате (ЗАПИСЬ, не платёж) — показываем обеим сторонам в активной поездке.
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
     var payAmount by remember(bookingId) { mutableStateOf<Int?>(null) }
     val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
+    val queuedMsg = appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ")
     // Состояние первой загрузки истории чата: спиннер, ошибка (с «Повторить»), пусто.
     var historyLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
     var historyError by remember(bookingId) { mutableStateOf(false) }
@@ -912,7 +960,12 @@ internal fun ActiveTripScreen(
             .onSuccess { messages = it }
             .onFailure { historyError = true }
         historyLoading = false
-        ApiClient.getBoardingCode(id).onSuccess { boardingCode = it }
+        ApiClient.getBoardingCode(id).onSuccess { code ->
+            boardingCode = code
+            // F11: дополним офлайн-паспорт кодом посадки (его пассажир называет водителю без сети).
+            TripPassStore.updateBoardingCode(context, id, code)
+            tripPass = TripPassStore.load(context, id)
+        }
         ApiClient.getBookingDetails(id).onSuccess { d -> payMethod = d.payMethod; payAmount = d.payAmount }
     }
 
@@ -955,8 +1008,38 @@ internal fun ActiveTripScreen(
         }
     }
 
+    // F11: авто-ретрай очереди исходящих при появлении сети. Слушаем ConnectivityManager: сеть вернулась →
+    // разгружаем очередь (сообщения/статусы), затем подтягиваем авторитетную историю и состояние.
+    fun flushOutbox() {
+        val id = bookingId ?: return
+        voiceScope.launch {
+            val changed = Outbox.flush(context)
+            if (changed) {
+                queuedIds = emptySet()
+                ApiClient.getMessages(id).onSuccess { messages = it }
+                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; bookingStatus = st.status; offline = false }
+            }
+        }
+    }
+    // Пробуем разгрузить очередь при входе на экран (мог накопить в прошлой сессии без сети).
+    LaunchedEffect(bookingId) { if (bookingId != null) flushOutbox() }
+    DisposableEffect(bookingId) {
+        val id = bookingId
+        if (id == null) { onDispose { } }
+        else {
+            val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) { flushOutbox() }
+            }
+            runCatching { cm?.registerDefaultNetworkCallback(cb) }
+            onDispose { runCatching { cm?.unregisterNetworkCallback(cb) } }
+        }
+    }
+
     // Доставка одного сообщения. Сперва WS (если жив), иначе REST. Ошибку НЕ глотаем:
-    // при сбое сети помечаем сообщение «не доставлено» (кнопка повтора), чтобы оно не пропало молча.
+    // - сетевой сбой (нет связи на трассе) → кладём в очередь (Outbox), помечаем «в очереди» —
+    //   отправится само при появлении сети (F11), ничего не теряется;
+    // - ошибка сервера → «Не доставлено · Повторить» (ручной повтор, как прежде).
     fun deliver(tempId: Int, text: String) {
         val bid = bookingId ?: return
         val ws = chatSocket
@@ -965,9 +1048,16 @@ internal fun ActiveTripScreen(
         voiceScope.launch {
             ApiClient.sendMessage(bid, text)
                 .onSuccess { ApiClient.getMessages(bid).onSuccess { messages = it } }   // забираем авторитетную историю
-                .onFailure {
-                    failedIds = failedIds + tempId
-                    Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                .onFailure { e ->
+                    if (e is ApiException) {
+                        failedIds = failedIds + tempId
+                        Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                    } else {
+                        // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
+                        Outbox.enqueue(context, Outbox.newMessage(bid, text))
+                        queuedIds = queuedIds + tempId
+                        Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
+                    }
                 }
         }
     }
@@ -998,12 +1088,18 @@ internal fun ActiveTripScreen(
         ) {
             item {
                 TripRouteHeaderCard(
-                    from = ride?.from,
-                    to = ride?.to,
-                    driver = ride?.driver,
-                    time = ride?.time,
+                    // Без сети ride может быть null (холодный старт по bookingId) — берём из офлайн-паспорта.
+                    from = ride?.from ?: tripPass?.fromCity,
+                    to = ride?.to ?: tripPass?.toCity,
+                    driver = ride?.driver ?: tripPass?.driverName,
+                    time = ride?.time ?: tripPass?.departAt?.let { formatDepart(it) },
                     modifier = Modifier.appearIn(0),
                 )
+            }
+            // F11: офлайн-режим — сервер недоступен, но паспорт поездки сохранён локально.
+            if (offline && tripPass != null) {
+                item { OfflineTripBanner(modifier = Modifier.appearIn(0)) }
+                item { TripPassCard(pass = tripPass!!, modifier = Modifier.appearIn(1)) }
             }
             // Live-баннер пассажиру: водитель выехал/подъезжает (опрос статуса раз в ~12с, не только пуш).
             if (role == "passenger" && (driverPhase == "departed" || driverPhase == "arriving")) {
@@ -1049,13 +1145,18 @@ internal fun ActiveTripScreen(
                                 else voiceScope.launch {
                                     ApiClient.driverStatus(bid, st)
                                         .onSuccess {
-                                            if (st == "done") onTripEnd()   // уходим с экрана только при реальном закрытии брони
+                                            if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }   // уходим с экрана только при реальном закрытии брони + чистим ПДн из паспорта
                                             else {
                                                 Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
                                                 ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
                                             }
                                         }
-                                        .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { e ->
+                                            if (e !is ApiException) {   // нет сети → статус в очередь на авто-ретрай (F11)
+                                                Outbox.enqueue(context, Outbox.newDriverStatus(bid, st))
+                                                Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
+                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                                        }
                                 }
                             } else {
                                 status = st
@@ -1064,10 +1165,15 @@ internal fun ActiveTripScreen(
                                     ApiClient.setTripStatus(bid, st)
                                         // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
                                         .onSuccess {
-                                            if (st == "done") onTripEnd()
+                                            if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }
                                             else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним статус/код посадки
                                         }
-                                        .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { e ->
+                                            if (e !is ApiException) {   // нет сети → статус «сел/доехал» в очередь на авто-ретрай (F11)
+                                                Outbox.enqueue(context, Outbox.newTripStatus(bid, st))
+                                                Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
+                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                                        }
                                 }
                             }
                         },
@@ -1230,6 +1336,8 @@ internal fun ActiveTripScreen(
                                     voiceScope.launch {
                                         ApiClient.cancelBooking(id)
                                             .onSuccess { contactThenCancel ->
+                                                // F11: локальный паспорт поездки больше не нужен — бронь отменена.
+                                                TripPassStore.remove(context, id)
                                                 // B8-8: телефон/чат уже открывались → мягко напоминаем про защиту в приложении.
                                                 val msg = if (contactThenCancel) contactCancelMsg else cancelOkMsg
                                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
@@ -1313,6 +1421,7 @@ internal fun ActiveTripScreen(
                     voiceUrl = m.voiceUrl,
                     mine = m.senderId == myId,
                     failed = m.id in failedIds,
+                    queued = m.id in queuedIds,
                     deleted = m.deleted,
                     edited = m.edited,
                     warn = m.flag == "warn",
@@ -1535,6 +1644,91 @@ internal fun BoardingCodeCard(
 }
 
 /**
+ * F11 — плашка офлайн-режима. Сервер недоступен (трасса без связи), но паспорт поездки
+ * сохранён локально: спокойно сообщаем об этом, без тревоги, тёплым тоном.
+ */
+@Composable
+internal fun OfflineTripBanner(modifier: Modifier = Modifier) {
+    Surface(modifier = modifier.fillMaxWidth(), color = CanonWarnBg, shape = CanonCardShape) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.CloudOff, contentDescription = appText("Нет сети", "Селтәр юҡ"), tint = CanonWarn, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(appText("Офлайн — данные сохранены", "Офлайн — мәғлүмәт һаҡланған"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Text(
+                    appText("Показываем сохранённую поездку. Сообщения и статусы отправим, как появится сеть.",
+                        "Һаҡланған сәфәрҙе күрһәтәбеҙ. Хәбәр һәм хәлдәрҙе селтәр булғас ебәрербеҙ."),
+                    color = CanonWarn, fontSize = 13.sp, lineHeight = 17.sp
+                )
+            }
+        }
+    }
+}
+
+/**
+ * F11 — карточка «Паспорт поездки»: всё главное для встречи с водителем без сети —
+ * маршрут, время, водитель+машина, телефон (кнопка «Позвонить»), код посадки, точка сбора, оплата.
+ * Телефон — ПДн, показываем участнику брони; НЕ логируем.
+ */
+@Composable
+internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(appText("Паспорт поездки", "Сәфәр паспорты"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+            }
+            TripPassRow(Icons.Default.Route, appText("Маршрут", "Юл"), "${pass.fromCity} → ${pass.toCity}")
+            if (pass.departAt.isNotBlank()) TripPassRow(Icons.Default.Schedule, appText("Время", "Ваҡыт"), formatDepart(pass.departAt))
+            val driverLine = listOf(pass.driverName, pass.driverCar).filter { it.isNotBlank() }.joinToString(" · ")
+            if (driverLine.isNotBlank()) TripPassRow(Icons.Default.Person, appText("Водитель", "Водитель"), driverLine)
+            if (pass.driverPhone.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TripPassRow(Icons.Default.Phone, appText("Телефон", "Телефон"), pass.driverPhone, modifier = Modifier.weight(1f))
+                    FilledTonalButton(
+                        onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${pass.driverPhone}"))) }
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
+                    ) {
+                        Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(appText("Позвонить", "Шылтыратыу"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            }
+            if (pass.pickup.isNotBlank()) TripPassRow(Icons.Default.LocationOn, appText("Точка сбора", "Йыйылыу урыны"), pass.pickup)
+            if (pass.boardingCode.isNotBlank()) TripPassRow(Icons.Default.Pin, appText("Код посадки", "Ултырыу коды"), pass.boardingCode)
+            if (pass.price > 0) TripPassRow(
+                Icons.Default.Payments, appText("Оплата", "Түләү"),
+                appText("${pass.price} ₽ · перевод по СБП", "${pass.price} ₽ · СБП аша күсереү")
+            )
+        }
+    }
+}
+
+@Composable
+private fun TripPassRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(label, color = CanonMuted, fontSize = 12.sp)
+            Text(value, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 19.sp)
+        }
+    }
+}
+
+/**
  * Кнопки статуса поездки. Водитель: «Я выехал / Подъезжаю / Завершить»; пассажир: «Я сел /
  * Доехал / Завершить». Клик отдаёт код статуса в [onStatus] — вся сеть/навигация снаружи.
  * У пассажира выбранный статус подсвечен ([selectedStatus]); у водителя подсветки нет.
@@ -1599,6 +1793,7 @@ internal fun MessageBubble(
     voiceUrl: String?,
     mine: Boolean,
     failed: Boolean = false,
+    queued: Boolean = false,
     deleted: Boolean = false,
     edited: Boolean = false,
     warn: Boolean = false,       // B8-6: сервер пометил flag=warn → плашка получателю
@@ -1712,6 +1907,19 @@ internal fun MessageBubble(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 2.dp, end = 4.dp).bounceClick { onRetry() }
             )
+        } else if (queued) {
+            // F11: сообщение в очереди — уйдёт само, когда вернётся сеть.
+            Row(
+                modifier = Modifier.padding(top = 2.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(13.dp))
+                Text(
+                    appText("В очереди · отправим при сети", "Сиратта · селтәр булғас ебәрербеҙ"),
+                    color = CanonMuted, fontSize = 12.sp
+                )
+            }
         }
     }
 }
