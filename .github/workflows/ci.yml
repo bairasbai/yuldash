@@ -31,5 +31,33 @@ jobs:
       - name: Install deps
         run: pip install -r requirements-dev.txt
       - name: Run tests
-        run: python -m pytest tests/ -q
-        # Тесты на изолированной SQLite (conftest), прод-БД не нужна.
+        # Coverage-gate: покрытие пакета app/. Порог мягкий (70%) на старте, чтобы не
+        # заваливать PR-ы — поднять до 80 по мере роста покрытия. term-missing показывает
+        # непокрытые строки прямо в логе. Тесты на изолированной SQLite (conftest), прод-БД не нужна.
+        run: python -m pytest tests/ -q --cov=app --cov-report=term-missing --cov-fail-under=70
+
+  # Android debug-сборка в CI (закрывает разрыв: раньше APK собирался только локально у Александра).
+  # ВАЖНО — job пока informational (continue-on-error), НЕ блокирует мерж:
+  #   * google-services.json (FCM) и local.properties (ключи MapKit/геокодера) в git НЕ лежат —
+  #     build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые), но пока сборка
+  #     не докажет стабильность в CI, красный android-build не должен валить все открытые PR-ы.
+  #   * СДЕЛАТЬ БЛОКИРУЮЩИМ после стабилизации: убрать `continue-on-error: true` ниже.
+  android-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30          # первая сборка тянет зависимости — с запасом
+    continue-on-error: true      # informational: не валит PR, пока сборка не стабильна (см. коммент выше)
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"     # проект собирается на JDK 17 (jvmTarget/sourceCompatibility = 17)
+          cache: gradle          # кеш ~/.gradle → быстрее повторные сборки
+      - uses: android-actions/setup-android@v3
+      - name: Собрать debug APK
+        # local.properties/google-services.json в git нет — build.gradle.kts подставляет
+        # безопасные дефолты (пустые ключи, push выключен), так что сборка проходит без секретов.
+        run: chmod +x ./gradlew && ./gradlew :app:assembleDebug --no-daemon --stacktrace
