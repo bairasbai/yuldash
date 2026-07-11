@@ -538,3 +538,27 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 **UI:** `TaxiOnboardingScreen.kt` (`Screen.TaxiOnboarding`) — правила простыми словами (комиссия 3→5→8%, СБП раз в неделю, лимит 8 ч, 580-ФЗ) + форма (ИНН/разрешение/год прав/дата рождения/2 фото) + статусы pending/approved/rejected (комментарий + «Подать снова»), `AnimatedContent`. Вход: кабинет водителя — без approved-заявки вместо тумблера «Я на линии» рисуется CTA `TaxiOnboardingCta` (`ProfileScreen.kt`), presence-контроллер выключен. Пассажир: `InstantOrderScreen` перед пикером дёргает `getTaxiAvailability` → выключено → `TaxiComingSoonCard` («Такси скоро 🚕», серверный текст RU/BA, кнопка к попутке; сеть упала → фолбэк-пикер, сервер гейтит сам). Админ: `AdminTaxiScreen.kt` (`Screen.AdminTaxi`, вход из кабинета админа «Таксисты») — заявки с фильтрами/фото/Approve/Reject-комментарием + секция «Города такси» (тумблер/добавить/удалить). DTO/методы — `ApiClient.kt` (`getTaxiAvailability`, `applyTaxi`, `getMyTaxiApplication`, `adminTaxi*`).
 
 **Тесты:** backend `pytest -q` → **266 passed, 1 skipped** (+17 в `test_taxi_gate.py`: глобальный флаг/города/алиасы, валидация, цикл pending→approve/reject→повторная подача, попутка не блокируется, анти-IDOR, админ-права, CRUD городов). В `conftest.py` тестовое окружение включает `TAXI_ENABLED=true`, водителям user_factory авто-одобряет заявку (`taxi_approved=False` — для тестов гейта). **Активация такси: Александру после документов — `TAXI_ENABLED=true` в `.env` + города в админке.** Вливать ПОСЛЕ #47 (feat/taxi2-base).
+
+## 2026-07-11 — 🚕 Домен «Такси-полировка end-to-end» (батч B7a) — ветка `feat/taxi-polish`
+
+Полировка такси до уровня «настоящего таксопарка»: фоновая линия, оффер как звонок, live-машина, навигатор, рейтинг пассажира. От `feat/launch-tools` (вершина стека волны 2); миграция НЕ нужна (нет новых колонок — рейтинг считается агрегатом).
+
+**① Фоновый режим «на линии» (Android):**
+- `TaxiLineService.kt` 🆕 — foreground location-сервис (образец `TripLocationService`): двуязычное постоянное уведомление «Юлдаш · Ты на линии 🚕» (канал `taxi_line`, LOW), presence-heartbeat `instantPresence` ~15с + опрос `getDriverOffer` ~5с ИЗ ФОНА. Самоглушение: presence вернул 401/403/409 (выход, долг, 8ч-лимит, пауза качества, снятый тумблер) + сторож 12ч. Тумблер «Я на линии» (`DriverCabinetScreen`, `ProfileScreen.kt`) синкает сервис ПОСЛЕ загрузки статуса (`onlineLoaded`).
+- Манифест: `TaxiLineService` (`foregroundServiceType="location"`), `USE_FULL_SCREEN_INTENT`, `VIBRATE`.
+- `AppPrefs.language/setLanguage` (`SecondaryScreens.kt`) — язык для мира вне Compose; `YuldashApp` пишет при смене.
+
+**② Полноэкранный оффер при свёрнутом приложении:**
+- `TaxiOfferNotifier.kt` 🆕 — канал «Заказы такси» (`taxi_offers`, HIGH: звук+вибро) + полноэкранное уведомление (`CATEGORY_CALL`, full-screen intent, `setTimeoutAfter(ttl)`); `NavSignals.openDriverCabinet` — сигнал из уведомления в Compose.
+- `FcmService.kt`: data-пуш `type=instant_offer` → `TaxiOfferNotifier.show(...)`. `MainActivity.onCreate/onNewIntent` → `NavSignals` → `YuldashApp` открывает `Screen.DriverCabinet` (после сплэша), где существующий `InstantOfferOverlay`.
+- Бэкенд: `send_push(..., data_only=True)` (`services.py`) — оффер идёт БЕЗ блока notification + `AndroidConfig(priority=high)`, иначе `onMessageReceived` в фоне не зовётся; title/body дублируются в data. `_push_offer` (`instant_service.py`) → data-only.
+
+**③ Live-трек машины + «Навигатор»:**
+- Бэкенд: WS `/ws/instant/{order_id}/location` (`routers/location.py`) — зеркало `/ws/trip/...`: токен первым сообщением, только участники (пассажир + НАЗНАЧЕННЫЙ водитель), только accepted/arriving/onboard, направленные ключи без self-эхо в namespace `INSTANT_LOC_BASE=1_000_000_000` (booking-трек и чат не пересекаются), перепроверка токена/статуса раз в 15 кадров. Координаты не хранятся.
+- Android: `data/InstantLocationSocket.kt` 🆕 (реконнект с backoff, «Order not active» — мягкий ретрай). Водитель (`InstantDriverTripScreen`) шлёт позицию ~5с (курс из двух фиксов); пассажир (`InstantDriverEnRouteCard`) видит движущуюся нав-стрелку: `InstantRouteMap(car, carBearing)` — один placemark, двигаем geometry (без пересоздания). Кнопка «Навигатор» (`openNavigator`): до посадки → к подаче, после — к точке Б; `yandexnavi://` → `yandexmaps://` → `geo:`.
+
+**④ Рейтинг пассажира в оффере:**
+- Бэкенд: `passenger_stats` (`instant_service.py`) — анонимный ★-агрегат (`user_rating`) + поездки (done такси-заказы + done брони); в `order_payload` (только витрине водителя: `passenger_rating` null=новичок, `passenger_trips`) и в data пуша оффера. Телефон/имя до accept — по-прежнему пусто.
+- Android: поля в `InstantOrderDto`; в `InstantOfferOverlay` строка «Пассажир: ★ 4.9 · 12 поездок» / «новичок 🌱».
+
+**Тесты:** `backend/tests/test_taxi_polish.py` 🆕 — 8 шт: WS-реле водитель→пассажир, чужой/до accept/битый токен → закрытие, booking-трек цел рядом с такси-каналом; агрегат в оффере (4★ + 2 поездки, включая бронь), null-кейс новичка, приватность оффера, витрина пассажира без лишних вычислений. **Полный прогон: 387 passed, 1 skipped** (база 379 + 8).
