@@ -83,3 +83,6 @@ promo/.remotion/
 
 # QA-артефакты тестирования (скриншоты, отчёты сборки)
 test_artifacts/
+
+# Временные файлы pytest (TMPDIR прогонов бэкенда) — не артефакт для git
+backend/.pt/
