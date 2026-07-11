@@ -916,7 +916,8 @@ internal fun DriverCabinetScreen(
     }
     var isWomanDriver by remember { mutableStateOf(false) }   // F9: opt-in «я — женщина за рулём»
     var bookingsReload by remember { mutableStateOf(0) }   // F2: bump после подтверждения/отклонения брони
-    LaunchedEffect(bookingsReload) {
+    var ridesReload by remember { mutableStateOf(0) }   // F1: bump после отмены/завершения → список свежий
+    LaunchedEffect(bookingsReload, ridesReload) {
         if (ApiClient.isLoggedIn()) ApiClient.getMyRestrictions().onSuccess { restrictions = it }
         ApiClient.getDriverRides().onSuccess { driverRides = it.map { dto -> dto.toUiRide() } }
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
@@ -950,6 +951,9 @@ internal fun DriverCabinetScreen(
     val bookingConfirmedMsg = appText("Бронь подтверждена — пассажиру открыты телефон и точка сбора", "Бронь раҫланды — пассажирға телефон һәм йыйылыу урыны асылды")
     val bookingRejectedMsg = appText("Бронь отклонена", "Бронь кире ҡағылды")
     val bookingActionFailMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
+    val rideCancelledMsg = appText("Поездка снята. Пассажиры уведомлены.", "Сәфәр алынды. Пассажирҙар хәбәрҙар ителде.")
+    val rideDoneMsg = appText("Рейс завершён. Хорошей дороги домой!", "Рейс тамамланды. Юлың уң булһын!")
+    val rideActionFailMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
     val womanLoginMsg = appText("Войдите, чтобы изменить профиль", "Профильде үҙгәртер өсөн инегеҙ")
@@ -1032,6 +1036,21 @@ internal fun DriverCabinetScreen(
                     ApiClient.cancelBooking(bookingId)
                         .onSuccess { Toast.makeText(ctx, bookingRejectedMsg, Toast.LENGTH_SHORT).show(); bookingsReload++ }
                         .onFailure { Toast.makeText(ctx, bookingActionFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
+            // F1: отмена/завершение рейса — ждём сервер, потом обновляем список (bump ridesReload).
+            onCancelRide = { rideId ->
+                rateScope.launch {
+                    ApiClient.cancelRide(rideId)
+                        .onSuccess { Toast.makeText(ctx, rideCancelledMsg, Toast.LENGTH_LONG).show(); ridesReload++ }
+                        .onFailure { Toast.makeText(ctx, rideActionFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            },
+            onCompleteRide = { rideId ->
+                rateScope.launch {
+                    ApiClient.completeRide(rideId)
+                        .onSuccess { Toast.makeText(ctx, rideDoneMsg, Toast.LENGTH_LONG).show(); ridesReload++ }
+                        .onFailure { Toast.makeText(ctx, rideActionFailMsg, Toast.LENGTH_SHORT).show() }
                 }
             },
             modifier = Modifier.padding(padding),
@@ -1426,6 +1445,8 @@ internal fun DriverCabinetContent(
     onRetryArchive: () -> Unit = {},
     onConfirmBooking: (Int) -> Unit = {},   // F2: подтвердить бронь (id) — пассажиру откроются телефон/точка
     onRejectBooking: (Int) -> Unit = {},    // F2: отклонить бронь (id) — места вернутся в поездку
+    onCancelRide: (Int) -> Unit = {},     // F1: снять поездку (id) — сервер уведомит пассажиров
+    onCompleteRide: (Int) -> Unit = {},   // F1: завершить рейс (id)
     modifier: Modifier = Modifier,
     debt: com.yuldash.app.data.DriverDebtDto? = null,
     onDeclareDebtPaid: () -> Unit = {},
@@ -1444,6 +1465,27 @@ internal fun DriverCabinetContent(
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     val ridesDone = archive.count { it.status == "done" }
     val passengersServed = archive.filter { it.status == "done" }.sumOf { (it.seatsTotal - it.seatsLeft).coerceAtLeast(0) }
+    // F1: подтверждение отмены — отмена каскадно снимает брони пассажиров, случайный тап недопустим.
+    var cancelTarget by remember { mutableStateOf<Ride?>(null) }
+    cancelTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { cancelTarget = null },
+            title = { Text(appText("Снять поездку?", "Сәфәрҙе алырғамы?"), fontWeight = FontWeight.Black) },
+            text = { Text(appText(
+                "${target.from} → ${target.to}. Все брони пассажиров будут отменены, им придёт уведомление.",
+                "${target.from} → ${target.to}. Пассажирҙарҙың бөтә брондары кире алына, уларға хәбәр килә."
+            )) },
+            confirmButton = {
+                Button(
+                    onClick = { target.id.toIntOrNull()?.let(onCancelRide); cancelTarget = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
+                ) { Text(appText("Снять поездку", "Сәфәрҙе алыу"), fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { cancelTarget = null }) { Text(appText("Оставить", "Ҡалдырыу")) }
+            }
+        )
+    }
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1524,16 +1566,31 @@ internal fun DriverCabinetContent(
             }
         } else {
             items(driverRides, key = { it.id }) { ride ->
-                MyTripCard(
-                    ride = ride,
-                    status = appText("Опубликована", "Баҫтырылды"),
-                    statusColor = CanonMint,
-                    icon = Icons.Default.DirectionsCar,
-                    primaryAction = appText("Поднять", "Күтәреү"),
-                    secondaryAction = appText("Новый маршрут", "Яңы маршрут"),
-                    onPrimary = onBoost,
-                    onSecondary = onCreateRide
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MyTripCard(
+                        ride = ride,
+                        status = appText("Опубликована", "Баҫтырылды"),
+                        statusColor = CanonMint,
+                        icon = Icons.Default.DirectionsCar,
+                        primaryAction = appText("Поднять", "Күтәреү"),
+                        secondaryAction = appText("Новый маршрут", "Яңы маршрут"),
+                        onPrimary = onBoost,
+                        onSecondary = onCreateRide
+                    )
+                    // F1: управление рейсом — завершить (брони → done, пассажирам «оцените») или снять (с подтверждением).
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(
+                            onClick = { ride.id.toIntOrNull()?.let(onCompleteRide) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) { Text(appText("Завершить рейс", "Рейсты тамамлау"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                        OutlinedButton(
+                            onClick = { cancelTarget = ride },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) { Text(appText("Снять поездку", "Сәфәрҙе алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    }
+                }
             }
         }
         // F2: брони, ждущие подтверждения водителя. Пока не подтвердишь — пассажир не видит

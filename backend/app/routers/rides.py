@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import DriverProfile, Ride, RideCategory, RideStatus, User
+from ..models import Booking, BookingStatus, DriverProfile, Ride, RideCategory, RideStatus, User, UserRole
 from .. import workday as workday_mod
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
@@ -17,7 +17,7 @@ from ..trust_service import INSIDER_LEVEL, trust_level
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
-    public_rides_payload, ride_out, ride_out_with, rides_out,
+    public_rides_payload, ride_out, ride_out_with, rides_out, send_push,
 )
 
 router = APIRouter(tags=["rides"])
@@ -247,6 +247,77 @@ def my_driver_rides(
         q = q.where(Ride.status == RideStatus.active).order_by(*boost_then_depart_order())
     rides = session.exec(q).all()
     return rides_out(rides, session)
+
+
+def _ride_owned(session: Session, ride_id: int, user: User) -> Ride:
+    """Поездка под row-lock + проверка владения (или админ — помощь по звонку, как везде)."""
+    ride = session.exec(select(Ride).where(Ride.id == ride_id).with_for_update()).first()
+    if not ride:
+        raise HTTPException(404, "Поездка не найдена")
+    if ride.driver_id != user.id and user.role != UserRole.admin:
+        raise HTTPException(403, "Это не ваша поездка")
+    return ride
+
+
+def _live_bookings(session: Session, ride_id: int) -> list:
+    """Живые брони поездки (не отменённые и не завершённые)."""
+    return session.exec(select(Booking).where(
+        Booking.ride_id == ride_id,
+        Booking.status.notin_((BookingStatus.cancelled, BookingStatus.done)),  # type: ignore[attr-defined]
+    )).all()
+
+
+@router.post("/rides/{ride_id}/cancel", response_model=RideOut)
+def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель снимает поездку (сломался/передумал). Каскад: все живые брони → cancelled,
+    каждому пассажиру push «Поездка отменена» (он увидит альтернативы в /rides/near).
+    Идемпотентно: повторная отмена — no-op. Завершённую отменить нельзя."""
+    ride = _ride_owned(session, ride_id, user)
+    if ride.status == RideStatus.cancelled:
+        return public_ride_payload(ride_out(ride, session))   # идемпотентно (двойной тап)
+    if ride.status == RideStatus.done:
+        raise HTTPException(400, "Поездка уже завершена")
+    affected = _live_bookings(session, ride_id)
+    ride.status = RideStatus.cancelled
+    session.add(ride)
+    for b in affected:
+        b.status = BookingStatus.cancelled
+        session.add(b)
+    session.commit()                     # атомарно: поездка+брони одной транзакцией
+    session.refresh(ride)
+    notify_map_changed()                 # пин уходит с карты live
+    for b in affected:                   # пуши — ПОСЛЕ commit (сбой FCM не откатит отмену)
+        send_push(session, b.passenger_id, "Поездка отменена",
+                  f"{ride.from_city} → {ride.to_city}: водитель отменил. Посмотри другие поездки рядом.")
+    return public_ride_payload(ride_out(ride, session))
+
+
+@router.post("/rides/{ride_id}/complete", response_model=RideOut)
+def complete_ride(ride_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель завершает рейс целиком: поездка → done, подтверждённые/в-пути брони → done,
+    ожидающие (pending) → cancelled (рейс кончился — «висящих» заявок не оставляем).
+    Идемпотентно: повторное завершение — no-op."""
+    ride = _ride_owned(session, ride_id, user)
+    if ride.status == RideStatus.done:
+        return public_ride_payload(ride_out(ride, session))   # идемпотентно
+    if ride.status == RideStatus.cancelled:
+        raise HTTPException(400, "Поездка отменена — завершать нечего")
+    affected = _live_bookings(session, ride_id)
+    ride.status = RideStatus.done
+    session.add(ride)
+    done_ids: list[int] = []
+    for b in affected:
+        b.status = BookingStatus.done if b.status != BookingStatus.pending else BookingStatus.cancelled
+        session.add(b)
+        if b.status == BookingStatus.done:
+            done_ids.append(b.passenger_id)
+    session.commit()
+    session.refresh(ride)
+    notify_map_changed()
+    for pid in done_ids:
+        send_push(session, pid, "Поездка завершена",
+                  f"{ride.from_city} → {ride.to_city}: спасибо, что ехали вместе! Оцени поездку.")
+    return public_ride_payload(ride_out(ride, session))
 
 
 @router.get("/rides/{ride_id}", response_model=RideOut)

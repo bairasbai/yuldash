@@ -1424,6 +1424,14 @@ object ApiClient {
         }
     }
 
+    /** F1: снять поездку (сломался/передумал). Сервер каскадно отменяет брони и шлёт пуши пассажирам. */
+    suspend fun cancelRide(rideId: Int): Result<Unit> =
+        call("POST", "/rides/$rideId/cancel", JSONObject(), auth = true).map { }
+
+    /** F1: завершить рейс целиком (поездка → done, подтверждённые брони → done). */
+    suspend fun completeRide(rideId: Int): Result<Unit> =
+        call("POST", "/rides/$rideId/complete", JSONObject(), auth = true).map { }
+
     /** Создать платёж за поднятие поездки. Возврат: статус + реквизиты СБП / ссылка ЮKassa. */
     suspend fun createBoost(rideId: Int, tier: String): Result<BoostResultDto> =
         call("POST", "/boost/create", JSONObject().put("ride_id", rideId).put("tier", tier), auth = true).map { o ->
