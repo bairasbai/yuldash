@@ -144,6 +144,7 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
     // Диалог отклонения с причиной
     rejectTarget?.let { target ->
         var reason by remember(target.id) { mutableStateOf("") }
+        val defaultReason = appText("Не прошло модерацию", "Модерацияны үтмәне")
         AlertDialog(
             onDismissRequest = { rejectTarget = null },
             containerColor = CanonSurface,
@@ -163,7 +164,7 @@ internal fun AdminPartnersScreen(onBack: () -> Unit) {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val r = reason.trim().ifBlank { appText("Не прошло модерацию", "Модерацияны үтмәне") }
+                        val r = reason.trim().ifBlank { defaultReason }
                         busyId = target.id
                         scope.launch {
                             ApiClient.rejectPartner(target.id, r)
