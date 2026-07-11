@@ -944,3 +944,41 @@ class CouponRedemption(SQLModel, table=True):
     reserved_at: datetime = Field(default_factory=utcnow)
     redeemed_at: Optional[datetime] = None
     redeemed_by: Optional[int] = Field(default=None, foreign_key="user.id")  # сотрудник партнёра, подтвердивший
+
+
+# ---- M2 (монетизация): промокоды и кампании (рычаг роста) ----
+
+class PromoCode(SQLModel, table=True):
+    """Именной промокод / кампания (блогер, партнёр, общая акция Юлдаша).
+
+    Философия M2 (красные линии): промокод — инструмент ПРИВЛЕЧЕНИЯ, а не прямой доход и НЕ
+    штраф за отказ. Попутка остаётся бесплатной — код НЕ вводит плату. Бонус пользователю только
+    приятный (бесплатные поднятия поездки водителю) либо чистая атрибуция (welcome). Блогеру платим
+    «на результат» — за РЕАЛЬНО активных приведённых (критерий «живой поездки», как в реферале B8).
+
+    owner_id=None → общая акция Юлдаша; иначе — владелец кампании (блогер/партнёр), видит статистику
+    только по своему коду. Один код на всю жизнь аккаунта (анти-абуз: у юзера максимум одна PromoRedemption)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str = Field(index=True, unique=True, max_length=32)   # ХРАНИМ в верхнем регистре
+    title: str = ""
+    description: str = ""
+    owner_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")  # None = общая акция Юлдаша
+    campaign: str = Field(default="", max_length=80)            # метка кампании для группировки
+    kind: str = Field(default="welcome", max_length=16)         # welcome (атрибуция) | boost (perk_value поднятий)
+    perk_value: int = 0                                         # число boost-кредитов (для kind=boost)
+    limit_total: int = 0                                        # общий лимит активаций (0 = без лимита)
+    limit_per_user: int = 1                                     # лимит на пользователя (де-факто 1: один код на жизнь)
+    redeemed_count: int = 0                                     # денормализованный счётчик активаций
+    valid_from: Optional[datetime] = None                      # окно действия (null = без нижней границы)
+    valid_until: Optional[datetime] = None                     # окно действия (null = бессрочно)
+    active: bool = Field(default=True, index=True)             # вкл/выкл кампании
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class PromoRedemption(SQLModel, table=True):
+    """Факт применения промокода пользователем. Уникальность «один промокод на юзера ВСЕГО»
+    (ввёл код один раз в жизни аккаунта) проверяется в коде — это и есть анти-абуз."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    promo_id: int = Field(index=True, foreign_key="promocode.id")
+    user_id: int = Field(index=True, foreign_key="user.id")
+    redeemed_at: datetime = Field(default_factory=utcnow)
