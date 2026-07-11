@@ -1234,7 +1234,19 @@ internal fun ActiveTripScreen(
 
     if (showShare) {
         ModalBottomSheet(onDismissRequest = { showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
+            // Ссылка live-поездки (B7c): после выбора близкого показываем её тут же —
+            // скопировать или отправить самому через системный share-sheet.
+            var liveLink by remember { mutableStateOf<String?>(null) }
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+                val link = liveLink
+                if (link != null) {
+                    Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    LiveLinkCard(link)
+                    Spacer(Modifier.height(12.dp))
+                    TextButton(onClick = { showShare = false }, modifier = Modifier.align(Alignment.End)) {
+                        Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                    }
+                } else {
                 Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 if (contacts.isEmpty()) {
                     Text(appText("Сначала добавьте доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтәгеҙ"), color = CanonMuted)
@@ -1243,12 +1255,17 @@ internal fun ActiveTripScreen(
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             val bid = bookingId
-                            showShare = false
                             if (bid != null) voiceScope.launch {
                                 ApiClient.shareTrip(bid, c.id)
-                                    .onSuccess { Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show() }
-                                    .onFailure { Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show() }
-                            }
+                                    .onSuccess { url ->
+                                        Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
+                                        if (url != null) liveLink = url else showShare = false
+                                    }
+                                    .onFailure {
+                                        showShare = false
+                                        Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show()
+                                    }
+                            } else showShare = false
                         }.padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1262,6 +1279,7 @@ internal fun ActiveTripScreen(
                         }
                         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
                     }
+                }
                 }
             }
         }

@@ -927,14 +927,16 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
     }
 }
 
-/** Выбор близкого для шаринга такси-заказа: близкий получит SMS о маршруте и статусах.
- *  Состояния честные: загрузка / пусто (подсказка добавить контакт) / список / ошибка. */
+/** Выбор близкого для шаринга такси-заказа: близкий получит SMS со ссылкой live-поездки (B7c),
+ *  а пассажиру тут же показываем ссылку — скопировать или отправить самому (share-sheet).
+ *  Состояния честные: загрузка / пусто (подсказка добавить контакт) / список / ошибка / ссылка. */
 @Composable
 private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var contacts by remember { mutableStateOf<List<com.yuldash.app.data.ContactDto>?>(null) }
     var loadError by remember { mutableStateOf(false) }
+    var liveLink by remember { mutableStateOf<String?>(null) }   // ссылка после share (B7c)
     val sharedMsg = appText("Близкий получит SMS о поездке", "Яҡын кеше сәфәр тураһында SMS алыр")
     val shareFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     LaunchedEffect(Unit) {
@@ -945,10 +947,18 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = CanonSurface,
-        title = { Text(appText("Поделиться поездкой", "Сәфәр менән бүлешеү"), color = CanonText, fontWeight = FontWeight.Bold) },
+        title = {
+            Text(
+                if (liveLink != null) appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма")
+                else appText("Поделиться поездкой", "Сәфәр менән бүлешеү"),
+                color = CanonText, fontWeight = FontWeight.Bold,
+            )
+        },
         text = {
             val list = contacts
+            val link = liveLink
             when {
+                link != null -> LiveLinkCard(link)
                 list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
                     Spacer(Modifier.width(10.dp))
@@ -963,11 +973,16 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
                                 .clickable {
-                                    onDismiss()
                                     scope.launch {
                                         ApiClient.shareInstantTrip(orderId, c.id)
-                                            .onSuccess { Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show() }
-                                            .onFailure { Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show() }
+                                            .onSuccess { link2 ->
+                                                Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show()
+                                                if (link2 != null) liveLink = link2 else onDismiss()
+                                            }
+                                            .onFailure {
+                                                onDismiss()
+                                                Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show()
+                                            }
                                     }
                                 }
                                 .padding(horizontal = 8.dp, vertical = 12.dp),
@@ -984,9 +999,13 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = {},
+        confirmButton = {
+            if (liveLink != null) TextButton(onClick = onDismiss) {
+                Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+            }
+        },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
+            if (liveLink == null) TextButton(onClick = onDismiss) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
         },
     )
 }

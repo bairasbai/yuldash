@@ -600,10 +600,17 @@ object ApiClient {
         return call("POST", "/sos", body, auth = true).map { }.onSuccess { Analytics.log("sos") }
     }
 
-    /** «Поделиться поездкой» из такси-заказа (B7b-2): близкий получит SMS о маршруте и статусах. */
-    suspend fun shareInstantTrip(orderId: Int, contactId: Int): Result<Unit> =
-        call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true).map { }
+    /** «Поделиться поездкой» из такси-заказа (B7b-2): близкий получит SMS о маршруте и статусах.
+     *  B7c: сервер возвращает token live-ссылки — отдаём готовый URL (null на старом сервере). */
+    suspend fun shareInstantTrip(orderId: Int, contactId: Int): Result<String?> =
+        call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true)
+            .map { liveLinkOrNull(it) }
             .onSuccess { Analytics.log("instant_share_trip") }
+
+    /** Live-ссылка близкого (B7c) из ответа share: {token} → "$BASE/t/{token}".
+     *  База — тот же хост, что API (прод: https://yulbash.ru). Токена нет (старый сервер) → null. */
+    private fun liveLinkOrNull(j: JSONObject): String? =
+        j.optString("token", "").takeIf { it.isNotBlank() }?.let { "$BASE/t/$it" }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
     suspend fun requestCallback(note: String): Result<Unit> =
@@ -1177,8 +1184,10 @@ object ApiClient {
 
     // ---------- Активная поездка: поделиться / статус ----------
 
-    suspend fun shareTrip(bookingId: Int, contactId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/share", JSONObject().put("contact_id", contactId), auth = true).map { }
+    /** Поделиться бронью попутки. B7c: возвращает live-ссылку близкого (null на старом сервере). */
+    suspend fun shareTrip(bookingId: Int, contactId: Int): Result<String?> =
+        call("POST", "/bookings/$bookingId/share", JSONObject().put("contact_id", contactId), auth = true)
+            .map { liveLinkOrNull(it) }
 
     suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
