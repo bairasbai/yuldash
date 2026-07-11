@@ -1357,6 +1357,26 @@ object ApiClient {
             (0 until arr.length()).map { i -> parseMyAd(arr.getJSONObject(i)) }
         }
 
+    /** Статистика по моим объявлениям (показы/клики/CTR/остаток срока). Приватность: только владелец (IDOR закрыт на сервере). */
+    suspend fun getMyAdsStats(): Result<Map<String, MyAdStatsDto>> =
+        call("GET", "/ads/mine/stats", null, auth = true).map { o ->
+            val arr = o.optJSONArray("items") ?: JSONArray()
+            val out = mutableMapOf<String, MyAdStatsDto>()
+            for (i in 0 until arr.length()) {
+                val s = arr.getJSONObject(i)
+                val id = s.optString("ad_id")
+                out[id] = MyAdStatsDto(
+                    adId = id,
+                    impressions = s.optInt("impressions"),
+                    clicks = s.optInt("clicks"),
+                    ctr = s.optDouble("ctr", 0.0),
+                    daysLeft = if (s.isNull("days_left")) null else s.optInt("days_left"),
+                    endsAt = s.optString("ends_at").ifBlank { null },
+                )
+            }
+            out
+        }
+
     /** Создать своё объявление (черновик). */
     suspend fun createMyAd(title: String, text: String, button: String, target: String, pkg: String, cities: String): Result<MyAdDto> =
         call("POST", "/ads", JSONObject().put("title", title).put("text", text).put("button", button)
@@ -2732,3 +2752,9 @@ data class MyAdDto(
 )
 /** Тариф размещения (из конфига сервера). */
 data class AdPackageDto(val code: String, val title: String, val titleBa: String, val amountKop: Int, val periodDays: Int)
+
+/** Статистика СВОЕГО объявления для кабинета рекламодателя: показы/клики/CTR/остаток срока. */
+data class MyAdStatsDto(
+    val adId: String, val impressions: Int, val clicks: Int, val ctr: Double,
+    val daysLeft: Int?, val endsAt: String?,
+)
