@@ -57,6 +57,10 @@ class User(SQLModel, table=True):
     referral_code: str = Field(default="", index=True)
     referred_by: Optional[int] = Field(default=None, foreign_key="user.id")
     referral_credits: int = 0
+    # Анти-фрод (B8): последнее устройство входа (X-Device-Id, ANDROID_ID клиента).
+    # По нему: бан устройства ловит обход бана новым номером; вход с нового устройства → сигнал.
+    # Приватность: наружу не отдаём, в логи не пишем.
+    last_device_id: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -626,6 +630,20 @@ class Ad(SQLModel, table=True):
     created_by: Optional[int] = Field(default=None, foreign_key="user.id")  # кто создал запись (партнёр или админ)
     submitted_at: Optional[datetime] = None   # когда отправлено на модерацию
     reviewed_at: Optional[datetime] = None    # когда админ одобрил/отклонил
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class DeviceBan(SQLModel, table=True):
+    """Бан устройства (анти-фрод B8-1, обход бана новым номером).
+
+    Клиент шлёт стабильный X-Device-Id (ANDROID_ID) со всеми запросами; забаненное
+    устройство не может регистрироваться/входить, каким бы новым номером ни пытались.
+    Банит ТОЛЬКО админ (человек в контуре); снять — DELETE /admin/bans/device/{device_id}.
+    user_id — кому принадлежало устройство при бане (для админа, опционально)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    device_id: str = Field(index=True, unique=True, max_length=64)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    reason: str = ""
     created_at: datetime = Field(default_factory=utcnow)
 
 

@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..account import delete_user_account
+from ..antifraud import guard_device_not_banned, remember_login_device
 from ..config import settings
 from ..db import engine, get_session
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, Ride, TgAuth, User, UserRole
@@ -65,7 +66,11 @@ class VerifyIn(BaseModel):
 
 
 @router.post("/auth/request-code")
-def request_code(body: PhoneIn, session: Session = Depends(get_session)):
+def request_code(body: PhoneIn, session: Session = Depends(get_session),
+                 x_device_id: str = Header(default="", alias="X-Device-Id")):
+    # Анти-фрод (B8-1): забаненное устройство не регистрируется даже новым номером
+    # (гейт до отправки SMS — не тратим деньги на код мошеннику).
+    guard_device_not_banned(session, x_device_id)
     # Throttle: ≤3 кода в минуту на номер (анти-флуд: расходы на SMS + защита от забивания OtpCode).
     recent = session.exec(
         select(OtpCode).where(
@@ -89,7 +94,10 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session)):
 
 
 @router.post("/auth/verify")
-def verify(body: VerifyIn, session: Session = Depends(get_session)):
+def verify(body: VerifyIn, session: Session = Depends(get_session),
+           x_device_id: str = Header(default="", alias="X-Device-Id")):
+    # Анти-фрод (B8-1): забаненное устройство → 403 (обход бана новым номером закрыт).
+    guard_device_not_banned(session, x_device_id)
     otp = session.exec(
         select(OtpCode).where(OtpCode.phone == body.phone).order_by(OtpCode.id.desc())
     ).first()
@@ -113,6 +121,8 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
         session.commit()
         session.refresh(user)
     _maybe_promote_admin(session, user)   # автоадмин по телефону (SMS-вход)
+    # Анти-фрод (B8-1/2): фиксируем устройство; вход с нового → push+SMS-сигнал (не блокируем).
+    remember_login_device(session, user, x_device_id)
     tokens = issue_tokens(session, user.id)   # commit внутри → user протухает
     session.refresh(user)                     # перечитываем, чтобы сериализовать в ответ
     return {**tokens, "user": user}
@@ -365,7 +375,10 @@ class TgVerifyIn(BaseModel):
 
 
 @router.post("/auth/tg/verify")
-def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
+def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
+              x_device_id: str = Header(default="", alias="X-Device-Id")):
+    # Анти-фрод (B8-1): забаненное устройство → 403 (обход бана через Telegram-вход закрыт).
+    guard_device_not_banned(session, x_device_id)
     # Статусы различимы клиентом для разных сообщений: 409 ещё не получен, 410 истёк,
     # 429 много попыток, 400 неверный код.
     row = session.exec(select(TgAuth).where(TgAuth.request_id == body.request_id)).first()
@@ -416,6 +429,8 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session)):
     session.add(row)
     session.commit()
     session.refresh(user)
+    # Анти-фрод (B8-1/2): фиксируем устройство; вход с нового → push+SMS-сигнал (не блокируем).
+    remember_login_device(session, user, x_device_id)
     tokens = issue_tokens(session, user.id)   # commit внутри → user протухает
     session.refresh(user)
     return {**tokens, "user": user}

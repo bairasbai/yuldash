@@ -38,6 +38,11 @@ object ApiClient {
     @Volatile private var token: String? = null
     @Volatile private var refreshToken: String? = null
     @Volatile private var userName: String? = null
+
+    // Анти-фрод (B8-1): стабильный идентификатор устройства (ANDROID_ID из Settings.Secure).
+    // Уходит заголовком X-Device-Id со ВСЕМИ запросами: сервер ловит обход бана новым номером
+    // и сигналит о входе с нового устройства. Никогда не логируем и не показываем в UI.
+    @Volatile private var deviceId: String? = null
     private val refreshMutex = Mutex()   // не даём нескольким 401 рефрешить одновременно
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
@@ -86,6 +91,12 @@ object ApiClient {
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) {
         val app = context.applicationContext
+        // Анти-фрод (B8-1): ANDROID_ID стабилен на устройстве (сбрасывается только factory reset).
+        deviceId = runCatching {
+            android.provider.Settings.Secure.getString(
+                app.contentResolver, android.provider.Settings.Secure.ANDROID_ID,
+            )
+        }.getOrNull()?.takeIf { it.isNotBlank() }
         // Шифрованное хранилище токена (через Android Keystore). Если на устройстве недоступно —
         // не ломаем вход, мягко падаем на обычные prefs.
         val secure = runCatching {
@@ -219,6 +230,7 @@ object ApiClient {
                         requestMethod = "POST"
                         connectTimeout = 15000
                         readTimeout = 15000
+                        deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
                         setRequestProperty("Authorization", "Bearer $t")
                     }
                     conn.responseCode
@@ -1656,6 +1668,7 @@ object ApiClient {
                 connectTimeout = 15000
                 readTimeout = 15000
                 setRequestProperty("Accept", "application/json")
+                deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
                 if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
                 if (body != null) {
                     doOutput = true
@@ -1713,6 +1726,7 @@ object ApiClient {
                 readTimeout = 30000
                 doOutput = true
                 setRequestProperty("Accept", "application/json")
+                deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
                 usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
                 setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
             }
