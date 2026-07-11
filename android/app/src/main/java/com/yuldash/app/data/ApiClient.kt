@@ -350,6 +350,10 @@ object ApiClient {
             (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
         }
 
+    /** Одна поездка по id — публичная витрина (без ПДн). Для deep-link yulbash.ru/r/{id}. */
+    suspend fun getRide(id: Int): Result<RideDto> =
+        call("GET", "/rides/$id", null, auth = true).map { it.toRideDto() }
+
     /**
      * Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).
      * Координаты (lat/lng) → дистанция до точки выезда; radiusKm → фильтр по радиусу.

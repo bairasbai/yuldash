@@ -366,6 +366,19 @@ internal fun YuldashApp() {
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+    // F16 deep-link: пришли по ссылке yulbash.ru/r/{id} → тянем публичную витрину поездки
+    // и открываем её карточку в приложении. Не нашлась/ошибка сети → тихо остаёмся где были
+    // (ссылка всё равно открыла приложение). Реагируем и на холодный старт, и на новую ссылку.
+    LaunchedEffect(DeepLink.pendingRideId.value) {
+        val rideId = DeepLink.pendingRideId.value ?: return@LaunchedEffect
+        DeepLink.pendingRideId.value = null   // одноразово — не переоткрываем при рекомпозиции
+        ApiClient.getRide(rideId).onSuccess { dto ->
+            selectedRide = dto.toUiRide()
+            activeBookingId = null
+            selectedBookingStatus = ""
+            screen = Screen.Booking
+        }
+    }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by vm.partnerAds
     // Объявление, открытое в редакторе кабинета партнёра (null = создание нового).
@@ -646,10 +659,13 @@ internal fun YuldashApp() {
                 },
                 onShareRide = { ride ->
                     val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time
+                    // Красивая расшариваемая ссылка: откроется в приложении (deep-link) либо покажет
+                    // веб-превью с OG-карточкой в WhatsApp/Telegram. Хост — из конфига, не localhost.
+                    val link = "${BuildConfig.YULDASH_WEB_BASE_URL.trimEnd('/')}/r/${ride.id}"
                     val shareText = if (language == AppLanguage.Ba) {
-                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, йөрөтөүсе ${ride.driver}, ${ride.price} ₽, буш урын: ${ride.seats}."
+                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, йөрөтөүсе ${ride.driver}, ${ride.price} ₽, буш урын: ${ride.seats}.\n$link"
                     } else {
-                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, водитель ${ride.driver}, ${ride.price} ₽, свободно ${ride.seats} места."
+                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, водитель ${ride.driver}, ${ride.price} ₽, свободно ${ride.seats} места.\n$link"
                     }
                     shareRide(
                         context = context,

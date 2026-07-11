@@ -50,6 +50,14 @@ val releaseApiBaseUrl: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YULDASH_RELEASE_API_BASE_URL", "https://yulbash.ru")
 
+// Публичный сайт (лендинг) — база для расшариваемых ссылок на поездку yulbash.ru/r/{id}.
+// Переопределяется YULDASH_WEB_BASE_URL в local.properties. По умолчанию — прод-домен.
+// Отдельно от API base: в debug тот указывает на localhost, а ссылка должна быть рабочей всегда.
+val webBaseUrl: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_WEB_BASE_URL", "https://yulbash.ru")
+
 // Телефон поддержки/оператора (для звонка из приложения). Задать в local.properties:
 //   YULDASH_SUPPORT_PHONE=+79991234567
 // Пусто → кнопка звонка прячется, остаётся «попросить звонок».
@@ -112,6 +120,7 @@ android {
         buildConfigField("String", "YULDASH_SUPPORT_PHONE", "\"$supportPhone\"")
         buildConfigField("String", "TELEGRAM_BOT", "\"$telegramBot\"")
         buildConfigField("String", "VK_APP_ID", "\"$vkAppId\"")
+        buildConfigField("String", "YULDASH_WEB_BASE_URL", "\"$webBaseUrl\"")
         buildConfigField("boolean", "SMS_LOGIN_ENABLED", "$smsLoginEnabled")
     }
 

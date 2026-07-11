@@ -267,6 +267,7 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
         handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
+        handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         setContent {
             YuldashTheme(darkTheme = appIsDark()) {
                 YuldashApp()
@@ -274,18 +275,39 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: android.content.Intent) {
+    // Приложение уже открыто (SINGLE_TOP): и такси-оффер, и новая ссылка (WhatsApp/Telegram) ловятся тут.
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleNavIntent(intent)   // activity уже жива (SINGLE_TOP) → сигнал без пересоздания
+        setIntent(intent)
+        handleNavIntent(intent)   // сигнал оффера такси без пересоздания (B7a-2)
+        handleDeepLink(intent)    // deep-link ссылки yulbash.ru/r/{id} (F16)
     }
 
     /** Уведомление «Новый заказ 🚕» → сигнал YuldashApp открыть кабинет водителя (карточка оффера). */
-    private fun handleNavIntent(i: android.content.Intent?) {
+    private fun handleNavIntent(i: Intent?) {
         if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) == true) {
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)   // не сработать повторно при пересоздании
             NavSignals.openDriverCabinet.value = true
         }
     }
+
+    /** F16 deep-link: из https://yulbash.ru/r/{id} достаём id поездки и кладём в DeepLink —
+     *  YuldashApp подхватит его и откроет поездку. Кривые ссылки молча игнорим. */
+    private fun handleDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (!data.host.equals("yulbash.ru", ignoreCase = true)) return
+        // путь вида /r/123 (+ возможный trailing slash) → берём числовой сегмент после "r"
+        val segments = data.pathSegments
+        val idx = segments.indexOf("r")
+        val rideId = segments.getOrNull(idx + 1)?.toIntOrNull() ?: return
+        DeepLink.pendingRideId.value = rideId
+    }
+}
+
+/** Мост deep-link → Compose: onCreate/onNewIntent пишут сюда id поездки,
+ *  YuldashApp читает как snapshot-состояние и открывает поездку. */
+internal object DeepLink {
+    val pendingRideId = mutableStateOf<Int?>(null)
 }
 
 internal enum class Screen {

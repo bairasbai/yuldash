@@ -34,6 +34,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- F16: расшаренная ссылка на поездку yulbash.ru/r/{id} открывается в приложении.
+                 autoVerify → Android проверит assetlinks.json на домене и будет открывать
+                 ссылку сразу в Юлдаше (без диалога выбора). Отдельный filter, MAIN не трогает. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="yulbash.ru" android:pathPrefix="/r/" />
+                <data android:scheme="http" android:host="yulbash.ru" android:pathPrefix="/r/" />
+            </intent-filter>
         </activity>
 
         <!-- FCM: приём пушей. Работает после добавления google-services.json. -->
