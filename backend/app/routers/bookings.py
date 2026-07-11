@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Ride, RideStatus, User
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, push_notification, user_rating
@@ -46,7 +47,7 @@ def _clean_pay_amount(amount: Optional[int]) -> Optional[int]:
     if amount is None:
         return None
     if amount < 0 or amount > MAX_PAY_AMOUNT:
-        raise HTTPException(400, "Некорректная сумма договорённости")
+        raise herr(400, "Некорректная сумма договорённости", "Килешеү суммаһы дөрөҫ түгел")
     return amount
 
 
@@ -89,13 +90,13 @@ class BookingDetailsOut(BaseModel):
 @router.post("/bookings", response_model=Booking)
 def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     if body.seats < 1:
-        raise HTTPException(400, "Количество мест должно быть больше 0")
+        raise herr(400, "Количество мест должно быть больше 0", "Урын һаны 0-дан күберәк булырға тейеш")
     # FOR UPDATE: блокируем строку поездки на время транзакции → нет овербукинга при гонке.
     ride = session.exec(select(Ride).where(Ride.id == body.ride_id).with_for_update()).first()
     if not ride or ride.status != RideStatus.active:
-        raise HTTPException(400, "Поездка недоступна")
+        raise herr(400, "Поездка недоступна", "Сәфәр хәҙер юҡ")
     if ride.driver_id == user.id:
-        raise HTTPException(400, "Нельзя бронировать собственную поездку")
+        raise herr(400, "Нельзя бронировать собственную поездку", "Үҙ сәфәреңде бронларға ярамай")
     if is_blocked(session, user.id, ride.driver_id):
         raise HTTPException(403, "Бронь недоступна")
     # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
@@ -110,7 +111,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     if existing:
         return existing
     if ride.seats_left < body.seats:
-        raise HTTPException(400, "Не хватает мест")
+        raise herr(400, "Не хватает мест", "Урын етмәй")
     total_price = ride.price * body.seats
     # Договорённость об оплате: способ по умолчанию — «договоримся»; сумма — из цены поездки, если не задана.
     pay_method = body.pay_method or PayMethod.negotiate

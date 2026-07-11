@@ -15,6 +15,7 @@ from ..account import delete_user_account
 from ..antifraud import guard_device_not_banned, remember_login_device
 from ..config import settings
 from ..db import engine, get_session
+from ..errors import herr
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, Ride, TgAuth, User, UserRole
 from ..payments import BOOST_PLANS
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
@@ -90,7 +91,7 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session),
         )
     ).all()
     if len(recent) >= 3:
-        raise HTTPException(429, "Слишком часто. Подожди минуту и попробуй снова.")
+        raise herr(429, "Слишком часто. Подожди минуту и попробуй снова.", "Артыҡ йыш. Бер минут көт тә ҡабатла.")
     code = gen_otp()
     session.add(OtpCode(
         phone=body.phone, code=code,
@@ -114,7 +115,7 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
     # что у обычного кода (не раскрываем существование режима). Код не логируем.
     if _review_login_active(body.phone):
         if not hmac.compare_digest(settings.review_code, body.code or ""):
-            raise HTTPException(400, "Неверный или просроченный код")
+            raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
         user = session.exec(select(User).where(User.phone == body.phone)).first()
         if not user:
             user = User(phone=body.phone, name=body.name or "Проверка стора",
@@ -133,15 +134,15 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
         select(OtpCode).where(OtpCode.phone == body.phone).order_by(OtpCode.id.desc())
     ).first()
     if not otp or otp.expires_at < utcnow():
-        raise HTTPException(400, "Неверный или просроченный код")
+        raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
     if otp.attempts >= 5:                       # защита от перебора 6-значного кода
-        raise HTTPException(429, "Слишком много попыток. Запроси новый код.")
+        raise herr(429, "Слишком много попыток. Запроси новый код.", "Артыҡ күп талап. Яңы код һора.")
     # constant-time сравнение — не даём измерить код по времени ответа (перебор и так лимитирован 5 попытками).
     if not hmac.compare_digest(otp.code, body.code or ""):
         otp.attempts += 1
         session.add(otp)
         session.commit()
-        raise HTTPException(400, "Неверный или просроченный код")
+        raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
     # Код одноразовый: гасим сразу после успеха, иначе перехваченный код реюзабелен все 5 минут TTL.
     session.delete(otp)
     session.commit()
@@ -414,16 +415,16 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
     # 429 много попыток, 400 неверный код.
     row = session.exec(select(TgAuth).where(TgAuth.request_id == body.request_id)).first()
     if not row or row.status != "sent" or not row.telegram_id or not row.code:
-        raise HTTPException(409, "Сначала получи код в Telegram")
+        raise herr(409, "Сначала получи код в Telegram", "Башта Telegram-да код ал")
     if row.expires_at < utcnow():
-        raise HTTPException(410, "Код истёк. Получи новый.")
+        raise herr(410, "Код истёк. Получи новый.", "Код ваҡыты үтте. Яңыһын ал.")
     if row.attempts >= TG_MAX_ATTEMPTS:
-        raise HTTPException(429, "Слишком много попыток. Получи новый код.")
+        raise herr(429, "Слишком много попыток. Получи новый код.", "Артыҡ күп талап. Яңы код ал.")
     if not hmac.compare_digest(body.code.strip(), row.code):   # constant-time (перебор лимитирован TG_MAX_ATTEMPTS)
         row.attempts += 1
         session.add(row)
         session.commit()
-        raise HTTPException(400, "Неверный код")
+        raise herr(400, "Неверный код", "Код дөрөҫ түгел")
     user = session.exec(select(User).where(User.telegram_id == row.telegram_id)).first()
     if not user and row.shared_phone:
         existing_by_phone = session.exec(select(User).where(User.phone == row.shared_phone)).first()
