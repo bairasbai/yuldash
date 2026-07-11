@@ -660,6 +660,7 @@ internal fun YuldashApp() {
                 onMyStats = { screen = Screen.MyStats },
                 onCoupons = { screen = Screen.Coupons },
                 onPromo = { screen = Screen.PromoCode },
+                onParcels = { screen = Screen.Parcels },
                 onPartnerCabinet = { screen = Screen.PartnerCabinet },
                 onReview = { screen = Screen.AppReview },
                 onAdminReviews = { screen = Screen.AdminReviews },
@@ -887,7 +888,8 @@ internal fun YuldashApp() {
                 onWaitlist = { screen = Screen.AdminWaitlist },
                 onTaxiPulse = { screen = Screen.AdminTaxiPulse },
                 onPartners = { screen = Screen.AdminPartners },
-                onPromoAdmin = { screen = Screen.AdminPromo }
+                onPromoAdmin = { screen = Screen.AdminPromo },
+                onParcelsAdmin = { screen = Screen.AdminParcels }
             )
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
@@ -1065,6 +1067,8 @@ internal fun YuldashApp() {
             Screen.AdminPartners -> AdminPartnersScreen(onBack = { goBack() })
             Screen.PromoCode -> PromoCodeScreen(onBack = { goBack() })
             Screen.AdminPromo -> AdminPromoScreen(onBack = { goBack() })
+            Screen.Parcels -> ParcelsScreen(onBack = { goBack() })
+            Screen.AdminParcels -> AdminParcelsScreen(onBack = { goBack() })
         }
         }
     }
@@ -1656,6 +1660,7 @@ internal fun HomeScreen(
     onCoupons: () -> Unit = {},
     onPartnerCabinet: () -> Unit = {},
     onPromo: () -> Unit = {},
+    onParcels: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit = {},
     onInstantLogin: () -> Unit = {},
@@ -1744,6 +1749,7 @@ internal fun HomeScreen(
                     onMyStats = onMyStats,
                     onCoupons = onCoupons,
                     onPromo = onPromo,
+                    onParcels = onParcels,
                     onPartnerCabinet = onPartnerCabinet,
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,

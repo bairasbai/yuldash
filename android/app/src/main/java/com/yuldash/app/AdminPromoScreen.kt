@@ -97,7 +97,7 @@ private fun AdminPromoList(onBack: () -> Unit, onCreate: () -> Unit) {
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(vertical = 16.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
         ) {
             item {
                 Text(
@@ -278,7 +278,7 @@ private fun PromoCreateForm(onBack: () -> Unit, onCreated: () -> Unit) {
         LazyColumn(
             Modifier.padding(padding).fillMaxWidth().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(vertical = 16.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
         ) {
             item {
                 PromoField(

@@ -2473,6 +2473,110 @@ object ApiClient {
     /** Админ: включить/выключить кампанию. */
     suspend fun adminSetPromoStatus(id: Int, active: Boolean): Result<Unit> =
         call("POST", "/admin/promo/$id/status", JSONObject().put("active", active), auth = true).map { }
+
+    // ═══════════ M3: Доставка посылок (попутчик везёт бандероль) ═══════════
+    // Отправитель создаёт посылку → получает код вручения → курьер (попутный водитель) берёт,
+    // везёт, при вручении вводит код получателя. Сбор с курьера «на доверии» (fee_kop).
+
+    private fun parseParcel(o: JSONObject) = ParcelDto(
+        id = o.optInt("id"),
+        senderId = o.optInt("sender_id"),
+        courierId = nInt(o, "courier_id"),
+        fromCity = o.optString("from_city"), toCity = o.optString("to_city"),
+        fromLat = nDbl(o, "from_lat"), fromLng = nDbl(o, "from_lng"),
+        toLat = nDbl(o, "to_lat"), toLng = nDbl(o, "to_lng"),
+        size = o.optString("size"),
+        description = o.optString("description"),
+        receiverName = o.optString("receiver_name"),
+        receiverPhone = o.optString("receiver_phone"),
+        feeKop = o.optInt("fee_kop"),
+        status = o.optString("status", "created"),
+        confirmCode = o.optString("confirm_code"),
+        createdAt = o.optString("created_at"),
+        acceptedAt = nStr(o, "accepted_at"),
+        deliveredAt = nStr(o, "delivered_at"),
+        courier = o.optJSONObject("courier")?.takeIf { !o.isNull("courier") }?.let {
+            ParcelCourierDto(
+                id = it.optInt("id"), name = it.optString("name"),
+                rating = it.optDouble("rating", 0.0), phone = it.optString("phone"),
+            )
+        },
+    )
+
+    /** Отправитель: создать посылку. rulesAccepted обязателен (422 иначе), size обязателен. */
+    suspend fun createParcel(
+        fromCity: String, toCity: String, size: String, description: String,
+        receiverName: String, receiverPhone: String, rulesAccepted: Boolean,
+        fromLat: Double? = null, fromLng: Double? = null, toLat: Double? = null, toLng: Double? = null,
+    ): Result<ParcelDto> = call(
+        "POST", "/parcels",
+        JSONObject()
+            .put("from_city", fromCity).put("to_city", toCity)
+            .put("size", size).put("description", description)
+            .put("receiver_name", receiverName).put("receiver_phone", receiverPhone)
+            .put("rules_accepted", rulesAccepted)
+            .put("from_lat", fromLat ?: JSONObject.NULL).put("from_lng", fromLng ?: JSONObject.NULL)
+            .put("to_lat", toLat ?: JSONObject.NULL).put("to_lng", toLng ?: JSONObject.NULL),
+        auth = true,
+    ).map { parseParcel(it) }.onSuccess { Analytics.log("parcel_create") }
+
+    /** Отправитель: мои посылки (с кодом вручения и курьером, если принята). */
+    suspend fun getMyParcels(): Result<List<ParcelDto>> =
+        call("GET", "/parcels/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
+        }
+
+    /** Отправитель: отменить свою посылку. 409 — уже доставлена/отменена, 404 — чужая. */
+    suspend fun cancelParcel(id: Int): Result<Unit> =
+        call("POST", "/parcels/$id/cancel", null, auth = true).map { }
+
+    /** Курьер: доступные посылки (без телефона и кода). Опц. фильтр по городам. */
+    suspend fun getAvailableParcels(fromCity: String? = null, toCity: String? = null): Result<List<ParcelDto>> {
+        val q = buildList {
+            fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
+            toCity?.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
+        }.joinToString("&")
+        val path = "/parcels/available" + if (q.isNotBlank()) "?$q" else ""
+        return call("GET", path, null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
+        }
+    }
+
+    /** Курьер: взять посылку. 409 — своя/уже взяли. */
+    suspend fun acceptParcel(id: Int): Result<ParcelDto> =
+        call("POST", "/parcels/$id/accept", null, auth = true).map { parseParcel(it) }
+            .onSuccess { Analytics.log("parcel_accept") }
+
+    /** Курьер: сменить статус. status="in_transit" или "delivered"+code. 422 — неверный код. */
+    suspend fun setParcelStatus(id: Int, status: String, code: String? = null): Result<ParcelDto> {
+        val body = JSONObject().put("status", status)
+        code?.takeIf { it.isNotBlank() }?.let { body.put("code", it.trim()) }
+        return call("POST", "/parcels/$id/status", body, auth = true).map { parseParcel(it) }
+            .onSuccess { Analytics.log("parcel_status_$status") }
+    }
+
+    /** Курьер: посылки, которые везу (телефон получателя виден, кода нет). */
+    suspend fun getCarryingParcels(): Result<List<ParcelDto>> =
+        call("GET", "/parcels/carrying", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
+        }
+
+    /** Админ: все посылки + выписка (сколько доставлено, собранный сбор). */
+    suspend fun adminListParcels(): Result<ParcelAdminListDto> =
+        call("GET", "/admin/parcels", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("parcels") ?: JSONArray()
+            val s = obj.optJSONObject("statement")
+            ParcelAdminListDto(
+                parcels = (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) },
+                statement = ParcelStatementDto(
+                    deliveredCount = s?.optInt("delivered_count") ?: 0,
+                    collectedFeeKop = s?.optInt("collected_fee_kop") ?: 0,
+                ),
+            )
+        }
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
@@ -3339,3 +3443,35 @@ data class AdminPromoDto(
     val applied: Int, val active: Int,
     val validFrom: String?, val validUntil: String?, val activeFlag: Boolean, val createdAt: String,
 )
+
+// ═══════════ M3: Доставка посылок ═══════════
+
+/** Курьер, взявший посылку (виден отправителю после accept). */
+data class ParcelCourierDto(val id: Int, val name: String, val rating: Double, val phone: String)
+
+/** Посылка. Форма зависит от роли: у отправителя есть confirmCode/receiverPhone/courier;
+ *  в списке «доступные» (курьер) телефон и код скрыты (пустые). status: created/accepted/in_transit/delivered/canceled. */
+data class ParcelDto(
+    val id: Int,
+    val senderId: Int,
+    val courierId: Int?,
+    val fromCity: String, val toCity: String,
+    val fromLat: Double?, val fromLng: Double?, val toLat: Double?, val toLng: Double?,
+    val size: String,
+    val description: String,
+    val receiverName: String,
+    val receiverPhone: String,   // "" если скрыт
+    val feeKop: Int,
+    val status: String,
+    val confirmCode: String,     // "" если скрыт
+    val createdAt: String,
+    val acceptedAt: String?,
+    val deliveredAt: String?,
+    val courier: ParcelCourierDto?,
+)
+
+/** Выписка по посылкам (админ): сколько доставлено и собранный сбор. */
+data class ParcelStatementDto(val deliveredCount: Int, val collectedFeeKop: Int)
+
+/** Ответ /admin/parcels: все посылки + выписка. */
+data class ParcelAdminListDto(val parcels: List<ParcelDto>, val statement: ParcelStatementDto)
