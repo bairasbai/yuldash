@@ -1,12 +1,14 @@
 """Семейный контроль: доверенные контакты, шаринг поездки близкому,
 статусы поездки (сел/доехал/завершил) с SMS-уведомлением, оценки после поездки."""
 import re
+import secrets
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from ..config import settings
 from ..db import get_session
 from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, Rating, Ride, TripShare, TrustedContact, User,
@@ -18,6 +20,21 @@ router = APIRouter(tags=["family"])
 
 MAX_TRUSTED_CONTACTS = 10          # разумный потолок «своих» → анти-SMS-бомбинг (каждый SOS/статус шлёт SMS всем)
 _PHONE_RE = re.compile(r"^\+?\d{10,15}$")   # телефон-получатель SMS: 10–15 цифр, опц. ведущий +
+
+
+def _ensure_share_token(session: Session, share: TripShare) -> str:
+    """Токен live-ссылки (B7c): ≥16 случайных байт. Строки до миграции w2_livelink живут
+    с token=NULL — догенерируем при первом обращении (лениво, без бэкфилла)."""
+    if not share.token:
+        share.token = secrets.token_urlsafe(16)
+        session.add(share)
+        session.commit()
+        session.refresh(share)
+    return share.token
+
+
+def _live_link(token: str) -> str:
+    return f"{settings.public_base_url.rstrip('/')}/t/{token}"
 
 
 class ContactIn(BaseModel):
@@ -68,11 +85,16 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
         select(TripShare).where(TripShare.booking_id == booking_id, TripShare.contact_id == body.contact_id)
     ).first()
     if existing:
+        _ensure_share_token(session, existing)   # строка до w2_livelink → догенерировать токен
         return existing
-    share = TripShare(booking_id=booking_id, contact_id=body.contact_id)
+    share = TripShare(booking_id=booking_id, contact_id=body.contact_id, token=secrets.token_urlsafe(16))
     session.add(share)
     session.commit()
     session.refresh(share)
+    # Близкий сразу получает live-ссылку (B7c): живая карта поездки в браузере, без приложения.
+    if contact.phone:
+        who = user.name or user.phone
+        send_text(contact.phone, f"Юлдаш: {who} едет с попутчиком. Следи за поездкой: {_live_link(share.token)}")
     return share
 
 
@@ -95,16 +117,18 @@ def share_instant_trip(order_id: int, body: ShareIn, user: User = Depends(curren
         select(TripShare).where(TripShare.order_id == order_id, TripShare.contact_id == body.contact_id)
     ).first()
     if existing:
+        _ensure_share_token(session, existing)   # строка до w2_livelink → догенерировать токен
         return existing   # дедуп: повторный share тем же контактом не плодит дубли SMS
-    share = TripShare(order_id=order_id, contact_id=body.contact_id)
+    share = TripShare(order_id=order_id, contact_id=body.contact_id, token=secrets.token_urlsafe(16))
     session.add(share)
     session.commit()
     session.refresh(share)
     # Близкий сразу в курсе: кто едет и куда (телефон водителя не шлём — минимум перс.данных).
+    # Live-ссылка (B7c): живая карта поездки в браузере, без приложения.
     if contact.phone:
         who = user.name or user.phone
         route = f"{order.from_text or 'точка А'} → {order.to_text or 'точка Б'}"
-        send_text(contact.phone, f"Юлдаш: {who} едет на такси ({route}). Сообщим, когда доедет.")
+        send_text(contact.phone, f"Юлдаш: {who} едет на такси ({route}). Следи за поездкой: {_live_link(share.token)}")
     return share
 
 
@@ -123,6 +147,41 @@ def list_instant_shares(order_id: int, user: User = Depends(current_user),
     return session.exec(
         select(TripShare).where(TripShare.order_id == order_id, TripShare.contact_id.in_(contact_ids))
     ).all()
+
+
+def _revoke_share(session: Session, share_id: int, user: User, *, booking_id: int = None, order_id: int = None):
+    """Отозвать шаринг (B7c): строка удаляется → live-токен «сгорает» (/t/{token} → 404),
+    SMS-статусы этому контакту прекращаются. Только пассажир и только свой контакт."""
+    share = session.get(TripShare, share_id)
+    if not share or (booking_id is not None and share.booking_id != booking_id) \
+            or (order_id is not None and share.order_id != order_id):
+        raise HTTPException(404, "Шаринг не найден")
+    contact = session.get(TrustedContact, share.contact_id)
+    if not contact or contact.user_id != user.id:
+        raise HTTPException(403, "Отозвать может только владелец шаринга")
+    session.delete(share)
+    session.commit()
+    return {"ok": True}
+
+
+@router.delete("/instant/orders/{order_id}/share/{share_id}")
+def revoke_instant_share(order_id: int, share_id: int, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    if order.passenger_id != user.id:
+        raise HTTPException(403, "Доступно только пассажиру заказа")
+    return _revoke_share(session, share_id, user, order_id=order_id)
+
+
+@router.delete("/bookings/{booking_id}/share/{share_id}")
+def revoke_booking_share(booking_id: int, share_id: int, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    booking, _ = booking_and_ride_for_user(session, booking_id, user)
+    if booking.passenger_id != user.id:
+        raise HTTPException(403, "Доступно только пассажиру брони")
+    return _revoke_share(session, share_id, user, booking_id=booking_id)
 
 
 class TripStatusIn(BaseModel):

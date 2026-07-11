@@ -130,11 +130,19 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         start = time.monotonic()
         resp = await call_next(request)
         ms = (time.monotonic() - start) * 1000.0
-        print(f"[REQ] {request.method} {request.url.path} -> {resp.status_code} {ms:.0f}ms")
+        path = request.url.path
+        # Live-ссылка близкому (/t/{token}, B7c) — capability-URL: токен в пути = секрет,
+        # в лог не пишем (тот же принцип, что «без query», 152-ФЗ).
+        if path.startswith("/t/") or path.startswith("/api/v1/t/"):
+            path = path[: path.index("/t/") + 3] + "***"
+        print(f"[REQ] {request.method} {path} -> {resp.status_code} {ms:.0f}ms")
         return resp
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Любая необработанная ошибка → 500 без утечки стека наружу (стек — в лог)."""
-    print(f"[ERR] {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
+    path = request.url.path
+    if path.startswith("/t/") or path.startswith("/api/v1/t/"):
+        path = path[: path.index("/t/") + 3] + "***"   # токен live-ссылки — секрет (B7c)
+    print(f"[ERR] {request.method} {path}: {type(exc).__name__}: {exc}")
     return JSONResponse({"detail": "Внутренняя ошибка сервера"}, status_code=500)

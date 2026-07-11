@@ -157,6 +157,7 @@ class Settings(BaseSettings):
 
     # --- Прод-параметры ---
     media_base_url: str = "https://yulbash.ru"   # база для публичных URL медиа (фото/голос)
+    public_base_url: str = "https://yulbash.ru"  # база публичных ссылок (live-ссылка /t/{token} в SMS близкому)
     cors_origins: str = "*"                       # список origin через запятую; в проде сузить
     seed_demo: bool = True                        # демо-поездки в пустой БД (в проде выкл.)
 

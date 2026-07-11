@@ -11,6 +11,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session
 
 from ..db import engine
+from ..livepos import livepos_set
 from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, Ride
 from ..security import authenticate_ws
 from ..services import MAP_FEED_KEY, manager
@@ -120,6 +121,10 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                         if not b2 or b2.status not in (BookingStatus.confirmed, BookingStatus.onboard):
                             await websocket.close(code=1008, reason="Trip ended")
                             break
+                if role == "driver":
+                    # Live-ссылка близкому (B7c): последняя позиция машины → Redis (TTL ~2 мин),
+                    # публичный /t/{token}/state.json читает её. В БД/лог координаты НЕ пишем.
+                    livepos_set("booking", booking_id, lat, lng, payload.get("bearing"))
                 await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
                     "type": "loc",
                     "role": role,
@@ -199,6 +204,9 @@ async def instant_location(websocket: WebSocket, order_id: int):
                         if not o2 or o2.status not in INSTANT_LOC_ACTIVE:
                             await websocket.close(code=1008, reason="Order ended")
                             break
+                if role == "driver":
+                    # Live-ссылка близкому (B7c): позиция машины → Redis-кэш (см. трек брони выше).
+                    livepos_set("order", order_id, lat, lng, payload.get("bearing"))
                 await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
                     "type": "loc",
                     "role": role,
