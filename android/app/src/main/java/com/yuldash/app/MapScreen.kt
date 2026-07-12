@@ -3,6 +3,7 @@ package com.yuldash.app
 // Вкладка «Карта»: MapScreen + Яндекс MapKit (YandexMapCard, MapHero, маркеры-ценники,
 // геолокация, контролы). Вынесено из MainActivity (Фаза 3). Импорты целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -783,7 +784,7 @@ private fun HomeHeader(onSos: () -> Unit) {
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    if (isDarkNow) Icons.Default.LightMode else Icons.Default.DarkMode,
+                    painterResource(if (isDarkNow) R.drawable.yu_sun else R.drawable.yu_moon),
                     contentDescription = appText(
                         if (isDarkNow) "Светлая тема" else "Тёмная тема",
                         if (isDarkNow) "Яҡты тема" else "Ҡараңғы тема"

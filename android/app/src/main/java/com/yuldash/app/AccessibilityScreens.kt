@@ -4,6 +4,7 @@ package com.yuldash.app
 // доверенные контакты, повтор маршрута, обратный звонок. Вынесено из MainActivity (Фаза 1).
 // Импорты скопированы целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -923,13 +924,13 @@ internal fun CreatePassengerRequestContent(
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                 Column(Modifier.padding(vertical = 6.dp)) {
                     Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
-                    PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
-                    PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), childSeat, onChildSeatChange)
-                    PrefToggleRow(Icons.Default.Pets, appText("Еду с животным", "Хайуан менән"), pets, onPetsChange)
-                    PrefToggleRow(Icons.Default.Person, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair, onWheelchairChange)
-                    PrefToggleRow(Icons.Default.Luggage, appText("Есть багаж", "Багаж бар"), baggage, onBaggageChange)
-                    PrefToggleRow(Icons.Default.Block, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking, onNonSmokingChange)
-                    PrefToggleRow(Icons.Default.AcUnit, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
+                    PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
+                    PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"), childSeat, onChildSeatChange)
+                    PrefToggleRow(R.drawable.yu_pet, appText("Еду с животным", "Хайуан менән"), pets, onPetsChange)
+                    PrefToggleRow(R.drawable.yu_accessible, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair, onWheelchairChange)
+                    PrefToggleRow(R.drawable.yu_luggage, appText("Есть багаж", "Багаж бар"), baggage, onBaggageChange)
+                    PrefToggleRow(R.drawable.yu_smoke_free, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking, onNonSmokingChange)
+                    PrefToggleRow(R.drawable.yu_ac, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
                 }
             }
         }

@@ -3,6 +3,7 @@ package com.yuldash.app
 // Экран «Создать поездку» (водитель публикует рейс). Вынесено из MainActivity (Фаза 2).
 // Импорты скопированы целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -662,11 +663,11 @@ internal fun CreateRideFormContent(
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                 Column(Modifier.padding(vertical = 6.dp)) {
                     Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
-                    PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ өсөн"), womenOnly) { onWomenOnly(it) }
-                    PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло / бустер", "Балалар ултырғысы / бустер"), childSeat) { onChildSeat(it) }
-                    PrefToggleRow(Icons.Default.Pets, appText("Можно с животным", "Хайуан менән"), petsAllowed) { onPetsAllowed(it) }
-                    PrefToggleRow(Icons.Default.Luggage, appText("Есть место под багаж", "Багаж урыны бар"), baggage) { onBaggage(it) }
-                    PrefToggleRow(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), airConditioner) { onAirConditioner(it) }
+                    PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ өсөн"), womenOnly) { onWomenOnly(it) }
+                    PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло / бустер", "Балалар ултырғысы / бустер"), childSeat) { onChildSeat(it) }
+                    PrefToggleRow(R.drawable.yu_pet, appText("Можно с животным", "Хайуан менән"), petsAllowed) { onPetsAllowed(it) }
+                    PrefToggleRow(R.drawable.yu_luggage, appText("Есть место под багаж", "Багаж урыны бар"), baggage) { onBaggage(it) }
+                    PrefToggleRow(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"), airConditioner) { onAirConditioner(it) }
                     PrefToggleRow(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"), smoking) { onSmoking(it) }
                 }
             }
