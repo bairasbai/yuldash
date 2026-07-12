@@ -134,8 +134,11 @@ def set_zone(body: ZoneIn, user: User = Depends(current_user), session: Session 
 @router.get("/instant/workday")
 def get_workday(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Сводка смены таксиста для кабинета: сколько на линии, сколько осталось, блок отдыха,
-    когда разблокировка, использован ли «один попутчик домой»."""
-    return workday_mod.summary(session, user.id)
+    когда разблокировка, использован ли «один попутчик домой» + дашборд (заработок/заказы
+    за сегодня, текущая ступень комиссии)."""
+    s = workday_mod.summary(session, user.id)
+    s.update(debt_mod.driver_dashboard(session, user.id))
+    return s
 
 
 # ------------------------------ presence ------------------------------

@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -1182,6 +1183,110 @@ private fun unlockTimeLabel(iso: String?): String? = runCatching {
  * ближе к лимиту (остался ≤1 ч) — тёплый оранжевый; цвет и полоса анимируются плавно.
  * Попутка в лимит не входит — честно говорим об этом подписью.
  */
+/** Процент без хвоста «.0»: 3.0 → «3%», 2.5 → «2.5%». */
+private fun feePct(p: Double): String =
+    (if (p % 1.0 == 0.0) p.toInt().toString() else p.toString()) + "%"
+
+/**
+ * Дашборд таксиста (экран «на линии»): заработок и заказы ЗА СЕГОДНЯ крупной тёмно-зелёной
+ * картой (белый текст читаем в обеих темах — фикс. CanonGreenInk, не адаптивный) + честная
+ * ЛЕСЕНКА КОМИССИИ по стажу (3/5/8%): подсвечена текущая ступень, подпись «через N дней станет Y%».
+ * Данные — из /instant/workday (debt.driver_dashboard). Лесенка по дням стажа, НЕ по деньгам.
+ */
+@Composable
+private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
+    val earn by animateIntAsState(wd.earningsToday, tween(600), label = "earn")
+    val tiers = wd.feeTiers.ifEmpty { listOf(3.0, 5.0, 8.0) }
+    // Индекс текущей ступени по стажу (границы feeTierDays = [30,60]).
+    val activeIdx = when {
+        wd.feeTierDays.size < 2 -> 0
+        wd.tenureDays <= wd.feeTierDays[0] -> 0
+        wd.tenureDays <= wd.feeTierDays[1] -> 1
+        else -> 2
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // ── Заработок за сегодня (тёмно-зелёная плашка, белый текст читаем в обеих темах) ──
+            Surface(color = CanonGreenInk, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(appText("Сегодня", "Бөгөн"), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("$earn ₽", color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)
+                        Text(
+                            appText("${wd.ordersToday} ${pluralOrdersRu(wd.ordersToday)}", "${wd.ordersToday} заказ"),
+                            color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp,
+                        )
+                    }
+                    Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(30.dp))
+                }
+            }
+            // ── Лесенка комиссии (по стажу) ──
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(appText("Комиссия сервиса", "Сервис комиссияһы"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Text(feePct(wd.feePercent), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                }
+                // Три сегмента-ступени: подсвечена текущая.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    tiers.forEachIndexed { i, t ->
+                        val active = i == activeIdx
+                        Surface(
+                            color = if (active) CanonGreen2 else CanonMint,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f).height(34.dp),
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(feePct(t), color = if (active) Color.White else CanonMuted,
+                                    fontWeight = if (active) FontWeight.Black else FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+                // Честная подпись: когда ступень поднимется (или уже верхняя).
+                val note = if (wd.feeNextPercent != null && wd.feeDaysToNext != null) {
+                    val dn = wd.feeDaysToNext
+                    appText(
+                        "Сейчас ${feePct(wd.feePercent)} — стартовая ставка. Через $dn ${pluralDaysRu(dn)} станет ${feePct(wd.feeNextPercent)}. Всё равно ниже, чем у агрегаторов.",
+                        "Хәҙер ${feePct(wd.feePercent)} — башланғыс. $dn көндән ${feePct(wd.feeNextPercent)} булыр. Барыбер агрегаторҙарҙан түбәнерәк.",
+                    )
+                } else {
+                    appText("Максимальная ставка ${feePct(wd.feePercent)} — ниже, чем у агрегаторов (22–30%).",
+                        "Иң юғары ставка ${feePct(wd.feePercent)} — агрегаторҙарҙан (22–30%) түбәнерәк.")
+                }
+                Text(note, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+        }
+    }
+}
+
+/** RU-плюрал «заказ/заказа/заказов». */
+private fun pluralOrdersRu(n: Int): String {
+    val m10 = n % 10; val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> "заказ"
+        m10 in 2..4 && m100 !in 12..14 -> "заказа"
+        else -> "заказов"
+    }
+}
+
+/** RU-плюрал «день/дня/дней». */
+private fun pluralDaysRu(n: Int): String {
+    val m10 = n % 10; val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> "день"
+        m10 in 2..4 && m100 !in 12..14 -> "дня"
+        else -> "дней"
+    }
+}
+
 @Composable
 private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
     val warm = wd.remainingSec <= 3600                     // последний час — мягкое предупреждение
@@ -1402,6 +1507,10 @@ internal fun DriverCabinetContent(
         // домой») или прогресс к лимиту — показываем только одобренному таксисту и только
         // когда есть что показать (на линии / время уже капало / отдых).
         if (workday != null && (!taxiAppLoaded || taxiApplication?.status == "approved")) {
+            // Дашборд: заработок за сегодня + лесенка комиссии — когда таксист активен сегодня.
+            if (online || workday.secondsOnline > 0 || workday.ordersToday > 0) {
+                item { TaxiDashboardCard(workday) }
+            }
             if (workday.blocked) {
                 item { TaxiRestCard(workday, onCreateRide) }
             } else if (online || workday.secondsOnline > 0) {

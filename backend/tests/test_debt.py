@@ -89,6 +89,35 @@ def _debt_row(driver_id: int) -> CommissionDebt:
             CommissionDebt.driver_id == driver_id).order_by(CommissionDebt.id.desc())).first()
 
 
+# ============================ Дашборд таксиста (кабинет) ============================
+def test_driver_dashboard_today(client, user_factory, fake_redis):
+    """/instant/workday отдаёт заработок и заказы ЗА СЕГОДНЯ + текущую ступень комиссии.
+    Новичок (первый done-заказ) — 3% (1-я ступень), стаж 0 дней, дальше растёт до 5%."""
+    d, pax, done = _order_to_done(client, user_factory, fake_redis, "DashDrv", "DashPax")
+    wd = client.get("/instant/workday", headers=d["auth"])
+    assert wd.status_code == 200
+    body = wd.json()
+    # Заработок и счётчик за сегодня.
+    assert body["orders_today"] == 1
+    assert body["earnings_today"] == int(done["price_final"])
+    # Ступень комиссии — по стажу: первый заказ → 3%, стаж 0 дней, следующая ступень 5%.
+    assert body["fee_percent"] == settings.fee_tier1_percent
+    assert body["tenure_days"] == 0
+    assert body["fee_tiers"] == [settings.fee_tier1_percent, settings.fee_tier2_percent, settings.service_fee_percent]
+    assert body["fee_next_percent"] == settings.fee_tier2_percent
+    assert body["fee_days_to_next"] == settings.fee_tier1_days
+
+
+def test_driver_dashboard_empty_day(client, user_factory, fake_redis):
+    """Без завершённых заказов сегодня — нули, но ступень комиссии валидна (стартовая 3%)."""
+    d = _driver_online(client, user_factory, "EmptyDashDrv")
+    body = client.get("/instant/workday", headers=d["auth"]).json()
+    assert body["orders_today"] == 0
+    assert body["earnings_today"] == 0
+    assert body["fee_percent"] == settings.fee_tier1_percent
+    assert body["tenure_days"] == 0
+
+
 # ============================ Начисление долга ============================
 def test_debt_accrued_on_instant_done(client, user_factory, fake_redis):
     d, pax, done = _order_to_done(client, user_factory, fake_redis, "AccDrv", "AccPax")

@@ -1531,6 +1531,14 @@ object ApiClient {
                 blocked = o.optBoolean("blocked"),
                 unlockAt = o.optString("unlock_at").ifBlank { null },
                 returnRideUsed = o.optBoolean("return_ride_used"),
+                earningsToday = o.optInt("earnings_today"),
+                ordersToday = o.optInt("orders_today"),
+                feePercent = o.optDouble("fee_percent", 0.0),
+                tenureDays = o.optInt("tenure_days"),
+                feeTiers = o.optJSONArray("fee_tiers")?.let { a -> (0 until a.length()).map { a.optDouble(it) } } ?: emptyList(),
+                feeTierDays = o.optJSONArray("fee_tier_days")?.let { a -> (0 until a.length()).map { a.optInt(it) } } ?: emptyList(),
+                feeNextPercent = if (o.isNull("fee_next_percent")) null else o.optDouble("fee_next_percent"),
+                feeDaysToNext = if (o.isNull("fee_days_to_next")) null else o.optInt("fee_days_to_next"),
             )
         }
 
@@ -1834,6 +1842,15 @@ data class TaxiWorkdayDto(
     val blocked: Boolean,            // отдых: такси закрыто до unlockAt
     val unlockAt: String?,           // когда снова на линию (ISO, UTC-наивное), null если не заблокирован
     val returnRideUsed: Boolean,     // «один попутчик домой» уже опубликован
+    // Дашборд кабинета (заработок/заказы за сегодня + ступень комиссии по стажу).
+    val earningsToday: Int = 0,      // заработок за сегодня, ₽ (сумма price_final done-заказов)
+    val ordersToday: Int = 0,        // завершённых заказов сегодня
+    val feePercent: Double = 0.0,    // текущая комиссия платформы, % (с учётом промо запуска)
+    val tenureDays: Int = 0,         // стаж таксиста, дней (с первого done-заказа) — позиция на лесенке
+    val feeTiers: List<Double> = emptyList(),      // ступени комиссии [3,5,8]
+    val feeTierDays: List<Int> = emptyList(),      // границы ступеней в днях [30,60]
+    val feeNextPercent: Double? = null,            // следующая ступень, % (null = верхняя, дальше не растёт)
+    val feeDaysToNext: Int? = null,                // через сколько дней ступень поднимется (null = верхняя)
 )
 
 /** Пресет популярного маршрута (Сибай–Магнитогорск…) — чип, заполняющий «откуда/куда». */

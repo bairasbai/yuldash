@@ -17,7 +17,7 @@
 
 Приватность: суммы не логируем с привязкой к персоне — только id.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -88,6 +88,55 @@ def driver_fee_percent(session: Session, driver_id: int, now=None) -> float:
     if days <= settings.fee_tier2_days:
         return settings.fee_tier2_percent
     return settings.service_fee_percent
+
+
+def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] = None) -> dict:
+    """Данные дашборда таксиста для кабинета: заработок и заказы ЗА СЕГОДНЯ + текущая ступень
+    комиссии. Лесенка комиссии — по СТАЖУ (дни с первого done-заказа), не по деньгам:
+    первый месяц дешевле, потом растёт. Показываем честно, когда ступень поднимется.
+
+    earnings_today — сумма фактических цен (price_final, ₽) завершённых такси-заказов за
+    местный день; fee_percent — сколько платформа берёт сейчас (с учётом промо запуска)."""
+    now = now or utcnow()
+    tz = timedelta(hours=settings.local_tz_offset_hours)
+    ln = now + tz                                        # местное «сейчас»
+    start_utc = datetime(ln.year, ln.month, ln.day) - tz  # местная полночь → обратно в UTC
+    end_utc = start_utc + timedelta(days=1)
+    done_today = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.driver_id == driver_id,
+            InstantOrder.status == InstantOrderStatus.done,
+            InstantOrder.done_at >= start_utc,
+            InstantOrder.done_at < end_utc,
+        )
+    ).all()
+    earnings = sum(int(o.price_final if o.price_final is not None else o.price_estimate) for o in done_today)
+
+    percent = driver_fee_percent(session, driver_id, now)
+    first_done = session.exec(
+        select(InstantOrder.done_at).where(
+            InstantOrder.driver_id == driver_id,
+            InstantOrder.status == InstantOrderStatus.done,
+            InstantOrder.done_at.is_not(None),
+        ).order_by(InstantOrder.done_at.asc()).limit(1)
+    ).first()
+    tenure_days = (now - first_done).days if first_done else 0
+    if tenure_days <= settings.fee_tier1_days:
+        next_percent, days_to_next = settings.fee_tier2_percent, settings.fee_tier1_days - tenure_days
+    elif tenure_days <= settings.fee_tier2_days:
+        next_percent, days_to_next = settings.service_fee_percent, settings.fee_tier2_days - tenure_days
+    else:
+        next_percent, days_to_next = None, None       # верхняя ступень — дальше не растёт
+    return {
+        "earnings_today": earnings,
+        "orders_today": len(done_today),
+        "fee_percent": percent,
+        "tenure_days": tenure_days,
+        "fee_tiers": [settings.fee_tier1_percent, settings.fee_tier2_percent, settings.service_fee_percent],
+        "fee_tier_days": [settings.fee_tier1_days, settings.fee_tier2_days],
+        "fee_next_percent": next_percent,
+        "fee_days_to_next": days_to_next,
+    }
 
 
 def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -> int:
