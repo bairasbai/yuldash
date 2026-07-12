@@ -146,6 +146,7 @@ def _maybe_courier_soft_ladder(session: Session, courier_id: int, avg: float, cn
     now = utcnow()
     if avg < COURIER_PAUSE_RATING:
         prof.paused_until = now + timedelta(days=COURIER_SOFT_PAUSE_DAYS)
+        prof.online = False   # снимаем с линии: иначе «на линии», но заказы 403 — противоречие в UI
         prof.updated_at = now
         session.add(prof)
         session.commit()
