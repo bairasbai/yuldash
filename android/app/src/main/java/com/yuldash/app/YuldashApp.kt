@@ -891,8 +891,10 @@ internal fun YuldashApp() {
                 onPartners = { screen = Screen.AdminPartners },
                 onPromoAdmin = { screen = Screen.AdminPromo },
                 onParcelsAdmin = { screen = Screen.AdminParcels },
-                onCourierAdmin = { screen = Screen.AdminCourier }
+                onCourierAdmin = { screen = Screen.AdminCourier },
+                onIncomeCalc = { screen = Screen.IncomeCalculator }
             )
+            Screen.IncomeCalculator -> IncomeCalculatorScreen(onBack = { goBack() })
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
             Screen.AdminPaymentRequests -> AdminPaymentRequestsScreen(onBack = { goBack() })
