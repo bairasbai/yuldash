@@ -481,9 +481,9 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
         Text(appText("Проверь интернет и попробуй ещё раз.", "Интернетты тикшереп, ҡабат ҡара."),
             color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(20.dp))
-        AppButton(text = appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Accent)
+        AppButton(text = appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Primary)
         Spacer(Modifier.height(8.dp))
-        AppButton(text = appText("Назад", "Артҡа"), onClick = onBack, style = AppButtonStyle.Ghost)
+        AppButton(text = appText("Назад", "Артҡа"), onClick = onBack, style = AppButtonStyle.Secondary)
     }
 }
 
