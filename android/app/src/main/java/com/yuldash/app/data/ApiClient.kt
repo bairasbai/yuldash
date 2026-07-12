@@ -533,6 +533,7 @@ object ApiClient {
         parcelSize: String = "",     // посылка: габарит/вес
         pickupPointId: Int? = null,  // F14: выбрана известная точка сбора из справочника → привязать
         partnerId: Int? = null,      // F22: клиника-назначение (category=hospital)
+        quiet: Boolean = false,      // тихая поездка (в конце — чтобы не сдвигать позиционные вызовы)
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -549,6 +550,7 @@ object ApiClient {
             .put("smoking", smoking)
             .put("baggage", baggage)
             .put("air_conditioner", airConditioner)
+            .put("quiet", quiet)
             .put("recurrence", recurrence)
             .put("pickup", pickup)
             .put("pickup_lat", pickupLat ?: JSONObject.NULL)
@@ -3168,6 +3170,7 @@ private fun JSONObject.toRideDto() = RideDto(
     smoking = optBoolean("smoking"),
     baggage = optBoolean("baggage"),
     airConditioner = optBoolean("air_conditioner"),
+    quiet = optBoolean("quiet"),
     pickup = optString("pickup"),
     pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
     pickupLng = if (isNull("pickup_lng")) null else optDouble("pickup_lng"),

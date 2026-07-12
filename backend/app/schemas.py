@@ -31,6 +31,7 @@ class RideIn(BaseModel):
     baggage: bool = False
     air_conditioner: bool = False
     only_trusted: bool = False        # «только для своих» — поездку увидят/забронируют лишь L3
+    quiet: bool = False
     recurrence: str = "none"          # none / daily / weekdays / weekly
     receiver_name: Optional[str] = Field(None, max_length=120)   # посылка: кому отдать
     parcel_size: Optional[str] = Field(None, max_length=80)      # посылка: габарит/вес
@@ -62,6 +63,7 @@ class RideOut(BaseModel):
     baggage: bool = False
     air_conditioner: bool = False
     only_trusted: bool = False        # «только для своих» — клиент рисует бейдж «круг своих»
+    quiet: bool = False
     status: RideStatus
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)
     driver_name: str

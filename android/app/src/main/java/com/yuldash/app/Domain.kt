@@ -29,6 +29,7 @@ internal data class Ride(
     val smoking: Boolean = false,
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
+    val quiet: Boolean = false,
     val pickup: String = "",
     val pickupLat: Double? = null,
     val pickupLng: Double? = null,
