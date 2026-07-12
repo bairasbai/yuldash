@@ -13,7 +13,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "ride_quiet"
-down_revision = "w2_quality"
+down_revision = "city_profile"
 branch_labels = None
 depends_on = None
 
