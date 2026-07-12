@@ -3,6 +3,7 @@ package com.yuldash.app
 // Вкладки Поездки + Заявки + Чат и их карточки. Вынесено из MainActivity (Фаза 2).
 // Импорты целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -888,6 +889,18 @@ private fun PrefChip(icon: ImageVector, label: String) {
     }
 }
 
+/** То же, но иконка из брендового пака (vector-drawable) — красится под тему через tint. */
+@Composable
+private fun PrefChip(iconRes: Int, label: String) {
+    Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
+        Row(modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(iconRes), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(label, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+        }
+    }
+}
+
 // Лента чипов с условиями поездки (показывается только если есть хоть одно).
 @Composable
 private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
@@ -897,11 +910,11 @@ private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (ride.womenOnly) PrefChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
-        if (ride.childSeat) PrefChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"))
-        if (ride.petsAllowed) PrefChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"))
-        if (ride.baggage) PrefChip(Icons.Default.Luggage, appText("Багаж", "Багаж"))
-        if (ride.airConditioner) PrefChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"))
+        if (ride.womenOnly) PrefChip(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
+        if (ride.childSeat) PrefChip(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"))
+        if (ride.petsAllowed) PrefChip(R.drawable.yu_pet, appText("С животным", "Хайуан менән"))
+        if (ride.baggage) PrefChip(R.drawable.yu_luggage, appText("Багаж", "Багаж"))
+        if (ride.airConditioner) PrefChip(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"))
         if (ride.smoking) PrefChip(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"))
     }
 }
@@ -912,6 +925,19 @@ internal fun PrefToggleRow(icon: ImageVector, label: String, checked: Boolean, o
     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/** То же, но иконка из брендового пака (vector-drawable). */
+@Composable
+internal fun PrefToggleRow(iconRes: Int, label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+            Icon(painterResource(iconRes), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
         }
         Spacer(Modifier.width(12.dp))
         Text(label, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
@@ -1589,13 +1615,13 @@ internal fun RequestsFeedContent(
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 items(r.prefs, key = { it }) { key ->
                                     when (key) {
-                                        "women" -> PrefChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
-                                        "child" -> PrefChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"))
-                                        "pets" -> PrefChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"))
-                                        "wheelchair" -> PrefChip(Icons.Default.Person, appText("Коляска", "Коляска"))
-                                        "baggage" -> PrefChip(Icons.Default.Luggage, appText("Багаж", "Багаж"))
-                                        "nosmoke" -> PrefChip(Icons.Default.Block, appText("Не курить", "Тартмаҫҡа"))
-                                        "ac" -> PrefChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"))
+                                        "women" -> PrefChip(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
+                                        "child" -> PrefChip(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"))
+                                        "pets" -> PrefChip(R.drawable.yu_pet, appText("С животным", "Хайуан менән"))
+                                        "wheelchair" -> PrefChip(R.drawable.yu_accessible, appText("Коляска", "Коляска"))
+                                        "baggage" -> PrefChip(R.drawable.yu_luggage, appText("Багаж", "Багаж"))
+                                        "nosmoke" -> PrefChip(R.drawable.yu_smoke_free, appText("Не курить", "Тартмаҫҡа"))
+                                        "ac" -> PrefChip(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"))
                                     }
                                 }
                             }
