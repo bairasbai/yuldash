@@ -3,6 +3,7 @@ package com.yuldash.app
 // Корень навигации: YuldashApp (when(screen)) + HomeScreen (Scaffold+вкладки) + нижнее меню.
 // Вынесено из MainActivity (Фаза 3). Импорты целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -1642,31 +1643,31 @@ internal fun YuldashBottomBar(
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Map,
                 label = appText("Карта", "Карта"),
-                icon = Icons.Default.Map,
+                iconRes = R.drawable.yu_map_tab,
                 onClick = { onSelect(HomeTab.Map) }
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Rides,
                 label = appText("Поездки", "Сәфәрҙәр"),
-                icon = Icons.Default.ListAlt,
+                iconRes = R.drawable.yu_trip_list,
                 onClick = { onSelect(HomeTab.Rides) }
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Request,
                 label = appText("Заявка", "Заявка"),
-                icon = Icons.Default.AddBox,
+                iconRes = R.drawable.yu_request_add,
                 onClick = { onSelect(HomeTab.Request) }
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Chat,
                 label = appText("Чат", "Чат"),
-                icon = Icons.Default.ChatBubble,
+                iconRes = R.drawable.yu_chat,
                 onClick = { onSelect(HomeTab.Chat) }
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Profile,
                 label = appText("Профиль", "Профиль"),
-                icon = Icons.Default.Person,
+                iconRes = R.drawable.yu_profile,
                 onClick = { onSelect(HomeTab.Profile) }
             )
         }
@@ -1677,7 +1678,7 @@ internal fun YuldashBottomBar(
 private fun RowScope.YuldashBottomItem(
     selected: Boolean,
     label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconRes: Int,
     onClick: () -> Unit
 ) {
     val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(280), label = "navPill")
@@ -1698,7 +1699,7 @@ private fun RowScope.YuldashBottomItem(
             shape = RoundedCornerShape(18.dp)
         ) {
             Icon(
-                icon,
+                painterResource(iconRes),
                 contentDescription = label,
                 modifier = Modifier
                     .padding(horizontal = 12.dp, vertical = 6.dp)
