@@ -208,7 +208,7 @@ internal fun ClinicRidesScreen(onBack: () -> Unit, onBookRide: (Ride) -> Unit) {
                                 icon = Icons.Default.Schedule,
                             )
                         }
-                        else -> items(rides.size) { i ->
+                        else -> items(rides.size, key = { rides[it].id }) { i ->
                             val dto = rides[i]
                             ClinicRideCard(dto = dto, onBook = { onBookRide(dto.toUiRide()) })
                         }
@@ -269,7 +269,7 @@ private fun ClinicRideCard(dto: RideDto, onBook: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 MetaChip(Icons.Default.Schedule, time)
                 MetaChip(Icons.Default.EventSeat, appText("${ride.seats} мест", "${ride.seats} урын"))
-                MetaChip(Icons.Default.Star, String.format("%.1f", ride.rating))
+                MetaChip(Icons.Default.Star, String.format(java.util.Locale.US, "%.1f", ride.rating))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(ride.driver, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)

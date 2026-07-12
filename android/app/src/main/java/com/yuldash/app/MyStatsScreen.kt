@@ -351,12 +351,12 @@ private fun fmtInt(n: Int): String = "%,d".format(n).replace(',', ' ')
 private fun fmtKmStat(km: Double): String {
     if (km >= 1000) return fmtInt(km.toInt())
     val whole = km % 1.0 == 0.0
-    return if (whole) "%.0f".format(km) else "%.1f".format(km)
+    return if (whole) String.format(java.util.Locale.US, "%.0f", km) else String.format(java.util.Locale.US, "%.1f", km)
 }
 
 private fun fmtKg(kg: Double): String {
     val whole = kg % 1.0 == 0.0
-    val body = if (whole) "%.0f".format(kg) else "%.1f".format(kg)
+    val body = if (whole) String.format(java.util.Locale.US, "%.0f", kg) else String.format(java.util.Locale.US, "%.1f", kg)
     return "$body кг"
 }
 

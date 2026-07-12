@@ -580,7 +580,7 @@ internal fun VoiceRequestScreen(
                         text = appText("Создать заявку", "Заявка булдырыу"),
                         loading = submittingText,
                         onClick = {
-                            // Разбор «откуда → куда» как в fireRequestFromRoute, но ждём ответ сервера.
+                            // Разбор строки-маршрута «откуда → куда», но здесь ждём ответ сервера.
                             val parts = text.split("→", "->", "-").map { it.trim() }.filter { it.isNotEmpty() }
                             val from = parts.getOrElse(0) { text.trim() }
                             val to = parts.getOrElse(1) { "" }

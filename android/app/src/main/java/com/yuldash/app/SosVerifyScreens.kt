@@ -331,7 +331,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId:
         else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
-    val coordsText = if (sosLat != null && sosLng != null) String.format("%.5f, %.5f", sosLat, sosLng) else null
+    val coordsText = if (sosLat != null && sosLng != null) String.format(java.util.Locale.US, "%.5f, %.5f", sosLat, sosLng) else null
 
     fun dictText(): String = buildString {
         if (description.isNotBlank()) append(description.trim())
@@ -668,21 +668,27 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
     // Строки для Toast (вне Composable-контекста лямбд) — считаем заранее.
     val tUploadFail = appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләп булманы, тағы ҡабатла")
     val tSubmitFail = appText("Не получилось отправить. Проверь сеть и повтори", "Ебәреп булманы. Сетте тикшереп ҡабатла")
+    val tStatusFail = appText("Не удалось загрузить твой статус водителя. Проверь сеть.", "Водитель статусыңды йөкләп булманы. Сетте тикшер.")
 
+    // При сетевом сбое честно предупреждаем (не молчим и не показываем пустую форму как
+    // «документы не отправлены», если статус на сервере другой). Повтор — переоткрытием экрана.
     LaunchedEffect(Unit) {
-        ApiClient.getDriverStatus().onSuccess { s ->
-            docsStatus = s.docsStatus
-            verified = s.verified
-            autocheckResult = s.autocheckResult
-            autocheckData = s.autocheckData
-            if (s.carMake.isNotBlank()) make = s.carMake
-            if (s.carModel.isNotBlank()) model = s.carModel
-            if (s.carColor.isNotBlank()) carColor = s.carColor
-            if (s.carPlate.isNotBlank()) plate = s.carPlate
-            if (s.seats > 0) seats = s.seats.toString()
-            if (s.licenseUrl.isNotBlank()) licenseUrl = s.licenseUrl
-            if (s.carPhotoUrl.isNotBlank()) carPhotoUrl = s.carPhotoUrl
-        }
+        ApiClient.getDriverStatus()
+            .onSuccess { s ->
+                docsStatus = s.docsStatus
+                verified = s.verified
+                autocheckResult = s.autocheckResult
+                autocheckData = s.autocheckData
+                if (s.carMake.isNotBlank()) make = s.carMake
+                if (s.carModel.isNotBlank()) model = s.carModel
+                if (s.carColor.isNotBlank()) carColor = s.carColor
+                if (s.carPlate.isNotBlank()) plate = s.carPlate
+                if (s.seats > 0) seats = s.seats.toString()
+                if (s.licenseUrl.isNotBlank()) licenseUrl = s.licenseUrl
+                if (s.carPhotoUrl.isNotBlank()) carPhotoUrl = s.carPhotoUrl
+            }
+            // 401 (не вошёл) — норм, показываем чистую форму. Иначе сеть упала → предупреждаем.
+            .onFailure { e -> if ((e as? com.yuldash.app.data.ApiException)?.status != 401) Toast.makeText(context, tStatusFail, Toast.LENGTH_LONG).show() }
     }
     val pickLicense = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {

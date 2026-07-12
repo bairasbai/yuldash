@@ -282,11 +282,11 @@ internal fun NotificationsScreen(
     val allLabel = appText("Все", "Бөтәһе")
     val tripsLabel = appText("Поездки", "Сәфәрҙәр")
     val chatLabel = appText("Сообщения", "Хәбәрҙәр")
-    val systemLabel = appText("Система", "Система")
+    // Таба «Система» убрана: сервер таких уведомлений не шлёт (все события — booking/ride/message),
+    // поэтому она всегда была пустой. Оставили только реально наполняемые вкладки.
     val selectedLabel = when (selected) {
         "trips" -> tripsLabel
         "chat" -> chatLabel
-        "system" -> systemLabel
         else -> allLabel
     }
 
@@ -330,7 +330,6 @@ internal fun NotificationsScreen(
         when (selected) {
             "trips" -> n.type == "booking" || n.type == "ride"
             "chat" -> n.type == "message"
-            "system" -> n.type == "system"
             else -> true
         }
     }
@@ -376,13 +375,12 @@ internal fun NotificationsScreen(
             }
             item {
                 SegmentedTabs(
-                    listOf(allLabel, tripsLabel, chatLabel, systemLabel),
+                    listOf(allLabel, tripsLabel, chatLabel),
                     selectedLabel,
                     onSelect = {
                         selected = when (it) {
                             tripsLabel -> "trips"
                             chatLabel -> "chat"
-                            systemLabel -> "system"
                             else -> "all"
                         }
                     }
@@ -647,7 +645,6 @@ internal fun SafetyScreen(
     onReport: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
-    var hidePhone by remember { mutableStateOf(AppPrefs.hidePhone(ctx)) }
     var verifiedOnly by remember { mutableStateOf(AppPrefs.verifiedOnly(ctx)) }
     Scaffold(
         containerColor = CanonBg,
@@ -690,7 +687,9 @@ internal fun SafetyScreen(
             }
             item {
                 SettingsGroup {
-                    SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it; AppPrefs.setHidePhone(ctx, it) }
+                    // Честно: телефон прячет сервер (отдаёт номер только после подтверждения поездки).
+                    // Раньше тут был тумблер, который писал в prefs, но ни на что не влиял — убрали ложное обещание.
+                    SettingsNavRow(Icons.Default.PhoneLocked, appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерелгән"), appText("Твой номер откроется попутчику только после подтверждения поездки — так устроен Юлдаш.", "Номерың юлдашҡа тик сәфәр раҫланғас ҡына асыла — Юлдаш шулай эшләй."))
                     SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
                     SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
                     SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
@@ -787,7 +786,7 @@ internal fun SettingsScreen(
             }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.Info, appText("О приложении", "Ҡушымта тураһында"), "Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                    SettingsNavRow(Icons.Default.Info, appText("О приложении", "Ҡушымта тураһында"), appText("Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", "Нөсхә ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"))
                 }
             }
             item {
@@ -965,11 +964,9 @@ internal object AppPrefs {
         runCatching { AppLanguage.valueOf(sp(ctx).getString("app_language", "") ?: "") }.getOrDefault(AppLanguage.Ru)
     fun setLanguage(ctx: Context, v: AppLanguage) = sp(ctx).edit().putString("app_language", v.name).apply()
     fun verifiedOnly(ctx: Context) = sp(ctx).getBoolean("verified_only", false)
-    fun hidePhone(ctx: Context) = sp(ctx).getBoolean("hide_phone", true)
     fun setNotifications(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("notifications", v).apply()
     fun setSounds(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("sounds", v).apply()
     fun setVerifiedOnly(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("verified_only", v).apply()
-    fun setHidePhone(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("hide_phone", v).apply()
 }
 
 /** Экран «Фильтры по умолчанию»: тумблеры условий, сохраняются и применяются к «Ближайшим». */
@@ -1088,7 +1085,7 @@ internal fun AdminDriversContent(
         } else if (drivers.isEmpty()) {
             item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән водителдәр күренер")) }
         } else {
-            items(drivers.size) { i ->
+            items(drivers.size, key = { drivers[it].userId }) { i ->
                 val d = drivers[i]
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1216,7 +1213,7 @@ internal fun AdminReportsContent(
         } else if (reports.isEmpty()) {
             item { ListedEmpty(appText("Жалоб нет", "Ялыу юҡ"), appText("Хороший знак — пользователи довольны.", "Яҡшы билдә — ҡулланыусылар риза.")) }
         } else {
-            items(reports.size) { i ->
+            items(reports.size, key = { reports[it].id }) { i ->
                 val r = reports[i]
                 val severe = r.category in severeReportCategories
                 val open = r.status == "new" || r.status == "reviewing"
@@ -1380,7 +1377,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                 item {
                     Text(appText("Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.", "Водитель комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
                 }
-                items(debts.size) { i ->
+                items(debts.size, key = { debts[it].debtId }) { i ->
                     val g = debts[i]
                     val noName = appText("Без имени", "Исемһеҙ")
                     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
@@ -1406,7 +1403,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
             } else if (list.isEmpty() && debts.isEmpty()) {
                 item { ListedEmpty(appText("Нет заявок на оплату", "Түләү заявкалары юҡ"), appText("Здесь появятся оплаты буста, донаты и долги за такси на подтверждение.", "Бында буст түләүҙәре, донаттар һәм такси бурыстары раҫлауға күренер")) }
             } else if (list.isNotEmpty()) {
-                items(list.size) { i ->
+                items(list.size, key = { list[it].paymentId }) { i ->
                     val p = list[i]
                     val label = when (p.purpose) {
                         "donate" -> appText("Донат", "Донат")
@@ -1520,7 +1517,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
                 }
             }
             if (loading) item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            items(resps.size) { i ->
+            items(resps.size, key = { resps[it].id }) { i ->
                 val r = resps[i]
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1627,14 +1624,14 @@ internal fun BlocklistContent(
                     }
                 }
             } else {
-                items(blocks.size) { i ->
+                items(blocks.size, key = { blocks[it].blockedUserId }) { i ->
                     val b = blocks[i]
                     PersonRow(b.name, appText("Разблокировать", "Блокты алыу"), danger = false) { onUnblock(b.blockedUserId) }
                 }
             }
             if (addable.isNotEmpty()) {
                 item { Text(appText("Ваши попутчики", "Юлдаштарығыҙ"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp)) }
-                items(addable.size) { i ->
+                items(addable.size, key = { addable[it].id }) { i ->
                     val p = addable[i]
                     PersonRow(p.name, appText("Заблокировать", "Блоклау"), danger = true) { onBlock(p.id) }
                 }
@@ -1836,7 +1833,7 @@ internal fun ReportListContent(
                 }
             }
         } else {
-            items(partners.size) { i ->
+            items(partners.size, key = { partners[it].id }) { i ->
                 val p = partners[i]
                 PersonRow(p.name, appText("Пожаловаться", "Ялыу"), danger = true) { onSelect(p) }
             }
