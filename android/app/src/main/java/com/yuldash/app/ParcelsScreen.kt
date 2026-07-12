@@ -33,10 +33,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
@@ -70,6 +73,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.CourierEstimateDto
+import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.ParcelDto
 import kotlinx.coroutines.launch
 
@@ -181,6 +186,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
         return
     }
 
+    var deliveryType by remember { mutableStateOf("poputka") }   // poputka | courier | buy_bring
     var fromCity by remember { mutableStateOf("") }
     var toCity by remember { mutableStateOf("") }
     var size by remember { mutableStateOf("") }
@@ -188,12 +194,27 @@ private fun SendParcelTab(onSent: () -> Unit) {
     var receiverName by remember { mutableStateOf("") }
     var receiverPhone by remember { mutableStateOf("") }
     var rulesAccepted by remember { mutableStateOf(false) }
-    var sending by remember { mutableStateOf(false) }
+    var urgency by remember { mutableStateOf("bypath") }          // bypath | now
+    var shoppingList by remember { mutableStateOf("") }
+    var productRub by remember { mutableStateOf("") }
+    var estimate by remember { mutableStateOf<CourierEstimateDto?>(null) }
+    var fromLat by remember { mutableStateOf<Double?>(null) }
+    var fromLng by remember { mutableStateOf<Double?>(null) }
+    var toLat by remember { mutableStateOf<Double?>(null) }
+    var toLng by remember { mutableStateOf<Double?>(null) }
+    var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val sendErr = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Селтәрҙе тикшереп ҡабатла.")
 
-    val canSend = fromCity.isNotBlank() && toCity.isNotBlank() && size.isNotBlank() &&
-        receiverName.isNotBlank() && receiverPhone.isNotBlank() && rulesAccepted
+    val sendErr = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Селтәрҙе тикшереп ҡабатла.")
+    val geoErr = appText("Не удалось определить города. Проверь названия.", "Ҡалаларҙы билдәләп булманы. Атамаларҙы тикшер.")
+    val estErr = appText("Не удалось рассчитать. Проверь сеть.", "Иҫәпләп булманы. Селтәрҙе тикшер.")
+
+    val isCourier = deliveryType != "poputka"
+    val productRubInt = productRub.filter(Char::isDigit).toIntOrNull()
+    val buyBringOk = deliveryType != "buy_bring" ||
+        (shoppingList.isNotBlank() && productRubInt != null && productRubInt in 1..5000)
+    val baseFilled = fromCity.isNotBlank() && toCity.isNotBlank() && size.isNotBlank()
+    val receiverOk = receiverName.isNotBlank() && receiverPhone.isNotBlank()
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -203,18 +224,41 @@ private fun SendParcelTab(onSent: () -> Unit) {
         item {
             Text(
                 appText(
-                    "Отправь посылку с попутчиком, который и так едет в нужный город. Дёшево и по-соседски.",
-                    "Кәрәкле ҡалаға бараған юлдаш менән бандероль ебәр. Арзан һәм күршеләрсә.",
+                    "Отправь посылку своим: по пути с попутчиком дёшево, или закажи курьера — быстро и надёжно.",
+                    "Үҙебеҙҙекеләргә бандероль ебәр: юлдаш менән юл ыңғайы арзан, йәки курьер заказла — тиҙ һәм ышаныслы.",
                 ),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
             )
         }
+        // Тип доставки
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                DeliveryTypeCard(
+                    "poputka", deliveryType == "poputka",
+                    appText("По пути", "Юл ыңғайы"),
+                    appText("Попутчик, который и так едет. Дёшево, по-соседски.", "Юл ыңғайы бараған юлдаш. Арзан, күршеләрсә."),
+                    Icons.Default.LocalShipping,
+                ) { deliveryType = "poputka"; estimate = null }
+                DeliveryTypeCard(
+                    "courier", deliveryType == "courier",
+                    appText("Заказать курьера", "Курьер заказлау"),
+                    appText("Проверенный курьер Юлдаша заберёт и доставит. Цена — сразу.", "Юлдаштың тикшерелгән курьеры алып илтер. Хаҡы — шунда уҡ."),
+                    Icons.Default.DeliveryDining,
+                ) { deliveryType = "courier"; estimate = null }
+                DeliveryTypeCard(
+                    "buy_bring", deliveryType == "buy_bring",
+                    appText("Купи и привези", "Ал да килтер"),
+                    appText("Курьер купит товар за тебя и привезёт. До 5000 ₽.", "Курьер һинең өсөн тауар алып килтерер. 5000 ₽-ға тиклем."),
+                    Icons.Default.ShoppingBag,
+                ) { deliveryType = "buy_bring"; estimate = null }
+            }
+        }
         // Маршрут
         item {
-            ParcelField(fromCity, { fromCity = it }, appText("Откуда", "Ҡайҙан"), appText("Город отправления", "Ебәреү ҡалаһы"), cap = true)
+            ParcelField(fromCity, { fromCity = it; estimate = null }, appText("Откуда", "Ҡайҙан"), appText("Город отправления", "Ебәреү ҡалаһы"), cap = true)
         }
         item {
-            ParcelField(toCity, { toCity = it }, appText("Куда", "Ҡайҙа"), appText("Город получения", "Алыу ҡалаһы"), cap = true)
+            ParcelField(toCity, { toCity = it; estimate = null }, appText("Куда", "Ҡайҙа"), appText("Город получения", "Алыу ҡалаһы"), cap = true)
         }
         // Размер
         item {
@@ -223,11 +267,46 @@ private fun SendParcelTab(onSent: () -> Unit) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("small", "medium", "large").forEach { s ->
-                    ParcelSizeCard(s, selected = size == s) { size = s }
+                    ParcelSizeCard(s, selected = size == s) { size = s; estimate = null }
                 }
             }
         }
-        // Что за посылка
+        // Срочность (курьер / купи-привези)
+        if (isCourier) {
+            item {
+                Text(appText("Когда доставить", "Ҡасан илтергә"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    UrgencyChip(
+                        appText("По пути", "Юл ыңғайы"), appText("дешевле", "арзаныраҡ"),
+                        urgency == "bypath", Modifier.weight(1f),
+                    ) { urgency = "bypath"; estimate = null }
+                    UrgencyChip(
+                        appText("Срочно", "Ашығыс"), appText("сейчас", "хәҙер"),
+                        urgency == "now", Modifier.weight(1f),
+                    ) { urgency = "now"; estimate = null }
+                }
+            }
+        }
+        // Купи и привези: список покупок + сумма товара
+        if (deliveryType == "buy_bring") {
+            item {
+                ParcelField(shoppingList, { shoppingList = it }, appText("Что купить", "Нимә алырға"), appText("Например: хлеб, молоко, лекарство из аптеки", "Мәҫәлән: икмәк, һөт, дарыуханан дарыу"), minLines = 2)
+            }
+            item {
+                ParcelField(productRub, { productRub = it.filter(Char::isDigit).take(5); estimate = null }, appText("Сумма покупки, ₽", "Һатып алыу суммаһы, ₽"), "0", phone = true)
+            }
+            item {
+                val overLimit = productRubInt != null && productRubInt > 5000
+                Text(
+                    if (overLimit) appText("Лимит покупки — 5000 ₽. Уменьши сумму.", "Һатып алыу лимиты — 5000 ₽. Сумманы кәметер.")
+                    else appText("Курьер купит на эту сумму, а получатель вернёт её при вручении.", "Курьер шул суммаға алыр, алыусы тапшырғанда кире ҡайтарыр."),
+                    color = if (overLimit) CanonRed else CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
+        }
+        // Что за посылка / комментарий
         item {
             ParcelField(description, { description = it }, appText("Что за посылка", "Нимә бул"), appText("Например: документы, книга, гостинец", "Мәҫәлән: документтар, китап, күстәнәс"), minLines = 2)
         }
@@ -241,6 +320,10 @@ private fun SendParcelTab(onSent: () -> Unit) {
         item {
             ParcelField(receiverPhone, { receiverPhone = it }, appText("Телефон получателя", "Алыусы телефоны"), "+7 …", phone = true)
         }
+        // Оценка стоимости (курьер / купи-привези) — показываем ЧЕСТНО, из чего сложилась цена
+        estimate?.let { est ->
+            if (isCourier) item { EstimateCard(est) }
+        }
         // Обязательный чекбокс правил
         item {
             RulesCheckbox(rulesAccepted) { rulesAccepted = !rulesAccepted }
@@ -248,7 +331,12 @@ private fun SendParcelTab(onSent: () -> Unit) {
         item {
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Text(
-                    appText(
+                    if (isCourier)
+                        appText(
+                            "Курьер отвечает за сохранность. Не отправляй запрещённое: деньги, документы на предъявителя, лекарства без рецепта, скоропорт, оружие.",
+                            "Курьер һаҡлыҡ өсөн яуаплы. Тыйылғанды ебәрмә: аҡса, күрһәтеүсегә документтар, рецептһыҙ дарыу, тиҙ боҙолған аҙыҡ, ҡорал.",
+                        )
+                    else appText(
                         "Курьер — обычный попутчик, а не служба доставки. Не клади ценное, хрупкое или запрещённое. Ответственность за содержимое — на тебе.",
                         "Курьер — ябай юлдаш, доставка хеҙмәте түгел. Ҡиммәтле, ватыҡ йәки тыйылған әйберҙе һалма. Эстәлеге өсөн яуаплылыҡ — һиндә.",
                     ),
@@ -260,28 +348,164 @@ private fun SendParcelTab(onSent: () -> Unit) {
             item { Text(error ?: "", color = CanonRed, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
         }
         item {
-            AppButton(
-                text = appText("Отправить посылку", "Бандероль ебәреү"),
-                onClick = {
-                    if (sending || !canSend) return@AppButton
-                    sending = true; error = null
-                    scope.launch {
-                        ApiClient.createParcel(
-                            fromCity = fromCity.trim(), toCity = toCity.trim(), size = size,
-                            description = description.trim(), receiverName = receiverName.trim(),
-                            receiverPhone = receiverPhone.trim(), rulesAccepted = rulesAccepted,
-                        )
-                            .onSuccess { created = it }
-                            .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
-                        sending = false
-                    }
-                },
-                style = AppButtonStyle.Accent,
-                icon = Icons.Default.Inventory2,
-                loading = sending,
-                enabled = canSend,
-            )
+            when {
+                // Попутка — как в M3: сразу создаём посылку.
+                !isCourier -> AppButton(
+                    text = appText("Отправить посылку", "Бандероль ебәреү"),
+                    onClick = {
+                        val canSend = baseFilled && receiverOk && rulesAccepted
+                        if (working || !canSend) return@AppButton
+                        working = true; error = null
+                        scope.launch {
+                            ApiClient.createParcel(
+                                fromCity = fromCity.trim(), toCity = toCity.trim(), size = size,
+                                description = description.trim(), receiverName = receiverName.trim(),
+                                receiverPhone = receiverPhone.trim(), rulesAccepted = rulesAccepted,
+                            )
+                                .onSuccess { created = it }
+                                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
+                            working = false
+                        }
+                    },
+                    style = AppButtonStyle.Accent,
+                    icon = Icons.Default.Inventory2,
+                    loading = working,
+                    enabled = baseFilled && receiverOk && rulesAccepted,
+                )
+                // Курьер/купи-привези, шаг 1 — рассчитать цену (геокод городов + оценка сервера).
+                estimate == null -> AppButton(
+                    text = appText("Рассчитать доставку", "Илтеүҙе иҫәпләү"),
+                    onClick = {
+                        if (working || !(baseFilled && buyBringOk)) return@AppButton
+                        working = true; error = null
+                        scope.launch {
+                            val fromHit = GeocoderClient.suggest(fromCity.trim()).firstOrNull()
+                            val toHit = GeocoderClient.suggest(toCity.trim()).firstOrNull()
+                            if (fromHit == null || toHit == null) {
+                                error = geoErr; working = false; return@launch
+                            }
+                            fromLat = fromHit.lat; fromLng = fromHit.lon
+                            toLat = toHit.lat; toLng = toHit.lon
+                            ApiClient.courierEstimate(fromHit.lat, fromHit.lon, toHit.lat, toHit.lon, size, urgency)
+                                .onSuccess { estimate = it }
+                                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: estErr }
+                            working = false
+                        }
+                    },
+                    style = AppButtonStyle.Primary,
+                    icon = Icons.Default.Calculate,
+                    loading = working,
+                    enabled = baseFilled && buyBringOk,
+                )
+                // Курьер/купи-привези, шаг 2 — оформить заказ.
+                else -> AppButton(
+                    text = appText("Заказать доставку", "Илтеүҙе заказлау"),
+                    onClick = {
+                        val fLat = fromLat; val fLng = fromLng; val tLat = toLat; val tLng = toLng
+                        val canOrder = receiverOk && rulesAccepted
+                        if (working || !canOrder || fLat == null || fLng == null || tLat == null || tLng == null) return@AppButton
+                        working = true; error = null
+                        scope.launch {
+                            ApiClient.createCourierOrder(
+                                fromCity = fromCity.trim(), toCity = toCity.trim(),
+                                fromLat = fLat, fromLng = fLng, toLat = tLat, toLng = tLng,
+                                size = size, description = description.trim(),
+                                receiverName = receiverName.trim(), receiverPhone = receiverPhone.trim(),
+                                rulesAccepted = rulesAccepted, deliveryType = deliveryType, urgency = urgency,
+                                codAmountKop = if (deliveryType == "buy_bring") (productRubInt ?: 0) * 100 else null,
+                                shoppingList = if (deliveryType == "buy_bring") shoppingList.trim() else null,
+                            )
+                                .onSuccess { created = it }
+                                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
+                            working = false
+                        }
+                    },
+                    style = AppButtonStyle.Accent,
+                    icon = Icons.Default.DeliveryDining,
+                    loading = working,
+                    enabled = receiverOk && rulesAccepted,
+                )
+            }
         }
+    }
+}
+
+/** Карточка выбора типа доставки (По пути / Заказать курьера / Купи и привези). */
+@Composable
+private fun DeliveryTypeCard(
+    @Suppress("UNUSED_PARAMETER") value: String,
+    selected: Boolean,
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "dtype")
+    Surface(
+        onClick = onClick, color = bg, shape = CanonItemShape,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = if (selected) CanonGreen2 else CanonMint, shape = RoundedCornerShape(12.dp)) {
+                Icon(icon, contentDescription = null, tint = if (selected) Color.White else CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Text(subtitle, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+            }
+            if (selected) Icon(Icons.Default.CheckCircle, contentDescription = appText("Выбрано", "Һайланды"), tint = CanonGreen2, modifier = Modifier.size(22.dp))
+        }
+    }
+}
+
+/** Чип срочности доставки. */
+@Composable
+private fun UrgencyChip(title: String, subtitle: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) CanonMint else CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
+        modifier = modifier.height(64.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalArrangement = Arrangement.Center) {
+            Text(title, color = if (selected) CanonGreen2 else CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}
+
+/** Карточка оценки цены — честно показываем итог и наш сбор + разбивку. */
+@Composable
+private fun EstimateCard(est: CourierEstimateDto) {
+    Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(2.dp, CanonGreen2)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(appText("Доставка", "Илтеү"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text("≈ " + kopToRub(est.priceKop), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 32.sp)
+            Text(
+                appText("Из них наша комиссия ", "Шуларҙан беҙҙең комиссия ") + kopToRub(est.commissionKop) +
+                    appText(" — остальное получит курьер.", " — ҡалғанын курьер алыр."),
+                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+            Surface(color = CanonMint, shape = CanonItemShape) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    EstimateRow(appText("Подача", "Килеү"), kopToRub(est.breakdown.baseKop))
+                    EstimateRow(appText("Расстояние", "Ара") + " (${String.format("%.0f", est.distanceKm)} км)", kopToRub(est.breakdown.distanceKop))
+                    EstimateRow(appText("Размер", "Ҙурлыҡ"), kopToRub(est.breakdown.sizeKop))
+                    if (est.breakdown.urgencyKop > 0) EstimateRow(appText("Срочность", "Ашығыслыҡ"), kopToRub(est.breakdown.urgencyKop))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EstimateRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = CanonGreen2, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
     }
 }
 

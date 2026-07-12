@@ -661,6 +661,7 @@ internal fun YuldashApp() {
                 onCoupons = { screen = Screen.Coupons },
                 onPromo = { screen = Screen.PromoCode },
                 onParcels = { screen = Screen.Parcels },
+                onCourier = { screen = Screen.Courier },
                 onPartnerCabinet = { screen = Screen.PartnerCabinet },
                 onReview = { screen = Screen.AppReview },
                 onAdminReviews = { screen = Screen.AdminReviews },
@@ -889,7 +890,8 @@ internal fun YuldashApp() {
                 onTaxiPulse = { screen = Screen.AdminTaxiPulse },
                 onPartners = { screen = Screen.AdminPartners },
                 onPromoAdmin = { screen = Screen.AdminPromo },
-                onParcelsAdmin = { screen = Screen.AdminParcels }
+                onParcelsAdmin = { screen = Screen.AdminParcels },
+                onCourierAdmin = { screen = Screen.AdminCourier }
             )
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
@@ -1069,6 +1071,15 @@ internal fun YuldashApp() {
             Screen.AdminPromo -> AdminPromoScreen(onBack = { goBack() })
             Screen.Parcels -> ParcelsScreen(onBack = { goBack() })
             Screen.AdminParcels -> AdminParcelsScreen(onBack = { goBack() })
+            Screen.CourierOnboarding -> CourierOnboardingScreen(
+                onBack = { goBack() },
+                onOpenCourier = { screen = Screen.Courier },
+            )
+            Screen.Courier -> CourierScreen(
+                onBack = { goBack() },
+                onBecomeCourier = { screen = Screen.CourierOnboarding },
+            )
+            Screen.AdminCourier -> AdminCourierScreen(onBack = { goBack() })
         }
         }
     }
@@ -1661,6 +1672,7 @@ internal fun HomeScreen(
     onPartnerCabinet: () -> Unit = {},
     onPromo: () -> Unit = {},
     onParcels: () -> Unit = {},
+    onCourier: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit = {},
     onInstantLogin: () -> Unit = {},
@@ -1750,6 +1762,7 @@ internal fun HomeScreen(
                     onCoupons = onCoupons,
                     onPromo = onPromo,
                     onParcels = onParcels,
+                    onCourier = onCourier,
                     onPartnerCabinet = onPartnerCabinet,
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,

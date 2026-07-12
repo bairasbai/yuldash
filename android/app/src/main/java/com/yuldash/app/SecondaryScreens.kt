@@ -112,6 +112,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
@@ -1275,7 +1276,7 @@ internal fun AdminReportsContent(
 
 /** Кабинет админа — единый центр: заявки помощи, отклики, реклама. Виден только админу. */
 @Composable
-internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}) {
+internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
@@ -1295,6 +1296,7 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
                     SettingsNavRow(Icons.Default.Storefront, appText("Бизнесы-партнёры", "Партнёр-бизнестар"), appText("Модерация: одобрить купонных партнёров", "Модерация: купон партнёрҙарын раҫлау"), onClick = onPartners)
                     SettingsNavRow(Icons.Default.Loyalty, appText("Промокоды и кампании", "Промокодтар һәм акциялар"), appText("Коды для блогеров и акций, статистика", "Блогерҙар һәм акциялар өсөн кодтар, статистика"), onClick = onPromoAdmin)
                     SettingsNavRow(Icons.Default.LocalShipping, appText("Посылки", "Бандеролдәр"), appText("Доставки и собранный сбор", "Илтеүҙәр һәм йыйылған сбор"), onClick = onParcelsAdmin)
+                    SettingsNavRow(Icons.Default.DeliveryDining, appText("Курьеры", "Курьерҙар"), appText("Заявки курьеров: одобрить или отклонить", "Курьер заявкалары: раҫлау йәки кире ҡағыу"), onClick = onCourierAdmin)
                 }
             }
             item {

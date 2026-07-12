@@ -110,6 +110,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocalTaxi
@@ -291,6 +292,7 @@ internal fun ProfileScreen(
     onCoupons: () -> Unit = {},
     onPromo: () -> Unit = {},
     onParcels: () -> Unit = {},
+    onCourier: () -> Unit = {},
     onPartnerCabinet: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit,
@@ -572,6 +574,7 @@ internal fun ProfileScreen(
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Скидки по пути", "Юл буйынса ташламалар"), appText("Скидки от местных заведений по маршруту", "Маршрут буйынса ерле урындарҙан ташлама"), Icons.Default.LocalOffer, onCoupons) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Промокод", "Промокод"), appText("Ввести код друга или акции", "Дуҫ йәки акция кодын индереү"), Icons.Default.Redeem, onPromo) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Посылки", "Бандеролдәр"), appText("Отправить с попутчиком или подвезти", "Юлдаш менән ебәреү йәки илтеү"), Icons.Default.Inventory2, onParcels) } }
+            item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Режим курьера", "Курьер режимы"), appText("Возить заказы или стать курьером", "Заказ илтеү йәки курьер булыу"), Icons.Default.DeliveryDining, onCourier) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Кабинет пассажира", "Пассажир кабинеты"), appText("Мои брони, заявки и безопасность", "Брондәр, заявкалар һәм хәүефһеҙлек"), Icons.Default.EventSeat, onPassengerCabinet) } }
             item { Box(Modifier.appearIn(2)) { ProfileActionCard(appText("Кабинет водителя", "Водитель кабинеты"), appText("Маршруты, проверка и поднятие", "Маршруттар, тикшереү һәм күтәреү"), Icons.Default.DirectionsCar, onDriverCabinet) } }
             item { Box(Modifier.appearIn(3)) { ProfileActionCard(appText("Язык", "Тел"), if (isBashkir) "Башҡортса / Русский" else "Русский / Башҡортса", Icons.Default.Language, onToggleLanguage) } }

@@ -2501,6 +2501,12 @@ object ApiClient {
                 rating = it.optDouble("rating", 0.0), phone = it.optString("phone"),
             )
         },
+        deliveryType = o.optString("delivery_type", "poputka"),
+        urgency = o.optString("urgency"),
+        declaredValueKop = o.optInt("declared_value_kop"),
+        codAmountKop = o.optInt("cod_amount_kop"),
+        commissionKop = o.optInt("commission_kop"),
+        priceKop = o.optInt("price_kop"),
     )
 
     /** Отправитель: создать посылку. rulesAccepted обязателен (422 иначе), size обязателен. */
@@ -2577,6 +2583,141 @@ object ApiClient {
                 ),
             )
         }
+
+    // ═══════════ C1: Курьер Юлдаша (профессиональная доставка) ═══════════
+    // Пользователь подаёт заявку «Стать курьером» (транспорт + селфи) → админ одобряет →
+    // курьер выходит «на линию» (город/межгород/регион), берёт заказы, доставляет по коду.
+    // Отправитель заказывает курьера/«купи и привези» — сервер считает цену (комиссия 8% прозрачно).
+
+    private fun parseCourierApp(o: JSONObject) = CourierApplicationDto(
+        id = o.optInt("id"),
+        transport = o.optString("transport"),
+        status = o.optString("status", "pending"),
+        selfieUrl = o.optString("selfie_url"),
+        invitedBy = nStr(o, "invited_by"),
+        rejectReason = o.optString("reject_reason"),
+        createdAt = o.optString("created_at"),
+        reviewedAt = nStr(o, "reviewed_at"),
+        userId = o.optInt("user_id"),
+        name = o.optString("name"),
+        phone = o.optString("phone"),
+    )
+
+    /** Подать заявку «Стать курьером». transport: car|cargo. 422 — транспорт/селфи, 409 — заявка уже на рассмотрении. */
+    suspend fun applyCourier(transport: String, selfieUrl: String): Result<CourierApplicationDto> =
+        call("POST", "/courier/apply", JSONObject().put("transport", transport).put("selfie_url", selfieUrl), auth = true)
+            .map { parseCourierApp(it) }.onSuccess { Analytics.log("courier_apply") }
+
+    /** Моя заявка курьера. Ответ: {application: {...}|null}. null — ещё не подавал. */
+    suspend fun getCourierApplication(): Result<CourierApplicationDto?> =
+        call("GET", "/courier/application", null, auth = true).map { o ->
+            if (o.isNull("application")) null else o.optJSONObject("application")?.let { parseCourierApp(it) }
+        }
+
+    /** Курьер: выйти «на линию». zone: city|intercity|region. */
+    suspend fun courierOnline(zone: String, workCity: String? = null, workDirectionId: Int? = null): Result<Unit> {
+        val body = JSONObject().put("zone", zone)
+        workCity?.takeIf { it.isNotBlank() }?.let { body.put("work_city", it) }
+        workDirectionId?.let { body.put("work_direction_id", it) }
+        return call("POST", "/courier/online", body, auth = true).map { }.onSuccess { Analytics.log("courier_online") }
+    }
+
+    /** Курьер: уйти с линии. */
+    suspend fun courierOffline(): Result<Unit> =
+        call("POST", "/courier/offline", JSONObject(), auth = true).map { }.onSuccess { Analytics.log("courier_offline") }
+
+    /** Курьер: доступные заказы (без телефона/кода получателя). Опц. фильтр по городам. */
+    suspend fun getCourierAvailable(fromCity: String? = null, toCity: String? = null): Result<List<ParcelDto>> {
+        val q = buildList {
+            fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
+            toCity?.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
+        }.joinToString("&")
+        val path = "/courier/available" + if (q.isNotBlank()) "?$q" else ""
+        return call("GET", path, null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
+        }
+    }
+
+    /** Оценка стоимости доставки курьером. urgency: bypath|now. */
+    suspend fun courierEstimate(
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double, size: String, urgency: String,
+    ): Result<CourierEstimateDto> {
+        val q = "from_lat=$fromLat&from_lng=$fromLng&to_lat=$toLat&to_lng=$toLng&size=${enc(size)}&urgency=${enc(urgency)}"
+        return call("GET", "/courier/estimate?$q", null, auth = true).map { o ->
+            val b = o.optJSONObject("breakdown") ?: JSONObject()
+            CourierEstimateDto(
+                priceKop = o.optInt("price_kop"),
+                commissionKop = o.optInt("commission_kop"),
+                distanceKm = o.optDouble("distance_km", 0.0),
+                breakdown = CourierEstimateBreakdown(
+                    baseKop = b.optInt("base_kop"), distanceKop = b.optInt("distance_kop"),
+                    sizeKop = b.optInt("size_kop"), urgencyKop = b.optInt("urgency_kop"),
+                    commissionPercent = b.optDouble("commission_percent", 0.0),
+                ),
+            )
+        }
+    }
+
+    /** Отправитель: заказать курьера / «купи и привези». deliveryType: courier|buy_bring, urgency: bypath|now.
+     *  422 — «Сумма покупки слишком большая (лимит 5000 ₽)» / rules_accepted / размер / тип. 403 — курьер выключен. */
+    suspend fun createCourierOrder(
+        fromCity: String, toCity: String,
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        size: String, description: String, receiverName: String, receiverPhone: String, rulesAccepted: Boolean,
+        deliveryType: String, urgency: String,
+        declaredValueKop: Int? = null, codAmountKop: Int? = null, shoppingList: String? = null,
+    ): Result<ParcelDto> {
+        val body = JSONObject()
+            .put("from_city", fromCity).put("to_city", toCity)
+            .put("from_lat", fromLat).put("from_lng", fromLng)
+            .put("to_lat", toLat).put("to_lng", toLng)
+            .put("size", size).put("description", description)
+            .put("receiver_name", receiverName).put("receiver_phone", receiverPhone)
+            .put("rules_accepted", rulesAccepted)
+            .put("delivery_type", deliveryType).put("urgency", urgency)
+        declaredValueKop?.let { body.put("declared_value_kop", it) }
+        codAmountKop?.let { body.put("cod_amount_kop", it) }
+        shoppingList?.takeIf { it.isNotBlank() }?.let { body.put("shopping_list", it) }
+        return call("POST", "/courier/orders", body, auth = true).map { parseParcel(it) }
+            .onSuccess { Analytics.log("courier_order_$deliveryType") }
+    }
+
+    /** Кабинет курьера: заявка + профиль (если одобрен) + выписка (доставлено/сбор). */
+    suspend fun getCourierMe(): Result<CourierMeDto> =
+        call("GET", "/courier/me", null, auth = true).map { o ->
+            val app = if (o.isNull("application")) null else o.optJSONObject("application")?.let { parseCourierApp(it) }
+            val p = if (o.isNull("profile")) null else o.optJSONObject("profile")
+            val profile = p?.let {
+                CourierProfileDto(
+                    id = it.optInt("id"), online = it.optBoolean("online"),
+                    carClass = it.optString("car_class"), zone = it.optString("zone"),
+                    workCity = nStr(it, "work_city"), workDirectionId = nInt(it, "work_direction_id"),
+                    updatedAt = it.optString("updated_at"),
+                )
+            }
+            val s = o.optJSONObject("statement")
+            CourierMeDto(
+                application = app, profile = profile,
+                statement = CourierStatementDto(
+                    deliveredCount = s?.optInt("delivered_count") ?: 0,
+                    commissionKop = s?.optInt("commission_kop") ?: 0,
+                ),
+            )
+        }
+
+    /** Админ: заявки курьеров (pending сверху решает экран). Ответ — массив application. */
+    suspend fun adminListCourierApps(): Result<List<CourierApplicationDto>> =
+        call("GET", "/admin/courier-applications", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseCourierApp(arr.getJSONObject(it)) }
+        }
+
+    suspend fun adminApproveCourier(id: Int): Result<Unit> =
+        call("POST", "/admin/courier-applications/$id/approve", JSONObject(), auth = true).map { }
+
+    suspend fun adminRejectCourier(id: Int, reason: String): Result<Unit> =
+        call("POST", "/admin/courier-applications/$id/reject", JSONObject().put("reason", reason), auth = true).map { }
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
@@ -3468,6 +3609,57 @@ data class ParcelDto(
     val acceptedAt: String?,
     val deliveredAt: String?,
     val courier: ParcelCourierDto?,
+    // C1: курьер Юлдаша (профессиональная доставка). Для обычной попутки deliveryType="poputka".
+    val deliveryType: String = "poputka",   // poputka | courier | buy_bring
+    val urgency: String = "",                // bypath | now (для courier/buy_bring)
+    val declaredValueKop: Int = 0,           // объявленная ценность (courier)
+    val codAmountKop: Int = 0,               // сумма выкупа товара (buy_bring)
+    val commissionKop: Int = 0,              // наш сбор (уже входит в priceKop)
+    val priceKop: Int = 0,                   // итоговая цена доставки (courier/buy_bring)
+)
+
+// ═══════════ C1: Курьер Юлдаша ═══════════
+
+/** Заявка «Стать курьером». status: pending | approved | rejected. */
+data class CourierApplicationDto(
+    val id: Int,
+    val transport: String,        // car | cargo
+    val status: String,           // pending | approved | rejected
+    val selfieUrl: String,
+    val invitedBy: String?,       // «кто пригласил» (реферал, доверие между своими)
+    val rejectReason: String,     // причина отклонения (видит курьер)
+    val createdAt: String,
+    val reviewedAt: String?,
+    // Только в админ-списке (в личной заявке пустые):
+    val userId: Int = 0,
+    val name: String = "",
+    val phone: String = "",
+)
+
+/** Разбивка цены доставки курьером — показываем честно (из чего сложилась цена). */
+data class CourierEstimateBreakdown(
+    val baseKop: Int, val distanceKop: Int, val sizeKop: Int, val urgencyKop: Int, val commissionPercent: Double,
+)
+
+/** Оценка стоимости доставки курьером (сервер считает по своей формуле). */
+data class CourierEstimateDto(
+    val priceKop: Int, val commissionKop: Int, val distanceKm: Double, val breakdown: CourierEstimateBreakdown,
+)
+
+/** Профиль курьера (режим работы). */
+data class CourierProfileDto(
+    val id: Int, val online: Boolean, val carClass: String, val zone: String,
+    val workCity: String?, val workDirectionId: Int?, val updatedAt: String,
+)
+
+/** Выписка курьера: сколько доставил и сколько нашего сбора собрано. */
+data class CourierStatementDto(val deliveredCount: Int, val commissionKop: Int)
+
+/** Ответ /courier/me: заявка + профиль (если одобрен) + выписка. */
+data class CourierMeDto(
+    val application: CourierApplicationDto?,
+    val profile: CourierProfileDto?,
+    val statement: CourierStatementDto,
 )
 
 /** Выписка по посылкам (админ): сколько доставлено и собранный сбор. */
