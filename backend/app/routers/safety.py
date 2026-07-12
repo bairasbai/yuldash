@@ -148,6 +148,7 @@ class ReportOut(BaseModel):
     resolution: Optional[str] = None
     order_id: Optional[int] = None
     booking_id: Optional[int] = None
+    parcel_id: Optional[int] = None   # C2: спор по доставке (category=parcel_dispute)
     target_user_id: int = 0
 
 
@@ -213,7 +214,8 @@ def admin_reports(status: Optional[str] = None, category: Optional[str] = None,
             target_phone=(tgt.phone if tgt else ""),
             reason=r.reason, created_at=r.created_at,
             category=r.category, status=r.status, resolution=r.resolution,
-            order_id=r.order_id, booking_id=r.booking_id, target_user_id=r.target_user_id,
+            order_id=r.order_id, booking_id=r.booking_id,
+            parcel_id=getattr(r, "parcel_id", None), target_user_id=r.target_user_id,
         ))
     return out
 

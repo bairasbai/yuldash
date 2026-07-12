@@ -414,6 +414,7 @@ class Report(SQLModel, table=True):
     category: str = Field(default="other", index=True)     # перечень в quality.REPORT_CATEGORIES
     order_id: Optional[int] = Field(default=None, foreign_key="instantorder.id")   # быстрый заказ
     booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")      # бронь попутки
+    parcel_id: Optional[int] = Field(default=None, foreign_key="parceldelivery.id")  # C2: спор по доставке
     status: str = Field(default="new", index=True)         # new | reviewing | resolved | rejected
     resolution: Optional[str] = None                       # решение админа (текст разбора)
     resolved_at: Optional[datetime] = None                 # когда разобрано (resolve/reject)
@@ -1034,6 +1035,16 @@ class ParcelDelivery(SQLModel, table=True):
     commission_kop: int = 0
     # Срочность: bypath = в ближайший рейс/по пути | now = нужен курьер сейчас (надбавка к цене).
     urgency: str = Field(default="bypath", max_length=16)
+    # --- C2: расчёт «купи и привези» с получателем + объявленная ценность ---
+    # Цена доставки (коп), зафиксированная при создании (без комиссии платформы) — сколько
+    # получатель платит за саму доставку. Для buy_bring: получатель платит товар + доставку.
+    delivery_price_kop: int = 0
+    # «Купи и привези»: сколько курьер ФАКТИЧЕСКИ потратил на товар в магазине (может отличаться
+    # от cod_amount_kop, заявленного при заказе). Получатель возвращает именно эту сумму. 0 = не задано.
+    goods_actual_kop: int = 0
+    # Получатель рассчитался с курьером (товар + доставка). Ставится при вручении buy_bring.
+    settled: bool = False
+    settled_at: Optional[datetime] = None
 
 
 class CourierApplication(SQLModel, table=True):

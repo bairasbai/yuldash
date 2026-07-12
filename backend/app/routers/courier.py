@@ -485,6 +485,8 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         # fee_kop = комиссия платформы (доход, «на доверии») — попадает в /admin/parcels statement.
         fee_kop=priced["commission_kop"],
         commission_kop=priced["commission_kop"],
+        # C2: цена доставки для получателя (без комиссии) — фиксируем при создании.
+        delivery_price_kop=priced["price_kop"],
         declared_value_kop=int(body.declared_value_kop or 0),
         cod_amount_kop=cod_amount_kop,
         delivery_type=dtype,
@@ -507,6 +509,40 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
     out["price_kop"] = priced["price_kop"]       # полная цена доставки (курьеру платят напрямую)
     out["breakdown"] = priced["breakdown"]
     return out
+
+
+# ---------------------------------------------------------------------------
+# «Купи и привези»: фактическая стоимость товара (расчёт с получателем)
+# ---------------------------------------------------------------------------
+class GoodsCostIn(BaseModel):
+    actual_kop: int = 0   # сколько курьер реально потратил на товар в магазине
+
+
+@router.post("/courier/orders/{order_id}/goods-cost")
+def courier_goods_cost(order_id: int, body: GoodsCostIn, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    """Курьер вводит ФАКТИЧЕСКУЮ стоимость купленного товара (buy_bring). Получатель вернёт
+    именно эту сумму + доставку. Только назначенный курьер (courier_id==me, иначе 404 — IDOR закрыт),
+    только buy_bring (иначе 409), только до вручения (иначе 409). Сумма > 0 и ≤ потолок (иначе 422).
+    Возвращает блок settlement — «к оплате получателем» (товар + доставка = итого)."""
+    parcel = session.get(ParcelDelivery, order_id)
+    if not parcel or parcel.courier_id != user.id:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "buy_bring":
+        raise herr(409, "Только для «купи и привези»", "Тик «һатып ал да килтер» өсөн")
+    if parcel.status in ("delivered", "canceled"):
+        raise herr(409, "Заказ уже завершён", "Заказ инде тамамланған")
+    actual_kop = int(body.actual_kop or 0)
+    if actual_kop <= 0:
+        raise herr(422, "Укажи стоимость покупки", "Һатып алыу хаҡын күрһәт")
+    if actual_kop > COURIER_COD_CAP_KOP:
+        raise herr(422, f"Сумма покупки слишком большая (лимит {COURIER_COD_CAP_KOP // 100} ₽)",
+                   f"Һатып алыу суммаһы бик ҙур (сик {COURIER_COD_CAP_KOP // 100} һ)")
+    parcel.goods_actual_kop = actual_kop
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    return {"id": parcel.id, "settlement": parcels_mod._settlement(parcel)}
 
 
 # ---------------------------------------------------------------------------

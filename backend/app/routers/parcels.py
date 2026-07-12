@@ -29,7 +29,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..errors import herr
-from ..models import ParcelDelivery, User, UserRole
+from ..models import ParcelDelivery, Report, User, UserRole
 from ..security import current_user
 from ..services import notify_admin_telegram, send_push
 from ..timeutil import utcnow
@@ -85,6 +85,22 @@ def _gen_code(session: Session) -> str:
 
 # ---------- Сериализация ----------
 
+def _settlement(p: ParcelDelivery) -> Optional[dict]:
+    """C2: «к оплате получателем» для buy_bring — товар (по факту) + доставка = итого.
+    None для не-buy_bring (обычная доставка платится отдельно). goods_actual_kop=0 → товар ещё
+    не подтверждён курьером (получатель увидит только доставку, итог обновится после ввода)."""
+    if (getattr(p, "delivery_type", "poputka") or "poputka") != "buy_bring":
+        return None
+    goods = getattr(p, "goods_actual_kop", 0) or 0
+    delivery = getattr(p, "delivery_price_kop", 0) or 0
+    return {
+        "goods_actual_kop": goods,      # сколько курьер потратил на товар (0 = ещё не введено)
+        "delivery_kop": delivery,       # цена доставки для получателя (без комиссии платформы)
+        "total_due_kop": goods + delivery,   # итого к оплате получателем
+        "settled": bool(getattr(p, "settled", False)),   # получатель уже рассчитался?
+    }
+
+
 def _parcel_base(p: ParcelDelivery) -> dict:
     """Общие поля заявки БЕЗ приватного телефона и БЕЗ кода вручения."""
     return {
@@ -108,6 +124,8 @@ def _parcel_base(p: ParcelDelivery) -> dict:
         "declared_value_kop": getattr(p, "declared_value_kop", 0) or 0,
         "cod_amount_kop": getattr(p, "cod_amount_kop", 0) or 0,
         "commission_kop": getattr(p, "commission_kop", 0) or 0,
+        # C2: расчёт с получателем (buy_bring) — товар+доставка; None для остальных типов.
+        "settlement": _settlement(p),
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "accepted_at": p.accepted_at.isoformat() if p.accepted_at else None,
         "delivered_at": p.delivered_at.isoformat() if p.delivered_at else None,
@@ -318,11 +336,19 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
             raise herr(409, "Сначала прими посылку", "Башта бандерольде ал")
         parcel.status = "in_transit"
     else:  # delivered — нужен верный код вручения
+        # C2 «купи и привези»: сперва курьер должен ввести фактическую стоимость товара
+        # (получатель возвращает её + доставку). Без неё расчёт невозможен → 409.
+        if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "buy_bring" \
+                and (getattr(parcel, "goods_actual_kop", 0) or 0) <= 0:
+            raise herr(409, "Сначала укажи стоимость покупки", "Башта һатып алыу хаҡын күрһәт")
         code = (body.code or "").strip().upper()
         if not code or code != (parcel.confirm_code or "").upper():
             raise herr(422, "Неверный код получения", "Ялған алыу коды")
         parcel.status = "delivered"
         parcel.delivered_at = utcnow()
+        if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "buy_bring":
+            parcel.settled = True          # получатель рассчитался (товар + доставка)
+            parcel.settled_at = utcnow()
 
     session.add(parcel)
     session.commit()
@@ -347,6 +373,56 @@ def parcels_carrying(user: User = Depends(current_user), session: Session = Depe
         ).order_by(ParcelDelivery.id.desc())
     ).all()
     return [_parcel_for_courier(p) for p in rows]
+
+
+# ---------- Спор по доставке (ответственность) ----------
+
+class DisputeIn(BaseModel):
+    reason: str = Field("", max_length=1000)   # что случилось (повреждение/недоставка/расчёт)
+
+
+@router.post("/parcels/{parcel_id}/dispute")
+def parcel_dispute(parcel_id: int, body: DisputeIn, user: User = Depends(current_user),
+                   session: Session = Depends(get_session)):
+    """Открыть спор по доставке (ответственность). Кто может: участник заказа — отправитель ИЛИ
+    курьер (получатель без аккаунта действует через отправителя). Чужой заказ → 404 (IDOR закрыт).
+
+    Ориентир при разборе — объявленная ценность (declared_value_kop); без объявления — по
+    договорённости (текст на клиенте). Спор — это Report(category=parcel_dispute, parcel_id=…),
+    попадает в общую админ-ленту жалоб. Уведомление админа — best-effort."""
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel or user.id not in (parcel.sender_id, parcel.courier_id):
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    # Цель жалобы — вторая сторона; если курьер ещё не назначен, привязываем к отправителю.
+    counterparty = parcel.courier_id if user.id == parcel.sender_id else parcel.sender_id
+    if not counterparty:
+        counterparty = parcel.sender_id
+    report = Report(
+        reporter_id=user.id,
+        target_user_id=counterparty,
+        reason=(body.reason or "").strip(),
+        category="parcel_dispute",
+        parcel_id=parcel.id,
+    )
+    session.add(report)
+    session.commit()
+    session.refresh(report)
+    try:  # админу — best-effort, без ПДн (телефоны не включаем)
+        notify_admin_telegram(
+            f"⚠️ Спор по доставке\nReport ID: {report.id}\nПосылка ID: {parcel.id}\n"
+            f"Маршрут: {parcel.from_city} → {parcel.to_city}\n"
+            f"Тип: {getattr(parcel, 'delivery_type', 'poputka')}"
+        )
+    except Exception:
+        pass
+    return {
+        "id": report.id,
+        "parcel_id": parcel.id,
+        "category": report.category,
+        "status": report.status,
+        "declared_value_kop": getattr(parcel, "declared_value_kop", 0) or 0,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
+    }
 
 
 # ---------- Админ ----------
