@@ -1,5 +1,7 @@
 package com.yuldash.app
 
+import androidx.compose.ui.res.painterResource
+import android.graphics.PointF
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -740,7 +742,7 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
             Box(Modifier.size((60 + pulse * 56).dp).background(CanonGreen2.copy(alpha = 0.12f * pulse), CircleShape))
             Surface(shape = CircleShape, color = CanonGreen2) {
-                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonBg, modifier = Modifier.padding(20.dp).size(34.dp))
+                Icon(painterResource(R.drawable.yu_map_car), contentDescription = null, tint = CanonBg, modifier = Modifier.padding(20.dp).size(34.dp))
             }
         }
         Spacer(Modifier.height(24.dp))
