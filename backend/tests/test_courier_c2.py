@@ -193,3 +193,31 @@ def test_dispute_by_non_participant_404(client, user_factory):
                     json={"reason": "Просто так"})
     assert r.status_code == 404
     assert "ru" in r.json()["detail"]
+
+
+# ----------------------------- ЦЕНА ДОСТАВКИ ВИДНА КУРЬЕРУ (C1) -----------------------------
+
+def test_courier_sees_delivery_price_not_commission(client, user_factory):
+    """Курьер должен видеть ЦЕНУ ДОСТАВКИ (свой заработок), а не наш сбор.
+    Регресс: _parcel_base не отдавал price_kop → в списках светилась комиссия (~25₽)
+    вместо цены доставки (~140₽), а «Твой доход» уходил в минус."""
+    courier = _make_courier(client, user_factory)
+    sender = user_factory(name="Отправитель")
+    ro = _order(client, sender)
+    assert ro.status_code == 200, ro.text
+    pid = ro.json()["id"]
+
+    # 1) В доступных заказах цена доставки видна и это НЕ комиссия.
+    av = client.get("/courier/available", headers=courier["auth"])
+    assert av.status_code == 200, av.text
+    row = next(x for x in av.json() if x["id"] == pid)
+    assert "price_kop" in row, "price_kop должен отдаваться курьеру"
+    assert row["price_kop"] > 0, "цена доставки должна быть положительной"
+    assert row["price_kop"] > row["commission_kop"], "заработок курьера > нашего сбора"
+
+    # 2) После accept — в «что везу» цена тоже видна, доход = цена - комиссия > 0.
+    assert _accept(client, courier, pid).status_code == 200
+    car = client.get("/parcels/carrying", headers=courier["auth"])
+    row2 = next(x for x in car.json() if x["id"] == pid)
+    income = row2["price_kop"] - row2["commission_kop"]
+    assert income > 0, "«Твой доход» = цена - комиссия должен быть положительным"

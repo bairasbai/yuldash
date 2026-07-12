@@ -124,6 +124,9 @@ def _parcel_base(p: ParcelDelivery) -> dict:
         "declared_value_kop": getattr(p, "declared_value_kop", 0) or 0,
         "cod_amount_kop": getattr(p, "cod_amount_kop", 0) or 0,
         "commission_kop": getattr(p, "commission_kop", 0) or 0,
+        # Цена доставки (courier/buy_bring): курьер должен видеть СВОЙ заработок, а не наш сбор.
+        # Отдаём под ключом price_kop — его читает клиент (ParcelDto.priceKop). Для попутки = 0.
+        "price_kop": getattr(p, "delivery_price_kop", 0) or 0,
         # C2: расчёт с получателем (buy_bring) — товар+доставка; None для остальных типов.
         "settlement": _settlement(p),
         "created_at": p.created_at.isoformat() if p.created_at else None,
