@@ -172,6 +172,12 @@ private fun NearbyCouponsTab(onOpen: (CouponDto) -> Unit) {
     var cityFilter by remember { mutableStateOf("") }
     val loadErr = appText("Не удалось загрузить скидки. Проверь интернет.", "Ташламаларҙы йөкләп булманы. Интернетты тикшер.")
 
+    // По умолчанию показываем скидки в моём городе (если задан в профиле). Один раз при входе;
+    // легко сбросить чипом «Все города». me() кешируется — лишней сети нет.
+    LaunchedEffect(Unit) {
+        ApiClient.me().onSuccess { o -> o.optString("city").takeIf { it.isNotBlank() }?.let { cityFilter = it } }
+    }
+
     fun reload() {
         loading = true; error = null
         scope.launch {

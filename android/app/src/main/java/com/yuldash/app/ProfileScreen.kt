@@ -320,6 +320,7 @@ internal fun ProfileScreen(
     var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: "Я") }
     var avatarUrl by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
+    var city by remember { mutableStateOf("") }   // родной город: показываем в шапке, редактируется тапом
     var profileConfirmed by remember { mutableStateOf(ApiClient.isLoggedIn()) }
     LaunchedEffect(Unit) {
         ApiClient.me()
@@ -329,6 +330,7 @@ internal fun ProfileScreen(
                 o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
                 o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
                 role = o.optString("role")
+                city = o.optString("city")
             }
             // Сбой /me: сеть упала (таймаут/нет связи) — НЕ роняем залогиненного в «демо».
             // Не подтверждён только если реально не вошёл ИЛИ токен отвергнут (401).
@@ -409,6 +411,68 @@ internal fun ProfileScreen(
                 }) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { showEditName = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
+    // Родной город: свободный ввод + подсказки из справочника населённых пунктов.
+    // Нужен, чтобы «Скидки по пути» и посылки сразу показывали «в моём городе».
+    var showEditCity by remember { mutableStateOf(false) }
+    var cityDraft by remember { mutableStateOf(city) }
+    var cityPicked by remember { mutableStateOf(true) }   // предзаполненный город не подсказываем
+    var cityHits by remember { mutableStateOf<List<com.yuldash.app.data.SettlementDto>>(emptyList()) }
+    val citySavedMsg = appText("Город обновлён", "Ҡала яңыртылды")
+    LaunchedEffect(cityDraft, showEditCity) {
+        if (!showEditCity) return@LaunchedEffect
+        if (cityPicked) { cityPicked = false; return@LaunchedEffect }
+        if (cityDraft.isBlank()) { cityHits = emptyList(); return@LaunchedEffect }
+        delay(250)
+        ApiClient.searchSettlements(cityDraft, 5).onSuccess { cityHits = it }.onFailure { cityHits = emptyList() }
+    }
+    if (showEditCity) {
+        AlertDialog(
+            onDismissRequest = { showEditCity = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Мой город", "Минең ҡалам"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(appText("Покажем скидки и посылки рядом с тобой.", "Яныңдағы ташламаларҙы һәм тапшырыуҙарҙы күрһәтербеҙ."), color = CanonMuted, fontSize = 13.sp)
+                    OutlinedTextField(
+                        cityDraft, { cityDraft = it.take(80) }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text(appText("Например, Сибай", "Мәҫәлән, Сибай")) },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    AnimatedVisibility(cityHits.isNotEmpty()) {
+                        Column {
+                            cityHits.forEach { s ->
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .clickable { cityPicked = true; cityDraft = s.nameRu; cityHits = emptyList() }
+                                        .heightIn(min = 48.dp)
+                                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(settlementTitle(s), color = CanonText, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(s.region, color = CanonMuted, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val c = cityDraft.trim()
+                    editScope.launch {
+                        ApiClient.updateCity(c)
+                            .onSuccess { city = c; Toast.makeText(editCtx, citySavedMsg, Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
+                    }
+                    showEditCity = false
+                }) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { showEditCity = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
     // Удаление аккаунта (необратимо): подтверждение + лоадер + ошибка. Стирает данные и на сервере.
@@ -515,7 +579,7 @@ internal fun ProfileScreen(
                                     Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp).bounceClick { nameDraft = displayName; showEditName = true })
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    // Настоящая роль с сервера (пассажир/водитель/админ). Города в профиле нет — не выдумываем.
+                                    // Настоящая роль с сервера (пассажир/водитель/админ).
                                     Text(roleLabel(role), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                                     myRating?.let { r ->
                                         Spacer(Modifier.width(8.dp))
@@ -523,6 +587,24 @@ internal fun ProfileScreen(
                                         Spacer(Modifier.width(2.dp))
                                         Text(String.format(java.util.Locale.US, "%.1f", r), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
+                                }
+                                // Родной город — тап открывает редактирование (48dp тач-цель).
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .heightIn(min = 32.dp)
+                                        .bounceClick { cityDraft = city; cityPicked = true; cityHits = emptyList(); showEditCity = true }
+                                ) {
+                                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        if (city.isBlank()) appText("Указать город", "Ҡаланы күрһәтергә") else city,
+                                        color = Color.White.copy(alpha = if (city.isBlank()) 0.78f else 0.95f),
+                                        fontSize = 13.sp,
+                                        fontWeight = if (city.isBlank()) FontWeight.Normal else FontWeight.SemiBold,
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(Icons.Default.Edit, contentDescription = appText("Изменить город", "Ҡаланы үҙгәртеү"), tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(13.dp))
                                 }
                                 Text(appText("Телефон скрыт до подтверждения поездки", "Телефон сәфәр раҫланғанға тиклем йәшерелгән"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, lineHeight = 16.sp)
                             }

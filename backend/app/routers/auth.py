@@ -504,21 +504,25 @@ def me(user: User = Depends(current_user), session: Session = Depends(get_sessio
 class MeUpdateIn(BaseModel):
     name: Optional[str] = Field(None, max_length=120)
     avatar_url: Optional[str] = Field(None, max_length=500)
+    city: Optional[str] = Field(None, max_length=80)
 
 
 @router.post("/me/update")
 def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Редактирование профиля: имя и/или аватар. Телефон не меняем. Поля опциональны."""
+    """Редактирование профиля: имя, аватар и/или родной город. Телефон не меняем. Поля опциональны.
+    city: свободная строка (name_ru из справочника Settlement); пустая строка сбрасывает город."""
     if body.name is not None:
         n = body.name.strip()
         if n:
             user.name = n[:120]
     if body.avatar_url is not None:
         user.avatar_url = body.avatar_url.strip()[:500]
+    if body.city is not None:
+        user.city = body.city.strip()[:80]
     session.add(user)
     session.commit()
     session.refresh(user)
-    return {"ok": True, "name": user.name, "avatar_url": user.avatar_url}
+    return {"ok": True, "name": user.name, "avatar_url": user.avatar_url, "city": user.city}
 
 
 @router.post("/me/delete")

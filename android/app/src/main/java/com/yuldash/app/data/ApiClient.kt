@@ -359,6 +359,10 @@ object ApiClient {
     suspend fun updateAvatar(url: String): Result<Unit> =
         call("POST", "/me/update", JSONObject().put("avatar_url", url), auth = true).onSuccess { invalidate("me") }.map { }
 
+    /** Сохранить родной город (name_ru из справочника; пустая строка сбрасывает). */
+    suspend fun updateCity(city: String): Result<Unit> =
+        call("POST", "/me/update", JSONObject().put("city", city.trim()), auth = true).onSuccess { invalidate("me") }.map { }
+
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
     // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
 

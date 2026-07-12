@@ -422,6 +422,29 @@ def test_account_refresh_profile_and_push_edges(client, user_factory):
     assert updated.json()["avatar_url"] == "https://example.test/a.jpg"
 
 
+def test_me_update_city(client, user_factory):
+    """Родной город: /me/update принимает city (тримит, режет по 80), /me его отдаёт,
+    пустая строка сбрасывает. По умолчанию город пустой."""
+    u = user_factory("CityMan")
+    # По умолчанию — пусто.
+    assert client.get("/me", headers=u["auth"]).json()["city"] == ""
+    # Сохранили город (с лишними пробелами — должны обрезаться).
+    r = client.post("/me/update", headers=u["auth"], json={"city": "  Сибай  "})
+    assert r.status_code == 200
+    assert r.json()["city"] == "Сибай"
+    assert client.get("/me", headers=u["auth"]).json()["city"] == "Сибай"
+    # Слишком длинный город отклоняется валидацией (max_length=80), как и имя.
+    assert client.post("/me/update", headers=u["auth"], json={"city": "Г" * 200}).status_code == 422
+    # Город при этом не изменился.
+    assert client.get("/me", headers=u["auth"]).json()["city"] == "Сибай"
+    # Обновление только имени НЕ трогает город.
+    client.post("/me/update", headers=u["auth"], json={"name": "CityManRenamed"})
+    assert client.get("/me", headers=u["auth"]).json()["city"] == "Сибай"
+    # Пустая строка сбрасывает город.
+    r = client.post("/me/update", headers=u["auth"], json={"city": "   "})
+    assert r.json()["city"] == ""
+
+
 def test_delete_account_wipes_all_data(client, user_factory):
     """POST /me/delete стирает аккаунт и ВСЕ его данные во всех таблицах,
     отвязывает рефералов, а старый токен после этого получает 401."""

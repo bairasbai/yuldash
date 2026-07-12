@@ -53,6 +53,9 @@ class User(SQLModel, table=True):
     phone: str = Field(index=True, unique=True)
     name: str = ""
     avatar_url: str = ""        # фото профиля (публичный media-URL), необязательно
+    # Родной город (name_ru из справочника Settlement). Пусто по умолчанию — заполняется в профиле.
+    # Нужен, чтобы витрина купонов/посылок сразу показывала «в моём городе» без ручного выбора каждый раз.
+    city: str = Field(default="", index=True)
     role: UserRole = UserRole.passenger
     language: str = "ru"
     verified: bool = False
