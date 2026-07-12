@@ -1120,6 +1120,36 @@ internal fun DriverCabinetScreen(
     val editNetMsg = appText("Не получилось изменить. Проверь интернет и повтори.", "Үҙгәртеп булманы. Интернетты тикшереп ҡабатла.")
     val onlineErrMsg = appText("Не удалось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшерегеҙ.")
     val onlineLoginMsg = appText("Войдите, чтобы выйти на линию", "Линияға сығыр өсөн инегеҙ")
+    // D1/D2: выход «на линии» требует геолокации (без неё водитель невидим) и включённого такси в городе.
+    val geoOnlineMsg = appText("Включи геолокацию — без неё заказы не придут и тебя не видно на карте.",
+        "Геолокацияны ҡабыҙ — унһыҙ заказ килмәй, һине картала ла күренмәйһең.")
+    val taxiCityOffMsg = appText("Такси в твоём городе пока не запущено. Сообщим, как только откроем.",
+        "Ҡалаңда такси әле эшләмәй. Асылыу менән хәбәр итербеҙ.")
+    fun goOnlineConfirmed() {
+        val prev = online
+        online = true; onlineLoaded = true
+        rateScope.launch {
+            // D2: если такси в этой точке выключено (глобально/город) — не выходим, объясняем.
+            val lat = LocationPrefs.lastLat; val lng = LocationPrefs.lastLng
+            if (lat != null && lng != null) {
+                val av = ApiClient.getTaxiAvailability(lat, lng).getOrNull()
+                if (av != null && !av.enabled) {
+                    online = prev
+                    Toast.makeText(ctx, taxiCityOffMsg, Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+            }
+            ApiClient.setOnline(true).onFailure {
+                online = prev
+                Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+            }
+        }
+        if (zone?.workZone == null) showZoneSheet = true
+    }
+    val locPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) goOnlineConfirmed()
+        else Toast.makeText(ctx, geoOnlineMsg, Toast.LENGTH_LONG).show()
+    }
     val womanLoginMsg = appText("Войдите, чтобы изменить профиль", "Профильде үҙгәртер өсөн инегеҙ")
     Box(Modifier.fillMaxSize()) {
     Scaffold(
@@ -1162,17 +1192,26 @@ internal fun DriverCabinetScreen(
                     Toast.makeText(ctx, onlineLoginMsg, Toast.LENGTH_SHORT).show()
                     return@onToggleOnline
                 }
-                val prev = online
-                online = v
-                onlineLoaded = true   // явное действие водителя — статус достоверен, сервис можно синкать
-                rateScope.launch {
-                    ApiClient.setOnline(v).onFailure {
-                        online = prev
-                        Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+                if (!v) {   // выключение — просто оффлайн, без проверок
+                    val prev = online
+                    online = false; onlineLoaded = true
+                    rateScope.launch {
+                        ApiClient.setOnline(false).onFailure {
+                            online = prev
+                            Toast.makeText(ctx, onlineErrMsg, Toast.LENGTH_SHORT).show()
+                        }
                     }
+                    return@onToggleOnline
                 }
-                // Вышел на линию, а зона ещё не выбрана → мягко предложим выбрать (не блокируя).
-                if (v && zone?.workZone == null) showZoneSheet = true
+                // D1: выход на линию без геолокации = водитель невидим и молча без заказов. Просим разрешение.
+                val hasGeo = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (!hasGeo) {
+                    Toast.makeText(ctx, geoOnlineMsg, Toast.LENGTH_LONG).show()
+                    locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    return@onToggleOnline
+                }
+                goOnlineConfirmed()
             },
             onRate = { bookingId, n ->
                 rateScope.launch {
