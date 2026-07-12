@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .db import engine
+from .logs import log
 from .models import (
     Booking, CommissionDebt, DailyDigestLog, InstantOrder, InstantOrderStatus,
     Report, Ride, TaxiWorkDay, User,
@@ -119,7 +120,7 @@ def _run_check() -> None:
         with Session(engine) as s:
             maybe_send_daily_digest(s)
     except Exception as e:  # noqa: BLE001 — сводка никогда не должна ломать запросы
-        print(f"[DIGEST] error: {e}")
+        log.warning(f"[DIGEST] error: {e}")
         from .observability import capture
         capture(e)   # H2: фоновый поток иначе тихо глох бы без алерта
 

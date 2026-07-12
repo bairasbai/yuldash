@@ -3,6 +3,7 @@ from sqlalchemy.exc import ProgrammingError
 from sqlmodel import SQLModel, Session, create_engine
 
 from .config import settings
+from .logs import log
 
 # Для SQLite нужен check_same_thread=False (FastAPI ходит из разных потоков).
 _is_sqlite = settings.database_url.startswith("sqlite")
@@ -82,7 +83,7 @@ def init_db() -> None:
     try:
         SQLModel.metadata.create_all(engine)
     except ProgrammingError as e:  # psycopg2 DuplicateTable и т.п. при гонке воркеров
-        print(f"[INIT_DB] create_all race ignored: {e}")
+        log.warning(f"[INIT_DB] create_all race ignored: {e}")
     _migrate_sqlite_add_columns()
 
 

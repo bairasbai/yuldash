@@ -52,7 +52,13 @@ def test_cleanup_purges_ephemeral_keeps_important(client, user_factory):
 def test_cleanup_dry_run_deletes_nothing(client, user_factory):
     uid = user_factory(name="Сухой")["id"]
     with Session(engine) as s:
-        m = Message(booking_id=999999, sender_id=uid, text="dry-старое", created_at=_old(40))
+        # Реальная бронь (FK на Postgres обязателен — SQLite его игнорировал бы) + старое сообщение на ней.
+        ride = Ride(driver_id=uid, from_city="A", to_city="B", depart_at=utcnow(),
+                    status=RideStatus.active, created_at=_old(200))
+        s.add(ride); s.commit(); s.refresh(ride)
+        b = Booking(ride_id=ride.id, passenger_id=uid, status=BookingStatus.done, created_at=_old(200))
+        s.add(b); s.commit(); s.refresh(b)
+        m = Message(booking_id=b.id, sender_id=uid, text="dry-старое", created_at=_old(40))
         s.add(m); s.commit()
         mid = m.id
     try:

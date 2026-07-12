@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
+from .logs import log
 
 _WINDOW_SEC = 60  # окно счёта запросов (согласовано с *_per_min в config)
 
@@ -79,7 +80,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 import redis.asyncio as aioredis
                 self._redis = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
             except Exception as e:  # noqa: BLE001
-                print(f"[RATELIMIT] redis init failed, fallback in-memory: {e}")
+                log.warning(f"[RATELIMIT] redis init failed, fallback in-memory: {e}")
                 self._redis = None
         return self._redis
 
@@ -122,7 +123,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 if not over:
                     over, retry_after = await self._over_redis(client, f"rl:g:{ip}", settings.rate_limit_per_min)
             except Exception as e:  # noqa: BLE001 — Redis недоступен → in-memory
-                print(f"[RATELIMIT] redis error, fallback in-memory: {e}")
+                log.warning(f"[RATELIMIT] redis error, fallback in-memory: {e}")
                 self._redis = None
                 client = None
         if client is None:
@@ -165,7 +166,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         # в лог не пишем (тот же принцип, что «без query», 152-ФЗ).
         if path.startswith("/t/") or path.startswith("/api/v1/t/"):
             path = path[: path.index("/t/") + 3] + "***"
-        print(f"[REQ] {request.method} {path} -> {resp.status_code} {ms:.0f}ms")
+        log.info(f"[REQ] {request.method} {path} -> {resp.status_code} {ms:.0f}ms")
         # Явные серверные ошибки (500/503 и т.п.) считаем для алерта о всплеске.
         # /health* исключаем: 503 от readiness-пробы — ожидаемый сигнал (его отслеживает monitor.sh).
         if resp.status_code >= 500 and not path.startswith("/health"):
@@ -179,7 +180,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     path = request.url.path
     if path.startswith("/t/") or path.startswith("/api/v1/t/"):
         path = path[: path.index("/t/") + 3] + "***"   # токен live-ссылки — секрет (B7c)
-    print(f"[ERR] {request.method} {path}: {type(exc).__name__}: {exc}")
+    log.error(f"[ERR] {request.method} {path}: {type(exc).__name__}: {exc}", exc_info=exc)
     # Обработчик bare Exception мог бы «съесть» авто-захват Sentry — шлём явно.
     from .observability import capture
     capture(exc)

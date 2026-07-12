@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
+from .logs import log
 from .models import DeviceBan, User
 from .timeutil import utcnow
 
@@ -147,8 +148,8 @@ def _count_teleport(r, user_id: int) -> None:
         dkey = _tp_day_key()
         r.sadd(dkey, str(user_id))
         r.expire(dkey, _TP_FLAG_TTL)
-        print(f"[ANTIFRAUD] gps-suspect user={user_id}: {TELEPORT_FLAG_COUNT}+ телепортов за час "
-              f"(точки игнорируются, решает админ)")
+        log.warning(f"[ANTIFRAUD] gps-suspect user={user_id}: {TELEPORT_FLAG_COUNT}+ телепортов за час "
+                    f"(точки игнорируются, решает админ)")
 
 
 def gps_suspects_today(r) -> int:

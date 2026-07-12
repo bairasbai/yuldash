@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from typing import List, Literal, Optional
 
 from ..db import get_session
+from ..logs import log
 from ..models import Block, Booking, BookingStatus, InstantOrder, Report, Ride, SosEvent, TripShare, TrustedContact, User, UserRole
 from ..security import current_user
 from ..services import booking_and_ride_for_user, notify_admin_telegram, send_push, send_text
@@ -73,7 +74,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         notified = len(phones)
         background.add_task(_send_sos_sms, phones, f"SOS! {who} просит срочной помощи (Юлдаш). Свяжитесь скорее.")
     else:
-        print(f"[SOS] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
+        log.info(f"[SOS] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
     # Уведомление админу в Telegram — тоже в фон (httpx-вызов не держит коннект БД и не тормозит ответ SOS).
     # Контекст такси-заказа (B7b-2): админу — маршрут и вторая сторона, чтобы среагировать по делу.
     order_line = ""
@@ -90,7 +91,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         f"Контактов уведомлено (SMS): {notified}\n"
         f"Детали: {body.note or '—'}"
     )
-    print(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
+    log.info(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
     return event
 
 
@@ -536,7 +537,7 @@ def roadside_help(
         f"Контактов уведомлено: {len(phones)}\n"
         f"Детали: {body.note or '—'}{where}"
     )
-    print(f"[ROADSIDE] user={user.id} booking={booking_id} contacts_notified={len(phones)}")
+    log.info(f"[ROADSIDE] user={user.id} booking={booking_id} contacts_notified={len(phones)}")
     return event
 
 

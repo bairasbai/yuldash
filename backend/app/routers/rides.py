@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..errors import herr
+from ..logs import log
 from ..models import Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
 from .. import workday as workday_mod
 from ..schemas import RideIn, RideOut
@@ -307,7 +308,8 @@ def rides_near(
             ), {"lng": lng, "lat": lat, "r": radius_km * 1000.0}).all()]
             q = q.where(Ride.id.in_(ids)) if ids else q.where(Ride.id.is_(None))
         except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк
-            print(f"[GEO] PostGIS prefilter skipped: {e}")
+            session.rollback()  # снять aborted-транзакцию, иначе следующий запрос упадёт InFailedSqlTransaction
+            log.warning(f"[GEO] PostGIS prefilter skipped: {e}")
     rides = session.exec(q.order_by(*boost_then_depart_order())).all()  # Boost первыми, затем по времени выезда ↑
     users, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in rides})
     items: list = []

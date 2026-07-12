@@ -8,6 +8,7 @@ from sqlalchemy import or_, text
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..logs import log
 from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
@@ -106,7 +107,8 @@ def requests_near(
             ), {"lng": lng, "lat": lat, "r": radius_km * 1000.0}).all()]
             q = q.where(RideRequest.id.in_(ids)) if ids else q.where(RideRequest.id.is_(None))
         except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк ниже
-            print(f"[GEO] requests PostGIS prefilter skipped: {e}")
+            session.rollback()  # снять aborted-транзакцию, иначе следующий запрос упадёт InFailedSqlTransaction
+            log.warning(f"[GEO] requests PostGIS prefilter skipped: {e}")
     reqs = session.exec(q.order_by(RideRequest.id.desc())).all()
     pax = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.passenger_id for r in reqs}))).all()} if reqs else {}
     is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3

@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .db import engine
+from .logs import log
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, Notification, PickupPoint, Rating, Ride,
     RideCategory, RouteWatch, UploadEvent, User, UserRole,
@@ -213,9 +214,9 @@ def send_push(session: Session, user_id: int, title: str, body: str,
                     msg_kwargs["data"] = payload_data
                 messaging.send(messaging.Message(**msg_kwargs))
             except Exception as e:  # noqa: BLE001
-                print(f"[FCM] send error: {e}")
+                log.warning(f"[FCM] send error: {e}")
     except Exception as e:  # noqa: BLE001
-        print(f"[FCM] init error: {e}")
+        log.warning(f"[FCM] init error: {e}")
 
 
 def push_notification(
@@ -252,7 +253,7 @@ def push_notification(
             ))
             s.commit()
     except Exception as e:  # noqa: BLE001 — уведомление вторично, основную операцию не валим
-        print(f"[NOTIFY] db error: {e}")
+        log.warning(f"[NOTIFY] db error: {e}")
     if push:
         send_push(session, user_id, title_ru, body_ru)
 
@@ -306,7 +307,7 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
             session.commit()
         return notified
     except Exception as e:  # noqa: BLE001 — оповещение сторожей не должно ронять публикацию поездки
-        print(f"[ROUTE_WATCH] notify error: {e}")
+        log.warning(f"[ROUTE_WATCH] notify error: {e}")
         return 0
 
 
@@ -346,7 +347,7 @@ def notify_admin_telegram(text: str, reply_markup: dict | None = None) -> None:
     """Уведомление администратору (Александру) в Telegram через бот: запрос звонка и пр.
     Тихо ничего не делает, если бот/chat_id не настроены."""
     if not settings.telegram_bot_token or not settings.admin_telegram_chat_id:
-        print("[ADMIN_TG] не настроено (нет токена/chat_id) — пропуск")
+        log.info("[ADMIN_TG] не настроено (нет токена/chat_id) — пропуск")
         return
     try:
         import httpx
@@ -359,7 +360,7 @@ def notify_admin_telegram(text: str, reply_markup: dict | None = None) -> None:
             timeout=8,
         )
     except Exception as e:  # noqa: BLE001 — уведомление не должно ронять запрос
-        print(f"[ADMIN_TG] error {e}")
+        log.warning(f"[ADMIN_TG] error {e}")
 
 
 # ------------------- Алерт при всплеске 5xx (наблюдаемость) -------------------
@@ -403,7 +404,7 @@ def record_server_error(path: str = "") -> None:
                 f"Последний путь: {path or '—'}. Проверь логи: journalctl -u yuldash-api"
             )
     except Exception as e:  # noqa: BLE001
-        print(f"[ERR_ALERT] record failed: {e}")
+        log.warning(f"[ERR_ALERT] record failed: {e}")
 
 
 def send_text(phone: str, text: str) -> None:
@@ -418,25 +419,25 @@ def send_text(phone: str, text: str) -> None:
             data = httpx.get("https://sms.ru/sms/send", params=params, timeout=10).json()
             sms = (data.get("sms") or {}).get(phone, {})
             ok = sms.get("status_code") == 100
-            print(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
+            log.info(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
             if not ok and not settings.is_prod:
-                print(f"[SMS-FALLBACK] {mp}: {text}")
+                log.info(f"[SMS-FALLBACK] {mp}: {text}")
         except Exception as e:  # noqa: BLE001
-            print(f"[SMS] {mp}: smsru error {e}")
+            log.warning(f"[SMS] {mp}: smsru error {e}")
             if not settings.is_prod:
-                print(f"[SMS-FALLBACK] {mp}: {text}")
+                log.info(f"[SMS-FALLBACK] {mp}: {text}")
     elif settings.sms_provider == "smsdar" and settings.smsdar_id and settings.smsdar_password:
         try:
             ok, info = _smsdar_send(phone, text)
-            print(f"[SMS] {mp}: smsdar sent={ok} ({info})")
+            log.info(f"[SMS] {mp}: smsdar sent={ok} ({info})")
             if not ok and not settings.is_prod:
-                print(f"[SMS-FALLBACK] {mp}: {text}")
+                log.info(f"[SMS-FALLBACK] {mp}: {text}")
         except Exception as e:  # noqa: BLE001
-            print(f"[SMS] {mp}: smsdar error {e}")
+            log.warning(f"[SMS] {mp}: smsdar error {e}")
             if not settings.is_prod:
-                print(f"[SMS-FALLBACK] {mp}: {text}")
+                log.info(f"[SMS-FALLBACK] {mp}: {text}")
     else:
-        print(f"[SMS-MOCK] {mp}: {text}")
+        log.info(f"[SMS-MOCK] {mp}: {text}")
 
 
 def send_sms(phone: str, code: str) -> None:
@@ -453,36 +454,36 @@ def send_sms(phone: str, code: str) -> None:
             data = httpx.get("https://sms.ru/sms/send", params=params, timeout=10).json()
             sms = (data.get("sms") or {}).get(phone, {})
             ok = sms.get("status_code") == 100
-            print(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
+            log.info(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
             if not ok:
                 if settings.is_prod:
                     raise HTTPException(502, "SMS не отправлено")
-                print(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
+                log.info(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except Exception as e:  # noqa: BLE001
-            print(f"[SMS] {mp}: smsru error {e}")
+            log.warning(f"[SMS] {mp}: smsru error {e}")
             if settings.is_prod:
                 raise HTTPException(502, "SMS не отправлено")
-            print(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
+            log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
     elif settings.sms_provider == "smsdar" and settings.smsdar_id and settings.smsdar_password:
         try:
             ok, info = _smsdar_send(phone, f"Yuldash: kod {code}")
-            print(f"[SMS] {mp}: smsdar sent={ok} ({info})")
+            log.info(f"[SMS] {mp}: smsdar sent={ok} ({info})")
             if not ok:
                 if settings.is_prod:
                     raise HTTPException(502, "SMS не отправлено")
-                print(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
+                log.info(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except HTTPException:
             raise
         except Exception as e:  # noqa: BLE001
-            print(f"[SMS] {mp}: smsdar error {e}")
+            log.warning(f"[SMS] {mp}: smsdar error {e}")
             if settings.is_prod:
                 raise HTTPException(502, "SMS не отправлено")
-            print(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
+            log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
     else:
         if settings.is_prod:
             # SMS заморожен в проде — основной вход через мессенджеры. Понятный ответ вместо 500.
             raise HTTPException(503, "SMS-вход временно недоступен. Войдите через мессенджер.")
-        print(f"[OTP] {mp} -> {code}")  # мок/dev — код в логе
+        log.info(f"[OTP] {mp} -> {code}")  # мок/dev — код в логе
 
 
 # ----------------------------- Рейтинги / витрина водителей -----------------------------
@@ -819,7 +820,7 @@ def _cache_client():
             import redis
             _cache = redis.from_url(settings.redis_url, decode_responses=True)
         except Exception as e:  # noqa: BLE001
-            print(f"[CACHE] redis init failed: {e}")
+            log.warning(f"[CACHE] redis init failed: {e}")
             _cache = None
     return _cache
 
@@ -940,7 +941,7 @@ async def _chat_subscribe_loop(redis_client):
                 raise
             except Exception as e:  # noqa: BLE001 — Redis-блип: НЕ роняем цикл навсегда
                 capture(e)   # H2/H3: иначе WS-доставка между воркерами тихо умирает без алерта
-                print(f"[REDIS] WS sub reconnect: {type(e).__name__}: {e}", flush=True)
+                log.warning(f"[REDIS] WS sub reconnect: {type(e).__name__}: {e}")
                 await asyncio.sleep(2.0)
                 try:
                     await pubsub.subscribe(_CHAT_CHANNEL)
@@ -975,9 +976,9 @@ async def init_chat_redis():
         await _redis_pub.ping()
         sub_client = aioredis.from_url(settings.redis_url, decode_responses=True)
         _sub_task = asyncio.create_task(_chat_subscribe_loop(sub_client))   # H3: держим ссылку (иначе GC)
-        print("[REDIS] WS pub/sub активен", flush=True)
+        log.info("[REDIS] WS pub/sub активен")
     except Exception as e:  # noqa: BLE001 — Redis недоступен → локальный режим, не падаем
-        print(f"[REDIS] WS pub/sub недоступен ({e}) → локальный режим")
+        log.warning(f"[REDIS] WS pub/sub недоступен ({e}) → локальный режим")
         _redis_pub = None
 
 

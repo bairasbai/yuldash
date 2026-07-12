@@ -9,6 +9,7 @@ gunicorn-воркеров, и из тестов, и чтобы отсутств�
 импорт приложения (мягкий фолбэк).
 """
 from .config import settings
+from .logs import log
 
 _sentry_ready = False
 
@@ -42,10 +43,10 @@ def init_sentry() -> bool:
             send_default_pii=False,
         )
         _sentry_ready = True
-        print(f"[SENTRY] инициализирован (env={settings.env})")
+        log.info(f"[SENTRY] инициализирован (env={settings.env})")
         return True
     except Exception as e:  # noqa: BLE001 — наблюдаемость не должна ронять прод
-        print(f"[SENTRY] init skipped: {type(e).__name__}: {e}")
+        log.warning(f"[SENTRY] init skipped: {type(e).__name__}: {e}")
         return False
 
 

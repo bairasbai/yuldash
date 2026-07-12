@@ -2,3 +2,4 @@
 -r requirements.txt
 pytest>=8.0
 pytest-cov>=5.0   # покрытие: pytest --cov=app (coverage-gate в CI)
+ruff>=0.6         # линтер: ruff check app/ --select F (мёртвые импорты/переменные — ловим в CI)
