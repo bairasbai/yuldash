@@ -1168,7 +1168,22 @@ internal fun DriverCabinetScreen(
             onDeclareDebtPaid = {
                 rateScope.launch {
                     ApiClient.declareDebtPaid()
-                        .onSuccess { Toast.makeText(ctx, debtPaidMsg, Toast.LENGTH_LONG).show(); reloadDebt() }
+                        .onSuccess onPaid@{ res ->
+                            // ЮKassa (по флажку): уходим в браузер оплаты, статус проверяем поллингом.
+                            if (res.method == "yookassa" && res.status == "pending" && !res.confirmationUrl.isNullOrBlank()) {
+                                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(res.confirmationUrl))) }
+                                repeat(6) {
+                                    kotlinx.coroutines.delay(4000)
+                                    if (ApiClient.getPaymentStatus(res.paymentId).getOrNull()?.status == "succeeded") {
+                                        Toast.makeText(ctx, debtPaidMsg, Toast.LENGTH_LONG).show(); reloadDebt(); return@onPaid
+                                    }
+                                }
+                                reloadDebt()
+                                return@onPaid
+                            }
+                            // СБП «на доверии» / уже succeeded — прежнее поведение.
+                            Toast.makeText(ctx, debtPaidMsg, Toast.LENGTH_LONG).show(); reloadDebt()
+                        }
                         .onFailure { Toast.makeText(ctx, debtPaidErrMsg, Toast.LENGTH_SHORT).show() }
                 }
             },

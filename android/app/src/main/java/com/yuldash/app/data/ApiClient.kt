@@ -1726,9 +1726,17 @@ object ApiClient {
             )
         }
 
-    /** Водитель нажал «Я оплатил» → долг в pending (на подтверждение админом). */
-    suspend fun declareDebtPaid(): Result<Int> =
-        call("POST", "/driver/debt/paid", JSONObject(), auth = true).map { it.optInt("pending_kop") }
+    /** Оплата долга: yookassa → оплата картой (confirmationUrl), иначе СБП «на доверии» (pending). */
+    suspend fun declareDebtPaid(): Result<DebtPayResultDto> =
+        call("POST", "/driver/debt/paid", JSONObject(), auth = true).map { o ->
+            DebtPayResultDto(
+                method = o.optString("method", "sbp_manual"),
+                status = o.optString("status", "pending"),
+                paymentId = o.optInt("payment_id"),
+                pendingKop = o.optInt("pending_kop"),
+                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
+            )
+        }
 
     /** Админ: долги на подтверждении (сгруппированы по водителю). */
     suspend fun getAdminDebts(): Result<List<AdminDebtDto>> =
@@ -2818,6 +2826,8 @@ object ApiClient {
                 payeePhone = payee?.optString("phone") ?: "",
                 payeeBank = payee?.optString("bank") ?: "",
                 payeeName = payee?.optString("name") ?: "",
+                method = o.optString("method", "sbp_manual"),
+                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
             )
         }.onSuccess { Analytics.log("courier_pay_commission") }
 
@@ -3820,6 +3830,14 @@ data class RateResultDto(val rateeId: Int, val rating: Double, val count: Int)
 data class PayCommissionDto(
     val status: String, val paymentId: Int, val amountKop: Int, val amount: Int,
     val payeePhone: String, val payeeBank: String, val payeeName: String,
+    val method: String = "sbp_manual",           // yookassa → оплата картой, иначе СБП «на доверии»
+    val confirmationUrl: String? = null,          // ЮKassa redirect (открыть в браузере)
+)
+
+/** Ответ на оплату долга такси: yookassa (оплата картой) или sbp_manual (перевод «на доверии»). */
+data class DebtPayResultDto(
+    val method: String, val status: String, val paymentId: Int,
+    val pendingKop: Int, val confirmationUrl: String?,
 )
 
 /** Ответ /courier/me: заявка + профиль (если одобрен) + выписка + рейтинг + пауза по качеству. */

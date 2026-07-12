@@ -38,8 +38,53 @@ def my_debt(user: User = Depends(current_user), session: Session = Depends(get_s
 
 @router.post("/driver/debt/paid")
 def declare_paid(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """«Я оплатил»: все неоплаченные долги водителя → pending (на подтверждение админом).
-    Ничего не должен → paid_kop=0. Уведомляем Александра в Telegram."""
+    """Оплата долга по комиссии за такси. По флажку payments_provider:
+    yookassa → оплата картой (confirmation_url, авто-чек; вебхук/поллинг гасит весь долг);
+    иначе → «Я оплатил» по СБП «на доверии» (долг → pending, админ подтверждает в /admin/debts)."""
+    from ..config import settings
+    from ..models import Payment
+    from ..payments import create_payment, fetch_payment
+    from .payments import _activate_payment
+
+    if settings.is_prod and settings.payments_provider == "mock":
+        raise HTTPException(503, "Оплата скоро будет доступна")
+
+    if settings.payments_provider == "yookassa":
+        summary = debt_mod.debt_summary(session, user.id)
+        owed_kop = int(summary["unpaid_kop"]) + int(summary["pending_kop"])   # всё, что ещё не paid
+        if owed_kop <= 0:
+            return {"ok": True, "method": "yookassa", "status": "succeeded", "amount_kop": 0}
+        # Дедуп: висящий pending-платёж долга — возвращаем его с актуальным confirmation_url.
+        existing = session.exec(
+            select(Payment).where(
+                Payment.user_id == user.id, Payment.purpose == "taxi_debt", Payment.status == "pending",
+            ).order_by(Payment.id.desc())
+        ).first()
+        if existing and existing.provider_id:
+            try:
+                info = fetch_payment(existing.provider_id)
+            except Exception:
+                info = None
+            if info and info["status"] == "succeeded":
+                _activate_payment(session, existing)
+                return {"ok": True, "method": "yookassa", "status": "succeeded", "payment_id": existing.id}
+            return {"ok": True, "method": "yookassa", "status": "pending", "payment_id": existing.id,
+                    "amount_kop": existing.amount_kop, "confirmation_url": (info or {}).get("confirmation_url", "")}
+        payment = Payment(user_id=user.id, purpose="taxi_debt", amount_kop=owed_kop, method="yookassa", status="pending")
+        session.add(payment)
+        session.commit()
+        session.refresh(payment)
+        res = create_payment(owed_kop, "Юлдаш · комиссия такси", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+        payment.provider_id = res["provider_id"]
+        session.add(payment)
+        session.commit()
+        if res["status"] == "succeeded":          # mock/dev — оплачено сразу
+            _activate_payment(session, payment)
+            return {"ok": True, "method": "yookassa", "status": "succeeded", "payment_id": payment.id}
+        return {"ok": True, "method": "yookassa", "status": "pending", "payment_id": payment.id,
+                "amount_kop": owed_kop, "confirmation_url": res["confirmation_url"]}
+
+    # СБП «на доверии» (по умолчанию): долг → pending, админ подтверждает.
     paid_kop = debt_mod.declare_paid(session, user.id)
     if paid_kop > 0:
         notify_admin_telegram(
@@ -48,7 +93,7 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
             f"Сумма: {paid_kop // 100} ₽\n"
             f"Подтвердить: /admin/debts"
         )
-    return {"ok": True, "pending_kop": paid_kop}
+    return {"ok": True, "method": "sbp_manual", "pending_kop": paid_kop}
 
 
 # ------------------------------ админ ------------------------------

@@ -87,9 +87,9 @@ def create_payment(amount_kop: int, description: str, metadata: dict, customer_p
 
 def fetch_payment(provider_id: str) -> dict:
     """Перепроверить платёж по id в ЮKassa (для вебхука — не доверяем телу).
-    Возврат: {status, metadata}. mock — всегда succeeded."""
+    Возврат: {status, metadata, confirmation_url}. mock — всегда succeeded."""
     if settings.payments_provider != "yookassa" or not (settings.yookassa_shop_id and settings.yookassa_secret_key):
-        return {"status": "succeeded", "metadata": {}}
+        return {"status": "succeeded", "metadata": {}, "confirmation_url": ""}
     import httpx
     r = httpx.get(
         f"{YOOKASSA_API}/{provider_id}",
@@ -98,4 +98,9 @@ def fetch_payment(provider_id: str) -> dict:
     )
     r.raise_for_status()
     data = r.json()
-    return {"status": data.get("status", "pending"), "metadata": data.get("metadata") or {}}
+    return {
+        "status": data.get("status", "pending"),
+        "metadata": data.get("metadata") or {},
+        # Если платёж ещё ждёт оплаты — URL страницы ЮKassa, чтобы повторно открыть (дедуп pending).
+        "confirmation_url": (data.get("confirmation") or {}).get("confirmation_url", ""),
+    }

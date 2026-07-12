@@ -70,6 +70,13 @@ def _activate_payment(session: Session, payment: Payment) -> None:
             session.add(pd)
         session.commit()
         return
+    if payment.purpose == "taxi_debt":
+        # Таксист оплатил недельную комиссию картой (ЮKassa) → гасим весь его долг (unpaid+pending),
+        # блок снимается. Идемпотентно: повторный webhook выйдет выше по флагу succeeded.
+        from .. import debt as debt_mod
+        debt_mod.mark_all_paid(session, payment.user_id)
+        session.commit()
+        return
     if payment.purpose == "boost" and payment.ride_id is not None:
         ride = session.get(Ride, payment.ride_id)
         plan = BOOST_PLANS.get(payment.tier)

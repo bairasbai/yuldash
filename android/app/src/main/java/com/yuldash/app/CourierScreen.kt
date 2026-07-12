@@ -7,6 +7,8 @@ package com.yuldash.app
 // Бэкенд: GET /courier/me, POST /courier/online|offline, GET /courier/available,
 //         приём/доставка — существующие /parcels/{id}/accept, /parcels/{id}/status, /parcels/carrying.
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -781,6 +783,7 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit) {
     var paying by remember { mutableStateOf(false) }
     var payResult by remember { mutableStateOf<PayCommissionDto?>(null) }
     val payErr = appText("Не получилось оформить оплату. Проверь сеть.", "Түләүҙе рәсмиләштереп булманы. Селтәрҙе тикшер.")
+    val commissionPaidMsg = appText("Комиссия оплачена. Спасибо!", "Комиссия түләнде. Рәхмәт!")
 
     val st = me.statement
     val owed = st.commissionOwedKop
@@ -915,7 +918,25 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit) {
                                 paying = true
                                 scope.launch {
                                     ApiClient.payCommission()
-                                        .onSuccess { payResult = it }
+                                        .onSuccess onPaid@{ res ->
+                                            when {
+                                                // ЮKassa (по флажку): в браузер оплаты, статус — поллингом.
+                                                res.method == "yookassa" && res.status == "pending" && !res.confirmationUrl.isNullOrBlank() -> {
+                                                    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(res.confirmationUrl))) }
+                                                    paying = false
+                                                    repeat(6) {
+                                                        kotlinx.coroutines.delay(4000)
+                                                        if (ApiClient.getPaymentStatus(res.paymentId).getOrNull()?.status == "succeeded") {
+                                                            Toast.makeText(ctx, commissionPaidMsg, Toast.LENGTH_LONG).show(); onReloadMe(); return@onPaid
+                                                        }
+                                                    }
+                                                    onReloadMe()
+                                                    return@onPaid
+                                                }
+                                                res.status == "succeeded" -> { Toast.makeText(ctx, commissionPaidMsg, Toast.LENGTH_LONG).show(); onReloadMe() }
+                                                else -> payResult = res   // СБП «на доверии» → показать реквизиты
+                                            }
+                                        }
                                         .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: payErr, Toast.LENGTH_LONG).show() }
                                     paying = false
                                 }

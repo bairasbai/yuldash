@@ -360,3 +360,31 @@ def test_declare_paid_with_no_debt_is_noop(client, user_factory):
     d = _driver_online(client, user_factory, "NoopDrv")
     r = client.post("/driver/debt/paid", headers=d["auth"]).json()
     assert r["ok"] is True and r["pending_kop"] == 0
+
+
+# ============================ Оплата долга картой (ЮKassa, по флажку) ============================
+def test_taxi_debt_via_yookassa_clears_on_success(client, user_factory, fake_redis, monkeypatch):
+    """payments_provider=yookassa → водитель гасит долг картой: без ключей create_payment=succeeded
+    (mock) → весь долг paid, блок снят, метод в ответе — yookassa."""
+    d, pax, done = _order_to_done(client, user_factory, fake_redis, "YkDebtDrv", "YkDebtPax")
+    before = client.get("/driver/debt", headers=d["auth"]).json()
+    assert before["unpaid_kop"] > 0
+    monkeypatch.setattr(settings, "payments_provider", "yookassa")   # ключей нет → mock-succeeded
+    r = client.post("/driver/debt/paid", headers=d["auth"]).json()
+    assert r["method"] == "yookassa"
+    assert r["status"] == "succeeded"
+    after = client.get("/driver/debt", headers=d["auth"]).json()
+    assert after["unpaid_kop"] == 0
+    assert after["pending_kop"] == 0
+    assert after["blocked"] is False
+
+
+def test_taxi_debt_sbp_by_default(client, user_factory, fake_redis, monkeypatch):
+    """По умолчанию (mock/sbp) — прежний поток «на доверии»: долг → pending, ждёт админа."""
+    d, pax, done = _order_to_done(client, user_factory, fake_redis, "SbpDebtDrv", "SbpDebtPax")
+    monkeypatch.setattr(settings, "payments_provider", "sbp_manual")
+    r = client.post("/driver/debt/paid", headers=d["auth"]).json()
+    assert r["method"] == "sbp_manual"
+    assert r["pending_kop"] > 0
+    after = client.get("/driver/debt", headers=d["auth"]).json()
+    assert after["pending_kop"] > 0   # ждёт подтверждения админом, ещё не paid

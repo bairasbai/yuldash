@@ -271,6 +271,28 @@ def declare_paid(session: Session, driver_id: int) -> int:
     return total
 
 
+def mark_all_paid(session: Session, driver_id: int) -> int:
+    """Погасить ВЕСЬ долг водителя (unpaid + pending) → paid. Используется при оплате картой
+    (ЮKassa): подтверждение приходит вебхуком, деньги уже у платформы, админ не нужен.
+    Идемпотентно (уже paid не трогаем). Возврат: погашенная сумма (копейки)."""
+    now = utcnow()
+    rows = session.exec(
+        select(CommissionDebt).where(
+            CommissionDebt.driver_id == driver_id,
+            CommissionDebt.status != DebtStatus.paid,
+        )
+    ).all()
+    total = 0
+    for d in rows:
+        d.status = DebtStatus.paid
+        d.confirmed_at = now
+        session.add(d)
+        total += d.amount_kop
+    if rows:
+        session.commit()
+    return total
+
+
 def admin_confirm(session: Session, debt_id: int) -> Optional[int]:
     """Админ подтвердил перевод: ВЕСЬ pending-долг этого водителя → paid (блок снят).
     debt_id — любая запись из батча водителя (в /admin/debts группируем по водителю).

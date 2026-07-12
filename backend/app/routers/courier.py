@@ -858,26 +858,31 @@ def parcel_rate(parcel_id: int, body: ParcelRateIn, user: User = Depends(current
 # ---------------------------------------------------------------------------
 # C3 — Биллинг комиссии платформы «на доверии» (курьер декларирует оплату)
 # ---------------------------------------------------------------------------
-def _commission_payment_payload(p: Payment) -> dict:
-    """Ответ по платежу комиссии курьера + реквизиты СБП (перевод «на доверии», подтверждает админ)."""
-    return {
-        "status": p.status,                 # pending — ждёт подтверждения админом
-        "method": "sbp_manual",
-        "payment_id": p.id,
-        "amount_kop": p.amount_kop,
-        "amount": p.amount_kop // 100,
-        "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
-    }
+def _commission_payment_payload(p: Payment, confirmation_url: str = "") -> dict:
+    """Ответ по платежу комиссии курьера. yookassa → confirmation_url (оплата картой, авто-чек);
+    иначе — реквизиты СБП (перевод «на доверии», подтверждает админ)."""
+    base = {"status": p.status, "payment_id": p.id, "amount_kop": p.amount_kop, "amount": p.amount_kop // 100}
+    if p.method == "yookassa":
+        return {**base, "method": "yookassa", "confirmation_url": confirmation_url}
+    return {**base, "method": "sbp_manual",
+            "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name}}
 
 
 @router.post("/courier/pay-commission")
 def courier_pay_commission(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Курьер декларирует оплату накопленной комиссии платформе (перевод по СБП «на доверии»).
-    Создаёт Payment(purpose=courier_commission, pending) — админ подтверждает в /admin/payments,
-    после чего доставки помечаются commission_paid=True. Идемпотентно: есть pending — вернём его.
+    """Курьер оплачивает накопленную комиссию платформе. По флажку payments_provider:
+    yookassa → оплата картой (confirmation_url, авто-чек самозанятого; вебхук/поллинг гасит);
+    иначе → перевод по СБП «на доверии» (админ подтверждает в /admin/payments).
+    После оплаты доставки помечаются commission_paid=True. Идемпотентно: есть pending — вернём его.
     Нет комиссии к оплате (owed==0) → 409. Гейт курьера."""
     _guard_courier(user, session)
-    # Идемпотентность: уже есть висящий pending — возвращаем его, второй платёж не плодим.
+    from ..payments import create_payment, fetch_payment
+    from .payments import _activate_payment
+    yk = settings.payments_provider == "yookassa"
+    # В проде mock = «оплата» без денег → не даём гасить комиссию бесплатно.
+    if settings.is_prod and settings.payments_provider == "mock":
+        raise herr(503, "Оплата скоро будет доступна", "Түләү тиҙҙән асыла")
+    # Идемпотентность: висящий pending — возвращаем его (yookassa: с актуальным confirmation_url).
     existing = session.exec(
         select(Payment).where(
             Payment.user_id == user.id,
@@ -886,16 +891,36 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
         ).order_by(Payment.id.desc())
     ).first()
     if existing:
+        if existing.method == "yookassa" and existing.provider_id:
+            try:
+                info = fetch_payment(existing.provider_id)
+            except Exception:
+                info = None
+            if info and info["status"] == "succeeded":
+                _activate_payment(session, existing)
+                return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
+            return _commission_payment_payload(existing, (info or {}).get("confirmation_url", ""))
         return _commission_payment_payload(existing)
     owed = _commission_owed_kop(session, user.id)
     if owed <= 0:
         raise herr(409, "Нет комиссии к оплате", "Түләргә комиссия юҡ")
     payment = Payment(user_id=user.id, purpose="courier_commission", amount_kop=owed,
-                      method="sbp", status="pending")
+                      method=("yookassa" if yk else "sbp"), status="pending")
     session.add(payment)
     session.commit()
     session.refresh(payment)
-    try:  # админу — best-effort, без ПДн
+
+    if yk:
+        res = create_payment(owed, "Юлдаш · комиссия курьера", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+        payment.provider_id = res["provider_id"]
+        session.add(payment)
+        session.commit()
+        if res["status"] == "succeeded":          # mock/dev — оплачено сразу
+            _activate_payment(session, payment)
+            return {"status": "succeeded", "method": "yookassa", "payment_id": payment.id}
+        return _commission_payment_payload(payment, res["confirmation_url"])
+
+    try:  # СБП «на доверии»: админу — best-effort, без ПДн
         notify_admin_telegram(
             f"💸 Курьер заявил оплату комиссии\n"
             f"Платёж ID: {payment.id}\n"

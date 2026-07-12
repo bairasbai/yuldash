@@ -257,3 +257,52 @@ def test_parcel_location_relays_courier_to_sender(client, user_factory):
             assert msg["lat"] == 54.05
             assert msg["lng"] == 55.96
             assert msg["ts"] == 77
+
+
+# ----------------------------- ОПЛАТА КОМИССИИ КАРТОЙ (ЮKassa, по флажку) -----------------------------
+
+def test_courier_commission_via_yookassa_clears_on_success(client, user_factory, monkeypatch):
+    """payments_provider=yookassa → оплата картой: без ключей create_payment=succeeded (mock),
+    комиссия сразу гасится (доставка commission_paid=True), метод в ответе — yookassa."""
+    from app.config import settings
+    from app.db import engine
+    from app.models import ParcelDelivery
+    from sqlmodel import Session
+    courier = _make_courier(client, user_factory, name="ЮкКурьер")
+    sender = user_factory(name="ЮкОтпр")
+    ro = _order(client, sender)
+    pid, code = ro.json()["id"], ro.json()["confirm_code"]
+    assert _accept(client, courier, pid).status_code == 200
+    client.post(f"/courier/orders/{pid}/goods-cost", headers=courier["auth"], json={"actual_kop": 100000})
+    client.post(f"/parcels/{pid}/status", headers=courier["auth"], json={"status": "in_transit"})
+    assert client.post(f"/parcels/{pid}/status", headers=courier["auth"],
+                       json={"status": "delivered", "code": code}).status_code == 200
+
+    monkeypatch.setattr(settings, "payments_provider", "yookassa")   # ключей нет → mock-succeeded
+    r = client.post("/courier/pay-commission", headers=courier["auth"])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["method"] == "yookassa"
+    assert body["status"] == "succeeded"
+    with Session(engine) as s:
+        assert s.get(ParcelDelivery, pid).commission_paid is True
+
+
+def test_courier_commission_sbp_by_default(client, user_factory, monkeypatch):
+    """По умолчанию (sbp_manual) — прежний поток «на доверии»: pending + реквизиты СБП."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "payments_provider", "sbp_manual")
+    monkeypatch.setattr(settings, "sbp_phone", "+79990001122")
+    courier = _make_courier(client, user_factory, name="СбпКурьер")
+    sender = user_factory(name="СбпОтпр")
+    ro = _order(client, sender)
+    pid, code = ro.json()["id"], ro.json()["confirm_code"]
+    assert _accept(client, courier, pid).status_code == 200
+    client.post(f"/courier/orders/{pid}/goods-cost", headers=courier["auth"], json={"actual_kop": 100000})
+    client.post(f"/parcels/{pid}/status", headers=courier["auth"], json={"status": "in_transit"})
+    client.post(f"/parcels/{pid}/status", headers=courier["auth"], json={"status": "delivered", "code": code})
+    r = client.post("/courier/pay-commission", headers=courier["auth"])
+    body = r.json()
+    assert body["method"] == "sbp_manual"
+    assert body["status"] == "pending"
+    assert body["payee"]["phone"] == "+79990001122"
