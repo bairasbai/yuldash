@@ -1826,9 +1826,12 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
             .border(1.dp, CanonBorder, RoundedCornerShape(24.dp))
             .padding(0.dp)
     ) {
+        // Canon-токены — @Composable-значения; читаем их ДО Canvas (DrawScope не композабл-контекст).
+        val routeColor = CanonGreen2
+        val destColor = CanonGold
         Canvas(Modifier.fillMaxSize()) {
             drawCircle(Color.White.copy(alpha = 0.55f), radius = 170f, center = Offset(size.width * 0.05f, size.height * 0.12f))
-            drawCircle(CanonGreen2.copy(alpha = 0.08f), radius = 210f, center = Offset(size.width * 0.95f, size.height * 0.88f))
+            drawCircle(routeColor.copy(alpha = 0.08f), radius = 210f, center = Offset(size.width * 0.95f, size.height * 0.88f))
             val route = Path().apply {
                 moveTo(size.width * 0.16f, size.height * 0.28f)
                 cubicTo(
@@ -1845,11 +1848,11 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
                 cubicTo(size.width * 0.28f, size.height * 0.50f, size.width * 0.48f, size.height * 0.38f, size.width * 0.74f, size.height * 0.18f)
             }
             drawPath(sideRoad, Color.White.copy(alpha = 0.75f), style = Stroke(width = 11f, cap = StrokeCap.Round))
-            drawPath(sideRoad, CanonGreen2.copy(alpha = 0.45f), style = Stroke(width = 3f, cap = StrokeCap.Round))
+            drawPath(sideRoad, routeColor.copy(alpha = 0.45f), style = Stroke(width = 3f, cap = StrokeCap.Round))
             drawPath(route, Color.White, style = Stroke(width = 22f, cap = StrokeCap.Round))
-            drawPath(route, CanonGreen2, style = Stroke(width = 7f, cap = StrokeCap.Round))
-            drawCircle(CanonGreen2, radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
-            drawCircle(CanonGold, radius = 15f, center = Offset(size.width * 0.84f, size.height * 0.68f))
+            drawPath(route, routeColor, style = Stroke(width = 7f, cap = StrokeCap.Round))
+            drawCircle(routeColor, radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
+            drawCircle(destColor, radius = 15f, center = Offset(size.width * 0.84f, size.height * 0.68f))
         }
         MapLabel(from, Modifier.align(Alignment.TopStart).padding(20.dp))
         MapLabel(to, Modifier.align(Alignment.CenterEnd).padding(20.dp))
