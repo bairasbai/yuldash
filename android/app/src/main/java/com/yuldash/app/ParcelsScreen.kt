@@ -997,6 +997,13 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                     }
                 }
             }
+            // Онлайн-трекинг: пока курьер везёт — видим его на карте (тот же движок, что у такси).
+            if (p.courier != null && (p.status == "accepted" || p.status == "in_transit")) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(appText("Курьер в пути — следи на карте", "Курьер юлда — картала күҙәт"), color = CanonMuted, fontSize = 12.sp)
+                    ParcelTrackMap(p, asCourier = false)
+                }
+            }
             // C2: расчёт «купи и привези» — что получатель заплатит (товар + доставка)
             if (p.deliveryType == "buy_bring") {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }

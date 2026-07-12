@@ -13,7 +13,7 @@ from sqlmodel import Session
 from ..antifraud import TrackGuard
 from ..db import engine
 from ..livepos import livepos_set
-from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, Ride
+from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, ParcelDelivery, Ride
 from ..security import authenticate_ws
 from ..services import MAP_FEED_KEY, manager
 
@@ -25,6 +25,10 @@ router = APIRouter(tags=["location"])
 INSTANT_LOC_BASE = 1_000_000_000
 # Live-позиция такси-заказа живёт ТОЛЬКО пока водитель назначен и заказ активен.
 INSTANT_LOC_ACTIVE = (InstantOrderStatus.accepted, InstantOrderStatus.arriving, InstantOrderStatus.onboard)
+# Namespace трека посылки (курьер → отправитель): не пересекается с трипом/инстантом/картой.
+PARCEL_LOC_BASE = 3_000_000_000
+# Live-позиция курьера живёт ТОЛЬКО пока посылка у курьера в работе (взял / везёт).
+PARCEL_LOC_ACTIVE = ("accepted", "in_transit")
 
 
 @router.websocket("/ws/map")
@@ -218,6 +222,85 @@ async def instant_location(websocket: WebSocket, order_id: int):
                     # Live-ссылка близкому (B7c): позиция машины → Redis-кэш (см. трек брони выше).
                     livepos_set("order", order_id, lat, lng, payload.get("bearing"))
                 await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
+                    "type": "loc",
+                    "role": role,
+                    "lat": lat,
+                    "lng": lng,
+                    "bearing": payload.get("bearing"),
+                    "ts": payload.get("ts"),
+                })
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(recv_key, websocket)
+
+
+@router.websocket("/ws/parcel/{parcel_id}/location")
+async def parcel_location(websocket: WebSocket, parcel_id: int):
+    """Live-позиция доставки посылки (курьер → отправитель) — зеркало /ws/instant/{id}/location.
+    Курьер шлёт {"type":"loc",...}, отправитель видит движущегося курьера. Только участники
+    ИМЕННО этой посылки (отправитель + НАЗНАЧЕННЫЙ курьер) и только пока посылка в работе
+    (accepted/in_transit). Координаты не храним — чистая ретрансляция. Свой namespace ключей."""
+    await websocket.accept()
+    token = None
+    try:
+        first = json.loads(await websocket.receive_text())
+        if first.get("type") == "auth":
+            token = first.get("token")
+    except Exception:
+        token = None
+    with Session(engine) as s:
+        try:
+            user_id = authenticate_ws(token or "", s).id
+        except Exception:
+            await websocket.close(code=1008, reason="Invalid token")
+            return
+        parcel = s.get(ParcelDelivery, parcel_id)
+        # Анти-IDOR: участник именно этой посылки. Курьер — только НАЗНАЧЕННЫЙ (после accept).
+        if not parcel or user_id not in (parcel.sender_id, parcel.courier_id):
+            await websocket.close(code=1008, reason="Forbidden")
+            return
+        if parcel.status not in PARCEL_LOC_ACTIVE:
+            await websocket.close(code=1008, reason="Delivery not active")
+            return
+        courier_id = parcel.courier_id
+
+    role = "courier" if user_id == courier_id else "sender"
+    # Направленные ключи (без self-эхо): base+pid*2 = inbox курьера, base+pid*2+1 = inbox отправителя.
+    recv_key = -(PARCEL_LOC_BASE + parcel_id * 2) if role == "courier" else -(PARCEL_LOC_BASE + parcel_id * 2 + 1)
+    send_key = -(PARCEL_LOC_BASE + parcel_id * 2 + 1) if role == "courier" else -(PARCEL_LOC_BASE + parcel_id * 2)
+    manager.register(recv_key, websocket)
+    guard = TrackGuard(user_id)   # анти-телепорт: фейковые скачки не ретранслируем
+    msgs = 0
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                payload = json.loads(data)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if payload.get("type") == "loc":
+                lat = payload.get("lat")
+                lng = payload.get("lng")
+                if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+                    continue
+                msgs += 1
+                if msgs % 15 == 0:
+                    with Session(engine) as s2:
+                        try:
+                            authenticate_ws(token or "", s2)
+                        except Exception:
+                            await websocket.close(code=1008, reason="Token revoked")
+                            break
+                        p2 = s2.get(ParcelDelivery, parcel_id)
+                        if not p2 or p2.status not in PARCEL_LOC_ACTIVE:
+                            await websocket.close(code=1008, reason="Delivery ended")
+                            break
+                if not guard.ok(float(lat), float(lng)):
+                    continue
+                if role == "courier":
+                    livepos_set("parcel", parcel_id, lat, lng, payload.get("bearing"))
+                await manager.broadcast(send_key, {
                     "type": "loc",
                     "role": role,
                     "lat": lat,

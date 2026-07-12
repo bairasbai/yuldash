@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,6 +56,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -457,7 +459,18 @@ private fun CourierCarryingTab() {
                     icon = Icons.Default.LocalShipping,
                 )
             }
-            else -> items(list.size, key = { "ccar-" + list[it].id }) { i ->
+            else -> {
+                // Онлайн-трекинг: карта активной доставки (курьер шлёт свой GPS отправителю). Одна на вкладку.
+                list.firstOrNull { it.status == "accepted" || it.status == "in_transit" }?.let { activeParcel ->
+                    item(key = "ccar-track") {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(appText("Ты в пути — отправитель видит тебя на карте", "Һин юлда — ебәреүсе һине картала күрә"),
+                                color = CanonMuted, fontSize = 12.sp)
+                            ParcelTrackMap(activeParcel, asCourier = true)
+                        }
+                    }
+                }
+                items(list.size, key = { "ccar-" + list[it].id }) { i ->
                 Box(Modifier.appearIn(i.coerceAtMost(6))) {
                     CourierCarryingCard(
                         p = list[i],
@@ -478,6 +491,7 @@ private fun CourierCarryingTab() {
                         rated = ratedIds.contains(list[i].id),
                         onRate = { rateTarget = list[i] },
                     )
+                }
                 }
             }
         }
@@ -596,6 +610,65 @@ private fun CourierCarryingTab() {
             dismissButton = { TextButton(enabled = !submitting, onClick = { deliverTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
+}
+
+/**
+ * Онлайн-трекинг доставки на карте (курьер ↔ отправитель) — тот же движок, что у такси.
+ * asCourier=true: этот телефон ШЛЁТ свой GPS (курьер) и видит себя на маршруте.
+ * asCourier=false: отправитель ВИДИТ движущегося курьера (принимает позицию по WS).
+ * Приватность как у такси-трека: поток живёт лишь пока посылка в работе (accepted/in_transit),
+ * координаты сервер не хранит, канал закрыт для чужих.
+ */
+@Composable
+internal fun ParcelTrackMap(parcel: ParcelDto, asCourier: Boolean, modifier: Modifier = Modifier) {
+    val from = parcel.fromLat?.let { la -> parcel.fromLng?.let { lo -> com.yandex.mapkit.geometry.Point(la, lo) } }
+    val to = parcel.toLat?.let { la -> parcel.toLng?.let { lo -> com.yandex.mapkit.geometry.Point(la, lo) } }
+    if (from == null && to == null) return   // без координат карту не рисуем
+    val active = parcel.status == "accepted" || parcel.status == "in_transit"
+
+    var courierPoint by remember(parcel.id) { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }
+    var courierBearing by remember(parcel.id) { mutableStateOf<Double?>(null) }
+
+    val sock = remember(parcel.id) {
+        com.yuldash.app.data.InstantLocationSocket.forParcel(parcel.id, onPeer = { peer ->
+            if (peer.role == "courier") {
+                courierPoint = com.yandex.mapkit.geometry.Point(peer.lat, peer.lng)
+                courierBearing = peer.bearing
+            }
+        })
+    }
+    DisposableEffect(parcel.id, active) {
+        if (!active) return@DisposableEffect onDispose { }
+        sock.connect()
+        onDispose { sock.close() }
+    }
+
+    // Курьер: раз в ~5с шлём свою позицию отправителю (координаты не логируем) + показываем себя.
+    val myPoint by rememberMyPoint(active = asCourier && active)
+    if (asCourier) {
+        var lastSent by remember { mutableStateOf(0L) }
+        var prev by remember { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }
+        LaunchedEffect(myPoint) {
+            val p = myPoint ?: return@LaunchedEffect
+            val now = System.currentTimeMillis()
+            if (now - lastSent < 5_000) return@LaunchedEffect
+            lastSent = now
+            val bearing = prev?.let { q ->
+                val dLat = p.latitude - q.latitude; val dLng = p.longitude - q.longitude
+                if (kotlin.math.abs(dLat) + kotlin.math.abs(dLng) < 0.00005) null
+                else (Math.toDegrees(kotlin.math.atan2(dLng * kotlin.math.cos(Math.toRadians(p.latitude)), dLat)) + 360) % 360
+            }
+            prev = p
+            sock.sendLoc(p.latitude, p.longitude, bearing)
+            courierPoint = p; courierBearing = bearing
+        }
+    }
+
+    InstantRouteMap(
+        from = from, to = to,
+        car = courierPoint, carBearing = courierBearing,
+        modifier = modifier.fillMaxWidth().height(190.dp).clip(CanonItemShape),
+    )
 }
 
 @Composable

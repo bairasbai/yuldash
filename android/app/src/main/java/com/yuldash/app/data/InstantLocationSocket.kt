@@ -18,17 +18,25 @@ import java.util.concurrent.TimeUnit
  * в активном заказе (accepted/arriving/onboard); координаты не хранит (приватность).
  * Авто-реконнект с backoff; «Order not active» — мягкий ретрай (заказ вот-вот станет активным).
  */
-class InstantLocationSocket(
-    private val orderId: Int,
-    private val onPeer: (LocationSocket.Peer) -> Unit,   // позиция другого участника (пассажиру — машина)
+class InstantLocationSocket private constructor(
+    private val wsPath: String,                          // путь WS-канала (такси-заказ или доставка посылки)
+    private val onPeer: (LocationSocket.Peer) -> Unit,   // позиция другого участника (пассажиру — машина, отправителю — курьер)
     private val onConnected: (Boolean) -> Unit = {},
 ) {
+    // Такси-заказ (существующие вызовы не меняются): InstantLocationSocket(orderId, onPeer = …).
+    constructor(orderId: Int, onPeer: (LocationSocket.Peer) -> Unit, onConnected: (Boolean) -> Unit = {})
+        : this("/ws/instant/$orderId/location", onPeer, onConnected)
+
     private var ws: WebSocket? = null
     @Volatile private var closed = false
     @Volatile private var attempt = 0
     @Volatile private var softAttempt = 0
 
     companion object {
+        // Доставка посылки (курьер ↔ отправитель): тот же трек-сокет, другой путь.
+        fun forParcel(parcelId: Int, onPeer: (LocationSocket.Peer) -> Unit, onConnected: (Boolean) -> Unit = {}) =
+            InstantLocationSocket("/ws/parcel/$parcelId/location", onPeer, onConnected)
+
         private const val MAX_ATTEMPTS = 10
         private const val MAX_DELAY_SEC = 30L
         private const val SOFT_RETRY_SEC = 10L    // заказ ещё не активен → ретрай чуть чаще, чем у брони
@@ -50,7 +58,7 @@ class InstantLocationSocket(
         if (closed) return
         val token = ApiClient.currentToken() ?: return
         ws?.close(4999, "replaced")   // гонка reconnect↔connect → не плодим двойной канал
-        val url = "${ApiClient.wsBase()}/ws/instant/$orderId/location"   // токен НЕ в URL
+        val url = "${ApiClient.wsBase()}$wsPath"   // токен НЕ в URL
         ws = client.newWebSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {

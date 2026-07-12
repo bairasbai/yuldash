@@ -221,3 +221,39 @@ def test_courier_sees_delivery_price_not_commission(client, user_factory):
     row2 = next(x for x in car.json() if x["id"] == pid)
     income = row2["price_kop"] - row2["commission_kop"]
     assert income > 0, "«Твой доход» = цена - комиссия должен быть положительным"
+
+
+# ----------------------------- ОНЛАЙН-ТРЕКИНГ ДОСТАВКИ (WS) -----------------------------
+
+def test_parcel_location_rejects_non_participant(client, user_factory):
+    """Приватность: живую позицию курьера видит ТОЛЬКО отправитель этой посылки, не посторонний."""
+    import json
+    from starlette.websockets import WebSocketDisconnect
+    courier = _make_courier(client, user_factory, name="ТрекКурьер")
+    sender = user_factory(name="ТрекОтпр")
+    pid = _order(client, sender).json()["id"]
+    assert _accept(client, courier, pid).status_code == 200
+    outsider = user_factory(name="ТрекЧужой")
+    with pytest.raises((WebSocketDisconnect, Exception)):
+        with client.websocket_connect(f"/ws/parcel/{pid}/location") as ws:
+            ws.send_text(json.dumps({"type": "auth", "token": outsider["token"]}))
+            ws.receive_text()
+
+
+def test_parcel_location_relays_courier_to_sender(client, user_factory):
+    """Курьер шлёт свою позицию → отправитель видит движущегося курьера (role=courier)."""
+    import json
+    courier = _make_courier(client, user_factory, name="ТрекКурьер2")
+    sender = user_factory(name="ТрекОтпр2")
+    pid = _order(client, sender).json()["id"]
+    assert _accept(client, courier, pid).status_code == 200
+    with client.websocket_connect(f"/ws/parcel/{pid}/location") as courier_ws:
+        courier_ws.send_text(json.dumps({"type": "auth", "token": courier["token"]}))
+        with client.websocket_connect(f"/ws/parcel/{pid}/location") as sender_ws:
+            sender_ws.send_text(json.dumps({"type": "auth", "token": sender["token"]}))
+            courier_ws.send_text(json.dumps({"type": "loc", "lat": 54.05, "lng": 55.96, "ts": 77}))
+            msg = json.loads(sender_ws.receive_text())
+            assert msg["role"] == "courier"
+            assert msg["lat"] == 54.05
+            assert msg["lng"] == 55.96
+            assert msg["ts"] == 77
