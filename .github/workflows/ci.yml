@@ -37,15 +37,13 @@ jobs:
         run: python -m pytest tests/ -q --cov=app --cov-report=term-missing --cov-fail-under=70
 
   # Android debug-сборка в CI (закрывает разрыв: раньше APK собирался только локально у Александра).
-  # ВАЖНО — job пока informational (continue-on-error), НЕ блокирует мерж:
+  # БЛОКИРУЮЩИЙ: сборка стабильно зелёная (стек такси+курьер+монетизация+доводка собран многократно),
+  # поэтому красный android-build теперь честно валит PR — реальный компилятор Kotlin в CI.
   #   * google-services.json (FCM) и local.properties (ключи MapKit/геокодера) в git НЕ лежат —
-  #     build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые), но пока сборка
-  #     не докажет стабильность в CI, красный android-build не должен валить все открытые PR-ы.
-  #   * СДЕЛАТЬ БЛОКИРУЮЩИМ после стабилизации: убрать `continue-on-error: true` ниже.
+  #     build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые).
   android-build:
     runs-on: ubuntu-latest
     timeout-minutes: 30          # первая сборка тянет зависимости — с запасом
-    continue-on-error: true      # informational: не валит PR, пока сборка не стабильна (см. коммент выше)
     defaults:
       run:
         working-directory: android
