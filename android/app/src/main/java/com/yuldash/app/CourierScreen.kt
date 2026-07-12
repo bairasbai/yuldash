@@ -65,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -200,7 +201,7 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(color = if (online) CanonGreen2 else CanonBg, shape = CircleShape) {
-                        Icon(Icons.Default.DeliveryDining, contentDescription = null, tint = if (online) Color.White else CanonMuted, modifier = Modifier.padding(9.dp).size(22.dp))
+                        Icon(painterResource(R.drawable.yu_mode_courier), contentDescription = null, tint = if (online) Color.White else CanonMuted, modifier = Modifier.padding(9.dp).size(22.dp))
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
