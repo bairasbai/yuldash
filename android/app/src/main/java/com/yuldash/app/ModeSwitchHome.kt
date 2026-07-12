@@ -7,6 +7,9 @@ package com.yuldash.app
 // Смена — плавная (AnimatedContent). Цвета — токены CanonTaxi*/CanonPooling* (жёлтый/зелёный).
 // Деревне-дружелюбно: крупные сегменты ≥64dp, эмодзи+подпись, простой bottom-sheet «Чем отличается?».
 
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import com.yuldash.app.R
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -154,7 +157,7 @@ private fun ModeSwitchBar(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ModeSegment(
                 modifier = Modifier.weight(1f),
-                emoji = "🚗",   // 🚗
+                iconRes = R.drawable.yu_mode_rideshare,
                 title = appText("Попутка", "Юлдаш"),
                 subtitle = appText("дешевле, кто-то едет по пути", "арзаныраҡ, кемдер юл уҙа"),
                 active = mode == RideMode.Pooling,
@@ -164,7 +167,7 @@ private fun ModeSwitchBar(
             )
             ModeSegment(
                 modifier = Modifier.weight(1f),
-                emoji = "🚕",   // 🚕
+                iconRes = R.drawable.yu_mode_taxi,
                 title = appText("Такси", "Такси"),
                 subtitle = appText("машина за тобой сейчас", "машина хәҙер һинең артыңдан"),
                 active = mode == RideMode.Taxi,
@@ -185,7 +188,7 @@ private fun ModeSwitchBar(
 @Composable
 private fun ModeSegment(
     modifier: Modifier = Modifier,
-    emoji: String,
+    iconRes: Int,
     title: String,
     subtitle: String,
     active: Boolean,
@@ -212,7 +215,8 @@ private fun ModeSegment(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(emoji, fontSize = 22.sp)
+                Icon(painterResource(iconRes), contentDescription = null,
+                    tint = if (active) accent else CanonMuted, modifier = Modifier.size(24.dp))
                 Text(title, color = CanonText, fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
             }
             Spacer(Modifier.height(2.dp))
@@ -249,7 +253,7 @@ private fun ModeHintSheet(onDismiss: () -> Unit) {
                 color = CanonText, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black,
             )
             HintRow(
-                emoji = "🚕",   // 🚕
+                iconRes = R.drawable.yu_mode_taxi,
                 accent = CanonTaxi,
                 title = appText("Такси", "Такси"),
                 body = appText(
@@ -258,7 +262,7 @@ private fun ModeHintSheet(onDismiss: () -> Unit) {
                 ),
             )
             HintRow(
-                emoji = "🚗",   // 🚗
+                iconRes = R.drawable.yu_mode_rideshare,
                 accent = CanonPooling,
                 title = appText("Попутка", "Юлдаш"),
                 body = appText(
@@ -280,10 +284,12 @@ private fun ModeHintSheet(onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun HintRow(emoji: String, accent: Color, title: String, body: String) {
+private fun HintRow(iconRes: Int, accent: Color, title: String, body: String) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
         Surface(shape = RoundedCornerShape(14.dp), color = accent.copy(alpha = 0.16f), modifier = Modifier.size(48.dp)) {
-            Box(contentAlignment = Alignment.Center) { Text(emoji, fontSize = 26.sp) }
+            Box(contentAlignment = Alignment.Center) {
+                Icon(painterResource(iconRes), contentDescription = null, tint = accent, modifier = Modifier.size(26.dp))
+            }
         }
         Column(Modifier.weight(1f)) {
             Text(title, color = accent, fontSize = 18.sp, fontWeight = FontWeight.Black)
