@@ -38,6 +38,7 @@ object ApiClient {
     @Volatile private var token: String? = null
     @Volatile private var refreshToken: String? = null
     @Volatile private var userName: String? = null
+    @Volatile private var userRole: String? = null
 
     // Анти-фрод (B8-1): стабильный идентификатор устройства (ANDROID_ID из Settings.Secure).
     // Уходит заголовком X-Device-Id со ВСЕМИ запросами: сервер ловит обход бана новым номером
@@ -162,6 +163,7 @@ object ApiClient {
         token = p.getString("token", null)
         refreshToken = p.getString("refresh_token", null)
         userName = p.getString("user_name", null)
+        userRole = p.getString("user_role", null)
         // Прогрев кеша статики из prefs → цены пакетов/буста видны мгновенно на холодном старте (сеть освежит по TTL).
         seedStatic("ad-packages", ::parseAdPackages)
         seedStatic("boost-plans", ::parseBoostPlans)
@@ -203,6 +205,16 @@ object ApiClient {
 
     /** Имя вошедшего клиента (для приветствия и профиля). null → не вошёл (демо). */
     fun cachedName(): String? = userName?.takeIf { it.isNotBlank() }
+
+    /** Роль вошедшего клиента (passenger/driver/admin) — для честной подписи в профиле. null → неизвестна. */
+    fun cachedRole(): String? = userRole?.takeIf { it.isNotBlank() }
+
+    /** Кеш роли из /me — чтобы статичные баннеры показывали настоящую роль без своего запроса. */
+    fun saveRole(r: String) {
+        if (r.isBlank()) return
+        userRole = r
+        prefs?.edit()?.putString("user_role", r)?.apply()
+    }
 
     // ---------- Кеш GET-ответов (TTL) ----------
     // Статику/редкие данные не дёргаем на каждом открытии экрана и в поллинге. Живое (поездки/near/
@@ -286,10 +298,11 @@ object ApiClient {
         token = null
         refreshToken = null
         userName = null
+        userRole = null
         cachedUserId = null
         cachedUserIdForToken = null
         respCache.clear()   // сброс кеша ответов (иначе следующий юзер увидит чужой /me/referral/contacts)
-        prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.apply()
+        prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.remove("user_role")?.apply()
     }
 
     /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).
@@ -377,7 +390,10 @@ object ApiClient {
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = cachedGet("me", TTL_PERSONAL) {
         call("GET", "/me", null, auth = true)
-            .onSuccess { o -> o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName) }
+            .onSuccess { o ->
+                o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName)
+                o.optString("role").takeIf { it.isNotBlank() }?.let(::saveRole)
+            }
     }
 
     // ---------- Поездки ----------

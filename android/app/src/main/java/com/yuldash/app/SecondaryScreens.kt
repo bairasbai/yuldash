@@ -279,11 +279,11 @@ internal fun NotificationsScreen(
     val allLabel = appText("Все", "Бөтәһе")
     val tripsLabel = appText("Поездки", "Сәфәрҙәр")
     val chatLabel = appText("Сообщения", "Хәбәрҙәр")
-    val systemLabel = appText("Система", "Система")
+    // Таба «Система» убрана: сервер таких уведомлений не шлёт (все события — booking/ride/message),
+    // поэтому она всегда была пустой. Оставили только реально наполняемые вкладки.
     val selectedLabel = when (selected) {
         "trips" -> tripsLabel
         "chat" -> chatLabel
-        "system" -> systemLabel
         else -> allLabel
     }
 
@@ -327,7 +327,6 @@ internal fun NotificationsScreen(
         when (selected) {
             "trips" -> n.type == "booking" || n.type == "ride"
             "chat" -> n.type == "message"
-            "system" -> n.type == "system"
             else -> true
         }
     }
@@ -373,13 +372,12 @@ internal fun NotificationsScreen(
             }
             item {
                 SegmentedTabs(
-                    listOf(allLabel, tripsLabel, chatLabel, systemLabel),
+                    listOf(allLabel, tripsLabel, chatLabel),
                     selectedLabel,
                     onSelect = {
                         selected = when (it) {
                             tripsLabel -> "trips"
                             chatLabel -> "chat"
-                            systemLabel -> "system"
                             else -> "all"
                         }
                     }
@@ -644,7 +642,6 @@ internal fun SafetyScreen(
     onReport: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
-    var hidePhone by remember { mutableStateOf(AppPrefs.hidePhone(ctx)) }
     var verifiedOnly by remember { mutableStateOf(AppPrefs.verifiedOnly(ctx)) }
     Scaffold(
         containerColor = CanonBg,
@@ -687,7 +684,9 @@ internal fun SafetyScreen(
             }
             item {
                 SettingsGroup {
-                    SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it; AppPrefs.setHidePhone(ctx, it) }
+                    // Честно: телефон прячет сервер (отдаёт номер только после подтверждения поездки).
+                    // Раньше тут был тумблер, который писал в prefs, но ни на что не влиял — убрали ложное обещание.
+                    SettingsNavRow(Icons.Default.PhoneLocked, appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерелгән"), appText("Твой номер откроется попутчику только после подтверждения поездки — так устроен Юлдаш.", "Номерың юлдашҡа тик сәфәр раҫланғас ҡына асыла — Юлдаш шулай эшләй."))
                     SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
                     SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
                     SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)

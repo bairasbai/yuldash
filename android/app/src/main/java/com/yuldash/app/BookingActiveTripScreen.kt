@@ -874,7 +874,8 @@ internal fun CompactProfileBanner() {
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(ApiClient.cachedName() ?: "Я", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
-                Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                // Настоящая роль из кеша /me (города в профиле нет — не выдумываем «Баймаҡ»).
+                Text(roleLabel(ApiClient.cachedRole() ?: ""), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                 Text(appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерен"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
             }
         }

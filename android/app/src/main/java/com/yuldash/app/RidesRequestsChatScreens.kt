@@ -1429,6 +1429,7 @@ internal fun ChatScreen(
     var convError by remember { mutableStateOf(false) }
     var convReload by remember { mutableStateOf(0) }
     var myRequests by remember { mutableStateOf<List<RequestDto>>(emptyList()) }
+    var reqError by remember { mutableStateOf(false) }   // заявки: отличаем «нет заявок» от «сеть упала»
     var notifUnread by remember { mutableStateOf(0) }   // бейдж непрочитанных на кнопке «Система»
     val chatTabs = listOf(
         "active" to LocalizedText("Активные", "Актив"),
@@ -1443,7 +1444,10 @@ internal fun ChatScreen(
             // Реальная ошибка (нет сети, 5xx) → convError=true → «Повторить».
             .onFailure { e -> convError = (e as? ApiException)?.status != 401 }
         convLoading = false
-        ApiClient.getMyRequests().onSuccess { myRequests = it }
+        ApiClient.getMyRequests()
+            .onSuccess { myRequests = it; reqError = false }
+            // 401 → не вошёл (обычное «пусто»); иначе сеть упала → показываем ошибку + «Повторить».
+            .onFailure { e -> reqError = (e as? ApiException)?.status != 401 }
         ApiClient.getNotifications().onSuccess { notifUnread = it.unread }
     }
     LazyColumn(
@@ -1508,7 +1512,20 @@ internal fun ChatScreen(
         }
         if (selected == "requests") {
             // Вкладка «Заявки» — реальные заявки пользователя (ждут отклика водителя).
-            if (myRequests.isEmpty()) {
+            if (myRequests.isEmpty() && reqError) {
+                // Сеть упала — не выдаём это за «нет заявок», даём «Повторить».
+                item {
+                    Box(Modifier.appearIn(0)) {
+                        EmptyStateCard(
+                            title = appText("Не удалось загрузить заявки", "Заявкаларҙы йөкләп булманы"),
+                            text = appText("Проверь интернет и повтори", "Интернетты тикшереп ҡабатла"),
+                            icon = Icons.Default.Refresh,
+                            action = appText("Повторить", "Ҡабатлау"),
+                            onAction = { convReload++ },
+                        )
+                    }
+                }
+            } else if (myRequests.isEmpty()) {
                 item {
                     Box(Modifier.appearIn(0)) {
                         InfoCard(
