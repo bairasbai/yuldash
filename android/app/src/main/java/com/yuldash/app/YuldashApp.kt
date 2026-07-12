@@ -545,6 +545,8 @@ internal fun YuldashApp() {
                             smoking = d.smoking,
                             baggage = d.baggage,
                             airConditioner = d.airConditioner,
+                            quiet = d.quiet,
+                            waypoints = d.waypoints,
                             pickup = d.pickup,
                             pickupLat = d.pickupLat,
                             pickupLng = d.pickupLng,

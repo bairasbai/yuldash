@@ -3232,6 +3232,8 @@ data class RideDto(
     val smoking: Boolean = false,
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
+    val quiet: Boolean = false,
+    val waypoints: List<String> = emptyList(),
     val pickup: String = "",          // где водитель забирает (точка сбора)
     val pickupLat: Double? = null,    // координаты точки сбора (пин на карте)
     val pickupLng: Double? = null,
