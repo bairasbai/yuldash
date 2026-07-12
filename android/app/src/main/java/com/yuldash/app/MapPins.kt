@@ -147,3 +147,48 @@ internal fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
     c.drawText(price, left + padX, ty, textPaint)
     return bmp.also { ridePinCache[cacheKey] = it }
 }
+
+private val carEtaCache = HashMap<String, Bitmap>()
+
+/** Маркер «свободная машина рядом» для карты такси: жёлтая (такси) пилюля «🚕 ≈N мин»,
+ *  остриё СНИЗУ — пилюля висит НАД реальной точкой машины (anchor 0.5, 1.0).
+ *  Показывает только правду: рядом есть машина на линии и примерное время подачи. */
+internal fun carEtaBitmap(eta: String): Bitmap {
+    carEtaCache[eta]?.let { return it }
+    val taxi = android.graphics.Color.parseColor("#F5B301")   // CanonGold (такси-жёлтый)
+    val ink = android.graphics.Color.parseColor("#3A2A00")    // тёмный текст на жёлтом (читаем)
+    val label = "🚕 $eta"
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ink; textSize = 30f
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    val padX = 18f; val padY = 11f; val pointer = 14f; val pad = 6f
+    val pillH = textPaint.textSize + padY * 2
+    val pillW = textPaint.measureText(label) + padX * 2
+    val bmp = Bitmap.createBitmap(
+        (pillW + pad * 2).toInt(),
+        (pillH + pointer + pad * 2).toInt(),
+        Bitmap.Config.ARGB_8888,
+    )
+    val c = Canvas(bmp)
+    val left = pad; val right = pad + pillW
+    val pillTop = pad; val pillBottom = pillTop + pillH
+    val radius = pillH / 2
+    val cx = (left + right) / 2
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = taxi }
+    val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22000000 }
+    // остриё СНИЗУ (смотрит на точку машины на карте)
+    val tip = android.graphics.Path().apply {
+        moveTo(cx - pointer / 2, pillBottom - 2f)
+        lineTo(cx + pointer / 2, pillBottom - 2f)
+        lineTo(cx, pillBottom + pointer)
+        close()
+    }
+    c.drawRoundRect(left, pillTop + 3f, right, pillBottom + 3f, radius, radius, shadow)
+    c.drawPath(tip, fill)
+    c.drawRoundRect(left, pillTop, right, pillBottom, radius, radius, fill)
+    val fm = textPaint.fontMetrics
+    val ty = pillTop + pillH / 2 - (fm.ascent + fm.descent) / 2
+    c.drawText(label, left + padX, ty, textPaint)
+    return bmp.also { carEtaCache[eta] = it }
+}

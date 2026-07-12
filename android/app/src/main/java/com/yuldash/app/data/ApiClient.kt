@@ -1520,6 +1520,16 @@ object ApiClient {
 
     /** Сводка смены таксиста (волна 2, §8 Отдых): сколько на линии, осталось, блок отдыха,
      *  когда разблокировка, использован ли «один попутчик домой». */
+    /** Свободные машины «на линии» рядом (анонимные точки + ≈ETA) — для карты такси. Без личности. */
+    suspend fun getNearbyDrivers(lat: Double, lng: Double): Result<List<NearbyDriverDto>> =
+        call("GET", "/instant/nearby-drivers?lat=$lat&lng=$lng", null, auth = true).map { o ->
+            val arr = o.optJSONArray("drivers") ?: org.json.JSONArray()
+            (0 until arr.length()).map { i ->
+                val d = arr.getJSONObject(i)
+                NearbyDriverDto(d.optDouble("lat"), d.optDouble("lng"), d.optInt("eta_min", 1))
+            }
+        }
+
     suspend fun getTaxiWorkday(): Result<TaxiWorkdayDto> =
         call("GET", "/instant/workday", null, auth = true).map { o ->
             TaxiWorkdayDto(
@@ -1833,6 +1843,9 @@ data class InstantZoneDto(
 )
 
 /** Смена такси за местный день (волна 2, §8 Отдых): прогресс к 8-часовому лимиту и блок отдыха. */
+/** Свободная машина рядом (для карты такси): анонимная точка + ≈ETA до подачи. Без личности. */
+data class NearbyDriverDto(val lat: Double, val lng: Double, val etaMin: Int)
+
 data class TaxiWorkdayDto(
     val day: String,                 // местный день учёта, ISO ("2026-07-10")
     val secondsOnline: Int,          // такси-время на линии за день, секунд

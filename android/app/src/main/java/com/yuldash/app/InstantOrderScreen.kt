@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import android.graphics.PointF
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -42,6 +43,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -92,6 +94,7 @@ import androidx.core.content.ContextCompat
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Point
 import com.yandex.mapkit.map.CameraPosition
+import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
@@ -169,7 +172,12 @@ internal fun rememberMyPoint(active: Boolean = true): State<Point?> {
 /** Реальная Яндекс-карта: точка подачи (A) + назначения (B) + дорожный маршрут между ними.
  *  Локаль MapKit задаётся при первой карте приложения; тут только initialize (повторный setLocale бы упал). */
 @Composable
-internal fun InstantRouteMap(from: Point?, to: Point?, modifier: Modifier = Modifier) {
+internal fun InstantRouteMap(
+    from: Point?,
+    to: Point?,
+    nearbyDrivers: List<com.yuldash.app.data.NearbyDriverDto> = emptyList(),
+    modifier: Modifier = Modifier,
+) {
     val ctx = LocalContext.current
     val mapView = remember {
         runCatching { MapKitFactory.initialize(ctx) }
@@ -237,6 +245,23 @@ internal fun InstantRouteMap(from: Point?, to: Point?, modifier: Modifier = Modi
             runCatching { session?.cancel() }
             added.forEach { runCatching { map.mapObjects.remove(it) } }
         }
+    }
+    // «Честные машины рядом»: показываем ТОЛЬКО до выбора адреса (to == null), чтобы не мешать
+    // маршруту. Каждая машинка — реальная точка из presence + ≈ETA (без цены и без личности).
+    DisposableEffect(nearbyDrivers, to) {
+        val map = mapView.mapWindow.map
+        val carObjs = mutableListOf<com.yandex.mapkit.map.MapObject>()
+        if (to == null) {
+            nearbyDrivers.forEach { d ->
+                runCatching {
+                    carObjs += map.mapObjects.addPlacemark(Point(d.lat, d.lng)).apply {
+                        setIcon(ImageProvider.fromBitmap(carEtaBitmap("≈${d.etaMin} мин")))
+                        setIconStyle(IconStyle().setAnchor(PointF(0.5f, 1f)))
+                    }
+                }
+            }
+        }
+        onDispose { carObjs.forEach { runCatching { map.mapObjects.remove(it) } } }
     }
     AndroidView(factory = { mapView }, modifier = modifier)
 }
@@ -404,6 +429,18 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
         estimating = false
     }
 
+    // «Честные машины рядом»: пока адрес Б не выбран — реальные машины на линии рядом (presence).
+    // Обновляем раз в 15с. Выбрал адрес → прячем (на карте появится маршрут). Нет — просто пусто.
+    var nearbyDrivers by remember { mutableStateOf<List<com.yuldash.app.data.NearbyDriverDto>>(emptyList()) }
+    LaunchedEffect(effFrom, toPoint) {
+        if (toPoint != null) { nearbyDrivers = emptyList(); return@LaunchedEffect }
+        val f = effFrom ?: return@LaunchedEffect
+        while (true) {
+            ApiClient.getNearbyDrivers(f.latitude, f.longitude).onSuccess { nearbyDrivers = it }
+            delay(15_000)
+        }
+    }
+
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -411,6 +448,31 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
         Text(appText("Куда едем?", "Ҡайҙа барабыҙ?"), color = CanonText, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black)
         Text(appText("Машина приедет за тобой. Цену считаем заранее — без сюрпризов.", "Машина һине алырға килә. Хаҡты алдан иҫәпләйбеҙ — сюрприздарһыҙ."),
             color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+
+        // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что помощь близко.
+        // Показываем, только когда знаем позицию. Машинки — из presence, ≈ETA до подачи.
+        if (effFrom != null) {
+            Card(shape = CanonItemShape, colors = CardDefaults.cardColors(containerColor = CanonSurface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                Box {
+                    InstantRouteMap(
+                        from = effFrom, to = null, nearbyDrivers = nearbyDrivers,
+                        modifier = Modifier.fillMaxWidth().height(190.dp),
+                    )
+                    if (nearbyDrivers.isNotEmpty()) {
+                        Surface(color = CanonSurface, shape = RoundedCornerShape(999.dp),
+                            shadowElevation = 2.dp, modifier = Modifier.align(Alignment.TopStart).padding(10.dp)) {
+                            Row(Modifier.padding(horizontal = 11.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.LocalTaxi, contentDescription = null, tint = CanonTaxi, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(5.dp))
+                                Text(appText("${nearbyDrivers.size} машин рядом", "${nearbyDrivers.size} машина яҡында"),
+                                    color = CanonText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Точка А
         Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
