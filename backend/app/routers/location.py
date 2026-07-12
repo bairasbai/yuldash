@@ -90,7 +90,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
         if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
             await websocket.close(code=1008, reason="Trip not active")
             return
-        passenger_id, driver_id = booking.passenger_id, ride.driver_id
+        driver_id = ride.driver_id
 
     role = "driver" if user_id == driver_id else "passenger"
     # Два ключа-НАПРАВЛЕНИЯ, чтобы НЕ возвращать отправителю его же позицию (эхо → стрелка попутчика

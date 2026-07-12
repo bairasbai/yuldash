@@ -22,7 +22,7 @@ from .config import settings
 from .db import engine
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, Notification, PickupPoint, Rating, Ride,
-    RideCategory, RideStatus, RouteWatch, UploadEvent, User, UserRole,
+    RideCategory, RouteWatch, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
 from .timeutil import utcnow

@@ -20,7 +20,7 @@ admin через _require_admin (обычный HTTPException-строка), у�
 получатель называет при передаче → status=delivered. Сбор fee_kop по delivered — доход платформы.
 """
 import secrets
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field

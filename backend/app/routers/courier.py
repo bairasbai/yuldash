@@ -17,7 +17,7 @@
 (они уже курьер-сторона); для courier/buy_bring-типов accept гейтится _guard_courier (см. parcels.py).
 """
 from datetime import date, timedelta
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field

@@ -1,6 +1,6 @@
 """Брони: бронирование (с защитой от овербукинга и блокировок), подтверждение,
 отмена, список своих, список броней водителя для оценки пассажиров."""
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel

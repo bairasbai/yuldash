@@ -18,7 +18,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .models import Consent, InviteCode, Trust, User
+from .models import Consent, Trust, User
 
 # Запас инвайтов на пользователя (анти-абьюз: круг «своих» растёт органично, не лавиной).
 MAX_INVITES_PER_USER = 5

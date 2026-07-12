@@ -16,7 +16,7 @@ from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
-    notify_map_changed, public_rides_payload, push_notification, record_pickup_choice, rides_out, send_push, user_rating,
+    notify_map_changed, public_rides_payload, push_notification, record_pickup_choice, rides_out, user_rating,
 )
 from ..timeutil import utcnow
 from .. import workday as workday_mod

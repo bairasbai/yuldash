@@ -2,7 +2,7 @@
 
 Приватность (152-ФЗ): свой уровень, свои инвайты и свои согласия видит ТОЛЬКО их владелец.
 Ни один эндпоинт не отдаёт чужой уровень/коды/согласия (защита от IDOR)."""
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field

@@ -15,11 +15,10 @@ admin через _require_admin (обычный HTTPException-строка). Б�
 что reward_driver_referral: user.referral_credits += perk_value с кэпом MAX_REFERRAL_CREDITS.
 """
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import MedicalPartner, Ride, RideCategory, RideStatus
+from ..models import MedicalPartner, Ride, RideStatus
 from ..services import public_rides_payload, rides_out
 from ..timeutil import utcnow
 from datetime import timedelta

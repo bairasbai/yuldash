@@ -4,12 +4,12 @@ from collections import Counter
 from datetime import timedelta
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import AdEvent, AppReview, Booking, Payment, Ride, User, UserRole
+from ..models import AppReview, Booking, Payment, Ride, User
 from ..security import current_user
 from ..services import (
     cache_get_json, cache_set_json,
