@@ -2498,7 +2498,9 @@ object ApiClient {
         courier = o.optJSONObject("courier")?.takeIf { !o.isNull("courier") }?.let {
             ParcelCourierDto(
                 id = it.optInt("id"), name = it.optString("name"),
-                rating = it.optDouble("rating", 0.0), phone = it.optString("phone"),
+                rating = if (it.isNull("rating")) null else it.optDouble("rating", 0.0),
+                ratingCount = it.optInt("rating_count"),
+                phone = it.optString("phone"),
             )
         },
         deliveryType = o.optString("delivery_type", "poputka"),
@@ -2721,14 +2723,51 @@ object ApiClient {
                 )
             }
             val s = o.optJSONObject("statement")
+            val r = o.optJSONObject("rating")
             CourierMeDto(
                 application = app, profile = profile,
                 statement = CourierStatementDto(
                     deliveredCount = s?.optInt("delivered_count") ?: 0,
+                    commissionEarnedKop = s?.optInt("commission_earned_kop") ?: 0,
+                    commissionOwedKop = s?.optInt("commission_owed_kop") ?: 0,
+                    commissionPaidKop = s?.optInt("commission_paid_kop") ?: 0,
                     commissionKop = s?.optInt("commission_kop") ?: 0,
                 ),
+                rating = CourierRatingDto(
+                    avg = r?.let { if (it.isNull("avg")) null else it.optDouble("avg") },
+                    count = r?.optInt("count") ?: 0,
+                ),
+                pausedUntil = nStr(o, "paused_until"),
             )
         }
+
+    /** C3: оценить доставку (обе стороны, ПОСЛЕ вручения). Ответ — новый рейтинг оценённого. */
+    suspend fun rateParcel(id: Int, stars: Int, text: String? = null): Result<RateResultDto> {
+        val body = JSONObject().put("stars", stars)
+        if (!text.isNullOrBlank()) body.put("text", text.trim())
+        return call("POST", "/parcels/$id/rate", body, auth = true).map {
+            RateResultDto(
+                rateeId = it.optInt("ratee_id"),
+                rating = it.optDouble("rating", 0.0),
+                count = it.optInt("count"),
+            )
+        }.onSuccess { Analytics.log("parcel_rate") }
+    }
+
+    /** C3: курьер оплачивает нашу комиссию (СБП «на доверии»). Идемпотентно. Ответ — реквизиты получателя. */
+    suspend fun payCommission(): Result<PayCommissionDto> =
+        call("POST", "/courier/pay-commission", JSONObject(), auth = true).map { o ->
+            val payee = o.optJSONObject("payee")
+            PayCommissionDto(
+                status = o.optString("status", "pending"),
+                paymentId = o.optInt("payment_id"),
+                amountKop = o.optInt("amount_kop"),
+                amount = o.optInt("amount"),
+                payeePhone = payee?.optString("phone") ?: "",
+                payeeBank = payee?.optString("bank") ?: "",
+                payeeName = payee?.optString("name") ?: "",
+            )
+        }.onSuccess { Analytics.log("courier_pay_commission") }
 
     /** Админ: заявки курьеров (pending сверху решает экран). Ответ — массив application. */
     suspend fun adminListCourierApps(): Result<List<CourierApplicationDto>> =
@@ -3611,8 +3650,9 @@ data class AdminPromoDto(
 
 // ═══════════ M3: Доставка посылок ═══════════
 
-/** Курьер, взявший посылку (виден отправителю после accept). */
-data class ParcelCourierDto(val id: Int, val name: String, val rating: Double, val phone: String)
+/** Курьер, взявший посылку (виден отправителю после accept).
+ *  rating=null — у курьера пока нет оценок («новый курьер»); ratingCount — сколько оценок. */
+data class ParcelCourierDto(val id: Int, val name: String, val rating: Double?, val ratingCount: Int, val phone: String)
 
 /** Посылка. Форма зависит от роли: у отправителя есть confirmCode/receiverPhone/courier;
  *  в списке «доступные» (курьер) телефон и код скрыты (пустые). status: created/accepted/in_transit/delivered/canceled. */
@@ -3686,14 +3726,36 @@ data class CourierProfileDto(
     val workCity: String?, val workDirectionId: Int?, val updatedAt: String,
 )
 
-/** Выписка курьера: сколько доставил и сколько нашего сбора собрано. */
-data class CourierStatementDto(val deliveredCount: Int, val commissionKop: Int)
+/** C3: выписка курьера по нашей комиссии.
+ *  earned — всего наша комиссия за доставки; owed — к оплате сейчас; paid — уже оплачено.
+ *  commissionKop — легаси-поле (== earned), оставлено для совместимости. */
+data class CourierStatementDto(
+    val deliveredCount: Int,
+    val commissionEarnedKop: Int,
+    val commissionOwedKop: Int,
+    val commissionPaidKop: Int,
+    val commissionKop: Int,
+)
 
-/** Ответ /courier/me: заявка + профиль (если одобрен) + выписка. */
+/** C3: рейтинг курьера. avg=null — пока нет оценок. */
+data class CourierRatingDto(val avg: Double?, val count: Int)
+
+/** C3: ответ /parcels/{id}/rate — новый рейтинг оценённого пользователя. */
+data class RateResultDto(val rateeId: Int, val rating: Double, val count: Int)
+
+/** C3: ответ /courier/pay-commission — заявка на оплату комиссии + реквизиты СБП. */
+data class PayCommissionDto(
+    val status: String, val paymentId: Int, val amountKop: Int, val amount: Int,
+    val payeePhone: String, val payeeBank: String, val payeeName: String,
+)
+
+/** Ответ /courier/me: заявка + профиль (если одобрен) + выписка + рейтинг + пауза по качеству. */
 data class CourierMeDto(
     val application: CourierApplicationDto?,
     val profile: CourierProfileDto?,
     val statement: CourierStatementDto,
+    val rating: CourierRatingDto = CourierRatingDto(null, 0),
+    val pausedUntil: String? = null,
 )
 
 /** Выписка по посылкам (админ): сколько доставлено и собранный сбор. */

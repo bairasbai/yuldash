@@ -38,10 +38,12 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -70,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.CourierMeDto
 import com.yuldash.app.data.ParcelDto
+import com.yuldash.app.data.PayCommissionDto
 import kotlinx.coroutines.launch
 
 @Composable
@@ -398,6 +401,8 @@ private fun CourierCarryingTab() {
     var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var ratedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val transitMsg = appText("Статус обновлён: в пути", "Статус яңырҙы: юлда")
@@ -451,10 +456,22 @@ private fun CourierCarryingTab() {
                         onDeliver = { deliverTarget = list[i] },
                         onSetGoods = { goodsTarget = list[i] },
                         onDispute = { disputeTarget = list[i] },
+                        rated = ratedIds.contains(list[i].id),
+                        onRate = { rateTarget = list[i] },
                     )
                 }
             }
         }
+    }
+
+    // C3: курьер оценивает отправителя после вручения.
+    rateTarget?.let { target ->
+        ParcelRateDialog(
+            parcel = target,
+            raterIsCourier = true,
+            onDismiss = { rateTarget = null },
+            onRated = { ratedIds = ratedIds + target.id; rateTarget = null },
+        )
     }
 
     // C2: курьер вводит фактическую стоимость купленного товара (buy_bring).
@@ -570,6 +587,8 @@ private fun CourierCarryingCard(
     onDeliver: () -> Unit,
     onSetGoods: () -> Unit,
     onDispute: () -> Unit,
+    rated: Boolean,
+    onRate: () -> Unit,
 ) {
     val delivered = p.status == "delivered"
     val buyBring = p.deliveryType == "buy_bring"
@@ -648,6 +667,10 @@ private fun CourierCarryingCard(
                     )
                 }
             }
+            // C3: оценить отправителя — после вручения
+            if (delivered) {
+                if (rated) ParcelRatedRow() else ParcelRateButton(onClick = onRate)
+            }
             // C2: спор доступен, когда заказ в пути или доставлен
             if (p.status == "in_transit" || delivered) {
                 ParcelDisputeButton(onClick = onDispute)
@@ -659,11 +682,62 @@ private fun CourierCarryingCard(
 // ─────────────────────────── Кабинет курьера ───────────────────────────
 @Composable
 private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var paying by remember { mutableStateOf(false) }
+    var payResult by remember { mutableStateOf<PayCommissionDto?>(null) }
+    val payErr = appText("Не получилось оформить оплату. Проверь сеть.", "Түләүҙе рәсмиләштереп булманы. Селтәрҙе тикшер.")
+
+    val st = me.statement
+    val owed = st.commissionOwedKop
+
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
+        // Пауза по качеству (если задана) — тёплая плашка, не ругательно.
+        me.pausedUntil?.takeIf { it.isNotBlank() }?.let { until ->
+            item {
+                Surface(color = CanonWarnBg, shape = CanonCardShape, border = BorderStroke(1.dp, CanonWarn)) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.PauseCircle, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(26.dp))
+                        Spacer(Modifier.width(14.dp))
+                        val until10 = until.take(10)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Пауза по качеству", "Сифат буйынса пауза"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Text(
+                                appText("Пауза до $until10. Подтяни рейтинг — и снова в строю. Мы рядом, поможем.", "$until10 тиклем пауза. Рейтингты күтәр — һәм ҡабат сафта. Беҙ янда, ярҙам итербеҙ."),
+                                color = CanonWarn, fontSize = 13.sp, lineHeight = 18.sp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        // Рейтинг курьера.
+        item {
+            val avg = me.rating.avg
+            Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.padding(12.dp).size(26.dp))
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(appText("Твой рейтинг", "Һинең рейтинг"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        if (avg != null && me.rating.count > 0) {
+                            Text(String.format("%.1f", avg) + " ★", color = CanonText, fontWeight = FontWeight.Black, fontSize = 28.sp)
+                            Text(appText("оценок: ${me.rating.count}", "оценка: ${me.rating.count}"), color = CanonMuted, fontSize = 12.sp)
+                        } else {
+                            Text(appText("Пока нет оценок", "Әлегә оценка юҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                            Text(appText("Первые доставки — и рейтинг появится.", "Тәүге илтеүҙәр — һәм рейтинг күренер."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                        }
+                    }
+                }
+            }
+        }
+        // Доставлено заказов.
         item {
             Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
                 Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -673,22 +747,55 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit) {
                     Spacer(Modifier.width(16.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(appText("Доставлено заказов", "Тапшырылған заказдар"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Text("${me.statement.deliveredCount}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 30.sp)
+                        Text("${st.deliveredCount}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 30.sp)
                     }
                 }
             }
         }
+        // Комиссия: заработали · к оплате (крупно) · оплачено.
         item {
-            Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(26.dp))
+            Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, if (owed > 0) CanonGreen2 else CanonBorder)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
+                        Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
                     }
-                    Spacer(Modifier.width(16.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Наш сбор с твоих доставок", "Илтеүҙәреңдән беҙҙең сбор"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Text(kopToRub(me.statement.commissionKop), color = CanonText, fontWeight = FontWeight.Black, fontSize = 26.sp)
-                        Text(appText("Это сбор Юлдаша (8%), а не твой заработок — твой доход остаётся у тебя.", "Был — Юлдаш сборы (8%), һинең килемең түгел — килемең үҙеңдә ҡала."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text(
+                        appText("Это сбор Юлдаша (8%) за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.", "Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы (8%). Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш."),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                    StatementRow(appText("Всего заработали мы", "Барлығы беҙ эшләнек"), kopToRub(st.commissionEarnedKop), CanonMuted)
+                    StatementRow(appText("Уже оплачено", "Түләнгән"), kopToRub(st.commissionPaidKop), CanonGreen2)
+                    // К оплате сейчас — крупно.
+                    Surface(color = if (owed > 0) CanonMint else CanonBg, shape = CanonItemShape) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(appText("К оплате сейчас", "Хәҙер түләргә"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                            Text(kopToRub(owed), color = if (owed > 0) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = 24.sp)
+                        }
+                    }
+                    if (owed > 0) {
+                        AppButton(
+                            text = appText("Оплатить комиссию", "Комиссияны түләү"),
+                            onClick = {
+                                if (paying) return@AppButton
+                                paying = true
+                                scope.launch {
+                                    ApiClient.payCommission()
+                                        .onSuccess { payResult = it }
+                                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: payErr, Toast.LENGTH_LONG).show() }
+                                    paying = false
+                                }
+                            },
+                            style = AppButtonStyle.Accent,
+                            icon = Icons.Default.Payments,
+                            loading = paying,
+                        )
+                        Text(
+                            appText("Переведи сумму по СБП на реквизиты Юлдаша — админ подтвердит оплату вручную.", "Сумманы СБП аша Юлдаш реквизиттарына күсер — админ түләүҙе ҡулдан раҫлар."),
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                        )
+                    } else {
+                        Text(appText("Долгов нет — спасибо, что возишь по-честному.", "Бурыс юҡ — намыҫлы илткәнең өсөн рәхмәт."), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -706,6 +813,26 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit) {
         item {
             AppButton(appText("Обновить", "Яңыртыу"), onReloadMe, style = AppButtonStyle.Secondary)
         }
+    }
+
+    // Реквизиты СБП после оформления оплаты (переиспользуем общий лист донат/буста).
+    payResult?.let { pr ->
+        SbpTransferSheet(
+            amountRub = pr.amountKop / 100,
+            onPaid = { payResult = null; onReloadMe() },
+            onDismiss = { payResult = null },
+            payeePhone = pr.payeePhone,
+            payeeBank = pr.payeeBank,
+            payeeName = pr.payeeName,
+        )
+    }
+}
+
+@Composable
+private fun StatementRow(label: String, value: String, valueColor: Color) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
 }
 

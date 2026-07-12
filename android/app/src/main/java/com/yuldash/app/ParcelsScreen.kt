@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
@@ -236,6 +237,92 @@ internal fun ParcelDisputeDialog(parcel: ParcelDto, onDismiss: () -> Unit, onOpe
             ) { Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
         },
         dismissButton = { TextButton(enabled = !submitting, onClick = onDismiss) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+    )
+}
+
+// ─────────────────── C3: оценка доставки (общее для двух экранов) ───────────────────
+
+/** Кнопка «Оценить доставку» на карточке доставленного заказа. */
+@Composable
+internal fun ParcelRateButton(onClick: () -> Unit) {
+    AppButton(
+        text = appText("Оценить доставку", "Илтеүҙе баһалау"),
+        onClick = onClick,
+        style = AppButtonStyle.Secondary,
+        icon = Icons.Default.Star,
+    )
+}
+
+/** Строка «Спасибо, оценка учтена» — вместо кнопки после оценки. */
+@Composable
+internal fun ParcelRatedRow() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(16.dp))
+        Text(appText("Спасибо, оценка учтена", "Рәхмәт, оценка иҫәпкә алынды"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+    }
+}
+
+/** Диалог оценки доставки. Доступен обеим сторонам после вручения (delivered).
+ *  raterIsCourier=true — курьер оценивает отправителя; false — отправитель оценивает курьера.
+ *  onRated вызывается после успешной оценки (или мягкого «ты уже оценил»). */
+@Composable
+internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDismiss: () -> Unit, onRated: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var stars by remember { mutableStateOf(0) }
+    var comment by remember { mutableStateOf("") }
+    var submitting by remember { mutableStateOf(false) }
+    var err by remember { mutableStateOf<String?>(null) }
+    val failMsg = appText("Не получилось сохранить оценку. Проверь сеть.", "Оценканы һаҡлап булманы. Селтәрҙе тикшер.")
+    val okMsg = appText("Спасибо, оценка учтена!", "Рәхмәт, оценка иҫәпкә алынды!")
+    val whoQuestion = if (raterIsCourier) appText("Как всё прошло с отправителем?", "Ебәреүсе менән барыһы ла нисек үтте?")
+                      else appText("Как справился курьер?", "Курьер эште нисек башҡарҙы?")
+    AlertDialog(
+        onDismissRequest = { if (!submitting) onDismiss() },
+        containerColor = CanonSurface,
+        title = { Text(appText("Оценить доставку", "Илтеүҙе баһалау"), color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(whoQuestion, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    (1..5).forEach { i ->
+                        val filled = i <= stars
+                        val starDesc = appText("Поставить $i из 5", "5-тән $i ҡуйырға")
+                        Icon(
+                            if (filled) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = starDesc,
+                            tint = if (filled) CanonStar else CanonMuted,
+                            modifier = Modifier.size(42.dp).padding(2.dp).bounceClick { stars = i; err = null },
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it.take(300); err = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(appText("Пару слов (необязательно)", "Бер-ике һүҙ (мотлаҡ түгел)")) },
+                    shape = RoundedCornerShape(14.dp),
+                    minLines = 2,
+                )
+                if (err != null) Text(err ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !submitting && stars in 1..5,
+                onClick = {
+                    val note = comment.trim().takeIf { it.isNotBlank() }
+                    submitting = true; err = null
+                    scope.launch {
+                        ApiClient.rateParcel(parcel.id, stars, note)
+                            .onSuccess { Toast.makeText(ctx, okMsg, Toast.LENGTH_SHORT).show(); onRated() }
+                            .onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg }
+                        submitting = false
+                    }
+                },
+            ) { Text(appText("Отправить оценку", "Оценка ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(enabled = !submitting, onClick = onDismiss) { Text(appText("Позже", "Һуңыраҡ"), color = CanonMuted) } },
     )
 }
 
@@ -770,6 +857,8 @@ private fun MyParcelsTab() {
     var busyId by remember { mutableStateOf(0) }
     var cancelTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var ratedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val loadErr = appText("Не удалось загрузить посылки. Проверь интернет.", "Бандеролдәрҙе йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val canceledMsg = appText("Посылка отменена", "Бандероль кире алынды")
@@ -808,8 +897,10 @@ private fun MyParcelsTab() {
                     MyParcelCard(
                         p = list[i],
                         busy = busyId == list[i].id,
+                        rated = ratedIds.contains(list[i].id),
                         onCancel = { cancelTarget = list[i] },
                         onDispute = { disputeTarget = list[i] },
+                        onRate = { rateTarget = list[i] },
                     )
                 }
             }
@@ -845,10 +936,19 @@ private fun MyParcelsTab() {
             onOpened = { disputeTarget = null; reload() },
         )
     }
+
+    rateTarget?.let { target ->
+        ParcelRateDialog(
+            parcel = target,
+            raterIsCourier = false,
+            onDismiss = { rateTarget = null },
+            onRated = { ratedIds = ratedIds + target.id; rateTarget = null },
+        )
+    }
 }
 
 @Composable
-private fun MyParcelCard(p: ParcelDto, busy: Boolean, onCancel: () -> Unit, onDispute: () -> Unit) {
+private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: () -> Unit, onDispute: () -> Unit, onRate: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val active = p.status != "delivered" && p.status != "canceled" && p.status != "cancelled"
     AppCard {
@@ -879,10 +979,14 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, onCancel: () -> Unit, onDi
                         Column(Modifier.weight(1f)) {
                             Text(cr.name.ifBlank { courierFallback }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (cr.rating > 0) {
-                                    Icon(Icons.Default.Star, contentDescription = null, tint = CanonGold, modifier = Modifier.size(14.dp))
+                                val crRating = cr.rating
+                                if (crRating != null && crRating > 0) {
+                                    Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
                                     Spacer(Modifier.width(3.dp))
-                                    Text(String.format("%.1f", cr.rating), color = CanonMuted, fontSize = 12.sp)
+                                    Text(String.format("%.1f", crRating) + (if (cr.ratingCount > 0) " · ${cr.ratingCount}" else ""), color = CanonMuted, fontSize = 12.sp)
+                                    Spacer(Modifier.width(8.dp))
+                                } else {
+                                    Text(appText("новый курьер", "яңы курьер"), color = CanonMuted, fontSize = 12.sp)
                                     Spacer(Modifier.width(8.dp))
                                 }
                                 if (cr.phone.isNotBlank()) Text(cr.phone, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -917,6 +1021,10 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, onCancel: () -> Unit, onDi
                     enabled = !busy,
                     loading = busy,
                 )
+            }
+            // C3: оценить курьера — после вручения
+            if (p.status == "delivered" && p.courier != null) {
+                if (rated) ParcelRatedRow() else ParcelRateButton(onClick = onRate)
             }
             // C2: спор доступен, когда посылка уже в пути или доставлена
             if (p.courier != null && (p.status == "in_transit" || p.status == "delivered")) {
@@ -1088,6 +1196,8 @@ private fun CarryingParcelsTab() {
     var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var ratedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val transitMsg = appText("Статус обновлён: в пути", "Статус яңырҙы: юлда")
@@ -1141,6 +1251,8 @@ private fun CarryingParcelsTab() {
                         onDeliver = { deliverTarget = list[i] },
                         onSetGoods = { goodsTarget = list[i] },
                         onDispute = { disputeTarget = list[i] },
+                        rated = ratedIds.contains(list[i].id),
+                        onRate = { rateTarget = list[i] },
                     )
                 }
             }
@@ -1207,6 +1319,16 @@ private fun CarryingParcelsTab() {
         )
     }
 
+    // C3: курьер оценивает отправителя после вручения.
+    rateTarget?.let { target ->
+        ParcelRateDialog(
+            parcel = target,
+            raterIsCourier = true,
+            onDismiss = { rateTarget = null },
+            onRated = { ratedIds = ratedIds + target.id; rateTarget = null },
+        )
+    }
+
     deliverTarget?.let { target ->
         var code by remember(target.id) { mutableStateOf("") }
         var codeError by remember(target.id) { mutableStateOf<String?>(null) }
@@ -1260,6 +1382,8 @@ private fun CarryingParcelCard(
     onDeliver: () -> Unit,
     onSetGoods: () -> Unit,
     onDispute: () -> Unit,
+    rated: Boolean,
+    onRate: () -> Unit,
 ) {
     val delivered = p.status == "delivered"
     val buyBring = p.deliveryType == "buy_bring"
@@ -1333,6 +1457,10 @@ private fun CarryingParcelCard(
                         enabled = !busy && !needGoods,
                     )
                 }
+            }
+            // C3: оценить отправителя — после вручения
+            if (delivered) {
+                if (rated) ParcelRatedRow() else ParcelRateButton(onClick = onRate)
             }
             // C2: спор доступен, когда посылка в пути или доставлена
             if (p.status == "in_transit" || delivered) {
