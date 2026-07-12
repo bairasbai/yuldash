@@ -247,11 +247,6 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-internal val demoTrustedContacts = listOf(
-    TrustedContact("Айгуль", "Дочь", "+7 927 111-22-33", true, relationBa = "Ҡыҙы"),
-    TrustedContact("Рамиль", "Сосед", "+7 927 444-55-66", false, relationBa = "Күрше")
-)
-
 internal val demoFrequentTrips = listOf(
     FrequentTrip("В больницу", "Больницаға", "Баймаҡ", "Сибай", "завтра утром", "иртәгә иртән", "hospital"),
     FrequentTrip("К детям", "Балаларға", "Баймаҡ", "Уфа", "пятница, 08:00", "йома, 08:00", "intercity"),

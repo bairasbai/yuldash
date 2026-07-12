@@ -1091,11 +1091,11 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                 (1..5).forEach { n ->
                     val filled = n <= stars
                     val scale by animateFloatAsState(if (filled) 1f else 0.86f, label = "star$n")
-                    Icon(
-                        Icons.Default.Star,
-                        contentDescription = appText("$n звёзд", "$n йондоҙ"),
-                        tint = if (filled) CanonStar else CanonBorder,
-                        modifier = Modifier.size(40.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                    val starCd = starsText(n)
+                    // Тач-цель ≥48dp (иконка визуально 40dp внутри), анимация масштаба сохранена.
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
                             .clickable {
                                 stars = n
                                 scope.launch {
@@ -1104,7 +1104,15 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                                         .onFailure { Toast.makeText(ctx, rateFail, Toast.LENGTH_SHORT).show() }
                                 }
                             },
-                    )
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = starCd,
+                            tint = if (filled) CanonStar else CanonBorder,
+                            modifier = Modifier.size(40.dp).graphicsLayer { scaleX = scale; scaleY = scale },
+                        )
+                    }
                 }
             }
             Text(

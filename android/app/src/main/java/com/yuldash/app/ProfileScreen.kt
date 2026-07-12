@@ -1744,15 +1744,24 @@ internal fun DriverCabinetContent(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             (1..5).forEach { n ->
-                                Icon(
-                                    Icons.Default.Star,
-                                    contentDescription = "$n",
-                                    tint = if (n <= stars) CanonStar else CanonBorder,
-                                    modifier = Modifier.size(34.dp).clickable {
-                                        stars = n
-                                        onRate(b.bookingId, n)
-                                    }
-                                )
+                                val starCd = starsText(n)
+                                // Тач-цель ≥48dp (иконка визуально 34dp внутри).
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clickable {
+                                            stars = n
+                                            onRate(b.bookingId, n)
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = starCd,
+                                        tint = if (n <= stars) CanonStar else CanonBorder,
+                                        modifier = Modifier.size(34.dp),
+                                    )
+                                }
                             }
                         }
                         // B8-7: «пассажир не заплатил» одним тапом — только по завершённой поездке.

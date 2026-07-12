@@ -331,7 +331,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId:
         else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
-    val coordsText = if (sosLat != null && sosLng != null) String.format("%.5f, %.5f", sosLat, sosLng) else null
+    val coordsText = if (sosLat != null && sosLng != null) String.format(java.util.Locale.US, "%.5f, %.5f", sosLat, sosLng) else null
 
     fun dictText(): String = buildString {
         if (description.isNotBlank()) append(description.trim())

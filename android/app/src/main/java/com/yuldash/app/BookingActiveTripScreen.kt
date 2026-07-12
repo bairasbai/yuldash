@@ -1205,12 +1205,11 @@ internal fun ActiveTripScreen(
                         Text(rateTitle, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             (1..5).forEach { n ->
-                                Icon(
-                                    Icons.Default.Star,
-                                    contentDescription = "$n",
-                                    tint = if (n <= myStars) CanonStar else CanonBorder,
+                                val starCd = starsText(n)
+                                // Тач-цель ≥48dp (иконка визуально 38dp внутри), клик на всей зоне.
+                                Box(
                                     modifier = Modifier
-                                        .size(38.dp)
+                                        .size(48.dp)
                                         .clickable(enabled = !rating) {
                                             val prev = myStars
                                             myStars = n
@@ -1224,8 +1223,16 @@ internal fun ActiveTripScreen(
                                                         .onFailure { rating = false; myStars = prev; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }   // откат: не показываем «оценено», если не сохранилось
                                                 }
                                             }
-                                        }
-                                )
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = starCd,
+                                        tint = if (n <= myStars) CanonStar else CanonBorder,
+                                        modifier = Modifier.size(38.dp),
+                                    )
+                                }
                             }
                         }
                         // Текстовый отзыв — появляется после выбора звёзд. Идёт на модерацию.

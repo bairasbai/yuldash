@@ -565,15 +565,6 @@ internal fun rideTypeMeta(key: String): Triple<androidx.compose.ui.graphics.vect
     else -> Triple(Icons.Default.DirectionsCar, "Пассажиры", "Пассажирҙар")
 }
 
-// Заявка из строки-маршрута «Откуда → Куда» (голосовая / за близкого) → реальная серверная заявка.
-internal fun fireRequestFromRoute(route: String, comment: String = "", voiceUrl: String? = null, transcript: String? = null) {
-    val parts = route.split("→", "->", "-").map { it.trim() }.filter { it.isNotEmpty() }
-    val from = parts.getOrElse(0) { route.trim() }
-    val to = parts.getOrElse(1) { "" }
-    // assisted=true: вызывается из «помощь»-режимов (голос/повтор/простой) → админ получит уведомление.
-    if (from.isNotBlank()) ApiClient.fireCreateRequest(from, to, 1, "regular", false, comment, 0, voiceUrl, transcript, assisted = true)
-}
-
 // Нативный календарь + часы → строка «ДД.ММ.ГГГГ, ЧЧ:ММ» в поле даты заявки/поездки.
 // localeTag — язык диалога (ru/ba), чтоб названия месяцев/кнопки были не на английском.
 internal fun openDateTimePicker(context: android.content.Context, localeTag: String, onPicked: (String) -> Unit) {
