@@ -2667,6 +2667,8 @@ object ApiClient {
                     baseKop = b.optInt("base_kop"), distanceKop = b.optInt("distance_kop"),
                     sizeKop = b.optInt("size_kop"), urgencyKop = b.optInt("urgency_kop"),
                     commissionPercent = b.optDouble("commission_percent", 0.0),
+                    commissionMinKop = b.optInt("commission_min_kop"),
+                    commissionEstimated = b.optBoolean("commission_estimated", false),
                 ),
             )
         }
@@ -2732,6 +2734,9 @@ object ApiClient {
                     commissionOwedKop = s?.optInt("commission_owed_kop") ?: 0,
                     commissionPaidKop = s?.optInt("commission_paid_kop") ?: 0,
                     commissionKop = s?.optInt("commission_kop") ?: 0,
+                    currentFeePercent = s?.optDouble("current_fee_percent", 0.0) ?: 0.0,
+                    feeTier = s?.optString("fee_tier") ?: "",
+                    commissionMinKop = s?.optInt("commission_min_kop") ?: 0,
                 ),
                 rating = CourierRatingDto(
                     avg = r?.let { if (it.isNull("avg")) null else it.optDouble("avg") },
@@ -3713,6 +3718,8 @@ data class CourierApplicationDto(
 /** Разбивка цены доставки курьером — показываем честно (из чего сложилась цена). */
 data class CourierEstimateBreakdown(
     val baseKop: Int, val distanceKop: Int, val sizeKop: Int, val urgencyKop: Int, val commissionPercent: Double,
+    val commissionMinKop: Int = 0,            // пол комиссии за доставку (25 ₽)
+    val commissionEstimated: Boolean = false, // комиссия до вручения — оценка (финал после вручения)
 )
 
 /** Оценка стоимости доставки курьером (сервер считает по своей формуле). */
@@ -3735,6 +3742,9 @@ data class CourierStatementDto(
     val commissionOwedKop: Int,
     val commissionPaidKop: Int,
     val commissionKop: Int,
+    val currentFeePercent: Double = 0.0,     // текущая ставка комиссии курьера, %
+    val feeTier: String = "",                // ступень: promo | tier1 | tier2 | tier3
+    val commissionMinKop: Int = 0,           // пол комиссии за доставку (25 ₽)
 )
 
 /** C3: рейтинг курьера. avg=null — пока нет оценок. */

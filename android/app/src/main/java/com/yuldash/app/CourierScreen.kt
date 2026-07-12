@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Percent
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
@@ -624,9 +625,11 @@ private fun CourierCarryingCard(
                 if (st != null) ParcelSettlementBlock(st, forCourier = true)
                 else if (p.codAmountKop > 0) Text(appText("Выкуп товара: ", "Тауар выкупы: ") + kopToRub(p.codAmountKop), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
+            // Комиссия до вручения — оценка (финал считается после вручения).
+            val feeEst = if (!delivered) appText(" ≈ ориентировочно", " ≈ самаға") else ""
             val myIncome = p.priceKop - p.commissionKop
             if (myIncome > 0) {
-                Text(appText("Твой доход: ", "Һинең килем: ") + kopToRub(myIncome) + appText(" (наш сбор ${kopToRub(p.commissionKop)})", " (беҙҙең сбор ${kopToRub(p.commissionKop)})"), color = CanonMuted, fontSize = 13.sp)
+                Text(appText("Твой доход: ", "Һинең килем: ") + kopToRub(myIncome) + appText(" (наш сбор ${kopToRub(p.commissionKop)}$feeEst)", " (беҙҙең сбор ${kopToRub(p.commissionKop)}$feeEst)"), color = CanonMuted, fontSize = 13.sp)
             } else if (p.feeKop > 0) {
                 Text(appText("Твой сбор: ", "Һинең сбор: ") + kopToRub(p.feeKop), color = CanonMuted, fontSize = 13.sp)
             }
@@ -752,6 +755,46 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit) {
                 }
             }
         }
+        // Текущая ступень комиссии — курьер видит, сколько платит и почему.
+        if (st.feeTier.isNotBlank()) {
+            item {
+                val pct = courierFeePercentText(st.currentFeePercent)
+                val tierLine = when (st.feeTier) {
+                    "promo" -> appText("🎁 Промо для первых: 0% — пользуйся!", "🎁 Тәүгеләр өсөн промо: 0% — файҙалан!")
+                    "tier1" -> appText("Новичок: 3% — самая низкая ставка", "Яңы башлаусы: 3% — иң түбән ставка")
+                    "tier2" -> appText("Опытный курьер: 5%", "Тәжрибәле курьер: 5%")
+                    "tier3" -> appText("8% — обычная ставка", "8% — ғәҙәти ставка")
+                    else -> appText("Комиссия по твоей ступени", "Баҫҡысың буйынса комиссия")
+                }
+                val promo = st.feeTier == "promo"
+                Surface(
+                    color = if (promo) CanonMint else CanonSurface,
+                    shape = CanonCardShape,
+                    border = BorderStroke(1.dp, if (promo) CanonGreen2 else CanonBorder),
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Surface(color = if (promo) CanonSurface else CanonMint, shape = RoundedCornerShape(14.dp)) {
+                                Icon(Icons.Default.Percent, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(appText("Сейчас ты платишь $pct% комиссии", "Хәҙер һин $pct% комиссия түләйһең"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                Text(tierLine, color = if (promo) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                        if (st.commissionMinKop > 0) {
+                            Text(
+                                appText(
+                                    "Комиссия минимум ${kopToRub(st.commissionMinKop)} за доставку. Всё прозрачно — видно, сколько и за что.",
+                                    "Комиссия иң кәме ${kopToRub(st.commissionMinKop)} бер илтеү өсөн. Барыһы ла асыҡ — күпме һәм ни өсөн икәне күренә.",
+                                ),
+                                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
         // Комиссия: заработали · к оплате (крупно) · оплачено.
         item {
             Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, if (owed > 0) CanonGreen2 else CanonBorder)) {
@@ -847,6 +890,10 @@ private fun CourierRouteRow(from: String, to: String) {
         Text(to.ifBlank { "—" }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
 }
+
+/** Ставка комиссии в проценты без лишних нулей: 0.0→«0», 3.0→«3», 7.5→«7,5». */
+private fun courierFeePercentText(pct: Double): String =
+    if (pct % 1.0 == 0.0) pct.toInt().toString() else String.format("%.1f", pct).replace('.', ',')
 
 /** Ярлык типа доставки + срочности (для карточек курьера). */
 @Composable

@@ -682,8 +682,9 @@ private fun EstimateCard(est: CourierEstimateDto) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(appText("Доставка", "Илтеү"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             Text("≈ " + kopToRub(est.priceKop), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 32.sp)
+            val commEst = if (est.breakdown.commissionEstimated) appText(" ≈ ориентировочно", " ≈ самаға") else ""
             Text(
-                appText("Из них наша комиссия ", "Шуларҙан беҙҙең комиссия ") + kopToRub(est.commissionKop) +
+                appText("Из них наша комиссия ", "Шуларҙан беҙҙең комиссия ") + kopToRub(est.commissionKop) + commEst +
                     appText(" — остальное получит курьер.", " — ҡалғанын курьер алыр."),
                 color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
             )
