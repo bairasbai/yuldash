@@ -904,7 +904,7 @@ private fun PrefChip(iconRes: Int, label: String) {
 // Лента чипов с условиями поездки (показывается только если есть хоть одно).
 @Composable
 private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
-    if (!(ride.petsAllowed || ride.childSeat || ride.womenOnly || ride.smoking || ride.baggage || ride.airConditioner)) return
+    if (!(ride.petsAllowed || ride.childSeat || ride.womenOnly || ride.smoking || ride.baggage || ride.airConditioner || ride.quiet)) return
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -915,6 +915,7 @@ private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
         if (ride.petsAllowed) PrefChip(R.drawable.yu_pet, appText("С животным", "Хайуан менән"))
         if (ride.baggage) PrefChip(R.drawable.yu_luggage, appText("Багаж", "Багаж"))
         if (ride.airConditioner) PrefChip(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"))
+        if (ride.quiet) PrefChip(R.drawable.yu_quiet, appText("Тихая поездка", "Тыныс сәфәр"))
         if (ride.smoking) PrefChip(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"))
     }
 }

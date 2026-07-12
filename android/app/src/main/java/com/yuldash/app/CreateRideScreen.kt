@@ -283,6 +283,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var smoking by remember { mutableStateOf(false) }
     var baggage by remember { mutableStateOf(false) }
     var airConditioner by remember { mutableStateOf(false) }
+    var quiet by remember { mutableStateOf(false) }
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
     var receiverName by remember { mutableStateOf("") }   // посылка: кому отдать
@@ -321,7 +322,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             receiverName = receiverName, parcelSize = parcelSize,
             pickup = pickup, pinned = pickupLat != null,
             womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
-            baggage = baggage, airConditioner = airConditioner, smoking = smoking,
+            baggage = baggage, airConditioner = airConditioner, quiet = quiet, smoking = smoking,
             priceHint = priceHint, loading = publishing, error = publishError,
             onFromChange = { from = it }, onToChange = { to = it },
             onSeatsChange = { seats = it.filter(Char::isDigit) },
@@ -334,7 +335,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             onUsePriceHint = { price = priceHint.toString() },
             onWomenOnly = { womenOnly = it }, onChildSeat = { childSeat = it },
             onPetsAllowed = { petsAllowed = it }, onBaggage = { baggage = it },
-            onAirConditioner = { airConditioner = it }, onSmoking = { smoking = it },
+            onAirConditioner = { airConditioner = it }, onQuiet = { quiet = it }, onSmoking = { smoking = it },
             onPublish = {
                 if (publishing) return@CreateRideFormContent
                 val fromVal = from.ifBlank { "Баймаҡ" }
@@ -355,13 +356,13 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                     car = comment.ifBlank { defaultCar }, carBa = comment.ifBlank { defaultCar },
                     price = priceVal, seats = seatsVal, rating = 5.0, verified = false, boosted = false,
                     petsAllowed = petsAllowed, childSeat = childSeat, womenOnly = womenOnly,
-                    smoking = smoking, baggage = baggage, airConditioner = airConditioner,
+                    smoking = smoking, baggage = baggage, airConditioner = airConditioner, quiet = quiet,
                 )
                 publishError = null
                 publishing = true
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim())
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim(), quiet)
                         .onSuccess { publishing = false; onPublish(ride) }
                         .onFailure { publishing = false; publishError = errPublish }
                 }
@@ -410,6 +411,7 @@ internal fun CreateRideFormContent(
     petsAllowed: Boolean,
     baggage: Boolean,
     airConditioner: Boolean,
+    quiet: Boolean,
     smoking: Boolean,
     priceHint: Int,
     loading: Boolean,
@@ -432,6 +434,7 @@ internal fun CreateRideFormContent(
     onPetsAllowed: (Boolean) -> Unit,
     onBaggage: (Boolean) -> Unit,
     onAirConditioner: (Boolean) -> Unit,
+    onQuiet: (Boolean) -> Unit,
     onSmoking: (Boolean) -> Unit,
     onPublish: () -> Unit,
     onCancel: () -> Unit,
@@ -604,6 +607,7 @@ internal fun CreateRideFormContent(
                     PrefToggleRow(R.drawable.yu_pet, appText("Можно с животным", "Хайуан менән"), petsAllowed) { onPetsAllowed(it) }
                     PrefToggleRow(R.drawable.yu_luggage, appText("Есть место под багаж", "Багаж урыны бар"), baggage) { onBaggage(it) }
                     PrefToggleRow(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"), airConditioner) { onAirConditioner(it) }
+                    PrefToggleRow(R.drawable.yu_quiet, appText("Тихая поездка", "Тыныс сәфәр"), quiet) { onQuiet(it) }
                     PrefToggleRow(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"), smoking) { onSmoking(it) }
                 }
             }

@@ -97,6 +97,17 @@ def test_price_hint_empty_route_returns_zero(client):
     assert client.get("/rides/price_hint", params={"from_city": "NoSuchFrom", "to_city": "NoSuchTo"}).json() == {"avg": 0, "count": 0}
 
 
+def test_ride_quiet_amenity_flows_through(client, user_factory):
+    """«Тихая поездка» (quiet) проходит create→read как остальные удобства; по умолчанию False."""
+    driver = user_factory("QuietRideDriver", role=UserRole.driver)
+    _publish(client, driver, frm="QuietA", to="QuietB", quiet=True)
+    _publish(client, driver, frm="QuietA", to="QuietB")   # обычная (quiet по умолчанию)
+    rows = client.get("/rides", params={"from_city": "QuietA"}).json()
+    assert len(rows) == 2
+    assert sum(1 for r in rows if r["quiet"]) == 1          # ровно одна тихая
+    assert any(r["quiet"] is False for r in rows)           # и одна обычная
+
+
 def test_ride_filters_for_category_and_preferences(client, user_factory):
     driver = user_factory("FilterRideDriver", role=UserRole.driver)
     _publish(
