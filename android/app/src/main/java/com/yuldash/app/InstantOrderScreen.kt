@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocationOn
@@ -331,15 +332,25 @@ internal fun InstantOrderScreen(
     // Гейт такси (волна 2): доступно ли такси в моей точке (глобальный флаг + города на сервере).
     // Сеть упала → фолбэк «доступно» (обычный пикер): сервер всё равно гейтит оценку и заказ.
     var availability by remember { mutableStateOf<com.yuldash.app.data.TaxiAvailabilityDto?>(null) }
+    // Восстановление входа упало по сети → показываем retry вместо тихого падения в пикер (могли потерять живой заказ).
+    var restoreError by remember { mutableStateOf(false) }
+    // Связь с сервером при поллинге активного заказа потеряна → мягкий баннер «пробуем ещё», не молчим.
+    var pollOffline by remember { mutableStateOf(false) }
+    var restoreTick by remember { mutableStateOf(0) }
 
     // Восстановление активного заказа при входе на экран + проверка доступности такси в точке.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(restoreTick) {
         if (!loggedIn) { checking = false; return@LaunchedEffect }
+        checking = true
+        restoreError = false
         val lat = LocationPrefs.lastLat ?: InstantDefaultPoint.latitude
         val lng = LocationPrefs.lastLng ?: InstantDefaultPoint.longitude
+        // Доступность: сеть упала → фолбэк «доступно» (сервер всё равно гейтит). А вот список заказов
+        // важен: если он не загрузился, НЕ роняем в пикер молча — вдруг есть живой заказ.
         ApiClient.getTaxiAvailability(lat, lng).onSuccess { availability = it }
         ApiClient.getMyInstantOrders(limit = 5)
             .onSuccess { list -> order = list.firstOrNull { !it.isTerminal } }
+            .onFailure { restoreError = true }
         checking = false
     }
 
@@ -349,7 +360,9 @@ internal fun InstantOrderScreen(
         val id = activeId ?: return@LaunchedEffect
         while (isActive) {
             delay(3_000)
-            ApiClient.getInstantOrder(id).onSuccess { order = it }
+            ApiClient.getInstantOrder(id)
+                .onSuccess { order = it; pollOffline = false }
+                .onFailure { pollOffline = true }   // связь потеряна — не глотаем, показываем баннер
             if (order?.isTerminal == true) break
         }
     }
@@ -362,13 +375,19 @@ internal fun InstantOrderScreen(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             val current = order
+            val av = availability
             when {
                 !loggedIn -> InstantLoginNeeded(onLoginRequired)
                 checking -> InstantCenterLoader(appText("Проверяем заказ…", "Заказды тикшерәбеҙ…"))
+                // Вход не загрузился по сети → не роняем в пикер молча (мог быть живой заказ), даём «Повторить».
+                current == null && restoreError -> InstantRetryCard(
+                    onRetry = { restoreTick++ },
+                    onBack = onBack,
+                )
                 // Гейт (a): такси выключено глобально или в этом городе → тёплая заглушка «Скоро».
                 // Активный заказ (если вдруг успел создаться до выключения) показываем как обычно.
-                current == null && availability?.enabled == false -> TaxiComingSoonCard(
-                    availability = availability!!,
+                current == null && av?.enabled == false -> TaxiComingSoonCard(
+                    availability = av,
                     onBackToPooling = onBack,
                     onTaxiOnboarding = onTaxiOnboarding,
                 )
@@ -419,7 +438,52 @@ internal fun InstantOrderScreen(
                     extra = { InstantRateAndReport(current, isDriver = false) },   // §9: оценить/пожаловаться
                 )
             }
+            // Связь потеряна во время живого заказа: мягкий баннер сверху, поллинг сам возобновится.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = pollOffline && current?.isTerminal == false,
+                enter = fadeIn(), exit = fadeOut(),
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) { InstantOfflineBanner() }
         }
+    }
+}
+
+@Composable
+private fun InstantOfflineBanner() {
+    Surface(
+        color = CanonWarn.copy(alpha = 0.14f),
+        contentColor = CanonText,
+        shape = CanonItemShape,
+        modifier = Modifier.statusBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(strokeWidth = 2.dp, color = CanonWarn, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(appText("Связь потеряна — пробуем ещё…", "Бәйләнеш өҙөлдө — тағы тырышабыҙ…"),
+                fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+// Вход не загрузился по сети: не роняем в пикер — предлагаем повторить (мог быть живой заказ).
+@Composable
+private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(48.dp))
+        Spacer(Modifier.height(14.dp))
+        Text(appText("Не удалось проверить заказ", "Заказды тикшереп булманы"),
+            fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(6.dp))
+        Text(appText("Проверь интернет и попробуй ещё раз.", "Интернетты тикшереп, ҡабат ҡара."),
+            color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(20.dp))
+        AppButton(text = appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Accent)
+        Spacer(Modifier.height(8.dp))
+        AppButton(text = appText("Назад", "Артҡа"), onClick = onBack, style = AppButtonStyle.Ghost)
     }
 }
 
@@ -477,7 +541,10 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
         estimating = true; errorText = null
         ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText, category)
             .onSuccess { estimate = it }
-            .onFailure { errorText = (it as? ApiException)?.message ?: estimateFailMsg }
+            .onFailure {
+                estimate = null   // сбрасываем устаревшую цену → кнопка «Вызвать» гаснет, не заказываем по старой оценке
+                errorText = (it as? ApiException)?.message ?: estimateFailMsg
+            }
         estimating = false
     }
 
@@ -648,14 +715,15 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
                         }
                         errorText != null -> Text(errorText!!, color = CanonRed, fontSize = 14.sp)
                         estimate != null -> {
+                            val est = estimate!!
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${estimate!!.price} ₽", color = CanonText, fontSize = 30.sp, fontWeight = FontWeight.Black)
+                                Text("${est.price} ₽", color = CanonText, fontSize = 30.sp, fontWeight = FontWeight.Black)
                                 Spacer(Modifier.width(10.dp))
                                 Text(appText("примерно", "яҡынса"), color = CanonMuted, fontSize = 13.sp)
                             }
                             val meta = buildList {
-                                if (estimate!!.distanceKm > 0) add(appText("≈ ${estimate!!.distanceKm.toInt()} км", "≈ ${estimate!!.distanceKm.toInt()} км"))
-                                if (estimate!!.etaMin > 0) add(appText("≈ ${estimate!!.etaMin.toInt()} мин в пути", "≈ ${estimate!!.etaMin.toInt()} мин юлда"))
+                                if (est.distanceKm > 0) add(appText("≈ ${est.distanceKm.toInt()} км", "≈ ${est.distanceKm.toInt()} км"))
+                                if (est.etaMin > 0) add(appText("≈ ${est.etaMin.toInt()} мин в пути", "≈ ${est.etaMin.toInt()} мин юлда"))
                             }.joinToString("  ·  ")
                             if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
                         }
@@ -1497,8 +1565,12 @@ private fun InstantLoginNeeded(onLoginRequired: () -> Unit) {
 @Composable
 internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) -> Unit) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     val myPoint by rememberMyPoint(active = online)
     var offer by remember { mutableStateOf<InstantOrderDto?>(null) }
+    var accepting by remember { mutableStateOf(false) }
+    val acceptTakenMsg = appText("Заказ уже взял другой водитель", "Заказды башҡа водитель алды")
+    val acceptNetMsg = appText("Не удалось взять заказ. Проверь связь и попробуй снова.", "Заказды алып булманы. Бәйләнеште тикшереп ҡабатла.")
 
     // Presence-heartbeat (координаты не логируем).
     LaunchedEffect(online) {
@@ -1523,14 +1595,28 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
     if (online && current != null) {
         InstantOfferOverlay(
             order = current,
+            accepting = accepting,
             onAccept = {
+                if (accepting) return@InstantOfferOverlay
+                accepting = true
                 scope.launch {
                     ApiClient.instantAccept(current.id)
                         .onSuccess { offer = null; onOpenTrip(it.id) }
-                        .onFailure { offer = null }   // 409 (гонка/протух) → просто закрываем, ждём следующий
+                        .onFailure { e ->
+                            // 409 (гонку проиграли/оффер протух) — заказ ушёл, закрываем и ждём следующий.
+                            // Сеть/5xx — не молчим: говорим, что не взяли, оффер оставляем на повтор.
+                            val st = (e as? ApiException)?.status
+                            if (st == 409 || st == 410) {
+                                Toast.makeText(ctx, acceptTakenMsg, Toast.LENGTH_SHORT).show(); offer = null
+                            } else {
+                                Toast.makeText(ctx, acceptNetMsg, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    accepting = false
                 }
             },
             onDecline = {
+                if (accepting) return@InstantOfferOverlay
                 scope.launch { ApiClient.instantDecline(current.id) }
                 offer = null
             },
@@ -1540,7 +1626,7 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
 
 // ------------------------------ Полноэкранный входящий оффер ------------------------------
 @Composable
-private fun InstantOfferOverlay(order: InstantOrderDto, onAccept: () -> Unit, onDecline: () -> Unit) {
+private fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = false, onAccept: () -> Unit, onDecline: () -> Unit) {
     val ttl = 20
     var secondsLeft by remember(order.id) { mutableIntStateOf(ttl) }
     LaunchedEffect(order.id) {
@@ -1604,12 +1690,16 @@ private fun InstantOfferOverlay(order: InstantOrderDto, onAccept: () -> Unit, on
                 }
             }
             Spacer(Modifier.weight(1f))
-            Button(onClick = onAccept, modifier = Modifier.fillMaxWidth().height(56.dp).navigationBarsPadding(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(appText("Взять заказ", "Заказды алыу"), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Button(onClick = onAccept, enabled = !accepting, modifier = Modifier.fillMaxWidth().height(56.dp).navigationBarsPadding(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                if (accepting) {
+                    CircularProgressIndicator(strokeWidth = 2.dp, color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(20.dp))
+                } else {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(appText("Взять заказ", "Заказды алыу"), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                }
             }
-            OutlinedButton(onClick = onDecline, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) {
+            OutlinedButton(onClick = onDecline, enabled = !accepting, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) {
                 Text(appText("Пропустить", "Үткәреп ебәреү"), color = CanonMuted)
             }
         }
@@ -1641,9 +1731,15 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
     var busy by remember { mutableStateOf(false) }
     var confirmNoShow by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
+    // Первая загрузка упала по СЕТИ (не 404) → показываем «Повторить», а не «Заказ не найден».
+    var loadError by remember { mutableStateOf(false) }
+    var reloadTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(orderId) {
-        ApiClient.getInstantOrder(orderId).onSuccess { order = it }
+    LaunchedEffect(orderId, reloadTick) {
+        loading = true; loadError = false
+        ApiClient.getInstantOrder(orderId)
+            .onSuccess { order = it }
+            .onFailure { e -> loadError = (e as? ApiException)?.status?.let { it >= 500 } ?: true }
         loading = false
         while (isActive) {
             delay(5_000)
@@ -1687,6 +1783,8 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
                 loading && current == null -> InstantCenterLoader(appText("Загружаем заказ…", "Заказды йөкләйбеҙ…"))
+                // Сеть упала на загрузке — не выдаём за «не найден», даём «Повторить».
+                current == null && loadError -> InstantRetryCard(onRetry = { reloadTick++ }, onBack = onBack)
                 current == null -> InstantFinalCard(
                     icon = Icons.Default.Close,
                     title = appText("Заказ не найден", "Заказ табылманы"),
