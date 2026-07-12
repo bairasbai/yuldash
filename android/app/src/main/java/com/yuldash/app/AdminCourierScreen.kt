@@ -9,6 +9,7 @@ package com.yuldash.app
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -255,8 +256,9 @@ private fun CourierDocImage(url: String, token: String) {
     val ctx = LocalContext.current
     coil.compose.AsyncImage(
         model = coil.request.ImageRequest.Builder(ctx).data(url).addHeader("Authorization", "Bearer $token").crossfade(true).build(),
-        contentDescription = null,
-        modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(12.dp)),
+        contentDescription = appText("Фото документа курьера", "Курьер документы фотоһы"),
+        // Нейтральный фон = аккуратный плейсхолдер, пока грузится / если не загрузилось (не пустая дыра).
+        modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(12.dp)).background(CanonSurface),
         contentScale = ContentScale.Crop,
     )
 }

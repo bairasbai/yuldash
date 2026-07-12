@@ -144,7 +144,11 @@ private fun CourierNotApprovedView(me: CourierMeDto?, onBecomeCourier: () -> Uni
     ) {
         item {
             Surface(shape = CircleShape, color = CanonMint, border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.3f))) {
-                Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { Text(emoji, fontSize = 44.sp) }
+                Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) {
+                    // Приглашение стать курьером — брендовая иконка (в тон онлайн-герою); статусы (⏳/✋) остаются эмодзи.
+                    if (emoji == "🛵") Icon(painterResource(R.drawable.yu_mode_courier), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(46.dp))
+                    else Text(emoji, fontSize = 44.sp)
+                }
             }
             Spacer(Modifier.height(20.dp))
         }
@@ -195,6 +199,19 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit) {
         }
     }
 
+    // C2: смена зоны. Если уже на линии — сразу переустанавливаем зону на сервере, иначе заказы
+    // продолжали бы приходить по старой зоне (список тоже перезапросится: он завязан на zone).
+    fun changeZone(newZone: String) {
+        if (newZone == zone) return
+        zone = newZone
+        if (online && !(newZone == "city" && workCity.isBlank())) {
+            scope.launch {
+                ApiClient.courierOnline(newZone, if (newZone == "city") workCity.trim() else null, null)
+                    .onFailure { Toast.makeText(ctx, toggleErr, Toast.LENGTH_SHORT).show() }
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         // Тумблер «На линии» + зона.
         Surface(color = if (online) CanonMint else CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, if (online) CanonGreen2 else CanonBorder), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -217,9 +234,9 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit) {
                 }
                 // Выбор зоны.
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CourierZoneChip("🏙", appText("Город", "Ҡала"), zone == "city") { zone = "city" }
-                    CourierZoneChip("🛣", appText("Межгород", "Ҡалалар араһы"), zone == "intercity") { zone = "intercity" }
-                    CourierZoneChip("🌍", appText("Регион", "Төбәк"), zone == "region") { zone = "region" }
+                    CourierZoneChip("🏙", appText("Город", "Ҡала"), zone == "city") { changeZone("city") }
+                    CourierZoneChip("🛣", appText("Межгород", "Ҡалалар араһы"), zone == "intercity") { changeZone("intercity") }
+                    CourierZoneChip("🌍", appText("Регион", "Төбәк"), zone == "region") { changeZone("region") }
                 }
                 if (zone == "city") {
                     OutlinedTextField(
@@ -247,7 +264,7 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit) {
             label = "courier-sub",
         ) { s ->
             when (s) {
-                0 -> CourierAvailableTab(workCity = if (zone == "city") workCity else "")
+                0 -> CourierAvailableTab(zone = zone, workCity = if (zone == "city") workCity else "")
                 1 -> CourierCarryingTab()
                 else -> CourierCabinetTab(me, onReloadMe)
             }
@@ -286,7 +303,7 @@ private fun CourierSubTab(label: String, active: Boolean, modifier: Modifier = M
 
 // ─────────────────────────── Доступные заказы ───────────────────────────
 @Composable
-private fun CourierAvailableTab(workCity: String) {
+private fun CourierAvailableTab(zone: String, workCity: String) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
@@ -306,7 +323,7 @@ private fun CourierAvailableTab(workCity: String) {
             loading = false
         }
     }
-    LaunchedEffect(workCity) { reload() }
+    LaunchedEffect(zone, workCity) { reload() }
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
