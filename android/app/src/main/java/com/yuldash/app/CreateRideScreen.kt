@@ -284,6 +284,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var baggage by remember { mutableStateOf(false) }
     var airConditioner by remember { mutableStateOf(false) }
     var quiet by remember { mutableStateOf(false) }
+    var waypoints by remember { mutableStateOf(listOf<String>()) }
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
     var receiverName by remember { mutableStateOf("") }   // посылка: кому отдать
@@ -323,6 +324,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             pickup = pickup, pinned = pickupLat != null,
             womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
             baggage = baggage, airConditioner = airConditioner, quiet = quiet, smoking = smoking,
+            waypoints = waypoints,
             priceHint = priceHint, loading = publishing, error = publishError,
             onFromChange = { from = it }, onToChange = { to = it },
             onSeatsChange = { seats = it.filter(Char::isDigit) },
@@ -336,6 +338,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             onWomenOnly = { womenOnly = it }, onChildSeat = { childSeat = it },
             onPetsAllowed = { petsAllowed = it }, onBaggage = { baggage = it },
             onAirConditioner = { airConditioner = it }, onQuiet = { quiet = it }, onSmoking = { smoking = it },
+            onWaypointsChange = { waypoints = it },
             onPublish = {
                 if (publishing) return@CreateRideFormContent
                 val fromVal = from.ifBlank { "Баймаҡ" }
@@ -357,12 +360,13 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                     price = priceVal, seats = seatsVal, rating = 5.0, verified = false, boosted = false,
                     petsAllowed = petsAllowed, childSeat = childSeat, womenOnly = womenOnly,
                     smoking = smoking, baggage = baggage, airConditioner = airConditioner, quiet = quiet,
+                    waypoints = waypoints.filter { it.isNotBlank() },
                 )
                 publishError = null
                 publishing = true
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim(), quiet)
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim(), quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "))
                         .onSuccess { publishing = false; onPublish(ride) }
                         .onFailure { publishing = false; publishError = errPublish }
                 }
@@ -412,6 +416,7 @@ internal fun CreateRideFormContent(
     baggage: Boolean,
     airConditioner: Boolean,
     quiet: Boolean,
+    waypoints: List<String>,
     smoking: Boolean,
     priceHint: Int,
     loading: Boolean,
@@ -435,6 +440,7 @@ internal fun CreateRideFormContent(
     onBaggage: (Boolean) -> Unit,
     onAirConditioner: (Boolean) -> Unit,
     onQuiet: (Boolean) -> Unit,
+    onWaypointsChange: (List<String>) -> Unit,
     onSmoking: (Boolean) -> Unit,
     onPublish: () -> Unit,
     onCancel: () -> Unit,
@@ -596,6 +602,43 @@ internal fun CreateRideFormContent(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp)
                 )
+            }
+        }
+        item {
+            // Остановки по пути (несколько точек): A → точки → B. Заезды по дороге, чтобы
+            // попутчики с этих мест могли найти поездку. До 4 остановок.
+            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(painterResource(R.drawable.yu_multi_stop), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(appText("Остановки по пути", "Юл буйындағы туҡталыштар"), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                    }
+                    Text(
+                        appText("Куда заезжаешь по дороге — так тебя найдут попутчики с этих мест.", "Юлда ҡайҙа туҡтайһың — шул урындарҙан юлдаштар һине табыр."),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 14.dp),
+                    )
+                    waypoints.forEachIndexed { i, wp ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = wp,
+                                onValueChange = { v -> onWaypointsChange(waypoints.toMutableList().also { it[i] = v.take(80) }) },
+                                placeholder = { Text(appText("Например, Темясово", "Мәҫәлән, Темәс")) },
+                                singleLine = true, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp),
+                            )
+                            IconButton(onClick = { onWaypointsChange(waypoints.toMutableList().also { it.removeAt(i) }) }, modifier = Modifier.size(48.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = appText("Убрать остановку", "Туҡталышты алып ташлау"), tint = CanonMuted)
+                            }
+                        }
+                    }
+                    if (waypoints.size < 4) {
+                        TextButton(onClick = { onWaypointsChange(waypoints + "") }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(appText("Добавить остановку", "Туҡталыш өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
         item {

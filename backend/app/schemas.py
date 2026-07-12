@@ -30,6 +30,7 @@ class RideIn(BaseModel):
     baggage: bool = False
     air_conditioner: bool = False
     quiet: bool = False
+    waypoints: str = ""
     recurrence: str = "none"          # none / daily / weekdays / weekly
     receiver_name: Optional[str] = Field(None, max_length=120)   # посылка: кому отдать
     parcel_size: Optional[str] = Field(None, max_length=80)      # посылка: габарит/вес
@@ -59,6 +60,7 @@ class RideOut(BaseModel):
     baggage: bool = False
     air_conditioner: bool = False
     quiet: bool = False
+    waypoints: str = ""
     status: RideStatus
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)
     driver_name: str
