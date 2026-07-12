@@ -724,7 +724,7 @@ internal fun PopularRouteChips(routes: List<SettlementRouteDto>, onPick: (String
                         modifier = Modifier.heightIn(min = 48.dp),   // тач-цель ≥48dp
                         colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
                     ) {
-                        Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(painterResource(R.drawable.yu_route), contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("$f → $t", fontSize = 13.sp, maxLines = 1)
                     }

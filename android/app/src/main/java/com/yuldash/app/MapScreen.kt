@@ -1812,7 +1812,7 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
                 shape = RoundedCornerShape(999.dp)
             ) {
                 Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(16.dp), tint = CanonGreen2)
+                    Icon(painterResource(R.drawable.yu_route), contentDescription = null, modifier = Modifier.size(16.dp), tint = CanonGreen2)
                     Spacer(Modifier.width(5.dp))
                     Text(dist, fontWeight = FontWeight.Bold)
                 }

@@ -3,6 +3,7 @@ package com.yuldash.app
 // Экраны брони (BookingScreen) и активной поездки (ActiveTripScreen: чат/статус/SOS).
 // Вынесено из MainActivity (Фаза 2). Импорты целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -646,7 +647,7 @@ internal fun RouteMapUnavailableCard(modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(color = CanonMint, shape = CircleShape) {
-                Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
+                Icon(painterResource(R.drawable.yu_route), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
