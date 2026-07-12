@@ -1,5 +1,16 @@
 # ✅ Задачи Юлдаш
 
+## 🛡 Production-hardening по сквозному аудиту (безопасность/надёжность/наблюдаемость) — ГОТОВО (2026-07-12, `release-2026-07`)
+Три параллельных аудита (security / reliability / observability). Security — **без CRITICAL/HIGH** (секреты чисты, нет инъекций/IDOR, деньги int-копейки, `validate_production()` fail-fast). Закрыл найденное:
+- **C1 (КРИТ, деньги):** активация платежа ставила `succeeded` до начисления в ledger → краш в окне оставлял водителя недоплаченным навсегда. Переставил: идемпотентный эффект → потом `succeeded`; аддитивные — наоборот. (lessons.md)
+- **H1:** приём посылки без row-lock → двойная выдача курьеру. `FOR UPDATE`.
+- **M1** float-комиссия курьера → Decimal; **M2** `create_payment` обёрнут (нет 500/orphan, мягкая 503) во всех 6 точках; **M3** `_activate_payment` под row-lock.
+- **Наблюдаемость:** 500 → Sentry (обработчик их «съедал»); `AsyncioIntegration` + `capture` в фон (WS pub/sub, дайджест); WS pub/sub переживает Redis-блип (реконнект) + держим ссылку; graceful shutdown (снять задачу, закрыть Redis+пул БД).
+- **Перф:** индексы `parceldelivery/partner/coupon.status` (+миграция); `driver_balance` через SQL SUM.
+- **Безопасность:** `/support/donate` в строгий rate-limit; CORS +DELETE.
+- Бэкенд **752 теста** зелёные, alembic одна голова, миграция идемпотентна туда-обратно.
+- **Осталось (аудиторы: post-launch, не блокеры):** ruff/mypy шаг в CI; прогон concurrency-тестов на Postgres в CI (сейчас `skipif`); `logging` вместо `print`; чистка мёртвого `Mocks.kt`.
+
 ## 💳 ЮKassa во всех профилях (по флажку) — ГОТОВО (2026-07-12, ветка `release-2026-07`)
 Довёл приём оплаты картой (ЮKassa) до конца везде, где нужно принимать деньги. Раньше картой платили только Boost/реклама/донат; **комиссии таксиста и курьера** шли только по СБП «на доверии».
 - **`/courier/pay-commission`** и **`/driver/debt/paid`** теперь по флажку `payments_provider=yookassa` создают платёж картой (confirmation_url, авто-чек самозанятого 54-ФЗ), а вебхук/поллинг **автоматически гасит** комиссию/долг — без ручного подтверждения админом. Дедуп pending через `fetch_payment(confirmation_url)`. По умолчанию (`mock`/`sbp_manual`) — прежний поток «на доверии».
