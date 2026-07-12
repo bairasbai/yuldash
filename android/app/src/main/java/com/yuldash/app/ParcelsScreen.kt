@@ -583,6 +583,9 @@ private fun SendParcelTab(onSent: () -> Unit) {
                             if (fromHit == null || toHit == null) {
                                 error = geoErr; working = false; return@launch
                             }
+                            // Показываем, ЧТО распозналось (канонизируем поля) — чтобы опечатка в городе
+                            // не ушла тихо в неверный НП: пользователь видит подставленное название.
+                            fromCity = fromHit.title; toCity = toHit.title
                             fromLat = fromHit.lat; fromLng = fromHit.lon
                             toLat = toHit.lat; toLng = toHit.lon
                             ApiClient.courierEstimate(fromHit.lat, fromHit.lon, toHit.lat, toHit.lon, size, urgency)

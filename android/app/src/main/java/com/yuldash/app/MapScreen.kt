@@ -1819,7 +1819,8 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
         modifier = modifier
             .fillMaxWidth()
             .background(
-                Brush.linearGradient(listOf(Color(0xFFDDEEDF), Color(0xFFEEF3E5), Color(0xFFFFE7AC))),
+                // Запасная «мок-карта» (без ключа MapKit) — цвета из Canon-токенов, адаптивны к тёмной теме.
+                Brush.linearGradient(listOf(CanonMint, CanonBg, CanonGold.copy(alpha = 0.20f))),
                 RoundedCornerShape(24.dp)
             )
             .border(1.dp, CanonBorder, RoundedCornerShape(24.dp))
@@ -1827,7 +1828,7 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
     ) {
         Canvas(Modifier.fillMaxSize()) {
             drawCircle(Color.White.copy(alpha = 0.55f), radius = 170f, center = Offset(size.width * 0.05f, size.height * 0.12f))
-            drawCircle(Color(0xFF0B6B3A).copy(alpha = 0.08f), radius = 210f, center = Offset(size.width * 0.95f, size.height * 0.88f))
+            drawCircle(CanonGreen2.copy(alpha = 0.08f), radius = 210f, center = Offset(size.width * 0.95f, size.height * 0.88f))
             val route = Path().apply {
                 moveTo(size.width * 0.16f, size.height * 0.28f)
                 cubicTo(
@@ -1844,11 +1845,11 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
                 cubicTo(size.width * 0.28f, size.height * 0.50f, size.width * 0.48f, size.height * 0.38f, size.width * 0.74f, size.height * 0.18f)
             }
             drawPath(sideRoad, Color.White.copy(alpha = 0.75f), style = Stroke(width = 11f, cap = StrokeCap.Round))
-            drawPath(sideRoad, Color(0xFF8DB39A).copy(alpha = 0.45f), style = Stroke(width = 3f, cap = StrokeCap.Round))
+            drawPath(sideRoad, CanonGreen2.copy(alpha = 0.45f), style = Stroke(width = 3f, cap = StrokeCap.Round))
             drawPath(route, Color.White, style = Stroke(width = 22f, cap = StrokeCap.Round))
-            drawPath(route, Color(0xFF0B6B3A), style = Stroke(width = 7f, cap = StrokeCap.Round))
-            drawCircle(Color(0xFF0B6B3A), radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
-            drawCircle(Color(0xFFE2A11B), radius = 15f, center = Offset(size.width * 0.84f, size.height * 0.68f))
+            drawPath(route, CanonGreen2, style = Stroke(width = 7f, cap = StrokeCap.Round))
+            drawCircle(CanonGreen2, radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
+            drawCircle(CanonGold, radius = 15f, center = Offset(size.width * 0.84f, size.height * 0.68f))
         }
         MapLabel(from, Modifier.align(Alignment.TopStart).padding(20.dp))
         MapLabel(to, Modifier.align(Alignment.CenterEnd).padding(20.dp))
