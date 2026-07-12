@@ -33,3 +33,25 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -q
         # Тесты на изолированной SQLite (conftest), прод-БД не нужна.
+
+  # Android debug-сборка: раньше APK собирался только локально у Александра, и такси-стек
+  # (B1–B5) в CI НИКОГДА не компилировался Kotlin'ом. Добавляем реальную проверку сборки,
+  # чтобы поймать ошибки компиляции (дашборд водителя и весь UI такси) до мержа.
+  # google-services.json (FCM) и local.properties (ключи MapKit) в git НЕ лежат —
+  # build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые).
+  android-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30          # первая сборка тянет зависимости — с запасом
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"     # проект собирается на JDK 17 (jvmTarget/sourceCompatibility = 17)
+          cache: gradle          # кеш ~/.gradle → быстрее повторные сборки
+      - uses: android-actions/setup-android@v3
+      - name: Собрать debug APK
+        run: chmod +x ./gradlew && ./gradlew :app:assembleDebug --no-daemon --stacktrace
