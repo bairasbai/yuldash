@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeliveryDining
@@ -63,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
@@ -394,10 +396,13 @@ private fun CourierCarryingTab() {
     var error by remember { mutableStateOf<String?>(null) }
     var busyId by remember { mutableIntStateOf(0) }
     var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val transitMsg = appText("Статус обновлён: в пути", "Статус яңырҙы: юлда")
     val deliveredMsg = appText("Заказ вручён. Спасибо!", "Заказ тапшырылды. Рәхмәт!")
+    val goodsSavedMsg = appText("Стоимость покупки сохранена", "Һатып алыу хаҡы һаҡланды")
 
     fun reload() {
         loading = true; error = null
@@ -444,10 +449,72 @@ private fun CourierCarryingTab() {
                             }
                         },
                         onDeliver = { deliverTarget = list[i] },
+                        onSetGoods = { goodsTarget = list[i] },
+                        onDispute = { disputeTarget = list[i] },
                     )
                 }
             }
         }
+    }
+
+    // C2: курьер вводит фактическую стоимость купленного товара (buy_bring).
+    goodsTarget?.let { target ->
+        var rub by remember(target.id) { mutableStateOf(((target.settlement?.goodsActualKop ?: 0) / 100).takeIf { it > 0 }?.toString() ?: "") }
+        var goodsError by remember(target.id) { mutableStateOf<String?>(null) }
+        var saving by remember(target.id) { mutableStateOf(false) }
+        val rubInt = rub.filter(Char::isDigit).toIntOrNull()
+        val goodsOk = rubInt != null && rubInt in 1..5000
+        AlertDialog(
+            onDismissRequest = { if (!saving) goodsTarget = null },
+            containerColor = CanonSurface,
+            title = { Text(appText("Стоимость покупки", "Һатып алыу хаҡы"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(appText("Сколько ты потратил на товар? Получатель вернёт эту сумму плюс доставку.", "Тауарға күпме тотондоң? Алыусы был сумманы һәм илтеүҙе кире ҡайтарыр."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                    OutlinedTextField(
+                        value = rub,
+                        onValueChange = { rub = it.filter(Char::isDigit).take(5); goodsError = null },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(appText("Сумма покупки, ₽", "Һатып алыу суммаһы, ₽")) },
+                        placeholder = { Text("0", color = CanonMuted) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(14.dp),
+                        singleLine = true,
+                        isError = goodsError != null,
+                    )
+                    Text(appText("Лимит покупки — 5000 ₽.", "Һатып алыу лимиты — 5000 ₽."), color = CanonMuted, fontSize = 12.sp)
+                    if (goodsError != null) Text(goodsError ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !saving && goodsOk,
+                    onClick = {
+                        val kop = (rubInt ?: 0) * 100
+                        saving = true; goodsError = null
+                        scope.launch {
+                            ApiClient.setGoodsCost(target.id, kop)
+                                .onSuccess {
+                                    Toast.makeText(ctx, goodsSavedMsg, Toast.LENGTH_SHORT).show()
+                                    goodsTarget = null; reload()
+                                }
+                                .onFailure { goodsError = (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr }
+                            saving = false
+                        }
+                    },
+                ) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(enabled = !saving, onClick = { goodsTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
+
+    // C2: спор по заказу (общий диалог из ParcelsScreen).
+    disputeTarget?.let { target ->
+        ParcelDisputeDialog(
+            parcel = target,
+            onDismiss = { disputeTarget = null },
+            onOpened = { disputeTarget = null; reload() },
+        )
     }
 
     deliverTarget?.let { target ->
@@ -496,8 +563,17 @@ private fun CourierCarryingTab() {
 }
 
 @Composable
-private fun CourierCarryingCard(p: ParcelDto, busy: Boolean, onTransit: () -> Unit, onDeliver: () -> Unit) {
+private fun CourierCarryingCard(
+    p: ParcelDto,
+    busy: Boolean,
+    onTransit: () -> Unit,
+    onDeliver: () -> Unit,
+    onSetGoods: () -> Unit,
+    onDispute: () -> Unit,
+) {
     val delivered = p.status == "delivered"
+    val buyBring = p.deliveryType == "buy_bring"
+    val needGoods = buyBring && (p.settlement?.goodsActualKop ?: 0) == 0
     AppCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -523,8 +599,11 @@ private fun CourierCarryingCard(p: ParcelDto, busy: Boolean, onTransit: () -> Un
                     }
                 }
             }
-            if (p.deliveryType == "buy_bring" && p.codAmountKop > 0) {
-                Text(appText("Выкуп товара: ", "Тауар выкупы: ") + kopToRub(p.codAmountKop), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            // C2: «купи и привези» — блок расчёта (за товар · доставка · получатель платит)
+            if (buyBring) {
+                val st = p.settlement
+                if (st != null) ParcelSettlementBlock(st, forCourier = true)
+                else if (p.codAmountKop > 0) Text(appText("Выкуп товара: ", "Тауар выкупы: ") + kopToRub(p.codAmountKop), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
             val myIncome = p.priceKop - p.commissionKop
             if (myIncome > 0) {
@@ -533,6 +612,19 @@ private fun CourierCarryingCard(p: ParcelDto, busy: Boolean, onTransit: () -> Un
                 Text(appText("Твой сбор: ", "Һинең сбор: ") + kopToRub(p.feeKop), color = CanonMuted, fontSize = 13.sp)
             }
             if (!delivered) {
+                if (needGoods) {
+                    AppButton(
+                        text = appText("Указать стоимость покупки", "Һатып алыу хаҡын күрһәтеү"),
+                        onClick = onSetGoods,
+                        style = AppButtonStyle.Accent,
+                        icon = Icons.Default.Payments,
+                        enabled = !busy,
+                    )
+                    Text(
+                        appText("Сначала укажи стоимость покупки — потом сможешь вручить заказ.", "Тәүҙә һатып алыу хаҡын күрһәт — шунан заказды тапшыра алырһың."),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (p.status == "accepted") {
                         AppButton(
@@ -552,9 +644,13 @@ private fun CourierCarryingCard(p: ParcelDto, busy: Boolean, onTransit: () -> Un
                         icon = Icons.Default.CheckCircle,
                         fillWidth = false,
                         modifier = Modifier.weight(1f),
-                        enabled = !busy,
+                        enabled = !busy && !needGoods,
                     )
                 }
+            }
+            // C2: спор доступен, когда заказ в пути или доставлен
+            if (p.status == "in_transit" || delivered) {
+                ParcelDisputeButton(onClick = onDispute)
             }
         }
     }

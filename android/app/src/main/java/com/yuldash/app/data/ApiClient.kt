@@ -2507,7 +2507,18 @@ object ApiClient {
         codAmountKop = o.optInt("cod_amount_kop"),
         commissionKop = o.optInt("commission_kop"),
         priceKop = o.optInt("price_kop"),
+        settlement = parseParcelSettlement(o.optJSONObject("settlement")),
     )
+
+    /** Разбор блока settlement (buy_bring): null, если сервер не прислал. */
+    private fun parseParcelSettlement(s: JSONObject?): ParcelSettlementDto? = s?.let {
+        ParcelSettlementDto(
+            goodsActualKop = it.optInt("goods_actual_kop"),
+            deliveryKop = it.optInt("delivery_kop"),
+            totalDueKop = it.optInt("total_due_kop"),
+            settled = it.optBoolean("settled"),
+        )
+    }
 
     /** Отправитель: создать посылку. rulesAccepted обязателен (422 иначе), size обязателен. */
     suspend fun createParcel(
@@ -2682,6 +2693,19 @@ object ApiClient {
         return call("POST", "/courier/orders", body, auth = true).map { parseParcel(it) }
             .onSuccess { Analytics.log("courier_order_$deliveryType") }
     }
+
+    /** Курьер (buy_bring): указать фактическую стоимость купленного товара. actualKop — в копейках.
+     *  Ответ: {id, settlement:{...}}. 404 — чужой, 409 — не buy_bring/уже завершён,
+     *  422 — «Укажи стоимость покупки»/«Сумма покупки слишком большая (лимит 5000 ₽)». */
+    suspend fun setGoodsCost(id: Int, actualKop: Int): Result<ParcelSettlementDto> =
+        call("POST", "/courier/orders/$id/goods-cost", JSONObject().put("actual_kop", actualKop), auth = true)
+            .map { parseParcelSettlement(it.optJSONObject("settlement")) ?: ParcelSettlementDto(actualKop, 0, actualKop, false) }
+            .onSuccess { Analytics.log("courier_goods_cost") }
+
+    /** Открыть спор по заказу (отправитель или курьер). reason — что случилось. */
+    suspend fun disputeParcel(id: Int, reason: String): Result<Unit> =
+        call("POST", "/parcels/$id/dispute", JSONObject().put("reason", reason.trim()), auth = true).map { }
+            .onSuccess { Analytics.log("parcel_dispute") }
 
     /** Кабинет курьера: заявка + профиль (если одобрен) + выписка (доставлено/сбор). */
     suspend fun getCourierMe(): Result<CourierMeDto> =
@@ -3616,6 +3640,16 @@ data class ParcelDto(
     val codAmountKop: Int = 0,               // сумма выкупа товара (buy_bring)
     val commissionKop: Int = 0,              // наш сбор (уже входит в priceKop)
     val priceKop: Int = 0,                   // итоговая цена доставки (courier/buy_bring)
+    val settlement: ParcelSettlementDto? = null,   // C2: расчёт «купи и привези» (null для остальных типов)
+)
+
+/** C2: расчёт «купи и привези» — сколько получатель вернёт курьеру (товар + доставка).
+ *  Приходит только для deliveryType="buy_bring", иначе null. goodsActualKop=0 — курьер ещё не указал стоимость покупки. */
+data class ParcelSettlementDto(
+    val goodsActualKop: Int,   // фактическая стоимость купленного товара (0 — ещё не указана)
+    val deliveryKop: Int,      // стоимость доставки
+    val totalDueKop: Int,      // всего к оплате получателем (товар + доставка)
+    val settled: Boolean,      // расчёт закрыт (оплата получена)
 )
 
 // ═══════════ C1: Курьер Юлдаша ═══════════

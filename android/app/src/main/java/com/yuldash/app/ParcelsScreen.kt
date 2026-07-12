@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
@@ -126,6 +127,116 @@ private fun ParcelRouteRow(from: String, to: String) {
         Text("→", color = CanonMuted, fontSize = 14.sp)
         Text(to.ifBlank { "—" }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
+}
+
+// ─────────────────── C2: расчёт «купи и привези» + спор (общее для двух экранов) ───────────────────
+
+/** Блок расчёта «купи и привези»: за товар · доставка · получатель платит.
+ *  forCourier=true — подсказка курьеру («укажи, сколько потратил»); false — отправителю. */
+@Composable
+internal fun ParcelSettlementBlock(s: com.yuldash.app.data.ParcelSettlementDto, forCourier: Boolean) {
+    val hasGoods = s.goodsActualKop > 0
+    Surface(color = CanonWarnBg, shape = CanonItemShape) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(16.dp))
+                Text(appText("Купи и привези", "Ал да килтер"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = 13.sp)
+            }
+            if (hasGoods) SettlementAmountRow(appText("За товар", "Тауар өсөн"), kopToRub(s.goodsActualKop))
+            SettlementAmountRow(appText("Доставка", "Илтеү"), kopToRub(s.deliveryKop))
+            if (hasGoods) {
+                Surface(color = CanonSurface, shape = RoundedCornerShape(10.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(appText("Получатель платит", "Алыусы түләй"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        Text(kopToRub(s.totalDueKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                    }
+                }
+            } else {
+                Text(
+                    if (forCourier) appText("Укажи, сколько потратил на товар, — сумма для получателя посчитается сама.", "Тауарға күпме тотонғаныңды күрһәт — алыусыға сумма үҙе иҫәпләнер.")
+                    else appText("Курьер купит товар на свои. Стоимость появится здесь после покупки — получатель вернёт её плюс доставку.", "Курьер тауарҙы үҙ аҡсаһына алыр. Хаҡы һатып алғас бында күренер — алыусы уны һәм илтеүҙе кире ҡайтарыр."),
+                    color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
+            if (s.settled) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
+                    Text(appText("Расчёт закрыт", "Иҫәп ябылды"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettlementAmountRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = CanonWarn, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+    }
+}
+
+/** Мягкая кнопка «Открыть спор» на карточке доставки. */
+@Composable
+internal fun ParcelDisputeButton(onClick: () -> Unit) {
+    TextButton(onClick = onClick) {
+        Icon(Icons.Default.ReportProblem, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+    }
+}
+
+/** Диалог спора (отправитель/курьер). onOpened вызывается после успешного открытия спора. */
+@Composable
+internal fun ParcelDisputeDialog(parcel: ParcelDto, onDismiss: () -> Unit, onOpened: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var reason by remember { mutableStateOf("") }
+    var submitting by remember { mutableStateOf(false) }
+    var err by remember { mutableStateOf<String?>(null) }
+    val failMsg = appText("Не получилось открыть спор. Проверь сеть.", "Бәхәс асып булманы. Селтәрҙе тикшер.")
+    val okMsg = appText("Спор открыт. Мы разберёмся по-соседски.", "Бәхәс асылды. Күршеләрсә ҡарарбыҙ.")
+    val declared = parcel.declaredValueKop
+    AlertDialog(
+        onDismissRequest = { if (!submitting) onDismiss() },
+        containerColor = CanonSurface,
+        title = { Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(appText("Расскажи, что случилось. Мы посмотрим детали заказа и поможем.", "Нимә булғанын яҙ. Беҙ заказ мәғлүмәтен ҡарап ярҙам итербеҙ."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it; err = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(appText("Что случилось", "Нимә булды")) },
+                    shape = RoundedCornerShape(14.dp),
+                    minLines = 3,
+                    isError = err != null,
+                )
+                Text(
+                    if (declared > 0) appText("Ориентир при споре — объявленная ценность: ", "Бәхәстә ориентир — иғлан ителгән хаҡ: ") + kopToRub(declared) + "."
+                    else appText("Ценность не объявлена — решаем по договорённости между своими.", "Хаҡ иғлан ителмәгән — үҙ-ара килешеү буйынса хәл итәбеҙ."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+                if (err != null) Text(err ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !submitting && reason.isNotBlank(),
+                onClick = {
+                    submitting = true; err = null
+                    scope.launch {
+                        ApiClient.disputeParcel(parcel.id, reason.trim())
+                            .onSuccess { Toast.makeText(ctx, okMsg, Toast.LENGTH_SHORT).show(); onOpened() }
+                            .onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg }
+                        submitting = false
+                    }
+                },
+            ) { Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(enabled = !submitting, onClick = onDismiss) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+    )
 }
 
 // ─────────────────────────── Экран ───────────────────────────
@@ -658,6 +769,7 @@ private fun MyParcelsTab() {
     var error by remember { mutableStateOf<String?>(null) }
     var busyId by remember { mutableStateOf(0) }
     var cancelTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
     val loadErr = appText("Не удалось загрузить посылки. Проверь интернет.", "Бандеролдәрҙе йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val canceledMsg = appText("Посылка отменена", "Бандероль кире алынды")
@@ -697,6 +809,7 @@ private fun MyParcelsTab() {
                         p = list[i],
                         busy = busyId == list[i].id,
                         onCancel = { cancelTarget = list[i] },
+                        onDispute = { disputeTarget = list[i] },
                     )
                 }
             }
@@ -724,10 +837,18 @@ private fun MyParcelsTab() {
             dismissButton = { TextButton(onClick = { cancelTarget = null }) { Text(appText("Оставить", "Ҡалдырыу"), color = CanonMuted) } },
         )
     }
+
+    disputeTarget?.let { target ->
+        ParcelDisputeDialog(
+            parcel = target,
+            onDismiss = { disputeTarget = null },
+            onOpened = { disputeTarget = null; reload() },
+        )
+    }
 }
 
 @Composable
-private fun MyParcelCard(p: ParcelDto, busy: Boolean, onCancel: () -> Unit) {
+private fun MyParcelCard(p: ParcelDto, busy: Boolean, onCancel: () -> Unit, onDispute: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val active = p.status != "delivered" && p.status != "canceled" && p.status != "cancelled"
     AppCard {
@@ -770,6 +891,10 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, onCancel: () -> Unit) {
                     }
                 }
             }
+            // C2: расчёт «купи и привези» — что получатель заплатит (товар + доставка)
+            if (p.deliveryType == "buy_bring") {
+                p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }
+            }
             // Код вручения — вижу как отправитель, пока не доставлено
             if (p.confirmCode.isNotBlank() && active) {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
@@ -792,6 +917,10 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, onCancel: () -> Unit) {
                     enabled = !busy,
                     loading = busy,
                 )
+            }
+            // C2: спор доступен, когда посылка уже в пути или доставлена
+            if (p.courier != null && (p.status == "in_transit" || p.status == "delivered")) {
+                ParcelDisputeButton(onClick = onDispute)
             }
         }
     }
@@ -957,10 +1086,13 @@ private fun CarryingParcelsTab() {
     var error by remember { mutableStateOf<String?>(null) }
     var busyId by remember { mutableStateOf(0) }
     var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val transitMsg = appText("Статус обновлён: в пути", "Статус яңырҙы: юлда")
     val deliveredMsg = appText("Посылка вручена. Спасибо!", "Бандероль тапшырылды. Рәхмәт!")
+    val goodsSavedMsg = appText("Стоимость покупки сохранена", "Һатып алыу хаҡы һаҡланды")
 
     fun reload() {
         loading = true; error = null
@@ -1007,10 +1139,72 @@ private fun CarryingParcelsTab() {
                             }
                         },
                         onDeliver = { deliverTarget = list[i] },
+                        onSetGoods = { goodsTarget = list[i] },
+                        onDispute = { disputeTarget = list[i] },
                     )
                 }
             }
         }
+    }
+
+    // C2: курьер вводит фактическую стоимость купленного товара (buy_bring).
+    goodsTarget?.let { target ->
+        var rub by remember(target.id) { mutableStateOf(((target.settlement?.goodsActualKop ?: 0) / 100).takeIf { it > 0 }?.toString() ?: "") }
+        var goodsError by remember(target.id) { mutableStateOf<String?>(null) }
+        var saving by remember(target.id) { mutableStateOf(false) }
+        val rubInt = rub.filter(Char::isDigit).toIntOrNull()
+        val goodsOk = rubInt != null && rubInt in 1..5000
+        AlertDialog(
+            onDismissRequest = { if (!saving) goodsTarget = null },
+            containerColor = CanonSurface,
+            title = { Text(appText("Стоимость покупки", "Һатып алыу хаҡы"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(appText("Сколько ты потратил на товар? Получатель вернёт эту сумму плюс доставку.", "Тауарға күпме тотондоң? Алыусы был сумманы һәм илтеүҙе кире ҡайтарыр."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                    OutlinedTextField(
+                        value = rub,
+                        onValueChange = { rub = it.filter(Char::isDigit).take(5); goodsError = null },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(appText("Сумма покупки, ₽", "Һатып алыу суммаһы, ₽")) },
+                        placeholder = { Text("0", color = CanonMuted) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(14.dp),
+                        singleLine = true,
+                        isError = goodsError != null,
+                    )
+                    Text(appText("Лимит покупки — 5000 ₽.", "Һатып алыу лимиты — 5000 ₽."), color = CanonMuted, fontSize = 12.sp)
+                    if (goodsError != null) Text(goodsError ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !saving && goodsOk,
+                    onClick = {
+                        val kop = (rubInt ?: 0) * 100
+                        saving = true; goodsError = null
+                        scope.launch {
+                            ApiClient.setGoodsCost(target.id, kop)
+                                .onSuccess {
+                                    Toast.makeText(ctx, goodsSavedMsg, Toast.LENGTH_SHORT).show()
+                                    goodsTarget = null; reload()
+                                }
+                                .onFailure { goodsError = (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr }
+                            saving = false
+                        }
+                    },
+                ) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(enabled = !saving, onClick = { goodsTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        )
+    }
+
+    // C2: спор по заказу.
+    disputeTarget?.let { target ->
+        ParcelDisputeDialog(
+            parcel = target,
+            onDismiss = { disputeTarget = null },
+            onOpened = { disputeTarget = null; reload() },
+        )
     }
 
     deliverTarget?.let { target ->
@@ -1059,8 +1253,17 @@ private fun CarryingParcelsTab() {
 }
 
 @Composable
-private fun CarryingParcelCard(p: ParcelDto, busy: Boolean, onTransit: () -> Unit, onDeliver: () -> Unit) {
+private fun CarryingParcelCard(
+    p: ParcelDto,
+    busy: Boolean,
+    onTransit: () -> Unit,
+    onDeliver: () -> Unit,
+    onSetGoods: () -> Unit,
+    onDispute: () -> Unit,
+) {
     val delivered = p.status == "delivered"
+    val buyBring = p.deliveryType == "buy_bring"
+    val needGoods = buyBring && (p.settlement?.goodsActualKop ?: 0) == 0
     AppCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1087,10 +1290,27 @@ private fun CarryingParcelCard(p: ParcelDto, busy: Boolean, onTransit: () -> Uni
                     }
                 }
             }
+            // C2: «купи и привези» — блок расчёта (за товар · доставка · получатель платит)
+            if (buyBring) {
+                p.settlement?.let { ParcelSettlementBlock(it, forCourier = true) }
+            }
             if (p.feeKop > 0) {
                 Text(appText("Твой сбор: ", "Һинең сбор: ") + kopToRub(p.feeKop), color = CanonMuted, fontSize = 13.sp)
             }
             if (!delivered) {
+                if (needGoods) {
+                    AppButton(
+                        text = appText("Указать стоимость покупки", "Һатып алыу хаҡын күрһәтеү"),
+                        onClick = onSetGoods,
+                        style = AppButtonStyle.Accent,
+                        icon = Icons.Default.ShoppingBag,
+                        enabled = !busy,
+                    )
+                    Text(
+                        appText("Сначала укажи стоимость покупки — потом сможешь вручить.", "Тәүҙә һатып алыу хаҡын күрһәт — шунан тапшыра алырһың."),
+                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (p.status == "accepted") {
                         AppButton(
@@ -1110,9 +1330,13 @@ private fun CarryingParcelCard(p: ParcelDto, busy: Boolean, onTransit: () -> Uni
                         icon = Icons.Default.CheckCircle,
                         fillWidth = false,
                         modifier = Modifier.weight(1f),
-                        enabled = !busy,
+                        enabled = !busy && !needGoods,
                     )
                 }
+            }
+            // C2: спор доступен, когда посылка в пути или доставлена
+            if (p.status == "in_transit" || delivered) {
+                ParcelDisputeButton(onClick = onDispute)
             }
         }
     }
