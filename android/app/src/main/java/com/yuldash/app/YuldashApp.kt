@@ -300,6 +300,17 @@ internal fun YuldashApp() {
     // screen/language/startHomeTab переживают и смерть процесса (persistNav в SavedStateHandle, ниже).
     var screen by vm.screen
     var language by vm.language
+    // Сессия протухла на сервере (refresh мёртв) → не оставляем пустые экраны: говорим и уводим на вход.
+    val sessionExpiredMsg = appText("Сессия истекла. Войди снова.", "Сессия тамамланды. Ҡабат кер.")
+    LaunchedEffect(Unit) {
+        ApiClient.sessionExpired.collect { expired ->
+            if (expired) {
+                Toast.makeText(context, sessionExpiredMsg, Toast.LENGTH_LONG).show()
+                screen = Screen.Login
+                ApiClient.sessionExpired.value = false
+            }
+        }
+    }
     var selectedRide by vm.selectedRide
     var startHomeTab by vm.startHomeTab
     var callbackRequested by vm.callbackRequested

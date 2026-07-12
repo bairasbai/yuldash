@@ -174,6 +174,10 @@ object ApiClient {
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
 
+    // Сессия протухла (refresh-токен мёртв) → UI покажет «войди снова» и уйдёт на Login.
+    // Иначе экраны молча деградируют в «пусто». Ставится в 401-ветке ниже, гасится в UI после показа.
+    val sessionExpired = kotlinx.coroutines.flow.MutableStateFlow(false)
+
     /** Токен (тот же JWT) для WebSocket-чата. */
     internal fun currentToken(): String? = token
 
@@ -2127,6 +2131,7 @@ object ApiClient {
                 if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
                 else {
                     logout()   // refresh мёртв → чистим локальную сессию, иначе isLoggedIn() врёт true и юзер «залипает» с 401 на каждом запросе
+                    sessionExpired.value = true   // сигнал UI: показать «войди снова» и уйти на Login (не молчать пустыми экранами)
                     Result.failure(ApiException(401, genericByStatus(401, langBa)))
                 }
             } else {
