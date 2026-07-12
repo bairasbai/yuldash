@@ -160,6 +160,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
@@ -576,7 +577,7 @@ internal fun ProfileScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(displayName, color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
                                     Spacer(Modifier.width(6.dp))
-                                    Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp).bounceClick { nameDraft = displayName; showEditName = true })
+                                    Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.minimumInteractiveComponentSize().size(18.dp).bounceClick { nameDraft = displayName; showEditName = true })
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     // Настоящая роль с сервера (пассажир/водитель/админ).
@@ -592,7 +593,7 @@ internal fun ProfileScreen(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
-                                        .heightIn(min = 32.dp)
+                                        .heightIn(min = 48.dp)
                                         .bounceClick { cityDraft = city; cityPicked = true; cityHits = emptyList(); showEditCity = true }
                                 ) {
                                     Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(15.dp))
@@ -2165,7 +2166,7 @@ private fun ScheduleRow(schedule: DriverScheduleDto, onDelete: () -> Unit) {
                     Text(schedule.comment, color = CanonMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Default.Delete, contentDescription = appText("Удалить", "Юйыу"), tint = CanonMuted, modifier = Modifier.size(20.dp))
             }
         }
@@ -2826,12 +2827,12 @@ internal fun InlinePartnerAdCard(
                     appText("Реклама · erid: ${ad.eridText()}", "Реклама · erid: ${ad.eridText()}"),
                     modifier = Modifier.weight(1f),
                     color = CanonMuted,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Surface(color = CanonMint, shape = RoundedCornerShape(999.dp), border = BorderStroke(1.dp, CanonBorder)) {
-                    Text(label, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = CanonGreen2, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text(label, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2992,7 +2993,7 @@ internal fun AdChip(text: String, icon: androidx.compose.ui.graphics.vector.Imag
         Row(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(5.dp))
-            Text(text, color = CanonGreen2, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text, color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

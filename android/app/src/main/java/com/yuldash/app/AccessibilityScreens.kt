@@ -472,7 +472,7 @@ private fun VoiceRequestPlayRow(url: String) {
                         playing = true
                     }
                 },
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(if (playing) Icons.Default.Close else Icons.Default.PlayArrow, contentDescription = appText("Слушать заявку", "Заявканы тыңлау"), tint = CanonGreen2)
             }
@@ -670,7 +670,7 @@ internal fun CreatePassengerRequestScreen(
     val categories = listOf(
         "regular" to LocalizedText("Обычная", "Ғәҙәти"),
         "urgent" to LocalizedText("Срочно", "Ашығыс"),
-        "parcel" to LocalizedText("Посылка", "Посылка"),
+        "parcel" to LocalizedText("Посылка", "Бандероль"),
         "cargo" to LocalizedText("Груз", "Йөк"),
         "kids" to LocalizedText("С детьми", "Балалар менән")
     )

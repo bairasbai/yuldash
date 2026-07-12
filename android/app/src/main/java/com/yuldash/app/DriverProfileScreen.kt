@@ -208,7 +208,7 @@ private fun StatCell(modifier: Modifier, value: String, label: String, hint: Str
                 Text(value, fontWeight = FontWeight.Black, fontSize = 19.sp, color = CanonText)
             }
             Text(label, color = CanonMuted, fontSize = 12.sp)
-            if (hint != null) Text(hint, color = CanonMuted, fontSize = 10.sp)
+            if (hint != null) Text(hint, color = CanonMuted, fontSize = 12.sp)
         }
     }
 }

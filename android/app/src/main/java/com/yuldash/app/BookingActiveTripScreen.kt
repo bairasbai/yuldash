@@ -1230,7 +1230,7 @@ internal fun ActiveTripScreen(
                                         Icons.Default.Star,
                                         contentDescription = starCd,
                                         tint = if (n <= myStars) CanonStar else CanonBorder,
-                                        modifier = Modifier.size(38.dp),
+                                        modifier = Modifier.size(48.dp),
                                     )
                                 }
                             }
@@ -1965,7 +1965,7 @@ internal fun MessageBubble(
                                 playing = true
                             }
                         },
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(if (playing) Icons.Default.Close else Icons.Default.PlayArrow, contentDescription = appText("Воспроизвести", "Уйнатыу"), tint = if (mine) Color.White else CanonGreen2)
                     }

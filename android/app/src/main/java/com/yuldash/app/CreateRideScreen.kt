@@ -136,6 +136,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -817,7 +818,7 @@ internal fun PopularRouteChips(routes: List<SettlementRouteDto>, onPick: (String
 internal fun PriceHintChip(price: Int, onClick: () -> Unit) {
     Surface(
         color = CanonMint, shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier.minimumInteractiveComponentSize().clickable { onClick() }
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))

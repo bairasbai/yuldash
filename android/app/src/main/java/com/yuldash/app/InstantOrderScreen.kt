@@ -505,7 +505,7 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
                 )
                 suggestions.forEach { hit ->
                     Row(
-                        Modifier.fillMaxWidth().height(44.dp)
+                        Modifier.fillMaxWidth().height(48.dp)
                             .clickable {
                                 toPoint = Point(hit.lat, hit.lon); toText = hit.title; query = ""; suggestions = emptyList()
                             },

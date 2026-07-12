@@ -51,6 +51,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -258,7 +259,7 @@ internal fun ParcelRateButton(onClick: () -> Unit) {
 internal fun ParcelRatedRow() {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(16.dp))
-        Text(appText("Спасибо, оценка учтена", "Рәхмәт, оценка иҫәпкә алынды"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text(appText("Спасибо, оценка учтена", "Рәхмәт, баһа иҫәпкә алынды"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
     }
 }
 
@@ -274,7 +275,7 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
     var submitting by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     val failMsg = appText("Не получилось сохранить оценку. Проверь сеть.", "Оценканы һаҡлап булманы. Селтәрҙе тикшер.")
-    val okMsg = appText("Спасибо, оценка учтена!", "Рәхмәт, оценка иҫәпкә алынды!")
+    val okMsg = appText("Спасибо, оценка учтена!", "Рәхмәт, баһа иҫәпкә алынды!")
     val whoQuestion = if (raterIsCourier) appText("Как всё прошло с отправителем?", "Ебәреүсе менән барыһы ла нисек үтте?")
                       else appText("Как справился курьер?", "Курьер эште нисек башҡарҙы?")
     AlertDialog(
@@ -292,7 +293,7 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
                             if (filled) Icons.Default.Star else Icons.Default.StarBorder,
                             contentDescription = starDesc,
                             tint = if (filled) CanonStar else CanonMuted,
-                            modifier = Modifier.size(42.dp).padding(2.dp).bounceClick { stars = i; err = null },
+                            modifier = Modifier.minimumInteractiveComponentSize().size(42.dp).padding(2.dp).bounceClick { stars = i; err = null },
                         )
                     }
                 }
@@ -363,7 +364,7 @@ private fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modif
     Surface(
         onClick = onClick, color = bg, shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = modifier.height(46.dp),
+        modifier = modifier.height(48.dp),
     ) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = 14.sp)
@@ -814,7 +815,7 @@ private fun ParcelCreatedView(p: ParcelDto, onDone: () -> Unit) {
                     Text(appText("Код вручения", "Тапшырыу коды"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Text(p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 44.sp, textAlign = TextAlign.Center)
                     if (p.confirmCode.isNotBlank()) {
-                        Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                        Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
                             Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
@@ -1007,7 +1008,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                         Text(appText("Код вручения (передай получателю)", "Тапшырыу коды (алыусыға бир)"), color = CanonMuted, fontSize = 12.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 26.sp, modifier = Modifier.weight(1f))
-                            Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                            Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
                             }
                         }
@@ -1147,7 +1148,7 @@ private fun ParcelFilterChip(label: String, active: Boolean, onClick: () -> Unit
         color = if (active) CanonMint else CanonSurface,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = Modifier.height(44.dp),
+        modifier = Modifier.height(48.dp),
     ) {
         Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
             Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)

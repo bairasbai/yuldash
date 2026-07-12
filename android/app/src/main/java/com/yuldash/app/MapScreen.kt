@@ -139,6 +139,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -655,7 +656,7 @@ private fun MapHero(
                             onClick = onClearRoute,
                             shape = CircleShape,
                             color = CanonMint,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.minimumInteractiveComponentSize().size(28.dp)
                         ) {
                             Icon(Icons.Default.Close, contentDescription = appText("Сбросить маршрут", "Маршрутты бетереү"), tint = CanonGreen2, modifier = Modifier.padding(6.dp))
                         }

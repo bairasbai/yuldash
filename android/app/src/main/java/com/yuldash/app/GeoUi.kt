@@ -296,7 +296,7 @@ private fun CitySuggestInput(value: String, onChange: (String) -> Unit) {
                     Row(
                         Modifier.fillMaxWidth()
                             .clickable { picked = true; onChange(s.nameRu); hits = emptyList() }
-                            .heightIn(min = 44.dp)
+                            .heightIn(min = 48.dp)
                             .padding(horizontal = 10.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

@@ -82,7 +82,7 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
         ) {
             // ── Результат (большая карточка сверху) ──
             item {
-                Surface(color = CanonGreen2, shape = RoundedCornerShape(22.dp)) {
+                Surface(color = CanonGreenInk, shape = RoundedCornerShape(22.dp)) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(appText("Чистыми тебе в месяц", "Айына таҙа килем"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         Text(rub(animatedNet.toDouble()), color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)

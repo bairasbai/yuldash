@@ -67,6 +67,7 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
 
     var rejectingId by remember { mutableStateOf<Int?>(null) }
     var rejectReason by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }   // защита от двойного тапа: блокирует «Одобрить/Отклонить» на время сети
 
     val approvedMsg = appText("Курьер одобрен", "Курьер раҫланды")
     val rejectedMsg = appText("Заявка отклонена", "Заявка кире ҡағылды")
@@ -159,12 +160,15 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                                         Button(
                                             onClick = {
                                                 val id = a.id
+                                                busy = true
                                                 scope.launch {
                                                     ApiClient.adminApproveCourier(id)
                                                         .onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() }
                                                         .onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }
+                                                    busy = false
                                                 }
                                             },
+                                            enabled = !busy,
                                             modifier = Modifier.weight(1f).height(48.dp),
                                             shape = RoundedCornerShape(14.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
@@ -173,6 +177,7 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                                             onClick = {
                                                 if (rejectingId == a.id) { rejectingId = null } else { rejectingId = a.id; rejectReason = "" }
                                             },
+                                            enabled = !busy,
                                             modifier = Modifier.weight(1f).height(48.dp),
                                             shape = RoundedCornerShape(14.dp),
                                         ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
@@ -190,13 +195,15 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                                                 onClick = {
                                                     val id = a.id
                                                     val reason = rejectReason.trim()
+                                                    busy = true
                                                     scope.launch {
                                                         ApiClient.adminRejectCourier(id, reason)
                                                             .onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); rejectingId = null; reload() }
                                                             .onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() }
+                                                        busy = false
                                                     }
                                                 },
-                                                enabled = rejectReason.isNotBlank(),
+                                                enabled = rejectReason.isNotBlank() && !busy,
                                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                                 shape = RoundedCornerShape(14.dp),
                                                 colors = ButtonDefaults.buttonColors(containerColor = CanonRed),

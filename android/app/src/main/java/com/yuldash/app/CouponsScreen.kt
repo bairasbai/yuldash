@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -244,7 +245,7 @@ private fun CouponFilterChip(label: String, active: Boolean, onClick: () -> Unit
         color = if (active) CanonMint else CanonSurface,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = Modifier.height(44.dp),
+        modifier = Modifier.height(48.dp),
     ) {
         Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
             Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -375,7 +376,7 @@ private fun MyCouponCard(m: MyCouponDto) {
                 Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 24.sp, modifier = Modifier.weight(1f))
-                        Surface(onClick = { clipboard.setText(AnnotatedString(m.code)) }, color = CanonSurface, shape = RoundedCornerShape(12.dp)) {
+                        Surface(onClick = { clipboard.setText(AnnotatedString(m.code)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonSurface, shape = RoundedCornerShape(12.dp)) {
                             Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
                         }
                     }
@@ -538,7 +539,7 @@ private fun ActivatedCodeView(a: ActivatedCouponDto, onDone: () -> Unit) {
                 Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(2.dp, CanonGreen2)) {
                     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(a.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 40.sp, textAlign = TextAlign.Center)
-                        Surface(onClick = { clipboard.setText(AnnotatedString(a.code)) }, color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                        Surface(onClick = { clipboard.setText(AnnotatedString(a.code)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
                             Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))

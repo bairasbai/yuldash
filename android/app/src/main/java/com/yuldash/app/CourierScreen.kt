@@ -260,7 +260,7 @@ private fun CourierZoneChip(emoji: String, label: String, active: Boolean, onCli
     Surface(
         onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = Modifier.height(44.dp),
+        modifier = Modifier.height(48.dp),
     ) {
         Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(emoji, fontSize = 15.sp)
@@ -275,7 +275,7 @@ private fun CourierSubTab(label: String, active: Boolean, modifier: Modifier = M
     Surface(
         onClick = onClick, color = bg, shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = modifier.height(46.dp),
+        modifier = modifier.height(48.dp),
     ) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = 14.sp)
@@ -731,7 +731,7 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit) {
                         Text(appText("Твой рейтинг", "Һинең рейтинг"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         if (avg != null && me.rating.count > 0) {
                             Text(String.format("%.1f", avg) + " ★", color = CanonText, fontWeight = FontWeight.Black, fontSize = 28.sp)
-                            Text(appText("оценок: ${me.rating.count}", "оценка: ${me.rating.count}"), color = CanonMuted, fontSize = 12.sp)
+                            Text(appText("оценок: ${me.rating.count}", "баһа: ${me.rating.count}"), color = CanonMuted, fontSize = 12.sp)
                         } else {
                             Text(appText("Пока нет оценок", "Әлегә оценка юҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                             Text(appText("Первые доставки — и рейтинг появится.", "Тәүге илтеүҙәр — һәм рейтинг күренер."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)

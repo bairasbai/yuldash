@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Redeem
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -240,7 +241,7 @@ private fun CategoryChip(code: String, active: Boolean, onClick: () -> Unit) {
         color = if (active) CanonMint else CanonSurface,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = Modifier.height(44.dp),
+        modifier = Modifier.height(48.dp),
     ) {
         Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
             Text(couponCategoryLabel(code), color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -356,7 +357,7 @@ private fun PartnerDashboard(
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(appText("Мои купоны", "Минең купондар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.weight(1f))
-                Surface(onClick = onCreateCoupon, color = CanonGreen2, shape = RoundedCornerShape(12.dp)) {
+                Surface(onClick = onCreateCoupon, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonGreen2, shape = RoundedCornerShape(12.dp)) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Add, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
@@ -462,7 +463,7 @@ private fun PartnerCouponRow(c: PartnerCouponDto, busy: Boolean, onEdit: () -> U
                 }
                 if (c.premium) {
                     Surface(color = CanonGold, shape = RoundedCornerShape(9.dp)) {
-                        Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Black, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp))
+                        Text(appText("Премиум", "Премиум"), color = CanonGoldInk, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp))
                     }
                     Spacer(Modifier.width(6.dp))
                 }

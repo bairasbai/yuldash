@@ -139,6 +139,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -951,6 +952,7 @@ internal fun LoginLangToggle(
 private fun LoginLangChip(text: String, active: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
+            .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
             .background(if (active) CanonGreen2 else Color.Transparent)
