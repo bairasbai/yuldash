@@ -43,8 +43,8 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
     иначе → «Я оплатил» по СБП «на доверии» (долг → pending, админ подтверждает в /admin/debts)."""
     from ..config import settings
     from ..models import Payment
-    from ..payments import create_payment, fetch_payment
-    from .payments import _activate_payment
+    from ..payments import fetch_payment
+    from .payments import _activate_payment, _start_yookassa
 
     if settings.is_prod and settings.payments_provider == "mock":
         raise HTTPException(503, "Оплата скоро будет доступна")
@@ -74,7 +74,7 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
         session.add(payment)
         session.commit()
         session.refresh(payment)
-        res = create_payment(owed_kop, "Юлдаш · комиссия такси", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+        res = _start_yookassa(session, payment, "Юлдаш · комиссия такси", user.phone)
         payment.provider_id = res["provider_id"]
         session.add(payment)
         session.commit()

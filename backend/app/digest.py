@@ -120,6 +120,8 @@ def _run_check() -> None:
             maybe_send_daily_digest(s)
     except Exception as e:  # noqa: BLE001 — сводка никогда не должна ломать запросы
         print(f"[DIGEST] error: {e}")
+        from .observability import capture
+        capture(e)   # H2: фоновый поток иначе тихо глох бы без алерта
 
 
 class DailyDigestMiddleware:

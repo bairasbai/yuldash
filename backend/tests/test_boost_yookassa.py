@@ -157,3 +157,26 @@ def test_boost_without_keys_uses_sbp_fallback(client, user_factory):
             assert s.get(Ride, ride["id"]).boosted_until is not None
     finally:
         settings.payments_provider, settings.sbp_phone = old
+
+
+def test_yookassa_outage_no_orphan_payment(client, user_factory, monkeypatch):
+    """M2: ЮKassa недоступна на create → мягкая 503, БЕЗ висящего pending без provider_id."""
+    import httpx
+    driver = user_factory("YkOutageDriver", role=UserRole.driver)
+    ride = _publish(client, driver, frm="YkOut", to="Ufa")
+    old = _yookassa_on()
+    try:
+        def _boom(*a, **k):
+            raise httpx.ConnectError("yookassa down")
+        monkeypatch.setattr(httpx, "post", _boom)
+        r = client.post("/boost/create", headers=driver["auth"], json={"ride_id": ride["id"], "tier": "quick"})
+        assert r.status_code == 503
+        # orphan-строка удалена — ни одного pending boost-платежа не осталось
+        with Session(engine) as s:
+            from sqlmodel import select
+            rows = s.exec(select(Payment).where(
+                Payment.purpose == "boost", Payment.status == "pending",
+                Payment.user_id == driver["id"])).all()
+            assert rows == []   # orphan этого водителя удалён
+    finally:
+        _restore(old)

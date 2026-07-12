@@ -851,6 +851,7 @@ def cache_set_json(key: str, value, ttl_sec: int) -> None:
 # своим локальным соединениям. Без Redis (один воркер/dev) — локальная доставка.
 _CHAT_CHANNEL = "yuldash:chat"
 _redis_pub = None   # async-клиент для publish (заполняется в init_chat_redis, если есть Redis)
+_sub_task = None    # задача Redis pub/sub подписки (держим ссылку — иначе GC; снимаем на shutdown)
 MAP_FEED_KEY = 2_000_000_000   # спец-ключ ConnectionManager для подписчиков /ws/map (не пересекается с booking_id/-booking_id)
 
 
@@ -928,11 +929,24 @@ async def _chat_subscribe_loop(redis_client):
     get_message(timeout) вместо listen()-генератора — чисто отменяется при рестарте воркера
     (иначе RuntimeError: aclose async generator already running на graceful-shutdown)."""
     import asyncio
+    from .observability import capture
     pubsub = redis_client.pubsub()
     await pubsub.subscribe(_CHAT_CHANNEL)
     try:
         while True:
-            msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            try:
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 — Redis-блип: НЕ роняем цикл навсегда
+                capture(e)   # H2/H3: иначе WS-доставка между воркерами тихо умирает без алерта
+                print(f"[REDIS] WS sub reconnect: {type(e).__name__}: {e}", flush=True)
+                await asyncio.sleep(2.0)
+                try:
+                    await pubsub.subscribe(_CHAT_CHANNEL)
+                except Exception:  # noqa: BLE001
+                    pass
+                continue
             if msg and msg.get("type") == "message":
                 try:
                     obj = json.loads(msg["data"])
@@ -951,7 +965,7 @@ async def _chat_subscribe_loop(redis_client):
 
 async def init_chat_redis():
     """Поднять Redis pub/sub для WS-чата (из lifespan). Без Redis/библиотеки — тихо локальный режим."""
-    global _redis_pub
+    global _redis_pub, _sub_task
     if not settings.redis_url:
         return
     try:
@@ -960,8 +974,26 @@ async def init_chat_redis():
         _redis_pub = aioredis.from_url(settings.redis_url, decode_responses=True)
         await _redis_pub.ping()
         sub_client = aioredis.from_url(settings.redis_url, decode_responses=True)
-        asyncio.create_task(_chat_subscribe_loop(sub_client))
+        _sub_task = asyncio.create_task(_chat_subscribe_loop(sub_client))   # H3: держим ссылку (иначе GC)
         print("[REDIS] WS pub/sub активен", flush=True)
     except Exception as e:  # noqa: BLE001 — Redis недоступен → локальный режим, не падаем
         print(f"[REDIS] WS pub/sub недоступен ({e}) → локальный режим")
+        _redis_pub = None
+
+
+async def close_chat_redis():
+    """Аккуратно свернуть pub/sub при остановке (H4): снять задачу, закрыть соединение."""
+    global _redis_pub, _sub_task
+    if _sub_task is not None:
+        _sub_task.cancel()
+        try:
+            await _sub_task
+        except Exception:  # noqa: BLE001
+            pass
+        _sub_task = None
+    if _redis_pub is not None:
+        try:
+            await _redis_pub.aclose()
+        except Exception:  # noqa: BLE001
+            pass
         _redis_pub = None

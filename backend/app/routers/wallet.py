@@ -23,10 +23,9 @@ from ..config import settings
 from ..db import get_session
 from ..ledger import driver_balance, ledger_entries, reconcile
 from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, Payment, User, UserRole
-from ..payments import create_payment
 from ..security import current_user
 from ..timeutil import utcnow
-from .payments import _activate_payment
+from .payments import _activate_payment, _start_yookassa
 
 router = APIRouter(tags=["wallet"])
 
@@ -57,7 +56,7 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     session.add(payment)
     session.commit()
     session.refresh(payment)
-    res = create_payment(amount_kop, description, {"payment_id": str(payment.id)}, customer_phone=payer.phone)
+    res = _start_yookassa(session, payment, description, payer.phone)
     payment.provider_id = res["provider_id"]
     session.add(payment)
     session.commit()

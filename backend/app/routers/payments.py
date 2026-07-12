@@ -30,33 +30,46 @@ def boost_plans():
     ]
 
 
+def _start_yookassa(session: Session, payment: Payment, description: str, phone: str) -> dict:
+    """M2: создать платёж в ЮKassa безопасно. При сбое (таймаут/недоступность ЮKassa) не роняем
+    500 и не оставляем висящий pending без provider_id — удаляем orphan-строку и просим повторить."""
+    try:
+        return create_payment(payment.amount_kop, description, {"payment_id": str(payment.id)}, customer_phone=phone)
+    except Exception:  # noqa: BLE001 — сеть/ЮKassa недоступна: чистим orphan, отдаём мягкую 503
+        session.delete(payment)
+        session.commit()
+        raise HTTPException(503, "Оплата временно недоступна. Попробуй ещё раз.")
+
+
 def _activate_payment(session: Session, payment: Payment) -> None:
-    """Применить оплаченный платёж (идемпотентно, только из pending):
-    boost → поднять поездку; ad → опубликовать рекламу; donate → просто succeeded;
-    ride/booking → начислить водителю через ledger (earn − комиссия), под row-lock."""
+    """Применить оплаченный платёж (идемпотентно, только из pending).
+
+    M3: блокируем строку платежа (FOR UPDATE) — webhook/поллинг/админ могут прийти параллельно.
+    C1: для ДЕНЕЖНЫХ/идемпотентных эффектов (начисление водителю, гашение комиссии/долга)
+    сначала выполняем ЭФФЕКТ, потом ставим succeeded. Иначе краш между commit(succeeded) и
+    начислением оставил бы водителя недоплаченным навсегда (ретрай упёрся бы в guard succeeded).
+    Для АДДИТИВНЫХ эффектов (boost/ad/подписка) наоборот — succeeded первым (защита от двойного
+    применения при повторном/параллельном webhook)."""
+    locked = session.exec(select(Payment).where(Payment.id == payment.id).with_for_update()).one_or_none()
+    if locked is None:
+        return
+    payment = locked
     if payment.status == "succeeded":
         return
-    payment.status = "succeeded"
-    session.add(payment)
-    # donate / support → просто отметка succeeded (доход платформы, а НЕ деньги за проезд):
-    # ledger водителя НЕ трогаем. Начисление водителю — только для purpose ride/booking ниже.
-    # Оплата поездки (Фаза 3): начисление водителю через ledger. Фиксируем succeeded ДО
-    # начисления (settle открывает свою транзакцию под row-lock). Идемпотентно по флагу paid
-    # заказа/брони — повторный webhook → settle вернёт "already", ledger не задваивается.
+    # --- Идемпотентные эффекты: ЭФФЕКТ → потом succeeded (settle сам идемпотентен под FOR UPDATE+paid) ---
     if payment.purpose == "ride" and payment.order_id is not None:
-        session.commit()
         from .. import ledger
         ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop)
+        payment.status = "succeeded"; session.add(payment); session.commit()
         return
     if payment.purpose == "booking" and payment.booking_id is not None:
-        session.commit()
         from .. import ledger
         ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop)
+        payment.status = "succeeded"; session.add(payment); session.commit()
         return
     if payment.purpose == "courier_commission":
-        # C3: курьер оплатил накопленную комиссию платформе → помечаем все его доставленные
-        # неоплаченные курьер-заказы commission_paid=True. Идемпотентно (только ещё неоплаченные;
-        # повторный вызов вернётся выше по флагу succeeded). «Всё на момент подтверждения».
+        # Курьер оплатил накопленную комиссию → помечаем его доставленные неоплаченные заказы paid.
+        # Идемпотентно (только ещё неоплаченные). «Всё на момент подтверждения».
         from ..models import ParcelDelivery
         rows = session.exec(
             select(ParcelDelivery).where(
@@ -68,15 +81,18 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         for pd in rows:
             pd.commission_paid = True
             session.add(pd)
-        session.commit()
+        payment.status = "succeeded"; session.add(payment); session.commit()
         return
     if payment.purpose == "taxi_debt":
-        # Таксист оплатил недельную комиссию картой (ЮKassa) → гасим весь его долг (unpaid+pending),
-        # блок снимается. Идемпотентно: повторный webhook выйдет выше по флагу succeeded.
+        # Таксист оплатил недельную комиссию картой → гасим весь его долг (unpaid+pending). Идемпотентно.
         from .. import debt as debt_mod
         debt_mod.mark_all_paid(session, payment.user_id)
-        session.commit()
+        payment.status = "succeeded"; session.add(payment); session.commit()
         return
+    # --- Аддитивные / прочие эффекты: succeeded ПЕРВЫМ (под тем же row-lock), потом эффект ---
+    # donate / support → только отметка succeeded (доход платформы, ledger не трогаем).
+    payment.status = "succeeded"
+    session.add(payment)
     if payment.purpose == "boost" and payment.ride_id is not None:
         ride = session.get(Ride, payment.ride_id)
         plan = BOOST_PLANS.get(payment.tier)
@@ -200,7 +216,7 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
         }
 
     # mock/yookassa. user.phone реальный (current_user не пускает плейсхолдер) → на него ЮKassa шлёт чек.
-    res = create_payment(amount_kop, f"Юлдаш · {title}", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    res = _start_yookassa(session, payment, f"Юлдаш · {title}", user.phone)
     payment.provider_id = res["provider_id"]
     session.add(payment)
     session.commit()
@@ -239,7 +255,7 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
             "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
         }
 
-    res = create_payment(amount * 100, "Юлдаш · донат", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    res = _start_yookassa(session, payment, "Юлдаш · донат", user.phone)
     payment.provider_id = res["provider_id"]
     session.add(payment)
     session.commit()
@@ -287,7 +303,7 @@ def support_donate(body: SupportDonateIn, user: User = Depends(current_user), se
             "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
         }
 
-    res = create_payment(amount_kop, "Юлдаш · поддержка платформы", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    res = _start_yookassa(session, payment, "Юлдаш · поддержка платформы", user.phone)
     payment.provider_id = res["provider_id"]
     session.add(payment)
     session.commit()

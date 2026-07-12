@@ -26,10 +26,18 @@ def init_sentry() -> bool:
         return False  # no-op: DSN не задан
     try:
         import sentry_sdk
+        integrations = []
+        try:
+            # Фоновые корутины (WS pub/sub, задачи) — их исключения иначе не попадают в Sentry.
+            from sentry_sdk.integrations.asyncio import AsyncioIntegration
+            integrations.append(AsyncioIntegration())
+        except Exception:  # noqa: BLE001 — интеграция опциональна, не роняем init
+            pass
         sentry_sdk.init(
             dsn=dsn,
             environment=settings.env,
             traces_sample_rate=settings.sentry_traces_sample_rate,
+            integrations=integrations,
             # Не тащим тела запросов/куки/ip в Sentry — там телефоны и токены (152-ФЗ).
             send_default_pii=False,
         )
@@ -43,3 +51,15 @@ def init_sentry() -> bool:
 
 def sentry_enabled() -> bool:
     return _sentry_ready
+
+
+def capture(exc: BaseException) -> None:
+    """Отправить исключение в Sentry, если он включён (иначе тихий no-op). Безопасно —
+    сама наблюдаемость не должна ронять код (фоновые задачи, обработчик 500, WS-циклы)."""
+    if not _sentry_ready:
+        return
+    try:
+        import sentry_sdk
+        sentry_sdk.capture_exception(exc)
+    except Exception:  # noqa: BLE001
+        pass

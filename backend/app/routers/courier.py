@@ -187,7 +187,10 @@ def courier_commission_kop(price_kop: int, percent: float) -> int:
     price_kop = int(price_kop or 0)
     if percent <= 0:                      # промо 0% — без минимума, честный подарок
         return 0
-    raw = int(round(price_kop * percent / 100))
+    # M1: деньги — через Decimal/ROUND_HALF_UP (как весь ledger), а не float*round (banker's) —
+    # иначе расхождение на .5-границах и дрейф float на некруглых процентах.
+    from ..ledger import fee_kop_for
+    raw = fee_kop_for(price_kop, percent)
     return min(price_kop, max(COURIER_COMMISSION_MIN_KOP, raw))
 
 
@@ -876,8 +879,8 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
     После оплаты доставки помечаются commission_paid=True. Идемпотентно: есть pending — вернём его.
     Нет комиссии к оплате (owed==0) → 409. Гейт курьера."""
     _guard_courier(user, session)
-    from ..payments import create_payment, fetch_payment
-    from .payments import _activate_payment
+    from ..payments import fetch_payment
+    from .payments import _activate_payment, _start_yookassa
     yk = settings.payments_provider == "yookassa"
     # В проде mock = «оплата» без денег → не даём гасить комиссию бесплатно.
     if settings.is_prod and settings.payments_provider == "mock":
@@ -911,7 +914,7 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
     session.refresh(payment)
 
     if yk:
-        res = create_payment(owed, "Юлдаш · комиссия курьера", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+        res = _start_yookassa(session, payment, "Юлдаш · комиссия курьера", user.phone)
         payment.provider_id = res["provider_id"]
         session.add(payment)
         session.commit()

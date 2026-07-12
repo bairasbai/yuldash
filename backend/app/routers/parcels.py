@@ -300,7 +300,10 @@ def parcels_available(
 def parcel_accept(parcel_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Стать курьером заявки (created→accepted). Нельзя принять свою (409) или уже принятую/иную (409).
     Отменённой/несуществующей нет → 404. После принятия курьер видит телефон получателя."""
-    parcel = session.get(ParcelDelivery, parcel_id)
+    # H1: под row-lock — иначе два курьера параллельно проходят проверку `created` и оба «берут»
+    # посылку (last-write-wins на courier_id). FOR UPDATE сериализует: второй ждёт коммита первого
+    # и видит уже `accepted` → 409. (На SQLite no-op, но тесты однопоточные.)
+    parcel = session.exec(select(ParcelDelivery).where(ParcelDelivery.id == parcel_id).with_for_update()).one_or_none()
     if not parcel or parcel.status == "canceled":
         raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     if parcel.sender_id == user.id:

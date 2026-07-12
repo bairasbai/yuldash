@@ -52,6 +52,17 @@ async def lifespan(app: FastAPI):
         seed_pickup_points(session)
     await init_chat_redis()   # WS pub/sub между воркерами (если есть Redis), иначе локально
     yield
+    # H4: аккуратная остановка на SIGTERM/редеплое — снять pub/sub задачу, закрыть Redis и пул БД
+    # (иначе на каждом рестарте течём соединениями при небольшом pool_size).
+    try:
+        from .services import close_chat_redis
+        await close_chat_redis()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        engine.dispose()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def create_app() -> FastAPI:
@@ -67,7 +78,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
-        allow_methods=["GET", "POST", "OPTIONS"],   # API использует только их
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],   # DELETE — админ-разбан устройства
         allow_headers=["Authorization", "Content-Type"],
     )
     app.add_middleware(RateLimitMiddleware)

@@ -21,9 +21,9 @@ _WINDOW_SEC = 60  # окно счёта запросов (согласовано
 # /callback, /donate, /boost/create шлют уведомление админу → без строгого лимита их можно заспамить.
 # /waitlist — публичный без auth (ранний доступ, §11) → строгий бюджет против спама номеров.
 _STRICT_PREFIXES = (
-    "/auth", "/sos", "/callback", "/donate", "/boost/create", "/waitlist",
-    "/api/v1/auth", "/api/v1/sos", "/api/v1/callback", "/api/v1/donate", "/api/v1/boost/create",
-    "/api/v1/waitlist",
+    "/auth", "/sos", "/callback", "/donate", "/support/donate", "/boost/create", "/waitlist",
+    "/api/v1/auth", "/api/v1/sos", "/api/v1/callback", "/api/v1/donate", "/api/v1/support/donate",
+    "/api/v1/boost/create", "/api/v1/waitlist",
 )
 
 # Освобождены от ЖЁСТКОГО лимита: пробы мониторинга (их долбит uptime-чек и деплой-гейт)
@@ -180,6 +180,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     if path.startswith("/t/") or path.startswith("/api/v1/t/"):
         path = path[: path.index("/t/") + 3] + "***"   # токен live-ссылки — секрет (B7c)
     print(f"[ERR] {request.method} {path}: {type(exc).__name__}: {exc}")
+    # Обработчик bare Exception мог бы «съесть» авто-захват Sentry — шлём явно.
+    from .observability import capture
+    capture(exc)
     # Реальный краш (проброшенное исключение) до AccessLogMiddleware не доходит —
     # считаем его здесь, у источника 500.
     from .services import record_server_error

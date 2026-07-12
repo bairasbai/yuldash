@@ -912,7 +912,7 @@ class Partner(SQLModel, table=True):
     lng: Optional[float] = None
     phone: str = ""                                           # публичный контакт бизнеса (НЕ телефон пользователя)
     description: str = ""                                     # описание бизнеса
-    status: str = Field(default="pending", max_length=16)    # pending|active|paused|rejected|archived (модерация)
+    status: str = Field(default="pending", max_length=16, index=True)    # pending|active|paused|rejected|archived (модерация)
     subscription_until: Optional[datetime] = None            # до какой даты оплачено место в «Скидки по пути»
     subscription_plan: str = Field(default="", max_length=20)  # код тарифа из PARTNER_PLANS (зафиксирован при оплате)
     reject_reason: str = ""
@@ -936,7 +936,7 @@ class Coupon(SQLModel, table=True):
     limit_per_user: int = 1                                  # лимит на одного пользователя
     redeemed_count: int = 0                                  # денормализованный счётчик погашений
     premium: bool = False                                    # выделенная метка на карте (фича premium-подписки)
-    status: str = Field(default="draft", max_length=16)     # draft|active|paused|archived
+    status: str = Field(default="draft", max_length=16, index=True)     # draft|active|paused|archived
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -1022,7 +1022,7 @@ class ParcelDelivery(SQLModel, table=True):
     receiver_name: str = ""                                                   # имя получателя (публично курьеру)
     receiver_phone: str = ""                                                  # ПРИВАТНО: отдаём только принявшему курьеру
     fee_kop: int = 0                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
-    status: str = Field(default="created", max_length=16)                    # created|accepted|in_transit|delivered|canceled
+    status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled
     confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
     created_at: datetime = Field(default_factory=utcnow)
     accepted_at: Optional[datetime] = None

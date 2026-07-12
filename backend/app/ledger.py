@@ -17,6 +17,7 @@
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from .config import settings
@@ -46,10 +47,11 @@ def fee_kop_for(amount_kop: int, percent: Optional[float] = None) -> int:
 def driver_balance(session: Session, driver_id: int) -> int:
     """Баланс водителя в копейках = SUM(amount_kop) по всем его записям ledger.
     Никакого «изменяемого баланса» — всегда пересчёт из append-only истории."""
-    rows = session.exec(
-        select(LedgerEntry.amount_kop).where(LedgerEntry.driver_id == driver_id)
-    ).all()
-    return int(sum(rows))
+    # M5: считаем сумму в БД (SQL SUM), не тянем весь append-only ledger водителя в память.
+    total = session.exec(
+        select(func.coalesce(func.sum(LedgerEntry.amount_kop), 0)).where(LedgerEntry.driver_id == driver_id)
+    ).one()
+    return int(total or 0)
 
 
 def ledger_entries(session: Session, driver_id: int, limit: int = 100) -> list[LedgerEntry]:
