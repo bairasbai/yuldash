@@ -141,6 +141,16 @@ def get_workday(user: User = Depends(current_user), session: Session = Depends(g
     return s
 
 
+@router.get("/instant/nearby-drivers")
+def nearby_drivers_ep(lat: float, lng: float, user: User = Depends(current_user)):
+    """Свободные машины «на линии» рядом с пассажиром — АНОНИМНЫЕ точки на карте + ≈ETA
+    до подачи (для карты в режиме такси). Только реальные presence-данные, без личности
+    водителя (ни id, ни телефона). Нет Redis → пустой список (карта просто без машинок)."""
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+        raise HTTPException(400, "Некорректные координаты")
+    return {"drivers": isv.nearby_drivers(lat, lng)}
+
+
 # ------------------------------ presence ------------------------------
 @router.post("/instant/presence")
 def presence(body: PresenceIn, user: User = Depends(current_user), session: Session = Depends(get_session)):

@@ -118,6 +118,35 @@ def test_driver_dashboard_empty_day(client, user_factory, fake_redis):
     assert body["tenure_days"] == 0
 
 
+# ============================ Машины рядом (карта такси, анонимно) ============================
+def test_nearby_drivers_anonymous(client, user_factory, fake_redis):
+    """/instant/nearby-drivers отдаёт РЕАЛЬНЫЕ позиции машин на линии + ≈ETA, но БЕЗ личности
+    (ни id, ни телефона, ни имени) — приватность водителя."""
+    d = _driver_online(client, user_factory, "NearDrv")
+    assert _heartbeat(client, d, ORIG).status_code == 200          # машина в точке ORIG
+    pax = user_factory("NearPax")
+    resp = client.get("/instant/nearby-drivers", headers=pax["auth"],
+                      params={"lat": ORIG[0], "lng": ORIG[1]})
+    assert resp.status_code == 200
+    drivers = resp.json()["drivers"]
+    assert len(drivers) >= 1
+    d0 = drivers[0]
+    assert set(d0.keys()) == {"lat", "lng", "eta_min"}             # только точка + ETA
+    assert d0["eta_min"] >= 1
+    # приватность: никакой личности не утекает
+    for leak in ("driver_id", "id", "phone", "name", "user_id"):
+        assert leak not in d0
+
+
+def test_nearby_drivers_empty_without_online(client, user_factory, fake_redis):
+    """Никто не на линии → пустой список (не падаем, карта просто без машинок)."""
+    pax = user_factory("LonelyPax")
+    resp = client.get("/instant/nearby-drivers", headers=pax["auth"],
+                      params={"lat": ORIG[0], "lng": ORIG[1]})
+    assert resp.status_code == 200
+    assert resp.json()["drivers"] == []
+
+
 # ============================ Начисление долга ============================
 def test_debt_accrued_on_instant_done(client, user_factory, fake_redis):
     d, pax, done = _order_to_done(client, user_factory, fake_redis, "AccDrv", "AccPax")
