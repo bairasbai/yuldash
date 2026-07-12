@@ -1020,3 +1020,50 @@ class ParcelDelivery(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     accepted_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
+    # --- C1: профессиональный курьер (гибрид «по пути» + режим «Курьер») ---
+    # Тип доставки: poputka = по пути (текущий M3, любой попутчик, без гейта) |
+    # courier = заказать курьера (только одобренным курьерам на линии) |
+    # buy_bring = «купи и привези» (курьер тратит свои на товар, получатель возвращает).
+    delivery_type: str = Field(default="poputka", max_length=16)
+    # Объявленная ценность посылки (коп) — для ответственности при споре. 0 = не объявлено.
+    declared_value_kop: int = 0
+    # «Купи и привези»: стоимость товара (наложка), которую курьер тратит и получатель возвращает.
+    # Ограничена потолком COURIER_COD_CAP_KOP (защита курьера от больших авансов). 0 = не применяется.
+    cod_amount_kop: int = 0
+    # Комиссия платформы с доставки (коп) — фиксируется при создании (прозрачно, «на доверии»).
+    commission_kop: int = 0
+    # Срочность: bypath = в ближайший рейс/по пути | now = нужен курьер сейчас (надбавка к цене).
+    urgency: str = Field(default="bypath", max_length=16)
+
+
+class CourierApplication(SQLModel, table=True):
+    """Заявка «Стать курьером Юлдаша» (профессия, как таксист; проверка Уровень 1).
+
+    Режим «Курьер» — отдельная от «по пути» роль: одобренный курьер видит заказы courier/buy_bring
+    и берёт их. Проверка L1 «между своими»: селфи с документом (сверка лица) + «кто пригласил»
+    (invited_by по User.referred_by — доверие). Модерация вручную админом. Одна активная заявка
+    на пользователя; после reject можно подать снова (обновляем строку в pending)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    transport: str = Field(default="car", max_length=16)     # car (легковой) | cargo (грузовой/каблук)
+    status: str = Field(default="pending", index=True, max_length=16)  # pending | approved | rejected
+    selfie_url: str = ""                                     # селфи с документом — сверка лица (L1)
+    invited_by: Optional[int] = Field(default=None, foreign_key="user.id")  # кто пригласил (доверие «между своими»)
+    reject_reason: str = ""                                  # причина отклонения (курьер увидит, подаст снова)
+    created_at: datetime = Field(default_factory=utcnow)
+    reviewed_at: Optional[datetime] = None
+
+
+class CourierProfile(SQLModel, table=True):
+    """Профиль курьера на линии (создаётся при approve заявки). Аналог DriverProfile для такси.
+
+    online — на линии/не на линии. zone — где работает (city/intercity/region, как у таксиста).
+    car_class — тип транспорта (car|cargo, из заявки). work_city/work_direction_id — привязка зоны."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, unique=True, foreign_key="user.id")
+    online: bool = Field(default=False, index=True)
+    car_class: str = Field(default="car", max_length=16)     # car | cargo
+    zone: str = Field(default="city", max_length=16)         # city | intercity | region
+    work_city: str = Field(default="", max_length=80)        # zone=city: «мой город» (name_ru)
+    work_direction_id: Optional[int] = Field(default=None, foreign_key="settlement.id")  # zone=intercity: направление
+    updated_at: datetime = Field(default_factory=utcnow)

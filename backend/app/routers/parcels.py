@@ -102,6 +102,12 @@ def _parcel_base(p: ParcelDelivery) -> dict:
         "receiver_name": p.receiver_name,
         "fee_kop": p.fee_kop,
         "status": p.status,
+        # C1: тип доставки и поля курьерского режима (аддитивно; старый клиент их игнорирует).
+        "delivery_type": getattr(p, "delivery_type", "poputka") or "poputka",
+        "urgency": getattr(p, "urgency", "bypath") or "bypath",
+        "declared_value_kop": getattr(p, "declared_value_kop", 0) or 0,
+        "cod_amount_kop": getattr(p, "cod_amount_kop", 0) or 0,
+        "commission_kop": getattr(p, "commission_kop", 0) or 0,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "accepted_at": p.accepted_at.isoformat() if p.accepted_at else None,
         "delivered_at": p.delivered_at.isoformat() if p.delivered_at else None,
@@ -242,11 +248,15 @@ def parcels_available(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    """Открытые заявки (status=created), НЕ мои. Приватность: БЕЗ телефона получателя (скрыт до принятия).
-    Фильтр по городам опционален (регистронезависимо). Новые сверху."""
+    """Открытые заявки «по пути» (status=created, delivery_type=poputka), НЕ мои. Приватность:
+    БЕЗ телефона получателя (скрыт до принятия). Фильтр по городам опционален. Новые сверху.
+
+    C1: courier/buy_bring-заказы сюда НЕ попадают — их видят только одобренные курьеры
+    в /courier/available (профессиональный режим, гейт _guard_courier)."""
     q = select(ParcelDelivery).where(
         ParcelDelivery.status == "created",
         ParcelDelivery.sender_id != user.id,
+        ParcelDelivery.delivery_type == "poputka",
     )
     rows = session.exec(q.order_by(ParcelDelivery.id.desc())).all()
     if from_city:
@@ -269,6 +279,11 @@ def parcel_accept(parcel_id: int, user: User = Depends(current_user), session: S
         raise herr(409, "Нельзя взять свою посылку", "Үҙ бандеролеңде алып булмай")
     if parcel.status != "created":
         raise herr(409, "Посылку уже взяли", "Бандерольде инде алғандар")
+    # C1: courier/buy_bring-заказы берут только одобренные курьеры на линии (гейт).
+    # «По пути» (poputka) — как раньше, без гейта (любой попутчик помогает).
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "poputka":
+        from .courier import _guard_courier   # локальный импорт — избегаем циклической зависимости
+        _guard_courier(user, session)
     parcel.courier_id = user.id
     parcel.status = "accepted"
     parcel.accepted_at = utcnow()
