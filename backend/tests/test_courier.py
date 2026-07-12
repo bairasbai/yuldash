@@ -136,7 +136,9 @@ def test_onboarding_and_full_flow(client, user_factory):
     rme2 = client.get("/courier/me", headers=courier["auth"])
     st = rme2.json()["statement"]
     assert st["delivered_count"] >= 1
-    assert st["commission_kop"] >= order["commission_kop"]
+    # C4: комиссия финализируется при вручении по стажу курьера (свежий курьер → tier1 3%),
+    # поэтому она может отличаться от оценки при создании (8%). Главное — statement её считает.
+    assert st["commission_kop"] > 0
 
 
 def test_buy_bring_within_cap(client, user_factory):

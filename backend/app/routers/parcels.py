@@ -353,7 +353,14 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
             raise herr(422, "Неверный код получения", "Ялған алыу коды")
         parcel.status = "delivered"
         parcel.delivered_at = utcnow()
-        if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "buy_bring":
+        # C4: комиссия платформы финализируется ЗДЕСЬ — теперь известен назначенный курьер и его
+        # стаж (лесенка 3/5/8 + промо + минимум + надбавка buy_bring). При создании commission_kop
+        # был лишь оценкой. Для «по пути» (poputka) не трогаем (там свой fee_kop из конфига).
+        dtype = (getattr(parcel, "delivery_type", "poputka") or "poputka")
+        if dtype in ("courier", "buy_bring") and parcel.courier_id:
+            from . import courier as courier_mod   # ленивый импорт — избегаем цикла courier↔parcels
+            courier_mod.finalize_commission_kop(session, parcel, utcnow())
+        if dtype == "buy_bring":
             parcel.settled = True          # получатель рассчитался (товар + доставка)
             parcel.settled_at = utcnow()
 

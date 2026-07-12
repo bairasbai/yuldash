@@ -16,8 +16,8 @@
 приём/движение статуса/доставка по коду — эндпоинты /parcels/{id}/accept|/status и /parcels/carrying
 (они уже курьер-сторона); для courier/buy_bring-типов accept гейтится _guard_courier (см. parcels.py).
 """
-from datetime import timedelta
-from typing import List, Optional
+from datetime import date, timedelta
+from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -49,7 +49,33 @@ COURIER_TARIFF = {
     "size_add_kop": {"small": 0, "medium": 5000, "large": 15000},  # надбавка за размер
     "urgency_now_kop": 10000,          # надбавка «нужен курьер сейчас» (+100 ₽)
 }
-COURIER_COMMISSION_PERCENT = 8.0       # прозрачная комиссия платформы (8% от цены доставки)
+COURIER_COMMISSION_PERCENT = 8.0       # дефолт/фолбэк комиссии (верхняя ступень) и % для ОЦЕНКИ
+
+# C4 — умные правила комиссии (правятся ЗДЕСЬ, без пересборки; продуктовые параметры, не .env).
+# Идея: плоские 8% на мелкой доставке — копейки (8% от 150 ₽ = 12 ₽). Не задираем процент
+# (низкая честная комиссия — наш козырь против Яндекса ~25–40%), а делаем структуру умнее:
+#   1) МИНИМУМ за доставку — комиссия не ниже пола (но и не выше самой цены доставки);
+#   2) ЛЕСЕНКА по стажу курьера (как у такси) — новичку 3%, дальше 5%, ветерану 8%;
+#   3) ПРОМО запуска — первым курьерам 0% на старте (подарок);
+#   4) «Купи и привези» — чуть выше базового (курьер тратит своё и едет в магазин — ценность выше).
+# Финал комиссии считается при ВРУЧЕНИИ (там уже известен назначенный курьер и его стаж);
+# при создании заказа комиссия — лишь ОЦЕНКА (по дефолтной ступени), для показа в breakdown.
+COURIER_COMMISSION_MIN_KOP = 2500      # пол комиссии = 25 ₽ (комиссия ≥ этого, но ≤ цены доставки)
+
+# Лесенка по стажу курьера (дни от одобрения заявки CourierApplication.reviewed_at):
+COURIER_FEE_TIER_DAYS = 30             # граница 1-й ступени; 2-я ступень — до 2×этого (60 дней)
+COURIER_FEE_TIER1_PERCENT = 3.0        # стаж ≤ 30 дней — 3%
+COURIER_FEE_TIER2_PERCENT = 5.0        # стаж 31–60 дней — 5%
+COURIER_FEE_TIER3_PERCENT = 8.0        # стаж > 60 дней — 8% (как дефолт)
+
+# Промо запуска «первым курьерам — 0%» (по образцу такси). Пусто = выключено.
+COURIER_LAUNCH_PROMO_PERCENT = 0.0     # ставка на время промо (0% = бесплатно)
+COURIER_LAUNCH_PROMO_UNTIL = ""        # ISO-дата (YYYY-MM-DD). Курьер одобрен ≤ этой даты и
+                                       # now ≤ этой даты → комиссия 0%. Пусто/кривая дата → промо off.
+
+# «Купи и привези» — надбавка к базовому проценту. Честно: курьер тратит СВОИ деньги на товар
+# и едет в магазин (больше работы и риска) → ценность услуги выше, комиссия чуть выше обычной.
+COURIER_BUY_BRING_EXTRA_PERCENT = 2.0
 
 # C3 — мягкая лестница качества курьера («по-соседски», без жёстких авто-блоков).
 # Судим только при достаточном числе оценок (шум одного клиента репутацию не роняет).
@@ -148,13 +174,101 @@ def _maybe_courier_soft_ladder(session: Session, courier_id: int, avg: float, cn
 
 
 # ---------------------------------------------------------------------------
+# C4 — Умные правила комиссии (стаж/промо/минимум/надбавка). Единый источник,
+# используется и при ОЦЕНКЕ (создание/estimate), и при ФИНАЛИЗАЦИИ (вручение).
+# ---------------------------------------------------------------------------
+def courier_commission_kop(price_kop: int, percent: float) -> int:
+    """Комиссия в копейках по цене доставки и проценту.
+    Формула: `min(price, max(МИНИМУМ, round(price*pct/100)))` —
+    комиссия не ниже пола (COURIER_COMMISSION_MIN_KOP), но и НЕ БОЛЬШЕ самой цены доставки
+    (комиссия не может превышать доставку — иначе курьер уйдёт в минус).
+    Особый случай: percent ≤ 0 (промо запуска) → комиссия РЕАЛЬНО 0, без пола (подарок первым)."""
+    price_kop = int(price_kop or 0)
+    if percent <= 0:                      # промо 0% — без минимума, честный подарок
+        return 0
+    raw = int(round(price_kop * percent / 100))
+    return min(price_kop, max(COURIER_COMMISSION_MIN_KOP, raw))
+
+
+def _courier_reviewed_at(session: Session, courier_id: int):
+    """Дата одобрения курьера (стаж считаем от неё). None, если заявки нет / не одобрена."""
+    app = _my_application(session, courier_id)
+    if app and app.status == "approved" and app.reviewed_at:
+        return app.reviewed_at
+    return None
+
+
+def _launch_promo_active(session: Session, courier_id: int, now) -> bool:
+    """Промо запуска «первым курьерам — 0%»: задана дата COURIER_LAUNCH_PROMO_UNTIL,
+    курьер одобрен НЕ позже неё (он из «первого набора») и окно ещё открыто (now ≤ даты).
+    Пустая/кривая дата → выключено. По образцу launch_promo такси."""
+    raw = (COURIER_LAUNCH_PROMO_UNTIL or "").strip()
+    if not raw:
+        return False
+    try:
+        until = date.fromisoformat(raw)
+    except ValueError:
+        return False                      # кривая дата в конфиге → промо не применяем, не падаем
+    reviewed = _courier_reviewed_at(session, courier_id)
+    if reviewed is None or reviewed.date() > until:
+        return False                      # одобрен после окна набора — промо не для него
+    return now.date() <= until            # окно ещё не закрылось
+
+
+def courier_fee_tier(session: Session, courier_id: int, now=None) -> Tuple[float, str]:
+    """Базовая ступень лесенки по стажу курьера (БЕЗ промо и БЕЗ buy_bring надбавки).
+    Стаж = дни от одобрения (reviewed_at): ≤30 → 3% (tier1); 31–60 → 5% (tier2); дальше → 8% (tier3).
+    Стаж неизвестен (нет одобренной заявки) → консервативно верхняя ступень (дефолт 8%)."""
+    now = now or utcnow()
+    reviewed = _courier_reviewed_at(session, courier_id)
+    if reviewed is None:
+        return COURIER_COMMISSION_PERCENT, "tier3"
+    days = (now - reviewed).days
+    if days <= COURIER_FEE_TIER_DAYS:
+        return COURIER_FEE_TIER1_PERCENT, "tier1"
+    if days <= COURIER_FEE_TIER_DAYS * 2:
+        return COURIER_FEE_TIER2_PERCENT, "tier2"
+    return COURIER_FEE_TIER3_PERCENT, "tier3"
+
+
+def courier_commission_percent(session: Session, courier_id: int,
+                               delivery_type: str = "courier", now=None) -> Tuple[float, str]:
+    """Эффективный процент комиссии для НАЗНАЧЕННОГО курьера и типа доставки + метка ступени.
+    Промо активно → 0% (метка 'promo'). Иначе лесенка по стажу; для buy_bring — плюс надбавка."""
+    now = now or utcnow()
+    if _launch_promo_active(session, courier_id, now):
+        return COURIER_LAUNCH_PROMO_PERCENT, "promo"
+    percent, tier = courier_fee_tier(session, courier_id, now)
+    if delivery_type == "buy_bring":
+        percent += COURIER_BUY_BRING_EXTRA_PERCENT
+    return percent, tier
+
+
+def finalize_commission_kop(session: Session, parcel, now=None) -> int:
+    """Финализировать комиссию заказа по НАЗНАЧЕННОМУ курьеру (стаж/промо/тип) — вызывается при
+    вручении. База = зафиксированная цена доставки (delivery_price_kop). Сохраняет commission_kop
+    и fee_kop на заказе. Возвращает итоговую комиссию (коп)."""
+    dtype = (getattr(parcel, "delivery_type", "courier") or "courier")
+    if dtype not in _COURIER_TYPES or not parcel.courier_id:
+        return int(getattr(parcel, "commission_kop", 0) or 0)
+    now = now or utcnow()
+    percent, _tier = courier_commission_percent(session, parcel.courier_id, dtype, now)
+    base_kop = int(getattr(parcel, "delivery_price_kop", 0) or 0)
+    commission = courier_commission_kop(base_kop, percent)
+    parcel.commission_kop = commission
+    parcel.fee_kop = commission           # fee_kop = доход платформы (statement в /admin/parcels)
+    return commission
+
+
+# ---------------------------------------------------------------------------
 # Цена (сервер — источник истины)
 # ---------------------------------------------------------------------------
 def _price(from_lat: Optional[float], from_lng: Optional[float],
            to_lat: Optional[float], to_lng: Optional[float],
-           size: str, urgency: str) -> dict:
+           size: str, urgency: str, percent: float = COURIER_COMMISSION_PERCENT) -> dict:
     """Честная цена доставки: haversine × road_k × тариф + размер + срочность. Возвращает
-    price_kop, commission_kop, distance_km и breakdown (прозрачно для UI). Без суржа."""
+    price_kop, commission_kop (ОЦЕНКА по `percent`), distance_km и breakdown (прозрачно для UI).
+    Без суржа. Комиссия здесь — ориентировочная (commission_estimated=True); финал — при вручении."""
     t = COURIER_TARIFF
     if None in (from_lat, from_lng, to_lat, to_lng):
         distance_km = 0.0
@@ -165,7 +279,7 @@ def _price(from_lat: Optional[float], from_lng: Optional[float],
     size_kop = t["size_add_kop"].get(size, 0)
     urgency_kop = t["urgency_now_kop"] if urgency == "now" else 0
     price_kop = base_kop + distance_kop + size_kop + urgency_kop
-    commission_kop = int(round(price_kop * COURIER_COMMISSION_PERCENT / 100))
+    commission_kop = courier_commission_kop(price_kop, percent)
     return {
         "price_kop": price_kop,
         "commission_kop": commission_kop,
@@ -175,7 +289,10 @@ def _price(from_lat: Optional[float], from_lng: Optional[float],
             "distance_kop": distance_kop,
             "size_kop": size_kop,
             "urgency_kop": urgency_kop,
-            "commission_percent": COURIER_COMMISSION_PERCENT,
+            "commission_percent": percent,
+            # C4 — аддитивные поля (старый клиент игнорирует):
+            "commission_min_kop": COURIER_COMMISSION_MIN_KOP,  # пол комиссии
+            "commission_estimated": True,   # ориентировочно; финал считается при вручении
         },
     }
 
@@ -457,13 +574,20 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
 @router.get("/courier/estimate")
 def courier_estimate(from_lat: float, from_lng: float, to_lat: float, to_lng: float,
                      size: str = "small", urgency: str = "bypath",
-                     user: User = Depends(current_user)):
-    """Оценка цены доставки курьером. Сервер — источник истины (haversine × тариф). Без суржа."""
+                     delivery_type: str = "courier", user: User = Depends(current_user)):
+    """Оценка цены доставки курьером. Сервер — источник истины (haversine × тариф). Без суржа.
+    Комиссия — ОРИЕНТИРОВОЧНАЯ: по дефолтной ступени (8%) + минимум + надбавка buy_bring; точный
+    процент зависит от стажа НАЗНАЧЕННОГО курьера и считается при вручении."""
     if size not in _SIZES:
         raise herr(422, "Выбери размер посылки", "Бандероль үлсәмен һайла")
     if urgency not in _URGENCIES:
         raise herr(422, "Некорректная срочность", "Ялған ашығыслыҡ")
-    return _price(from_lat, from_lng, to_lat, to_lng, size, urgency)
+    dtype = (delivery_type or "courier").strip()
+    if dtype not in _COURIER_TYPES:
+        raise herr(422, "Выбери тип доставки", "Доставка төрөн һайла")
+    percent = COURIER_COMMISSION_PERCENT + (
+        COURIER_BUY_BRING_EXTRA_PERCENT if dtype == "buy_bring" else 0.0)
+    return _price(from_lat, from_lng, to_lat, to_lng, size, urgency, percent=percent)
 
 
 # ---------------------------------------------------------------------------
@@ -529,7 +653,12 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         if shopping:  # список покупок кладём в описание (курьер видит, что купить)
             description = (shopping + ("\n" + description if description else "")).strip()
 
-    priced = _price(body.from_lat, body.from_lng, body.to_lat, body.to_lng, size, urgency)
+    # Комиссия при создании — ОЦЕНКА (курьер ещё не назначен, лесенка зависит от ЕГО стажа):
+    # дефолтная ступень (8%) + надбавка buy_bring + минимум. Финал пересчитается при вручении.
+    est_percent = COURIER_COMMISSION_PERCENT + (
+        COURIER_BUY_BRING_EXTRA_PERCENT if dtype == "buy_bring" else 0.0)
+    priced = _price(body.from_lat, body.from_lng, body.to_lat, body.to_lng, size, urgency,
+                    percent=est_percent)
 
     parcel = ParcelDelivery(
         sender_id=user.id,
@@ -656,6 +785,8 @@ def courier_me(user: User = Depends(current_user), session: Session = Depends(ge
     ).one()
     owed = _commission_owed_kop(session, user.id)
     avg, cnt = user_rating(session, user.id)
+    # C4: текущая ступень комиссии курьера (для UI — «сейчас ты платишь N%»). Тип courier (база).
+    cur_percent, cur_tier = courier_commission_percent(session, user.id, "courier")
     return {
         "application": _application_payload(app) if app else None,
         "profile": _profile_payload(prof),
@@ -666,6 +797,10 @@ def courier_me(user: User = Depends(current_user), session: Session = Depends(ge
             "commission_paid_kop": int(paid or 0),        # уже оплачено
             # Легаси-алиас (старый клиент C1 читал commission_kop = вся начисленная комиссия).
             "commission_kop": int(earned or 0),
+            # C4 — текущая ступень курьера (аддитивно): какой % и минимум действуют сейчас.
+            "current_fee_percent": cur_percent,
+            "fee_tier": cur_tier,                         # tier1|tier2|tier3|promo
+            "commission_min_kop": COURIER_COMMISSION_MIN_KOP,
         },
         "rating": {
             "avg": round(avg, 1) if cnt > 0 else None,    # None = ещё нет оценок

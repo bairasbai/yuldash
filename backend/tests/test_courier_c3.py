@@ -59,13 +59,15 @@ def _deliver(client, courier, sender, **ov):
     assert ro.status_code == 200, ro.text
     order = ro.json()
     pid, code = order["id"], order["confirm_code"]
-    commission = order["commission_kop"]
     assert client.post(f"/parcels/{pid}/accept", headers=courier["auth"]).status_code == 200
     assert client.post(f"/parcels/{pid}/status", headers=courier["auth"],
                        json={"status": "in_transit"}).status_code == 200
     rd = client.post(f"/parcels/{pid}/status", headers=courier["auth"],
                      json={"status": "delivered", "code": code})
     assert rd.status_code == 200, rd.text
+    # C4: комиссия ФИНАЛИЗИРУЕТСЯ при вручении (по стажу курьера) — берём её из delivered-ответа,
+    # именно её суммирует statement (не оценку при создании).
+    commission = rd.json()["commission_kop"]
     return pid, commission
 
 
