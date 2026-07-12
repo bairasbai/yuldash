@@ -53,6 +53,23 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         from .. import ledger
         ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop)
         return
+    if payment.purpose == "courier_commission":
+        # C3: курьер оплатил накопленную комиссию платформе → помечаем все его доставленные
+        # неоплаченные курьер-заказы commission_paid=True. Идемпотентно (только ещё неоплаченные;
+        # повторный вызов вернётся выше по флагу succeeded). «Всё на момент подтверждения».
+        from ..models import ParcelDelivery
+        rows = session.exec(
+            select(ParcelDelivery).where(
+                ParcelDelivery.courier_id == payment.user_id,
+                ParcelDelivery.status == "delivered",
+                ParcelDelivery.commission_paid == False,  # noqa: E712
+            )
+        ).all()
+        for pd in rows:
+            pd.commission_paid = True
+            session.add(pd)
+        session.commit()
+        return
     if payment.purpose == "boost" and payment.ride_id is not None:
         ride = session.get(Ride, payment.ride_id)
         plan = BOOST_PLANS.get(payment.tier)
@@ -93,7 +110,8 @@ def _notify_new_payment(session: Session, payment: Payment) -> None:
     """Telegram админу о новой заявке на оплату (СБП): сверь карту → подтверди в кабинете."""
     payer = session.get(User, payment.user_id)
     who = (payer.name if payer and payer.name else "—") + (f" · {payer.phone}" if payer and payer.phone else "")
-    label = {"boost": "Буст", "donate": "Донат", "support": "Поддержка", "ad": "Реклама"}.get(payment.purpose, payment.purpose)
+    label = {"boost": "Буст", "donate": "Донат", "support": "Поддержка", "ad": "Реклама",
+             "courier_commission": "Комиссия курьера"}.get(payment.purpose, payment.purpose)
     notify_admin_telegram(
         (
             f"💳 Новая оплата СБП\n"

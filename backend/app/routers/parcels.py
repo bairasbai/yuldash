@@ -132,14 +132,21 @@ def _parcel_base(p: ParcelDelivery) -> dict:
     }
 
 
-def _courier_public(courier: Optional[User]) -> Optional[dict]:
-    """Публичная карточка курьера для отправителя (без приватного — только имя/рейтинг/телефон водителя)."""
+def _courier_public(courier: Optional[User], session: Optional[Session] = None) -> Optional[dict]:
+    """Публичная карточка курьера для отправителя (без приватного — только имя/рейтинг/телефон водителя).
+    C3: rating — реальный агрегат оценок доставки (средний stars по Rating где ratee=курьер) +
+    count. Анонимно (кто оценил — не раскрываем)."""
     if not courier:
         return None
+    avg, cnt = (0.0, 0)
+    if session is not None:
+        from ..services import user_rating
+        avg, cnt = user_rating(session, courier.id)
     return {
         "id": courier.id,
         "name": courier.name or "",
-        "rating": getattr(courier, "rating", None),
+        "rating": round(avg, 1) if cnt > 0 else None,   # None = ещё нет оценок (новый курьер)
+        "rating_count": cnt,
         "phone": courier.phone or "",   # телефон ВОДИТЕЛЯ (публичный контакт для связи по доставке)
     }
 
@@ -150,7 +157,7 @@ def _parcel_for_sender(p: ParcelDelivery, session: Session) -> dict:
     out = _parcel_base(p)
     out["receiver_phone"] = p.receiver_phone
     out["confirm_code"] = p.confirm_code
-    out["courier"] = _courier_public(session.get(User, p.courier_id)) if p.courier_id else None
+    out["courier"] = _courier_public(session.get(User, p.courier_id), session) if p.courier_id else None
     return out
 
 

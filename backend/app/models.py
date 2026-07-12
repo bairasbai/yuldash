@@ -440,6 +440,7 @@ class Rating(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
+    parcel_id: Optional[int] = Field(default=None, index=True, foreign_key="parceldelivery.id")  # C3: оценка доставки курьера
     rater_id: int = Field(index=True, foreign_key="user.id")        # кто оценил
     ratee_id: int = Field(index=True, foreign_key="user.id")        # кого оценили (водитель или пассажир)
     stars: int = 5                           # 1..5
@@ -609,7 +610,7 @@ class Payment(SQLModel, table=True):
     provider_id — id платежа в ЮKassa (или mock-id в dev)."""
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")   # плательщик (для ride — пассажир)
-    purpose: str = "boost"                       # boost | ad | donate | ride | booking | partner_sub | support
+    purpose: str = "boost"                       # boost | ad | donate | ride | booking | partner_sub | support | courier_commission
     provider_id: str = Field(default="", index=True)  # id платежа в ЮKassa
     ride_id: Optional[int] = Field(default=None, foreign_key="ride.id")  # для boost
     ad_id: Optional[int] = Field(default=None, foreign_key="ad.id")       # для оплаты рекламы (purpose=ad)
@@ -1033,6 +1034,9 @@ class ParcelDelivery(SQLModel, table=True):
     cod_amount_kop: int = 0
     # Комиссия платформы с доставки (коп) — фиксируется при создании (прозрачно, «на доверии»).
     commission_kop: int = 0
+    # C3: комиссия по этой доставке уже оплачена курьером платформе (биллинг «на доверии»).
+    # False + status=delivered → входит в «к оплате сейчас» (/courier/pay-commission).
+    commission_paid: bool = Field(default=False, index=True)
     # Срочность: bypath = в ближайший рейс/по пути | now = нужен курьер сейчас (надбавка к цене).
     urgency: str = Field(default="bypath", max_length=16)
     # --- C2: расчёт «купи и привези» с получателем + объявленная ценность ---
@@ -1078,3 +1082,9 @@ class CourierProfile(SQLModel, table=True):
     work_city: str = Field(default="", max_length=80)        # zone=city: «мой город» (name_ru)
     work_direction_id: Optional[int] = Field(default=None, foreign_key="settlement.id")  # zone=intercity: направление
     updated_at: datetime = Field(default_factory=utcnow)
+    # --- C3: мягкая лестница качества (без жёстких авто-блоков, «по-соседски») ---
+    # Дедуп тёплого пуш-совета при просевшем рейтинге (не чаще раза в неделю).
+    low_rating_advice_at: Optional[datetime] = None
+    # Мягкая пауза курьера (очень низкий рейтинг/тяжёлые споры) — курьер не берёт заказы до даты.
+    # None = не на паузе. Ставится мягко и на короткий срок; аккаунт остаётся (вечен).
+    paused_until: Optional[datetime] = None

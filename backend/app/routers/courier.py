@@ -16,6 +16,7 @@
 приём/движение статуса/доставка по коду — эндпоинты /parcels/{id}/accept|/status и /parcels/carrying
 (они уже курьер-сторона); для courier/buy_bring-типов accept гейтится _guard_courier (см. parcels.py).
 """
+from datetime import timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,9 +27,10 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
-from ..models import CourierApplication, CourierProfile, ParcelDelivery, Settlement, User, UserRole
+from ..models import (CourierApplication, CourierProfile, ParcelDelivery, Payment, Rating,
+                      Settlement, User, UserRole)
 from ..security import current_user
-from ..services import haversine_km, notify_admin_telegram, send_push
+from ..services import haversine_km, notify_admin_telegram, send_push, user_rating
 from ..timeutil import utcnow
 from . import parcels as parcels_mod
 
@@ -48,6 +50,13 @@ COURIER_TARIFF = {
     "urgency_now_kop": 10000,          # надбавка «нужен курьер сейчас» (+100 ₽)
 }
 COURIER_COMMISSION_PERCENT = 8.0       # прозрачная комиссия платформы (8% от цены доставки)
+
+# C3 — мягкая лестница качества курьера («по-соседски», без жёстких авто-блоков).
+# Судим только при достаточном числе оценок (шум одного клиента репутацию не роняет).
+COURIER_LADDER_MIN_RATINGS = 3         # меньше — не делаем выводов
+COURIER_ADVICE_RATING = 4.6            # < → тёплый пуш-совет «подтяни качество» (дедуп 1/нед)
+COURIER_PAUSE_RATING = 4.0             # < → мягкая КОРОТКАЯ пауза (аккаунт вечен, срок маленький)
+COURIER_SOFT_PAUSE_DAYS = 2            # длительность мягкой паузы
 
 _TRANSPORTS = ("car", "cargo")
 _ZONES = ("city", "intercity", "region")
@@ -87,6 +96,55 @@ def _guard_courier(user: User, session: Session) -> None:
 
 def _my_profile(session: Session, user_id: int) -> Optional[CourierProfile]:
     return session.exec(select(CourierProfile).where(CourierProfile.user_id == user_id)).first()
+
+
+def _guard_not_paused(prof: Optional[CourierProfile]) -> None:
+    """Мягкая пауза по качеству: пока не истекла — курьер не выходит на линию / не берёт заказы.
+    Срок короткий, аккаунт остаётся. None/прошедшая — не мешаем."""
+    if prof and prof.paused_until and prof.paused_until > utcnow():
+        raise herr(403,
+                   "Небольшая пауза по качеству. Отдышись — скоро снова в строю 💚",
+                   "Сифат буйынса бәләкәй тәнәфес. Тын ал — тиҙҙән яңынан сафта 💚")
+
+
+def _maybe_courier_soft_ladder(session: Session, courier_id: int, avg: float, cnt: int) -> None:
+    """C3 мягкая лестница: оценили курьера → по-доброму реагируем на просевший рейтинг.
+    - хватает данных и рейтинг < COURIER_ADVICE_RATING → тёплый пуш-совет (дедуп 1/нед);
+    - рейтинг < COURIER_PAUSE_RATING → короткая мягкая пауза (курьер отдохнёт, потом вернётся).
+    Не курьер (волонтёр «по пути», нет профиля) → лестницы нет. Без жёстких авто-блоков."""
+    if cnt < COURIER_LADDER_MIN_RATINGS or avg <= 0:
+        return
+    prof = _my_profile(session, courier_id)
+    if prof is None:
+        return
+    now = utcnow()
+    if avg < COURIER_PAUSE_RATING:
+        prof.paused_until = now + timedelta(days=COURIER_SOFT_PAUSE_DAYS)
+        prof.updated_at = now
+        session.add(prof)
+        session.commit()
+        try:
+            send_push(session, courier_id, "Пауза по качеству",
+                      "Рейтинг заметно просел. Дадим паузу на пару дней — вернёшься с новыми силами 💚"
+                      " · Рейтинг ныҡ төштө. Бер-ике көн тәнәфес — яңы көс менән ҡайтырһың 💚")
+        except Exception:
+            pass
+        return
+    if avg < COURIER_ADVICE_RATING:
+        if (prof.low_rating_advice_at is not None
+                and now - prof.low_rating_advice_at < timedelta(days=7)):
+            return
+        prof.low_rating_advice_at = now
+        session.add(prof)
+        session.commit()
+        try:
+            send_push(session, courier_id, "Совет от Юлдаша",
+                      "Рейтинг немного просел. Бережная доставка и доброе слово быстро "
+                      "возвращают звёзды 💚"
+                      " · Рейтинг бер аҙ төштө. Иғтибарлы доставка һәм йылы һүҙ "
+                      "йондоҙҙарҙы тиҙ кире ҡайтара 💚")
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +206,7 @@ def _profile_payload(p: Optional[CourierProfile]) -> Optional[dict]:
         "zone": p.zone,
         "work_city": p.work_city or "",
         "work_direction_id": p.work_direction_id,
+        "paused_until": p.paused_until.isoformat() if p.paused_until else None,   # C3: мягкая пауза
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
 
@@ -316,6 +375,7 @@ def courier_online(body: CourierOnlineIn, user: User = Depends(current_user),
     if zone not in _ZONES:
         raise herr(422, "Выбери зону работы", "Эш зонаһын һайла")
     prof = _my_profile(session, user.id)
+    _guard_not_paused(prof)   # C3: на мягкой паузе по качеству на линию не выходим
     if prof is None:
         prof = CourierProfile(user_id=user.id)
     prof.online = True
@@ -370,6 +430,7 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
     отфильтрованные по зоне курьера. Приватность: БЕЗ телефона получателя (как M3). Гейт курьера."""
     _guard_courier(user, session)
     prof = _my_profile(session, user.id)
+    _guard_not_paused(prof)   # C3: на мягкой паузе заказы не берём
     rows = session.exec(
         select(ParcelDelivery).where(
             ParcelDelivery.status == "created",
@@ -548,18 +609,42 @@ def courier_goods_cost(order_id: int, body: GoodsCostIn, user: User = Depends(cu
 # ---------------------------------------------------------------------------
 # Кабинет курьера
 # ---------------------------------------------------------------------------
+def _commission_owed_kop(session: Session, courier_id: int) -> int:
+    """Комиссия платформы, которую курьер ещё НЕ оплатил: сумма commission_kop по моим
+    доставленным курьер-заказам, где commission_paid=False. Единый источник для /courier/me
+    и /courier/pay-commission (одна формула — не разъедутся)."""
+    owed = session.exec(
+        select(func.coalesce(func.sum(ParcelDelivery.commission_kop), 0)).where(
+            ParcelDelivery.courier_id == courier_id,
+            ParcelDelivery.status == "delivered",
+            ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
+            ParcelDelivery.commission_paid == False,   # noqa: E712
+        )
+    ).one()
+    return int(owed or 0)
+
+
 @router.get("/courier/me")
 def courier_me(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Кабинет курьера: заявка + профиль + statement (комиссия платформы по моим доставленным
-    курьер-заказам). Гейт курьера (кабинет только одобренным)."""
+    курьер-заказам: всего заработали / к оплате сейчас / уже оплачено) + мой рейтинг + пауза.
+    Гейт курьера (кабинет только одобренным)."""
     _guard_courier(user, session)
     app = _my_application(session, user.id)
     prof = _my_profile(session, user.id)
-    commission = session.exec(
+    earned = session.exec(
         select(func.coalesce(func.sum(ParcelDelivery.commission_kop), 0)).where(
             ParcelDelivery.courier_id == user.id,
             ParcelDelivery.status == "delivered",
             ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
+        )
+    ).one()
+    paid = session.exec(
+        select(func.coalesce(func.sum(ParcelDelivery.commission_kop), 0)).where(
+            ParcelDelivery.courier_id == user.id,
+            ParcelDelivery.status == "delivered",
+            ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
+            ParcelDelivery.commission_paid == True,    # noqa: E712
         )
     ).one()
     delivered = session.exec(
@@ -569,11 +654,118 @@ def courier_me(user: User = Depends(current_user), session: Session = Depends(ge
             ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
         )
     ).one()
+    owed = _commission_owed_kop(session, user.id)
+    avg, cnt = user_rating(session, user.id)
     return {
         "application": _application_payload(app) if app else None,
         "profile": _profile_payload(prof),
         "statement": {
             "delivered_count": int(delivered or 0),
-            "commission_kop": int(commission or 0),   # прозрачно: сколько комиссии платформе с моих доставок
+            "commission_earned_kop": int(earned or 0),   # всего комиссии платформе с моих доставок
+            "commission_owed_kop": owed,                  # к оплате прямо сейчас (неоплаченное)
+            "commission_paid_kop": int(paid or 0),        # уже оплачено
+            # Легаси-алиас (старый клиент C1 читал commission_kop = вся начисленная комиссия).
+            "commission_kop": int(earned or 0),
         },
+        "rating": {
+            "avg": round(avg, 1) if cnt > 0 else None,    # None = ещё нет оценок
+            "count": cnt,
+        },
+        "paused_until": prof.paused_until.isoformat() if (prof and prof.paused_until) else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# C3 — Рейтинг курьера: взаимная оценка доставки (после вручения)
+# ---------------------------------------------------------------------------
+class ParcelRateIn(BaseModel):
+    stars: int = 5
+    text: str = Field("", max_length=500)   # текстовый отзыв (опц.) — на модерацию, ≤500
+
+
+@router.post("/parcels/{parcel_id}/rate")
+def parcel_rate(parcel_id: int, body: ParcelRateIn, user: User = Depends(current_user),
+                session: Session = Depends(get_session)):
+    """Взаимная оценка ДОСТАВКИ после вручения. Отправитель оценивает курьера, курьер —
+    отправителя (1..5 + опц. текст ≤500). Оценка анонимна (кто поставил — не раскрываем;
+    наружу идёт только агрегат оценённого).
+
+    Валидация: только участник (иначе 404, IDOR закрыт); только delivered (иначе 409);
+    одна оценка на (доставка, автор) — повтор 409; stars 1..5 (иначе 422). Текст (если есть)
+    появится в публичном профиле только после модерации (text_published=False)."""
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel or user.id not in (parcel.sender_id, parcel.courier_id):
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    ratee_id = parcel.courier_id if user.id == parcel.sender_id else parcel.sender_id
+    if not ratee_id:   # курьер ещё не назначен — оценивать некого (для чужого выше уже 404)
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if parcel.status != "delivered":
+        raise herr(409, "Оценить можно после вручения", "Тапшырғандан һуң баһалап була")
+    stars = int(body.stars or 0)
+    if stars < 1 or stars > 5:
+        raise herr(422, "Оценка от 1 до 5 звёзд", "Баһа 1-ҙән 5 йондоҙға тиклем")
+    existing = session.exec(
+        select(Rating).where(Rating.parcel_id == parcel_id, Rating.rater_id == user.id)
+    ).first()
+    if existing:
+        raise herr(409, "Ты уже оценил", "Һин баһаланың инде")
+    text = (body.text or "").strip()[:500]
+    session.add(Rating(parcel_id=parcel_id, rater_id=user.id, ratee_id=ratee_id,
+                       stars=stars, text=text, text_published=False))
+    session.commit()
+    avg, cnt = user_rating(session, ratee_id)
+    # 🟡 Мягкая лестница: если оценили курьера — по-доброму реагируем на просевший рейтинг.
+    _maybe_courier_soft_ladder(session, ratee_id, avg, cnt)
+    return {"ratee_id": ratee_id, "rating": round(avg, 1) if cnt > 0 else 0.0, "count": cnt}
+
+
+# ---------------------------------------------------------------------------
+# C3 — Биллинг комиссии платформы «на доверии» (курьер декларирует оплату)
+# ---------------------------------------------------------------------------
+def _commission_payment_payload(p: Payment) -> dict:
+    """Ответ по платежу комиссии курьера + реквизиты СБП (перевод «на доверии», подтверждает админ)."""
+    return {
+        "status": p.status,                 # pending — ждёт подтверждения админом
+        "method": "sbp_manual",
+        "payment_id": p.id,
+        "amount_kop": p.amount_kop,
+        "amount": p.amount_kop // 100,
+        "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
+    }
+
+
+@router.post("/courier/pay-commission")
+def courier_pay_commission(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Курьер декларирует оплату накопленной комиссии платформе (перевод по СБП «на доверии»).
+    Создаёт Payment(purpose=courier_commission, pending) — админ подтверждает в /admin/payments,
+    после чего доставки помечаются commission_paid=True. Идемпотентно: есть pending — вернём его.
+    Нет комиссии к оплате (owed==0) → 409. Гейт курьера."""
+    _guard_courier(user, session)
+    # Идемпотентность: уже есть висящий pending — возвращаем его, второй платёж не плодим.
+    existing = session.exec(
+        select(Payment).where(
+            Payment.user_id == user.id,
+            Payment.purpose == "courier_commission",
+            Payment.status == "pending",
+        ).order_by(Payment.id.desc())
+    ).first()
+    if existing:
+        return _commission_payment_payload(existing)
+    owed = _commission_owed_kop(session, user.id)
+    if owed <= 0:
+        raise herr(409, "Нет комиссии к оплате", "Түләргә комиссия юҡ")
+    payment = Payment(user_id=user.id, purpose="courier_commission", amount_kop=owed,
+                      method="sbp", status="pending")
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+    try:  # админу — best-effort, без ПДн
+        notify_admin_telegram(
+            f"💸 Курьер заявил оплату комиссии\n"
+            f"Платёж ID: {payment.id}\n"
+            f"Сумма: {owed // 100} ₽\n"
+            f"Подтвердить: /admin/payments"
+        )
+    except Exception:
+        pass
+    return _commission_payment_payload(payment)
