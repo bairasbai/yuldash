@@ -108,6 +108,39 @@ def presence_offline(driver_id: int) -> None:
         pass
 
 
+def nearby_drivers(lat: float, lng: float, limit: int = 8) -> list[dict]:
+    """Свободные машины «на линии» рядом с пассажиром — АНОНИМНЫЕ позиции + ≈ETA до подачи.
+
+    Только РЕАЛЬНЫЕ данные из presence (Redis GEO), без выдуманного: показываем машины,
+    которые действительно на линии рядом. Личность водителя НЕ раскрываем (ни id, ни имя,
+    ни телефон) — только точка на карте и оценка «≈N мин до тебя» (та же средняя скорость,
+    что в оценке заказа). Нет Redis → пустой список (честно «не знаю», UI просто без машинок)."""
+    r = _redis()
+    if r is None:
+        return []
+    try:
+        found = r.geosearch(PRESENCE_KEY, longitude=lng, latitude=lat,
+                            radius=settings.surge_radius_km, unit="km",
+                            withcoord=True, withdist=True, sort="ASC", count=limit * 2)
+    except Exception:  # noqa: BLE001 — сбой GEO → просто без машинок, не падаем
+        return []
+    out: list[dict] = []
+    for m in found:
+        # withdist+withcoord → [member, dist_km, [lng, lat]]
+        try:
+            member, dist_km, coord = m[0], float(m[1]), m[2]
+            did = _member_driver_id(member)
+        except (ValueError, IndexError, TypeError, AttributeError):
+            continue
+        if not presence_alive(r, did):
+            continue
+        eta = max(1, round(dist_km / settings.instant_avg_speed_kmh * 60))
+        out.append({"lat": float(coord[1]), "lng": float(coord[0]), "eta_min": eta})
+        if len(out) >= limit:
+            break
+    return out
+
+
 # ============================ Сурж (честная наценка, волна 2 §5) ============================
 # Ступени спрос/предложение → k. Потолок — surge_max_k (обещание пользователям: не выше ×1.5).
 SURGE_STEPS = ((3.0, 1.5), (2.0, 1.3), (1.5, 1.2), (1.0, 1.1))
