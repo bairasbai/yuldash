@@ -1395,6 +1395,18 @@ private fun FullRideCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    // Остановки по пути (несколько точек) — если водитель их указал.
+                    if (ride.waypoints.isNotEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(painterResource(R.drawable.yu_multi_stop), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                appText("через ", "аша ") + ride.waypoints.joinToString(" · "),
+                                color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))

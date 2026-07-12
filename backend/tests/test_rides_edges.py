@@ -126,6 +126,18 @@ def test_ride_quiet_amenity_flows_through(client, user_factory):
     assert any(r["quiet"] is False for r in rows)           # и одна обычная
 
 
+def test_ride_waypoints_flows_through(client, user_factory):
+    """Остановки по пути (waypoints) проходят create→read; по умолчанию пусто."""
+    driver = user_factory("WpDriver", role=UserRole.driver)
+    _publish(client, driver, frm="WpA", to="WpB", waypoints="Темясово | Баймаҡ")
+    _publish(client, driver, frm="WpA", to="WpB")   # без остановок
+    rows = client.get("/rides", params={"from_city": "WpA"}).json()
+    with_wp = [r for r in rows if r["waypoints"]]
+    assert len(with_wp) == 1
+    assert with_wp[0]["waypoints"] == "Темясово | Баймаҡ"
+    assert any(r["waypoints"] == "" for r in rows)
+
+
 def test_ride_filters_for_category_and_preferences(client, user_factory):
     driver = user_factory("FilterRideDriver", role=UserRole.driver)
     _publish(

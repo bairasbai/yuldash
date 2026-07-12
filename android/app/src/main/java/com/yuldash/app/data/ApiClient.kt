@@ -534,6 +534,7 @@ object ApiClient {
         pickupPointId: Int? = null,  // F14: выбрана известная точка сбора из справочника → привязать
         partnerId: Int? = null,      // F22: клиника-назначение (category=hospital)
         quiet: Boolean = false,      // тихая поездка (в конце — чтобы не сдвигать позиционные вызовы)
+        waypoints: String = "",     // остановки по пути (названия через " | ")
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -551,6 +552,7 @@ object ApiClient {
             .put("baggage", baggage)
             .put("air_conditioner", airConditioner)
             .put("quiet", quiet)
+            .put("waypoints", waypoints)
             .put("recurrence", recurrence)
             .put("pickup", pickup)
             .put("pickup_lat", pickupLat ?: JSONObject.NULL)
@@ -3171,6 +3173,7 @@ private fun JSONObject.toRideDto() = RideDto(
     baggage = optBoolean("baggage"),
     airConditioner = optBoolean("air_conditioner"),
     quiet = optBoolean("quiet"),
+    waypoints = optString("waypoints").split(" | ").map { it.trim() }.filter { it.isNotBlank() },
     pickup = optString("pickup"),
     pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
     pickupLng = if (isNull("pickup_lng")) null else optDouble("pickup_lng"),

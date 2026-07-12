@@ -30,6 +30,7 @@ internal data class Ride(
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
     val quiet: Boolean = false,
+    val waypoints: List<String> = emptyList(),   // остановки по пути (A→точки→B)
     val pickup: String = "",
     val pickupLat: Double? = null,
     val pickupLng: Double? = null,

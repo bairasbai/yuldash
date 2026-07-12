@@ -258,6 +258,7 @@ class Ride(SQLModel, table=True):
     air_conditioner: bool = False     # кондиционер
     only_trusted: bool = False        # «только для своих»: поездку видят/бронируют лишь L3 (свои); скрыта от L0–L2
     quiet: bool = False               # тихая поездка: без лишних разговоров/громкой музыки
+    waypoints: str = ""               # остановки по пути (названия НП через " | "), A→точки→B
     status: RideStatus = Field(default=RideStatus.active, index=True)   # /rides и /rides/near фильтруют active
     # Boost (платное поднятие): пока boosted_until > now — поездка выше в выдаче.
     boosted_until: Optional[datetime] = Field(default=None, index=True)
