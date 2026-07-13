@@ -37,7 +37,6 @@ class InstantLocationSocket private constructor(
         fun forParcel(parcelId: Int, onPeer: (LocationSocket.Peer) -> Unit, onConnected: (Boolean) -> Unit = {}) =
             InstantLocationSocket("/ws/parcel/$parcelId/location", onPeer, onConnected)
 
-        private const val MAX_ATTEMPTS = 10
         private const val MAX_DELAY_SEC = 30L
         private const val SOFT_RETRY_SEC = 10L    // заказ ещё не активен → ретрай чуть чаще, чем у брони
         private const val MAX_SOFT_ATTEMPTS = 30  // ~5 мин потолок — не долбим сервер вечно
@@ -102,7 +101,10 @@ class InstantLocationSocket private constructor(
     }
 
     private fun scheduleReconnect() {
-        if (closed || attempt >= MAX_ATTEMPTS) return
+        // M3: пока заказ активен (владелец-экран не звал close() → closed=false) — НЕ сдаёмся.
+        // Раньше после ~10 попыток (≈3 мин) трек машины/курьера гас до конца заказа на трассах без связи.
+        // close() (onDispose) → closed=true → бесконечного цикла нет. Backoff с 30с-cap сохранён.
+        if (closed) return
         attempt++
         val delay = minOf(MAX_DELAY_SEC, 1L shl minOf(attempt - 1, 5))   // 1,2,4,8,16,30… cap 30
         scheduler.schedule({ openSocket() }, delay, TimeUnit.SECONDS)

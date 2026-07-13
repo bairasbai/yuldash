@@ -4,15 +4,18 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.yuldash.app.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
@@ -2106,50 +2109,74 @@ object ApiClient {
         body: JSONObject?,
         auth: Boolean,
         isRetry: Boolean = false,        // повтор после обновления access-токена (чтобы не зациклиться)
+        retryOnNetwork: Boolean = true,  // M5: повторять транзитные обрывы связи с backoff (по умолчанию вкл.)
     ): Result<JSONObject> = withContext(Dispatchers.IO) {
         val usedToken = if (auth) token else null
-        var conn: HttpURLConnection? = null
-        try {
-            conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 15000
-                readTimeout = 15000
-                setRequestProperty("Accept", "application/json")
-                deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
-                if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
-                if (body != null) {
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                    OutputStreamWriter(outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+        // M5: паузы backoff между попытками ТОЛЬКО при сетевом обрыве ДО получения ответа.
+        // Повторяем лишь IOException/SocketTimeout (соединение не удалось/упало до ответа); ответ
+        // с HTTP-кодом (4xx/5xx) — это ApiException и НЕ повторяется, отмена корутины пробрасывается.
+        // Идемпотентность: даже POST безопасен — повтор идёт лишь когда ответ не получен вовсе,
+        // значит сервер запрос не обработал → дубля на бэкенде не будет. Флаг retryOnNetwork=false
+        // выключает ретрай точечно (например для заведомо неидемпотентных операций).
+        val backoff = if (retryOnNetwork) longArrayOf(400L, 900L) else LongArray(0)
+        var attempt = 0
+        while (true) {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+                    requestMethod = method
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    setRequestProperty("Accept", "application/json")
+                    deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
+                    if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
+                    if (body != null) {
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json")
+                        OutputStreamWriter(outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+                    }
                 }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                return@withContext if (code in 200..299) {
+                    val obj = when {
+                        text.isBlank() -> JSONObject()
+                        text.trimStart().startsWith("[") -> JSONObject().put("items", JSONArray(text))
+                        else -> JSONObject(text)
+                    }
+                    Result.success(obj)
+                } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
+                    // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
+                    conn.disconnect(); conn = null
+                    if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
+                    else {
+                        logout()   // refresh мёртв → чистим локальную сессию, иначе isLoggedIn() врёт true и юзер «залипает» с 401 на каждом запросе
+                        sessionExpired.value = true   // сигнал UI: показать «войди снова» и уйти на Login (не молчать пустыми экранами)
+                        Result.failure(ApiException(401, genericByStatus(401, langBa)))
+                    }
+                } else {
+                    Result.failure(ApiException(code, errorMessage(code, text)))
+                }
+            } catch (ce: CancellationException) {
+                throw ce   // отмена корутины — не глотаем и не повторяем, пробрасываем дальше
+            } catch (e: IOException) {
+                // Обрыв связи ДО получения ответа (вкл. SocketTimeoutException).
+                // Есть ещё попытки → закрываем соединение, ждём backoff и повторяем.
+                if (attempt < backoff.size) {
+                    conn?.disconnect(); conn = null
+                    delay(backoff[attempt]); attempt++
+                    continue
+                }
+                return@withContext Result.failure(e)
+            } catch (e: Exception) {
+                return@withContext Result.failure(e)
+            } finally {
+                conn?.disconnect()
             }
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (code in 200..299) {
-                val obj = when {
-                    text.isBlank() -> JSONObject()
-                    text.trimStart().startsWith("[") -> JSONObject().put("items", JSONArray(text))
-                    else -> JSONObject(text)
-                }
-                Result.success(obj)
-            } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
-                // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
-                conn.disconnect(); conn = null
-                if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
-                else {
-                    logout()   // refresh мёртв → чистим локальную сессию, иначе isLoggedIn() врёт true и юзер «залипает» с 401 на каждом запросе
-                    sessionExpired.value = true   // сигнал UI: показать «войди снова» и уйти на Login (не молчать пустыми экранами)
-                    Result.failure(ApiException(401, genericByStatus(401, langBa)))
-                }
-            } else {
-                Result.failure(ApiException(code, errorMessage(code, text)))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        } finally {
-            conn?.disconnect()
         }
+        @Suppress("UNREACHABLE_CODE")
+        Result.failure(IllegalStateException("call() loop exited unexpectedly"))
     }
 
     /** Загрузка файла через multipart/form-data (поле `file` + `ext`). В отличие от base64-JSON

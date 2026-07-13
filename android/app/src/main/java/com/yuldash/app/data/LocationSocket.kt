@@ -30,7 +30,6 @@ class LocationSocket(
     @Volatile private var softAttempt = 0        // мягкий ретрай «поездка не активна» — с потолком MAX_SOFT_ATTEMPTS
 
     companion object {
-        private const val MAX_ATTEMPTS = 10
         private const val MAX_DELAY_SEC = 30L
         private const val SOFT_RETRY_SEC = 15L   // ретрай «поездка ещё не активна»
         private const val MAX_SOFT_ATTEMPTS = 40 // ~10 мин по 15с — потолок мягкого ретрая (не долбим сервер вечно, если поездка так и не стала активной)
@@ -99,7 +98,11 @@ class LocationSocket(
     }
 
     private fun scheduleReconnect() {
-        if (closed || attempt >= MAX_ATTEMPTS) return
+        // M3: пока поездка активна (владелец-сервис не звал close() → closed=false) — НЕ сдаёмся.
+        // Раньше после ~10 попыток (≈3 мин) стрим гас до конца поездки на трассах без связи, и никто не будил.
+        // Владелец закрывает сокет по завершении поездки (closed=true) → бесконечного цикла нет.
+        // Backoff с 30с-cap сохранён: на «мёртвой зоне» пробуем раз в 30с (экономно), сеть вернулась — подхватим за ≤30с.
+        if (closed) return
         attempt++
         val delay = minOf(MAX_DELAY_SEC, 1L shl minOf(attempt - 1, 5))   // 1,2,4,8,16,30… cap 30
         scheduler.schedule({ openSocket() }, delay, TimeUnit.SECONDS)

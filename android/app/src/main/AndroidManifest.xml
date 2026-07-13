@@ -2,6 +2,8 @@
 
     <!-- Карта Яндекс MapKit грузит тайлы по сети -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Состояние сети: авто-восстановление сокетов/очереди при возврате связи (ConnectivityManager.registerDefaultNetworkCallback) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Геолокация: понадобится для «моё местоположение» (запрашиваем в рантайме, после подтверждения поездки) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

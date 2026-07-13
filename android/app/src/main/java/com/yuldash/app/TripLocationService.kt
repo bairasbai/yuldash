@@ -45,8 +45,20 @@ class TripLocationService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val bookingId = intent?.getIntExtra(EXTRA_BOOKING, -1) ?: -1
-        intent?.getStringExtra(EXTRA_LANG)?.let { currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru) }
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val bookingId: Int
+        if (intent != null) {
+            bookingId = intent.getIntExtra(EXTRA_BOOKING, -1)
+            intent.getStringExtra(EXTRA_LANG)?.let { currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru) }
+            // H2: запоминаем активную бронь. Если Android убьёт процесс, при воскрешении (intent==null)
+            // продолжим ИМЕННО эту поездку, а не погасим трекинг. Чистим в onDestroy при штатном стопе.
+            if (bookingId > 0) prefs.edit().putInt(KEY_BOOKING, bookingId).putString(KEY_LANG, currentLang.name).apply()
+        } else {
+            // H2: START_STICKY воскресил сервис после смерти процесса с intent==null. Долгая поездка ещё идёт —
+            // перечитываем bookingId/язык из prefs и продолжаем трекинг (раньше тут bookingId=-1 → stopSelf, стрим гас).
+            bookingId = prefs.getInt(KEY_BOOKING, -1)
+            prefs.getString(KEY_LANG, null)?.let { currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru) }
+        }
         // Нет брони ИЛИ нет гео-разрешения → не держим бесполезный foreground-сервис и ложную нотификацию
         // «показываем вашу позицию» (если юзер отозвал гео — стрим всё равно не пойдёт).
         if (bookingId <= 0 ||
@@ -132,12 +144,20 @@ class TripLocationService : Service() {
         currentBookingId = -1
         TripLocationBus.peer = null
         TripLocationBus.bookingId = null
+        // H2: поездка завершена штатно (stopService/stopSelf зовёт onDestroy) → стираем сохранённую бронь,
+        // чтобы будущее воскрешение сервиса НЕ подняло уже законченную поездку (приватность + не тот стрим).
+        // Если процесс убили без onDestroy (OOM) — prefs остаётся, и это правильно: поездка ещё шла.
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_BOOKING).remove(KEY_LANG).apply()
         super.onDestroy()
     }
 
     companion object {
         const val EXTRA_BOOKING = "booking_id"
         const val EXTRA_LANG = "lang"
+        // H2: последняя активная бронь для воскрешения сервиса после смерти процесса (intent==null).
+        private const val PREFS = "trip_location_svc"
+        private const val KEY_BOOKING = "last_booking"
+        private const val KEY_LANG = "last_lang"
         private const val CHANNEL = "trip_location"
         private const val NOTIF_ID = 4711
         private const val MIN_INTERVAL_MS = 7000L

@@ -445,7 +445,8 @@ internal fun YuldashApp() {
     }
     val adStats = vm.adStats   // SnapshotStateMap: мутируем одну запись вместо копии всей карты на событие
     // Сохраняем survival-состояние в SavedStateHandle при изменении → переживает смерть процесса.
-    LaunchedEffect(screen, language, startHomeTab) { vm.persistNav() }
+    // activeBookingId в ключах: смена активной брони тоже должна попасть в handle (H1).
+    LaunchedEffect(screen, language, startHomeTab, activeBookingId) { vm.persistNav() }
 
     // Лёгкий back-stack: трейл экранов, чтобы аппаратная «Назад» возвращалась по нему, а не прыгала на Home.
     val navHistory = vm.navHistory
@@ -458,12 +459,56 @@ internal fun YuldashApp() {
         navPrev = screen
     }
 
-    // После kill/restore: screen сохранён, но транзитные selectedRide/activeBookingId — нет.
-    // Если восстановились на экране брони/активной поездки без данных → на Home (без краша/пустоты).
+    // H1 — активная поездка выживает после kill процесса. screen и activeBookingId переживают смерть
+    // процесса (SavedStateHandle), но объекты Ride (selectedRide/activeTrip) — нет. Если восстановились
+    // на брони/активной поездке без объектов → по сохранённому activeBookingId дочитываем бронь с сервера
+    // и восстанавливаем поездку (маршрут на карте, гейт live-гео, back-навигацию). Экран ActiveTrip сам
+    // грузит код посадки/трекинг по bookingId, так что до ответа сервера он не пустует.
+    // Не нашлась активная бронь / нет сети → мягко уходим на Home (прежнее поведение, без краша).
     LaunchedEffect(Unit) {
-        if ((screen == Screen.Booking || screen == Screen.ActiveTrip) && selectedRide == null && activeBookingId == null) {
-            screen = Screen.Home
+        if ((screen == Screen.Booking || screen == Screen.ActiveTrip) && selectedRide == null && activeTrip == null) {
+            val bid = activeBookingId
+            var restored = false
+            if (bid != null) {
+                ApiClient.getMyBookingsDetailed().onSuccess { list ->
+                    val b = list.firstOrNull { it.id == bid }
+                    if (b != null) {
+                        // Сводку с сервера дополняем feed-поездкой по ride_id (как экран «Мои поездки»).
+                        val feed = rides.firstOrNull { it.id == b.rideId.toString() }
+                        val restoredRide = Ride(
+                            id = b.id.toString(),
+                            from = b.fromCity.ifBlank { feed?.from ?: "" },
+                            to = b.toCity.ifBlank { feed?.to ?: "" },
+                            time = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.time ?: ""),
+                            timeBa = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.timeBa ?: feed?.time ?: ""),
+                            driver = b.driverName.ifBlank { feed?.driver ?: "" },
+                            car = feed?.car ?: "",
+                            carBa = feed?.carBa ?: feed?.car ?: "",
+                            price = if (b.price > 0) b.price else (feed?.price ?: 0),
+                            seats = b.seats,
+                            rating = feed?.rating ?: 0.0,
+                            verified = b.driverVerified || (feed?.verified ?: false),
+                            boosted = false,
+                        )
+                        selectedRide = restoredRide
+                        selectedBookingStatus = b.status
+                        // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
+                        activeTrip = if (bookingStatusAllowsActiveTrip(b.status)) restoredRide else null
+                        // Бронь уже не активна (напр. завершена/отменена) → показываем детали, а не экран поездки.
+                        if (screen == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
+                        restored = true
+                    }
+                }
+            }
+            if (!restored) screen = Screen.Home
         }
+    }
+
+    // M4 — разгружаем очередь исходящих (TripPass Outbox) на СТАРТЕ приложения, а не только на экране
+    // поездки: накопленные «сел/доехал»/сообщения уйдут, даже если пользователь не открывал ActiveTrip.
+    // Переиспользуем ту же Outbox.flush (Mutex/FIFO) — второго параллельного отправителя не создаём.
+    LaunchedEffect(Unit) {
+        if (com.yuldash.app.data.Outbox.hasPending(context)) com.yuldash.app.data.Outbox.flush(context)
     }
 
     fun finishOnboarding(role: RideRole) {

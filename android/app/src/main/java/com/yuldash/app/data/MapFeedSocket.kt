@@ -22,7 +22,6 @@ class MapFeedSocket(private val onRefresh: () -> Unit) {
     @Volatile private var attempt = 0
 
     companion object {
-        private const val MAX_ATTEMPTS = 8
         private const val MAX_DELAY_SEC = 30L
         private val client: OkHttpClient by lazy {
             OkHttpClient.Builder().pingInterval(25, TimeUnit.SECONDS).build()
@@ -63,7 +62,10 @@ class MapFeedSocket(private val onRefresh: () -> Unit) {
     }
 
     private fun scheduleReconnect() {
-        if (closed || attempt >= MAX_ATTEMPTS) return
+        // M3: пока карта открыта (владелец не звал close() → closed=false) — НЕ сдаёмся, иначе сигнал «обнови карту»
+        // тихо гас после ~8 попыток и оставался только 25-сек опрос. close() (onDispose) → closed=true → цикл не вечен.
+        // Backoff с 30с-cap сохранён (лёгкий сигнальный сокет, без данных — приватность не задета).
+        if (closed) return
         attempt++
         val delay = minOf(MAX_DELAY_SEC, 1L shl minOf(attempt - 1, 5))   // 1,2,4,8,16,30… cap 30
         scheduler.schedule({ openSocket() }, delay, TimeUnit.SECONDS)

@@ -30,6 +30,12 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     val startHomeTab = mutableStateOf(
         saved.get<String>(KEY_TAB)?.let { runCatching { HomeTab.valueOf(it) }.getOrNull() } ?: HomeTab.Map
     )
+    // H1: id активной брони переживает kill процесса. После рестарта экран ActiveTrip/Booking
+    // восстанавливается по screen (тоже в handle), а по этому id YuldashApp дочитывает бронь с сервера
+    // и восстанавливает activeTrip/selectedRide (сами объекты Ride в handle не кладём — тяжело/лишнее).
+    val activeBookingId = mutableStateOf<Int?>(
+        saved.get<Int>(KEY_ACTIVE_BID)?.takeIf { it > 0 }
+    )
 
     /** Сохранить survival-состояние в SavedStateHandle. Зовётся из эффекта при каждом изменении —
      *  так при смерти процесса значения уже лежат в handle и VM восстановит их из них. */
@@ -37,11 +43,11 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved[KEY_SCREEN] = screen.value.name
         saved[KEY_LANG] = language.value.name
         saved[KEY_TAB] = startHomeTab.value.name
+        saved[KEY_ACTIVE_BID] = activeBookingId.value ?: -1   // -1 = нет активной брони (null не храним примитивом)
     }
 
     // --- Транзитные/бизнес: переживают поворот, не переживают kill (как и было) ---
     val selectedRide = mutableStateOf<Ride?>(null)
-    val activeBookingId = mutableStateOf<Int?>(null)
     val activeTrip = mutableStateOf<Ride?>(null)
     val callbackRequested = mutableStateOf(false)
     val responsesRequestId = mutableStateOf(0)
@@ -66,5 +72,6 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         const val KEY_SCREEN = "yuldash_screen"
         const val KEY_LANG = "yuldash_lang"
         const val KEY_TAB = "yuldash_tab"
+        const val KEY_ACTIVE_BID = "yuldash_active_bid"
     }
 }

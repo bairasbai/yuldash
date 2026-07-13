@@ -197,6 +197,9 @@ object Outbox {
     fun count(context: Context, bookingId: Int): Int =
         readAll(context).count { it.bookingId == bookingId }
 
+    /** Есть ли вообще что отправлять (любая бронь) — чтобы не дёргать flush на пустой очереди при старте (M4). */
+    fun hasPending(context: Context): Boolean = readAll(context).isNotEmpty()
+
     fun enqueue(context: Context, action: OutboxAction) {
         val list = readAll(context)
         list.add(action)

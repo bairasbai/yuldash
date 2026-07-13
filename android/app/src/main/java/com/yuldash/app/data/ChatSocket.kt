@@ -39,7 +39,6 @@ class ChatSocket(
     @Volatile private var attempt = 0
 
     companion object {
-        private const val MAX_ATTEMPTS = 10
         private const val MAX_DELAY_SEC = 30L
 
         /** Чат такси-заказа (B7b-1): тот же сокет-протокол, путь /ws/instant/{orderId}/chat. */
@@ -120,7 +119,10 @@ class ChatSocket(
     }
 
     private fun scheduleReconnect() {
-        if (closed || attempt >= MAX_ATTEMPTS) return
+        // M3: пока экран чата открыт (владелец не звал close() → closed=false) — НЕ сдаёмся.
+        // Раньше после ~10 попыток (≈3 мин) живой приём вставал до перезахода на экран; на трассе без связи это часто.
+        // close() (onDispose экрана) ставит closed=true → бесконечного цикла нет. Backoff с 30с-cap сохранён.
+        if (closed) return
         attempt++
         // 1,2,4,8,16,30,30… секунд (cap 30) — не флудим сервер при долгом обрыве.
         val delay = minOf(MAX_DELAY_SEC, 1L shl minOf(attempt - 1, 5))
