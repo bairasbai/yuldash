@@ -546,8 +546,9 @@ class InstantOrder(SQLModel, table=True):
     waiting_fee_kop: int = 0         # платное ожидание сверх бесплатного, копейки (фикс на onboard)
     cancel_fee_kop: int = 0          # штраф за позднюю отмену / no-show = подача, копейки (Модель А: только фиксируем)
     no_show: bool = False            # «пассажир не вышел» — отмена водителем по таймингу
-    # Таймстампы переходов (пишутся машиной состояний).
-    created_at: datetime = Field(default_factory=utcnow)
+    # Таймстампы переходов (пишутся машиной состояний). created_at индексируем — растущая таблица:
+    # сортировка/дневная сводка/будущая чистка по дате (иначе seq-scan по мере роста заказов).
+    created_at: datetime = Field(default_factory=utcnow, index=True)
     searching_at: Optional[datetime] = None
     offered_at: Optional[datetime] = None
     accepted_at: Optional[datetime] = None
@@ -1032,7 +1033,7 @@ class ParcelDelivery(SQLModel, table=True):
     fee_kop: int = 0                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
     status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled
     confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
-    created_at: datetime = Field(default_factory=utcnow)
+    created_at: datetime = Field(default_factory=utcnow, index=True)          # растущая таблица: индекс под сорт/чистку по дате
     accepted_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
     # --- C1: профессиональный курьер (гибрид «по пути» + режим «Курьер») ---

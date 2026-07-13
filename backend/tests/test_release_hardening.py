@@ -15,11 +15,11 @@ from datetime import timedelta
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.db import engine
 from app.models import (
-    CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus, ParcelDelivery,
+    CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus, Notification, ParcelDelivery,
     Payment, TripShare, TrustedContact, User, UserRole,
 )
 from app.timeutil import utcnow
@@ -171,3 +171,22 @@ def test_trip_share_live_within_ttl(client, user_factory):
         s.commit()
     with Session(engine) as s:
         assert _resolve_share(s, token).token == token
+
+
+# ---------------- Устойчивость к росту: чистка уведомлений ----------------
+
+def test_notification_cleanup_purges_old_keeps_fresh(client, user_factory):
+    """Быстрорастущая таблица notification: старые (>90д) чистятся, свежие остаются."""
+    from app import cleanup
+    uid = user_factory("NotifCleanup")["id"]
+    with Session(engine) as s:
+        s.add(Notification(user_id=uid, title_ru="старое-90", body_ru="b",
+                           created_at=utcnow() - timedelta(days=200)))
+        s.add(Notification(user_id=uid, title_ru="свежее-90", body_ru="b",
+                           created_at=utcnow()))
+        s.commit()
+    cleanup.main()   # реальная чистка
+    with Session(engine) as s:
+        titles = [n.title_ru for n in s.exec(select(Notification).where(Notification.user_id == uid)).all()]
+    assert "старое-90" not in titles    # старое уведомление вычищено
+    assert "свежее-90" in titles         # свежее осталось

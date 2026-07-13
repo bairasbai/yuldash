@@ -31,6 +31,7 @@ TG_DAYS = 1          # telegram-сессии входа
 UPLOAD_DAYS = 2      # события загрузки (квота 24ч)
 TOKEN_DAYS = 1       # протухшие/отозванные refresh-токены
 ADEVENT_DAYS = 90    # показы/клики рекламы (поштучно потом не нужны)
+NOTIF_DAYS = 90      # старые уведомления (быстрорастущий объём: строка на каждый пуш)
 SOS_DAYS = 180       # ТОЛЬКО закрытые (handled) SOS; открытые не трогаем
 REPORT_DAYS = 180    # жалобы (история модерации)
 TRIP_DAYS = 180      # старые завершённые поездки/заявки — только без рейтингов/платежей/SOS
@@ -42,7 +43,7 @@ TRIP_DAYS = 180      # старые завершённые поездки/зая
 _ALLOWED_TABLES = frozenset({
     "message", "otpcode", "tgauth", "uploadevent", "refreshtoken", "adevent",
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
-    "booking", "ride",
+    "booking", "ride", "notification",
 })
 
 
@@ -60,6 +61,7 @@ def _rules(now):
          "refreshtoken", "(revoked = true OR expires_at < :now) AND created_at < :c",
          {"now": now, "c": cut(TOKEN_DAYS)}),
         ("показы/клики рекламы >90д", "adevent", "created_at < :c", {"c": cut(ADEVENT_DAYS)}),
+        ("уведомления >90д", "notification", "created_at < :c", {"c": cut(NOTIF_DAYS)}),
         # --- Фаза 2: старое завершённое (осторожно, с гардами) ---
         ("закрытые SOS >180д", "sosevent", "status = 'handled' AND created_at < :c", {"c": cut(SOS_DAYS)}),
         ("жалобы >180д", "report", "created_at < :c", {"c": cut(REPORT_DAYS)}),
