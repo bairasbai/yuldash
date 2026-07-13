@@ -1802,11 +1802,6 @@ object ApiClient {
         bg.launch { call("POST", "/instant/presence", JSONObject().put("lat", lat).put("lng", lng), auth = true) }
     }
 
-    /** Presence-heartbeat С результатом: цикл водителя «на линии» отслеживает потерю связи,
-     *  чтобы показать чип «Нет связи» — иначе водитель думает, что онлайн, а сервер его не видит. */
-    suspend fun instantPresence(lat: Double, lng: Double): Result<Unit> =
-        call("POST", "/instant/presence", JSONObject().put("lat", lat).put("lng", lng), auth = true).map { }
-
     /** Оценка цены ДО заказа. Сервер считает сам (клиенту не верит) — поля цены в запросе нет. */
     suspend fun instantEstimate(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
