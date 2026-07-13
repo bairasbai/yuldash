@@ -10,6 +10,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
@@ -1679,7 +1680,10 @@ private fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = fal
                     Text(appText("Ответь за $secondsLeft с", "$secondsLeft секундта яуап бир"), color = CanonMuted, fontSize = 13.sp)
                 }
                 Surface(shape = CircleShape, color = CanonSurface) {
-                    Text("$secondsLeft", color = CanonGreen2, fontSize = 22.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                    // Плавная смена цифры таймера (в такт анимированной полоске), без рывка.
+                    AnimatedContent(targetState = secondsLeft, label = "offerTimer") { s ->
+                        Text("$s", color = CanonGreen2, fontSize = 22.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                    }
                 }
             }
             LinearProgressIndicator(
@@ -1692,7 +1696,7 @@ private fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = fal
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${order.priceEstimate} ₽", color = CanonText, fontSize = 34.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
                         if (order.category == "comfort") {
-                            Surface(shape = RoundedCornerShape(10.dp), color = CanonGreen2.copy(alpha = 0.12f)) {
+                            Surface(shape = RoundedCornerShape(10.dp), color = CanonMint) {
                                 Text(appText("Комфорт", "Комфорт"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
                             }
@@ -1723,18 +1727,23 @@ private fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = fal
                 }
             }
             Spacer(Modifier.weight(1f))
-            Button(onClick = onAccept, enabled = !accepting, modifier = Modifier.fillMaxWidth().height(56.dp).navigationBarsPadding(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
-                if (accepting) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(20.dp))
-                } else {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(appText("Взять заказ", "Заказды алыу"), fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            OutlinedButton(onClick = onDecline, enabled = !accepting, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) {
-                Text(appText("Пропустить", "Үткәреп ебәреү"), color = CanonMuted)
-            }
+            AppButton(
+                text = appText("Взять заказ", "Заказды алыу"),
+                onClick = onAccept,
+                modifier = Modifier.navigationBarsPadding(),
+                style = AppButtonStyle.Primary,
+                icon = Icons.Default.CheckCircle,
+                loading = accepting,
+                enabled = !accepting,
+                height = 56.dp,
+            )
+            AppButton(
+                text = appText("Пропустить", "Үткәреп ебәреү"),
+                onClick = onDecline,
+                style = AppButtonStyle.Secondary,
+                enabled = !accepting,
+                height = 48.dp,
+            )
         }
     }
 }

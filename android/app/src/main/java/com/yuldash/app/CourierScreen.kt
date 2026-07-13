@@ -37,16 +37,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Percent
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -69,6 +72,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -238,9 +242,9 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit) {
                 }
                 // Выбор зоны.
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CourierZoneChip("🏙", appText("Город", "Ҡала"), zone == "city") { changeZone("city") }
-                    CourierZoneChip("🛣", appText("Межгород", "Ҡалалар араһы"), zone == "intercity") { changeZone("intercity") }
-                    CourierZoneChip("🌍", appText("Регион", "Төбәк"), zone == "region") { changeZone("region") }
+                    CourierZoneChip(Icons.Default.LocationCity, appText("Город", "Ҡала"), zone == "city") { changeZone("city") }
+                    CourierZoneChip(Icons.Default.AltRoute, appText("Межгород", "Ҡалалар араһы"), zone == "intercity") { changeZone("intercity") }
+                    CourierZoneChip(Icons.Default.Public, appText("Регион", "Төбәк"), zone == "region") { changeZone("region") }
                 }
                 if (zone == "city") {
                     OutlinedTextField(
@@ -277,7 +281,7 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit) {
 }
 
 @Composable
-private fun CourierZoneChip(emoji: String, label: String, active: Boolean, onClick: () -> Unit) {
+private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
     val bg by animateColorAsState(if (active) CanonGreen2 else CanonSurface, tween(200), label = "zone")
     Surface(
         onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
@@ -285,7 +289,7 @@ private fun CourierZoneChip(emoji: String, label: String, active: Boolean, onCli
         modifier = Modifier.height(48.dp),
     ) {
         Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(emoji, fontSize = 15.sp)
+            Icon(icon, contentDescription = null, tint = if (active) Color.White else CanonMuted, modifier = Modifier.size(18.dp))
             Text(label, color = if (active) Color.White else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
     }

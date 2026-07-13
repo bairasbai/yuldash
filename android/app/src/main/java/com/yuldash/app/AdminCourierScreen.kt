@@ -141,7 +141,11 @@ internal fun AdminCourierScreen(onBack: () -> Unit) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         if (a.transport == "cargo") Icons.Default.LocalShipping else Icons.Default.TwoWheeler,
-                                        contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp),
+                                        // BA-draft
+                                        contentDescription = if (a.transport == "cargo")
+                                            appText("Грузовой транспорт", "Йөк транспорты")
+                                        else appText("Мопед или мотоцикл", "Мопед йәки мотоцикл"),
+                                        tint = CanonGreen2, modifier = Modifier.size(18.dp),
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Text(appText("Транспорт: ", "Транспорт: ") + courierTransportLabel(a.transport), color = CanonText, fontSize = 14.sp)

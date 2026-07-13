@@ -152,6 +152,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -627,7 +628,8 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
             val openDriver = LocalOpenDriverProfile.current
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = if (dto.driverId > 0) Modifier.clickable { openDriver(dto.driverId) } else Modifier
+                // onClickLabel → TalkBack озвучит действие; BA-draft
+                modifier = if (dto.driverId > 0) Modifier.clickable(onClickLabel = appText("Открыть профиль", "Профильде асыу")) { openDriver(dto.driverId) } else Modifier
             ) {
                 SmallAvatar(dto.driverAvatar, dto.driverName, 30)
                 Spacer(Modifier.width(8.dp))
@@ -879,15 +881,19 @@ internal fun RideCard(
                 Text(ride.timeText(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val openDriver = LocalOpenDriverProfile.current
+            // Двуязычный дефолт имени (toUiRide больше не кладёт русский литерал). BA-draft: «Йөрөтөүсе».
+            val driverFallback = appText("Водитель", "Йөрөтөүсе")
+            val driverName = ride.driver.ifBlank { driverFallback }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = if (ride.driverId > 0) Modifier.clickable { openDriver(ride.driverId) } else Modifier
+                // onClickLabel → TalkBack озвучит действие; BA-draft
+                modifier = if (ride.driverId > 0) Modifier.clickable(onClickLabel = appText("Открыть профиль", "Профильде асыу")) { openDriver(ride.driverId) } else Modifier
             ) {
-                SmallAvatar(ride.driverAvatar, ride.driver, 44)
+                SmallAvatar(ride.driverAvatar, driverName, 44)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(ride.driver, fontWeight = FontWeight.Bold)
+                        Text(driverName, fontWeight = FontWeight.Bold)
                         if (ride.verified) {
                             Spacer(Modifier.width(4.dp))
                             Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
@@ -1189,7 +1195,7 @@ private fun Metric(icon: androidx.compose.ui.graphics.vector.ImageVector, text: 
 }
 
 @Composable
-internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> Unit, onViewResponses: (Int) -> Unit, onCancel: (Int) -> Unit) {
+internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> Unit, onViewResponses: (Int) -> Unit, onCancel: (Int) -> Unit, loading: Boolean = false) {
     // Один честный список заявок. Прежние вкладки «Отклики»/«Черновики» были вечными
     // заглушками (статичный текст + фейковый черновик «Баймак→Уфа 450₽») → убраны.
     // Отклики открываются с карточки заявки кнопкой «Посмотреть отклики».
@@ -1219,7 +1225,10 @@ internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> U
         item {
             Text(appText("Мои заявки", "Минең заявкалар"), color = CanonGreen, fontSize = 28.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black)
         }
-        if (requests.isEmpty()) {
+        if (requests.isEmpty() && loading) {
+            // Пока грузим — скелетон, а не ложное «Заявок пока нет» (мелькало на первой загрузке).
+            item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
+        } else if (requests.isEmpty()) {
             item {
                 Box(Modifier.appearIn(0)) {
                     InfoCard(
@@ -1469,6 +1478,7 @@ internal fun ChatScreen(
     var convReload by remember { mutableStateOf(0) }
     var myRequests by remember { mutableStateOf<List<RequestDto>>(emptyList()) }
     var reqError by remember { mutableStateOf(false) }   // заявки: отличаем «нет заявок» от «сеть упала»
+    var reqLoading by remember { mutableStateOf(true) }   // пока грузим заявки — скелетон, а не ложное «Заявок пока нет»
     var notifUnread by remember { mutableStateOf(0) }   // бейдж непрочитанных на кнопке «Система»
     val chatTabs = listOf(
         "active" to LocalizedText("Активные", "Актив"),
@@ -1477,6 +1487,7 @@ internal fun ChatScreen(
     )
     LaunchedEffect(convReload) {
         convLoading = true
+        reqLoading = true
         ApiClient.getConversations()
             .onSuccess { conversations = it; convError = false }
             // 401 / нет сессии — это НЕ сетевая ошибка: диалогов просто нет, показываем дружелюбное «пусто».
@@ -1487,6 +1498,7 @@ internal fun ChatScreen(
             .onSuccess { myRequests = it; reqError = false }
             // 401 → не вошёл (обычное «пусто»); иначе сеть упала → показываем ошибку + «Повторить».
             .onFailure { e -> reqError = (e as? ApiException)?.status != 401 }
+        reqLoading = false
         ApiClient.getNotifications().onSuccess { notifUnread = it.unread }
     }
     LazyColumn(
@@ -1551,7 +1563,14 @@ internal fun ChatScreen(
         }
         if (selected == "requests") {
             // Вкладка «Заявки» — реальные заявки пользователя (ждут отклика водителя).
-            if (myRequests.isEmpty() && reqError) {
+            if (myRequests.isEmpty() && reqLoading) {
+                // Пока грузим — скелетон, чтобы не мелькало ложное «Заявок пока нет».
+                item {
+                    Box(Modifier.appearIn(0)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 2) } }
+                    }
+                }
+            } else if (myRequests.isEmpty() && reqError) {
                 // Сеть упала — не выдаём это за «нет заявок», даём «Повторить».
                 item {
                     Box(Modifier.appearIn(0)) {
@@ -1700,10 +1719,12 @@ internal fun ChatContent(
                 }
             }
             items(visibleMessages, key = { it.id }) { m ->
-                ChatFeedBubble(
-                    text = m.text, voiceUrl = m.voiceUrl, deleted = m.deleted, mine = m.senderId == myId,
-                    warn = m.flag == "warn", fromAdmin = m.fromAdmin,
-                )
+                Box(Modifier.fillMaxWidth().animateItem()) {   // плавное появление/перестановка пузыря в списке
+                    ChatFeedBubble(
+                        text = m.text, voiceUrl = m.voiceUrl, deleted = m.deleted, mine = m.senderId == myId,
+                        warn = m.flag == "warn", fromAdmin = m.fromAdmin,
+                    )
+                }
             }
         }
         Card(
@@ -1743,7 +1764,8 @@ internal fun ChatContent(
                     enabled = canSend,   // пустой ввод / идёт отправка → нельзя (гард двойного тапа)
                     modifier = Modifier.size(48.dp).background(if (canSend) CanonGreen2 else CanonBorder, CircleShape)
                 ) {
-                    Icon(Icons.Default.Send, contentDescription = appText("Отправить", "Ебәреү"), tint = Color.White)
+                    // disabled: фон = CanonBorder (светлый) → белая иконка исчезала. Гасим иконку в CanonMuted.
+                    Icon(Icons.Default.Send, contentDescription = appText("Отправить", "Ебәреү"), tint = if (canSend) Color.White else CanonMuted)
                 }
             }
         }
@@ -1856,6 +1878,7 @@ internal fun ChatSafetyDisclaimer(modifier: Modifier = Modifier) {
                 appText("Понятно", "Аңлашылды"),
                 color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()   // тач-цель ≥48dp
                     .bounceClick {
                         prefs.edit().putBoolean("chat_safety_seen", true).apply()
                         visible = false
@@ -1969,7 +1992,7 @@ internal fun RequestsFeedContent(
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
         item { Text(appText("Пассажиры ищут поездку. Откликнись — предложи цену и время.", "Пассажирҙар сәфәр эҙләй. Яуап бир — хаҡ һәм ваҡыт тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
         if (loading) {
-            item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (error) {
             item { ListedError(appText("Не удалось загрузить заявки. Проверь сеть.", "Заявкаларҙы йөкләп булманы. Сетте тикшер."), onRetry = onRetry) }
         } else if (feed.isEmpty()) {
@@ -2073,7 +2096,7 @@ internal fun ResponsesContent(
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
         item { Text(appText("Выберите водителя — поездка начнётся, откроется чат.", "Водитель һайла — сәфәр башлана, чат асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
         if (loading) {
-            item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
+            item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (error) {
             item { ListedError(appText("Не удалось загрузить отклики. Проверь сеть.", "Яуаптарҙы йөкләп булманы. Сетте тикшер."), onRetry = onRetry) }
         } else if (responses.isEmpty()) {
@@ -2298,7 +2321,7 @@ internal fun ChatComposer(
                             showEmoji = !showEmoji
                             if (showEmoji) focusManager.clearFocus()   // прячем системную клавиатуру → видна наша панель
                         },
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(48.dp)   // тач-цель ≥48dp (было 36)
                     ) {
                         Icon(Icons.Default.EmojiEmotions, contentDescription = appText("Эмодзи", "Эмодзи"), tint = if (showEmoji) CanonGreen2 else CanonMuted, modifier = Modifier.size(22.dp))
                     }

@@ -273,6 +273,7 @@ internal fun YuldashApp() {
     val rides = vm.rides
     val trustedContacts = vm.trustedContacts
     val localRequests = vm.localRequests
+    var requestsLoading by remember { mutableStateOf(true) }   // скелетон «Моих заявок» до первой загрузки
     val appScope = rememberCoroutineScope()
     var activeBookingId by vm.activeBookingId
     var activeTrip by vm.activeTrip   // подтверждённая поездка → маршрут на карте; исчезает при завершении
@@ -584,7 +585,9 @@ internal fun YuldashApp() {
         // Мои заявки — с сервера (после входа). Точное время в Фазе 1 не храним.
         val reqWaitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
         val reqByAgreement = appText("по договорённости", "килешеү буйынса")
+        val passengerSelf = appText("Я", "Мин")   // BA-draft: «Мин» — на проверку носителю
         LaunchedEffect(sessionVersion) {
+            requestsLoading = true
             ApiClient.getMyRequests().onSuccess { reqs ->
                 localRequests.clear()
                 localRequests.addAll(
@@ -596,7 +599,7 @@ internal fun YuldashApp() {
                             route = "${r.fromCity} → ${r.toCity}",
                             // Показываем выбранное время (если пассажир его задал), иначе «по договорённости».
                             time = r.desiredAt?.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: reqByAgreement,
-                            passenger = r.forRelativeName ?: ApiClient.cachedName() ?: "Я",
+                            passenger = r.forRelativeName ?: ApiClient.cachedName() ?: passengerSelf,
                             status = reqWaitingStatus,
                             price = r.maxPrice,
                             trustedContact = r.comment.ifBlank { null },
@@ -605,6 +608,7 @@ internal fun YuldashApp() {
                     }
                 )
             }
+            requestsLoading = false
         }
         // Доверенные контакты — с сервера (после входа). Перечитываем и при смене sessionVersion (после логина).
         LaunchedEffect(sessionVersion) {
@@ -663,6 +667,7 @@ internal fun YuldashApp() {
                 rides = rides,
                 activeTrip = activeTrip,
                 requests = localRequests,
+                requestsLoading = requestsLoading,
                 ads = partnerAds,
                 adStats = adStats,
                 voiceMessages = voiceMessages,
@@ -1644,6 +1649,7 @@ internal fun HomeScreen(
     rides: List<Ride>,
     activeTrip: Ride?,
     requests: List<LocalRequest>,
+    requestsLoading: Boolean = false,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
     voiceMessages: List<LocalVoiceMessage>,
@@ -1745,7 +1751,8 @@ internal fun HomeScreen(
                     requests = requests,
                     onCreateNew = onCreateRequest,
                     onViewResponses = onOpenResponses,   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
-                    onCancel = onCancelRequest
+                    onCancel = onCancelRequest,
+                    loading = requestsLoading
                 )
                 HomeTab.Chat -> ChatScreen(
                     voiceMessages = voiceMessages,
@@ -1895,7 +1902,7 @@ private fun RowScope.YuldashBottomItem(
 ) {
     val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(280), label = "navPill")
     val iconTint by animateColorAsState(if (selected) CanonText else CanonMuted, tween(280), label = "navTint")
-    val labelColor by animateColorAsState(if (selected) Color(0xFFD29400) else CanonMuted, tween(280), label = "navLabel")
+    val labelColor by animateColorAsState(if (selected) CanonGold else CanonMuted, tween(280), label = "navLabel")
     val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, tween(280), label = "navScale")
     val interaction = remember { MutableInteractionSource() }
     Column(
@@ -1923,7 +1930,7 @@ private fun RowScope.YuldashBottomItem(
         Text(
             text = label,
             color = labelColor,
-            fontSize = 9.sp,
+            fontSize = 10.sp,
             fontWeight = if (selected) FontWeight.Black else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

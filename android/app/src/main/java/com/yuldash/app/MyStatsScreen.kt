@@ -70,10 +70,16 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
-// Фиксированные тёмно-зелёные для шеринг-карточки (белый текст в ОБЕИХ темах — карточка едет
-// в мессенджеры как есть, не зависит от темы получателя). Как шапки-градиенты (CanonGreenInk*).
-private val StatsCardTop = Color(0xFF0B6B3A)
-private val StatsCardBottom = Color(0xFF063A20)
+// Фикс-палитра шеринг-открытки (StatsShareCard) — независима от темы: карточка уходит картинкой в
+// мессенджеры «как есть», у получателя может быть любая тема. Поэтому цвета жёстко зашиты, а НЕ берутся
+// из Canon* (которые меняются со светлой/тёмной темой). Здесь собраны в одном месте, чтобы не размазывать.
+private val StatsCardTop = Color(0xFF0B6B3A)      // верх зелёного градиента карточки
+private val StatsCardBottom = Color(0xFF063A20)   // низ зелёного градиента карточки
+private val StatsMint = Color(0xFFCDEBD9)         // мятные подписи на зелёном
+private val StatsMintBright = Color(0xFFDDF3E5)   // светлее — имя и подпись бренда (запас по контрасту)
+private val StatsGold = Color(0xFFF5D07A)         // золото кубка (звание)
+private val StatsGlassStrong = Color(0x33FFFFFF)  // «стеклянный» кружок под кубком
+private val StatsGlassSoft = Color(0x1FFFFFFF)    // «стеклянный» фон мини-плиток
 
 /**
  * F18 «Мой Юлдаш» — личная статистика попутчика.
@@ -223,7 +229,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         appTextFor(language, "МОЙ ЮЛДАШ", "МИНЕҢ ЮЛДАШ"),
-                        color = Color(0xFFBFE8CF), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
+                        color = StatsMint, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -231,13 +237,13 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                         color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black,
                     )
                     if (name.isNotBlank()) {
-                        Text(name, color = Color(0xFFDDF3E5), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(name, color = StatsMintBright, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
-                Surface(color = Color(0x33FFFFFF), shape = CircleShape) {
+                Surface(color = StatsGlassStrong, shape = CircleShape) {
                     Icon(
                         Icons.Default.EmojiEvents, contentDescription = null,
-                        tint = Color(0xFFF5D07A), modifier = Modifier.padding(12.dp).size(30.dp),
+                        tint = StatsGold, modifier = Modifier.padding(12.dp).size(30.dp),
                     )
                 }
             }
@@ -250,7 +256,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                 )
                 Text(
                     appTextFor(language, "километров вместе", "километр бергә"),
-                    color = Color(0xFFCDEBD9), fontSize = 14.sp,
+                    color = StatsMint, fontSize = 14.sp,
                 )
             }
 
@@ -261,8 +267,10 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
             }
 
             Text(
+                // Была 0xFF9FD6B4 11sp — на светлом верху градиента контраст падал ниже 4.5:1;
+                // берём светлее (StatsMintBright) и 12sp для читаемости мелкой подписи.
                 appTextFor(language, "Юлдаш · поездки между своими · yulbash.ru", "Юлдаш · үҙебеҙҙекеләр менән · yulbash.ru"),
-                color = Color(0xFF9FD6B4), fontSize = 11.sp, fontWeight = FontWeight.Medium,
+                color = StatsMintBright, fontSize = 12.sp, fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -273,13 +281,13 @@ private fun MiniStat(modifier: Modifier, value: String, label: String) {
     Column(
         modifier
             .clip(CanonItemShape)
-            .background(Color(0x1FFFFFFF))
+            .background(StatsGlassSoft)
             .padding(vertical = 12.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(value, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
         Spacer(Modifier.height(2.dp))
-        Text(label, color = Color(0xFFC7E7D3), fontSize = 11.sp, textAlign = TextAlign.Center)
+        Text(label, color = StatsMint, fontSize = 11.sp, textAlign = TextAlign.Center)
     }
 }
 

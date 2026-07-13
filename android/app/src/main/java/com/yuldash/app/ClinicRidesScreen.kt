@@ -271,8 +271,10 @@ private fun ClinicRideCard(dto: RideDto, onBook: () -> Unit) {
                 MetaChip(Icons.Default.EventSeat, appText("${ride.seats} мест", "${ride.seats} урын"))
                 MetaChip(Icons.Default.Star, String.format(java.util.Locale.US, "%.1f", ride.rating))
             }
+            // Двуязычный дефолт имени водителя (toUiRide больше не кладёт русский литерал). BA-draft: «Йөрөтөүсе».
+            val driverFallback = appText("Водитель", "Йөрөтөүсе")
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(ride.driver, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(ride.driver.ifBlank { driverFallback }, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(if (ride.price > 0) "${ride.price} ₽" else appText("Бесплатно", "Бушлай"), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 16.sp)
             }
             AppButton(appText("Поехать", "Барырға"), onBook, height = 46.dp)

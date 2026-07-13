@@ -572,7 +572,8 @@ internal fun ProfileScreen(
                                         contentScale = ContentScale.Crop,
                                     )
                                 }
-                                Icon(Icons.Default.Edit, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp).align(Alignment.BottomEnd))
+                                // BA-draft
+                                Icon(Icons.Default.Edit, contentDescription = appText("Изменить фото", "Фотоны үҙгәртеү"), tint = Color.White, modifier = Modifier.size(15.dp).align(Alignment.BottomEnd))
                             }
                             Spacer(Modifier.width(14.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -431,14 +431,17 @@ internal fun BookingScreen(
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        // Двуязычный дефолт имени водителя (toUiRide больше не кладёт русский литерал). BA-draft: «Йөрөтөүсе».
+                        val driverFallback = appText("Водитель", "Йөрөтөүсе")
+                        val driverName = displayRide.driver.ifBlank { driverFallback }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(color = CanonMint, shape = CircleShape) {
-                                Text(displayRide.driver.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(22.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                                Text(driverName.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(22.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 22.sp)
                             }
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(displayRide.driver, color = CanonText, fontWeight = FontWeight.Black, fontSize = 21.sp)
+                                    Text(driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 21.sp)
                                     if (displayRide.verified) {
                                         Spacer(Modifier.width(6.dp))
                                         Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
@@ -454,7 +457,14 @@ internal fun BookingScreen(
                                     runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$driverPhone"))) }
                                 } else Modifier
                             ) {
-                                Icon(if (contactUnlocked && driverPhone.isNotBlank()) Icons.Default.Phone else Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
+                                Icon(
+                                    if (contactUnlocked && driverPhone.isNotBlank()) Icons.Default.Phone else Icons.Default.PhoneLocked,
+                                    contentDescription = if (contactUnlocked && driverPhone.isNotBlank())
+                                        appText("Позвонить", "Шылтыратыу")          // BA-draft
+                                    else appText("Телефон пока скрыт", "Телефон әлегә йәшерелгән"),  // BA-draft
+                                    tint = CanonGreen2,
+                                    modifier = Modifier.padding(16.dp)
+                                )
                             }
                         }
                         TripInfoRow(
@@ -1432,6 +1442,7 @@ internal fun ActiveTripScreen(
             item { ChatSafetyDisclaimer() }
             items(visibleMessages, key = { it.id }) { m ->
                 val saved = m.id > 0   // оптимистичные (id<0) ещё не на сервере — без меню
+                Box(Modifier.fillMaxWidth().animateItem()) {   // плавное появление/перестановка пузыря в списке
                 MessageBubble(
                     text = m.text,
                     voiceUrl = m.voiceUrl,
@@ -1455,6 +1466,7 @@ internal fun ActiveTripScreen(
                         }
                     },
                 )
+                }
             }
             item {
                 val voiceSoon = appText("Голос записан", "Тауыш яҙылды")
@@ -1713,7 +1725,7 @@ internal fun TripRouteHeaderCard(
 ) {
     Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("${from ?: "—"}  →  ${to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Black)
+            Text("${from ?: "—"}  →  ${to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))

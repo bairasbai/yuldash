@@ -257,6 +257,9 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+// Цвет линии маршрута на карте MapKit (ARGB): фирменный зелёный Юлдаша с прозрачностью.
+private const val ROUTE_STROKE_ARGB: Long = 0xCC0B6B3A
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MapScreen(
@@ -478,10 +481,30 @@ internal fun MapScreen(
                                 error = nearbyError,
                                 onWatchRoute = if (!nearbyError) ({ onRouteWatch(focusFrom, focusTo) }) else null
                             )
-                            shownNearby.isEmpty() -> Text(
-                                appText("Нет поездок с такими условиями. Снимите часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн алығыҙ."),
-                                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
-                            )
+                            shownNearby.isEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(
+                                    appText("Нет поездок с такими условиями. Снимите часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн алығыҙ."),
+                                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
+                                )
+                                if (prefFilter.isNotEmpty()) {
+                                    Surface(
+                                        onClick = { prefFilter = emptySet() },
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = CanonSurface,
+                                        border = BorderStroke(1.dp, CanonBorder)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            // BA-draft
+                                            Text(appText("Сбросить фильтры", "Фильтрҙы бушат"), color = CanonGreen2, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                        }
+                                    }
+                                }
+                            }
                             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 itemsIndexed(shownNearby, key = { i, dto -> "${dto.id}#$i" }) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
@@ -703,7 +726,7 @@ private fun MapHero(
                                 Icons.Default.ArrowBackIosNew,
                                 contentDescription = appText("Показать популярный маршрут", "Популяр маршрутты күрһәтеү"),
                                 tint = CanonGreen2,
-                                modifier = Modifier.padding(vertical = 14.dp, horizontal = 12.dp).size(16.dp)
+                                modifier = Modifier.padding(vertical = 16.dp, horizontal = 12.dp).size(16.dp)
                             )
                         }
                     }
@@ -802,7 +825,7 @@ private fun HomeHeader(onSos: () -> Unit) {
             border = BorderStroke(1.dp, CanonDangerBorder)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Default.Shield, contentDescription = "SOS", tint = CanonRed, modifier = Modifier.size(20.dp))
@@ -1041,7 +1064,7 @@ private fun drawRoadRoute(
     onRoutePoints: (List<Point>, Double) -> Unit = { _, _ -> }   // геометрия маршрута + полное время (сек) — для живого ETA
 ): com.yandex.mapkit.directions.driving.DrivingSession? {
     val straightLine = map.mapObjects.addPolyline(Polyline(listOf(from, to))).apply {
-        setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 4f
+        setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 4f
     }
     added += straightLine
     val session = runCatching {
@@ -1067,7 +1090,7 @@ private fun drawRoadRoute(
                         }
                         // Основной (оптимальный по Яндексу — он сам учитывает пробки и закрытия дорог) — зелёным, поверх.
                         added += map.mapObjects.addPolyline(r.geometry).apply {
-                            setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
+                            setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 5f
                         }
                     }
                     runCatching { onEta(r.metadata.weight.time.text) }   // «45 мин» — время в пути
@@ -1413,7 +1436,7 @@ private fun YandexMapCard(
             val origin = lastUserPoint
             if (origin != null) {
                 val straightLine = map.mapObjects.addPolyline(Polyline(listOf(origin, dest))).apply {
-                    setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 4f
+                    setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 4f
                 }
                 added += straightLine
                 // Дорога по дорогам (DrivingRouter). Нет квоты/ошибка → остаётся прямая линия (фоллбэк).
@@ -1435,7 +1458,7 @@ private fun YandexMapCard(
                                     map.mapObjects.remove(straightLine)
                                     added.remove(straightLine)
                                     added += map.mapObjects.addPolyline(r.geometry).apply {
-                                        setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
+                                        setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 5f
                                     }
                                 }
                             }
@@ -1596,7 +1619,7 @@ private fun YandexMapCard(
                         // Длины сегментов + полная длина → едем с ПОСТОЯННОЙ скоростью по длине (а не по вершинам).
                         val seg = DoubleArray(road.size - 1) { geoMeters(road[it], road[it + 1]) }
                         val total = seg.sum().coerceAtLeast(1.0)
-                        val line = simMap.mapObjects.addPolyline(Polyline(road)).apply { setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f }
+                        val line = simMap.mapObjects.addPolyline(Polyline(road)).apply { setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 5f }
                         try {
                             simMap.move(CameraPosition(road.first(), 11.5f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
                             val durMs = 30000.0      // весь маршрут ~30с (спокойный круиз)
@@ -1829,8 +1852,10 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
         // Canon-токены — @Composable-значения; читаем их ДО Canvas (DrawScope не композабл-контекст).
         val routeColor = CanonGreen2
         val destColor = CanonGold
+        val casingColor = CanonSurface   // «обводка» дороги — фон-подложка, адаптивна к тёмной теме
+        val decorColor = CanonBorder     // декоративные штрихи/пятна
         Canvas(Modifier.fillMaxSize()) {
-            drawCircle(Color.White.copy(alpha = 0.55f), radius = 170f, center = Offset(size.width * 0.05f, size.height * 0.12f))
+            drawCircle(decorColor, radius = 170f, center = Offset(size.width * 0.05f, size.height * 0.12f))
             drawCircle(routeColor.copy(alpha = 0.08f), radius = 210f, center = Offset(size.width * 0.95f, size.height * 0.88f))
             val route = Path().apply {
                 moveTo(size.width * 0.16f, size.height * 0.28f)
@@ -1847,9 +1872,9 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
                 moveTo(size.width * 0.02f, size.height * 0.58f)
                 cubicTo(size.width * 0.28f, size.height * 0.50f, size.width * 0.48f, size.height * 0.38f, size.width * 0.74f, size.height * 0.18f)
             }
-            drawPath(sideRoad, Color.White.copy(alpha = 0.75f), style = Stroke(width = 11f, cap = StrokeCap.Round))
+            drawPath(sideRoad, casingColor.copy(alpha = 0.75f), style = Stroke(width = 11f, cap = StrokeCap.Round))
             drawPath(sideRoad, routeColor.copy(alpha = 0.45f), style = Stroke(width = 3f, cap = StrokeCap.Round))
-            drawPath(route, Color.White, style = Stroke(width = 22f, cap = StrokeCap.Round))
+            drawPath(route, casingColor, style = Stroke(width = 22f, cap = StrokeCap.Round))
             drawPath(route, routeColor, style = Stroke(width = 7f, cap = StrokeCap.Round))
             drawCircle(routeColor, radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
             drawCircle(destColor, radius = 15f, center = Offset(size.width * 0.84f, size.height * 0.68f))
@@ -1859,13 +1884,13 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
         distance?.let { dist ->
             Surface(
                 modifier = Modifier.align(Alignment.TopEnd).padding(18.dp),
-                color = Color.White.copy(alpha = 0.92f),
+                color = CanonSurface.copy(alpha = 0.92f),
                 shape = RoundedCornerShape(999.dp)
             ) {
                 Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(painterResource(R.drawable.yu_route), contentDescription = null, modifier = Modifier.size(16.dp), tint = CanonGreen2)
                     Spacer(Modifier.width(5.dp))
-                    Text(dist, fontWeight = FontWeight.Bold)
+                    Text(dist, fontWeight = FontWeight.Bold, color = CanonText)
                 }
             }
         }
