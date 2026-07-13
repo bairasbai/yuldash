@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -406,8 +407,12 @@ def admin_payments_summary(user: User = Depends(current_user), session: Session 
     _require_admin(user)
 
     def agg(purpose: str) -> dict:
-        rows = session.exec(select(Payment).where(Payment.purpose == purpose, Payment.status == "succeeded")).all()
-        return {"count": len(rows), "sum_rub": sum(p.amount_kop for p in rows) // 100}
+        # Агрегируем в SQL (func.count/sum), не тянем все строки в Python — растущая таблица.
+        cnt, total = session.exec(
+            select(func.count(), func.coalesce(func.sum(Payment.amount_kop), 0))
+            .where(Payment.purpose == purpose, Payment.status == "succeeded")
+        ).one()
+        return {"count": int(cnt), "sum_rub": int(total) // 100}
 
     return {"donate": agg("donate"), "boost": agg("boost"), "support": agg("support")}
 

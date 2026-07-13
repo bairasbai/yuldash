@@ -12,10 +12,11 @@ import base64
 import json
 import math
 import os
+import threading
 import time
 
 from fastapi import HTTPException
-from sqlalchemy import case, distinct, func
+from sqlalchemy import case, delete, distinct, func
 from sqlmodel import Session, select
 
 from .config import settings
@@ -203,20 +204,31 @@ def send_push(session: Session, user_id: int, title: str, body: str,
             payload_data.setdefault("title", title)
             payload_data.setdefault("body", body)
         tokens = [d.token for d in session.exec(select(DeviceToken).where(DeviceToken.user_id == user_id)).all()]
+        if not tokens:
+            return
+        messages = []
         for t in tokens:
-            try:
-                msg_kwargs = {"token": t}
-                if not data_only:
-                    msg_kwargs["notification"] = messaging.Notification(title=title, body=body)
-                else:
-                    msg_kwargs["android"] = messaging.AndroidConfig(priority="high")   # будим из doze
-                if payload_data:                         # data-payload только когда есть (не ломаем прежних вызовов)
-                    msg_kwargs["data"] = payload_data
-                messaging.send(messaging.Message(**msg_kwargs))
-            except Exception as e:  # noqa: BLE001
-                log.warning(f"[FCM] send error: {e}")
+            msg_kwargs = {"token": t}
+            if not data_only:
+                msg_kwargs["notification"] = messaging.Notification(title=title, body=body)
+            else:
+                msg_kwargs["android"] = messaging.AndroidConfig(priority="high")   # будим из doze
+            if payload_data:                         # data-payload только когда есть (не ломаем прежних вызовов)
+                msg_kwargs["data"] = payload_data
+            messages.append(messaging.Message(**msg_kwargs))
+        # Устойчивость к нагрузке: один batch-вызов вместо N последовательных сетевых round-trip
+        # (массовые каскадные уведомления перестают тормозить обработчик).
+        resp = messaging.send_each(messages)
+        # Чистим МЁРТВЫЕ токены (приложение удалено/токен протух) — иначе DeviceToken растёт вечно.
+        # В ОТДЕЛЬНОЙ сессии: commit в переданной session сбросил бы ORM-объекты вызывающего.
+        dead = [tok for tok, r in zip(tokens, resp.responses)
+                if not r.success and type(r.exception).__name__ in ("UnregisteredError", "SenderIdMismatchError")]
+        if dead:
+            with Session(engine) as s2:
+                s2.execute(delete(DeviceToken).where(DeviceToken.token.in_(dead)))
+                s2.commit()
     except Exception as e:  # noqa: BLE001
-        log.warning(f"[FCM] init error: {e}")
+        log.warning(f"[FCM] send error: {e}")
 
 
 def push_notification(
@@ -264,6 +276,19 @@ def _norm_city(s: str) -> str:
     return (s or "").strip().casefold()
 
 
+def _push_async(items: "list") -> None:
+    """FCM-рассылка в фоновом daemon-потоке (своя сессия) — сеть не держит обработчик запроса.
+    items: список (user_id, title, body). Ошибки глотаем: пуш вторичен, запись в ленте уже есть."""
+    def run():
+        try:
+            with Session(engine) as s:
+                for uid, title, body in items:
+                    send_push(s, uid, title, body)
+        except Exception as e:  # noqa: BLE001
+            log.warning(f"[ROUTE_WATCH] async push error: {e}")
+    threading.Thread(target=run, daemon=True).start()
+
+
 def notify_route_watchers(session: Session, ride: Ride) -> int:
     """Матчинг новой поездки с подписками «карауль поездку».
     Находит непротухшие подписки, чей маршрут совпал с поездкой, и шлёт push + пишет
@@ -280,6 +305,7 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
             )
         ).all()
         notified = 0
+        to_push: list = []   # (user_id, title, body) — FCM отправим в фоне после записи в ленту
         for w in watches:
             w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
             forward = (w_from == r_from and w_to == r_to)
@@ -293,18 +319,22 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
             if w.last_notified_at is not None and (now - w.last_notified_at) < timedelta(hours=24):
                 continue
             route = f"{ride.from_city} → {ride.to_city}"   # города — как есть (имена собственные)
-            # Единая точка F5: строка в Центре уведомлений (RU+BA) + FCM-push.
+            # Строку в Центре уведомлений пишем СИНХРОННО (лента должна отдаться сразу), а FCM-пуш
+            # (сеть) — в фоне ниже, чтобы N подписчиков не держали обработчик создания поездки.
             push_notification(
                 session, w.user_id, "route_watch",
                 "Появилась поездка", "Сәфәр барлыҡҡа килде",
                 route, route,
-                ref_kind="ride", ref_id=ride.id,
+                ref_kind="ride", ref_id=ride.id, push=False,
             )
+            to_push.append((w.user_id, "Появилась поездка", route))
             w.last_notified_at = now
             session.add(w)
             notified += 1
         if notified:
             session.commit()
+        if to_push:
+            _push_async(to_push)   # FCM-рассылка вне обработчика запроса
         return notified
     except Exception as e:  # noqa: BLE001 — оповещение сторожей не должно ронять публикацию поездки
         log.warning(f"[ROUTE_WATCH] notify error: {e}")

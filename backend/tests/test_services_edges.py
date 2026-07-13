@@ -392,15 +392,26 @@ def test_send_push_initializes_firebase_and_ignores_per_token_errors(monkeypatch
         initialized.append(cert.path)
         return object()
 
-    def send(message):
-        sent.append(message.token)
-        if message.token == "bad-token":
-            raise RuntimeError("fcm send failed")
+    class SendResponse:
+        def __init__(self, exc=None):
+            self.success = exc is None
+            self.exception = exc
+
+    class BatchResponse:
+        def __init__(self, responses):
+            self.responses = responses
+
+    def send_each(messages):
+        # batch-рассылка (send_each): ошибка одного токена не роняет остальные, она в его SendResponse.
+        for m in messages:
+            sent.append(m.token)
+        return BatchResponse([SendResponse(None if m.token == "ok-token"
+                                           else RuntimeError("fcm send failed")) for m in messages])
 
     credentials.Certificate = Certificate
     messaging.Notification = Notification
     messaging.Message = Message
-    messaging.send = send
+    messaging.send_each = send_each
     firebase_admin.initialize_app = initialize_app
     firebase_admin.credentials = credentials
     firebase_admin.messaging = messaging

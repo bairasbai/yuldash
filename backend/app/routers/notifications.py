@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -54,7 +55,11 @@ def notifications(
         .order_by(Notification.read_at.is_(None).desc(), Notification.id.desc())
         .limit(limit)
     ).all()
-    unread = len([r for r in rows if r.read_at is None])
+    # Счётчик по ВСЕЙ таблице (не по обрезанной limit-странице — иначе занизит при >limit непрочитанных).
+    unread = session.exec(
+        select(func.count()).select_from(Notification).where(
+            Notification.user_id == user.id, Notification.read_at.is_(None))
+    ).one()
     items = [
         NotificationOut(
             id=r.id,
@@ -100,10 +105,8 @@ def mark_read(
         n.read_at = now
         session.add(n)
     session.commit()
-    unread = len(session.exec(
-        select(Notification).where(
-            Notification.user_id == user.id,
-            Notification.read_at.is_(None),
-        )
-    ).all())
+    unread = session.exec(
+        select(func.count()).select_from(Notification).where(
+            Notification.user_id == user.id, Notification.read_at.is_(None))
+    ).one()
     return {"ok": True, "unread": unread}
