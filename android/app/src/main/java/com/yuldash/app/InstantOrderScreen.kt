@@ -1633,8 +1633,8 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
     // Не молчим — иначе водитель ждёт заказы, а сервер его не видит. Восстановится сам.
     AnimatedVisibility(
         visible = online && current == null && presenceFails >= 2,
-        enter = fadeIn() + slideInVertically { -it },
-        exit = fadeOut() + slideOutVertically { -it },
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
