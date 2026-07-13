@@ -394,6 +394,10 @@ class TripShare(SQLModel, table=True):
     token: Optional[str] = Field(default=None, index=True, unique=True)
     last_status: str = "shared"             # shared / sat / arrived / done
     created_at: datetime = Field(default_factory=utcnow)
+    # Срок жизни live-ссылки (приватность): если поездка «зависла» в живом статусе (водитель не
+    # нажал «Завершить»), ссылка иначе показывала бы гео бессрочно. Ставим щедрый TTL (24ч — дольше
+    # любой реальной поездки). NULL у строк до миграции = бессрочно, скрытие — по статусу поездки.
+    expires_at: Optional[datetime] = Field(default=None)
 
 
 class SosEvent(SQLModel, table=True):
@@ -679,6 +683,10 @@ class CommissionDebt(SQLModel, table=True):
     due_at: Optional[datetime] = None                     # срок оплаты (created_at + debt_due_days)
     paid_declared_at: Optional[datetime] = None           # когда водитель нажал «Я оплатил»
     confirmed_at: Optional[datetime] = None               # когда админ подтвердил
+    # Один заказ = максимум одна запись долга. DB-барьер против гонки двойного «done»
+    # (двойной тап/ретрай): check-then-insert без него мог создать две записи на один order_id.
+    # order_id nullable → NULL-строки (если появятся) уникальностью не связаны (NULL≠NULL в SQL).
+    __table_args__ = (UniqueConstraint("order_id", name="uq_commissiondebt_order_id"),)
 
 
 class TaxiCity(SQLModel, table=True):

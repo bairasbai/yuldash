@@ -61,6 +61,8 @@ def _resolve_share(session: Session, token: str) -> TripShare:
     share = session.exec(select(TripShare).where(TripShare.token == token)).first()
     if not share:
         raise HTTPException(404, "Ссылка не найдена")
+    if share.expires_at and share.expires_at < utcnow():   # ссылка «сгорела» по TTL — гео не отдаём
+        raise HTTPException(404, "Ссылка не найдена")
     return share
 
 

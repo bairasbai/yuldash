@@ -916,11 +916,17 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
             if order.driver_id else None)
     passenger = session.get(User, order.passenger_id)
     car = f"{prof.car_make} {prof.car_model}".strip() if prof else ""
+    # Приватность: точку ПОДАЧИ пассажира водителю до accept отдаём округлённой (~1 км) — как телефоны.
+    # До принятия хватает приблизительной точки для оценки расстояния/ETA; точную открываем после accept
+    # (unlocked). Пассажир свою точку видит точно; направление (to_) не прячем.
+    blur_from = role == "driver" and not unlocked
+    from_lat = round(order.from_lat, 2) if (blur_from and order.from_lat is not None) else order.from_lat
+    from_lng = round(order.from_lng, 2) if (blur_from and order.from_lng is not None) else order.from_lng
     return {
         "id": order.id,
         "status": order.status.value,
         "role": role,
-        "from_lat": order.from_lat, "from_lng": order.from_lng,
+        "from_lat": from_lat, "from_lng": from_lng,
         "to_lat": order.to_lat, "to_lng": order.to_lng,
         "from_text": order.from_text, "to_text": order.to_text,
         "category": order.category,

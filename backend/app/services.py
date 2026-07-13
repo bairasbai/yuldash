@@ -437,7 +437,12 @@ def send_text(phone: str, text: str) -> None:
             if not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
     else:
-        log.info(f"[SMS-MOCK] {mp}: {text}")
+        # Мок-провайдер разрешён и в проде (SMS заморожен, вход через Telegram). Тело может содержать
+        # имя и live-ссылку /t/{token} (capability-URL на живую гео) — в проде тело НЕ логируем.
+        if settings.is_prod:
+            log.info(f"[SMS-MOCK] {mp}: (тело скрыто в проде)")
+        else:
+            log.info(f"[SMS-MOCK] {mp}: {text}")
 
 
 def send_sms(phone: str, code: str) -> None:

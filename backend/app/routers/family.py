@@ -2,6 +2,7 @@
 статусы поездки (сел/доехал/завершил) с SMS-уведомлением, оценки после поездки."""
 import re
 import secrets
+from datetime import timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +16,11 @@ from ..models import (
 )
 from ..security import current_user
 from ..services import booking_and_ride_for_user, send_text, user_rating
+from ..timeutil import utcnow
+
+# Live-ссылка живёт 24ч (приватность): дольше любой реальной поездки, но не бессрочно —
+# если поездка «зависнет» в живом статусе, ссылка перестанет отдавать гео (см. _resolve_share).
+_SHARE_TTL = timedelta(hours=24)
 
 router = APIRouter(tags=["family"])
 
@@ -87,7 +93,8 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
     if existing:
         _ensure_share_token(session, existing)   # строка до w2_livelink → догенерировать токен
         return existing
-    share = TripShare(booking_id=booking_id, contact_id=body.contact_id, token=secrets.token_urlsafe(16))
+    share = TripShare(booking_id=booking_id, contact_id=body.contact_id,
+                      token=secrets.token_urlsafe(16), expires_at=utcnow() + _SHARE_TTL)
     session.add(share)
     session.commit()
     session.refresh(share)
@@ -119,7 +126,8 @@ def share_instant_trip(order_id: int, body: ShareIn, user: User = Depends(curren
     if existing:
         _ensure_share_token(session, existing)   # строка до w2_livelink → догенерировать токен
         return existing   # дедуп: повторный share тем же контактом не плодит дубли SMS
-    share = TripShare(order_id=order_id, contact_id=body.contact_id, token=secrets.token_urlsafe(16))
+    share = TripShare(order_id=order_id, contact_id=body.contact_id,
+                      token=secrets.token_urlsafe(16), expires_at=utcnow() + _SHARE_TTL)
     session.add(share)
     session.commit()
     session.refresh(share)

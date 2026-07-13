@@ -20,6 +20,7 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .config import settings
@@ -177,7 +178,15 @@ def accrue_for_order(session: Session, order: InstantOrder) -> Optional[Commissi
         due_at=now + timedelta(days=settings.debt_due_days),
     )
     session.add(debt)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        # Гонка: параллельный «done» успел вставить долг по этому order_id первым (UNIQUE order_id).
+        # Не задваиваем — откатываемся и возвращаем уже существующую запись.
+        session.rollback()
+        return session.exec(
+            select(CommissionDebt).where(CommissionDebt.order_id == order.id)
+        ).first()
     session.refresh(debt)
     return debt
 
@@ -271,17 +280,22 @@ def declare_paid(session: Session, driver_id: int) -> int:
     return total
 
 
-def mark_all_paid(session: Session, driver_id: int) -> int:
-    """Погасить ВЕСЬ долг водителя (unpaid + pending) → paid. Используется при оплате картой
+def mark_all_paid(session: Session, driver_id: int, up_to: Optional[datetime] = None) -> int:
+    """Погасить долг водителя (unpaid + pending) → paid. Используется при оплате картой
     (ЮKassa): подтверждение приходит вебхуком, деньги уже у платформы, админ не нужен.
-    Идемпотентно (уже paid не трогаем). Возврат: погашенная сумма (копейки)."""
+    Идемпотентно (уже paid не трогаем). Возврат: погашенная сумма (копейки).
+
+    up_to (граница снапшота): гасим только долг, начисленный ДО момента создания платежа
+    (created_at <= up_to). Иначе долг, накопленный в окне между «жму оплатить» и подтверждением,
+    погасился бы бесплатно. None → без границы (весь долг)."""
     now = utcnow()
-    rows = session.exec(
-        select(CommissionDebt).where(
-            CommissionDebt.driver_id == driver_id,
-            CommissionDebt.status != DebtStatus.paid,
-        )
-    ).all()
+    conds = [
+        CommissionDebt.driver_id == driver_id,
+        CommissionDebt.status != DebtStatus.paid,
+    ]
+    if up_to is not None:
+        conds.append(CommissionDebt.created_at <= up_to)
+    rows = session.exec(select(CommissionDebt).where(*conds)).all()
     total = 0
     for d in rows:
         d.status = DebtStatus.paid

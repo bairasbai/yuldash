@@ -68,14 +68,17 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         payment.status = "succeeded"; session.add(payment); session.commit()
         return
     if payment.purpose == "courier_commission":
-        # Курьер оплатил накопленную комиссию → помечаем его доставленные неоплаченные заказы paid.
-        # Идемпотентно (только ещё неоплаченные). «Всё на момент подтверждения».
+        # Курьер оплатил накопленную комиссию → помечаем paid его доставленные неоплаченные заказы,
+        # но ТОЛЬКО те, что вошли в снапшот суммы (delivered_at <= момент создания платежа). Иначе
+        # доставки, сделанные в окне между «жму оплатить» и подтверждением, погасились бы бесплатно.
+        # Идемпотентно (только ещё неоплаченные). Новые доставки останутся к оплате следующим платежом.
         from ..models import ParcelDelivery
         rows = session.exec(
             select(ParcelDelivery).where(
                 ParcelDelivery.courier_id == payment.user_id,
                 ParcelDelivery.status == "delivered",
                 ParcelDelivery.commission_paid == False,  # noqa: E712
+                ParcelDelivery.delivered_at <= payment.created_at,
             )
         ).all()
         for pd in rows:
@@ -84,9 +87,11 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         payment.status = "succeeded"; session.add(payment); session.commit()
         return
     if payment.purpose == "taxi_debt":
-        # Таксист оплатил недельную комиссию картой → гасим весь его долг (unpaid+pending). Идемпотентно.
+        # Таксист оплатил недельную комиссию картой → гасим долг (unpaid+pending), но только тот, что
+        # вошёл в снапшот суммы (created_at <= момент создания платежа). Долг, накопленный в окне до
+        # подтверждения, останется к оплате следующим платежом (иначе гасился бы бесплатно). Идемпотентно.
         from .. import debt as debt_mod
-        debt_mod.mark_all_paid(session, payment.user_id)
+        debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at)
         payment.status = "succeeded"; session.add(payment); session.commit()
         return
     # --- Аддитивные / прочие эффекты: succeeded ПЕРВЫМ (под тем же row-lock), потом эффект ---

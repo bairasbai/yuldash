@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
@@ -29,7 +29,7 @@ from .observability import init_sentry
 from .routers import all_routers
 from .routers.health import API_VERSION
 from .services import MEDIA_DIR, init_chat_redis, seed_demo, seed_pickup_points
-from .storage import get_storage
+from .storage import StorageError, get_storage
 
 API_V1_PREFIX = "/api/v1"
 
@@ -83,6 +83,15 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RateLimitMiddleware)
     app.add_exception_handler(Exception, unhandled_exception_handler)
+
+    # Хранилище медиа недоступно (S3 отвалился) → мягкая двуязычная 503, а не 500 «краш».
+    async def _storage_unavailable(request, exc):   # noqa: ANN001
+        return JSONResponse(
+            status_code=503,
+            content={"detail": {"ru": "Не удалось загрузить файл. Попробуй ещё раз.",
+                                 "ba": "Файлды йөкләп булманы. Тағы бер тапҡыр ҡабатла."}},
+        )
+    app.add_exception_handler(StorageError, _storage_unavailable)
     # Медиа: голосовые/фото чата — публично; документы водителя отдаются отдельно (/secure/docs, см. drivers.py).
     # Локально — раздаём с диска (StaticFiles). В S3-режиме файлов на диске нет:
     # тот же путь /media/... редиректит на подписанный (presigned) URL объекта.

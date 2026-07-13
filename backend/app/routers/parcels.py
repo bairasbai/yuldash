@@ -101,18 +101,24 @@ def _settlement(p: ParcelDelivery) -> Optional[dict]:
     }
 
 
-def _parcel_base(p: ParcelDelivery) -> dict:
-    """Общие поля заявки БЕЗ приватного телефона и БЕЗ кода вручения."""
+def _parcel_base(p: ParcelDelivery, blur_coords: bool = False) -> dict:
+    """Общие поля заявки БЕЗ приватного телефона и БЕЗ кода вручения.
+
+    blur_coords=True — округляем точки отправления/получения до ~1 км (2 знака): в открытом
+    списке заявок (до принятия) точный адрес дома отправителя/получателя показывать нельзя
+    (152-ФЗ, приватность). Точные координаты открываются только принявшему курьеру."""
+    def _blur(v):
+        return round(v, 2) if (blur_coords and v is not None) else v
     return {
         "id": p.id,
         "sender_id": p.sender_id,
         "courier_id": p.courier_id,
         "from_city": p.from_city,
         "to_city": p.to_city,
-        "from_lat": p.from_lat,
-        "from_lng": p.from_lng,
-        "to_lat": p.to_lat,
-        "to_lng": p.to_lng,
+        "from_lat": _blur(p.from_lat),
+        "from_lng": _blur(p.from_lng),
+        "to_lat": _blur(p.to_lat),
+        "to_lng": _blur(p.to_lng),
         "size": p.size,
         "description": p.description,
         "receiver_name": p.receiver_name,
@@ -165,8 +171,9 @@ def _parcel_for_sender(p: ParcelDelivery, session: Session) -> dict:
 
 
 def _parcel_available(p: ParcelDelivery) -> dict:
-    """Для курьера в списке открытых заявок: БЕЗ телефона получателя (скрыт до принятия) и БЕЗ кода."""
-    return _parcel_base(p)
+    """Для курьера в списке открытых заявок: БЕЗ телефона получателя (скрыт до принятия), БЕЗ кода
+    и с ОКРУГЛёнными координатами (точный адрес — только принявшему курьеру)."""
+    return _parcel_base(p, blur_coords=True)
 
 
 def _parcel_for_courier(p: ParcelDelivery) -> dict:

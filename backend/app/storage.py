@@ -29,6 +29,11 @@ from .services import MEDIA_DIR, PRIVATE_DIR, public_media_url, secure_docs_url
 PRIVATE_AREAS = {"docs"}
 
 
+class StorageError(Exception):
+    """Хранилище недоступно (напр. S3 отвалился/таймаут). Роутеры ловят и отдают мягкую 503,
+    а не 500 — чтобы сбой провайдера не выглядел как краш при отправке фото/голоса/документов."""
+
+
 def _sanitize(key: str) -> list[str]:
     """Ключ → безопасные сегменты пути (анти path-traversal). Пустое/'.'/'..' выкидываем."""
     parts = [p for p in (key or "").split("/") if p not in ("", ".", "..")]
@@ -153,7 +158,10 @@ class S3Storage(Storage):
         return "/".join(_sanitize(key))
 
     def save(self, key: str, data: bytes) -> None:
-        self.client.put_object(Bucket=self.bucket, Key=self._key(key), Body=data)
+        try:
+            self.client.put_object(Bucket=self.bucket, Key=self._key(key), Body=data)
+        except Exception as e:  # boto3 ClientError/EndpointConnectionError → S3 недоступен, не 500
+            raise StorageError(str(e)) from e
 
     def load(self, key: str) -> bytes:
         try:

@@ -1569,14 +1569,20 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
     val myPoint by rememberMyPoint(active = online)
     var offer by remember { mutableStateOf<InstantOrderDto?>(null) }
     var accepting by remember { mutableStateOf(false) }
+    var presenceFails by remember { mutableIntStateOf(0) }   // подряд-неудачи heartbeat → «нет связи»
     val acceptTakenMsg = appText("Заказ уже взял другой водитель", "Заказды башҡа водитель алды")
     val acceptNetMsg = appText("Не удалось взять заказ. Проверь связь и попробуй снова.", "Заказды алып булманы. Бәйләнеште тикшереп ҡабатла.")
 
-    // Presence-heartbeat (координаты не логируем).
+    // Presence-heartbeat (координаты не логируем). Следим за связью: если heartbeat не долетает,
+    // водитель невидим серверу — честно показываем это чипом, а не делаем вид, что он «на линии».
     LaunchedEffect(online) {
-        if (!online) return@LaunchedEffect
+        if (!online) { presenceFails = 0; return@LaunchedEffect }
         while (isActive) {
-            myPoint?.let { ApiClient.fireInstantPresence(it.latitude, it.longitude) }
+            myPoint?.let {
+                ApiClient.instantPresence(it.latitude, it.longitude)
+                    .onSuccess { presenceFails = 0 }
+                    .onFailure { presenceFails = (presenceFails + 1).coerceAtMost(99) }
+            }
             delay(12_000)
         }
     }
@@ -1621,6 +1627,33 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
                 offer = null
             },
         )
+    }
+
+    // Связь потеряна, пока «на линии» и нет оффера на экране: мягкий чип «нет связи».
+    // Не молчим — иначе водитель ждёт заказы, а сервер его не видит. Восстановится сам.
+    AnimatedVisibility(
+        visible = online && current == null && presenceFails >= 2,
+        enter = fadeIn() + slideInVertically { -it },
+        exit = fadeOut() + slideOutVertically { -it },
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Surface(shape = CircleShape, color = CanonGold.copy(alpha = 0.16f)) {
+                Row(
+                    Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonGold, modifier = Modifier.size(16.dp))
+                    Text(
+                        appText("Нет связи — переподключаемся…", "Бәйләнеш юҡ — ҡабат тоташабыҙ…"),
+                        color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+        }
     }
 }
 
