@@ -3380,3 +3380,483 @@ button.list-row:active {
   color: var(--green);
   font-weight: 600;
 }
+
+/* ================================================================
+   Волна 6 — Деньги и маркетплейс
+   (Кошелёк, «Скидки по пути», Промокод, Мой бизнес, Реклама, Оплата).
+   Цвета — только токены Canon. Светлая/тёмная — автоматически.
+   ================================================================ */
+
+/* ---- Кошелёк: крупная карточка баланса ---- */
+.wallet-card {
+  margin-top: 18px;
+  padding: 22px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
+  color: #fff;
+  box-shadow: 0 20px 48px -30px rgba(0, 0, 0, 0.6);
+  animation: fadeUp 0.35s ease both;
+}
+.wallet-card__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wallet-card__chip {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.wallet-card__label {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+.wallet-card__amount {
+  margin-top: 14px;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.wallet-card__hint {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.86;
+}
+
+/* ---- Кошелёк: строка операции (ledger) ---- */
+.ledger-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.3s ease both;
+}
+.ledger-row + .ledger-row {
+  margin-top: 10px;
+}
+.ledger-row__icon {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+  transform: rotate(-90deg); /* стрелка вверх = приход */
+}
+.ledger-row__icon.is-out {
+  background: var(--surface-2);
+  color: var(--muted);
+  transform: rotate(90deg); /* стрелка вниз = списание */
+}
+.ledger-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.ledger-row__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.ledger-row__sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ledger-row__amount {
+  flex: none;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ledger-row__amount.is-in {
+  color: var(--green);
+}
+
+/* ---- «Скидки по пути»: карточка купона ---- */
+.coupon-card {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 16px 40px -32px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.35s ease both;
+}
+.coupon-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.coupon-card__emoji {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  background: var(--surface-2);
+}
+.coupon-card__partner {
+  min-width: 0;
+}
+.coupon-card__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.coupon-card__pro {
+  flex: none;
+}
+.coupon-card__place {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.coupon-card__title {
+  margin-top: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
+}
+.coupon-card__discount {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--canon-star);
+}
+.coupon-card__desc {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.coupon-card__foot {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.coupon-card__left {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.coupon-card__btn {
+  flex: none;
+  min-height: 44px;
+}
+
+/* ---- Экран успеха: крупный код купона ---- */
+.coupon-code {
+  margin-top: 20px;
+  padding: 26px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-align: center;
+  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.35s ease both;
+}
+.coupon-code__emoji {
+  font-size: 44px;
+}
+.coupon-code__title {
+  margin-top: 10px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+.coupon-code__discount {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--canon-star);
+}
+.coupon-code__label {
+  margin-top: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.coupon-code__value {
+  margin: 10px 0 18px;
+  font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--green);
+}
+.coupon-code__disclaimer {
+  margin: 18px 0 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-item);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: left;
+}
+
+/* ---- «Мои купоны»: строка активированного купона ---- */
+.mycoupon-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.3s ease both;
+}
+.mycoupon-row + .mycoupon-row {
+  margin-top: 10px;
+}
+.mycoupon-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.mycoupon-row__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mycoupon-row__discount {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--canon-star);
+}
+.mycoupon-row__code {
+  margin-top: 6px;
+  font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--green);
+}
+
+/* ---- Промокод: применённый ---- */
+.promo-applied {
+  margin-top: 22px;
+  padding: 26px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-align: center;
+  box-shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.35s ease both;
+}
+.promo-applied__gift {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+}
+.promo-applied__label {
+  margin-top: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.promo-applied__code {
+  margin-top: 6px;
+  font-family: "SF Mono", ui-monospace, "Roboto Mono", Menlo, monospace;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--green);
+}
+.promo-applied__title {
+  margin-top: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.promo-applied__perk {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--canon-star);
+}
+
+/* ---- Мой бизнес / Реклама: статус-баннер и карточки ---- */
+.biz-banner {
+  margin-top: 16px;
+  padding: 18px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  text-align: center;
+  animation: fadeUp 0.35s ease both;
+}
+.biz-banner__emoji {
+  font-size: 40px;
+}
+.biz-banner h2 {
+  margin: 10px 0 6px;
+  font-size: 18px;
+}
+.biz-banner p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.biz-banner.is-warn {
+  background: var(--warn-bg);
+  border-color: transparent;
+}
+.biz-banner.is-warn h2,
+.biz-banner.is-warn p {
+  color: var(--warn);
+}
+
+/* Карточка-строка объявления/купона в кабинете */
+.biz-item {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: fadeUp 0.3s ease both;
+}
+.biz-item__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.biz-item__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
+}
+.biz-item__meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.biz-item__stats {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+.biz-item__stat b {
+  display: block;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--green);
+  line-height: 1.1;
+}
+.biz-item__stat span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.biz-item__actions {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.biz-item__actions .btn-soft,
+.biz-item__actions .btn-primary {
+  flex: 1;
+  min-width: 130px;
+  min-height: 46px;
+  margin-top: 0;
+}
+
+/* Крупная сумма-карточка (выписка бизнеса) */
+.money-card {
+  margin-top: 16px;
+  padding: 20px 22px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.money-card__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.money-card__amount {
+  margin-top: 6px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.money-card__hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Информационные блоки «Как оплатить» */
+.pay-way {
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: fadeUp 0.3s ease both;
+}
+.pay-way__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pay-way__emoji {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  background: var(--mint);
+}
+.pay-way__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.pay-way__badge {
+  margin-top: 3px;
+}
+.pay-way__text {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}

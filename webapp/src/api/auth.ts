@@ -23,6 +23,7 @@ export interface Me {
   referral_code?: string | null;
   referral_credits?: number;
   referred_by?: number | null;
+  city?: string; // родной город (свободная строка из справочника Settlement)
   rating: number | null;
   rating_count: number;
   created_at?: string;

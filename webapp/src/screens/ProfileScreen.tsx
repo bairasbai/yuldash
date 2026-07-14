@@ -18,6 +18,8 @@ import {
   IconCar,
   IconClock,
   IconBox,
+  IconWallet,
+  IconReceipt,
 } from "../components/Icons";
 
 function initials(name: string): string {
@@ -114,6 +116,52 @@ export default function ProfileScreen() {
       title: appText("Мой Юлдаш", "Минең Юлдаш"),
       sub: appText("Км, поездки и сколько сэкономил", "Км, сәфәрҙәр һәм күпме янға ҡалды"),
       authed: true,
+    },
+    {
+      key: "wallet",
+      to: "/wallet",
+      icon: <IconWallet size={22} />,
+      title: appText("Кошелёк", "Янсыҡ"),
+      sub: appText("Заработок с безналичных поездок", "Аҡсаһыҙ сәфәрҙәрҙән табыш"),
+      authed: true,
+    },
+    {
+      key: "coupons",
+      to: "/coupons",
+      icon: <span style={{ fontSize: 20 }}>🎟️</span>,
+      title: appText("Скидки по пути", "Юлда ташламалар"),
+      sub: appText("Купоны от своих заведений", "Үҙ заведениеларҙан купондар"),
+    },
+    {
+      key: "promo",
+      to: "/promo",
+      icon: <IconGift size={22} />,
+      title: appText("Промокод", "Промокод"),
+      sub: appText("Код друга или акции — и тебе бонус", "Дуҫ йәки акция коды — һиңә бонус"),
+      authed: true,
+    },
+    {
+      key: "partner",
+      to: "/partner",
+      icon: <span style={{ fontSize: 20 }}>🏪</span>,
+      title: appText("Мой бизнес", "Минең бизнесым"),
+      sub: appText("Разместить свою скидку в Юлдаше", "Юлдашта үҙ ташламаңды урынлаштыр"),
+      authed: true,
+    },
+    {
+      key: "ads",
+      to: "/ads",
+      icon: <span style={{ fontSize: 20 }}>📣</span>,
+      title: appText("Реклама", "Реклама"),
+      sub: appText("Рассказать о деле попутчикам", "Юлдаштарға эшең тураһында һөйләргә"),
+      authed: true,
+    },
+    {
+      key: "payment-info",
+      to: "/payment-info",
+      icon: <IconReceipt size={22} />,
+      title: appText("Как оплатить", "Нисек түләргә"),
+      sub: appText("Способы оплаты — честно и просто", "Түләү ысулдары — намыҫлы һәм ябай"),
     },
     {
       key: "watch",

@@ -242,8 +242,50 @@ me/goods-cost/pay-commission) появятся на проде после мер
 cancel/available/accept/status/carrying) — базовая M3 уже на проде; курьер-типы (courier/buy_bring)
 в `/parcels/*` активируются гейтом `_guard_courier` после мержа.
 
-### Волна 6 — Деньги и маркетплейс (7)
-Wallet, Coupons («Скидки по пути»), PartnerCabinet, PromoCode, AdsCabinet, AdEditor, PaymentInfo.
+### ✅ Волна 6 — Деньги и маркетплейс (7) (готово, сборка зелёная)
+7 экранов + связки. Все состояния (загрузка/пусто/ошибка/«скоро»), два языка
+(ба-черновик → `BASHKIR_DRAFT.md`), токены Canon, safe-area, тач-цели ≥48px, мягкая
+деградация 404/405. Зеркало `backend/app/routers/` (`wallet.py`, `coupons.py`, `promo.py`,
+`ads.py`, `payments.py`).
+
+**Экраны и роуты:**
+- `WalletScreen` → `/wallet` (RequireAuth): баланс (`GET /wallet/balance`) крупной карточкой +
+  история операций (`GET /wallet/ledger`): приход зелёным, списание приглушённым.
+- `CouponsScreen` → `/coupons` (ПУБЛИЧНО): витрина «Скидки рядом» (`GET /coupons`, чипы городов) +
+  «Мои купоны» (`GET /my/coupons`, вход). Активация `POST /coupons/{id}/activate` → крупный код +
+  дисклеймер. Вход «У меня бизнес» → `/partner`.
+- `PromoCodeScreen` → `/promo` (RequireAuth): ввод кода (`POST /promo/apply`) + показ применённого
+  (`GET /promo/mine`). Один код на жизнь аккаунта; отказ ничего не ломает.
+- `PartnerCabinetScreen` → `/partner` (RequireAuth): ветвление по `GET /partner/me` —
+  нет бизнеса→форма (`POST /partner`); pending→ожидание; rejected→причина + правка (`POST /partner/{id}`);
+  active→кабинет: подписка (`GET /partner/plans` + `POST /partner/subscribe` СБП «на доверии»),
+  выписка (`statement` из `/partner/me`), купоны CRUD (`GET/POST /partner/coupons`, `POST …/{id}`,
+  `POST …/{id}/status`), погашение кода клиента (`POST /coupons/redeem`). Premium-тумблер купона —
+  только при `has_premium`. Партнёрский API — в `api/coupons.ts` (переиспользован, без дубля `partners.ts`).
+- `AdsCabinetScreen` → `/ads` (RequireAuth): мои объявления (`GET /ads/mine`) + статистика
+  (`GET /ads/mine/stats`, показы/клики/CTR/остаток срока), создать (`/ads/new`), править
+  черновик/отклонённое (`/ads/:id/edit`), оплатить размещение (`POST /ads/{id}/pay`, СБП «на доверии»),
+  продлить истёкшее.
+- `AdEditorScreen` → `/ads/new` и `/ads/:id/edit` (RequireAuth): форма (текст + кнопка + цель +
+  города CSV) + выбор пакета из `AD_PACKAGES` (`GET /ad-packages`). «Сохранить черновик»
+  (`POST /ads` / `POST /ads/{id}`) и «На модерацию» (`POST /ads/{id}/submit`).
+- `PaymentInfoScreen` → `/payment-info` (ПУБЛИЧНО): честное пояснение способов оплаты —
+  СБП «на доверии» (реквизиты приходят в момент оплаты) и ЮKassa (когда включат). Реквизиты не
+  хардкодятся: их отдаёт бэкенд при создании платежа.
+
+**Инфраструктура:** API-слой `api/wallet.ts`, `api/coupons.ts` (+ партнёрская часть),
+`api/promo.ts`, `api/ads.ts` (зеркало release). Добавлены CSS-классы Canon в `ui.css`
+(кошелёк/ledger/карточка купона/крупный код/мои купоны/промо/кабинет бизнеса и рекламы/
+статус-баннеры/выписка/способы оплаты) — раньше экраны Wallet/Coupons/Promo рендерились без
+стилей, теперь оформлены. Связки: входы «Кошелёк / Скидки по пути / Промокод / Мой бизнес /
+Реклама / Как оплатить» в профиле; «У меня бизнес» из витрины скидок; переходы кабинет↔редактор
+рекламы; оплата → «Как оплатить».
+
+**Зависит от деплоя release-2026-07:** `/wallet/*`, `/coupons*`, `/my/coupons`, `/partner*`,
+`/promo/*`, `/ads/mine*`, `/ad-packages`, `POST /ads`, `POST /ads/{id}/pay|submit` появятся на
+проде после мержа `release`. До мержа отдают 404/405 → экраны показывают мягкое «скоро»/пустое
+состояние без краша. Оплата рекламы и подписки бизнеса — СБП «на доверии» (админ подтверждает в
+Telegram); реквизиты бэкенд отдаёт при создании платежа.
 
 ### Волна 7 — Доверие/безопасность/поддержка/настройки (17)
 Sos, TrustedContacts, FamilyOrder, CallbackHelp, VoiceRequest, SimpleMode + крупный шрифт, Notifications,

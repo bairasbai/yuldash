@@ -1,0 +1,441 @@
+// ================================================================
+//  «Скидки по пути» (coupons.py). Публичная витрина.
+//  Вкладки: «Скидки рядом» (GET /coupons, фильтр город-чипами, по умолчанию
+//  родной город из me().city) + «Мои купоны» (GET /my/coupons, вход нужен).
+//  Карточка: заведение + категория + иконка, discount_text золотым,
+//  «осталось N», premium. Активировать → POST /coupons/{id}/activate →
+//  крупный моноширинный КОД + дисклеймер. Все состояния, мягкая деградация.
+// ================================================================
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
+import { useLang } from "../i18n/lang";
+import { ApiError } from "../api/client";
+import {
+  fetchCoupons,
+  fetchMyCoupons,
+  activateCoupon,
+  type Coupon,
+  type CouponActivation,
+} from "../api/coupons";
+import { LoadingList } from "../components/States";
+import ScreenHeader from "../components/ScreenHeader";
+import { IconCopy, IconCheck, IconPin, IconChevron } from "../components/Icons";
+
+type Tab = "near" | "mine";
+type Status = "loading" | "error" | "soon" | "ready";
+
+/** Эмодзи по категории заведения (мягкий фолбэк). */
+function categoryEmoji(cat: string): string {
+  const c = (cat || "").toLowerCase();
+  if (c.includes("cafe") || c.includes("food") || c.includes("кафе") || c.includes("рестор")) return "🍽️";
+  if (c.includes("shop") || c.includes("store") || c.includes("магаз")) return "🛍️";
+  if (c.includes("auto") || c.includes("car") || c.includes("авто")) return "🚗";
+  if (c.includes("beauty") || c.includes("салон") || c.includes("красот")) return "💇";
+  if (c.includes("health") || c.includes("med") || c.includes("аптек") || c.includes("здоров")) return "💊";
+  if (c.includes("fun") || c.includes("entertain") || c.includes("развлеч")) return "🎉";
+  return "🎟️";
+}
+
+export default function CouponsScreen() {
+  const { appText } = useLang();
+  const navigate = useNavigate();
+  const { user, isAuthed } = useAuth();
+
+  const [tab, setTab] = useState<Tab>("near");
+  const [status, setStatus] = useState<Status>("loading");
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [city, setCity] = useState<string>(() => (user?.city || "").trim());
+
+  const [mineStatus, setMineStatus] = useState<Status>("loading");
+  const [mine, setMine] = useState<CouponActivation[]>([]);
+
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [activated, setActivated] = useState<CouponActivation | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [actError, setActError] = useState<string | null>(null);
+
+  // ---- Витрина «рядом» ----
+  const loadNear = useCallback((signal?: AbortSignal) => {
+    setStatus("loading");
+    fetchCoupons({ signal })
+      .then((list) => {
+        setCoupons(list);
+        setStatus("ready");
+      })
+      .catch((e) => {
+        if (signal?.aborted || e?.name === "AbortError") return;
+        setStatus(
+          e instanceof ApiError && (e.status === 404 || e.status === 405) ? "soon" : "error"
+        );
+      });
+  }, []);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    loadNear(ac.signal);
+    return () => ac.abort();
+  }, [loadNear]);
+
+  // ---- «Мои купоны» ----
+  const loadMine = useCallback(
+    (signal?: AbortSignal) => {
+      if (!isAuthed) return;
+      setMineStatus("loading");
+      fetchMyCoupons(signal)
+        .then((list) => {
+          setMine(list);
+          setMineStatus("ready");
+        })
+        .catch((e) => {
+          if (signal?.aborted || e?.name === "AbortError") return;
+          setMineStatus(
+            e instanceof ApiError && (e.status === 404 || e.status === 405) ? "soon" : "error"
+          );
+        });
+    },
+    [isAuthed]
+  );
+
+  useEffect(() => {
+    if (tab !== "mine" || !isAuthed) return;
+    const ac = new AbortController();
+    loadMine(ac.signal);
+    return () => ac.abort();
+  }, [tab, isAuthed, loadMine]);
+
+  // Города для чипов: из выдачи + родной город пользователя.
+  const cities = useMemo(() => {
+    const set = new Set<string>();
+    if (user?.city) set.add(user.city.trim());
+    coupons.forEach((c) => c.city && set.add(c.city.trim()));
+    return Array.from(set).filter(Boolean);
+  }, [coupons, user?.city]);
+
+  const visible = useMemo(() => {
+    if (!city) return coupons;
+    const cl = city.toLowerCase();
+    return coupons.filter((c) => (c.city || "").trim().toLowerCase() === cl);
+  }, [coupons, city]);
+
+  async function onActivate(c: Coupon) {
+    if (!isAuthed) {
+      navigate("/login");
+      return;
+    }
+    setBusyId(c.id);
+    setActError(null);
+    try {
+      const res = await activateCoupon(c.id);
+      setActivated(res);
+      setCopied(false);
+    } catch (e) {
+      const detail = e instanceof ApiError ? e.message : "";
+      setActError(
+        detail || appText("Не получилось активировать. Попробуй снова.", "Активлаштырып булманы. Ҡабат ҡара.")
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function copyCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard недоступен — тихо */
+    }
+  }
+
+  // ---- Экран успеха активации (крупный код) ----
+  if (activated) {
+    const c = activated.coupon;
+    return (
+      <>
+        <ScreenHeader title={appText("Купон активирован", "Купон әүҙем")} />
+        <div className="coupon-code">
+          <div className="coupon-code__emoji">🎟️</div>
+          {c && <div className="coupon-code__title">{c.title}</div>}
+          {c?.discount_text && (
+            <div className="coupon-code__discount">{c.discount_text}</div>
+          )}
+          <div className="coupon-code__label">
+            {appText("Покажи код на кассе", "Кассала кодты күрһәт")}
+          </div>
+          <div className="coupon-code__value">{activated.code}</div>
+          <button type="button" className="btn-soft" onClick={() => copyCode(activated.code)}>
+            {copied ? <IconCheck size={18} /> : <IconCopy size={18} />}
+            {copied ? appText("Скопировано", "Күсерелде") : appText("Копировать код", "Кодты күсереү")}
+          </button>
+          <p className="coupon-code__disclaimer">
+            {appText(
+              "Скидку даёт само заведение. Юлдаш не берёт денег с тебя за купон и не хранит твой телефон при погашении.",
+              "Ташламаны заведение үҙе бирә. Юлдаш һинән купон өсөн аҡса алмай һәм ҡулланғанда телефоныңды һаҡламай."
+            )}
+          </p>
+          <button
+            type="button"
+            className="btn-primary submit-btn"
+            onClick={() => {
+              setActivated(null);
+              setTab("mine");
+            }}
+          >
+            {appText("Мои купоны", "Купондарым")}
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ScreenHeader
+        title={appText("Скидки по пути", "Юлда ташламалар")}
+        subtitle={appText("Приятные скидки от своих заведений", "Үҙ заведениеларҙан рәхәт ташламалар")}
+      />
+
+      <div className="seg" style={{ marginTop: 4 }}>
+        <button
+          type="button"
+          className={"seg__item" + (tab === "near" ? " is-active" : "")}
+          onClick={() => setTab("near")}
+        >
+          {appText("Скидки рядом", "Яҡындағы ташламалар")}
+        </button>
+        <button
+          type="button"
+          className={"seg__item" + (tab === "mine" ? " is-active" : "")}
+          onClick={() => setTab("mine")}
+        >
+          {appText("Мои купоны", "Купондарым")}
+        </button>
+      </div>
+
+      {/* ===== Вкладка: скидки рядом ===== */}
+      {tab === "near" && (
+        <>
+          {status === "loading" && <LoadingList count={3} />}
+
+          {status === "soon" && (
+            <div className="state" style={{ paddingTop: 28 }}>
+              <div className="state__emoji">🎟️</div>
+              <h2>{appText("Скидки скоро", "Ташламалар тиҙҙән")}</h2>
+              <p>{appText("Заведения уже подключаются. Загляни чуть позже.", "Заведениелар ҡушыла инде. Аҙыраҡ һуңынан кил.")}</p>
+            </div>
+          )}
+
+          {status === "error" && (
+            <div className="state" style={{ paddingTop: 28 }}>
+              <div className="state__emoji">📡</div>
+              <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
+              <button type="button" className="btn-primary" onClick={() => loadNear()}>
+                {appText("Повторить", "Ҡабатларға")}
+              </button>
+            </div>
+          )}
+
+          {status === "ready" && (
+            <>
+              {cities.length > 0 && (
+                <div className="chips" style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className={"chip" + (city === "" ? " chip--on" : "")}
+                    onClick={() => setCity("")}
+                  >
+                    {appText("Все города", "Бар ҡалалар")}
+                  </button>
+                  {cities.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={"chip" + (city === c ? " chip--on" : "")}
+                      onClick={() => setCity(c)}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {actError && <div className="auth__error">{actError}</div>}
+
+              {visible.length === 0 ? (
+                <div className="state" style={{ paddingTop: 20 }}>
+                  <div className="state__emoji">🌤️</div>
+                  <h2>{appText("Пока нет скидок", "Әле ташламалар юҡ")}</h2>
+                  <p>
+                    {appText(
+                      "В этом городе пока нет активных купонов. Загляни позже или смени город.",
+                      "Был ҡалала әле әүҙем купондар юҡ. Һуңынан кил йәки ҡаланы алмаштыр."
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  {visible.map((c) => (
+                    <div key={c.id} className="coupon-card">
+                      <div className="coupon-card__head">
+                        <span className="coupon-card__emoji">
+                          {categoryEmoji(c.partner?.category || "")}
+                        </span>
+                        <div className="coupon-card__partner">
+                          <div className="coupon-card__name">
+                            {c.partner?.name || appText("Заведение", "Заведение")}
+                            {c.premium && <span className="badge badge--gold coupon-card__pro">PREMIUM</span>}
+                          </div>
+                          {(c.partner?.city || c.partner?.address) && (
+                            <div className="coupon-card__place">
+                              <IconPin size={13} />{" "}
+                              {[c.partner?.city, c.partner?.address].filter(Boolean).join(", ")}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="coupon-card__title">{c.title}</div>
+                      {c.discount_text && (
+                        <div className="coupon-card__discount">{c.discount_text}</div>
+                      )}
+                      {c.description && (
+                        <div className="coupon-card__desc">{c.description}</div>
+                      )}
+
+                      <div className="coupon-card__foot">
+                        {c.remaining != null ? (
+                          <span className="coupon-card__left">
+                            {appText(`осталось ${c.remaining}`, `${c.remaining} ҡалды`)}
+                          </span>
+                        ) : (
+                          <span className="coupon-card__left">
+                            {appText("без ограничений", "сикләүһеҙ")}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          className="btn-primary coupon-card__btn"
+                          onClick={() => onActivate(c)}
+                          disabled={busyId === c.id}
+                        >
+                          {busyId === c.id
+                            ? appText("…", "…")
+                            : appText("Активировать", "Активлаштырыу")}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* ===== Вкладка: мои купоны ===== */}
+      {tab === "mine" && (
+        <>
+          {!isAuthed ? (
+            <div className="state" style={{ paddingTop: 24 }}>
+              <div className="state__emoji">👋</div>
+              <h2>{appText("Войди в Юлдаш", "Юлдашҡа ин")}</h2>
+              <p>{appText("Активированные купоны хранятся в профиле — войди, чтобы их видеть.", "Активлаштырылған купондар профилдә һаҡлана — күрер өсөн ин.")}</p>
+              <button type="button" className="btn-primary" onClick={() => navigate("/login")}>
+                {appText("Войти", "Инеү")}
+              </button>
+            </div>
+          ) : (
+            <>
+              {mineStatus === "loading" && <LoadingList count={2} />}
+
+              {(mineStatus === "soon" || mineStatus === "error") && (
+                <div className="state" style={{ paddingTop: 28 }}>
+                  <div className="state__emoji">{mineStatus === "soon" ? "🎟️" : "📡"}</div>
+                  <h2>
+                    {mineStatus === "soon"
+                      ? appText("Скоро здесь", "Тиҙҙән бында")
+                      : appText("Не получилось загрузить", "Йөкләргә булманы")}
+                  </h2>
+                  {mineStatus === "error" && (
+                    <button type="button" className="btn-primary" onClick={() => loadMine()}>
+                      {appText("Повторить", "Ҡабатларға")}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {mineStatus === "ready" && (
+                <>
+                  {mine.length === 0 ? (
+                    <div className="state" style={{ paddingTop: 24 }}>
+                      <div className="state__emoji">🎟️</div>
+                      <h2>{appText("Пока нет купонов", "Әле купондар юҡ")}</h2>
+                      <p>{appText("Активируй скидку рядом — код появится здесь.", "Яҡындағы ташламаны активлаштыр — код бында күренер.")}</p>
+                      <button type="button" className="btn-primary" onClick={() => setTab("near")}>
+                        {appText("К скидкам", "Ташламаларға")}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="list">
+                      {mine.map((m) => {
+                        const redeemed = m.status === "redeemed";
+                        const gone = m.status === "canceled" || m.status === "expired";
+                        return (
+                          <div key={m.code} className="mycoupon-row">
+                            <div className="mycoupon-row__main">
+                              <div className="mycoupon-row__title">
+                                {m.coupon?.title || appText("Купон", "Купон")}
+                              </div>
+                              {m.coupon?.discount_text && (
+                                <div className="mycoupon-row__discount">
+                                  {m.coupon.discount_text}
+                                </div>
+                              )}
+                              <div className="mycoupon-row__code">{m.code}</div>
+                            </div>
+                            <span
+                              className={
+                                "badge " +
+                                (redeemed ? "badge--mint" : gone ? "badge--danger" : "badge--gold")
+                              }
+                            >
+                              {redeemed
+                                ? appText("Использован", "Ҡулланылған")
+                                : gone
+                                ? appText("Недействителен", "Ғәмәлдә түгел")
+                                : appText("Активен", "Әүҙем")}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      <button
+        type="button"
+        className="list-row list-row--link"
+        style={{ marginTop: 16 }}
+        onClick={() => navigate("/partner")}
+      >
+        <span className="list-row__icon">🏪</span>
+        <div className="list-row__main">
+          <div className="list-row__title">{appText("У меня бизнес", "Минең бизнесым бар")}</div>
+          <div className="list-row__sub">
+            {appText("Разместить свою скидку в Юлдаше", "Юлдашта үҙ ташламаңды урынлаштыр")}
+          </div>
+        </div>
+        <span className="list-row__chev">
+          <IconChevron size={20} />
+        </span>
+      </button>
+    </>
+  );
+}

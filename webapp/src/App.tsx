@@ -41,6 +41,13 @@ import TaxiOnboardingScreen from "./screens/TaxiOnboardingScreen";
 import CourierOnboardingScreen from "./screens/CourierOnboardingScreen";
 import CourierScreen from "./screens/CourierScreen";
 import ParcelsScreen from "./screens/ParcelsScreen";
+import WalletScreen from "./screens/WalletScreen";
+import CouponsScreen from "./screens/CouponsScreen";
+import PromoCodeScreen from "./screens/PromoCodeScreen";
+import PartnerCabinetScreen from "./screens/PartnerCabinetScreen";
+import AdsCabinetScreen from "./screens/AdsCabinetScreen";
+import AdEditorScreen from "./screens/AdEditorScreen";
+import PaymentInfoScreen from "./screens/PaymentInfoScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -291,6 +298,59 @@ export default function App() {
           element={
             <RequireAuth>
               <CourierOnboardingScreen />
+            </RequireAuth>
+          }
+        />
+
+        {/* --- Волна 6: деньги и маркетплейс --- */}
+        {/* «Скидки по пути» и «Как оплатить» — публичные витрины */}
+        <Route path="/coupons" element={<CouponsScreen />} />
+        <Route path="/payment-info" element={<PaymentInfoScreen />} />
+        <Route
+          path="/wallet"
+          element={
+            <RequireAuth>
+              <WalletScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/promo"
+          element={
+            <RequireAuth>
+              <PromoCodeScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/partner"
+          element={
+            <RequireAuth>
+              <PartnerCabinetScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/ads"
+          element={
+            <RequireAuth>
+              <AdsCabinetScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/ads/new"
+          element={
+            <RequireAuth>
+              <AdEditorScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/ads/:id/edit"
+          element={
+            <RequireAuth>
+              <AdEditorScreen />
             </RequireAuth>
           }
         />
