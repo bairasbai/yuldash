@@ -13,6 +13,13 @@ import ProfileScreen from "./screens/ProfileScreen";
 import ConsentsScreen from "./screens/ConsentsScreen";
 import TrustScreen from "./screens/TrustScreen";
 import InvitesScreen from "./screens/InvitesScreen";
+import HomeScreen from "./screens/HomeScreen";
+import CreateRequestScreen from "./screens/CreateRequestScreen";
+import RequestsFeedScreen from "./screens/RequestsFeedScreen";
+import RequestResponsesScreen from "./screens/RequestResponsesScreen";
+import BookingScreen from "./screens/BookingScreen";
+import ActiveTripScreen from "./screens/ActiveTripScreen";
+import TripReceiptScreen from "./screens/TripReceiptScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -40,13 +47,61 @@ export default function App() {
       {/* Приложение с нижней навигацией */}
       <Route element={<Shell />}>
         <Route path="/rides" element={<RidesScreen />} />
-        <Route path="/map" element={<StubScreen title={t("navMap")} emoji="🗺️" />} />
-        <Route path="/request" element={<StubScreen title={t("navRequest")} emoji="📝" />} />
+        {/* Home-витрина (карта) — публична, гость тоже видит */}
+        <Route path="/map" element={<HomeScreen />} />
         <Route path="/chat" element={<StubScreen title={t("navChat")} emoji="💬" />} />
         <Route path="/profile" element={<ProfileScreen />} />
         {/* Согласия — локальные (152-ФЗ), доступны и гостю */}
         <Route path="/consents" element={<ConsentsScreen />} />
         {/* Приватное — только с токеном */}
+        <Route
+          path="/request"
+          element={
+            <RequireAuth>
+              <CreateRequestScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/requests-feed"
+          element={
+            <RequireAuth>
+              <RequestsFeedScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/requests/:id/responses"
+          element={
+            <RequireAuth>
+              <RequestResponsesScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/booking/:id"
+          element={
+            <RequireAuth>
+              <BookingScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/trip/:id"
+          element={
+            <RequireAuth>
+              <ActiveTripScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/receipt/:id"
+          element={
+            <RequireAuth>
+              <TripReceiptScreen />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/trust"
           element={

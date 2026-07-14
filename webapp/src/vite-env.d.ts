@@ -5,6 +5,8 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE?: string;
   /** Имя Telegram-бота для входа (без @). Пусто → вход через Telegram показывает заглушку. */
   readonly VITE_TELEGRAM_BOT?: string;
+  /** Ключ Яндекс Карт (JS API) для домена. Пусто → карта показывает брендовый плейсхолдер. */
+  readonly VITE_YANDEX_MAPS_JS_KEY?: string;
 }
 
 interface ImportMeta {
