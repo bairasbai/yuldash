@@ -190,3 +190,31 @@ def test_notification_cleanup_purges_old_keeps_fresh(client, user_factory):
         titles = [n.title_ru for n in s.exec(select(Notification).where(Notification.user_id == uid)).all()]
     assert "старое-90" not in titles    # старое уведомление вычищено
     assert "свежее-90" in titles         # свежее осталось
+
+
+def test_instantorder_parcel_cleanup_financial_safe(client, user_factory):
+    """Рост данных: старые терминальные заказы/доставки БЕЗ финансов/оценок чистятся;
+    с долгом/рейтингом — остаются (финансы и репутацию бережём)."""
+    from app import cleanup
+    from app.models import Rating
+    uid = user_factory("CleanupOrders", role=UserRole.driver)["id"]
+    old = utcnow() - timedelta(days=200)
+    with Session(engine) as s:
+        o_del = InstantOrder(passenger_id=uid, status=InstantOrderStatus.cancelled, created_at=old)
+        o_keep = InstantOrder(passenger_id=uid, status=InstantOrderStatus.done, created_at=old)
+        s.add(o_del); s.add(o_keep); s.commit(); s.refresh(o_del); s.refresh(o_keep)
+        s.add(CommissionDebt(driver_id=uid, order_id=o_keep.id, amount_kop=100))   # финансы → заказ бережём
+        p_del = ParcelDelivery(sender_id=uid, status="delivered", commission_kop=0,
+                               commission_paid=True, created_at=old)
+        p_keep = ParcelDelivery(sender_id=uid, status="delivered", commission_kop=0,
+                                commission_paid=True, created_at=old)
+        s.add(p_del); s.add(p_keep); s.commit(); s.refresh(p_del); s.refresh(p_keep)
+        s.add(Rating(parcel_id=p_keep.id, rater_id=uid, ratee_id=uid, stars=5))    # оценка → доставку бережём
+        s.commit()
+        odel, okeep, pdel, pkeep = o_del.id, o_keep.id, p_del.id, p_keep.id
+    cleanup.main()   # реальная чистка
+    with Session(engine) as s:
+        assert s.get(InstantOrder, odel) is None        # отменённый без детей — вычищен
+        assert s.get(InstantOrder, okeep) is not None    # с долгом — сохранён
+        assert s.get(ParcelDelivery, pdel) is None       # без детей — вычищен
+        assert s.get(ParcelDelivery, pkeep) is not None  # с оценкой — сохранён

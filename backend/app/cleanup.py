@@ -43,7 +43,7 @@ TRIP_DAYS = 180      # старые завершённые поездки/зая
 _ALLOWED_TABLES = frozenset({
     "message", "otpcode", "tgauth", "uploadevent", "refreshtoken", "adevent",
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
-    "booking", "ride", "notification",
+    "booking", "ride", "notification", "instantorder", "parceldelivery",
 })
 
 
@@ -87,6 +87,28 @@ def _rules(now):
          "status IN ('cancelled', 'done') AND created_at < :c "
          "AND NOT EXISTS (SELECT 1 FROM booking b WHERE b.ride_id = ride.id) "
          "AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.ride_id = ride.id)",
+         {"c": cut(TRIP_DAYS)}),
+        # Такси-заказы: старые терминальные БЕЗ финансов/оценок/споров/связей (в основном cancelled/expired;
+        # done с долгом/леджером/рейтингом → останутся, финансы и репутацию бережём).
+        ("старые терминальные такси-заказы >180д (без финансов/связей)",
+         "instantorder",
+         "status IN ('done', 'cancelled', 'expired') AND created_at < :c "
+         "AND NOT EXISTS (SELECT 1 FROM commissiondebt cd WHERE cd.order_id = instantorder.id) "
+         "AND NOT EXISTS (SELECT 1 FROM ledgerentry le WHERE le.order_id = instantorder.id) "
+         "AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.order_id = instantorder.id) "
+         "AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.order_id = instantorder.id) "
+         "AND NOT EXISTS (SELECT 1 FROM message m WHERE m.order_id = instantorder.id) "
+         "AND NOT EXISTS (SELECT 1 FROM tripshare ts WHERE ts.order_id = instantorder.id) "
+         "AND NOT EXISTS (SELECT 1 FROM sosevent se WHERE se.order_id = instantorder.id) "
+         "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.order_id = instantorder.id)",
+         {"c": cut(TRIP_DAYS)}),
+        # Доставки: старые терминальные с ЗАКРЫТОЙ комиссией и без спора/оценки (финансы/репутацию бережём).
+        ("старые доставки >180д (комиссия закрыта, без спора/оценки)",
+         "parceldelivery",
+         "status IN ('delivered', 'canceled') AND created_at < :c "
+         "AND (commission_kop = 0 OR commission_paid = true) "
+         "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.parcel_id = parceldelivery.id) "
+         "AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.parcel_id = parceldelivery.id)",
          {"c": cut(TRIP_DAYS)}),
     ]
 
