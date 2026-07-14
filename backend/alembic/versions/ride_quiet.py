@@ -6,7 +6,7 @@ create_all уже создал колонку → no-op; прод (создан 
 Прод: `alembic upgrade head`.
 
 Revision ID: ride_quiet
-Revises: w2_quality
+Revises: city_profile
 """
 import sqlalchemy as sa
 from alembic import op
