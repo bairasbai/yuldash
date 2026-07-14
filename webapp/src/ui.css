@@ -3137,3 +3137,246 @@ button.list-row:active {
   color: var(--muted);
   border-top: 1px solid var(--border);
 }
+
+/* ============================================================
+   Волна 5 — Курьер и посылки
+   ============================================================ */
+.parcel-tabs {
+  margin-top: 14px;
+}
+
+/* Карточка заявки/доставки */
+.parcel-card {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.parcel-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.parcel-card__to {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.parcel-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.parcel-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.parcel-card__size {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.parcel-card__price {
+  margin-left: auto;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--green);
+}
+.parcel-card__desc {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.parcel-card__phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 700;
+}
+.parcel-card__settle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 14px;
+  color: var(--muted);
+}
+.parcel-card__settle b {
+  font-size: 16px;
+  color: var(--text);
+}
+.parcel-card__goods {
+  margin-top: 14px;
+}
+.parcel-card__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.parcel-card__actions .btn-primary,
+.parcel-card__actions .btn-soft {
+  flex: 1;
+}
+.parcel-card__code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  font-size: 13px;
+  color: var(--muted);
+}
+.parcel-card__code b {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 20px;
+  letter-spacing: 0.16em;
+  color: var(--green);
+}
+.parcel-card__courier {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.parcel-card__courier-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.parcel-card__courier .btn-soft {
+  flex: none;
+  padding: 0 16px;
+}
+
+/* Успех отправки — крупный код вручения */
+.parcel-done {
+  margin-top: 18px;
+  text-align: center;
+  animation: fadeUp 0.35s ease both;
+}
+.parcel-done__emoji {
+  font-size: 46px;
+}
+.parcel-done h2 {
+  margin: 8px 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.parcel-code {
+  margin: 18px 0;
+  padding: 20px;
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.parcel-code__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--green);
+}
+.parcel-code__value {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--green);
+}
+.parcel-code .btn-soft {
+  margin-top: 10px;
+  flex: none;
+  padding: 0 18px;
+}
+
+/* Диалог ввода кода (нижняя шторка) */
+.code-sheet {
+  text-align: left;
+}
+
+/* Мягкая пауза по качеству */
+.courier-pause {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-item);
+  background: var(--canon-gold-soft, #fbf1d5);
+  color: #6a4a00;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+/* Кабинет курьера */
+.courier-rating {
+  margin-top: 4px;
+  padding: 18px;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.courier-rating__val {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--green);
+}
+.courier-rating__meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.courier-fee {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 16px 18px;
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.courier-fee__pct {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--green);
+}
+.courier-fee__label {
+  font-size: 13px;
+  color: var(--green);
+  font-weight: 600;
+}

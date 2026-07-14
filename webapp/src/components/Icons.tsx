@@ -254,3 +254,12 @@ export const IconPhone = ({ size = 20 }: P) => (
     <path d="M5 4h3l1.5 4-2 1.4a12 12 0 0 0 5.1 5.1L19 16l-1 3-1 1c-7 0-13-6-13-13z" />
   </svg>
 );
+
+export const IconBox = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M21 8.2 12 3 3 8.2v7.6L12 21l9-5.2z" />
+    <path d="M3.3 8 12 13l8.7-5" />
+    <path d="M12 13v8" />
+    <path d="M7.5 5.6 16.5 10.8" />
+  </svg>
+);

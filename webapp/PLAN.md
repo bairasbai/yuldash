@@ -197,8 +197,50 @@ sbp_manual/mock) настраивается на бэке — веб честн�
 `/instant/availability` появятся на проде после мержа `release`. До мержа отдают 404/405 →
 экраны показывают мягкий гейт «Такси скоро»/пустое/«скоро» без краша.
 
-### Волна 5 — Курьер и посылки (4)
-CourierOnboarding, Courier (режим курьера), Parcels (отправить/возить), кабинет курьера.
+### ✅ Волна 5 — Курьер и посылки (3 экрана) (готово, сборка зелёная)
+3 экрана + связки. Все состояния (загрузка/пусто/ошибка/«скоро»/гейт), два языка
+(ба-черновик → `BASHKIR_DRAFT.md`), токены Canon, safe-area, тач-цели ≥48px, мягкая
+деградация 404/403/405.
+
+**Экраны и роуты:**
+- `CourierOnboardingScreen` → `/courier-onboarding` (RequireAuth): правила + выбор транспорта
+  (легковой/грузовой, `seg`) + селфи с документом (`POST /upload/photo` → `uploadDoc`) →
+  `POST /courier/apply`. Статус заявки из `GET /courier/application`:
+  pending / approved («Выйти на линию» → `/courier`) / rejected (причина `reject_reason` +
+  «Подать снова»). 404 (нет на проде до release) → мягко пускаем к форме.
+- `CourierScreen` → `/courier` (RequireAuth): гейт `GET /courier/me` (403 → онбординг,
+  404/405 → «Курьер скоро»). Тумблер «Я на линии» (`POST /courier/online|offline`) + выбор
+  зоны чипами (city/intercity/region) — при смене зоны пере-запрос списка (и `online` →
+  повторный `/courier/online` с новой зоной). Плашка мягкой паузы по качеству (`paused_until`,
+  тумблер заблокирован). Вкладки: **Заказы** (`GET /courier/available`, БЕЗ телефона,
+  «Взять» → `POST /parcels/{id}/accept`); **Везу** (`GET /parcels/carrying`, телефон виден,
+  «В пути» → `/parcels/{id}/status in_transit`, «Доставлено» → диалог кода вручения →
+  `.../status delivered`; для `buy_bring` — ввод фактической стоимости товара
+  `POST /courier/orders/{id}/goods-cost` перед вручением); **Кабинет** (рейтинг из `me.rating`,
+  выписка earned/owed/paid из `me.statement`, «сейчас платишь N%» + ступень tier1/2/3/promo,
+  «Оплатить комиссию» → `POST /courier/pay-commission`: succeeded → обновляем; sbp_manual →
+  реквизиты СБП «на доверии»; yookassa → редирект на `confirmation_url`; 409/503 → мягкий текст).
+- `ParcelsScreen` → `/parcels` (RequireAuth): 3 вкладки. **Отправить** — форма (города, размер
+  карточками small/medium/large, что за посылка, получатель имя+тел, обязательный чекбокс правил)
+  → `POST /parcels` → крупный моноширинный **КОД вручения** (копировать) + сбор Юлдаша.
+  **Мои** — `GET /parcels/mine`: статус-пилюля, свой код вручения, курьер (имя/рейтинг/звонок)
+  если принята, «Отменить» (`POST /parcels/{id}/cancel`). **Возить** («по пути», poputka):
+  под-вкладки «Доступные» (`GET /parcels/available`, БЕЗ телефона, «Взять») и «Везу»
+  (`GET /parcels/carrying`, телефон + статусы + диалог кода).
+
+**Инфраструктура:** `api/parcels.ts` (create/mine/cancel/available/accept/status/carrying/rate),
+`api/courier.ts` (application/apply/online/offline/available/me/goods-cost/pay-commission),
+`components/parcelUi.tsx` (подписи размера/статуса, `AvailableParcelCard`, `CarryParcelCard`,
+`CodeDialog`), `rubLabel` (копейки→₽) в `utils/format.ts`, иконка `IconBox`, стили Canon для
+курьера/посылок в `ui.css` (карточки, крупный код, кабинет, пауза). Взаимная оценка доставки —
+эндпоинт `POST /parcels/{id}/rate` есть в API-слое (в UI встроим в общую систему оценок волны 7/
+экрана завершения — контракт готов). Связки: входы «Посылки» и «Режим курьера» из профиля.
+
+**Зависит от деплоя release-2026-07:** `/courier/*` (application/apply/online/offline/available/
+me/goods-cost/pay-commission) появятся на проде после мержа `release`. До мержа отдают 404/403/405
+→ экраны показывают мягкий гейт «Курьер скоро»/онбординг без краша. `/parcels/*` (create/mine/
+cancel/available/accept/status/carrying) — базовая M3 уже на проде; курьер-типы (courier/buy_bring)
+в `/parcels/*` активируются гейтом `_guard_courier` после мержа.
 
 ### Волна 6 — Деньги и маркетплейс (7)
 Wallet, Coupons («Скидки по пути»), PartnerCabinet, PromoCode, AdsCabinet, AdEditor, PaymentInfo.

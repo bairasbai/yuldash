@@ -17,6 +17,7 @@ import {
   IconWheel,
   IconCar,
   IconClock,
+  IconBox,
 } from "../components/Icons";
 
 function initials(name: string): string {
@@ -80,6 +81,22 @@ export default function ProfileScreen() {
       icon: <IconClock size={22} />,
       title: appText("Мои предзаказы", "Алдан заказдарым"),
       sub: appText("Такси на время — заранее", "Ваҡытҡа такси — алдан"),
+      authed: true,
+    },
+    {
+      key: "parcels",
+      to: "/parcels",
+      icon: <IconBox size={22} />,
+      title: appText("Посылки", "Бандеролдәр"),
+      sub: appText("Отправить или довезти «между своими»", "Ебәр йәки еткер «үҙебеҙ араһында»"),
+      authed: true,
+    },
+    {
+      key: "courier",
+      to: "/courier",
+      icon: <IconBox size={22} />,
+      title: appText("Режим курьера", "Курьер режимы"),
+      sub: appText("Бери доставки рядом и зарабатывай", "Яҡындағы доставкаларҙы ал һәм эшлә"),
       authed: true,
     },
     {

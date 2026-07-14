@@ -38,6 +38,9 @@ import InstantDriverTripScreen from "./screens/InstantDriverTripScreen";
 import InstantChatScreen from "./screens/InstantChatScreen";
 import ScheduledOrdersScreen from "./screens/ScheduledOrdersScreen";
 import TaxiOnboardingScreen from "./screens/TaxiOnboardingScreen";
+import CourierOnboardingScreen from "./screens/CourierOnboardingScreen";
+import CourierScreen from "./screens/CourierScreen";
+import ParcelsScreen from "./screens/ParcelsScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -262,6 +265,32 @@ export default function App() {
           element={
             <RequireAuth>
               <TaxiOnboardingScreen />
+            </RequireAuth>
+          }
+        />
+
+        {/* --- Волна 5: курьер и посылки --- */}
+        <Route
+          path="/parcels"
+          element={
+            <RequireAuth>
+              <ParcelsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/courier"
+          element={
+            <RequireAuth>
+              <CourierScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/courier-onboarding"
+          element={
+            <RequireAuth>
+              <CourierOnboardingScreen />
             </RequireAuth>
           }
         />

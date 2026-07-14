@@ -29,6 +29,11 @@ export function priceLabel(price: number, ru = true): string {
   return ru ? "Договорная" : "Килешеү буйынса";
 }
 
+/** Копейки → «1 200 ₽» (деньги на бэке хранятся в копейках). */
+export function rubLabel(kop: number): string {
+  return `${Math.round((kop || 0) / 100).toLocaleString("ru-RU")} ₽`;
+}
+
 /** Название способа оплаты (пара ru/ba). */
 export function payMethodLabel(m: PayMethod | string, ru = true): string {
   switch (m) {
