@@ -112,6 +112,13 @@ object ApiClient {
         bg.launch { requestCallback(note) }
     }
 
+    /** Best-effort: наполнить «Недавние» точкой назначения после создания заказа/заявки.
+     *  На долгоживущем scope — переживает уход с экрана, заказ не блокирует. */
+    fun fireAddRecentPlace(address: String, lat: Double, lng: Double) {
+        if (address.isBlank()) return
+        bg.launch { addRecentPlace(address, lat, lng) }
+    }
+
     fun fireUpdateName(name: String) {
         bg.launch { updateName(name) }
     }
@@ -2913,6 +2920,76 @@ object ApiClient {
                 },
             )
         }
+
+    // ---------- Сохранённые адреса (Дом/Работа/свои) + недавние ----------
+    // Приватность: всё по СВОЕМУ токену — чужие адреса не запросить (сервер фильтрует по id).
+
+    private fun parseSavedPlace(o: JSONObject) = SavedPlaceDto(
+        id = o.optInt("id"),
+        kind = o.optString("kind"),
+        label = o.optString("label"),
+        address = o.optString("address"),
+        lat = o.optDouble("lat"),
+        lng = o.optDouble("lng"),
+        createdAt = o.optString("created_at"),
+    )
+
+    /** Сохранённые адреса (Дом/Работа/свои). Ответ — массив (call() кладёт в "items"). */
+    suspend fun getSavedPlaces(): Result<List<SavedPlaceDto>> =
+        call("GET", "/places/saved", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseSavedPlace(arr.getJSONObject(it)) }
+        }
+
+    /** Сохранить адрес. kind: home|work (upsert по kind) | custom (≤20). Возвращает сохранённую запись. */
+    suspend fun saveSavedPlace(kind: String, label: String, address: String, lat: Double, lng: Double): Result<SavedPlaceDto> =
+        call("POST", "/places/saved", JSONObject()
+            .put("kind", kind).put("label", label).put("address", address)
+            .put("lat", lat).put("lng", lng), auth = true).map { parseSavedPlace(it) }
+
+    /** Удалить сохранённый адрес по id (чужое/нет → 404). */
+    suspend fun deleteSavedPlace(id: Int): Result<Unit> =
+        call("DELETE", "/places/saved/$id", null, auth = true).map { }
+
+    /** Недавние адреса назначения (свежие сверху, ≤10). Ответ — массив. */
+    suspend fun getRecentPlaces(): Result<List<RecentPlaceDto>> =
+        call("GET", "/places/recent", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                RecentPlaceDto(
+                    id = o.optInt("id"),
+                    address = o.optString("address"),
+                    lat = o.optDouble("lat"),
+                    lng = o.optDouble("lng"),
+                    usedAt = o.optString("used_at"),
+                )
+            }
+        }
+
+    /** Добавить/обновить недавний адрес (дедуп по address на сервере). Best-effort — заказ не блокируем. */
+    suspend fun addRecentPlace(address: String, lat: Double, lng: Double): Result<Unit> =
+        call("POST", "/places/recent", JSONObject()
+            .put("address", address).put("lat", lat).put("lng", lng), auth = true).map { }
+
+    /** Квитанция завершённой поездки (только участник; незавершённая → 409; посторонний → 403). */
+    suspend fun getTripReceipt(bookingId: Int): Result<TripReceiptDto> =
+        call("GET", "/trips/$bookingId/receipt", null, auth = true).map { o ->
+            TripReceiptDto(
+                bookingId = o.optInt("booking_id"),
+                rideId = o.optInt("ride_id"),
+                role = o.optString("role"),
+                fromCity = o.optString("from_city"),
+                toCity = o.optString("to_city"),
+                departAt = o.optString("depart_at"),
+                seats = o.optInt("seats"),
+                amount = o.optInt("amount"),
+                payMethod = o.optString("pay_method"),
+                paid = o.optBoolean("paid"),
+                driverName = o.optString("driver_name"),
+                driverVerified = o.optBoolean("driver_verified"),
+            )
+        }
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
@@ -3662,6 +3739,23 @@ data class DriverEarningsDto(
     val total: Int,
     val trips: Int,
     val byDay: List<DriverEarningsDayDto>,
+)
+/** Сохранённый адрес (Дом/Работа/свой). kind: home|work|custom. */
+data class SavedPlaceDto(
+    val id: Int, val kind: String, val label: String,
+    val address: String, val lat: Double, val lng: Double, val createdAt: String,
+)
+/** Недавний адрес назначения (GET /places/recent, свежие сверху). */
+data class RecentPlaceDto(
+    val id: Int, val address: String, val lat: Double, val lng: Double, val usedAt: String,
+)
+/** Квитанция завершённой поездки (GET /trips/{booking_id}/receipt).
+ *  amount — ₽; pay_method: cash|sbp|negotiate; role — «passenger»|«driver» (чья витрина). */
+data class TripReceiptDto(
+    val bookingId: Int, val rideId: Int, val role: String,
+    val fromCity: String, val toCity: String, val departAt: String,
+    val seats: Int, val amount: Int, val payMethod: String, val paid: Boolean,
+    val driverName: String, val driverVerified: Boolean,
 )
 /** F18 «Мой Юлдаш» — личная статистика попутчика (GET /me/stats). */
 data class MyStatsDto(

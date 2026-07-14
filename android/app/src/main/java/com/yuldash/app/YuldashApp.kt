@@ -325,6 +325,7 @@ internal fun YuldashApp() {
     var instantTripOrderId by rememberSaveable { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
     var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
+    var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
     var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
     var routeWatchPrefillTo by rememberSaveable { mutableStateOf("") }
@@ -891,7 +892,8 @@ internal fun YuldashApp() {
                 onBack = { goBack() },
                 onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
                 onSos = { openSos() },
-                onSupport = { screen = Screen.Support }
+                onSupport = { screen = Screen.Support },
+                onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt }
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },
@@ -996,6 +998,7 @@ internal fun YuldashApp() {
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onInstantOrder = { if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder else screen = Screen.Login },
                 onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
+                onSavedPlaces = { if (ApiClient.isLoggedIn()) screen = Screen.SavedPlaces else screen = Screen.Login },
                 onSafety = { screen = Screen.Safety }
             )
             Screen.DriverCabinet -> DriverCabinetScreen(
@@ -1122,6 +1125,8 @@ internal fun YuldashApp() {
             Screen.MyStats -> MyStatsScreen(onBack = { goBack() })
             Screen.Wallet -> WalletScreen(onBack = { goBack() })
             Screen.DriverEarnings -> DriverEarningsScreen(onBack = { goBack() })
+            Screen.SavedPlaces -> SavedPlacesScreen(onBack = { goBack() })
+            Screen.TripReceipt -> TripReceiptScreen(bookingId = receiptBookingId, onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })

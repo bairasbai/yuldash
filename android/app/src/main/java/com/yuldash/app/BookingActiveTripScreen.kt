@@ -139,6 +139,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
@@ -902,7 +903,8 @@ internal fun ActiveTripScreen(
     onBack: () -> Unit,
     onTripEnd: () -> Unit,
     onSos: () -> Unit,
-    onSupport: () -> Unit = {}
+    onSupport: () -> Unit = {},
+    onOpenReceipt: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
     var messages by remember(bookingId) { mutableStateOf<List<MessageDto>>(emptyList()) }
@@ -1286,6 +1288,16 @@ internal fun ActiveTripScreen(
                         }
                     }
                 }
+            }
+            // Квитанция завершённой поездки: маршрут, дата, сумма, способ оплаты, водитель.
+            if (bookingStatus == "done" && bookingId != null) item {
+                AppButton(
+                    text = appText("Квитанция поездки", "Сәфәр квитанцияһы"),
+                    onClick = { onOpenReceipt(bookingId) },
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.ReceiptLong,
+                    modifier = Modifier.appearIn(2),
+                )
             }
             // Мягкое, ненавязчивое предложение поддержать платформу после завершённой поездки.
             // Легко закрыть (крестик / «Не сейчас») — поддержка строго по желанию.

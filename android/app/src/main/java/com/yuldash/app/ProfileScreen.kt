@@ -118,6 +118,7 @@ import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
@@ -843,6 +844,7 @@ internal fun PassengerCabinetScreen(
     onCreateRequest: () -> Unit,
     onInstantOrder: () -> Unit = {},
     onWallet: () -> Unit = {},
+    onSavedPlaces: () -> Unit = {},
     onSafety: () -> Unit
 ) {
     // Реальные брони и заявки пользователя (раньше метрики и карточка брались из демо-списка).
@@ -901,6 +903,7 @@ internal fun PassengerCabinetScreen(
             onCreateRequest = onCreateRequest,
             onInstantOrder = onInstantOrder,
             onWallet = onWallet,
+            onSavedPlaces = onSavedPlaces,
             onSafety = onSafety,
             modifier = Modifier.padding(padding),
             restrictions = restrictions,
@@ -930,6 +933,7 @@ internal fun PassengerCabinetContent(
     onInstantOrder: () -> Unit,
     onSafety: () -> Unit,
     onWallet: () -> Unit = {},
+    onSavedPlaces: () -> Unit = {},
     modifier: Modifier = Modifier,
     // Ограничения качества (§9): карточка «Мои ограничения» (пусто → не показывается).
     restrictions: com.yuldash.app.data.RestrictionsDto? = null,
@@ -1023,6 +1027,7 @@ internal fun PassengerCabinetContent(
             SettingsGroup {
                 SettingsNavRow(Icons.Default.Search, appText("Найти поездку", "Сәфәр табыу"), appText("Открыть список ближайших маршрутов", "Яҡындағы маршруттарҙы асыу"), onClick = onFindRide)
                 SettingsNavRow(Icons.Default.AddRoad, appText("Создать заявку", "Заявка булдырыу"), appText("Если готовой поездки нет", "Әҙер сәфәр булмаһа"), onClick = onCreateRequest)
+                SettingsNavRow(Icons.Default.Bookmark, appText("Мои адреса", "Минең адрестар"), appText("Дом, работа и любимые места", "Өй, эш һәм яратҡан урындар"), onClick = onSavedPlaces)
                 SettingsNavRow(Icons.Default.AccountBalanceWallet, appText("Кошелёк", "Янсыҡ"), appText("Баланс и история операций", "Баланс һәм операциялар тарихы"), onClick = onWallet)
                 SettingsNavRow(Icons.Default.Shield, appText("Безопасность поездки", "Сәфәр хәүефһеҙлеге"), appText("SOS, скрытый номер и доверенные контакты", "SOS, йәшерен номер һәм ышаныслы контакттар"), onClick = onSafety)
             }

@@ -515,6 +515,21 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
     var pickOnMap by remember { mutableStateOf(false) }   // оверлей выбора точки Б на карте
     var pickFromOnMap by remember { mutableStateOf(false) }
 
+    // Сохранённые (Дом/Работа) + недавние: быстрый выбор адреса Б без повторного геокодинга.
+    var savedPlaces by remember { mutableStateOf<List<com.yuldash.app.data.SavedPlaceDto>>(emptyList()) }
+    var recentPlaces by remember { mutableStateOf<List<com.yuldash.app.data.RecentPlaceDto>>(emptyList()) }
+    var placesReload by remember { mutableStateOf(0) }
+    LaunchedEffect(placesReload) {
+        if (ApiClient.isLoggedIn()) {
+            ApiClient.getSavedPlaces().onSuccess { savedPlaces = it }
+            ApiClient.getRecentPlaces().onSuccess { recentPlaces = it }
+        }
+    }
+    // Быстрый выбор точки Б: подставляем адрес и координаты сразу (без сети).
+    fun pickDestination(address: String, lat: Double, lng: Double) {
+        toPoint = Point(lat, lng); toText = address; query = ""; suggestions = emptyList()
+    }
+
     // Строки для колбэков (вне composition appText звать нельзя) — считаем заранее.
     val estimateFailMsg = appText("Не удалось оценить цену", "Хаҡты баһалап булманы")
     val createFailMsg = appText("Не удалось создать заказ. Повтори.", "Заказ булманы. Ҡабатла.")
@@ -619,6 +634,15 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
             }
         }
 
+        // Быстрый выбор: Дом/Работа + недавние (до ввода адреса). Тап подставляет адрес и координаты сразу.
+        if (toPoint == null) {
+            QuickPlacesBlock(
+                saved = savedPlaces,
+                recent = recentPlaces,
+                onPick = { address, lat, lng -> pickDestination(address, lat, lng) },
+            )
+        }
+
         // Точка Б: поиск + «на карте»
         Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -653,6 +677,18 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
                     Text(appText("Выбрать точку на карте", "Картала нөктә һайлау"))
                 }
             }
+        }
+
+        // «Сохранить как Дом/Работу» для выбранного адреса — потом заказывать в один тап.
+        if (toPoint != null && toText.isNotBlank()) {
+            SaveAsPlaceChips(
+                address = toText,
+                lat = toPoint!!.latitude,
+                lng = toPoint!!.longitude,
+                savedHome = savedPlaces.firstOrNull { it.kind == "home" },
+                savedWork = savedPlaces.firstOrNull { it.kind == "work" },
+                onSaved = { placesReload++ },
+            )
         }
 
         // Класс машины (§6): Эконом / Комфорт — обе цены сразу, выбранная уходит в заказ.
@@ -742,7 +778,11 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
                 scope.launch {
                     ApiClient.createInstantOrder(f.latitude, f.longitude, t.latitude, t.longitude,
                         fromText.ifBlank { myPosText }, toText.ifBlank { mapPointText }, category)
-                        .onSuccess { onOrderCreated(it) }
+                        .onSuccess {
+                            // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
+                            ApiClient.fireAddRecentPlace(toText.ifBlank { mapPointText }, t.latitude, t.longitude)
+                            onOrderCreated(it)
+                        }
                         .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
                     creating = false
                 }
