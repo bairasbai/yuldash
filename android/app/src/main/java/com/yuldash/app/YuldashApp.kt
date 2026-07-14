@@ -326,6 +326,7 @@ internal fun YuldashApp() {
     var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
     var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
+    var supportTicketId by rememberSaveable { mutableStateOf(0) }      // Поддержка: id открытого обращения (deep-link/список)
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
     var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
     var routeWatchPrefillTo by rememberSaveable { mutableStateOf("") }
@@ -793,6 +794,7 @@ internal fun YuldashApp() {
                 onSos = { openSos() },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
+                onOpenScheduled = { screen = Screen.ScheduledOrders },
                 onNotifications = { screen = Screen.Notifications },
                 onRouteWatch = { from, to ->
                     routeWatchPrefillFrom = from ?: ""
@@ -916,7 +918,9 @@ internal fun YuldashApp() {
                 },
                 // Тап по «отклик на заявку» → экран откликов этой заявки.
                 onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses },
-                onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches }
+                onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
+                // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).
+                onOpenSupport = { tid -> supportTicketId = tid; screen = Screen.SupportTicket }
             )
             Screen.RouteWatches -> RouteWatchesScreen(
                 onBack = { goBack() },
@@ -981,7 +985,8 @@ internal fun YuldashApp() {
                 onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) },
                 onAdImpression = ::trackAdImpression,
-                onAdClick = ::trackAdClick
+                onAdClick = ::trackAdClick,
+                onSupportChat = { if (ApiClient.isLoggedIn()) screen = Screen.SupportTickets else screen = Screen.Login }
             )
             Screen.PassengerCabinet -> PassengerCabinetScreen(
                 rides = rides,
@@ -997,6 +1002,7 @@ internal fun YuldashApp() {
                 onFindRide = { openHome(HomeTab.Map) },
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onInstantOrder = { if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder else screen = Screen.Login },
+                onScheduledOrders = { if (ApiClient.isLoggedIn()) screen = Screen.ScheduledOrders else screen = Screen.Login },
                 onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
                 onSavedPlaces = { if (ApiClient.isLoggedIn()) screen = Screen.SavedPlaces else screen = Screen.Login },
                 onSafety = { screen = Screen.Safety }
@@ -1016,7 +1022,21 @@ internal fun YuldashApp() {
             Screen.InstantOrder -> InstantOrderScreen(
                 onBack = { goBack() },
                 onLoginRequired = { screen = Screen.Login },
-                onTaxiOnboarding = { screen = Screen.TaxiOnboarding }
+                onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
+                onOpenScheduled = { screen = Screen.ScheduledOrders }
+            )
+            Screen.ScheduledOrders -> ScheduledOrdersScreen(
+                onBack = { goBack() },
+                // Активировал предзаказ → в обычный экран заказа: он восстановит заказ в поиске.
+                onActivated = { screen = Screen.InstantOrder }
+            )
+            Screen.SupportTickets -> SupportTicketsScreen(
+                onBack = { goBack() },
+                onOpenTicket = { tid -> supportTicketId = tid; screen = Screen.SupportTicket }
+            )
+            Screen.SupportTicket -> SupportTicketScreen(
+                ticketId = supportTicketId,
+                onBack = { goBack() }
             )
             Screen.InstantDriverTrip -> InstantDriverTripScreen(
                 orderId = instantTripOrderId,
@@ -1844,6 +1864,7 @@ internal fun HomeScreen(
     onAccountDeleted: () -> Unit = {},
     onInstantLogin: () -> Unit = {},
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» водитель уходит в онбординг
+    onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан из встроенного такси → «Мои предзаказы»
     onTabChange: (HomeTab) -> Unit = {}
 ) {
     var ridesPresetTo by remember { mutableStateOf("") }
@@ -1874,7 +1895,8 @@ internal fun HomeScreen(
                     onInstantLogin = onInstantLogin,
                     onTaxiOnboarding = onTaxiOnboarding,
                     onClinicRides = onClinicRides,
-                    onRouteWatch = onRouteWatch
+                    onRouteWatch = onRouteWatch,
+                    onOpenScheduled = onOpenScheduled
                 )
                 HomeTab.Rides -> RidesScreen(
                     rides = rides,

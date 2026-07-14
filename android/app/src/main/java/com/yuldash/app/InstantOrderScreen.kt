@@ -325,10 +325,13 @@ internal fun InstantOrderScreen(
     onLoginRequired: () -> Unit,
     embedded: Boolean = false,
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Скоро» водитель может уйти в онбординг таксиста
+    onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан → «Мои предзаказы»
 ) {
     val scope = rememberCoroutineScope()
     val loggedIn = ApiClient.isLoggedIn()
     var order by remember { mutableStateOf<InstantOrderDto?>(null) }
+    // Предзаказ «на время» создан → карточка подтверждения (не активный заказ, живёт в «Моих предзаказах»).
+    var scheduledConfirm by remember { mutableStateOf<InstantOrderDto?>(null) }
     var checking by remember { mutableStateOf(loggedIn) }   // первичная загрузка: есть ли активный заказ
     // Гейт такси (волна 2): доступно ли такси в моей точке (глобальный флаг + города на сервере).
     // Сеть упала → фолбэк «доступно» (обычный пикер): сервер всё равно гейтит оценку и заказ.
@@ -350,7 +353,8 @@ internal fun InstantOrderScreen(
         // важен: если он не загрузился, НЕ роняем в пикер молча — вдруг есть живой заказ.
         ApiClient.getTaxiAvailability(lat, lng).onSuccess { availability = it }
         ApiClient.getMyInstantOrders(limit = 5)
-            .onSuccess { list -> order = list.firstOrNull { !it.isTerminal } }
+            // Предзаказы (scheduled) сюда не тянем — они живут в «Моих предзаказах», а не как активный заказ.
+            .onSuccess { list -> order = list.firstOrNull { !it.isTerminal && !it.isScheduled } }
             .onFailure { restoreError = true }
         checking = false
     }
@@ -380,6 +384,13 @@ internal fun InstantOrderScreen(
             when {
                 !loggedIn -> InstantLoginNeeded(onLoginRequired)
                 checking -> InstantCenterLoader(appText("Проверяем заказ…", "Заказды тикшерәбеҙ…"))
+                // Предзаказ «на время» создан → спокойное подтверждение + путь в «Мои предзаказы».
+                scheduledConfirm != null -> InstantScheduledCreatedCard(
+                    order = scheduledConfirm!!,
+                    onOpenScheduled = onOpenScheduled,
+                    onNewOrder = { scheduledConfirm = null },
+                    onBack = onBack,
+                )
                 // Вход не загрузился по сети → не роняем в пикер молча (мог быть живой заказ), даём «Повторить».
                 current == null && restoreError -> InstantRetryCard(
                     onRetry = { restoreTick++ },
@@ -394,6 +405,7 @@ internal fun InstantOrderScreen(
                 )
                 current == null -> InstantDestinationPicker(
                     onOrderCreated = { order = it },
+                    onScheduled = { scheduledConfirm = it },
                 )
                 current.isSearching -> InstantSearchingCard(
                     order = current,
@@ -490,10 +502,16 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
 
 // ------------------------------ «Куда едем?» (пикер + оценка) ------------------------------
 @Composable
-private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) {
+private fun InstantDestinationPicker(
+    onOrderCreated: (InstantOrderDto) -> Unit,
+    onScheduled: (InstantOrderDto) -> Unit = {},
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val myPoint by rememberMyPoint(active = true)
+
+    // Подача: сейчас (null) или «на время» (epoch ms выбранного времени). ≤7 суток, не в прошлом.
+    var scheduledAtMs by remember { mutableStateOf<Long?>(null) }
 
     var fromPoint by remember { mutableStateOf<Point?>(null) }
     var fromText by remember { mutableStateOf("") }
@@ -769,21 +787,42 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
             }
         }
 
+        // Когда подать машину: «Сейчас» или «На время» (предзаказ). Появляется, когда есть маршрут.
+        if (toPoint != null) {
+            InstantTimingPicker(
+                scheduledAtMs = scheduledAtMs,
+                onNow = { scheduledAtMs = null },
+                onPickTime = { picked -> scheduledAtMs = picked },
+            )
+        }
+
+        val scheduled = scheduledAtMs != null
         Spacer(Modifier.height(2.dp))
         Button(
             onClick = {
                 val f = effFrom ?: return@Button
                 val t = toPoint ?: return@Button
                 creating = true; errorText = null
+                val fText = fromText.ifBlank { myPosText }
+                val tText = toText.ifBlank { mapPointText }
                 scope.launch {
-                    ApiClient.createInstantOrder(f.latitude, f.longitude, t.latitude, t.longitude,
-                        fromText.ifBlank { myPosText }, toText.ifBlank { mapPointText }, category)
-                        .onSuccess {
-                            // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
-                            ApiClient.fireAddRecentPlace(toText.ifBlank { mapPointText }, t.latitude, t.longitude)
-                            onOrderCreated(it)
-                        }
-                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                    if (scheduled) {
+                        val iso = isoFromMillis(scheduledAtMs!!)
+                        ApiClient.scheduleInstantOrder(f.latitude, f.longitude, t.latitude, t.longitude, iso, fText, tText, category)
+                            .onSuccess {
+                                ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
+                                onScheduled(it)
+                            }
+                            .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                    } else {
+                        ApiClient.createInstantOrder(f.latitude, f.longitude, t.latitude, t.longitude, fText, tText, category)
+                            .onSuccess {
+                                // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
+                                ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
+                                onOrderCreated(it)
+                            }
+                            .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                    }
                     creating = false
                 }
             },
@@ -795,18 +834,25 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
             if (creating) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonTaxiInk)
             } else {
-                Icon(Icons.Default.DirectionsCar, contentDescription = null)
+                Icon(if (scheduled) Icons.Default.AccessTime else Icons.Default.DirectionsCar, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    // Глагол-действие: «Вызвать машину» понятнее, чем «Заказать» (эталон Яндекс/inDrive).
-                    if (estimate != null) appText("Вызвать за ${estimate!!.price} ₽", "${estimate!!.price} ₽-ға саҡырыу")
-                    else appText("Вызвать машину", "Машина саҡырыу"),
+                    when {
+                        // Предзаказ «на время»: показываем время подачи.
+                        scheduled -> appText("Заказать на ${clockHm(scheduledAtMs!!)}", "${clockHm(scheduledAtMs!!)}-ға заказ итеү")
+                        // Глагол-действие: «Вызвать машину» понятнее, чем «Заказать» (эталон Яндекс/inDrive).
+                        estimate != null -> appText("Вызвать за ${estimate!!.price} ₽", "${estimate!!.price} ₽-ға саҡырыу")
+                        else -> appText("Вызвать машину", "Машина саҡырыу")
+                    },
                     fontSize = 16.sp, fontWeight = FontWeight.Bold,
                 )
             }
         }
-        Text(appText("Оплата водителю напрямую. Телефон водителя откроется после того, как он примет заказ.",
-            "Түләү водителгә тура. Водитель заказды алғас, уның телефоны асыла."),
+        Text(
+            if (scheduled) appText("Предзаказ ждёт своего времени. Открой Юлдаш ко времени подачи, чтобы начать поиск. Цену уточним при подаче.",
+                "Алдан заказ үҙ ваҡытын көтә. Эҙләүҙе башлар өсөн Юлдашты килеү ваҡытына ас. Хаҡты килгәндә асыҡлайбыҙ.")
+            else appText("Оплата водителю напрямую. Телефон водителя откроется после того, как он примет заказ.",
+                "Түләү водителгә тура. Водитель заказды алғас, уның телефоны асыла."),
             color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
     }
 
@@ -824,6 +870,153 @@ private fun InstantDestinationPicker(onOrderCreated: (InstantOrderDto) -> Unit) 
             onDismiss = { pickFromOnMap = false },
         )
     }
+}
+
+// ------------------------------ Когда подать: «Сейчас» / «На время» ------------------------------
+@Composable
+private fun InstantTimingPicker(
+    scheduledAtMs: Long?,
+    onNow: () -> Unit,
+    onPickTime: (Long) -> Unit,
+) {
+    val ctx = LocalContext.current
+    val scheduled = scheduledAtMs != null
+    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(appText("Когда подать машину?", "Машина ҡасан килһен?"), color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TimingChoiceChip(
+                    title = appText("Сейчас", "Хәҙер"),
+                    selected = !scheduled,
+                    onClick = onNow,
+                    modifier = Modifier.weight(1f),
+                )
+                TimingChoiceChip(
+                    title = appText("На время", "Ваҡытҡа"),
+                    selected = scheduled,
+                    onClick = { showDateTimePicker(ctx, scheduledAtMs, onPickTime) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            AnimatedVisibility(visible = scheduled, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AccessTime, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(scheduledAtMs?.let { fullWhen(it) } ?: "", color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showDateTimePicker(ctx, scheduledAtMs, onPickTime) }) {
+                        Text(appText("Изменить", "Үҙгәртеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimingChoiceChip(title: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) CanonMint else CanonBg,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.5.dp, if (selected) CanonGreen2 else CanonBorder),
+        modifier = modifier.heightIn(min = 48.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+            Text(title, color = if (selected) CanonGreen2 else CanonMuted, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// Предзаказ создан → спокойное подтверждение + путь в «Мои предзаказы».
+@Composable
+private fun InstantScheduledCreatedCard(
+    order: InstantOrderDto,
+    onOpenScheduled: () -> Unit,
+    onNewOrder: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(color = CanonMint, shape = CircleShape) {
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(18.dp).size(38.dp))
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            order.scheduledAt?.let { appText("Предзаказ на ${formatDepart(it)} создан", "${formatDepart(it)}-ға алдан заказ булдырылды") }
+                ?: appText("Предзаказ создан", "Алдан заказ булдырылды"),
+            fontWeight = FontWeight.Black, fontSize = 20.sp, textAlign = TextAlign.Center, color = CanonText,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("${order.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
+            color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(6.dp))
+        Text(appText("Открой Юлдаш ко времени подачи, чтобы начать поиск машины. Мы напомним.",
+            "Машина эҙләй башлар өсөн Юлдашты килеү ваҡытына ас. Беҙ иҫкә төшөрөрбөҙ."),
+            color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(22.dp))
+        AppButton(text = appText("Мои предзаказы", "Минең алдан заказдар"), onClick = onOpenScheduled, style = AppButtonStyle.Primary)
+        Spacer(Modifier.height(8.dp))
+        AppButton(text = appText("Новый заказ", "Яңы заказ"), onClick = onNewOrder, style = AppButtonStyle.Secondary)
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onBack) { Text(appText("Готово", "Әҙер"), color = CanonMuted) }
+    }
+}
+
+// Диалог выбора даты и времени подачи: не в прошлом, ≤ 7 суток.
+private fun showDateTimePicker(ctx: Context, initialMs: Long?, onPicked: (Long) -> Unit) {
+    val now = java.util.Calendar.getInstance()
+    val start = java.util.Calendar.getInstance().apply {
+        timeInMillis = initialMs ?: (now.timeInMillis + 30 * 60_000L)   // по умолчанию через ~30 мин
+    }
+    val maxMs = now.timeInMillis + 7L * 24 * 60 * 60 * 1000   // потолок 7 суток
+    android.app.DatePickerDialog(
+        ctx,
+        { _, year, month, day ->
+            android.app.TimePickerDialog(
+                ctx,
+                { _, hour, minute ->
+                    val picked = java.util.Calendar.getInstance().apply {
+                        set(java.util.Calendar.YEAR, year); set(java.util.Calendar.MONTH, month)
+                        set(java.util.Calendar.DAY_OF_MONTH, day)
+                        set(java.util.Calendar.HOUR_OF_DAY, hour); set(java.util.Calendar.MINUTE, minute)
+                        set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+                    }
+                    // Не в прошлом (мин. через 5 мин) и не дальше 7 суток.
+                    val floor = System.currentTimeMillis() + 5 * 60_000L
+                    val ms = picked.timeInMillis.coerceIn(floor, maxMs)
+                    onPicked(ms)
+                },
+                start.get(java.util.Calendar.HOUR_OF_DAY), start.get(java.util.Calendar.MINUTE), true,
+            ).show()
+        },
+        start.get(java.util.Calendar.YEAR), start.get(java.util.Calendar.MONTH), start.get(java.util.Calendar.DAY_OF_MONTH),
+    ).apply {
+        datePicker.minDate = now.timeInMillis
+        datePicker.maxDate = maxMs
+    }.show()
+}
+
+// epoch ms → ISO с локальным смещением (однозначно для сервера).
+private fun isoFromMillis(ms: Long): String =
+    java.time.OffsetDateTime.ofInstant(java.time.Instant.ofEpochMilli(ms), java.time.ZoneId.systemDefault()).toString()
+
+// epoch ms → «ЧЧ:ММ» (для кнопки).
+private fun clockHm(ms: Long): String {
+    val c = java.util.Calendar.getInstance().apply { timeInMillis = ms }
+    return String.format(java.util.Locale.US, "%02d:%02d", c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE))
+}
+
+// epoch ms → «ДД.ММ, ЧЧ:ММ» (для строки выбранного времени).
+private fun fullWhen(ms: Long): String {
+    val c = java.util.Calendar.getInstance().apply { timeInMillis = ms }
+    return String.format(
+        java.util.Locale.US, "%02d.%02d, %02d:%02d",
+        c.get(java.util.Calendar.DAY_OF_MONTH), c.get(java.util.Calendar.MONTH) + 1,
+        c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE),
+    )
 }
 
 // ------------------------------ Карточка класса (Эконом/Комфорт) ------------------------------

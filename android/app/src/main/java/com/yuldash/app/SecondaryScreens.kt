@@ -107,6 +107,7 @@ import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
@@ -277,6 +278,7 @@ internal fun NotificationsScreen(
     onOpenBooking: (Int) -> Unit = {},
     onOpenResponses: (Int) -> Unit = {},
     onRouteWatches: () -> Unit = {},
+    onOpenSupport: (Int) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf("all") }
@@ -324,6 +326,7 @@ internal fun NotificationsScreen(
         when (n.refKind) {
             "booking" -> onOpenBooking(ref)
             "request" -> onOpenResponses(ref)
+            "support" -> onOpenSupport(ref)
         }
     }
 
@@ -1917,8 +1920,14 @@ internal fun HelpScreen(
     onBack: () -> Unit,
     onSelectTab: (HomeTab) -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
-    onAdClick: (PartnerAd) -> Unit
+    onAdClick: (PartnerAd) -> Unit,
+    onSupportChat: () -> Unit = {},   // внутренний чат поддержки Юлдаш (замена ссылки в Telegram)
 ) {
+    // Бейдж непрочитанного на входе «Поддержка Юлдаш» (best-effort: нет сессии/сети → просто 0).
+    var supportUnread by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        if (ApiClient.isLoggedIn()) ApiClient.getSupportTickets().onSuccess { supportUnread = it.unread }
+    }
     val usefulAd = ads.forPlacement(AdPlacement.Help).firstOrNull { it.category == "В больницу" }
         ?: ads.forPlacement(AdPlacement.Help).firstOrNull { it.city == "Баймаҡ" }
     val ctx = LocalContext.current
@@ -1972,10 +1981,32 @@ internal fun HelpScreen(
             } else {
                 items(faqFiltered, key = { it.second }) { f -> ExpandableHelpRow(f.first, f.second, f.third) }
             }
+            // Прямо под FAQ — тёплое приглашение написать в поддержку, если ответа не нашлось.
+            item {
+                Card(
+                    onClick = onSupportChat,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = CanonMint),
+                    shape = CanonItemShape,
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.HeadsetMic, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(appText("Не нашёл ответ?", "Яуап тапманыңмы?"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                            Text(appText("Напиши в поддержку — поможем", "Ярҙамға яҙ — ярҙам итербеҙ"), color = CanonGreen2, fontSize = 13.sp)
+                        }
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonGreen2)
+                    }
+                }
+            }
             item { Text(appText("Связаться с поддержкой", "Ярдам менән бәйләнеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.ChatBubble, appText("Связаться с поддержкой", "Ярҙамға яҙыу"), appText("Оставьте заявку — мы перезвоним", "Заявка ҡалдырығыҙ — шылтыратырбыҙ"), onClick = {
+                    // Основной способ — внутренний чат поддержки Юлдаш (переписка сохраняется, ответы приходят сюда же).
+                    SettingsNavRow(Icons.Default.HeadsetMic, appText("Поддержка Юлдаш", "Юлдаш ярҙамы"), appText("Написать нам в приложении — ответим здесь", "Ҡушымтала беҙгә яҙ — ошонда яуап бирербеҙ"), onClick = onSupportChat, badge = supportUnread)
+                    SettingsNavRow(Icons.Default.ChatBubble, appText("Попросить звонок", "Шылтыратыу һорау"), appText("Оставьте заявку — мы перезвоним", "Заявка ҡалдырығыҙ — шылтыратырбыҙ"), onClick = {
                         // Ждём результат: тост «отправлено» — только при успехе, иначе честная ошибка
                         // (раньше fire-and-forget + тост ДО результата → при офлайне заявка терялась молча).
                         scope.launch {
@@ -1984,7 +2015,8 @@ internal fun HelpScreen(
                                 .onFailure { Toast.makeText(ctx, supportErr, Toast.LENGTH_SHORT).show() }
                         }
                     })
-                    SettingsNavRow(Icons.Default.HeadsetMic, appText("Написать в Telegram", "Telegram-ға яҙыу"), appText("Открыть чат поддержки Юлдаш", "Юлдаш ярҙам чатын асыу"), onClick = {
+                    // Доп. вариант — Telegram (кому привычнее). Основной путь — внутренний чат выше.
+                    SettingsNavRow(Icons.Default.Send, appText("Написать в Telegram", "Telegram-ға яҙыу"), appText("Дополнительно — чат в Telegram", "Өҫтәмә — Telegram чаты"), onClick = {
                         runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/bairas_ntv")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                     })
                 }

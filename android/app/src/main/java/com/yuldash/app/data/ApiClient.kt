@@ -1319,6 +1319,68 @@ object ApiClient {
         return call("POST", "/notifications/read", body, auth = true).map { it.optInt("unread") }
     }
 
+    // ---------- Поддержка Юлдаш (обращения в поддержку, тикеты) ----------
+    private fun JSONObject.toSupportMessageDto() = SupportMessageDto(
+        id = optInt("id"),
+        sender = optString("sender"),          // user | admin
+        body = optString("body"),
+        createdAt = optString("created_at"),
+    )
+
+    private fun JSONObject.toSupportTicketDto() = SupportTicketDto(
+        id = optInt("id"),
+        subject = optString("subject"),
+        status = optString("status"),          // open | closed
+        createdAt = optString("created_at"),
+        updatedAt = optString("updated_at"),
+        messages = (optJSONArray("messages") ?: JSONArray()).let { a ->
+            (0 until a.length()).map { a.getJSONObject(it).toSupportMessageDto() }
+        },
+    )
+
+    /** Список моих обращений + счётчик непрочитанного (бейдж). */
+    suspend fun getSupportTickets(): Result<SupportListDto> =
+        call("GET", "/support/tickets", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            SupportListDto(
+                unread = obj.optInt("unread"),
+                items = (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    SupportTicketRowDto(
+                        id = o.optInt("id"),
+                        subject = o.optString("subject"),
+                        status = o.optString("status"),
+                        lastMessage = o.optString("last_message"),
+                        lastSender = o.optString("last_sender"),
+                        unread = o.optBoolean("unread"),
+                        createdAt = o.optString("created_at"),
+                        updatedAt = o.optString("updated_at"),
+                    )
+                },
+            )
+        }
+
+    /** Один тред обращения (сообщения user/admin). Чужой → 404 (ApiException). */
+    suspend fun getSupportTicket(id: Int): Result<SupportTicketDto> =
+        call("GET", "/support/tickets/$id", null, auth = true).map { it.toSupportTicketDto() }
+
+    /** Создать обращение: тема (опц.) + текст. Возврат — созданный тред. */
+    suspend fun createSupportTicket(subject: String?, body: String): Result<SupportTicketDto> {
+        val json = JSONObject().put("body", body)
+        if (!subject.isNullOrBlank()) json.put("subject", subject)
+        return call("POST", "/support/tickets", json, auth = true).map { it.toSupportTicketDto() }
+            .onSuccess { Analytics.log("support_ticket_create") }
+    }
+
+    /** Дописать сообщение в тред. На закрытый тикет — сервер переоткрывает. */
+    suspend fun postSupportMessage(id: Int, body: String): Result<SupportMessageDto> =
+        call("POST", "/support/tickets/$id/messages", JSONObject().put("body", body), auth = true)
+            .map { it.toSupportMessageDto() }
+
+    /** Закрыть обращение (пользователь). */
+    suspend fun closeSupportTicket(id: Int): Result<Unit> =
+        call("POST", "/support/tickets/$id/close", JSONObject(), auth = true).map { }
+
     // ---------- Подписка на маршрут «карауль поездку» (F13) ----------
     /** Подписаться на маршрут: как только появится подходящая поездка — придёт уведомление. */
     suspend fun createRouteWatch(
@@ -1887,6 +1949,36 @@ object ApiClient {
     suspend fun instantCancel(id: Int, reason: String = ""): Result<InstantOrderDto> =
         call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true).map { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_order_cancel") }
+
+    // ---------- Предзаказ такси «на время» (scheduled) ----------
+    /** Создать предзаказ на будущее время: тело как у обычного заказа + scheduledAt (ISO). Статус scheduled. */
+    suspend fun scheduleInstantOrder(
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        scheduledAt: String, fromText: String = "", toText: String = "", category: String = "standard",
+    ): Result<InstantOrderDto> =
+        call(
+            "POST", "/instant/schedule",
+            instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category).put("scheduled_at", scheduledAt),
+            auth = true,
+        ).map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_schedule") }
+
+    /** Мои предзаказы: ещё ждут (scheduled) + только что активированные ко времени (activated). */
+    suspend fun getScheduledOrders(): Result<ScheduledOrdersDto> =
+        call("GET", "/instant/scheduled", null, auth = true).map { obj ->
+            fun arr(key: String) = (obj.optJSONArray(key) ?: JSONArray()).let { a ->
+                (0 until a.length()).map { a.getJSONObject(it).toInstantOrderDto() }
+            }
+            ScheduledOrdersDto(scheduled = arr("scheduled"), activated = arr("activated"))
+        }
+
+    /** Активировать предзаказ вручную → перевод в поиск (цена пересчитывается на сервере). */
+    suspend fun activateScheduledOrder(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/scheduled/$id/activate", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+            .onSuccess { Analytics.log("instant_schedule_activate") }
+
+    /** Отменить предзаказ. */
+    suspend fun cancelScheduledOrder(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/scheduled/$id/cancel", JSONObject(), auth = true).map { it.toInstantOrderDto() }
 
     // ---------- Такси-гейт + онбординг таксиста (580-ФЗ) ----------
     // Пассажирский гейт: доступно ли такси в его точке. Водительский гейт: заявка «Стать таксистом»
@@ -3066,9 +3158,13 @@ data class InstantOrderDto(
     val driverPhone: String,      // виден пассажиру после accept
     val passengerName: String,    // виден водителю после accept
     val passengerPhone: String,   // виден водителю после accept
+    // Предзаказ «на время» (scheduled): ISO времени подачи. null = обычный (мгновенный) заказ.
+    val scheduledAt: String? = null,
 ) {
     /** Терминальный статус — заказ окончен (успех/отмена/протух). */
     val isTerminal: Boolean get() = status == "done" || status == "cancelled" || status == "expired"
+    /** Предзаказ «на время», ещё не отправлен в поиск. */
+    val isScheduled: Boolean get() = status == "scheduled"
     /** Идёт подбор водителя (машину ещё ищем). */
     val isSearching: Boolean get() = status == "created" || status == "searching" || status == "offered"
     /** Водитель назначен и заказ активен (телефон раскрыт). */
@@ -3113,6 +3209,13 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     driverPhone = optString("driver_phone"),
     passengerName = optString("passenger_name"),
     passengerPhone = optString("passenger_phone"),
+    scheduledAt = if (isNull("scheduled_at")) null else optString("scheduled_at").ifBlank { null },
+)
+
+/** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */
+data class ScheduledOrdersDto(
+    val scheduled: List<InstantOrderDto>,
+    val activated: List<InstantOrderDto>,
 )
 
 /** Доступность такси в точке (гейт пассажира). reason: ok | global_off | city_off.
@@ -3665,6 +3768,39 @@ data class NotifDto(
 
 /** Лента уведомлений: непрочитанные сверху + счётчик непрочитанного (бейдж). */
 data class NotifFeed(val unread: Int, val items: List<NotifDto>)
+
+/** Одно сообщение в обращении в поддержку. sender: user | admin. */
+data class SupportMessageDto(
+    val id: Int,
+    val sender: String,
+    val body: String,
+    val createdAt: String,
+)
+
+/** Тред обращения в поддержку (список сообщений). status: open | closed. */
+data class SupportTicketDto(
+    val id: Int,
+    val subject: String,
+    val status: String,
+    val createdAt: String,
+    val updatedAt: String,
+    val messages: List<SupportMessageDto>,
+)
+
+/** Строка списка «Мои обращения»: последнее сообщение + метка непрочитанного. */
+data class SupportTicketRowDto(
+    val id: Int,
+    val subject: String,
+    val status: String,          // open | closed
+    val lastMessage: String,
+    val lastSender: String,      // user | admin
+    val unread: Boolean,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+/** Список моих обращений + счётчик непрочитанного (бейдж на входе «Поддержка»). */
+data class SupportListDto(val unread: Int, val items: List<SupportTicketRowDto>)
 
 /** Подписка на маршрут «карауль поездку» (F13). */
 data class RouteWatchDto(

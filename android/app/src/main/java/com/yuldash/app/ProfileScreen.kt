@@ -843,6 +843,7 @@ internal fun PassengerCabinetScreen(
     onFindRide: () -> Unit,
     onCreateRequest: () -> Unit,
     onInstantOrder: () -> Unit = {},
+    onScheduledOrders: () -> Unit = {},
     onWallet: () -> Unit = {},
     onSavedPlaces: () -> Unit = {},
     onSafety: () -> Unit
@@ -902,6 +903,7 @@ internal fun PassengerCabinetScreen(
             onFindRide = onFindRide,
             onCreateRequest = onCreateRequest,
             onInstantOrder = onInstantOrder,
+            onScheduledOrders = onScheduledOrders,
             onWallet = onWallet,
             onSavedPlaces = onSavedPlaces,
             onSafety = onSafety,
@@ -932,6 +934,7 @@ internal fun PassengerCabinetContent(
     onCreateRequest: () -> Unit,
     onInstantOrder: () -> Unit,
     onSafety: () -> Unit,
+    onScheduledOrders: () -> Unit = {},
     onWallet: () -> Unit = {},
     onSavedPlaces: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -1026,6 +1029,7 @@ internal fun PassengerCabinetContent(
         item {
             SettingsGroup {
                 SettingsNavRow(Icons.Default.Search, appText("Найти поездку", "Сәфәр табыу"), appText("Открыть список ближайших маршрутов", "Яҡындағы маршруттарҙы асыу"), onClick = onFindRide)
+                SettingsNavRow(Icons.Default.Schedule, appText("Мои предзаказы", "Минең алдан заказдар"), appText("Такси «на время»: обратный отсчёт и поиск", "«Ваҡытҡа» такси: кире иҫәп һәм эҙләү"), onClick = onScheduledOrders)
                 SettingsNavRow(Icons.Default.AddRoad, appText("Создать заявку", "Заявка булдырыу"), appText("Если готовой поездки нет", "Әҙер сәфәр булмаһа"), onClick = onCreateRequest)
                 SettingsNavRow(Icons.Default.Bookmark, appText("Мои адреса", "Минең адрестар"), appText("Дом, работа и любимые места", "Өй, эш һәм яратҡан урындар"), onClick = onSavedPlaces)
                 SettingsNavRow(Icons.Default.AccountBalanceWallet, appText("Кошелёк", "Янсыҡ"), appText("Баланс и история операций", "Баланс һәм операциялар тарихы"), onClick = onWallet)

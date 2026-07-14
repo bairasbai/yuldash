@@ -832,7 +832,8 @@ internal fun SettingsNavRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    badge: Int = 0,   // >0 → зелёный бейдж непрочитанного (напр. новые ответы поддержки)
 ) {
     val modifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier
     Row(modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -843,6 +844,16 @@ internal fun SettingsNavRow(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
             Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+        }
+        if (badge > 0) {
+            Surface(color = CanonGreen2, shape = RoundedCornerShape(999.dp)) {
+                Text(
+                    if (badge > 99) "99+" else badge.toString(),
+                    color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+            Spacer(Modifier.width(8.dp))
         }
         if (onClick != null) {
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
