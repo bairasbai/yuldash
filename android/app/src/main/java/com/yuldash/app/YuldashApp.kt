@@ -995,6 +995,7 @@ internal fun YuldashApp() {
                 onFindRide = { openHome(HomeTab.Map) },
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onInstantOrder = { if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder else screen = Screen.Login },
+                onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
                 onSafety = { screen = Screen.Safety }
             )
             Screen.DriverCabinet -> DriverCabinetScreen(
@@ -1005,7 +1006,9 @@ internal fun YuldashApp() {
                 onBoost = { screen = Screen.Boost },
                 onRequestsFeed = { screen = Screen.RequestsFeed },
                 onInstantTrip = { id -> instantTripOrderId = id; screen = Screen.InstantDriverTrip },
-                onTaxiOnboarding = { screen = Screen.TaxiOnboarding }
+                onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
+                onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
+                onEarnings = { if (ApiClient.isLoggedIn()) screen = Screen.DriverEarnings else screen = Screen.Login }
             )
             Screen.InstantOrder -> InstantOrderScreen(
                 onBack = { goBack() },
@@ -1117,6 +1120,8 @@ internal fun YuldashApp() {
                 }
             )
             Screen.MyStats -> MyStatsScreen(onBack = { goBack() })
+            Screen.Wallet -> WalletScreen(onBack = { goBack() })
+            Screen.DriverEarnings -> DriverEarningsScreen(onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })

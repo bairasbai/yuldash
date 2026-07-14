@@ -75,6 +75,7 @@ import androidx.compose.material.icons.filled.SmokingRooms
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Autorenew
@@ -841,6 +842,7 @@ internal fun PassengerCabinetScreen(
     onFindRide: () -> Unit,
     onCreateRequest: () -> Unit,
     onInstantOrder: () -> Unit = {},
+    onWallet: () -> Unit = {},
     onSafety: () -> Unit
 ) {
     // Реальные брони и заявки пользователя (раньше метрики и карточка брались из демо-списка).
@@ -898,6 +900,7 @@ internal fun PassengerCabinetScreen(
             onFindRide = onFindRide,
             onCreateRequest = onCreateRequest,
             onInstantOrder = onInstantOrder,
+            onWallet = onWallet,
             onSafety = onSafety,
             modifier = Modifier.padding(padding),
             restrictions = restrictions,
@@ -926,6 +929,7 @@ internal fun PassengerCabinetContent(
     onCreateRequest: () -> Unit,
     onInstantOrder: () -> Unit,
     onSafety: () -> Unit,
+    onWallet: () -> Unit = {},
     modifier: Modifier = Modifier,
     // Ограничения качества (§9): карточка «Мои ограничения» (пусто → не показывается).
     restrictions: com.yuldash.app.data.RestrictionsDto? = null,
@@ -1019,6 +1023,7 @@ internal fun PassengerCabinetContent(
             SettingsGroup {
                 SettingsNavRow(Icons.Default.Search, appText("Найти поездку", "Сәфәр табыу"), appText("Открыть список ближайших маршрутов", "Яҡындағы маршруттарҙы асыу"), onClick = onFindRide)
                 SettingsNavRow(Icons.Default.AddRoad, appText("Создать заявку", "Заявка булдырыу"), appText("Если готовой поездки нет", "Әҙер сәфәр булмаһа"), onClick = onCreateRequest)
+                SettingsNavRow(Icons.Default.AccountBalanceWallet, appText("Кошелёк", "Янсыҡ"), appText("Баланс и история операций", "Баланс һәм операциялар тарихы"), onClick = onWallet)
                 SettingsNavRow(Icons.Default.Shield, appText("Безопасность поездки", "Сәфәр хәүефһеҙлеге"), appText("SOS, скрытый номер и доверенные контакты", "SOS, йәшерен номер һәм ышаныслы контакттар"), onClick = onSafety)
             }
         }
@@ -1034,7 +1039,9 @@ internal fun DriverCabinetScreen(
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit = {},
     onInstantTrip: (Int) -> Unit = {},   // «Быстрый заказ»: принял входящий оффер → экран поездки водителя
-    onTaxiOnboarding: () -> Unit = {}    // гейт такси (580-ФЗ): нет одобренной заявки → «Стать таксистом»
+    onTaxiOnboarding: () -> Unit = {},   // гейт такси (580-ФЗ): нет одобренной заявки → «Стать таксистом»
+    onWallet: () -> Unit = {},           // Кошелёк: баланс + история операций (ledger)
+    onEarnings: () -> Unit = {}          // «Мой заработок»: заработок по периодам + по дням
 ) {
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
@@ -1302,6 +1309,8 @@ internal fun DriverCabinetScreen(
             workday = workday,
             restrictions = restrictions,
             scheduleSection = { DriverScheduleSection() },
+            onWallet = onWallet,
+            onEarnings = onEarnings,
         )
     }
     // Шторка выбора зоны работы (география, волна 2): открывается с чипа или при выходе на линию без зоны.
@@ -1811,6 +1820,8 @@ internal fun DriverCabinetContent(
     restrictions: com.yuldash.app.data.RestrictionsDto? = null,
     // F17: слот «Регулярные маршруты» (сеть/стейт снаружи → Content остаётся чистым и тестируемым).
     scheduleSection: (@Composable () -> Unit)? = null,
+    onWallet: () -> Unit = {},       // Кошелёк: баланс + история операций
+    onEarnings: () -> Unit = {},     // «Мой заработок»: по периодам + по дням
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     val ridesDone = archive.count { it.status == "done" }
@@ -2090,6 +2101,13 @@ internal fun DriverCabinetContent(
             else -> items(archive, key = { "arch-${it.id}" }) { ride -> ArchiveRideCard(ride) }
         }
         scheduleSection?.let { section -> item { section() } }
+        // «Мой заработок» + «Кошелёк» — рядом с Архивом: деньги водителя одним разделом.
+        item {
+            SettingsGroup {
+                SettingsNavRow(Icons.Default.Insights, appText("Мой заработок", "Минең табыш"), appText("Заработок по неделям, месяцам и дням", "Аҙна, ай һәм көн буйынса табыш"), onClick = onEarnings)
+                SettingsNavRow(Icons.Default.AccountBalanceWallet, appText("Кошелёк", "Янсыҡ"), appText("Баланс и история операций", "Баланс һәм операциялар тарихы"), onClick = onWallet)
+            }
+        }
         item {
             SettingsGroup {
                 SettingsNavRow(Icons.Default.ListAlt, appText("Заявки пассажиров", "Пассажир заявкалары"), appText("Откликнуться и предложить поездку", "Яуап биреп сәфәр тәҡдим итеү"), onClick = onRequestsFeed)

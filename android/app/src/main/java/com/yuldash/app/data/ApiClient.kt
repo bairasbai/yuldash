@@ -2870,6 +2870,49 @@ object ApiClient {
 
     suspend fun adminRejectCourier(id: Int, reason: String): Result<Unit> =
         call("POST", "/admin/courier-applications/$id/reject", JSONObject().put("reason", reason), auth = true).map { }
+
+    // ---------- Кошелёк водителя (Деньги v1, ledger) ----------
+    // Приватность: всегда по СВОЕМУ токену — чужой кошелёк/историю не запросить (сервер фильтрует по id).
+
+    /** Баланс кошелька (сумма всех записей ledger). Копейки + рубли. */
+    suspend fun getWalletBalance(): Result<WalletBalanceDto> =
+        call("GET", "/wallet/balance", null, auth = true).map { o ->
+            WalletBalanceDto(balanceKop = o.optInt("balance_kop"), balanceRub = o.optInt("balance_rub"))
+        }
+
+    /** История операций кошелька (начисления/комиссии/выплаты). Ответ — массив (call() кладёт в "items"). */
+    suspend fun getWalletLedger(limit: Int = 50): Result<List<WalletLedgerEntryDto>> =
+        call("GET", "/wallet/ledger?limit=$limit", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                WalletLedgerEntryDto(
+                    id = o.optInt("id"),
+                    kind = o.optString("kind"),
+                    amountKop = o.optInt("amount_kop"),
+                    orderId = if (o.isNull("order_id")) null else o.optInt("order_id"),
+                    bookingId = if (o.isNull("booking_id")) null else o.optInt("booking_id"),
+                    note = o.optString("note"),
+                    createdAt = o.optString("created_at"),
+                )
+            }
+        }
+
+    /** История заработка водителя за период (week|month|all): суммарно + разбивка по дням.
+     *  ВАЖНО: total/sum — в РУБЛЯХ (₽, целые), НЕ в копейках (см. backend debt.py::driver_earnings). */
+    suspend fun getDriverEarnings(period: String = "week"): Result<DriverEarningsDto> =
+        call("GET", "/driver/earnings?period=$period", null, auth = true).map { o ->
+            val arr = o.optJSONArray("by_day") ?: JSONArray()
+            DriverEarningsDto(
+                period = o.optString("period", period),
+                total = o.optInt("total"),
+                trips = o.optInt("trips"),
+                byDay = (0 until arr.length()).map { i ->
+                    val d = arr.getJSONObject(i)
+                    DriverEarningsDayDto(date = d.optString("date"), sum = d.optInt("sum"), trips = d.optInt("trips"))
+                },
+            )
+        }
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
@@ -3596,6 +3639,29 @@ data class DriverDebtDto(
 data class AdminDebtDto(
     val debtId: Int, val driverId: Int, val driverName: String, val driverPhone: String,
     val amount: Int, val weeks: List<String>,
+)
+/** Баланс кошелька водителя (GET /wallet/balance). rub = kop // 100 (считает сервер). */
+data class WalletBalanceDto(val balanceKop: Int, val balanceRub: Int)
+/** Запись истории кошелька (GET /wallet/ledger). amountKop: приход > 0, списание/комиссия < 0.
+ *  kind: earn (начисление за поездку) / fee (комиссия сервиса) / payout … note — человекочитаемо. */
+data class WalletLedgerEntryDto(
+    val id: Int,
+    val kind: String,
+    val amountKop: Int,
+    val orderId: Int?,
+    val bookingId: Int?,
+    val note: String,
+    val createdAt: String,
+)
+/** День в разбивке заработка (GET /driver/earnings). sum — в ₽ (не копейки). */
+data class DriverEarningsDayDto(val date: String, val sum: Int, val trips: Int)
+/** Заработок водителя за период (GET /driver/earnings?period=week|month|all).
+ *  total/sum — в РУБЛЯХ (₽, целые): сумма цен завершённых такси-заказов. */
+data class DriverEarningsDto(
+    val period: String,
+    val total: Int,
+    val trips: Int,
+    val byDay: List<DriverEarningsDayDto>,
 )
 /** F18 «Мой Юлдаш» — личная статистика попутчика (GET /me/stats). */
 data class MyStatsDto(
