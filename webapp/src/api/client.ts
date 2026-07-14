@@ -149,3 +149,12 @@ export function apiDelete<T>(
 ): Promise<T> {
   return request<T>(path, { method: "DELETE", auth: opts?.auth, signal: opts?.signal });
 }
+
+/** Загрузка файла (multipart). Content-Type НЕ ставим — браузер сам добавит boundary. */
+export function apiUpload<T>(
+  path: string,
+  form: FormData,
+  opts?: { signal?: AbortSignal }
+): Promise<T> {
+  return request<T>(path, { method: "POST", body: form, signal: opts?.signal });
+}

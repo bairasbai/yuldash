@@ -27,6 +27,12 @@ import MyStatsScreen from "./screens/MyStatsScreen";
 import RouteWatchesScreen from "./screens/RouteWatchesScreen";
 import ClinicRidesScreen from "./screens/ClinicRidesScreen";
 import PassengerCabinetScreen from "./screens/PassengerCabinetScreen";
+import CreateRideScreen from "./screens/CreateRideScreen";
+import DriverCabinetScreen from "./screens/DriverCabinetScreen";
+import DriverProfileScreen from "./screens/DriverProfileScreen";
+import DriverEarningsScreen from "./screens/DriverEarningsScreen";
+import BoostScreen from "./screens/BoostScreen";
+import VerifyDriverScreen from "./screens/VerifyDriverScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -64,6 +70,8 @@ export default function App() {
         <Route path="/filters" element={<FiltersScreen />} />
         {/* Клиники — публичная витрина «поездки к клинике» */}
         <Route path="/clinics" element={<ClinicRidesScreen />} />
+        {/* Публичный профиль водителя — открывается тапом с карточки поездки */}
+        <Route path="/drivers/:id" element={<DriverProfileScreen />} />
         {/* Приватное — только с токеном */}
         <Route
           path="/request"
@@ -166,6 +174,47 @@ export default function App() {
           element={
             <RequireAuth>
               <RouteWatchesScreen />
+            </RequireAuth>
+          }
+        />
+        {/* --- Волна 3: водитель --- */}
+        <Route
+          path="/driver"
+          element={
+            <RequireAuth>
+              <DriverCabinetScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/create-ride"
+          element={
+            <RequireAuth>
+              <CreateRideScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/earnings"
+          element={
+            <RequireAuth>
+              <DriverEarningsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/boost"
+          element={
+            <RequireAuth>
+              <BoostScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/verify-driver"
+          element={
+            <RequireAuth>
+              <VerifyDriverScreen />
             </RequireAuth>
           }
         />

@@ -87,23 +87,34 @@ export default function RideSheet({
         {ride.comment && <p className="sheet__comment">{ride.comment}</p>}
 
         <div className="sheet__driver">
-          <span className="ride-card__avatar" aria-hidden>
-            {(ride.driver_name || "?").trim().charAt(0).toUpperCase()}
-          </span>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="ride-card__driver-name">
-              {ride.driver_name}
-              {ride.driver_verified && (
-                <span className="badge badge--mint" style={{ marginLeft: 6 }}>
-                  ✓ {appText("Проверен", "Тикшерелгән")}
+          <button
+            type="button"
+            className="sheet__driver-link"
+            onClick={() => navigate(`/drivers/${ride.driver_id}`)}
+            aria-label={appText("Открыть профиль водителя", "Водитель профилен асыу")}
+          >
+            <span className="ride-card__avatar" aria-hidden>
+              {(ride.driver_name || "?").trim().charAt(0).toUpperCase()}
+            </span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="ride-card__driver-name">
+                {ride.driver_name}
+                {ride.driver_verified && (
+                  <span className="badge badge--mint" style={{ marginLeft: 6 }}>
+                    ✓ {appText("Проверен", "Тикшерелгән")}
+                  </span>
+                )}
+              </div>
+              <div className="ride-card__driver-sub">
+                <IconStar size={13} /> {ride.driver_rating?.toFixed(1) ?? "—"}
+                {ride.driver_car ? ` · ${ride.driver_car}` : ""}
+                <span className="sheet__driver-more">
+                  {" · "}
+                  {appText("профиль", "профиль")}
                 </span>
-              )}
+              </div>
             </div>
-            <div className="ride-card__driver-sub">
-              <IconStar size={13} /> {ride.driver_rating?.toFixed(1) ?? "—"}
-              {ride.driver_car ? ` · ${ride.driver_car}` : ""}
-            </div>
-          </div>
+          </button>
           <div className="ride-card__price">{priceLabel(ride.price, ru)}</div>
         </div>
 

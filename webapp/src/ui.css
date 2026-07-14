@@ -2178,3 +2178,438 @@ button.list-row:active {
   font-size: 14px;
   line-height: 1.5;
 }
+
+/* ================================================================
+   Волна 3 — Водитель (кабинет, профиль, заработок, boost, проверка)
+   Цвета — только токены Canon. Светлая/тёмная — автоматически.
+   ================================================================ */
+
+/* --- Плашка-CTA проверки в кабинете --- */
+.trust-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--warn-bg);
+  color: var(--warn);
+  text-align: left;
+  animation: fadeUp 0.35s ease both;
+}
+.trust-cta.is-static {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.trust-cta__emoji {
+  font-size: 22px;
+  flex: none;
+}
+.trust-cta__text {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* --- Дни недели (расписание) --- */
+.weekday-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+.weekday-chip {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.weekday-chip:active {
+  transform: scale(0.94);
+}
+.weekday-chip.is-active {
+  background: var(--green-btn);
+  border-color: var(--green-btn);
+  color: #fff;
+}
+
+/* --- Публичный профиль водителя --- */
+.dprofile-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px 16px 4px;
+  animation: fadeUp 0.35s ease both;
+}
+.dprofile-avatar {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 30px;
+  font-weight: 800;
+  border: 1px solid var(--border);
+}
+.dprofile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.dprofile-name {
+  margin-top: 12px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.dprofile-meta {
+  margin-top: 8px;
+}
+.dprofile-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 800;
+  color: var(--text);
+}
+.dprofile-rating svg {
+  color: var(--canon-star);
+}
+.dprofile-rating__count {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 14px;
+}
+.dprofile-car {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.dprofile-since {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* --- Отзывы --- */
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.review-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.review-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.review-card__author {
+  font-weight: 700;
+  color: var(--text);
+}
+.review-card__stars {
+  color: var(--canon-star);
+  letter-spacing: 1px;
+  font-size: 14px;
+}
+.review-card__stars-off {
+  color: var(--border);
+}
+.review-card__text {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.review-card__date {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* --- Заработок: столбики по дням --- */
+.earn-chart {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 2px 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.earn-bar {
+  flex: 0 0 auto;
+  width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.earn-bar__value {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--green);
+}
+.earn-bar__track {
+  width: 26px;
+  height: 120px;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 10px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.earn-bar__fill {
+  width: 100%;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(180deg, var(--canon-green-bright), var(--green-btn));
+  transition: height 0.4s ease;
+}
+.earn-bar__label {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.earn-bar__trips {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+/* --- Boost: выбор поездки + планы --- */
+.boost-ride {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.boost-ride + .boost-ride {
+  margin-top: 8px;
+}
+.boost-ride.is-active {
+  border-color: var(--green-btn);
+  background: var(--mint);
+}
+.boost-ride svg {
+  color: var(--green);
+  flex: none;
+}
+.plan-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.plan-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 16px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: left;
+  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+  animation: fadeUp 0.35s ease both;
+}
+.plan-card:active {
+  transform: scale(0.98);
+}
+.plan-card.is-active {
+  border-color: var(--green-btn);
+  background: var(--mint);
+}
+.plan-card__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+}
+.plan-card.is-active .plan-card__icon {
+  background: var(--surface);
+}
+.plan-card__title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+}
+.plan-card__hours {
+  font-size: 13px;
+  color: var(--muted);
+}
+.plan-card__price {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--green);
+}
+
+/* --- Оплата по СБП «на доверии» --- */
+.pay-sbp {
+  animation: fadeUp 0.35s ease both;
+}
+.pay-sbp__amount {
+  text-align: center;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+  margin-top: 8px;
+}
+.pay-sbp__hint {
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 8px 0 16px;
+}
+.pay-sbp__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.pay-sbp__row + .pay-sbp__row {
+  margin-top: 10px;
+}
+.pay-sbp__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pay-sbp__value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* --- Проверка водителя: слоты фото + правила --- */
+.photo-slot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px;
+  margin-top: 12px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.photo-slot.is-done {
+  border-style: solid;
+  border-color: var(--green-btn);
+  background: var(--mint);
+}
+.photo-slot__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--green);
+}
+.photo-slot.is-done .photo-slot__icon {
+  background: var(--surface);
+}
+.photo-slot__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.photo-slot__text b {
+  font-size: 15px;
+  font-weight: 700;
+}
+.photo-slot__text span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.verify-rules {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.verify-rules__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  color: var(--text);
+}
+.verify-rules__head svg {
+  color: var(--green);
+}
+.verify-rules ul {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+.verify-rules li {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.verify-rules p {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* --- Ссылка на профиль водителя в шторке --- */
+.sheet__driver-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  color: inherit;
+}
+.sheet__driver-link:active {
+  opacity: 0.7;
+}
+.sheet__driver-more {
+  color: var(--green);
+  font-weight: 600;
+}

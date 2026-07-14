@@ -26,6 +26,7 @@ export interface Ride {
   child_seat?: boolean;
   pets_allowed?: boolean;
   boosted?: boolean;
+  status?: "active" | "done" | "cancelled" | string; // есть в /driver/rides (RideOut)
   driver_name: string;
   driver_rating: number;
   driver_verified: boolean;

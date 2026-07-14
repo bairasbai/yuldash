@@ -202,3 +202,40 @@ export const IconTrend = ({ size = 22 }: P) => (
     <path d="M16 7h4v4" />
   </svg>
 );
+
+export const IconRocket = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M12 3c3.5 1.5 5.5 4.5 5.5 8.5L15 14H9l-2.5-2.5C6.5 7.5 8.5 4.5 12 3Z" />
+    <circle cx="12" cy="9.5" r="1.6" />
+    <path d="M9 14l-2 4M15 14l2 4M12 15v4" />
+  </svg>
+);
+
+export const IconCalendar = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <rect x="4" y="5" width="16" height="16" rx="2.5" />
+    <path d="M4 9h16M8 3v4M16 3v4" />
+  </svg>
+);
+
+export const IconCamera = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+    <circle cx="12" cy="13" r="3.2" />
+  </svg>
+);
+
+export const IconWheel = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="2.6" />
+    <path d="M12 14.6V21M9.7 11.2 4.2 8M14.3 11.2 19.8 8" />
+  </svg>
+);
+
+export const IconPower = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M12 3v9" />
+    <path d="M7.5 6.5a7 7 0 1 0 9 0" />
+  </svg>
+);

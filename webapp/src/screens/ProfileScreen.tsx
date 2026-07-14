@@ -14,6 +14,7 @@ import {
   IconBell,
   IconFilter,
   IconHospital,
+  IconWheel,
 } from "../components/Icons";
 
 function initials(name: string): string {
@@ -45,6 +46,14 @@ export default function ProfileScreen() {
       icon: <IconRides size={22} />,
       title: appText("Мои поездки", "Сәфәрҙәрем"),
       sub: appText("Кабинет пассажира: поездки и разделы", "Юлаусы кабинеты: сәфәрҙәр һәм бүлектәр"),
+      authed: true,
+    },
+    {
+      key: "driver",
+      to: "/driver",
+      icon: <IconWheel size={22} />,
+      title: appText("Я водитель", "Мин водитель"),
+      sub: appText("Публикация поездок, заявки, заработок", "Сәфәр баҫтырыу, заявкалар, табыш"),
       authed: true,
     },
     {

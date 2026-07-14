@@ -109,8 +109,49 @@ RepeatTrip, MyStats, RouteWatches, ClinicRides, PassengerCabinet.
 `/my-routes` — на проде появятся после мержа release. До мержа отдают 404 → экраны показывают
 мягкое пустое/«скоро» состояние без краша.
 
-### Волна 3 — Попутка, водитель (6)
-CreateRide, DriverCabinet, DriverProfile (публичный), DriverEarnings, Boost, VerifyDriver.
+### ✅ Волна 3 — Попутка, водитель (6) (готово, сборка зелёная)
+6 экранов + связки. Все состояния (загрузка/пусто/ошибка/«скоро»), два языка
+(ба-черновик → `BASHKIR_DRAFT.md`), токены Canon, safe-area, тач-цели ≥48px,
+мягкая деградация 404/«скоро».
+
+**Экраны и роуты:**
+- `CreateRideScreen` → `/create-ride` (RequireAuth): публикация поездки водителем.
+  Маршрут (откуда/куда), тип (обычная/срочно/«В больницу» → выбор клиники из
+  `GET /medical-partners`, привязка `partner_id`), дата/время, места, цена, удобства
+  (чипы), «только для своих», регулярность (recurrence none/daily/weekdays/weekly).
+  `POST /rides`. Успех → CTA «Поднять в ленте» (Boost) / кабинет.
+- `DriverCabinetScreen` → `/driver` (RequireAuth): тумблер «Я на линии»
+  (`POST /driver/online`), плашка статуса модерации (`GET /driver/status` → docs_status),
+  счётчики (активные рейсы / пассажиры), быстрый доступ (Заявки пассажиров → `/requests-feed`,
+  Мой заработок, Boost, Стать таксистом — заглушка волны 4), регулярные маршруты
+  (`GET/POST/DELETE /driver/schedule`, добавление днями недели + время), «Мои поездки/Архив»
+  (`GET /driver/rides?status=all` — маршрут/время/цена/занято + статус-пилюля).
+- `DriverProfileScreen` → `/drivers/:id` (ПУБЛИЧНО): `GET /drivers/{id}/public` — фото,
+  бейдж «Проверен», стаж (дни → лет/мес/дн), число поездок, средний рейтинг, отзывы (без
+  телефона) + публичные регулярные маршруты (`GET /drivers/{id}/schedule`, мягко). Открывается
+  тапом по водителю из `RideSheet`.
+- `DriverEarningsScreen` → `/earnings` (RequireAuth): `GET /driver/earnings?period=week|month|all`
+  — плитки заработано ₽ / поездок + столбики по дням (`by_day[].sum/trips`). Суммы в РУБЛЯХ
+  (не копейках). Нули для новичка. 404/405 → мягкое «скоро».
+- `BoostScreen` → `/boost` (RequireAuth): планы (`GET /boost/plans`), выбор своей поездки
+  (`GET /driver/rides?status=active`), оплата (`POST /boost/create`). yookassa → редирект на
+  `confirmation_url`, назад → «Проверить оплату» (`GET /payments/{id}/status`); sbp_manual →
+  реквизиты СБП «на доверии» + «Я оплатил» (поллинг статуса); mock/dev → сразу succeeded.
+- `VerifyDriverScreen` → `/verify-driver` (RequireAuth): правила + данные авто
+  (`POST /driver/profile`) + загрузка фото прав/авто (`POST /upload/photo` multipart `file` →
+  защищённый url) → отправка (`POST /driver/verify {license_url, car_photo_url}`). Статус
+  проверки (none/pending/verified/rejected + причина) из `GET /driver/status`.
+
+**Инфраструктура:** `api/driver.ts` (online/status/rides/public/schedule/earnings/verify/upload/
+profile), `api/boost.ts` (plans/create/free/payment-status), `apiUpload` (multipart) в
+`api/client.ts`, `status?` в `api/rides.ts`, новые иконки (Rocket/Calendar/Camera/Power/Wheel),
+ссылка «Я водитель» в профиле, тап по водителю в `RideSheet` → публичный профиль, стили Canon
+для новых блоков в `ui.css` (профиль/отзывы/бары заработка/планы/СБП/слоты фото).
+
+**Зависит от деплоя release-2026-07:** `/driver/earnings`, `/driver/schedule`,
+`/drivers/{id}/schedule`, `/boost/*` — на проде появятся после мержа release. До мержа отдают
+404 → экраны показывают мягкое «скоро»/пустое состояние без краша. Оплата: провайдер (yookassa/
+sbp_manual/mock) настраивается на бэке — веб честно отражает все три ветки.
 
 ### Волна 4 — Такси (5)
 InstantOrder (пассажир), InstantDriverTrip, InstantChat, ScheduledOrders (предзаказ), TaxiOnboarding.
