@@ -15,6 +15,8 @@ import {
   IconFilter,
   IconHospital,
   IconWheel,
+  IconCar,
+  IconClock,
 } from "../components/Icons";
 
 function initials(name: string): string {
@@ -54,6 +56,30 @@ export default function ProfileScreen() {
       icon: <IconWheel size={22} />,
       title: appText("Я водитель", "Мин водитель"),
       sub: appText("Публикация поездок, заявки, заработок", "Сәфәр баҫтырыу, заявкалар, табыш"),
+      authed: true,
+    },
+    {
+      key: "taxi",
+      to: "/taxi",
+      icon: <IconCar size={22} />,
+      title: appText("Быстрый заказ", "Тиҙ заказ"),
+      sub: appText("Вызвать такси между своими", "Үҙебеҙ араһында такси саҡырыу"),
+      authed: true,
+    },
+    {
+      key: "taxi-drive",
+      to: "/taxi-drive",
+      icon: <IconWheel size={22} />,
+      title: appText("Я на линии (такси)", "Мин линияла (такси)"),
+      sub: appText("Принимай быстрые заказы рядом", "Яҡындағы тиҙ заказдарҙы ал"),
+      authed: true,
+    },
+    {
+      key: "scheduled",
+      to: "/scheduled",
+      icon: <IconClock size={22} />,
+      title: appText("Мои предзаказы", "Алдан заказдарым"),
+      sub: appText("Такси на время — заранее", "Ваҡытҡа такси — алдан"),
       authed: true,
     },
     {

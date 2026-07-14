@@ -37,6 +37,7 @@ import {
   IconTrash,
   IconCheck,
   IconChevron,
+  IconCar,
 } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
@@ -221,10 +222,13 @@ export default function DriverCabinetScreen() {
               <span className="cabinet-tile__icon"><IconRocket size={22} /></span>
               <span className="cabinet-tile__title">{appText("Поднять поездку", "Сәфәр күтәреү")}</span>
             </button>
-            <button type="button" className="cabinet-tile" onClick={() => navigate("/verify-driver")}>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/taxi-drive")}>
+              <span className="cabinet-tile__icon"><IconCar size={22} /></span>
+              <span className="cabinet-tile__title">{appText("Я на линии (такси)", "Мин линияла (такси)")}</span>
+            </button>
+            <button type="button" className="cabinet-tile" onClick={() => navigate("/taxi-onboarding")}>
               <span className="cabinet-tile__icon"><IconRides size={22} /></span>
               <span className="cabinet-tile__title">{appText("Стать таксистом", "Таксист булыу")}</span>
-              <span className="badge badge--gold cabinet-tile__soon">{appText("Скоро", "Тиҙҙән")}</span>
             </button>
           </div>
 

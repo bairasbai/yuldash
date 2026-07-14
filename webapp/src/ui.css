@@ -2613,3 +2613,527 @@ button.list-row:active {
   color: var(--green);
   font-weight: 600;
 }
+
+/* ================================================================
+   Волна 4 — Такси (быстрый заказ, предзаказ, оффер водителя)
+   ================================================================ */
+
+/* --- Точки маршрута (откуда/куда) --- */
+.taxi-route {
+  margin-top: 14px;
+  padding: 6px 4px;
+}
+.taxi-route__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  min-height: 56px;
+}
+.taxi-route__row + .taxi-route__row {
+  margin-top: 10px;
+}
+.taxi-route__dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.taxi-route__dot--a {
+  background: var(--canon-green-deep);
+  box-shadow: 0 0 0 4px rgba(11, 107, 58, 0.14);
+}
+.taxi-route__dot--b {
+  background: var(--canon-gold);
+  box-shadow: 0 0 0 4px rgba(245, 179, 1, 0.18);
+}
+.taxi-route__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.taxi-route__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.taxi-route__value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.taxi-route__input {
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  width: 100%;
+  padding: 0;
+  outline: none;
+}
+.taxi-route__input::placeholder {
+  color: var(--muted);
+  font-weight: 500;
+}
+.taxi-route__chosen {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+}
+.taxi-route__change {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--green);
+}
+
+/* Подсказки геокодера/быстрые адреса */
+.taxi-suggest {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.taxi-suggest__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 14px;
+  color: var(--text);
+  min-height: 48px;
+}
+.taxi-suggest__row:last-child {
+  border-bottom: none;
+}
+.taxi-suggest__row:active {
+  background: var(--surface-2);
+}
+.taxi-suggest__row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Классы (Эконом/Комфорт) --- */
+.taxi-classes {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.taxi-class {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  text-align: left;
+  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.taxi-class:active {
+  transform: scale(0.98);
+}
+.taxi-class.is-active {
+  border-color: var(--canon-green-deep);
+  background: var(--mint);
+}
+.taxi-class__icon {
+  color: var(--green);
+}
+.taxi-class__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.taxi-class__price {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+
+.taxi-surge {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--canon-gold-soft);
+  color: #6a4a00;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* --- Сейчас / На время --- */
+.taxi-when {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  padding: 5px;
+  background: var(--surface-2);
+  border-radius: 16px;
+}
+.taxi-when__tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.taxi-when__tab.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.taxi-estimate-hint {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* --- Поиск машины --- */
+.taxi-search {
+  margin-top: 24px;
+  text-align: center;
+  padding: 12px;
+}
+.taxi-search h2 {
+  margin: 18px 0 6px;
+  font-size: 20px;
+}
+.taxi-search p {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.taxi-search__pulse {
+  width: 92px;
+  height: 92px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--green);
+  background: var(--mint);
+  animation: taxiPulse 1.6s ease-in-out infinite;
+}
+@keyframes taxiPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47, 179, 110, 0.32); }
+  50% { box-shadow: 0 0 0 18px rgba(47, 179, 110, 0); }
+}
+.taxi-fare-line {
+  margin-top: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 14px;
+  color: var(--muted);
+}
+.taxi-fare-line b {
+  color: var(--green);
+  font-size: 16px;
+}
+
+/* --- Карточка водителя/пассажира в поездке --- */
+.taxi-driver {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.taxi-driver__avatar {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 22px;
+}
+.taxi-driver__info {
+  flex: 1;
+  min-width: 0;
+}
+.taxi-driver__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.taxi-driver__meta {
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.taxi-driver__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--canon-star);
+  font-weight: 600;
+}
+.taxi-driver__actions {
+  display: flex;
+  gap: 8px;
+}
+.taxi-icon-btn {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--green);
+}
+.taxi-icon-btn:active {
+  transform: scale(0.94);
+}
+.taxi-icon-btn--call {
+  background: var(--green-btn);
+  color: #fff;
+  border-color: transparent;
+}
+
+.taxi-note {
+  margin-top: 16px;
+  padding: 0 4px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* --- Завершение поездки --- */
+.taxi-done {
+  margin-top: 20px;
+  text-align: center;
+}
+.taxi-done__emoji {
+  font-size: 44px;
+}
+.taxi-fare {
+  margin-top: 8px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.taxi-fare span {
+  font-size: 14px;
+  color: var(--muted);
+}
+.taxi-fare b {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+.taxi-done__hint {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* --- Водитель: ожидание на линии --- */
+.taxi-online-wait {
+  margin-top: 22px;
+  text-align: center;
+  padding: 8px;
+}
+.taxi-online-wait h2 {
+  margin: 16px 0 6px;
+  font-size: 19px;
+}
+.taxi-online-wait p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* --- Оффер: полноэкранный оверлей --- */
+.offer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  background: rgba(6, 20, 12, 0.55);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease both;
+}
+.offer-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 22px 20px 20px;
+  border-radius: 26px;
+  background: var(--surface);
+  box-shadow: 0 -10px 50px rgba(0, 0, 0, 0.3);
+  animation: fadeUp 0.28s ease both;
+}
+.offer-card__timer {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--green-btn);
+  animation: taxiPulse 1.2s ease-in-out infinite;
+}
+.offer-card__title {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+}
+.offer-card__price {
+  text-align: center;
+  margin-top: 6px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green);
+}
+.offer-card__route {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.offer-card__pt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text);
+}
+.offer-card__meta {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.offer-card__actions {
+  margin-top: 18px;
+  display: flex;
+  gap: 12px;
+}
+.offer-card__actions .btn-ghost,
+.offer-card__actions .btn-primary {
+  flex: 1;
+}
+
+/* --- Предзаказы --- */
+.sched-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  animation: fadeUp 0.35s ease both;
+}
+.sched-card + .sched-card {
+  margin-top: 12px;
+}
+.sched-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.sched-card__when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.sched-card__meta {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.sched-card__actions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Чат заказа — на всю высоту */
+.chat--full {
+  margin-top: 12px;
+}
+.chat__readonly {
+  padding: 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}

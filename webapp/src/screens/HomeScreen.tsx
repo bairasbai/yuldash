@@ -16,7 +16,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
 import type { Ride } from "../api/rides";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
-import { IconRequest, IconRides, IconShield, IconGift, IconFilter } from "../components/Icons";
+import { IconRequest, IconRides, IconShield, IconGift, IconFilter, IconCar } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
 
@@ -111,6 +111,12 @@ export default function HomeScreen() {
   }, [reqs]);
 
   const quick = [
+    {
+      key: "taxi",
+      icon: <IconCar size={22} />,
+      title: appText("Вызвать такси", "Такси саҡырыу"),
+      onClick: () => navigate("/taxi"),
+    },
     {
       key: "create",
       icon: <IconRequest size={22} />,

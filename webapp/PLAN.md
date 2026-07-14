@@ -153,8 +153,49 @@ profile), `api/boost.ts` (plans/create/free/payment-status), `apiUpload` (multip
 404 → экраны показывают мягкое «скоро»/пустое состояние без краша. Оплата: провайдер (yookassa/
 sbp_manual/mock) настраивается на бэке — веб честно отражает все три ветки.
 
-### Волна 4 — Такси (5)
-InstantOrder (пассажир), InstantDriverTrip, InstantChat, ScheduledOrders (предзаказ), TaxiOnboarding.
+### ✅ Волна 4 — Такси (5) (готово, сборка зелёная)
+5 экранов + связки. Все состояния (загрузка/пусто/ошибка/«скоро»/гейт города), два языка
+(ба-черновик → `BASHKIR_DRAFT.md`), токены Canon, safe-area, тач-цели ≥48px, мягкая деградация 404.
+
+**Экраны и роуты:**
+- `InstantOrderScreen` → `/taxi` (RequireAuth): гейт города (`GET /instant/availability`) →
+  «Куда едем» (точка Б через геокодер `/geocode` + быстрые адреса Дом/Работа/недавние
+  `/places/saved`+`/places/recent`, карта + анонимные машинки `GET /instant/nearby-drivers`) →
+  оценка (`POST /instant/estimate`, обе цены из `options`) → выбор класса Эконом/Комфорт →
+  «Сейчас / На время». «Сейчас» → `POST /instant/orders`, «На время» → `POST /instant/schedule`
+  (ISO). Отслеживание: поллинг `GET /instant/orders/{id}` (3.5с) — searching/offered → «Ищем
+  машину»; accepted/arriving → карта A→B + ETA + карточка водителя (телефон `tel:` ПОСЛЕ accept,
+  чат, отмена с `cancel_fee_now_kop`); onboard → «В пути»; done → цена + оценка
+  (`POST /instant/orders/{id}/rate`); expired/cancelled → мягкие финалы. Восстановление активного
+  заказа при входе (`GET /instant/orders/mine`).
+- `InstantDriverTripScreen` → `/taxi-drive` (RequireAuth): гейт заявки таксиста
+  (`GET /taxi/application` → approved, иначе онбординг) → тумблер «Я на линии» (`POST /driver/online`)
+  → presence-heartbeat (`POST /instant/presence`, `watchPosition`, каждые 15с) + опрос оффера
+  (`GET /instant/driver/offer`, 3с). Оффер — полноэкранный оверлей с таймером из `offer_expires_at`,
+  «Взять»(`accept`)/«Пропустить»(`decline`), звук (WebAudio) + вибро вместо звонка. Поездка:
+  навигация к пассажиру, «Приехал»(`arrived`)/«Посадил»(`onboard`)/«Завершить»(`done`), телефон
+  пассажира после accept, чат. Активный заказ восстанавливается через `localStorage`+`GET /instant/orders/{id}`.
+- `InstantChatScreen` → `/taxi-chat/:orderId` (RequireAuth): чат такси-заказа
+  (REST `GET/POST /instant/orders/{id}/messages` + WS `/ws/instant/{id}/chat`, поллинг-фолбэк).
+  До accept — «чат откроется» (409), после done/cancelled — read-only.
+- `ScheduledOrdersScreen` → `/scheduled` (RequireAuth): `GET /instant/scheduled` — список с
+  обратным отсчётом, «Начать поиск сейчас» (`activate` → `/taxi`) и «Отменить» (`cancel`).
+  Блок «Пора ехать» для наступивших (бэк лениво активирует их в `activated`).
+- `TaxiOnboardingScreen` → `/taxi-onboarding` (RequireAuth): гейт города → правила + заявка
+  (ИНН/разрешение/дата рожд./год прав/класс авто + фото разрешения/ОСАГО/селфи через
+  `POST /upload/photo`) → `POST /taxi/apply`. Статус (`GET /taxi/application`):
+  pending/approved(«Выйти на линию»)/rejected(причина + «Подать снова»).
+
+**Инфраструктура:** `api/instant.ts` (availability/estimate/orders/schedule/presence/offer/
+переходы/rate/nearby + taxi/apply/application), расширен `api/chat.ts` (order-чат: REST + WS),
+иконки `IconCar`/`IconPhone`, стили Canon для такси в `ui.css` (маршрут/классы/оффер-оверлей/
+карточка водителя/предзаказы). Связки: `/taxi` из Home (быстрое действие) и профиля
+(«Быстрый заказ»/«Я на линии (такси)»/«Мои предзаказы»); в кабинете водителя тайлы
+«Я на линии (такси)» и «Стать таксистом» → `/taxi-onboarding`.
+
+**Зависит от деплоя release-2026-07:** все `instant/*`, `/taxi/apply`, `/taxi/application`,
+`/instant/availability` появятся на проде после мержа `release`. До мержа отдают 404/405 →
+экраны показывают мягкий гейт «Такси скоро»/пустое/«скоро» без краша.
 
 ### Волна 5 — Курьер и посылки (4)
 CourierOnboarding, Courier (режим курьера), Parcels (отправить/возить), кабинет курьера.

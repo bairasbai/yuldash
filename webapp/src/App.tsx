@@ -33,6 +33,11 @@ import DriverProfileScreen from "./screens/DriverProfileScreen";
 import DriverEarningsScreen from "./screens/DriverEarningsScreen";
 import BoostScreen from "./screens/BoostScreen";
 import VerifyDriverScreen from "./screens/VerifyDriverScreen";
+import InstantOrderScreen from "./screens/InstantOrderScreen";
+import InstantDriverTripScreen from "./screens/InstantDriverTripScreen";
+import InstantChatScreen from "./screens/InstantChatScreen";
+import ScheduledOrdersScreen from "./screens/ScheduledOrdersScreen";
+import TaxiOnboardingScreen from "./screens/TaxiOnboardingScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -215,6 +220,48 @@ export default function App() {
           element={
             <RequireAuth>
               <VerifyDriverScreen />
+            </RequireAuth>
+          }
+        />
+
+        {/* --- Волна 4: такси --- */}
+        <Route
+          path="/taxi"
+          element={
+            <RequireAuth>
+              <InstantOrderScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/taxi-drive"
+          element={
+            <RequireAuth>
+              <InstantDriverTripScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/taxi-chat/:orderId"
+          element={
+            <RequireAuth>
+              <InstantChatScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/scheduled"
+          element={
+            <RequireAuth>
+              <ScheduledOrdersScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/taxi-onboarding"
+          element={
+            <RequireAuth>
+              <TaxiOnboardingScreen />
             </RequireAuth>
           }
         />

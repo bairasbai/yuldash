@@ -239,3 +239,18 @@ export const IconPower = ({ size = 22 }: P) => (
     <path d="M7.5 6.5a7 7 0 1 0 9 0" />
   </svg>
 );
+
+export const IconCar = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M3 13l1.8-5.1A2 2 0 0 1 6.7 6.5h10.6a2 2 0 0 1 1.9 1.4L21 13v5a1 1 0 0 1-1 1h-1.5a1 1 0 0 1-1-1v-1H6.5v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+    <path d="M3.5 13h17" />
+    <circle cx="7.5" cy="16.5" r="0.6" />
+    <circle cx="16.5" cy="16.5" r="0.6" />
+  </svg>
+);
+
+export const IconPhone = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M5 4h3l1.5 4-2 1.4a12 12 0 0 0 5.1 5.1L19 16l-1 3-1 1c-7 0-13-6-13-13z" />
+  </svg>
+);
