@@ -45,6 +45,43 @@ Home (карта Яндекс JS), CreateRequest (форма + «Дополни�
 Booking, ActiveTrip (чат брони + код посадки + live-статус), TripReceipt, Filters, SavedPlaces (Дом/Работа),
 RepeatTrip, MyStats, RouteWatches, ClinicRides, PassengerCabinet.
 
+#### ✅ Волна 2А — Ядро попутки, пассажир (готово, сборка зелёная)
+7 экранов ядра + карта. Все состояния (загрузка/пусто/ошибка), два языка (ба-черновик → `BASHKIR_DRAFT.md`),
+токены Canon, safe-area, тач-цели ≥48px, анимации появления/шторки.
+
+**Экраны и роуты:**
+- `HomeScreen` → `/map` (публично): карта Яндекс + пины ближайших заявок, карусель быстрых действий,
+  фильтр «Ближайшие» (геолокация), список поездок рядом, тап → шторка `RideSheet` с бронированием.
+- `CreateRequestScreen` → `/request` (RequireAuth): форма заявки + сворачиваемый блок «Дополнительно»
+  (условия / «только для своих» / комментарий). `POST /requests`. Успех → ссылка на отклики.
+- `RequestsFeedScreen` → `/requests-feed` (RequireAuth): лента заявок для водителя `GET /requests/feed`
+  + отклик `POST /requests/{id}/respond` (шторка цена+коммент).
+- `RequestResponsesScreen` → `/requests/:id/responses` (RequireAuth): отклики на мою заявку
+  `GET /requests/{id}/responses`, принять `POST /responses/{id}/accept` → `booking_id` → активная поездка.
+- `BookingScreen` → `/booking/:id` (RequireAuth): `GET /bookings/{id}/details`, карта концов маршрута,
+  телефон/точка после подтверждения (`contact_unlocked`), отмена брони.
+- `ActiveTripScreen` → `/trip/:id` (RequireAuth): live-статус (поллинг `GET /bookings/{id}/role`),
+  карта маршрута + live-точка водителя (WS `/ws/trip/{id}/location`), код посадки
+  (`GET /bookings/{id}/boarding-code`), чат брони (REST `GET/POST /bookings/{id}/messages` + WS
+  `/ws/bookings/{id}`, поллинг-фолбэк), оплата read-only, SOS-заглушка, оценка `POST /bookings/{id}/rate`.
+- `TripReceiptScreen` → `/receipt/:id` (RequireAuth): `GET /trips/{id}/receipt`; 404 (нет на проде до
+  release-2026-07) / 409 (не завершена) → мягкая деградация без краша.
+
+**Инфраструктура:**
+- `components/YandexMap.tsx` — грузит Яндекс JS API 2.1 по `VITE_YANDEX_MAPS_JS_KEY` (единожды).
+  Маршрут A→B (зелёная линия), назначение (золотой), «моё место» (зелёный), свободные маркеры.
+  Без ключа / ошибка загрузки → брендовый плейсхолдер «Карта подключится с ключом» (экран цел).
+- API-слой (зеркало release-бэка): `api/requests.ts`, `api/bookings.ts`, `api/chat.ts` (+WS),
+  `api/discovery.ts` (near/geocode/popular), `api/share.ts` (превью), расширен `api/rides.ts`.
+- `utils/format.ts` (дата/цена/оплата), `components/StatusPill.tsx`, `RideSheet.tsx`.
+- `.env.example` + `vite-env.d.ts`: добавлен `VITE_YANDEX_MAPS_JS_KEY`.
+
+**Зависит от деплоя release-2026-07:** квитанция `GET /trips/{id}/receipt` — до мержа отдаёт 404,
+экран показывает мягкое состояние «квитанция появится после обновления».
+
+**Осталось в волне 2 (не 2А):** Filters, SavedPlaces, RepeatTrip, MyStats, RouteWatches, ClinicRides,
+PassengerCabinet (в т.ч. полноценный список «Мои заявки/поездки»).
+
 ### Волна 3 — Попутка, водитель (6)
 CreateRide, DriverCabinet, DriverProfile (публичный), DriverEarnings, Boost, VerifyDriver.
 
