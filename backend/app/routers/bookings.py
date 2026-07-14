@@ -217,6 +217,35 @@ def boarding_code(booking_id: int, user: User = Depends(current_user), session: 
     return {"code": booking.boarding_code or ""}
 
 
+@router.get("/trips/{booking_id}/receipt")
+def trip_receipt(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Квитанция завершённой поездки (по брони): маршрут, дата/время, сумма и способ оплаты,
+    имя водителя. Только участник брони (пассажир/водитель) — анти-IDOR. Незавершённая → 409.
+
+    Без лишних ПДн: телефон водителя тут НЕ отдаём (квитанция — это про поездку и деньги,
+    контакт есть в деталях брони). Сумма — договорённость об оплате (pay_amount) либо цена брони."""
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    if booking.status != BookingStatus.done:
+        raise herr(409, "Квитанция появится после завершения поездки",
+                   "Квитанция сәфәр тамамланғандан һуң күренәсәк")
+    driver = session.get(User, ride.driver_id)
+    amount = booking.pay_amount if booking.pay_amount is not None else booking.price
+    return {
+        "booking_id": booking.id,
+        "ride_id": ride.id,
+        "role": "driver" if ride.driver_id == user.id else "passenger",
+        "from_city": ride.from_city,
+        "to_city": ride.to_city,
+        "depart_at": ride.depart_at.isoformat() if ride.depart_at else "",
+        "seats": booking.seats,
+        "amount": amount,                       # ₽; договорённость (pay_amount) или цена брони
+        "pay_method": booking.pay_method.value if hasattr(booking.pay_method, "value") else booking.pay_method,
+        "paid": bool(booking.paid),
+        "driver_name": (driver.name if driver and driver.name else "Водитель"),
+        "driver_verified": bool(driver.verified) if driver else False,
+    }
+
+
 @router.get("/bookings/{booking_id}/role")
 def booking_role(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Роль текущего юзера в брони — водитель/пассажир. Экран активной поездки показывает

@@ -2030,7 +2030,7 @@ internal fun MessageBubble(
         if (edited && !deleted) {
             Text(
                 appText("изменено", "үҙгәртелде"),
-                color = CanonMuted, fontSize = 11.sp,
+                color = CanonMuted, fontSize = 13.sp,
                 modifier = Modifier.padding(top = 2.dp, end = 4.dp)
             )
         }

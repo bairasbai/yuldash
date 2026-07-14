@@ -246,7 +246,7 @@ private fun ClinicChip(partner: MedicalPartnerDto, selected: Boolean, onClick: (
                 Text(
                     partner.city,
                     color = if (selected) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f) else CanonMuted,
-                    fontSize = 11.sp,
+                    fontSize = 13.sp,
                 )
             }
         }

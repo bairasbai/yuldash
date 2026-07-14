@@ -32,8 +32,8 @@ from .models import (
     CouponRedemption, CourierApplication, CourierProfile, DeviceBan, DeviceToken,
     DriverProfile, DriverSchedule, InstantOrder, InviteCode, LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
-    Rating, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
-    RouteWatch, SosEvent, TaxiApplication, TaxiWorkDay, TgAuth, Trust, TripShare,
+    Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
+    RouteWatch, SavedPlace, SosEvent, TaxiApplication, TaxiWorkDay, TgAuth, Trust, TripShare,
     TrustedContact, UploadEvent, User, WaitlistEntry,
 )
 from .storage import get_storage
@@ -204,9 +204,11 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(delete(TaxiApplication).where(TaxiApplication.user_id == uid))
     session.execute(delete(DriverSchedule).where(DriverSchedule.driver_id == uid))
     session.execute(delete(TaxiWorkDay).where(TaxiWorkDay.driver_id == uid))
-    # 3.17 Уведомления, подписки на маршрут.
+    # 3.17 Уведомления, подписки на маршрут, сохранённые/недавние адреса (личные данные).
     session.execute(delete(Notification).where(Notification.user_id == uid))
     session.execute(delete(RouteWatch).where(RouteWatch.user_id == uid))
+    session.execute(delete(SavedPlace).where(SavedPlace.user_id == uid))
+    session.execute(delete(RecentPlace).where(RecentPlace.user_id == uid))
     # 3.18 Реклама: события + мои объявления; чужие, созданные мной как админом → отвязать.
     if ad_ids:
         session.execute(delete(AdEvent).where(AdEvent.ad_id.in_(ad_ids)))

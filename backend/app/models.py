@@ -320,6 +320,39 @@ class PickupPoint(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class SavedPlaceKind(str, Enum):
+    home = "home"
+    work = "work"
+    custom = "custom"
+
+
+class SavedPlace(SQLModel, table=True):
+    """Сохранённое место пользователя (дом/работа/произвольное) для быстрого выбора
+    в форме заказа. ПРИВАТНО — только владелец (адрес/координаты не показываем чужим).
+    home/work — по одному на человека (upsert по kind), custom — до лимита (см. router).
+    Координаты нужны, чтобы сразу подставить пин на карту без повторного геокодинга."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    label: str = Field(default="", max_length=120)      # человекочит. имя («Дом», «Офис», «Мама»)
+    kind: str = Field(default=SavedPlaceKind.custom.value, max_length=16, index=True)  # home/work/custom
+    address: str = Field(default="", max_length=500)
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class RecentPlace(SQLModel, table=True):
+    """Недавняя точка (куда/откуда заказывали) — быстрый повтор адреса. ПРИВАТНО, только
+    владелец. Дедуп по (user_id, address): повторный заказ обновляет used_at, а не плодит
+    дубли. Держим последние ~10 на человека (старые вычищаются при добавлении)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    address: str = Field(default="", max_length=500)
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    used_at: datetime = Field(default_factory=utcnow, index=True)  # свежесть → сортировка/чистка
+
+
 class Booking(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ride_id: int = Field(index=True, foreign_key="ride.id")

@@ -601,7 +601,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                         Row(Modifier.padding(horizontal = 7.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(ic, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(12.dp))
                             Spacer(Modifier.width(3.dp))
-                            Text(appText(ru, ba), color = CanonGreen2, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text(appText(ru, ba), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     Spacer(Modifier.width(6.dp))
@@ -620,7 +620,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                         Text(
                             appText("ближайшая", "иң яҡыны"),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Black
+                            color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Black
                         )
                     }
                 }
@@ -1071,7 +1071,7 @@ internal fun CompactTrustLine(trips: Int, since: String, modifier: Modifier = Mo
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Default.Badge, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(13.dp))
         Spacer(Modifier.width(4.dp))
-        Text(parts.joinToString(" · "), color = CanonMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(parts.joinToString(" · "), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

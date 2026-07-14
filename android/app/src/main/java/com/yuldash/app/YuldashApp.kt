@@ -691,7 +691,16 @@ internal fun YuldashApp() {
             Screen.Onboarding -> OnboardingScreen(
                 onFinish = ::finishOnboarding,
                 language = language,
-                onSelectLanguage = { language = it }
+                onSelectLanguage = { language = it },
+                onSimpleMode = {
+                    // Онбординг пройден + запоминаем выбор простого режима (те же prefs, без новых сущностей).
+                    prefs.edit()
+                        .putBoolean("onboarding_completed", true)
+                        .putBoolean("simple_mode_opted_in", true)
+                        .apply()
+                    Analytics.log("onboarding_simple_mode")
+                    screen = Screen.SimpleMode
+                }
             )
             Screen.Login -> {
                 LoginScreen(
@@ -1160,7 +1169,12 @@ internal fun shareRide(context: android.content.Context, text: String, chooserTi
 }
 
 @Composable
-private fun OnboardingScreen(onFinish: (RideRole) -> Unit, language: AppLanguage, onSelectLanguage: (AppLanguage) -> Unit) {
+private fun OnboardingScreen(
+    onFinish: (RideRole) -> Unit,
+    language: AppLanguage,
+    onSelectLanguage: (AppLanguage) -> Unit,
+    onSimpleMode: () -> Unit
+) {
     // Слайды и воронка-эффект живут в обёртке (side-effect), вся разметка — в чистом OnboardingContent.
     val slides = remember { onboardingSlides() }
     LaunchedEffect(Unit) { Analytics.log("onboarding_start") }   // воронка: начало онбординга (с этим виден отвал внутри онбординга)
@@ -1169,6 +1183,7 @@ private fun OnboardingScreen(onFinish: (RideRole) -> Unit, language: AppLanguage
         language = language,
         onSelectLanguage = onSelectLanguage,
         onFinish = onFinish,
+        onSimpleMode = onSimpleMode,
     )
 }
 
@@ -1183,6 +1198,7 @@ internal fun OnboardingContent(
     onSelectLanguage: (AppLanguage) -> Unit,
     onFinish: (RideRole) -> Unit,
     modifier: Modifier = Modifier,
+    onSimpleMode: () -> Unit = {},
 ) {
     val pagerState = rememberPagerState(pageCount = { slides.size })
     val scope = rememberCoroutineScope()
@@ -1248,6 +1264,11 @@ internal fun OnboardingContent(
                                     selected = role,
                                     onSelect = { role = it }
                                 )
+                            }
+                        }
+                        item {
+                            Box(Modifier.onbAppear(3, played)) {
+                                OnboardingSimpleModeCard(onEnable = onSimpleMode)
                             }
                         }
                     } else {
@@ -1340,9 +1361,11 @@ internal fun OnboardingLangChip(text: String, active: Boolean, onClick: () -> Un
             .clip(RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
             .background(if (active) CanonGreen2 else Color.Transparent)
-            .padding(horizontal = 11.dp, vertical = 4.dp)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 11.sp, fontWeight = FontWeight.Black)
+        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Black)
     }
 }
 
@@ -1506,6 +1529,73 @@ internal fun OnboardingRoleChooser(selected: RideRole, onSelect: (RideRole) -> U
             onClick = { onSelect(RideRole.Driver) }
         )
         OnboardingTrustStrip()
+    }
+}
+
+/**
+ * Мягкое предложение простого режима в онбординге (рядом с выбором роли).
+ * Крупная кнопка ведёт в SimpleModeScreen / включает режим; «Не сейчас» — прячет карточку.
+ * Тёплый тон, всё двуязычно; вход в простой режим также остаётся в профиле.
+ */
+@Composable
+internal fun OnboardingSimpleModeCard(onEnable: () -> Unit) {
+    var dismissed by rememberSaveable { mutableStateOf(false) }
+    if (!dismissed) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CanonMint),
+            shape = CanonItemShape,
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(46.dp).background(CanonSurface, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.VolumeUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        appText("Тебе удобнее крупные кнопки и голосовой заказ?", "Һиңә эре төймәләр һәм тауыш менән заказ уңайлыраҡмы?"),
+                        modifier = Modifier.weight(1f),
+                        color = CanonText,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 17.sp,
+                        lineHeight = 21.sp
+                    )
+                }
+                Text(
+                    appText(
+                        "Простой режим — большие кнопки, меньше шагов и заказ голосом. Включить можно и позже в профиле.",
+                        "Ябай режим — эре төймәләр, аҙыраҡ аҙым һәм тауыш менән заказ. Һуңынан профилдә лә тоҡандырып була."
+                    ),
+                    color = CanonText.copy(alpha = 0.82f),
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp
+                )
+                Button(
+                    onClick = onEnable,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                ) {
+                    Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        appText("Включить простой режим", "Ябай режимды тоҡандырыу"),
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 16.sp
+                    )
+                }
+                TextButton(
+                    onClick = { dismissed = true },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text(appText("Не сейчас", "Хәҙер түгел"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+            }
+        }
     }
 }
 
@@ -1947,7 +2037,7 @@ private fun RowScope.YuldashBottomItem(
 ) {
     val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(280), label = "navPill")
     val iconTint by animateColorAsState(if (selected) CanonText else CanonMuted, tween(280), label = "navTint")
-    val labelColor by animateColorAsState(if (selected) CanonGold else CanonMuted, tween(280), label = "navLabel")
+    val labelColor by animateColorAsState(if (selected) CanonGold else CanonMutedStrong, tween(280), label = "navLabel")
     val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, tween(280), label = "navScale")
     val interaction = remember { MutableInteractionSource() }
     Column(
@@ -1975,7 +2065,7 @@ private fun RowScope.YuldashBottomItem(
         Text(
             text = label,
             color = labelColor,
-            fontSize = 10.sp,
+            fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.Black else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

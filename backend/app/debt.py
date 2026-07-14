@@ -20,6 +20,7 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -138,6 +139,57 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
         "fee_next_percent": next_percent,
         "fee_days_to_next": days_to_next,
     }
+
+
+def _local_day_expr(session: Session, column):
+    """SQL-выражение «локальный день» (строка YYYY-MM-DD) с учётом пояса — для GROUP BY.
+    Портируемо: SQLite (strftime + модификатор часов) и PostgreSQL (сдвиг на interval).
+    Смещение — наш собственный int-конфиг (не пользовательский ввод), инъекции нет."""
+    offset_h = int(settings.local_tz_offset_hours)
+    dialect = session.get_bind().dialect.name if session.get_bind() is not None else "sqlite"
+    if dialect.startswith("postgres"):
+        return func.to_char(column + timedelta(hours=offset_h), "YYYY-MM-DD")
+    return func.strftime("%Y-%m-%d", column, f"{offset_h:+d} hours")
+
+
+def driver_earnings(session: Session, driver_id: int, period: str = "week",
+                    now: Optional[datetime] = None) -> dict:
+    """История заработка водителя за период (week|month|all): суммарно + разбивка по дням.
+
+    База суммы — та же, что «заработок за сегодня» в driver_dashboard: фактическая цена
+    завершённого такси-заказа (price_final, иначе price_estimate), ₽. Считаем SQL-агрегатом
+    (SUM/COUNT и GROUP BY по локальному дню), НЕ тянем заказы в память.
+
+    Только СВОИ данные (фильтр по driver_id). period: week — последние 7 локальных дней,
+    month — 30, all — за всё время. Пустой период → total=0, trips=0, by_day=[]."""
+    now = now or utcnow()
+    period = period if period in ("week", "month", "all") else "week"
+    conds = [
+        InstantOrder.driver_id == driver_id,
+        InstantOrder.status == InstantOrderStatus.done,
+        InstantOrder.done_at.is_not(None),
+    ]
+    if period != "all":
+        tz = timedelta(hours=settings.local_tz_offset_hours)
+        ln = now + tz                                        # местное «сейчас»
+        days_back = 6 if period == "week" else 29            # включая сегодня → 7 / 30 дней
+        start_local = datetime(ln.year, ln.month, ln.day) - timedelta(days=days_back)
+        conds.append(InstantOrder.done_at >= start_local - tz)   # местная полночь → обратно в UTC
+
+    price_expr = func.coalesce(InstantOrder.price_final, InstantOrder.price_estimate)
+    total_row = session.exec(
+        select(func.coalesce(func.sum(price_expr), 0), func.count()).where(*conds)
+    ).one()
+    total_sum = int(total_row[0] or 0)
+    total_trips = int(total_row[1] or 0)
+
+    day_expr = _local_day_expr(session, InstantOrder.done_at)
+    rows = session.exec(
+        select(day_expr.label("day"), func.coalesce(func.sum(price_expr), 0), func.count())
+        .where(*conds).group_by(day_expr).order_by(day_expr)
+    ).all()
+    by_day = [{"date": str(r[0]), "sum": int(r[1] or 0), "trips": int(r[2] or 0)} for r in rows]
+    return {"period": period, "total": total_sum, "trips": total_trips, "by_day": by_day}
 
 
 def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -> int:

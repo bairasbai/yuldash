@@ -156,7 +156,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
@@ -1009,9 +1008,11 @@ internal fun SeniorAccessCard(onSimpleMode: () -> Unit) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Switch(
-                checked = false,
-                onCheckedChange = { onSimpleMode() }
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = appText("Открыть простой режим", "Ябай режимды асыу"),
+                tint = CanonGreen2,
+                modifier = Modifier.size(24.dp)
             )
         }
     }

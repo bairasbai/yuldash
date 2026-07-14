@@ -143,6 +143,15 @@ def get_workday(user: User = Depends(current_user), session: Session = Depends(g
     return s
 
 
+@router.get("/driver/earnings")
+def driver_earnings_ep(period: str = "week", user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    """История заработка водителя за период (week|month|all): суммарно + разбивка по дням.
+    Только СВОИ данные (по токену). Считаем SQL-агрегатом, база — цена завершённых
+    такси-заказов (как «заработок за сегодня»)."""
+    return debt_mod.driver_earnings(session, user.id, period)
+
+
 @router.get("/instant/nearby-drivers")
 def nearby_drivers_ep(lat: float, lng: float, user: User = Depends(current_user)):
     """Свободные машины «на линии» рядом с пассажиром — АНОНИМНЫЕ точки на карте + ≈ETA

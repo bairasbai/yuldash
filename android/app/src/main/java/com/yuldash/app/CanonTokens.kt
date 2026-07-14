@@ -35,6 +35,8 @@ internal val CanonGoldInk: Color = Color(0xFF0B3D20)
 internal val CanonBg: Color @Composable get() = if (appIsDark()) Color(0xFF0F1613) else Color(0xFFFAFAF6)
 internal val CanonText: Color @Composable get() = if (appIsDark()) Color(0xFFEAF2EC) else Color(0xFF0B1F14)
 internal val CanonMuted: Color @Composable get() = if (appIsDark()) Color(0xFF9BA49D) else Color(0xFF686F66)
+// Более контрастный вариант приглушённого текста (неактивные подписи нав-меню и т.п.): темнее/светлее CanonMuted, но не активный цвет. Контраст с фоном ≥4.5:1.
+internal val CanonMutedStrong: Color @Composable get() = if (appIsDark()) Color(0xFFC2CBC3) else Color(0xFF4C534B)
 internal val CanonBorder: Color @Composable get() = if (appIsDark()) Color(0x24FFFFFF) else Color(0x1F000000)
 internal val CanonRed: Color @Composable get() = if (appIsDark()) Color(0xFFF25A4D) else Color(0xFFCC2A20)  // WCAG: белый на красной кнопке ≥3:1, красный текст на фоне/danger-bg ≥4.5:1
 // Поверхность карточек: была хардкод Color.White — теперь адаптивная.
