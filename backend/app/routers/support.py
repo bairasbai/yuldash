@@ -8,14 +8,13 @@
 Ответ поддержки уходит пользователю через единую точку `services.push_notification`
 (строка в Центре уведомлений + FCM, best-effort — как в чате/бронях).
 """
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..errors import herr
 from ..models import (
     SupportMessage, SupportSender, SupportTicket, SupportTicketStatus, User, UserRole,
 )
