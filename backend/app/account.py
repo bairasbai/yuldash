@@ -12,7 +12,7 @@
 других на ЕГО поездках — поездка исчезает), чат-сообщения, рейтинги (поставленные и
 полученные), доверенные контакты, шеринги поездок, SOS, жалобы, блокировки, платежи,
 события/объявления рекламы, FCM-токены, refresh-токены, коды входа, telegram-сессии,
-события загрузок, отзывы о приложении.
+события загрузок, отзывы о приложении, обращения в поддержку (тикеты + весь тред).
 
 Что ОТВЯЗЫВАЕТСЯ (не удаляем чужое, лишь убираем ссылку на юзера): у тех, кого он
 пригласил, `User.referred_by` → NULL; объявления, созданные им как админом для других
@@ -33,8 +33,8 @@ from .models import (
     DriverProfile, DriverSchedule, InstantOrder, InviteCode, LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
     Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
-    RouteWatch, SavedPlace, SosEvent, TaxiApplication, TaxiWorkDay, TgAuth, Trust, TripShare,
-    TrustedContact, UploadEvent, User, WaitlistEntry,
+    RouteWatch, SavedPlace, SosEvent, SupportMessage, SupportTicket, TaxiApplication, TaxiWorkDay,
+    TgAuth, Trust, TripShare, TrustedContact, UploadEvent, User, WaitlistEntry,
 )
 from .storage import get_storage
 
@@ -82,6 +82,8 @@ def delete_user_account(session: Session, user: User) -> None:
     order_ids = list(session.exec(select(InstantOrder.id).where(
         or_(InstantOrder.passenger_id == uid, InstantOrder.driver_id == uid))).all())
     parcel_ids = list(session.exec(select(ParcelDelivery.id).where(ParcelDelivery.sender_id == uid)).all())
+    # Обращения в поддержку (152-ФЗ: весь тред — персональные данные) — с сообщениями.
+    ticket_ids = list(session.exec(select(SupportTicket.id).where(SupportTicket.user_id == uid)).all())
     # Бизнес пользователя («Скидки по пути») и его промокампании — с детьми.
     partner_ids = list(session.exec(select(Partner.id).where(Partner.owner_id == uid)).all())
     partner_coupon_ids = (list(session.exec(select(Coupon.id).where(Coupon.partner_id.in_(partner_ids))).all())
@@ -206,6 +208,10 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(delete(TaxiWorkDay).where(TaxiWorkDay.driver_id == uid))
     # 3.17 Уведомления, подписки на маршрут, сохранённые/недавние адреса (личные данные).
     session.execute(delete(Notification).where(Notification.user_id == uid))
+    # Поддержка: сначала сообщения тредов (FK на тикет), затем сами тикеты (152-ФЗ — стираем всё).
+    if ticket_ids:
+        session.execute(delete(SupportMessage).where(SupportMessage.ticket_id.in_(ticket_ids)))
+    session.execute(delete(SupportTicket).where(SupportTicket.user_id == uid))
     session.execute(delete(RouteWatch).where(RouteWatch.user_id == uid))
     session.execute(delete(SavedPlace).where(SavedPlace.user_id == uid))
     session.execute(delete(RecentPlace).where(RecentPlace.user_id == uid))

@@ -85,12 +85,27 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(M.WaitlistEntry(phone=phone))
         s.commit()
 
+        # --- обращение в поддержку + тред (сообщения user и admin) ---
+        ticket = M.SupportTicket(user_id=uid, subject="Вопрос")
+        s.add(ticket); s.commit(); s.refresh(ticket)
+        s.add(M.SupportMessage(ticket_id=ticket.id, sender="user", body="Здравствуйте"))
+        s.add(M.SupportMessage(ticket_id=ticket.id, sender="admin", body="Помогаем"))
+        s.commit()
+        ticket_id = ticket.id
+
         user = s.get(User, uid)
         delete_user_account(s, user)
 
     # Генеральная проверка: НИГДЕ нет ссылки на удалённого пользователя.
     residual = _residual_user_refs(uid)
     assert residual == [], f"после удаления остались ссылки на юзера: {residual}"
+
+    # Поддержка: ни тикета, ни осиротевших сообщений (у SupportMessage нет FK на user —
+    # проверяем явно, что тред стёрт вместе с тикетом).
+    with Session(engine) as s:
+        assert s.get(M.SupportTicket, ticket_id) is None
+        orphan = s.exec(select(M.SupportMessage).where(M.SupportMessage.ticket_id == ticket_id)).all()
+        assert orphan == []
 
     with Session(engine) as s:
         assert s.get(User, uid) is None                 # аккаунт удалён

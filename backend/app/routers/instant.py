@@ -3,6 +3,7 @@
 Отдельный поток от плановых поездок (Ride/Booking) — тот не трогаем.
 Приватность: координаты не логируем; телефоны сторон — только после accept.
 """
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +14,7 @@ from ..db import get_session
 from ..errors import herr
 from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Rating, Settlement, User
 from ..security import current_user
+from ..timeutil import utcnow
 from ..services import user_rating
 from .referral import reward_driver_referral
 from .. import debt as debt_mod
@@ -225,6 +227,102 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     session.commit()
     session.refresh(order)
     order = isv.start_matching(session, order)   # created → searching → offered|expired
+    return isv.order_payload(session, order, user)
+
+
+# ------------------------------ предзаказ «на время» (MVP) ------------------------------
+class ScheduleIn(OrderIn):
+    # Время подачи в будущем (iso с таймзоной или naive-UTC). Обязательно для предзаказа.
+    scheduled_at: datetime
+
+
+def _parse_scheduled_at(dt: datetime) -> datetime:
+    """Нормализуем время подачи в aware-UTC и валидируем горизонт: не в прошлом,
+    не дальше scheduled_max_days вперёд. Naive-время трактуем как UTC (клиент шлёт iso-UTC)."""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
+    if dt <= now:
+        raise herr(422, "Время подачи должно быть в будущем",
+                   "Килеү ваҡыты киләсәктә булырға тейеш")
+    if dt > now + timedelta(days=isv.settings.scheduled_max_days):
+        d = isv.settings.scheduled_max_days
+        raise herr(422, f"Предзаказ можно оформить максимум на {d} суток вперёд",
+                   f"Алдан заказды иң күбендә {d} тәүлеккә алдан бирергә була")
+    return dt
+
+
+@router.post("/instant/schedule")
+def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
+                     session: Session = Depends(get_session)):
+    """Оформить предзаказ такси «на время». Заказ создаётся в статусе `scheduled` и НЕ уходит
+    в поиск сразу — активируется ко времени подачи (клиент вызывает /activate, либо ленивая
+    авто-активация при GET /instant/scheduled). Цену показываем как предварительную оценку
+    (сурж фиксируется НЕ сейчас, а на момент активации). Гейт (a): такси доступно в этом городе."""
+    _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
+    if quality_mod.passenger_pause_until(session, user.id) is not None:
+        raise HTTPException(403, isv.strike_pause_message())
+    when = _parse_scheduled_at(body.scheduled_at)
+    est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
+    order = InstantOrder(
+        passenger_id=user.id, status=S.scheduled, scheduled_at=when,
+        from_lat=body.from_lat, from_lng=body.from_lng,
+        to_lat=body.to_lat, to_lng=body.to_lng,
+        from_text=body.from_text, to_text=body.to_text,
+        category=body.category,
+        price_estimate=est["price"], distance_km=est["distance_km"],
+        eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"],
+    )
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return isv.order_payload(session, order, user)
+
+
+@router.get("/instant/scheduled")
+def my_scheduled(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мои будущие предзаказы (только СВОИ). Ленивая авто-активация (ограничение MVP —
+    без фонового шедулера): у кого время подачи уже наступило → переводим в обычный поиск
+    прямо здесь. Возврат: {scheduled: [ещё ждут], activated: [только что запустились в поиск]}."""
+    rows = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.passenger_id == user.id,
+            InstantOrder.status == S.scheduled,
+        ).order_by(InstantOrder.scheduled_at.asc())
+    ).all()
+    now = utcnow()
+    scheduled, activated = [], []
+    for o in rows:
+        if o.scheduled_at is not None and o.scheduled_at <= now:
+            activated.append(isv.order_payload(session, isv.activate_scheduled(session, o), user))
+        else:
+            scheduled.append(isv.order_payload(session, o, user))
+    return {"scheduled": scheduled, "activated": activated}
+
+
+@router.post("/instant/scheduled/{order_id}/activate")
+def activate_scheduled_ep(order_id: int, user: User = Depends(current_user),
+                          session: Session = Depends(get_session)):
+    """Активировать предзаказ ко времени (клиент вызывает, когда время подошло): scheduled →
+    поиск водителя. Только СВОЙ предзаказ. Не-scheduled (уже активирован/отменён) → 409."""
+    order = session.get(InstantOrder, order_id)
+    if not order or order.passenger_id != user.id:
+        raise HTTPException(404, "Предзаказ не найден")
+    if order.status != S.scheduled:
+        raise herr(409, "Предзаказ уже активирован или отменён",
+                   "Алдан заказ инде әүҙемләштерелгән йәки кире алынған")
+    order = isv.activate_scheduled(session, order)
+    return isv.order_payload(session, order, user)
+
+
+@router.post("/instant/scheduled/{order_id}/cancel")
+def cancel_scheduled(order_id: int, user: User = Depends(current_user),
+                     session: Session = Depends(get_session)):
+    """Отменить предзаказ (пока он ещё `scheduled`). Только СВОЙ. Штрафов нет — до поиска."""
+    order = session.get(InstantOrder, order_id)
+    if not order or order.passenger_id != user.id:
+        raise HTTPException(404, "Предзаказ не найден")
+    order = isv.cancel_order(session, order_id, isv.Actor.passenger, user.id, "scheduled_cancel")
     return isv.order_payload(session, order, user)
 
 

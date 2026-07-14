@@ -52,8 +52,8 @@ ALLOWED = {
 }
 # После accept телефоны/контакты раскрыты.
 UNLOCKED = (S.accepted, S.arriving, S.onboard, S.done)
-# Кто когда может отменить.
-PASSENGER_CANCELLABLE = (S.created, S.searching, S.offered, S.accepted, S.arriving)
+# Кто когда может отменить (scheduled — предзаказ ещё до поиска, отменяется пассажиром).
+PASSENGER_CANCELLABLE = (S.scheduled, S.created, S.searching, S.offered, S.accepted, S.arriving)
 DRIVER_CANCELLABLE = (S.accepted, S.arriving, S.onboard)
 
 
@@ -711,6 +711,28 @@ def try_offer_next(session: Session, order: InstantOrder) -> InstantOrder:
     return fresh
 
 
+def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
+    """Активация предзаказа «на время»: scheduled → обычный поиск водителя.
+    Цену/сурж пересчитываем ЗАНОВО на момент активации (не фиксируем при бронировании —
+    честно: рынок мог измениться), затем стандартный matcher (searching → offered|expired).
+    Зовётся вручную (клиент по таймеру) или лениво при GET /instant/scheduled, когда время
+    подошло. Идемпотентно: не-scheduled заказ возвращаем как есть."""
+    if order.status != S.scheduled:
+        return order
+    est = estimate(session, (order.from_lat, order.from_lng),
+                   (order.to_lat, order.to_lng), order.category or "standard")
+    session.execute(
+        update(InstantOrder).where(InstantOrder.id == order.id, InstantOrder.status == S.scheduled)
+        .values(price_estimate=est["price"], distance_km=est["distance_km"],
+                eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"])
+    )
+    session.commit()
+    order = session.get(InstantOrder, order.id)
+    if order.status != S.scheduled:
+        return order   # гонку проиграли (кто-то активировал/отменил параллельно) — не дублируем поиск
+    return start_matching(session, order)
+
+
 def start_matching(session: Session, order: InstantOrder) -> InstantOrder:
     """created → searching → (offered | expired). Зовётся при создании заказа."""
     session.execute(
@@ -935,6 +957,8 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         "surge_k": order.surge_k,
         "distance_km": order.distance_km,
         "eta_min": order.eta_min,
+        # Предзаказ «на время»: null у обычного заказа; iso-время подачи у scheduled.
+        "scheduled_at": order.scheduled_at.isoformat() if order.scheduled_at else None,
         "driver_id": order.driver_id,
         "offer_expires_at": order.offer_expires_at.isoformat() if order.offer_expires_at else None,
         "cancel_by": order.cancel_by,

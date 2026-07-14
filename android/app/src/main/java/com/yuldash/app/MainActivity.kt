@@ -162,6 +162,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -266,11 +267,20 @@ class MainActivity : ComponentActivity() {
         // Восстановить выбор темы день/ночь (если пользователь переключал тумблером в шапке).
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
+        FontScalePrefs.load(this)   // «Крупный шрифт»: восстановить выбранный размер текста (yuldash_prefs)
         handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
         handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         setContent {
             YuldashTheme(darkTheme = appIsDark()) {
-                YuldashApp()
+                // Крупный шрифт: множим системный fontScale на выбранный пользователем множитель —
+                // весь sp-текст приложения масштабируется разом, системная настройка тоже уважается.
+                val base = LocalDensity.current
+                val scaled = FontScalePrefs.option.multiplier
+                CompositionLocalProvider(
+                    LocalDensity provides Density(density = base.density, fontScale = base.fontScale * scaled)
+                ) {
+                    YuldashApp()
+                }
             }
         }
     }

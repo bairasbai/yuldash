@@ -117,6 +117,7 @@ import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NearMe
@@ -721,6 +722,7 @@ internal fun SettingsScreen(
     var notifications by remember { mutableStateOf(AppPrefs.notifications(ctx)) }
     var sounds by remember { mutableStateOf(AppPrefs.sounds(ctx)) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showFontDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     val isBashkir = LocalAppLanguage.current == AppLanguage.Ba
     // Текущая тема приложения (она же тема карты): системная / светлая / тёмная.
@@ -729,8 +731,17 @@ internal fun SettingsScreen(
         false -> appText("Светлая", "Яҡты")
         null -> appText("Как в системе", "Системалағыса")
     }
+    // Крупный шрифт: текущий выбранный размер текста (единая точка правды FontScalePrefs).
+    val fontLabel = fontScaleLabel(FontScalePrefs.option)
     if (showThemeDialog) {
         ThemePickerDialog(current = ThemePrefs.darkOverride, onPick = { ThemePrefs.darkOverride = it; showThemeDialog = false }, onDismiss = { showThemeDialog = false })
+    }
+    if (showFontDialog) {
+        FontScalePickerDialog(
+            current = FontScalePrefs.option,
+            onPick = { FontScalePrefs.set(ctx, it); showFontDialog = false },
+            onDismiss = { showFontDialog = false },
+        )
     }
     if (showLogoutDialog) {
         AlertDialog(
@@ -762,6 +773,7 @@ internal fun SettingsScreen(
                     SettingSwitchRow(Icons.Default.Notifications, appText("Уведомления", "Хәбәрҙәр"), appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу"), notifications) { notifications = it; AppPrefs.setNotifications(ctx, it) }
                     SettingsNavRow(Icons.Default.Language, appText("Язык", "Тел"), if (isBashkir) "Башҡортса" else "Русский", onClick = onToggleLanguage)
                     SettingsNavRow(Icons.Default.Map, appText("Тема", "Тема"), themeLabel, onClick = { showThemeDialog = true })
+                    SettingsNavRow(Icons.Default.FormatSize, appText("Размер текста", "Текст ҙурлығы"), fontLabel, onClick = { showFontDialog = true })
                 }
             }
             item {
@@ -828,6 +840,63 @@ internal fun ThemePickerDialog(current: Boolean?, onPick: (Boolean?) -> Unit, on
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(label, color = CanonText, fontSize = 16.sp)
+                    }
+                }
+            }
+        },
+    )
+}
+
+/** Подпись текущего размера текста (для строки настроек и простого режима). */
+@Composable
+internal fun fontScaleLabel(option: FontScaleOption): String = when (option) {
+    FontScaleOption.Normal -> appText("Обычный", "Ғәҙәти")
+    FontScaleOption.Large -> appText("Крупный", "Эре")
+    FontScaleOption.ExtraLarge -> appText("Очень крупный", "Бик эре")
+}
+
+/**
+ * Выбор размера текста (крупный шрифт для пожилых и слабовидящих).
+ * Превью справа показывает относительный размер выбранного множителя.
+ */
+@Composable
+internal fun FontScalePickerDialog(current: FontScaleOption, onPick: (FontScaleOption) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CanonSurface,
+        confirmButton = { TextButton(onClick = onDismiss) { Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold) } },
+        title = { Text(appText("Размер текста", "Текст ҙурлығы"), color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    appText("Увеличь текст во всём приложении — так удобнее читать.", "Бөтә ҡушымтала текстты ҙурайт — уҡырға уңайлыраҡ."),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+                FontScaleOption.values().forEach { option ->
+                    val selected = option == current
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 52.dp)
+                            .bounceClick { onPick(option) }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (selected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                            contentDescription = null,
+                            tint = if (selected) CanonGreen2 else CanonMuted
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(fontScaleLabel(option), color = CanonText, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        // Превью относительного размера: одна и та же «Аа» в масштабе множителя.
+                        Text(
+                            "Аа",
+                            color = if (selected) CanonGreen2 else CanonMuted,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = (15f * option.multiplier).sp,
+                        )
                     }
                 }
             }

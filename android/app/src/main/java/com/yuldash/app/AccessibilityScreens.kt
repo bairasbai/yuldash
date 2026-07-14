@@ -20,6 +20,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.togetherWith
@@ -103,6 +105,7 @@ import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
@@ -265,6 +268,15 @@ internal fun SimpleModeScreen(
     onChat: () -> Unit
 ) {
     val latest3 = remember(latestRequests) { latestRequests.take(3) }
+    val ctx = LocalContext.current
+    var showFontDialog by remember { mutableStateOf(false) }
+    if (showFontDialog) {
+        FontScalePickerDialog(
+            current = FontScalePrefs.option,
+            onPick = { FontScalePrefs.set(ctx, it); showFontDialog = false },
+            onDismiss = { showFontDialog = false },
+        )
+    }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Простой режим", "Ябай режим"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -283,6 +295,7 @@ internal fun SimpleModeScreen(
             item { Box(Modifier.appearIn(1)) { SeniorBigAction(Icons.Default.PhoneLocked, appText("Позвоните мне", "Миңә шылтыратығыҙ"), appText("Помощник сам перезвонит", "Ярдамсы үҙе шылтыратыр"), onCallbackHelp) } }
             item { Box(Modifier.appearIn(2)) { SeniorBigAction(Icons.Default.Shield, appText("SOS", "SOS"), appText("Экстренная помощь", "Ашығыс ярҙам"), onSos, danger = true) } }
             item { Box(Modifier.appearIn(3)) { SeniorBigAction(Icons.Default.Refresh, appText("Частые маршруты", "Йыш маршруттар"), appText("В больницу, к детям, на рынок", "Больницаға, балаларға, баҙарға"), onRepeatTrip) } }
+            item { Box(Modifier.appearIn(4)) { SeniorBigAction(Icons.Default.FormatSize, appText("Крупный шрифт", "Эре шрифт"), fontScaleLabel(FontScalePrefs.option), { showFontDialog = true }) } }
             item { Text(appText("Ещё", "Тағы"), color = CanonMuted, fontWeight = FontWeight.Bold) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -825,6 +838,10 @@ internal fun CreatePassengerRequestContent(
     pickupChips: (@Composable () -> Unit)? = null,   // F14: подсказки точек сбора (умный слот)
     modifier: Modifier = Modifier,
 ) {
+    // «Дополнительно»: условия поездки + «только для своих» + комментарий свёрнуты, чтобы не пугать
+    // пожилых и новичков. Основное (откуда/куда/когда/места/цена) всегда на виду. Ни одно поле не теряется.
+    var extrasExpanded by remember { mutableStateOf(false) }
+    val extrasChevron by animateFloatAsState(if (extrasExpanded) 180f else 0f, label = "extrasChevron")
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -920,44 +937,69 @@ internal fun CreatePassengerRequestContent(
                 }
             }
         }
+        // «Дополнительно» — сворачиваемый блок: условия поездки, «только для своих», комментарий.
+        // По умолчанию свёрнут, чтобы форма не перегружала. Плавное раскрытие. Ни одного поля не потеряли.
         item {
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Column(Modifier.padding(vertical = 6.dp)) {
-                    Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
-                    PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
-                    PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"), childSeat, onChildSeatChange)
-                    PrefToggleRow(R.drawable.yu_pet, appText("Еду с животным", "Хайуан менән"), pets, onPetsChange)
-                    PrefToggleRow(R.drawable.yu_accessible, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair, onWheelchairChange)
-                    PrefToggleRow(R.drawable.yu_luggage, appText("Есть багаж", "Багаж бар"), baggage, onBaggageChange)
-                    PrefToggleRow(R.drawable.yu_smoke_free, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking, onNonSmokingChange)
-                    PrefToggleRow(R.drawable.yu_ac, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
+                Column {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .bounceClick { extrasExpanded = !extrasExpanded }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, tint = CanonGreen2)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(appText("Дополнительно", "Өҫтәмә"), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                            Text(
+                                appText("Условия поездки, «только для своих», комментарий", "Сәфәр шарттары, «үҙебеҙҙекеләр өсөн», комментарий"),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 16.sp,
+                            )
+                        }
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (extrasExpanded) appText("Свернуть", "Йыйыу") else appText("Развернуть", "Асыу"),
+                            tint = CanonMuted,
+                            modifier = Modifier.graphicsLayer { rotationZ = extrasChevron }
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible = extrasExpanded,
+                        enter = expandVertically(tween(220)) + fadeIn(tween(180)),
+                        exit = shrinkVertically(tween(200)) + fadeOut(tween(140)),
+                    ) {
+                        Column(Modifier.padding(bottom = 8.dp)) {
+                            PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
+                            PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"), childSeat, onChildSeatChange)
+                            PrefToggleRow(R.drawable.yu_pet, appText("Еду с животным", "Хайуан менән"), pets, onPetsChange)
+                            PrefToggleRow(R.drawable.yu_accessible, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair, onWheelchairChange)
+                            PrefToggleRow(R.drawable.yu_luggage, appText("Есть багаж", "Багаж бар"), baggage, onBaggageChange)
+                            PrefToggleRow(R.drawable.yu_smoke_free, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking, onNonSmokingChange)
+                            PrefToggleRow(R.drawable.yu_ac, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
+                            PrefToggleRow(Icons.Default.Groups, appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"), onlyTrusted, onOnlyTrustedChange)
+                            Text(
+                                appText(
+                                    "Заявку увидят и возьмут только проверенные «свои» (уровень «Свой»).",
+                                    "Заявканы тик тикшерелгән «үҙебеҙҙекеләр» (Үҙебеҙҙеке кимәле) күрер һәм алыр.",
+                                ),
+                                modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 12.dp),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                            )
+                            OutlinedTextField(
+                                value = comment,
+                                onValueChange = onCommentChange,
+                                label = { Text(appText("Комментарий", "Комментарий")) },
+                                placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).heightIn(min = 96.dp),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                        }
+                    }
                 }
             }
-        }
-        item {
-            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Column(Modifier.padding(vertical = 6.dp)) {
-                    PrefToggleRow(Icons.Default.Groups, appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"), onlyTrusted, onOnlyTrustedChange)
-                    Text(
-                        appText(
-                            "Заявку увидят и возьмут только проверенные «свои» (уровень «Свой»).",
-                            "Заявканы тик тикшерелгән «үҙебеҙҙекеләр» (Үҙебеҙҙеке кимәле) күрер һәм алыр.",
-                        ),
-                        modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 8.dp),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
-                    )
-                }
-            }
-        }
-        item {
-            OutlinedTextField(
-                value = comment,
-                onValueChange = onCommentChange,
-                label = { Text(appText("Комментарий", "Комментарий")) },
-                placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
-                shape = RoundedCornerShape(16.dp)
-            )
         }
         item {
             VoiceParsedCard(

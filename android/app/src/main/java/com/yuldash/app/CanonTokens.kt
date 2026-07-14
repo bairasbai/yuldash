@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import android.content.Context
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -20,6 +21,38 @@ internal object ThemePrefs {
 
 @Composable
 internal fun appIsDark(): Boolean = ThemePrefs.darkOverride ?: isSystemInDarkTheme()
+
+/**
+ * Крупный шрифт — глобальный тумблер размера ВСЕГО текста (для пожилых и слабовидящих).
+ * [multiplier] умножается на системный fontScale в корне композиции (см. MainActivity.setContent),
+ * поэтому масштабируется весь sp-текст разом, без правки экранов, и системная настройка тоже уважается.
+ */
+internal enum class FontScaleOption(val multiplier: Float) {
+    Normal(1.0f),
+    Large(1.15f),
+    ExtraLarge(1.30f),
+}
+
+/** Единая точка правды выбранного размера текста. Читается в корне (Density) и в настройках/простом режиме. */
+internal object FontScalePrefs {
+    private const val PREFS = "yuldash_prefs"
+    private const val KEY = "font_scale"
+
+    var option by mutableStateOf(FontScaleOption.Normal)
+        private set
+
+    /** Восстановить сохранённый выбор при старте (зовётся из MainActivity.onCreate). */
+    fun load(context: Context) {
+        val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null) ?: return
+        option = runCatching { FontScaleOption.valueOf(saved) }.getOrDefault(FontScaleOption.Normal)
+    }
+
+    /** Сменить размер: применяется сразу (state вверху) и сохраняется на диск. */
+    fun set(context: Context, value: FontScaleOption) {
+        option = value
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, value.name).apply()
+    }
+}
 
 internal val CanonGreen: Color @Composable get() = if (appIsDark()) Color(0xFF7FE3AB) else Color(0xFF073F25)
 internal val CanonGreen2: Color @Composable get() = if (appIsDark()) Color(0xFF27A463) else Color(0xFF0B6B3A)  // тёмный затемнён под WCAG (белый текст на кнопке ≥3:1)

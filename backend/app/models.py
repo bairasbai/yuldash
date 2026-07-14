@@ -510,6 +510,7 @@ class RequestResponse(SQLModel, table=True):
 
 class InstantOrderStatus(str, Enum):
     """Машина состояний быстрого заказа. Терминальные: done/cancelled/expired (выхода нет)."""
+    scheduled = "scheduled"    # предзаказ «на время»: ждёт активации ко времени подачи (не ищет водителя)
     created = "created"        # заказ создан
     searching = "searching"    # matcher ищет водителя
     offered = "offered"        # оффер отправлен водителю (ждём accept/decline/timeout)
@@ -551,6 +552,10 @@ class InstantOrder(SQLModel, table=True):
     to_text: str = ""
     category: str = "standard"
     status: InstantOrderStatus = Field(default=InstantOrderStatus.created, index=True)
+    # Предзаказ «на время» (MVP): если задан и в будущем — заказ создаётся в статусе `scheduled`
+    # и НЕ уходит в поиск сразу. Активация ко времени — клиент-инициируемая/ленивая (см. instant.py).
+    # Индекс — под будущий фоновый диспетчер и выборку «мои будущие предзаказы».
+    scheduled_at: Optional[datetime] = Field(default=None, index=True)
     # Цена: estimate — оценка сервера при создании; final — фактическая при завершении.
     price_estimate: int = 0
     price_final: Optional[int] = None
@@ -645,6 +650,38 @@ class Notification(SQLModel, table=True):
     ref_kind: str = Field(default="", max_length=16)   # booking / request / "" — как трактовать ref_id
     ref_id: Optional[int] = Field(default=None)
     read_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class SupportTicketStatus(str, Enum):
+    open = "open"        # обращение в работе (пользователь или админ ещё может писать)
+    closed = "closed"    # закрыто; новое сообщение пользователя переоткрывает (см. support.py)
+
+
+class SupportSender(str, Enum):
+    user = "user"        # написал сам пользователь
+    admin = "admin"      # ответила поддержка
+
+
+class SupportTicket(SQLModel, table=True):
+    """Обращение в поддержку внутри приложения (замена ссылки в Telegram).
+    Тред = SupportTicket + его SupportMessage. Приватность: тикет видит ТОЛЬКО автор
+    (по user_id) и админ. Персональные данные (весь тред) стираются при удалении аккаунта."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="user.id")
+    subject: str = Field(default="", max_length=200)
+    status: SupportTicketStatus = Field(default=SupportTicketStatus.open, index=True)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    updated_at: datetime = Field(default_factory=utcnow, index=True)  # последнее сообщение — сорт «свежие сверху»
+
+
+class SupportMessage(SQLModel, table=True):
+    """Сообщение в треде поддержки. sender — user|admin (не FK на конкретного админа:
+    для пользователя это единый голос «Поддержка Юлдаш»). Удаляется вместе с тикетом."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ticket_id: int = Field(index=True, foreign_key="supportticket.id")
+    sender: SupportSender = Field(default=SupportSender.user, index=True)
+    body: str = Field(default="", max_length=4000)
     created_at: datetime = Field(default_factory=utcnow, index=True)
 
 

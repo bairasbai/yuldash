@@ -4,7 +4,7 @@
 объявлен в rides ПОСЛЕ статических `/rides/near`,`/rides/price_hint` — порядок
 внутри файла сохранён, поэтому динамический путь не перехватывает их.
 """
-from . import ads, antifraud, auth, bookings, chat, coupons, courier, debt, discovery, driver_schedule, drivers, family, health, instant, location, medical, notifications, parcels, payments, pickup, places, promo, referral, requests, reviews, rides, route_watch, safety, settlements, share, stats, taxi, trust, waitlist, wallet
+from . import ads, antifraud, auth, bookings, chat, coupons, courier, debt, discovery, driver_schedule, drivers, family, health, instant, location, medical, notifications, parcels, payments, pickup, places, promo, referral, requests, reviews, rides, route_watch, safety, settlements, share, stats, support, taxi, trust, waitlist, wallet
 
 all_routers = [
     health.router,
@@ -42,5 +42,6 @@ all_routers = [
     parcels.router,     # доставка посылок между сёлами (M3) — символический сбор за вещь-доставку
     courier.router,     # профиль «Курьер» (C1) — профессия + заказать курьера + купи и привези
     places.router,      # сохранённые/недавние адреса — быстрый выбор точки в форме заказа
+    support.router,     # поддержка внутри приложения (тикеты) — замена ссылки в Telegram
 
 ]
