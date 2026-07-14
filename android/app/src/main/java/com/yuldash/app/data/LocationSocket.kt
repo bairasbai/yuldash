@@ -29,6 +29,12 @@ class LocationSocket(
     @Volatile private var attempt = 0
     @Volatile private var softAttempt = 0        // мягкий ретрай «поездка не активна» — с потолком MAX_SOFT_ATTEMPTS
 
+    // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
+    // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.
+    private val netListener = NetworkMonitor.Listener {
+        if (!closed) { attempt = 0; openSocket() }
+    }
+
     companion object {
         private const val MAX_DELAY_SEC = 30L
         private const val SOFT_RETRY_SEC = 15L   // ретрай «поездка ещё не активна»
@@ -43,7 +49,7 @@ class LocationSocket(
         }
     }
 
-    fun connect() { closed = false; attempt = 0; softAttempt = 0; openSocket() }
+    fun connect() { closed = false; attempt = 0; softAttempt = 0; NetworkMonitor.subscribe(netListener); openSocket() }
 
     @Synchronized
     private fun openSocket() {
@@ -126,6 +132,7 @@ class LocationSocket(
 
     fun close() {
         closed = true
+        NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
         ws?.close(1000, null)
         ws = null
     }

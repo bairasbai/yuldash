@@ -21,6 +21,12 @@ class MapFeedSocket(private val onRefresh: () -> Unit) {
     @Volatile private var closed = false
     @Volatile private var attempt = 0
 
+    // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
+    // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.
+    private val netListener = NetworkMonitor.Listener {
+        if (!closed) { attempt = 0; openSocket() }
+    }
+
     companion object {
         private const val MAX_DELAY_SEC = 30L
         private val client: OkHttpClient by lazy {
@@ -33,7 +39,7 @@ class MapFeedSocket(private val onRefresh: () -> Unit) {
         }
     }
 
-    fun connect() { closed = false; attempt = 0; openSocket() }
+    fun connect() { closed = false; attempt = 0; NetworkMonitor.subscribe(netListener); openSocket() }
 
     @Synchronized
     private fun openSocket() {
@@ -73,6 +79,7 @@ class MapFeedSocket(private val onRefresh: () -> Unit) {
 
     fun close() {
         closed = true
+        NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
         ws?.close(1000, null)
         ws = null
     }

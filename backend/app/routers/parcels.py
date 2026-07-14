@@ -469,10 +469,15 @@ def _parcel_admin(p: ParcelDelivery) -> dict:
 
 
 @router.get("/admin/parcels")
-def admin_parcels(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_parcels(limit: int = 200, offset: int = 0,
+                  user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Все заявки (контроль/поддержка) + statement дохода платформы: сумма fee по delivered."""
     _require_admin(user)
-    rows = session.exec(select(ParcelDelivery).order_by(ParcelDelivery.id.desc())).all()
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    rows = session.exec(
+        select(ParcelDelivery).order_by(ParcelDelivery.id.desc()).offset(offset).limit(limit)
+    ).all()
     collected = session.exec(
         select(func.coalesce(func.sum(ParcelDelivery.fee_kop), 0)).where(ParcelDelivery.status == "delivered")
     ).one()

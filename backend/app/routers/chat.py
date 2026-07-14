@@ -251,11 +251,16 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
 
 
 @router.get("/instant/orders/{order_id}/messages", response_model=List[Message])
-def list_order_messages(order_id: int, user: User = Depends(current_user),
+def list_order_messages(order_id: int, limit: int = 500, user: User = Depends(current_user),
                         session: Session = Depends(get_session)):
-    """История чата заказа. После done/отмены — read-only (читать можно, писать нет)."""
+    """История чата заказа. После done/отмены — read-only (читать можно, писать нет).
+    Отдаём последние `limit` сообщений в хронологическом порядке (защита от гигантской истории)."""
     _order_for_chat(session, order_id, user.id, write=False)
-    rows = session.exec(select(Message).where(Message.order_id == order_id).order_by(Message.id)).all()
+    limit = max(1, min(limit, 1000))
+    rows = session.exec(
+        select(Message).where(Message.order_id == order_id).order_by(Message.id.desc()).limit(limit)
+    ).all()
+    rows = list(reversed(rows))
     return [m for m in rows if user.id not in _hidden_ids(m)]
 
 
@@ -303,9 +308,15 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
 
 
 @router.get("/bookings/{booking_id}/messages", response_model=List[Message])
-def list_messages(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def list_messages(booking_id: int, limit: int = 500,
+                  user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking_and_ride_for_user(session, booking_id, user)
-    rows = session.exec(select(Message).where(Message.booking_id == booking_id).order_by(Message.id)).all()
+    # Отдаём последние `limit` сообщений в хронологическом порядке (защита от гигантской истории).
+    limit = max(1, min(limit, 1000))
+    rows = session.exec(
+        select(Message).where(Message.booking_id == booking_id).order_by(Message.id.desc()).limit(limit)
+    ).all()
+    rows = list(reversed(rows))
     # Скрытые «у себя» этим юзером не показываем (на сервере остаются — для спора/SOS).
     return [m for m in rows if user.id not in _hidden_ids(m)]
 

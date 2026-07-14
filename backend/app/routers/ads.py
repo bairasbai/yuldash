@@ -470,11 +470,17 @@ def _admin_view(ad: Ad, now: datetime, paid: bool = False) -> dict:
 
 
 @router.get("/admin/ads")
-def admin_ads(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_ads(limit: int = 200, offset: int = 0,
+              user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Все объявления (кроме архива) + сколько founder-слотов занято."""
     _require_admin(user)
     now = utcnow()
-    rows = session.exec(select(Ad).where(Ad.status != "archived")).all()
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    rows = session.exec(
+        select(Ad).where(Ad.status != "archived")
+        .order_by(Ad.created_at.desc()).offset(offset).limit(limit)
+    ).all()
     rows.sort(key=lambda a: a.created_at or now, reverse=True)
     paid = _paid_ad_ids(session, [a.id for a in rows])
     return {

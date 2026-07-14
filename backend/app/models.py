@@ -2,7 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 from .timeutil import utcnow
@@ -264,6 +264,9 @@ class Ride(SQLModel, table=True):
     boosted_until: Optional[datetime] = Field(default=None, index=True)
     boost_tier: str = ""              # quick / day / urgent (последний оплаченный тариф)
     created_at: datetime = Field(default_factory=utcnow)
+    # Композитный индекс под горячую выдачу /rides (фильтр status='active' + сортировка по depart_at):
+    # точечный план вместо bitmap-AND двух отдельных индексов на большом объёме active-поездок.
+    __table_args__ = (Index("ix_ride_status_depart", "status", "depart_at"),)
 
 
 class RideRequest(SQLModel, table=True):

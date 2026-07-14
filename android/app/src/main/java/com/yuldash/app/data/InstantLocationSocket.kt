@@ -32,6 +32,12 @@ class InstantLocationSocket private constructor(
     @Volatile private var attempt = 0
     @Volatile private var softAttempt = 0
 
+    // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
+    // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.
+    private val netListener = NetworkMonitor.Listener {
+        if (!closed) { attempt = 0; openSocket() }
+    }
+
     companion object {
         // Доставка посылки (курьер ↔ отправитель): тот же трек-сокет, другой путь.
         fun forParcel(parcelId: Int, onPeer: (LocationSocket.Peer) -> Unit, onConnected: (Boolean) -> Unit = {}) =
@@ -50,7 +56,7 @@ class InstantLocationSocket private constructor(
         }
     }
 
-    fun connect() { closed = false; attempt = 0; softAttempt = 0; openSocket() }
+    fun connect() { closed = false; attempt = 0; softAttempt = 0; NetworkMonitor.subscribe(netListener); openSocket() }
 
     @Synchronized
     private fun openSocket() {
@@ -126,6 +132,7 @@ class InstantLocationSocket private constructor(
 
     fun close() {
         closed = true
+        NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
         ws?.close(1000, null)
         ws = null
     }

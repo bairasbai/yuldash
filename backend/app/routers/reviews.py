@@ -65,9 +65,13 @@ def create_review(body: AppReviewIn, user: User = Depends(current_user), session
 
 
 @router.get("/reviews/mine", response_model=List[AppReview])
-def my_reviews(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def my_reviews(limit: int = 100, offset: int = 0,
+               user: User = Depends(current_user), session: Session = Depends(get_session)):
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
     return session.exec(
-        select(AppReview).where(AppReview.user_id == user.id).order_by(AppReview.created_at.desc())
+        select(AppReview).where(AppReview.user_id == user.id)
+        .order_by(AppReview.created_at.desc()).offset(offset).limit(limit)
     ).all()
 
 
@@ -88,11 +92,15 @@ def public_reviews(limit: int = 12, session: Session = Depends(get_session)):
 
 
 @router.get("/admin/reviews/pending", response_model=List[AppReview])
-def pending_reviews(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def pending_reviews(limit: int = 200, offset: int = 0,
+                    user: User = Depends(current_user), session: Session = Depends(get_session)):
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для админа")
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
     return session.exec(
-        select(AppReview).where(AppReview.published == False).order_by(AppReview.created_at.desc())  # noqa: E712
+        select(AppReview).where(AppReview.published == False)  # noqa: E712
+        .order_by(AppReview.created_at.desc()).offset(offset).limit(limit)
     ).all()
 
 

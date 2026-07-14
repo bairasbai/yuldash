@@ -70,7 +70,8 @@ def _require_admin(user: User) -> None:
 
 
 def _filtered(session: Session, city: Optional[str], role: Optional[str],
-              invited: Optional[bool]) -> List[WaitlistEntry]:
+              invited: Optional[bool], limit: Optional[int] = None,
+              offset: int = 0) -> List[WaitlistEntry]:
     q = select(WaitlistEntry)
     if city:
         q = q.where(WaitlistEntry.city == city.strip())
@@ -79,7 +80,10 @@ def _filtered(session: Session, city: Optional[str], role: Optional[str],
     if invited is not None:
         q = q.where(WaitlistEntry.invited_at.is_not(None) if invited   # type: ignore[union-attr]
                     else WaitlistEntry.invited_at.is_(None))           # type: ignore[union-attr]
-    return session.exec(q.order_by(WaitlistEntry.id.desc())).all()
+    q = q.order_by(WaitlistEntry.id.desc())
+    if limit is not None:
+        q = q.offset(max(0, offset)).limit(limit)
+    return session.exec(q).all()
 
 
 def _entry_payload(e: WaitlistEntry) -> dict:
@@ -95,15 +99,18 @@ def _entry_payload(e: WaitlistEntry) -> dict:
 
 @router.get("/admin/waitlist")
 def admin_waitlist(city: Optional[str] = None, role: Optional[str] = None, invited: Optional[bool] = None,
+                   limit: int = 200, offset: int = 0,
                    user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Список ожидающих + счётчики. Счётчики (total/invited/by_city/by_role) — по ВСЕЙ базе
     (общая картина набора), items — по фильтрам city/role/invited. by_city отсортирован по
     убыванию (JSON-массив: порядок важен для UI, объект его не гарантирует)."""
     _require_admin(user)
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
     all_rows = session.exec(select(WaitlistEntry)).all()
     by_city = Counter((r.city or "").strip() or "—" for r in all_rows)
     by_role = Counter(r.role for r in all_rows)
-    items = _filtered(session, city, role, invited)
+    items = _filtered(session, city, role, invited, limit=limit, offset=offset)
     return {
         "total": len(all_rows),
         "invited": sum(1 for r in all_rows if r.invited_at),

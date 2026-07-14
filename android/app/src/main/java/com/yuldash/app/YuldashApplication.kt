@@ -4,6 +4,7 @@ import android.app.Application
 import com.yandex.mapkit.MapKitFactory
 import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.NetworkMonitor
 import io.sentry.android.core.SentryAndroid
 
 /**
@@ -21,6 +22,7 @@ class YuldashApplication : Application() {
         initSentry()                      // сбор ошибок — до остального, чтобы поймать ранние сбои
         ApiClient.init(this)              // загрузить сохранённый токен сессии
         Analytics.init(this)              // Firebase Analytics: DAU/удержание/воронка событий
+        NetworkMonitor.init(this)         // мгновенный реконнект WS-сокетов при возврате сети (дополняет backoff)
         ApiClient.registerCurrentPushToken()   // если уже вошли — зарегистрировать устройство для push
         if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
             MapKitFactory.setApiKey(BuildConfig.YANDEX_MAPKIT_KEY)

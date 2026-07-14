@@ -38,6 +38,12 @@ class ChatSocket(
     @Volatile private var closed = false   // выставлен из UI-потока в close(), читается из ws-потока
     @Volatile private var attempt = 0
 
+    // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
+    // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.
+    private val netListener = NetworkMonitor.Listener {
+        if (!closed) { attempt = 0; openSocket() }
+    }
+
     companion object {
         private const val MAX_DELAY_SEC = 30L
 
@@ -62,6 +68,7 @@ class ChatSocket(
     fun connect() {
         closed = false
         attempt = 0
+        NetworkMonitor.subscribe(netListener)
         openSocket()
     }
 
@@ -135,6 +142,7 @@ class ChatSocket(
 
     fun close() {
         closed = true   // глушит запланированные и будущие реконнекты
+        NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
         ws?.close(1000, null)
         ws = null
         // НЕ глушим executor общего клиента — он живёт на весь процесс и нужен другим чатам.

@@ -703,10 +703,15 @@ class RejectIn(BaseModel):
 
 
 @router.get("/admin/partners")
-def admin_partners(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_partners(limit: int = 200, offset: int = 0,
+                   user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Все бизнесы (очередь модерации), pending сверху."""
     _require_admin(user)
-    rows = session.exec(select(Partner)).all()
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    rows = session.exec(
+        select(Partner).order_by(Partner.id.desc()).offset(offset).limit(limit)
+    ).all()
     order = {"pending": 0, "active": 1, "paused": 2, "rejected": 3, "archived": 4}
     rows.sort(key=lambda p: (order.get(p.status, 9), -(p.id or 0)))
     return [_partner_admin(p) for p in rows]
