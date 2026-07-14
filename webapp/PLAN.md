@@ -17,9 +17,28 @@
 ### ✅ Волна 0 — Фундамент (готово)
 Каркас, тема, i18n, API-клиент, оболочка + нижняя навигация, установка на экран, живая лента `GET /rides`.
 
-### Волна 1 — Вход и старт (7)
-Splash, Intro (морф-заставка), Onboarding (+ предложение простого режима), Login (вход по коду + токен),
-Consents (152-ФЗ), Trust (уровни L0–L3), Invites (инвайт-коды). Плюс `me()` и защита приватных маршрутов.
+### ✅ Волна 1 — Вход и старт (готово)
+Splash, Intro (морф «Попутчик»→«Юлдаш»), Onboarding (слайды + язык + роль + простой режим),
+Login (вход по коду через Telegram + токен), Consents (152-ФЗ), Trust (уровни L0–L3), Invites (инвайт-коды).
+Плюс инфраструктура авторизации: `me()`, `AuthProvider` (точка правды сессии), `RequireAuth` (защита приватных
+маршрутов), тихий refresh access-токена, logout.
+
+**Как реализовано (по реальному backend):**
+- **Вход = Telegram** (`auth.py`): `POST /auth/tg/start` → `request_id` → открыть `t.me/<VITE_TELEGRAM_BOT>?start=<id>` →
+  бот шлёт 6-значный код → `POST /auth/tg/verify {request_id, code}` → `{access_token, refresh_token, user}`.
+  Ошибки различаем: 403 phone_required (нужен номер в боте), 409 код ещё идёт, 410 истёк, 429 много попыток, 400 неверный.
+  SMS-вход — спокойная заглушка (нет юрлица).
+- **Сессия** — `AuthProvider` (`src/auth/`): на старте `GET /me` при наличии токена; хранит `user/status`,
+  `login/logout/refresh/isAuthed`. Токены — в `client.ts` (`yuldash.token` + `yuldash.refresh`).
+  Тихий refresh: на 401 клиент один раз дергает `POST /auth/refresh` и повторяет запрос; иначе — logout.
+- **Защита маршрутов** — `RequireAuth`: приватное (`/trust`, `/invites`) без токена → `/login` (с возвратом).
+  Публичное (лента `/rides`, карта) — без входа. `/consents` доступны и гостю (локальные).
+- **Invites** = реальный реферал (`referral.py`): `GET /referral/me` (code/invited/credits/redeemed),
+  `POST /referral/redeem {code}`.
+- **Trust**: у backend нет `/me/trust` — уровень L0–L3 честно считаем из реальных полей `GET /me`
+  (номер, `verified`) и числа приглашённых (`/referral/me`). Без выдуманного API.
+- **Consents (152-ФЗ)**: у backend нет эндпоинта согласий — отметку храним локально (`flags.ts`),
+  когда появится `/me/consents` — заменим один слой (api).
 
 ### Волна 2 — Попутка, пассажир (14)
 Home (карта Яндекс JS), CreateRequest (форма + «Дополнительно»), RequestsFeed, RequestResponses,

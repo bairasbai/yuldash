@@ -9,6 +9,7 @@ export const API_BASE = (
 ).replace(/\/+$/, "");
 
 const TOKEN_KEY = "yuldash.token";
+const REFRESH_KEY = "yuldash.refresh";
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -17,6 +18,21 @@ export function getToken(): string | null {
 export function setToken(token: string | null): void {
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_KEY);
+}
+
+export function setRefreshToken(token: string | null): void {
+  if (token) localStorage.setItem(REFRESH_KEY, token);
+  else localStorage.removeItem(REFRESH_KEY);
+}
+
+/** Сохранить/очистить обе части сессии одним швом. */
+export function setSession(access: string | null, refresh?: string | null): void {
+  setToken(access);
+  if (refresh !== undefined) setRefreshToken(refresh);
 }
 
 /** Ошибка API с кодом статуса — экраны решают, как показать. */
@@ -36,6 +52,25 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
   onUnauthorized = fn;
 }
 
+// ---- Тихое обновление access-токена по refresh (access живёт минуты) ----
+// Слой авторизации регистрирует функцию: она дергает /auth/refresh, кладёт новую
+// пару в localStorage и возвращает true при успехе. Здесь мы её только вызываем.
+let refreshHandler: (() => Promise<boolean>) | null = null;
+export function setRefreshHandler(fn: (() => Promise<boolean>) | null): void {
+  refreshHandler = fn;
+}
+// Один общий полёт обновления: параллельные 401 не запускают N рефрешей.
+let refreshInFlight: Promise<boolean> | null = null;
+function runRefresh(): Promise<boolean> {
+  if (!refreshHandler) return Promise.resolve(false);
+  if (!refreshInFlight) {
+    refreshInFlight = refreshHandler().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
 function authHeaders(): Record<string, string> {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -43,9 +78,9 @@ function authHeaders(): Record<string, string> {
 
 async function request<T>(
   path: string,
-  init: RequestInit & { auth?: boolean } = {}
+  init: RequestInit & { auth?: boolean; _retried?: boolean } = {}
 ): Promise<T> {
-  const { auth = true, headers, ...rest } = init;
+  const { auth = true, headers, _retried = false, ...rest } = init;
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
@@ -62,7 +97,12 @@ async function request<T>(
   }
 
   if (res.status === 401) {
+    // Access протух → один раз пробуем обновить по refresh и повторить запрос.
+    if (auth && !_retried && getRefreshToken() && (await runRefresh())) {
+      return request<T>(path, { ...init, _retried: true });
+    }
     setToken(null);
+    setRefreshToken(null);
     onUnauthorized?.();
     throw new ApiError(401, "unauthorized");
   }

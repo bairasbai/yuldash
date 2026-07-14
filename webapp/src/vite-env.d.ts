@@ -3,6 +3,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE?: string;
+  /** Имя Telegram-бота для входа (без @). Пусто → вход через Telegram показывает заглушку. */
+  readonly VITE_TELEGRAM_BOT?: string;
 }
 
 interface ImportMeta {

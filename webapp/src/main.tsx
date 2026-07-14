@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { LangProvider } from "./i18n/lang";
+import { AuthProvider } from "./auth/AuthProvider";
 import "./index.css";
 import "./ui.css";
 
@@ -14,7 +15,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <LangProvider>
-        <App />
+        <AuthProvider>
+          <App />
+        </AuthProvider>
       </LangProvider>
     </BrowserRouter>
   </StrictMode>

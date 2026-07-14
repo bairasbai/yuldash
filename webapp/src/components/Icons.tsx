@@ -53,3 +53,64 @@ export const IconArrow = ({ size = 20 }: P) => (
     <path d="M5 12h13M13 6l6 6-6 6" />
   </svg>
 );
+
+export const IconCheck = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M5 12.5l4.5 4.5L19 6.5" />
+  </svg>
+);
+
+export const IconChevron = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M9 6l6 6-6 6" />
+  </svg>
+);
+
+export const IconShield = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3Z" />
+    <path d="M9 12l2 2 4-4" />
+  </svg>
+);
+
+export const IconStar = ({ size = 18 }: P) => (
+  <svg {...base(size)} fill="currentColor" stroke="none">
+    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 17l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z" />
+  </svg>
+);
+
+export const IconCopy = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <rect x="9" y="9" width="11" height="11" rx="2.5" />
+    <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+  </svg>
+);
+
+export const IconShare = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M12 3v12" />
+    <path d="M8 7l4-4 4 4" />
+    <path d="M6 12v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7" />
+  </svg>
+);
+
+export const IconGift = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <rect x="4" y="9" width="16" height="11" rx="2" />
+    <path d="M4 12h16M12 9v11" />
+    <path d="M12 9S9.5 4 7.5 5.2 9.5 9 12 9Zm0 0s2.5-5 4.5-3.8S14.5 9 12 9Z" />
+  </svg>
+);
+
+export const IconLogout = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M15 5V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-1" />
+    <path d="M10 12h11M18 9l3 3-3 3" />
+  </svg>
+);
+
+export const IconTelegram = ({ size = 22 }: P) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <path d="M21.6 4.3 2.9 11.5c-1 .4-1 1 0 1.3l4.6 1.4 1.8 5.6c.2.6.4.8.9.8.4 0 .6-.2.9-.5l2.4-2.3 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.2-.5-1.8-1.4-1.5Zm-3.6 3.4-8.4 7.6-.3 3.4-1.6-5 10-6.5c.5-.3.9 0 .3.5Z" />
+  </svg>
+);
