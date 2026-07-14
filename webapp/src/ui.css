@@ -1,0 +1,332 @@
+/* Компоненты и оболочка приложения. Цвета — только из токенов (index.css). */
+
+/* ---- Оболочка ---- */
+.app-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.app-main {
+  flex: 1;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 16px;
+  /* место под нижнюю навигацию + safe-area */
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
+/* ---- Шапка экрана ---- */
+.screen-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: 0 -16px 8px;
+  padding: calc(env(safe-area-inset-top) + 16px) 16px 16px;
+  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
+  color: #fff;
+  border-radius: 0 0 26px 26px;
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.6);
+}
+.screen-header__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.screen-header h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.screen-header p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+/* ---- Переключатель языка ---- */
+.lang-toggle {
+  flex: none;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(6px);
+}
+.lang-toggle button {
+  min-width: 40px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  font-weight: 700;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.lang-toggle button[data-active="true"] {
+  background: #fff;
+  color: var(--header-top);
+}
+
+/* ---- Карточка поездки ---- */
+.ride-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  margin-top: 12px;
+  animation: fadeUp 0.35s ease both;
+  box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.5);
+}
+.ride-card__route {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.ride-card__arrow {
+  color: var(--green-bright, var(--canon-green-bright));
+  flex: none;
+}
+.ride-card__meta {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.ride-card__meta b {
+  color: var(--text);
+}
+.ride-card__foot {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ride-card__driver {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ride-card__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex: none;
+  object-fit: cover;
+  background: var(--mint);
+  display: grid;
+  place-items: center;
+  color: var(--green);
+  font-weight: 800;
+}
+.ride-card__driver-name {
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ride-card__driver-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ride-card__price {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--green);
+  white-space: nowrap;
+}
+
+/* Бейджи */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.badge--mint {
+  background: var(--mint);
+  color: var(--green);
+}
+.badge--gold {
+  background: var(--canon-gold-soft);
+  color: #7a5200;
+}
+.badge--boost {
+  background: var(--canon-gold);
+  color: #3a2600;
+}
+.star {
+  color: var(--canon-star);
+}
+
+/* ---- Скелетоны ---- */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--skeleton) 25%,
+    var(--skeleton-shine) 37%,
+    var(--skeleton) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 10px;
+}
+.skeleton-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  margin-top: 12px;
+}
+
+/* ---- Пусто / ошибка ---- */
+.state {
+  text-align: center;
+  padding: 56px 20px;
+  animation: fadeUp 0.35s ease both;
+}
+.state__emoji {
+  font-size: 44px;
+}
+.state h2 {
+  margin: 14px 0 6px;
+  font-size: 19px;
+  font-weight: 800;
+}
+.state p {
+  margin: 0 auto;
+  max-width: 320px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.btn-primary {
+  margin-top: 18px;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--green-btn);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  transition: transform 0.12s ease, opacity 0.2s ease;
+}
+.btn-primary:active {
+  transform: scale(0.97);
+}
+.btn-ghost {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ---- Нижняя навигация ---- */
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: space-around;
+  gap: 2px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  background: var(--nav-bg);
+  backdrop-filter: saturate(160%) blur(18px);
+  border-top: 1px solid var(--border);
+}
+.nav-item {
+  flex: 1;
+  max-width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 0;
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  transition: color 0.2s ease;
+}
+.nav-item.is-active {
+  color: var(--green);
+}
+.nav-item svg {
+  transition: transform 0.2s ease;
+}
+.nav-item.is-active svg {
+  transform: translateY(-1px) scale(1.04);
+}
+
+/* ---- Подсказка установки ---- */
+.install-sheet {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  z-index: 60;
+  max-width: 616px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 16px;
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.5);
+  animation: fadeUp 0.4s ease both;
+}
+.install-sheet__row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.install-sheet img {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  flex: none;
+}
+.install-sheet h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.install-sheet p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.install-sheet__actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

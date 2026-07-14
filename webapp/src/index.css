@@ -1,0 +1,122 @@
+/* ================================================================
+   Юлдаш — дизайн-токены Canon* (зеркало android/CanonTokens.kt).
+   Светлая/тёмная тема через prefers-color-scheme.
+   ================================================================ */
+:root {
+  /* Бренд (фиксированные) */
+  --canon-green-deep: #0b6b3a;
+  --canon-green-bright: #2fb36e;
+  --canon-green-glow: #7fe3ab;
+  --canon-gold: #f5b301;
+  --canon-gold-soft: #ffe3a1;
+  --canon-star: #e7a921;
+
+  /* Адаптивные — светлая тема (по умолчанию) */
+  --bg: #fafaf6;
+  --surface: #ffffff;
+  --surface-2: #f2f4f0;
+  --text: #0b1f14;
+  --muted: #686f66;
+  --border: rgba(0, 0, 0, 0.1);
+  --mint: #e7f5ec;
+  --green: #073f25; /* акцентный текст-зелёный */
+  --green-btn: #0b6b3a; /* заливка кнопки (белый текст ≥3:1) */
+  --warn-bg: #fff2d6;
+  --warn: #9a6200;
+  --danger-bg: #fdecea;
+  --danger: #cc2a20;
+  --nav-bg: rgba(255, 255, 255, 0.82);
+  --skeleton: #eceee9;
+  --skeleton-shine: rgba(255, 255, 255, 0.6);
+
+  /* Шапка-градиент (фиксированный тёмно-зелёный, белый текст) */
+  --header-top: #0b6b3a;
+  --header-bottom: #073f25;
+
+  --radius-card: 28px;
+  --radius-item: 22px;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1512;
+    --surface: #192420;
+    --surface-2: #101a16;
+    --text: #eaf2ec;
+    --muted: #9ba49d;
+    --border: rgba(255, 255, 255, 0.14);
+    --mint: #0f2419;
+    --green: #7fe3ab;
+    --green-btn: #27a463;
+    --warn-bg: #3a2e12;
+    --warn: #e8b86a;
+    --danger-bg: #3a1b18;
+    --danger: #f25a4d;
+    --nav-bg: rgba(16, 26, 22, 0.86);
+    --skeleton: #212d28;
+    --skeleton-shine: rgba(255, 255, 255, 0.06);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* убираем «резинку» и подсветку тапа для приложенческого ощущения */
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Плавные появления */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
