@@ -118,7 +118,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 2
-        versionName = "0.1.0"
+        versionName = "1.0.0"      // первый публичный релиз
         // Рунер инструментальных тестов (без него AGP берёт легаси android.test.* → краш Compose-тестов).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

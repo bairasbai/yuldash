@@ -50,10 +50,10 @@
 
 ---
 
-## 🟡 Мелочи, которые могу закрыть кодом по твоему слову (не блокеры)
-- Поднять `versionName` `0.1.0 → 1.0.0` (косметика первого публичного релиза).
-- `network_security_config.xml` для debug-сборки (чтобы debug ходила на локальный `http://10.0.2.2`; на релиз не влияет).
-- Сгенерировать шаблон `assetlinks.json` для deep-link (разместить на домене — за тобой).
+## 🟢 Мелочи — ЗАКРЫТО кодом (2026-07-14)
+- ✅ `versionName` `0.1.0 → 1.0.0` (первый публичный релиз).
+- ✅ `network_security_config.xml`: debug ходит на локальный `http://10.0.2.2`, релиз — только HTTPS (не ослаблен).
+- ✅ Шаблон `assetlinks.json` (`docs/assetlinks-template.json` + инструкция `docs/assetlinks-README.md`) — **тебе** вставить SHA256-отпечаток keystore и разместить на `yulbash.ru/.well-known/assetlinks.json`.
 
 ---
 
