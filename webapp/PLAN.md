@@ -79,8 +79,35 @@ RepeatTrip, MyStats, RouteWatches, ClinicRides, PassengerCabinet.
 **Зависит от деплоя release-2026-07:** квитанция `GET /trips/{id}/receipt` — до мержа отдаёт 404,
 экран показывает мягкое состояние «квитанция появится после обновления».
 
-**Осталось в волне 2 (не 2А):** Filters, SavedPlaces, RepeatTrip, MyStats, RouteWatches, ClinicRides,
-PassengerCabinet (в т.ч. полноценный список «Мои заявки/поездки»).
+#### ✅ Волна 2Б — Доп. экраны пассажира (готово, сборка зелёная)
+7 экранов + фильтры на ленте/карте. Все состояния (загрузка/пусто/ошибка), два языка
+(ба-черновик → `BASHKIR_DRAFT.md`), токены Canon, safe-area, тач-цели ≥48px, мягкая деградация 404.
+
+**Экраны и роуты:**
+- `FiltersScreen` → `/filters` (публично): фильтры по умолчанию (город/цена/удобства/«только свои»),
+  хранятся локально (`src/filterPrefs.ts`, localStorage). Применяются клиентски к ленте `RidesScreen`
+  и списку «Поездки рядом» на `HomeScreen` (чип «Фильтры», отдельное пустое состояние «ничего под фильтры»).
+- `SavedPlacesScreen` → `/places` (RequireAuth): «Мои адреса» (Дом/Работа/свои). `GET/POST /places/saved`,
+  `DELETE /places/saved/{id}`. Ручной ввод адреса + подсказки геокодера (`/geocode`, мягко: нет — просто ввод).
+- `RepeatTripScreen` → `/repeat` (RequireAuth): частые маршруты `GET /my-routes`, фолбэк `GET /places/recent`.
+  Тап → `POST /requests` из выбранного → отклики.
+- `MyStatsScreen` → `/stats` (RequireAuth): `GET /me/stats` — км/поездки/₽/CO₂, звание + прогресс,
+  «Поделиться» (Web Share API, фолбэк — копирование). Нули для новичка.
+- `RouteWatchesScreen` → `/route-watches` (RequireAuth): подписки на маршрут. `GET/POST /route-watch`,
+  `DELETE /route-watch/{id}`. Направление forward/both.
+- `ClinicRidesScreen` → `/clinics` (публично): `GET /medical-partners`, выбор клиники →
+  `GET /medical-partners/{id}/rides` (публичная витрина + шторка брони). 404 → «скоро».
+- `PassengerCabinetScreen` → `/cabinet` (RequireAuth): `GET /bookings/mine` — активная бронь
+  (pending→Booking, confirmed/onboard→ActiveTrip), история (done→квитанция), плюс карточки-ссылки
+  на Адреса/Повтор/Мой Юлдаш/Подписки/Квитанции/Кошелёк (заглушка до волны 6).
+
+**Инфраструктура:** `api/places.ts`, `api/stats.ts`, `api/routeWatch.ts`, `api/medical.ts`,
+`fetchMyRoutes` в `api/discovery.ts`, `apiDelete` в `api/client.ts`, `filterPrefs.ts` (localStorage +
+`applyRideFilters`), новые иконки в `components/Icons.tsx`. Профиль связан со всеми разделами.
+
+**Зависит от деплоя release-2026-07:** `/places/*`, `/me/stats`, `/route-watch`, `/medical-partners*`,
+`/my-routes` — на проде появятся после мержа release. До мержа отдают 404 → экраны показывают
+мягкое пустое/«скоро» состояние без краша.
 
 ### Волна 3 — Попутка, водитель (6)
 CreateRide, DriverCabinet, DriverProfile (публичный), DriverEarnings, Boost, VerifyDriver.

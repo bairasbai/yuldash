@@ -114,3 +114,91 @@ export const IconTelegram = ({ size = 22 }: P) => (
     <path d="M21.6 4.3 2.9 11.5c-1 .4-1 1 0 1.3l4.6 1.4 1.8 5.6c.2.6.4.8.9.8.4 0 .6-.2.9-.5l2.4-2.3 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.2-.5-1.8-1.4-1.5Zm-3.6 3.4-8.4 7.6-.3 3.4-1.6-5 10-6.5c.5-.3.9 0 .3.5Z" />
   </svg>
 );
+
+export const IconHome = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 11l8-6 8 6" />
+    <path d="M6 10v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9" />
+    <path d="M10 20v-5h4v5" />
+  </svg>
+);
+
+export const IconWork = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <rect x="3" y="7" width="18" height="13" rx="2" />
+    <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <path d="M3 12h18" />
+  </svg>
+);
+
+export const IconPin = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M12 21s7-6 7-11a7 7 0 0 0-14 0c0 5 7 11 7 11Z" />
+    <circle cx="12" cy="10" r="2.6" />
+  </svg>
+);
+
+export const IconTrash = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 7h16" />
+    <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    <path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
+    <path d="M10 11v6M14 11v6" />
+  </svg>
+);
+
+export const IconBell = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z" />
+    <path d="M10 20a2 2 0 0 0 4 0" />
+  </svg>
+);
+
+export const IconWallet = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+    <path d="M16 12h4v-2h-4a1 1 0 0 0 0 2Z" />
+  </svg>
+);
+
+export const IconReceipt = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z" />
+    <path d="M9 8h6M9 12h6" />
+  </svg>
+);
+
+export const IconClock = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 7.5V12l3 2" />
+  </svg>
+);
+
+export const IconFilter = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 5h16l-6 8v5l-4 2v-7L4 5Z" />
+  </svg>
+);
+
+export const IconRoute = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="6" cy="18" r="2.4" />
+    <circle cx="18" cy="6" r="2.4" />
+    <path d="M8 17.5c6 0 8-2 8-6.5" />
+  </svg>
+);
+
+export const IconHospital = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <rect x="4" y="4" width="16" height="16" rx="2" />
+    <path d="M12 8v8M8 12h8" />
+  </svg>
+);
+
+export const IconTrend = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 16l5-5 3 3 7-7" />
+    <path d="M16 7h4v4" />
+  </svg>
+);

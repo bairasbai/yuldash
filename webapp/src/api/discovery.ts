@@ -61,6 +61,11 @@ export function fetchPopularRoutes(signal?: AbortSignal): Promise<PopularRoute[]
   return apiGet<PopularRoute[]>("/popular-routes", { auth: false, signal });
 }
 
+/** Мои частые маршруты — из истории броней (GET /my-routes). Требует вход. */
+export function fetchMyRoutes(signal?: AbortSignal): Promise<PopularRoute[]> {
+  return apiGet<PopularRoute[]>("/my-routes", { signal });
+}
+
 /** Геокодер подсказки городов. Требует вход. Поле координаты — `lon` (не `lng`). */
 export interface GeoHit {
   title: string;

@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { fetchRides, type Ride } from "../api/rides";
 import ScreenHeader from "../components/ScreenHeader";
 import RideCard from "../components/RideCard";
 import { EmptyState, ErrorState, LoadingList } from "../components/States";
+import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
+import { IconFilter } from "../components/Icons";
 
 type State =
   | { kind: "loading" }
@@ -20,7 +23,11 @@ type State =
  * в CORS_ORIGINS. В таком случае экран корректно покажет состояние ошибки.
  */
 export default function RidesScreen() {
-  const { t } = useLang();
+  const { t, appText } = useLang();
+  const navigate = useNavigate();
+  // Фильтры по умолчанию (локальные) — применяем к ленте клиентски.
+  const prefs = useMemo(() => loadFilters(), []);
+  const filterOn = isFilterActive(prefs);
   const [state, setState] = useState<State>({ kind: "loading" });
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -43,18 +50,50 @@ export default function RidesScreen() {
     <>
       <ScreenHeader title={t("ridesTitle")} subtitle={t("ridesSubtitle")} />
 
+      <div className="chips">
+        <button
+          type="button"
+          className={"chip" + (filterOn ? " chip--on" : "")}
+          onClick={() => navigate("/filters")}
+        >
+          <IconFilter size={16} />{" "}
+          {filterOn ? appText("Фильтры включены", "Фильтрҙар ҡабыҙылған") : appText("Фильтры", "Фильтрҙар")}
+        </button>
+      </div>
+
       {state.kind === "loading" && <LoadingList count={5} />}
       {state.kind === "error" && <ErrorState onRetry={() => load()} />}
       {state.kind === "ready" &&
-        (state.rides.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div>
-            {state.rides.map((ride, i) => (
-              <RideCard key={ride.id} ride={ride} index={i} />
-            ))}
-          </div>
-        ))}
+        (() => {
+          const rides = applyRideFilters(state.rides, prefs);
+          if (rides.length === 0) {
+            // Совсем пусто vs «фильтры всё скрыли» — разные подсказки.
+            return filterOn && state.rides.length > 0 ? (
+              <div className="state">
+                <div className="state__emoji">🔍</div>
+                <h2>{appText("Ничего под фильтры", "Фильтргә тап килмәй")}</h2>
+                <p>
+                  {appText(
+                    "Под твои фильтры сейчас нет поездок. Смягчи условия.",
+                    "Фильтрҙарыңа тап килгән сәфәр юҡ. Шарттарҙы йомшарт."
+                  )}
+                </p>
+                <button type="button" className="btn-primary" onClick={() => navigate("/filters")}>
+                  {appText("Изменить фильтры", "Фильтрҙарҙы үҙгәртергә")}
+                </button>
+              </div>
+            ) : (
+              <EmptyState />
+            );
+          }
+          return (
+            <div>
+              {rides.map((ride, i) => (
+                <RideCard key={ride.id} ride={ride} index={i} />
+              ))}
+            </div>
+          );
+        })()}
     </>
   );
 }

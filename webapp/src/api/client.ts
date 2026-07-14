@@ -142,3 +142,10 @@ export function apiPost<T>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 }
+
+export function apiDelete<T>(
+  path: string,
+  opts?: { auth?: boolean; signal?: AbortSignal }
+): Promise<T> {
+  return request<T>(path, { method: "DELETE", auth: opts?.auth, signal: opts?.signal });
+}

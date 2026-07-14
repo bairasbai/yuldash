@@ -15,7 +15,8 @@ import YandexMap, { type MapMarker, type GeoPoint } from "../components/YandexMa
 import { LoadingList, ErrorState } from "../components/States";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
 import type { Ride } from "../api/rides";
-import { IconRequest, IconRides, IconShield, IconGift } from "../components/Icons";
+import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
+import { IconRequest, IconRides, IconShield, IconGift, IconFilter } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
 
@@ -30,6 +31,10 @@ export default function HomeScreen() {
   const [me, setMe] = useState<GeoPoint | null>(null);
   const [nearOnly, setNearOnly] = useState(false);
   const [sheet, setSheet] = useState<Ride | null>(null);
+  // Фильтры по умолчанию (локальные) — применяем к списку поездок рядом.
+  const prefs = useMemo(() => loadFilters(), []);
+  const filterOn = isFilterActive(prefs);
+  const shownRides = useMemo(() => applyRideFilters(rides, prefs), [rides, prefs]);
 
   const load = useCallback(
     (signal?: AbortSignal, coords?: GeoPoint | null) => {
@@ -151,6 +156,13 @@ export default function HomeScreen() {
         >
           📍 {appText("Ближайшие", "Иң яҡындар")}
         </button>
+        <button
+          type="button"
+          className={"chip" + (filterOn ? " chip--on" : "")}
+          onClick={() => navigate("/filters")}
+        >
+          <IconFilter size={16} /> {appText("Фильтры", "Фильтрҙар")}
+        </button>
       </div>
 
       <div className="quick-row" role="list">
@@ -175,23 +187,38 @@ export default function HomeScreen() {
       {status === "loading" && <LoadingList count={3} />}
       {status === "error" && <ErrorState onRetry={() => load(undefined, me)} />}
       {status === "ready" &&
-        (rides.length === 0 ? (
+        (shownRides.length === 0 ? (
           <div className="state">
             <div className="state__emoji">🚗</div>
-            <h2>{appText("Пока никто не едет рядом", "Яҡында әле бер кем бармай")}</h2>
+            <h2>
+              {filterOn && rides.length > 0
+                ? appText("Ничего под фильтры", "Фильтргә тап килмәй")
+                : appText("Пока никто не едет рядом", "Яҡында әле бер кем бармай")}
+            </h2>
             <p>
-              {appText(
-                "Оставь заявку — водители увидят её и откликнутся.",
-                "Заявка ҡалдыр — водителдәр күреп яуап бирер."
-              )}
+              {filterOn && rides.length > 0
+                ? appText(
+                    "Под твои фильтры сейчас нет поездок. Смягчи условия.",
+                    "Фильтрҙарыңа тап килгән сәфәр юҡ. Шарттарҙы йомшарт."
+                  )
+                : appText(
+                    "Оставь заявку — водители увидят её и откликнутся.",
+                    "Заявка ҡалдыр — водителдәр күреп яуап бирер."
+                  )}
             </p>
-            <button type="button" className="btn-primary" onClick={() => navigate("/request")}>
-              {appText("Создать заявку", "Заявка ҡалдыр")}
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => navigate(filterOn && rides.length > 0 ? "/filters" : "/request")}
+            >
+              {filterOn && rides.length > 0
+                ? appText("Изменить фильтры", "Фильтрҙарҙы үҙгәртергә")
+                : appText("Создать заявку", "Заявка ҡалдыр")}
             </button>
           </div>
         ) : (
           <div>
-            {rides.map((ride, i) => (
+            {shownRides.map((ride, i) => (
               <button
                 key={ride.id}
                 type="button"

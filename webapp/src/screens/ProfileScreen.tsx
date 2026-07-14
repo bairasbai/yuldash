@@ -8,6 +8,12 @@ import {
   IconLogout,
   IconShield,
   IconStar,
+  IconRides,
+  IconHome,
+  IconTrend,
+  IconBell,
+  IconFilter,
+  IconHospital,
 } from "../components/Icons";
 
 function initials(name: string): string {
@@ -31,7 +37,54 @@ export default function ProfileScreen() {
     icon: JSX.Element;
     title: string;
     sub: string;
+    authed?: boolean;
   }[] = [
+    {
+      key: "cabinet",
+      to: "/cabinet",
+      icon: <IconRides size={22} />,
+      title: appText("Мои поездки", "Сәфәрҙәрем"),
+      sub: appText("Кабинет пассажира: поездки и разделы", "Юлаусы кабинеты: сәфәрҙәр һәм бүлектәр"),
+      authed: true,
+    },
+    {
+      key: "places",
+      to: "/places",
+      icon: <IconHome size={22} />,
+      title: appText("Мои адреса", "Адрестарым"),
+      sub: appText("Дом, работа и любимые точки", "Өй, эш һәм яҡын нөктәләр"),
+      authed: true,
+    },
+    {
+      key: "stats",
+      to: "/stats",
+      icon: <IconTrend size={22} />,
+      title: appText("Мой Юлдаш", "Минең Юлдаш"),
+      sub: appText("Км, поездки и сколько сэкономил", "Км, сәфәрҙәр һәм күпме янға ҡалды"),
+      authed: true,
+    },
+    {
+      key: "watch",
+      to: "/route-watches",
+      icon: <IconBell size={22} />,
+      title: appText("Подписки на маршрут", "Маршрут яҙылыуҙары"),
+      sub: appText("Появится попутка — пришлём", "Юлдаш сыҡһа — хәбәр итәбеҙ"),
+      authed: true,
+    },
+    {
+      key: "clinics",
+      to: "/clinics",
+      icon: <IconHospital size={22} />,
+      title: appText("Поездки к клинике", "Клиникаға сәфәр"),
+      sub: appText("Доехать до больницы вместе", "Дауаханаға бергә барырға"),
+    },
+    {
+      key: "filters",
+      to: "/filters",
+      icon: <IconFilter size={22} />,
+      title: appText("Фильтры", "Фильтрҙар"),
+      sub: appText("Настрой ленту под себя", "Таҫманы үҙеңә көйлә"),
+    },
     {
       key: "trust",
       to: "/trust",
@@ -101,7 +154,9 @@ export default function ProfileScreen() {
       )}
 
       <div className="list">
-        {rows.map((r) => (
+        {rows
+          .filter((r) => !r.authed || isAuthed)
+          .map((r) => (
           <button key={r.key} type="button" className="list-row list-row--link" onClick={() => navigate(r.to)}>
             <span className="list-row__icon">{r.icon}</span>
             <div className="list-row__main">

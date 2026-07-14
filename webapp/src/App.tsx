@@ -20,6 +20,13 @@ import RequestResponsesScreen from "./screens/RequestResponsesScreen";
 import BookingScreen from "./screens/BookingScreen";
 import ActiveTripScreen from "./screens/ActiveTripScreen";
 import TripReceiptScreen from "./screens/TripReceiptScreen";
+import FiltersScreen from "./screens/FiltersScreen";
+import SavedPlacesScreen from "./screens/SavedPlacesScreen";
+import RepeatTripScreen from "./screens/RepeatTripScreen";
+import MyStatsScreen from "./screens/MyStatsScreen";
+import RouteWatchesScreen from "./screens/RouteWatchesScreen";
+import ClinicRidesScreen from "./screens/ClinicRidesScreen";
+import PassengerCabinetScreen from "./screens/PassengerCabinetScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -53,6 +60,10 @@ export default function App() {
         <Route path="/profile" element={<ProfileScreen />} />
         {/* Согласия — локальные (152-ФЗ), доступны и гостю */}
         <Route path="/consents" element={<ConsentsScreen />} />
+        {/* Фильтры — локальная UX-настройка, вход не нужен */}
+        <Route path="/filters" element={<FiltersScreen />} />
+        {/* Клиники — публичная витрина «поездки к клинике» */}
+        <Route path="/clinics" element={<ClinicRidesScreen />} />
         {/* Приватное — только с токеном */}
         <Route
           path="/request"
@@ -115,6 +126,46 @@ export default function App() {
           element={
             <RequireAuth>
               <InvitesScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/cabinet"
+          element={
+            <RequireAuth>
+              <PassengerCabinetScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/places"
+          element={
+            <RequireAuth>
+              <SavedPlacesScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/repeat"
+          element={
+            <RequireAuth>
+              <RepeatTripScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/stats"
+          element={
+            <RequireAuth>
+              <MyStatsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/route-watches"
+          element={
+            <RequireAuth>
+              <RouteWatchesScreen />
             </RequireAuth>
           }
         />
