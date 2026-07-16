@@ -1276,7 +1276,13 @@ internal fun ActiveTripScreen(
                                                 voiceScope.launch {
                                                     // Звёзды уходят сразу; текст (если уже написан) прикрепляем тем же запросом.
                                                     ApiClient.rateBooking(id, n, reviewText)
-                                                        .onSuccess { rating = false; if (!reviewSent) Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show() }
+                                                        .onSuccess {
+                                                            rating = false
+                                                            if (!reviewSent) Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show()
+                                                            // Честный рост: просим оценку в Play только у довольного пассажира (5★).
+                                                            // Play сам решит, показывать ли; не чаще раза в 30 дней; без Play — no-op.
+                                                            if (n == 5 && !isDriver) maybeRequestStoreReview(context)
+                                                        }
                                                         .onFailure { rating = false; myStars = prev; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }   // откат: не показываем «оценено», если не сохранилось
                                                 }
                                             }

@@ -154,6 +154,19 @@ def driver_earnings_ep(period: str = "week", user: User = Depends(current_user),
     return debt_mod.driver_earnings(session, user.id, period)
 
 
+@router.get("/instant/demand")
+def instant_demand(city: Optional[str] = None, user: User = Depends(current_user),
+                   session: Session = Depends(get_session)):
+    """Карта спроса для водителя: АНОНИМНЫЕ тепловые зоны «где сейчас ищут такси».
+    Только агрегаты (зоны огрублены до ~1 км), без личности/телефонов/конкретных заказов.
+    Источник — те же активные поиски, что и surge (переиспользуем, не дублируем сбор).
+    Доступ — одобренный таксист (роль водителя). Такси выключено в зоне → зона в ответ
+    не попадает; выключенный город → пустой zones + честный updated_at."""
+    if not taxi_mod.is_approved_taxi_driver(session, user.id):
+        raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
+    return isv.demand_zones(session, city)
+
+
 @router.get("/instant/nearby-drivers")
 def nearby_drivers_ep(lat: float, lng: float, user: User = Depends(current_user)):
     """Свободные машины «на линии» рядом с пассажиром — АНОНИМНЫЕ точки на карте + ≈ETA

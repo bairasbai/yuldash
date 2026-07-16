@@ -69,6 +69,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
@@ -1318,6 +1319,10 @@ internal fun DriverCabinetScreen(
             workday = workday,
             restrictions = restrictions,
             scheduleSection = { DriverScheduleSection() },
+            // Спрос рядом — только одобренному таксисту; читает online как State (реагирует на тумблер).
+            demandSection = if (!taxiAppLoaded || taxiApp?.status == "approved") {
+                { DriverDemandSection(online = online) }
+            } else null,
             onWallet = onWallet,
             onEarnings = onEarnings,
         )
@@ -1783,6 +1788,106 @@ private fun TaxiOnboardingCta(app: com.yuldash.app.data.TaxiApplicationDto?, onC
 }
 
 /**
+ * «Спрос рядом» для водителя — где сейчас чаще ищут попутку. Анонимно: только агрегированные зоны
+ * с сервера (координаты + вес + число заявок), без личности пассажиров. Показываем компактным списком
+ * «Зона N · ищут: M», отсортированным по весу; чем выше вес — тем ярче/крупнее зелёный индикатор.
+ * Загружаем при входе и, пока водитель на линии, мягко обновляем раз в 60с (вне линии — «Пока тихо»).
+ */
+@Composable
+internal fun DriverDemandSection(online: Boolean) {
+    var zones by remember { mutableStateOf<List<com.yuldash.app.data.DemandZoneDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf(false) }
+    var reload by remember { mutableStateOf(0) }
+
+    // Вне линии сервер не дёргаем (экономим квоту) — показываем спокойное «Пока тихо».
+    // На линии: разовая загрузка + мягкий авто-refresh раз в минуту, пока секция в композиции.
+    LaunchedEffect(online, reload) {
+        if (!online) { zones = emptyList(); loading = false; loadError = false; return@LaunchedEffect }
+        loading = zones.isEmpty()
+        while (true) {
+            ApiClient.getInstantDemand()
+                .onSuccess { zones = it.zones; loadError = false }
+                .onFailure { if (zones.isEmpty()) loadError = true }
+            loading = false
+            delay(60_000)
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionHeader(
+            appText("Спрос рядом", "Яҡында ихтыяж"),
+            appText("Где сейчас чаще ищут попутку", "Хәҙер юлдашты нисә ерҙә йышыраҡ эҙләй"),
+        )
+        when {
+            !online -> EmptyStateCard(
+                title = appText("Пока тихо", "Әлегә тыныс"),
+                text = appText("Выйди на линию — покажем, где сейчас ищут попутку.", "Линияға сыҡ — юлдашты ҡайҙа эҙләгәнен күрһәтербеҙ."),
+                icon = Icons.Default.TravelExplore,
+            )
+            loading && zones.isEmpty() -> SkeletonCard(lines = 3)
+            loadError && zones.isEmpty() -> AppErrorState(
+                onRetry = { reload++ },
+                title = appText("Не удалось загрузить спрос", "Ихтыяжды тейеп булманы"),
+            )
+            zones.isEmpty() -> EmptyStateCard(
+                title = appText("Пока тихо", "Әлегә тыныс"),
+                text = appText("Рядом никто не ищет попутку. Мы сообщим, как появятся заказы.", "Яҡында бер кем дә юлдаш эҙләмәй. Заказ килеү менән хәбәр итербеҙ."),
+                icon = Icons.Default.TravelExplore,
+            )
+            else -> {
+                val maxWeight = zones.maxOf { it.weight }.coerceAtLeast(0.0001)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = CanonSurface),
+                    shape = CanonCardShape,
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    border = BorderStroke(1.dp, CanonBorder),
+                ) {
+                    Column(Modifier.padding(vertical = 6.dp)) {
+                        zones.take(6).forEachIndexed { i, z ->
+                            val norm = (z.weight / maxWeight).toFloat().coerceIn(0f, 1f)
+                            // Индикатор веса: размер и насыщенность зелёного ∝ спросу (Canon-зелёный).
+                            val dot by animateFloatAsState(targetValue = norm, label = "demandDot")
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size((12 + 12 * dot).dp)
+                                        .clip(CircleShape)
+                                        .background(CanonGreen.copy(alpha = 0.35f + 0.55f * dot)),
+                                )
+                                Text(
+                                    appText("Зона ${i + 1}", "${i + 1}-се зона"),
+                                    color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    appText("ищут: ${z.requests}", "эҙләй: ${z.requests}"),
+                                    color = if (norm > 0.66f) CanonGreen else CanonMuted,
+                                    fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            if (i < zones.take(6).lastIndex) {
+                                Box(Modifier.fillMaxWidth().padding(start = 40.dp).height(1.dp).background(CanonBorder))
+                            }
+                        }
+                    }
+                }
+                Text(
+                    appText("Где ярче — там чаще ищут. Показываем только зоны, без личных данных.",
+                        "Ҡайҙа яҡтыраҡ — шунда йышыраҡ эҙләй. Тик зоналар, шәхси мәғлүмәтһеҙ."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                )
+            }
+        }
+    }
+}
+
+/**
  * Чистый рендер кабинета водителя: тумблер «на линии», метрики (маршруты/свободно/рейтинг),
  * пусто-заглушка или список опубликованных маршрутов, блок «оцените пассажиров» и нижние действия.
  * Сеть/стейт (online-переключение, оценка) вынесены в колбэки → без сети/эффектов → тестируется на JVM.
@@ -1829,6 +1934,8 @@ internal fun DriverCabinetContent(
     restrictions: com.yuldash.app.data.RestrictionsDto? = null,
     // F17: слот «Регулярные маршруты» (сеть/стейт снаружи → Content остаётся чистым и тестируемым).
     scheduleSection: (@Composable () -> Unit)? = null,
+    // «Спрос рядом» — карта/список зон, где сейчас чаще ищут попутку (только для одобренного таксиста).
+    demandSection: (@Composable () -> Unit)? = null,
     onWallet: () -> Unit = {},       // Кошелёк: баланс + история операций
     onEarnings: () -> Unit = {},     // «Мой заработок»: по периодам + по дням
 ) {
@@ -1896,6 +2003,8 @@ internal fun DriverCabinetContent(
                 TaxiOnboardingCta(taxiApplication, onTaxiOnboarding)
             }
         }
+        // «Спрос рядом» — где сейчас чаще ищут попутку (подсказка водителю, куда ехать). Анонимно.
+        demandSection?.let { section -> item { section() } }
         // Смена такси (волна 2, §8 Отдых): блок отдыха («8 часов за рулём» + «один попутчик
         // домой») или прогресс к лимиту — показываем только одобренному таксисту и только
         // когда есть что показать (на линии / время уже капало / отдых).

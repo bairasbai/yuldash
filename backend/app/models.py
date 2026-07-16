@@ -1182,3 +1182,23 @@ class CourierProfile(SQLModel, table=True):
     # Мягкая пауза курьера (очень низкий рейтинг/тяжёлые споры) — курьер не берёт заказы до даты.
     # None = не на паузе. Ставится мягко и на короткий срок; аккаунт остаётся (вечен).
     paused_until: Optional[datetime] = None
+
+
+class AnalyticsEvent(SQLModel, table=True):
+    """Анонимное продуктовое событие (воронка/метрики веб-версии). БЕЗ ЛИЧНОСТИ:
+    ни user_id, ни телефона, ни имени, ни точных координат. client_id — случайный id
+    браузера (генерит сам клиент), к аккаунту не привязан.
+
+    Приём — POST /events (без обязательной авторизации: веб шлёт события до логина).
+    context_json — безопасные props в JSON: сервер САМ вырезает потенциально
+    чувствительные ключи (телефон/имя/координаты/токены/…) и обрезает длинные строки
+    ДО записи (см. routers/events.sanitize_props). Эфемерно по смыслу — чистится
+    ретеншеном (app/cleanup.py), аккаунты и репутация этим не затрагиваются."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    event: str = Field(default="", max_length=64)              # имя события (напр. "web_open", "role_pick")
+    client_id: str = Field(default="", index=True, max_length=64)  # анонимный id браузера
+    ts: Optional[int] = Field(default=None)                    # клиентское время события (epoch ms), опц.
+    context_json: str = Field(default="")                     # безопасные props (JSON, после чистки)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    # Сводка воронки для админа: WHERE created_at >= since GROUP BY event — композит покрывает.
+    __table_args__ = (Index("ix_analyticsevent_created_event", "created_at", "event"),)

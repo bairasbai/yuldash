@@ -224,6 +224,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     // ViewModel в Compose (viewModel()) — состояние приложения вынесено из YuldashApp в YuldashViewModel.
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
+    // Google Play In-App Review: системный запрос оценки в Play после хорошей поездки (только 5★).
+    // Без Play/на эмуляторе — тихий no-op. Play сам решает, показывать ли (правило Google).
+    implementation("com.google.android.play:review-ktx:2.0.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
     // JVM unit-тесты (каркас «с нуля»): чистая логика без Android-фреймворка. Запуск: gradlew :app:testDebugUnitTest
     testImplementation("junit:junit:4.13.2")

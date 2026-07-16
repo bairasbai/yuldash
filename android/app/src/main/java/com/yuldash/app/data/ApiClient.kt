@@ -1947,6 +1947,29 @@ object ApiClient {
         bg.launch { call("POST", "/instant/presence", JSONObject().put("lat", lat).put("lng", lng), auth = true) }
     }
 
+    /**
+     * Карта спроса для водителя — «где сейчас ищут». Анонимно: сервер отдаёт только агрегированные
+     * зоны (координаты + вес + число заявок), без личности пассажиров. city — необязательный фильтр.
+     */
+    suspend fun getInstantDemand(city: String? = null): Result<InstantDemandDto> {
+        val path = "/instant/demand" + (city?.takeIf { it.isNotBlank() }?.let { "?city=" + enc(it) } ?: "")
+        return call("GET", path, null, auth = true).map { o ->
+            val arr = o.optJSONArray("zones") ?: JSONArray()
+            InstantDemandDto(
+                zones = (0 until arr.length()).map { i ->
+                    val z = arr.getJSONObject(i)
+                    DemandZoneDto(
+                        lat = z.optDouble("lat", 0.0),
+                        lng = z.optDouble("lng", 0.0),
+                        weight = z.optDouble("weight", 0.0),
+                        requests = z.optInt("requests", 0),
+                    )
+                }.sortedByDescending { it.weight },
+                updatedAt = o.optString("updated_at"),
+            )
+        }
+    }
+
     /** Оценка цены ДО заказа. Сервер считает сам (клиенту не верит) — поля цены в запросе нет. */
     suspend fun instantEstimate(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
@@ -3835,6 +3858,10 @@ data class ConversationDto(
 )
 
 data class PopularRouteDto(val from: String, val to: String, val count: Int)
+/** Зона спроса для водителя: где сейчас чаще ищут попутку. Анонимно — только агрегат, без личности. */
+data class DemandZoneDto(val lat: Double, val lng: Double, val weight: Double, val requests: Int)
+/** Ответ /instant/demand: список зон спроса + метка времени обновления. */
+data class InstantDemandDto(val zones: List<DemandZoneDto>, val updatedAt: String)
 /** Живая лента карты: счётчики поездок за период + топ-маршрут недели. */
 data class FeedDto(
     val today: Int, val week: Int, val month: Int, val year: Int,

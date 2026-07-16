@@ -209,6 +209,66 @@ def surge_note(k: float) -> Optional[dict]:
     }
 
 
+# ============================ Карта спроса (тепловые зоны «где сейчас ищут») ============================
+# Округление координат зоны, знаков после запятой. 2 знака ≈ сетка ~1 км (на широте РБ ~55°N:
+# 0.01° широты ≈ 1.1 км, 0.01° долготы ≈ 0.64 км). ПРИВАТНОСТЬ: точка конкретного пассажира
+# обобщается до ячейки сетки — личность и точный адрес не раскрываются.
+DEMAND_GRID_DIGITS = 2
+
+
+def _active_search_points(session: Session) -> list[tuple]:
+    """Активные поиски за окно surge_window_min — ТОТ ЖЕ источник, что и спрос для суржа
+    (_surge_demand): заказы в статусах created/searching. Переиспользуем, не дублируем сбор."""
+    since = utcnow() - timedelta(minutes=settings.surge_window_min)
+    rows = session.exec(
+        select(InstantOrder.from_lat, InstantOrder.from_lng).where(
+            InstantOrder.status.in_([S.created, S.searching]),
+            InstantOrder.created_at >= since,
+        )
+    ).all()
+    return [(flat, flng) for flat, flng in rows if flat is not None and flng is not None]
+
+
+def demand_zones(session: Session, city: Optional[str] = None) -> dict:
+    """АНОНИМНЫЕ тепловые зоны спроса для водителя: «где сейчас ищут такси».
+    Только агрегаты — активные поиски огрубляются до сетки ~1 км и группируются в зоны
+    (без личности, телефонов и конкретных заказов). weight нормируется 0..1 (относительно
+    самой горячей зоны), requests — сколько активных поисков в зоне.
+
+    city (опц.) — фильтр по ближайшему НП точки поиска (name_ru/name_ba, casefold).
+    Приватность/честность: зоны, где такси сейчас ВЫКЛЮЧЕНО (глобально или в этом городе),
+    в ответ не попадают → выключенный город отдаёт пустой zones."""
+    from . import geo, taxi as taxi_mod
+    want = (city or "").strip().casefold() or None
+    buckets: dict = {}
+    for lat, lng in _active_search_points(session):
+        if want is not None:
+            st = geo.nearest_settlement(session, lat, lng)
+            names = set()
+            if st is not None:
+                names.add(st.name_ru.casefold())
+                if st.name_ba:
+                    names.add(st.name_ba.casefold())
+            if want not in names:
+                continue
+        key = (round(lat, DEMAND_GRID_DIGITS), round(lng, DEMAND_GRID_DIGITS))
+        buckets[key] = buckets.get(key, 0) + 1
+    zones = []
+    if buckets:
+        max_req = max(buckets.values())
+        for (zlat, zlng), cnt in buckets.items():
+            # Такси выключено в этой зоне (глобально/город) → не показываем (честно + приватно).
+            if not taxi_mod.availability(session, zlat, zlng)["enabled"]:
+                continue
+            zones.append({
+                "lat": zlat, "lng": zlng,
+                "weight": round(cnt / max_req, 3),
+                "requests": cnt,
+            })
+        zones.sort(key=lambda z: -z["requests"])
+    return {"zones": zones, "updated_at": utcnow().isoformat()}
+
+
 # ============================ Тариф (сервер считает сам) ============================
 def round_to_10(x: float) -> int:
     return int(round(x / 10.0)) * 10

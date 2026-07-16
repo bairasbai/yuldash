@@ -3,6 +3,11 @@
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
 > ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
 
+## ⭐ In-App Review + карта спроса водителю (2026-07-16, только `android/`)
+
+- **Google Play In-App Review** (честный рост): зависимость `com.google.android.play:review-ktx:2.0.2` (`app/build.gradle.kts`). Хелпер `StoreReview.kt::maybeRequestStoreReview(context)` — `ReviewManagerFactory.create().requestReviewFlow()`→`launchReviewFlow`, всё в `runCatching` (без Play/на эмуляторе — тихий no-op). Частота: prefs `yuldash_review/last_store_review_ms`, не чаще ~30 дней. Триггер — `BookingActiveTripScreen.kt`, `onSuccess` тапа звезды в блоке оценки поездки: **только `n == 5 && !isDriver`** (довольный пассажир). Своего диалога нет — Play сам решает показ.
+- **«Спрос рядом» водителю** (`ProfileScreen.kt::DriverDemandSection`): контракт `GET /instant/demand?city=<опц.>` → `{zones:[{lat,lng,weight,requests}], updated_at}`. `ApiClient.getInstantDemand(city?)` → `InstantDemandDto(zones, updatedAt)` + DTO `DemandZoneDto` (зоны сортируются по `weight` убыв.). Секция подключена слотом `demandSection` в `DriverCabinetContent` (сразу под тумблером «Я на линии»), передаётся из `DriverCabinetScreen` только одобренному таксисту. Список «Зона N · ищут: M» + зелёный индикатор (размер+альфа ∝ weight, Canon-зелёный). Загрузка при входе + авто-refresh 60с пока `online`; вне линии/пусто → `EmptyStateCard` «Пока тихо»; ошибка → `AppErrorState`+повтор. Приватность: только агрегат, без личности. **Ждёт бэкенд `/instant/demand`** (до него — «Пока тихо»/ошибка, без краша).
+
 ## 💡 Волна В: честность и прозрачность (2026-07-16, только `android/`)
 
 - **Бензин при создании поездки** (`CreateRideScreen.kt`): `PriceHintDto` (`data/ApiClient.kt`) получил аддитивные `distanceKm: Float?`, `fuelEstimateKop: Int?` (парс `distance_km`/`fuel_estimate_kop`, дефолт null). Экран хранит `priceHintDto` (не голый `Int`), под ценой рисует `FuelHintBlock` (≈км · бензин ≈₽ + по-соседски сплит `fuel/seats ₽/чел`). Null → блок скрыт, без краша.
