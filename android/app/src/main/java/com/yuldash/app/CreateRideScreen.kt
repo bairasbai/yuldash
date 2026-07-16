@@ -246,6 +246,7 @@ import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.ConversationDto
 import com.yuldash.app.data.PopularRouteDto
 import com.yuldash.app.data.SettlementRouteDto
+import com.yuldash.app.data.PriceHintDto
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import com.yuldash.app.data.FeedDto
