@@ -1,6 +1,7 @@
 import { useLang } from "../i18n/lang";
 import type { Ride } from "../api/rides";
 import { IconArrow } from "./Icons";
+import { YuStar, YuWomenOnly } from "./BrandIcons";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -57,7 +58,8 @@ export default function RideCard({ ride, index }: { ride: Ride; index: number })
           <b>{ride.seats_left}</b> {appText("мест", "урын")}
         </span>
         {ride.women_only && (
-          <span className="badge badge--mint">
+          <span className="badge badge--woman">
+            <YuWomenOnly size={12} className="amenity-ic" />
             {appText("Только для женщин", "Тик ҡатын-ҡыҙ өсөн")}
           </span>
         )}
@@ -92,7 +94,7 @@ export default function RideCard({ ride, index }: { ride: Ride; index: number })
               )}
             </div>
             <div className="ride-card__driver-sub">
-              <span className="star">★</span> {ride.driver_rating.toFixed(1)}
+              <YuStar size={12} className="star" /> {ride.driver_rating.toFixed(1)}
               {ride.driver_car ? ` · ${ride.driver_car}` : ""}
             </div>
           </div>

@@ -12,7 +12,8 @@ import { fetchDriverPublic, type DriverPublic } from "../api/driver";
 import { apiGet } from "../api/client";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconStar, IconArrow, IconCalendar, IconFlag } from "../components/Icons";
+import { IconArrow, IconCalendar, IconFlag } from "../components/Icons";
+import { YuStar } from "../components/BrandIcons";
 
 type Status = "loading" | "error" | "ready";
 
@@ -134,7 +135,7 @@ export default function DriverProfileScreen() {
             <div className="dprofile-meta">
               {driver.rating != null ? (
                 <span className="dprofile-rating">
-                  <IconStar size={16} /> {driver.rating.toFixed(1)}
+                  <YuStar size={16} className="star" /> {driver.rating.toFixed(1)}
                   <span className="dprofile-rating__count">
                     {" "}
                     · {appText(`${driver.rating_count} оценок`, `${driver.rating_count} баһа`)}
@@ -205,8 +206,14 @@ export default function DriverProfileScreen() {
                   <div className="review-card__head">
                     <span className="review-card__author">{r.author}</span>
                     <span className="review-card__stars" aria-label={`${r.stars}/5`}>
-                      {"★".repeat(r.stars)}
-                      <span className="review-card__stars-off">{"★".repeat(5 - r.stars)}</span>
+                      {Array.from({ length: r.stars }).map((_, k) => (
+                        <YuStar key={k} size={14} className="amenity-ic" />
+                      ))}
+                      <span className="review-card__stars-off">
+                        {Array.from({ length: 5 - r.stars }).map((_, k) => (
+                          <YuStar key={k} size={14} className="amenity-ic" />
+                        ))}
+                      </span>
                     </span>
                   </div>
                   {r.text && <p className="review-card__text">{r.text}</p>}

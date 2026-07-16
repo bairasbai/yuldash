@@ -134,6 +134,13 @@ export default function LoginScreen() {
         </button>
       </header>
 
+      <img
+        className="auth__hero"
+        src="/login_salavat_yulaev_hero.png"
+        alt=""
+        aria-hidden
+      />
+
       <div className="auth__brand">
         <BrandMark size={72} />
         <div className="auth__word">Юлдаш</div>

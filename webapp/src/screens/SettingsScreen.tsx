@@ -28,7 +28,9 @@ import {
   IconReceipt,
   IconLogout,
   IconTrash,
+  IconSettings,
 } from "../components/Icons";
+import { YuSun, YuMoon } from "../components/BrandIcons";
 
 type Lang = "ru" | "ba";
 type DeleteState = "idle" | "confirm" | "deleting";
@@ -58,10 +60,10 @@ export default function SettingsScreen() {
     { key: "ba", label: "Башҡортса" },
   ];
 
-  const themes: { key: ThemeMode; emoji: string; label: string }[] = [
-    { key: "system", emoji: "🌓", label: appText("Как в системе", "Системалағыса") },
-    { key: "light", emoji: "☀️", label: appText("Светлая", "Яҡты") },
-    { key: "dark", emoji: "🌙", label: appText("Тёмная", "Ҡараңғы") },
+  const themes: { key: ThemeMode; icon: JSX.Element; label: string }[] = [
+    { key: "system", icon: <IconSettings size={20} />, label: appText("Как в системе", "Системалағыса") },
+    { key: "light", icon: <YuSun size={20} />, label: appText("Светлая", "Яҡты") },
+    { key: "dark", icon: <YuMoon size={20} />, label: appText("Тёмная", "Ҡараңғы") },
   ];
 
   const sizes: { key: FontScale; sample: string; label: string }[] = [
@@ -178,7 +180,7 @@ export default function SettingsScreen() {
               onClick={() => setThemeMode(th.key)}
               aria-pressed={theme === th.key}
             >
-              <span aria-hidden>{th.emoji}</span>
+              <span aria-hidden>{th.icon}</span>
               {th.label}
             </button>
           ))}

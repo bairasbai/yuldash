@@ -14,7 +14,8 @@ import {
   type FilterPrefs,
 } from "../filterPrefs";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck } from "../components/Icons";
+import { IconCheck, IconUsers } from "../components/Icons";
+import { AmenityIcon } from "../components/amenityIcons";
 
 export default function FiltersScreen() {
   const { appText } = useLang();
@@ -103,7 +104,7 @@ export default function FiltersScreen() {
               className={"opt-chip" + (prefs.amenities.includes(a.key) ? " is-active" : "")}
               onClick={() => toggleAmenity(a.key)}
             >
-              {prefs.amenities.includes(a.key) && <IconCheck size={16} />}
+              {prefs.amenities.includes(a.key) ? <IconCheck size={16} /> : <AmenityIcon amenity={a.key} size={16} />}
               {a.label}
             </button>
           ))}
@@ -115,7 +116,7 @@ export default function FiltersScreen() {
           onClick={() => update({ ...prefs, onlyTrusted: !prefs.onlyTrusted })}
           style={{ marginTop: 12 }}
         >
-          <span className="onb__simple-emoji">🤝</span>
+          <span className="onb__simple-emoji"><IconUsers size={24} /></span>
           <span className="onb__simple-text">
             <b>{appText("Только свои", "Тик үҙебеҙ")}</b>
             <span>

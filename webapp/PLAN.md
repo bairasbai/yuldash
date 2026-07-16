@@ -580,18 +580,51 @@ API-слой — расширен `src/api/admin.ts` (partners/promo/parcels/cou
 - `npm run build` — **зелёный**.
 
 ### Осталось (пер-экранные проходы)
-- **Заменить эмодзи/самодельные SVG на брендовые** в экранах (BrandIcons уже готов):
-  - переключатель режимов (seg/ModeSwitch) в `CreateRideScreen`, `CreateRequestScreen`,
-    `InstantOrderScreen` → YuModeRideshare/Taxi/Courier/Parcel;
-  - удобства поездки (opt-chip) в `CreateRideScreen`, `FiltersScreen`, `RideSheet` →
-    YuAc/YuChildSeat/YuLuggage/YuPet/YuSmokeFree/YuWomenOnly/YuQuiet;
-  - тема (Настройки) → YuSun/YuMoon; поддержка → YuSupport; безопасная поездка → YuSafeTrip;
-    маршрут → YuRoute; звёзды рейтинга → YuStar (сейчас `IconStar`, визуально эквивалентен);
-  - простой режим (`SimpleModeScreen`) — заменить 🚗📌🎤💚📞 на yu_* где есть.
-- **Подставить hero-PNG** в `IntroScreen` / `OnboardingScreen` / `LoginScreen` / `SplashScreen`
-  вместо самодельных градиентов-заглушек.
-- Использовать новые токены (`--taxi*`, `--pooling*`, `--woman*`, `--muted-strong`,
-  `--hairline-green`) в соответствующих экранах вместо частичных хардкодов.
 - Ландшафт `src/theme.ts` (nav bar цвет и т.п.) — при желании довести до Theme.kt.
 - Оптимизировать вес hero-PNG (сейчас 2.2–2.3 МБ) — нет инструмента в этой среде; сделать при
   наличии sharp/imagemagick или заранее ужать исходники.
+
+## Паритет дизайна — D1 (расстановка брендовых иконок и hero по экранам) ✅
+
+Сверено с андроид-эталоном (release-worktree): какие `yu_*` и hero где стоят. Заменены
+эмодзи и самодельные SVG на брендовые `Yu*` (или аккуратные нейтральные линиевые иконки там,
+где в андроиде нет `yu_`-эквивалента). Эмодзи как **функциональные иконки** убраны; декоративные
+эмодзи-акценты в тексте и крупные иллюстрации пустых состояний (`state__emoji`) оставлены —
+это допустимый декор, не иконки.
+
+### Сделано (по экранам)
+- **Splash** (`SplashScreen.tsx`): логотип `yuldash_logo.png` (белый круглый бейдж, как в андроиде).
+  Intro оставлен фирменным морфом «Попутчик»→«Юлдаш» (анимация не сломана).
+- **Onboarding** (`OnboardingScreen.tsx`): hero-фото `onboarding_bashkir_hero.png` на каждом
+  слайде (как `OnboardingHeroCard`); акцент-иконка слайда — YuRoute / YuSafeTrip / YuModeRideshare;
+  роли пассажир→YuProfile, водитель→YuModeRideshare; простой режим→YuAccessible.
+- **Login** (`LoginScreen.tsx`): hero-баннер `login_salavat_yulaev_hero.png` сверху
+  (`login_car_hero_square` в андроиде не используется — legacy, не брал).
+- **SimpleMode** (`SimpleModeScreen.tsx`): 8 плиток без эмодзи — YuMapCar, YuModeTaxi,
+  IconMic(нейтр.), IconHeart(нейтр.), IconPhone, YuProfile, YuChat, YuSupport(SOS).
+- **Режимы/категории** (`HomeScreen`, `CreateRideScreen`, `CreateRequestScreen`): такси→YuModeTaxi,
+  seg категорий: обычная→YuModeRideshare, срочно→IconBolt, больница→IconHospital;
+  чип «Ближайшие»→IconPin.
+- **Удобства поездки**: единый источник `src/components/amenityIcons.tsx` (`AmenityIcon`) →
+  YuAc/YuChildSeat/YuLuggage/YuPet/YuSmokeFree/YuQuiet/YuWomenOnly/YuAccessible/YuMultiStop.
+  Подключён в `CreateRideScreen`, `FiltersScreen`, `CreateRequestScreen`, бейджи в `RideSheet`.
+- **Рейтинг**: звёзды `★`/`IconStar` → `YuStar` в `RideCard`, `RideSheet`, `DriverProfileScreen`,
+  `AppReviewScreen`, `AdminReviewsScreen`, `ProfileScreen`.
+- **Тема** (`SettingsScreen`): light→YuSun, dark→YuMoon, system→IconSettings.
+- **Профиль-меню** (`ProfileScreen`): parcels→YuModeParcel, courier→YuModeCourier,
+  доверие→YuSafeTrip, отзыв→YuStar, перезвонить/помощь→YuSupport, поддержка→YuChat, простой→
+  YuAccessible; эмодзи-строки заменены нейтральными: купоны→IconTicket, бизнес→IconStore,
+  реклама→IconMegaphone, доверенные→IconUsers, за близкого→IconHeart, голос→IconMic.
+- **Акцентные токены**: добавлены `.badge--woman/--taxi/--pooling` (index.css уже содержал
+  `--woman*/--taxi*/--pooling*`); бейдж «только для женщин» → `badge--woman` (RideCard, RideSheet).
+- **Новые нейтральные иконки** в `components/Icons.tsx`: IconMic, IconHeart, IconUsers, IconTicket,
+  IconStore, IconMegaphone, IconBolt.
+- `npm run build` — **зелёный**.
+
+### Осталось для полного паритета
+- Пер-экранная вёрстка/отступы/сетка под андроид (D1 — только иконки/hero, не раскладка).
+- Декоративные `state__emoji` (~50 экранов, пустые состояния) — при желании заменить на
+  брендовые иллюстрации; сейчас это дружелюбный декор, не функциональные иконки.
+- Полное применение `--taxi*`/`--pooling*` как фонов такси/попутка-экранов (сейчас — токены +
+  бейджи готовы; глубокая заливка секций — вёрстка).
+- Оптимизировать вес hero-PNG (2.2–2.3 МБ) — нет sharp/imagemagick в среде.

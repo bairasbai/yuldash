@@ -9,7 +9,7 @@ import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { REVIEW_MAX_LEN, REVIEW_MIN_LEN, submitAppReview } from "../api/reviews";
 import { SubHeader } from "./ConsentsScreen";
-import { IconStar } from "../components/Icons";
+import { YuStar } from "../components/BrandIcons";
 
 type State = "idle" | "sending" | "sent" | "error";
 
@@ -109,7 +109,7 @@ export default function AppReviewScreen() {
               aria-label={appText(`${n} звёзд`, `${n} йондоҙ`)}
               aria-pressed={n <= stars}
             >
-              <IconStar size={34} />
+              <YuStar size={34} />
             </button>
           ))}
         </div>

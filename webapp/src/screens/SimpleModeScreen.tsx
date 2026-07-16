@@ -8,10 +8,18 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { useFontScale, type FontScale } from "../fontScale";
 import { SubHeader } from "./ConsentsScreen";
+import {
+  YuMapCar,
+  YuModeTaxi,
+  YuProfile,
+  YuChat,
+  YuSupport,
+} from "../components/BrandIcons";
+import { IconMic, IconHeart, IconPhone } from "../components/Icons";
 
 interface Tile {
   to: string;
-  emoji: string;
+  icon: JSX.Element;
   title: string;
   sub: string;
   tone?: "sos";
@@ -25,49 +33,49 @@ export default function SimpleModeScreen() {
   const tiles: Tile[] = [
     {
       to: "/rides",
-      emoji: "🚗",
+      icon: <YuMapCar size={40} />,
       title: appText("Найти поездку", "Сәфәр табырға"),
       sub: appText("Попутки рядом", "Яҡындағы юлдаштар"),
     },
     {
       to: "/taxi",
-      emoji: "📍",
+      icon: <YuModeTaxi size={40} />,
       title: appText("Вызвать машину", "Машина саҡырырға"),
       sub: appText("Быстрый заказ", "Тиҙ заказ"),
     },
     {
       to: "/voice",
-      emoji: "🎙️",
+      icon: <IconMic size={38} />,
       title: appText("Сказать голосом", "Тауыш менән әйтергә"),
       sub: appText("Голосовая заявка", "Тауышлы заявка"),
     },
     {
       to: "/family-order",
-      emoji: "💚",
+      icon: <IconHeart size={38} />,
       title: appText("За близкого", "Яҡын өсөн"),
       sub: appText("Заказать другому", "Башҡаға заказ"),
     },
     {
       to: "/callback",
-      emoji: "📞",
+      icon: <IconPhone size={38} />,
       title: appText("Перезвоните мне", "Миңә шылтыратығыҙ"),
       sub: appText("Мы поможем сами", "Беҙ ярҙам итәбеҙ"),
     },
     {
       to: "/trusted",
-      emoji: "👪",
+      icon: <YuProfile size={40} />,
       title: appText("Доверенные", "Ышаныслылар"),
       sub: appText("Кому сообщить", "Кемгә хәбәр итергә"),
     },
     {
       to: "/chat",
-      emoji: "💬",
+      icon: <YuChat size={40} />,
       title: appText("Чат", "Чат"),
       sub: appText("Написать своим", "Үҙеңдекеләргә яҙырға"),
     },
     {
       to: "/sos",
-      emoji: "🆘",
+      icon: <YuSupport size={40} />,
       title: appText("Помощь", "Ярҙам"),
       sub: appText("Экстренный вызов", "Ашығыс саҡырыу"),
       tone: "sos",
@@ -115,7 +123,7 @@ export default function SimpleModeScreen() {
             className={"hub-card" + (tile.tone === "sos" ? " hub-card--sos" : "")}
             onClick={() => navigate(tile.to)}
           >
-            <span className="hub-card__emoji" aria-hidden>{tile.emoji}</span>
+            <span className="hub-card__emoji" aria-hidden>{tile.icon}</span>
             <span className="hub-card__title">{tile.title}</span>
             <span className="hub-card__sub">{tile.sub}</span>
           </button>

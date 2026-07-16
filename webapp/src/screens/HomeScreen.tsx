@@ -16,7 +16,8 @@ import { LoadingList, ErrorState } from "../components/States";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
 import type { Ride } from "../api/rides";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
-import { IconRequest, IconRides, IconShield, IconGift, IconFilter, IconCar } from "../components/Icons";
+import { IconRequest, IconRides, IconShield, IconGift, IconFilter, IconPin } from "../components/Icons";
+import { YuModeTaxi } from "../components/BrandIcons";
 
 type Status = "loading" | "error" | "ready";
 
@@ -113,7 +114,7 @@ export default function HomeScreen() {
   const quick = [
     {
       key: "taxi",
-      icon: <IconCar size={22} />,
+      icon: <YuModeTaxi size={22} />,
       title: appText("Вызвать такси", "Такси саҡырыу"),
       onClick: () => navigate("/taxi"),
     },
@@ -160,7 +161,7 @@ export default function HomeScreen() {
           className={"chip" + (nearOnly ? " chip--on" : "")}
           onClick={toggleNear}
         >
-          📍 {appText("Ближайшие", "Иң яҡындар")}
+          <IconPin size={16} /> {appText("Ближайшие", "Иң яҡындар")}
         </button>
         <button
           type="button"

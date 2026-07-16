@@ -10,7 +10,9 @@ import { ApiError } from "../api/client";
 import { createRequest, type RequestInput } from "../api/requests";
 import type { RideCategory } from "../api/rides";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck } from "../components/Icons";
+import { IconCheck, IconBolt, IconHospital, IconUsers } from "../components/Icons";
+import { YuModeRideshare } from "../components/BrandIcons";
+import { AmenityIcon } from "../components/amenityIcons";
 
 type Opt =
   | "baggage"
@@ -48,10 +50,10 @@ export default function CreateRequestScreen() {
   const [done, setDone] = useState(false);
   const [createdId, setCreatedId] = useState<number | null>(null);
 
-  const cats: { key: RideCategory; label: string; emoji: string }[] = [
-    { key: "regular", label: appText("Обычная", "Ябай"), emoji: "🚗" },
-    { key: "urgent", label: appText("Срочно", "Ашығыс"), emoji: "⚡️" },
-    { key: "hospital", label: appText("В больницу", "Дауаханаға"), emoji: "🏥" },
+  const cats: { key: RideCategory; label: string; icon: JSX.Element }[] = [
+    { key: "regular", label: appText("Обычная", "Ябай"), icon: <YuModeRideshare size={20} /> },
+    { key: "urgent", label: appText("Срочно", "Ашығыс"), icon: <IconBolt size={20} /> },
+    { key: "hospital", label: appText("В больницу", "Дауаханаға"), icon: <IconHospital size={20} /> },
   ];
 
   const optList: { key: Opt; label: string }[] = [
@@ -219,7 +221,7 @@ export default function CreateRequestScreen() {
               className={"seg__item" + (category === c.key ? " is-active" : "")}
               onClick={() => setCategory(c.key)}
             >
-              <span>{c.emoji}</span>
+              <span>{c.icon}</span>
               {c.label}
             </button>
           ))}
@@ -245,7 +247,7 @@ export default function CreateRequestScreen() {
                   className={"opt-chip" + (opts[o.key] ? " is-active" : "")}
                   onClick={() => setOpts((p) => ({ ...p, [o.key]: !p[o.key] }))}
                 >
-                  {opts[o.key] && <IconCheck size={16} />}
+                  {opts[o.key] ? <IconCheck size={16} /> : <AmenityIcon amenity={o.key} size={16} />}
                   {o.label}
                 </button>
               ))}
@@ -257,7 +259,7 @@ export default function CreateRequestScreen() {
               onClick={() => setOnlyTrusted((v) => !v)}
               style={{ marginTop: 12 }}
             >
-              <span className="onb__simple-emoji">🤝</span>
+              <span className="onb__simple-emoji"><IconUsers size={24} /></span>
               <span className="onb__simple-text">
                 <b>{appText("Только для своих", "Тик үҙебеҙ өсөн")}</b>
                 <span>

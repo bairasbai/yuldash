@@ -10,7 +10,6 @@ import {
   IconGift,
   IconLogout,
   IconShield,
-  IconStar,
   IconRides,
   IconHome,
   IconTrend,
@@ -18,14 +17,27 @@ import {
   IconFilter,
   IconHospital,
   IconWheel,
-  IconCar,
   IconClock,
-  IconBox,
   IconWallet,
   IconReceipt,
-  IconPhone,
   IconSettings,
+  IconTicket,
+  IconStore,
+  IconMegaphone,
+  IconUsers,
+  IconHeart,
+  IconMic,
 } from "../components/Icons";
+import {
+  YuModeTaxi,
+  YuModeParcel,
+  YuModeCourier,
+  YuSafeTrip,
+  YuSupport,
+  YuChat,
+  YuAccessible,
+  YuStar,
+} from "../components/BrandIcons";
 
 function initials(name: string): string {
   const p = name.trim().split(/\s+/).filter(Boolean);
@@ -112,7 +124,7 @@ export default function ProfileScreen() {
     {
       key: "taxi",
       to: "/taxi",
-      icon: <IconCar size={22} />,
+      icon: <YuModeTaxi size={22} />,
       title: appText("Быстрый заказ", "Тиҙ заказ"),
       sub: appText("Вызвать такси между своими", "Үҙебеҙ араһында такси саҡырыу"),
       authed: true,
@@ -136,7 +148,7 @@ export default function ProfileScreen() {
     {
       key: "parcels",
       to: "/parcels",
-      icon: <IconBox size={22} />,
+      icon: <YuModeParcel size={22} />,
       title: appText("Посылки", "Бандеролдәр"),
       sub: appText("Отправить или довезти «между своими»", "Ебәр йәки еткер «үҙебеҙ араһында»"),
       authed: true,
@@ -144,7 +156,7 @@ export default function ProfileScreen() {
     {
       key: "courier",
       to: "/courier",
-      icon: <IconBox size={22} />,
+      icon: <YuModeCourier size={22} />,
       title: appText("Режим курьера", "Курьер режимы"),
       sub: appText("Бери доставки рядом и зарабатывай", "Яҡындағы доставкаларҙы ал һәм эшлә"),
       authed: true,
@@ -176,7 +188,7 @@ export default function ProfileScreen() {
     {
       key: "coupons",
       to: "/coupons",
-      icon: <span style={{ fontSize: 20 }}>🎟️</span>,
+      icon: <IconTicket size={22} />,
       title: appText("Скидки по пути", "Юлда ташламалар"),
       sub: appText("Купоны от своих заведений", "Үҙ заведениеларҙан купондар"),
     },
@@ -191,7 +203,7 @@ export default function ProfileScreen() {
     {
       key: "partner",
       to: "/partner",
-      icon: <span style={{ fontSize: 20 }}>🏪</span>,
+      icon: <IconStore size={22} />,
       title: appText("Мой бизнес", "Минең бизнесым"),
       sub: appText("Разместить свою скидку в Юлдаше", "Юлдашта үҙ ташламаңды урынлаштыр"),
       authed: true,
@@ -199,7 +211,7 @@ export default function ProfileScreen() {
     {
       key: "ads",
       to: "/ads",
-      icon: <span style={{ fontSize: 20 }}>📣</span>,
+      icon: <IconMegaphone size={22} />,
       title: appText("Реклама", "Реклама"),
       sub: appText("Рассказать о деле попутчикам", "Юлдаштарға эшең тураһында һөйләргә"),
       authed: true,
@@ -236,21 +248,21 @@ export default function ProfileScreen() {
     {
       key: "simple",
       to: "/simple",
-      icon: <span style={{ fontSize: 20 }}>🔎</span>,
+      icon: <YuAccessible size={22} />,
       title: appText("Простой режим", "Ябай режим"),
       sub: appText("Крупно и просто — и размер шрифта", "Ҙур һәм ябай — һәм шрифт ҙурлығы"),
     },
     {
       key: "sos",
       to: "/sos",
-      icon: <span style={{ fontSize: 20 }}>🆘</span>,
+      icon: <IconShield size={22} />,
       title: appText("Экстренная помощь", "Ашығыс ярҙам"),
       sub: appText("SOS и звонок в службы", "SOS һәм хеҙмәткә шылтыратыу"),
     },
     {
       key: "trusted",
       to: "/trusted",
-      icon: <span style={{ fontSize: 20 }}>👪</span>,
+      icon: <IconUsers size={22} />,
       title: appText("Доверенные контакты", "Ышаныслы контакттар"),
       sub: appText("Кому сообщить в поездке", "Сәфәрҙә кемгә хәбәр итергә"),
       authed: true,
@@ -258,7 +270,7 @@ export default function ProfileScreen() {
     {
       key: "family-order",
       to: "/family-order",
-      icon: <span style={{ fontSize: 20 }}>💚</span>,
+      icon: <IconHeart size={22} />,
       title: appText("За близкого", "Яҡын өсөн"),
       sub: appText("Заказать поездку другому", "Башҡаға сәфәр заказ итергә"),
       authed: true,
@@ -266,7 +278,7 @@ export default function ProfileScreen() {
     {
       key: "voice",
       to: "/voice",
-      icon: <span style={{ fontSize: 20 }}>🎙️</span>,
+      icon: <IconMic size={22} />,
       title: appText("Голосовая заявка", "Тауышлы заявка"),
       sub: appText("Надиктуй поездку голосом", "Сәфәрҙе тауыш менән әйт"),
       authed: true,
@@ -274,14 +286,14 @@ export default function ProfileScreen() {
     {
       key: "callback",
       to: "/callback",
-      icon: <IconPhone size={22} />,
+      icon: <YuSupport size={22} />,
       title: appText("Перезвоните мне", "Миңә шылтыратығыҙ"),
       sub: appText("Мы позвоним и всё оформим", "Беҙ шылтыратып рәтләйбеҙ"),
     },
     {
       key: "trust",
       to: "/trust",
-      icon: <IconShield size={22} />,
+      icon: <YuSafeTrip size={22} />,
       title: appText("Доверие", "Ышаныс"),
       sub: appText("Твой уровень и круг «между своими»", "Кимәлең һәм «үҙебеҙ араһында» түңәрәк"),
     },
@@ -302,14 +314,14 @@ export default function ProfileScreen() {
     {
       key: "help",
       to: "/help",
-      icon: <span style={{ fontSize: 20 }}>❓</span>,
+      icon: <YuSupport size={22} />,
       title: appText("Помощь", "Ярҙам"),
       sub: appText("Частые вопросы и ответы", "Йыш бирелгән һорауҙар"),
     },
     {
       key: "support",
       to: "/support",
-      icon: <span style={{ fontSize: 20 }}>💬</span>,
+      icon: <YuChat size={22} />,
       title: appText("Поддержка Юлдаш", "Юлдаш ярҙамы"),
       sub: appText("Напиши нам — поможем с любым вопросом", "Беҙгә яҙ — теләһә ниҙә ярҙам итәбеҙ"),
       authed: true,
@@ -318,7 +330,7 @@ export default function ProfileScreen() {
     {
       key: "app-review",
       to: "/app-review",
-      icon: <IconStar size={22} />,
+      icon: <YuStar size={22} />,
       title: appText("Оценить приложение", "Ҡушымтаны баһалау"),
       sub: appText("Поставь звёзды и оставь отзыв", "Йондоҙ ҡуй һәм фекер яҙ"),
       authed: true,
@@ -348,7 +360,7 @@ export default function ProfileScreen() {
               )}
               {user.rating != null && (
                 <span className="profile-card__rating">
-                  <IconStar size={15} /> {user.rating.toFixed(1)}
+                  <YuStar size={15} className="star" /> {user.rating.toFixed(1)}
                 </span>
               )}
             </div>

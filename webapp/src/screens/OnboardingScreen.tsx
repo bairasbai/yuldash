@@ -4,6 +4,7 @@ import { flags, type Role } from "../flags";
 import { useLang } from "../i18n/lang";
 import BrandMark from "../components/BrandMark";
 import { IconCheck } from "../components/Icons";
+import { YuProfile, YuModeRideshare, YuAccessible, YuRoute, YuSafeTrip } from "../components/BrandIcons";
 
 /** Онбординг: 3 слайда «что за Юлдаш» + выбор языка, роли и мягкое предложение простого режима. */
 export default function OnboardingScreen() {
@@ -15,7 +16,7 @@ export default function OnboardingScreen() {
 
   const slides = [
     {
-      emoji: "🤝",
+      accent: <YuRoute size={30} />,
       title: appText("Попутки между своими", "Үҙебеҙ араһында юлдаштар"),
       body: appText(
         "Юлдаш — это поездки по Башкортостану с соседями и знакомыми. По-доброму, без чужих.",
@@ -23,7 +24,7 @@ export default function OnboardingScreen() {
       ),
     },
     {
-      emoji: "🛡️",
+      accent: <YuSafeTrip size={30} />,
       title: appText("Доверие — главное", "Иң мөһиме — ышаныс"),
       body: appText(
         "Проверенные попутчики, рейтинги и возможность поделиться поездкой с близкими.",
@@ -31,7 +32,7 @@ export default function OnboardingScreen() {
       ),
     },
     {
-      emoji: "⚡",
+      accent: <YuModeRideshare size={30} />,
       title: appText("Быстро и просто", "Тиҙ һәм еңел"),
       body: appText(
         "Нашёл поездку или создал свою за пару касаний. Оплата — напрямую, по-соседски.",
@@ -69,7 +70,13 @@ export default function OnboardingScreen() {
       <div className="onb__body">
         {!isSetup ? (
           <div key={step} className="onb__slide">
-            <div className="onb__emoji">{slides[step].emoji}</div>
+            <img
+              className="onb__hero"
+              src="/onboarding_bashkir_hero.png"
+              alt=""
+              aria-hidden
+            />
+            <div className="onb__hero-accent">{slides[step].accent}</div>
             <h1>{slides[step].title}</h1>
             <p>{slides[step].body}</p>
           </div>
@@ -81,8 +88,8 @@ export default function OnboardingScreen() {
             <div className="onb__roles">
               {(
                 [
-                  { r: "passenger" as Role, e: "🧍", t: appText("Пассажир", "Юлаусы"), s: appText("Ищу попутку", "Юлдаш эҙләйем") },
-                  { r: "driver" as Role, e: "🚗", t: appText("Водитель", "Йөрөтөүсе"), s: appText("Беру попутчиков", "Юлдаштар алам") },
+                  { r: "passenger" as Role, e: <YuProfile size={30} />, t: appText("Пассажир", "Юлаусы"), s: appText("Ищу попутку", "Юлдаш эҙләйем") },
+                  { r: "driver" as Role, e: <YuModeRideshare size={30} />, t: appText("Водитель", "Йөрөтөүсе"), s: appText("Беру попутчиков", "Юлдаштар алам") },
                 ]
               ).map(({ r, e, t, s }) => (
                 <button
@@ -106,7 +113,7 @@ export default function OnboardingScreen() {
               aria-pressed={simple}
               onClick={() => setSimple((v) => !v)}
             >
-              <span className="onb__simple-emoji">🔎</span>
+              <span className="onb__simple-emoji"><YuAccessible size={24} /></span>
               <span className="onb__simple-text">
                 <b>{appText("Простой режим", "Ябай режим")}</b>
                 <span>{appText("Крупный шрифт и меньше деталей", "Эре хәреф, кәм деталь")}</span>

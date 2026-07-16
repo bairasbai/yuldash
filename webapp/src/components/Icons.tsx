@@ -283,3 +283,59 @@ export const IconBox = ({ size = 22 }: P) => (
     <path d="M7.5 5.6 16.5 10.8" />
   </svg>
 );
+
+// Нейтральный микрофон (голосовая заявка — в андроиде нет yu-иконки).
+export const IconMic = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M6 11a6 6 0 0 0 12 0" />
+    <path d="M12 17v4M9 21h6" />
+  </svg>
+);
+
+// Нейтральное сердце (за близкого / семейный заказ).
+export const IconHeart = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M12 20s-7-4.5-9-9a4.5 4.5 0 0 1 9-2 4.5 4.5 0 0 1 9 2c-2 4.5-9 9-9 9Z" />
+  </svg>
+);
+
+// Группа людей (доверенные контакты).
+export const IconUsers = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="9" cy="8" r="3.2" />
+    <path d="M3.5 20a5.5 5.5 0 0 1 11 0" />
+    <path d="M16 5.5a3.2 3.2 0 0 1 0 6M18 20a5.5 5.5 0 0 0-3-4.9" />
+  </svg>
+);
+
+// Купон/билет (скидки по пути).
+export const IconTicket = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2 2 2 0 0 0 0 4 2 2 0 0 1-2 2H6a2 2 0 0 1-2-2 2 2 0 0 0 0-4Z" />
+    <path d="M14 6v12" />
+  </svg>
+);
+
+// Витрина/магазин (мой бизнес).
+export const IconStore = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 9 5.5 4h13L20 9M4 9h16M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9" />
+    <path d="M9 20v-5h6v5" />
+  </svg>
+);
+
+// Рупор/реклама (объявления).
+export const IconMegaphone = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 10v4a1 1 0 0 0 1 1h2l9 4V5L7 9H5a1 1 0 0 0-1 1Z" />
+    <path d="M7 15v3a1 1 0 0 0 1 1h1.5" />
+  </svg>
+);
+
+// Молния (срочная поездка).
+export const IconBolt = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M13 3 5 13h6l-1 8 8-10h-6l1-8Z" />
+  </svg>
+);

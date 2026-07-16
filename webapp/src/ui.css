@@ -5090,3 +5090,71 @@ select.field__input {
 .push-block__msg--warn {
   color: var(--warn);
 }
+
+/* ============================================================
+   D1 — брендовые иконки/hero по экранам (паритет с Android)
+   ============================================================ */
+
+/* Бейджи с акцентными токенами (женский / такси / попутка) */
+.badge--woman {
+  background: var(--woman-bg);
+  color: var(--woman);
+}
+.badge--taxi {
+  background: var(--taxi-bg);
+  color: var(--taxi);
+}
+.badge--pooling {
+  background: var(--pooling-bg);
+  color: var(--pooling);
+}
+
+/* Логотип-картинка (Splash) — как в андроиде: круглый белый бейдж */
+.brand-logo-img {
+  display: block;
+  object-fit: contain;
+  border-radius: 26px;
+}
+
+/* Онбординг: hero-фото Башкортостана (как OnboardingHeroCard в андроиде) */
+.onb__hero {
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14);
+}
+.onb__hero-accent {
+  margin-top: 18px;
+  color: var(--green);
+}
+.onb__role-emoji svg,
+.onb__simple-emoji svg {
+  color: var(--green);
+}
+
+/* Login: hero-баннер (Салават Юлаев) */
+.auth__hero {
+  width: 100%;
+  height: 168px;
+  object-fit: cover;
+  border-radius: var(--radius-card);
+  margin: 4px 0 8px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+}
+
+/* Простой режим: брендовые иконки в крупных карточках */
+.hub-card__emoji {
+  color: var(--green);
+  display: inline-flex;
+}
+.hub-card--sos .hub-card__emoji {
+  color: var(--danger);
+}
+
+/* Иконка удобства внутри чипа-бейджа поездки */
+.amenity-ic {
+  vertical-align: -2px;
+  margin-right: 2px;
+}

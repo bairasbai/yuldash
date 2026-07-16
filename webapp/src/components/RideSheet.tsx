@@ -11,7 +11,8 @@ import { ApiError } from "../api/client";
 import { createBooking } from "../api/bookings";
 import type { Ride } from "../api/rides";
 import { formatWhen, priceLabel } from "../utils/format";
-import { IconArrow, IconStar } from "./Icons";
+import { IconArrow } from "./Icons";
+import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 
 export default function RideSheet({
   ride,
@@ -72,15 +73,22 @@ export default function RideSheet({
             <b>{ride.seats_left}</b> {appText("мест", "урын")}
           </span>
           {ride.women_only && (
-            <span className="badge badge--mint">
+            <span className="badge badge--woman">
+              <YuWomenOnly size={13} className="amenity-ic" />
               {appText("Только для женщин", "Тик ҡатын-ҡыҙ өсөн")}
             </span>
           )}
           {ride.baggage && (
-            <span className="badge badge--mint">{appText("Багаж", "Багаж")}</span>
+            <span className="badge badge--mint">
+              <YuLuggage size={13} className="amenity-ic" />
+              {appText("Багаж", "Багаж")}
+            </span>
           )}
           {ride.child_seat && (
-            <span className="badge badge--mint">{appText("Детское кресло", "Бала урыны")}</span>
+            <span className="badge badge--mint">
+              <YuChildSeat size={13} className="amenity-ic" />
+              {appText("Детское кресло", "Бала урыны")}
+            </span>
           )}
         </div>
 
@@ -106,7 +114,7 @@ export default function RideSheet({
                 )}
               </div>
               <div className="ride-card__driver-sub">
-                <IconStar size={13} /> {ride.driver_rating?.toFixed(1) ?? "—"}
+                <YuStar size={13} className="star" /> {ride.driver_rating?.toFixed(1) ?? "—"}
                 {ride.driver_car ? ` · ${ride.driver_car}` : ""}
                 <span className="sheet__driver-more">
                   {" · "}

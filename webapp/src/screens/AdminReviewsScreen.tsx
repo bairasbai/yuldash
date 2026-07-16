@@ -22,7 +22,8 @@ import {
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import { formatRelative } from "../utils/format";
-import { IconCheck, IconStar } from "../components/Icons";
+import { IconCheck } from "../components/Icons";
+import { YuStar } from "../components/BrandIcons";
 
 type State = "loading" | "error" | "ready";
 type Tab = "rides" | "app";
@@ -33,8 +34,14 @@ function Stars({ n }: { n: number }) {
   const c = Math.max(0, Math.min(5, n));
   return (
     <span className="review-stars" aria-label={appText(`${c} из 5`, `5-тән ${c}`)}>
-      {"★".repeat(c)}
-      <span className="review-stars__dim">{"★".repeat(5 - c)}</span>
+      {Array.from({ length: c }).map((_, k) => (
+        <YuStar key={k} size={15} className="amenity-ic" />
+      ))}
+      <span className="review-stars__dim">
+        {Array.from({ length: 5 - c }).map((_, k) => (
+          <YuStar key={k} size={15} className="amenity-ic" />
+        ))}
+      </span>
     </span>
   );
 }
@@ -130,7 +137,7 @@ export default function AdminReviewsScreen() {
 
       {state === "ready" && list.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconStar size={40} /></div>
+          <div className="state__emoji"><YuStar size={40} /></div>
           <h2>{appText("Очередь пуста", "Сират буш")}</h2>
           <p>
             {tab === "rides"

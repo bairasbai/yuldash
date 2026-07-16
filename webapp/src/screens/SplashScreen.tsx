@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { flags } from "../flags";
-import BrandMark from "../components/BrandMark";
 import { useLang } from "../i18n/lang";
 
 /**
@@ -32,7 +31,13 @@ export default function SplashScreen() {
   return (
     <div className="splash">
       <div className="splash__mark">
-        <BrandMark size={104} />
+        <img
+          src="/yuldash_logo.png"
+          alt="Юлдаш"
+          width={104}
+          height={104}
+          className="brand-logo-img"
+        />
       </div>
       <div className="splash__word">Юлдаш</div>
       <p className="splash__slogan">

@@ -12,7 +12,9 @@ import { publishRide, type RideCreateInput } from "../api/driver";
 import { fetchMedicalPartners, type MedicalPartner } from "../api/medical";
 import type { RideCategory } from "../api/rides";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck } from "../components/Icons";
+import { IconCheck, IconBolt, IconHospital, IconUsers } from "../components/Icons";
+import { YuModeRideshare } from "../components/BrandIcons";
+import { AmenityIcon } from "../components/amenityIcons";
 
 type Amenity =
   | "baggage"
@@ -73,10 +75,10 @@ export default function CreateRideScreen() {
     return () => ac.abort();
   }, [category, clinicsLoaded]);
 
-  const cats: { key: RideCategory; label: string; emoji: string }[] = [
-    { key: "regular", label: appText("Обычная", "Ябай"), emoji: "🚗" },
-    { key: "urgent", label: appText("Срочно", "Ашығыс"), emoji: "⚡️" },
-    { key: "hospital", label: appText("В больницу", "Дауаханаға"), emoji: "🏥" },
+  const cats: { key: RideCategory; label: string; icon: JSX.Element }[] = [
+    { key: "regular", label: appText("Обычная", "Ябай"), icon: <YuModeRideshare size={20} /> },
+    { key: "urgent", label: appText("Срочно", "Ашығыс"), icon: <IconBolt size={20} /> },
+    { key: "hospital", label: appText("В больницу", "Дауаханаға"), icon: <IconHospital size={20} /> },
   ];
 
   const amenList: { key: Amenity; label: string }[] = [
@@ -266,7 +268,7 @@ export default function CreateRideScreen() {
               className={"seg__item" + (category === c.key ? " is-active" : "")}
               onClick={() => setCategory(c.key)}
             >
-              <span>{c.emoji}</span>
+              <span>{c.icon}</span>
               {c.label}
             </button>
           ))}
@@ -318,7 +320,7 @@ export default function CreateRideScreen() {
                   className={"opt-chip" + (amen[o.key] ? " is-active" : "")}
                   onClick={() => setAmen((p) => ({ ...p, [o.key]: !p[o.key] }))}
                 >
-                  {amen[o.key] && <IconCheck size={16} />}
+                  {amen[o.key] ? <IconCheck size={16} /> : <AmenityIcon amenity={o.key} size={16} />}
                   {o.label}
                 </button>
               ))}
@@ -347,7 +349,7 @@ export default function CreateRideScreen() {
               onClick={() => setOnlyTrusted((v) => !v)}
               style={{ marginTop: 14 }}
             >
-              <span className="onb__simple-emoji">🤝</span>
+              <span className="onb__simple-emoji"><IconUsers size={24} /></span>
               <span className="onb__simple-text">
                 <b>{appText("Только для своих", "Тик үҙебеҙ өсөн")}</b>
                 <span>
