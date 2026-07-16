@@ -34,7 +34,7 @@ type DeleteState = "idle" | "confirm" | "deleting";
 
 export default function SettingsScreen() {
   const { appText, lang, setLang } = useLang();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
 
   const [theme, setThemeMode] = useTheme();
@@ -237,6 +237,31 @@ export default function SettingsScreen() {
           <span className={"switch" + (soundOn ? " on" : "")} />
         </button>
       </div>
+
+      {/* Кабинет админа — только для role == "admin" */}
+      {user?.role === "admin" && (
+        <>
+          <h2 className="section-title">{appText("Администрирование", "Идара итеү")}</h2>
+          <div className="list">
+            <button
+              type="button"
+              className="list-row list-row--link"
+              onClick={() => navigate("/admin")}
+            >
+              <span className="list-row__icon"><IconShield size={22} /></span>
+              <div className="list-row__main">
+                <div className="list-row__title">{appText("Кабинет админа", "Админ кабинеты")}</div>
+                <div className="list-row__sub">
+                  {appText("Модерация и управление", "Тикшереү һәм идара итеү")}
+                </div>
+              </div>
+              <span className="list-row__chev">
+                <IconChevron size={20} />
+              </span>
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Правовое и безопасность */}
       <h2 className="section-title">{appText("Безопасность и правила", "Именлек һәм ҡағиҙәләр")}</h2>

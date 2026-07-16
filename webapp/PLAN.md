@@ -399,6 +399,38 @@ callback/safe-note — только токены, светлая/тёмная т
 AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, AdminPaymentRequests, AdminReviews,
 AdminAds, AdminTaxi, AdminWaitlist, AdminTaxiPulse, IncomeCalculator, AdminPartners, AdminPromo, AdminParcels, AdminCourier.
 
+#### ✅ Волна 8А — Ядро модерации (готово)
+Доступ ко всему разделу — `components/RequireAdmin.tsx`: проверяет `Me.role === "admin"` (поле `role` из
+`GET /me`; авто-админ на бэке по telegram_id/телефону — `auth.py::_maybe_promote_admin`). Гость → `/login`;
+не-админ → мягкий редирект на `/profile`. Вход «Кабинет админа» показывается ТОЛЬКО админу — в Профиле
+(верхняя строка) и в Настройках (секция «Администрирование»).
+
+Экраны и роуты (все под `RequireAdmin`, шапка `SubHeader` с «назад», все состояния, двуязычно):
+- **AdminCabinet** → `/admin` — хаб-меню. Волна 8А активна (5 ссылок), остальные разделы (отзывы, реклама,
+  такси, лист ожидания, пульс, калькулятор дохода, бизнесы, промо, посылки, курьеры) — плашки «скоро».
+- **AdminRequest** → `/admin/request` — заявка за юзера по телефону: `POST /admin/request-for-phone`
+  `{phone, name?, from_city, to_city, seats, desired_at?, comment?}` → `{id}`.
+- **AdminResponses** → `/admin/responses` — ввод номера заявки → `GET /requests/{id}/responses` (админ видит
+  любые) → принять отклик за юзера `POST /responses/{id}/accept` → `{booking_id}` (создаёт поездку+бронь).
+- **AdminDrivers** → `/admin/drivers` — `GET /admin/drivers/pending`; фото прав/авто защищены
+  (`GET /secure/docs/{name}`, только админ/владелец) → грузим с Bearer через `fetchSecureDoc` → blob-URL
+  (`<img>` не шлёт заголовки); модерация `POST /admin/drivers/{id}/moderate {approve:bool}`. Автопроверка
+  (`autocheck_result/score`) подсвечена бейджем-подсказкой. Причина отказа бэком не принимается — только
+  approve/reject.
+- **AdminReports** → `/admin/reports` — `GET /admin/reports?status=`; фильтр-чипы (new/reviewing/resolved/
+  rejected/все); `POST /admin/reports/{id}/resolve {keep_pause}` и `/reject`; ручные меры по цели
+  `POST /admin/quality/{id}/pause {hours:72}` / `/unpause` (§9 лестница мер срабатывает на бэке при resolve).
+- **AdminPaymentRequests** → `/admin/payment-requests` — СБП «на доверии»: `GET /admin/payments/pending`,
+  сводка `GET /admin/payments/summary`; подтвердить/отклонить `POST /admin/payments/{id}/confirm|reject`.
+
+API-слой — `src/api/admin.ts` (все ручки + `fetchSecureDoc`). Новые CSS-классы Canon в `ui.css`
+(`admin-cards/admin-card*`, `doc-photos/doc-photo*`, `admin-check`, `chip-scroll`) — только токены.
+
+**Зависит от деплоя release:** все `/admin/*`, `/secure/docs/*`, `/responses/{id}/accept` контракты есть в
+`release/backend`; на проде `yulbash.ru` появятся после мержа `release`. До мержа → 404/405: экраны
+показывают ошибку/пусто, без краша. Роль `admin` пользователю на проде тоже проставит бэк (по
+telegram_id/телефону из конфига) — без этого раздел просто не виден.
+
 ### Волна 9 — Полировка + деплой
 Web Push (iOS 16.4+, только после установки на экран, VAPID), офлайн-кеш, тёмная тема/крупный шрифт финал,
 деплой статики `dist/` на `app.yulbash.ru` (nginx).

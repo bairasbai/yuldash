@@ -3,6 +3,7 @@ import { useLang } from "./i18n/lang";
 import BottomNav from "./components/BottomNav";
 import InstallPrompt from "./components/InstallPrompt";
 import RequireAuth from "./components/RequireAuth";
+import RequireAdmin from "./components/RequireAdmin";
 import RidesScreen from "./screens/RidesScreen";
 import StubScreen from "./screens/StubScreen";
 import SplashScreen from "./screens/SplashScreen";
@@ -64,6 +65,12 @@ import PrivacyScreen from "./screens/PrivacyScreen";
 import RulesScreen from "./screens/RulesScreen";
 import BlocklistScreen from "./screens/BlocklistScreen";
 import ReportScreen from "./screens/ReportScreen";
+import AdminCabinetScreen from "./screens/AdminCabinetScreen";
+import AdminRequestScreen from "./screens/AdminRequestScreen";
+import AdminResponsesScreen from "./screens/AdminResponsesScreen";
+import AdminDriversScreen from "./screens/AdminDriversScreen";
+import AdminReportsScreen from "./screens/AdminReportsScreen";
+import AdminPaymentRequestsScreen from "./screens/AdminPaymentRequestsScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -462,6 +469,56 @@ export default function App() {
             <RequireAuth>
               <AdEditorScreen />
             </RequireAuth>
+          }
+        />
+
+        {/* --- Волна 8А: админка (ядро модерации) — только role == "admin" --- */}
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminCabinetScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/request"
+          element={
+            <RequireAdmin>
+              <AdminRequestScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/responses"
+          element={
+            <RequireAdmin>
+              <AdminResponsesScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/drivers"
+          element={
+            <RequireAdmin>
+              <AdminDriversScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/reports"
+          element={
+            <RequireAdmin>
+              <AdminReportsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/payment-requests"
+          element={
+            <RequireAdmin>
+              <AdminPaymentRequestsScreen />
+            </RequireAdmin>
           }
         />
       </Route>

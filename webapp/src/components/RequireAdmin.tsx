@@ -1,0 +1,48 @@
+// ================================================================
+//  Обёртка админ-маршрутов. Доступ только для role == "admin"
+//  (поле Me.role из GET /me; авто-админ по telegram_id/телефону — backend/auth.py).
+//  • Пока грузим сессию — спокойный спиннер.
+//  • Гость → /login (мягко, с запоминанием куда шёл).
+//  • Обычный пользователь → редирект на профиль с мягким «раздел только для админов».
+// ================================================================
+import type { ReactNode } from "react";
+import { Navigate, useLocation } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
+import { useLang } from "../i18n/lang";
+
+export default function RequireAdmin({ children }: { children: ReactNode }) {
+  const { status, user } = useAuth();
+  const location = useLocation();
+  const { appText } = useLang();
+
+  if (status === "loading") {
+    return (
+      <div className="center-fill" role="status" aria-live="polite">
+        <div className="spinner" aria-hidden />
+        <p>{appText("Секундочку…", "Бер секунд…") /* DRAFT */}</p>
+      </div>
+    );
+  }
+
+  if (status === "guest") {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
+  if (user?.role !== "admin") {
+    // Не админ — уводим в профиль с мягким пояснением (профиль сам ничего не покажет лишнего).
+    return (
+      <Navigate
+        to="/profile"
+        replace
+        state={{
+          notice: appText(
+            "Этот раздел только для администраторов.",
+            "Был бүлек тик администраторҙар өсөн." /* DRAFT */
+          ),
+        }}
+      />
+    );
+  }
+
+  return <>{children}</>;
+}

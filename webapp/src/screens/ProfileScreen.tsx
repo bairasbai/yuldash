@@ -64,8 +64,18 @@ export default function ProfileScreen() {
     title: string;
     sub: string;
     authed?: boolean;
+    admin?: boolean;
     badge?: number;
   }[] = [
+    {
+      key: "admin",
+      to: "/admin",
+      icon: <IconShield size={22} />,
+      title: appText("Кабинет админа", "Админ кабинеты"),
+      sub: appText("Модерация и управление", "Тикшереү һәм идара итеү"),
+      authed: true,
+      admin: true,
+    },
     {
       key: "settings",
       to: "/settings",
@@ -362,7 +372,7 @@ export default function ProfileScreen() {
 
       <div className="list">
         {rows
-          .filter((r) => !r.authed || isAuthed)
+          .filter((r) => (!r.authed || isAuthed) && (!r.admin || user?.role === "admin"))
           .map((r) => (
           <button key={r.key} type="button" className="list-row list-row--link" onClick={() => navigate(r.to)}>
             <span className="list-row__icon">{r.icon}</span>
