@@ -297,3 +297,7 @@ Hero не затронут (там `animate="show"`, не `whileInView` — ст
 ## 2026-07-14 — ruff в бэкенд-агенте
 - **Ошибка:** бэкенд-субагент прогонял `pytest`, но не линтер → CI упал на `ruff check app/ --select F` (мёртвые импорты `Optional`/`herr` в новом `support.py`).
 - **Правило:** бэкенд-задача не «готова» без `ruff check app/ --select F` (ровно как в CI), не только pytest. Добавлять в чек-лист бэкенд-агента.
+
+## 2026-07-16 — int для epoch-ms на Postgres = BigInteger
+- **Ошибка:** поле `AnalyticsEvent.ts` (клиентское время в миллисекундах, ~1.7e12) объявлено как `int` → SQLModel мапит в `Integer` (int4, макс ~2.1e9). На SQLite прошло (int 64-бит), на **Postgres — «integer out of range»** (упал только backend-tests-postgres).
+- **Правило:** любое поле, хранящее epoch-**миллисекунды** или большие счётчики, — `sa_type=BigInteger` (и `sa.BigInteger()` в миграции). Проверять именно на Postgres, не только SQLite.
