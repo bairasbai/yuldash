@@ -48,6 +48,12 @@ import PartnerCabinetScreen from "./screens/PartnerCabinetScreen";
 import AdsCabinetScreen from "./screens/AdsCabinetScreen";
 import AdEditorScreen from "./screens/AdEditorScreen";
 import PaymentInfoScreen from "./screens/PaymentInfoScreen";
+import SosScreen from "./screens/SosScreen";
+import TrustedContactsScreen from "./screens/TrustedContactsScreen";
+import FamilyOrderScreen from "./screens/FamilyOrderScreen";
+import CallbackHelpScreen from "./screens/CallbackHelpScreen";
+import VoiceRequestScreen from "./screens/VoiceRequestScreen";
+import SimpleModeScreen from "./screens/SimpleModeScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -83,6 +89,37 @@ export default function App() {
         <Route path="/consents" element={<ConsentsScreen />} />
         {/* Фильтры — локальная UX-настройка, вход не нужен */}
         <Route path="/filters" element={<FiltersScreen />} />
+        {/* --- Волна 7А: безопасность и доступность --- */}
+        {/* SOS — публичен: звонки в службы доступны без входа; «сообщить своим» мягко зовёт войти */}
+        <Route path="/sos" element={<SosScreen />} />
+        {/* Простой режим — публичный хаб доступности + крупный шрифт */}
+        <Route path="/simple" element={<SimpleModeScreen />} />
+        {/* «Перезвоните мне» — публичный вход, POST требует аккаунт (мягко на Login) */}
+        <Route path="/callback" element={<CallbackHelpScreen />} />
+        <Route
+          path="/trusted"
+          element={
+            <RequireAuth>
+              <TrustedContactsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/family-order"
+          element={
+            <RequireAuth>
+              <FamilyOrderScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/voice"
+          element={
+            <RequireAuth>
+              <VoiceRequestScreen />
+            </RequireAuth>
+          }
+        />
         {/* Клиники — публичная витрина «поездки к клинике» */}
         <Route path="/clinics" element={<ClinicRidesScreen />} />
         {/* Публичный профиль водителя — открывается тапом с карточки поездки */}

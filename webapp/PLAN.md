@@ -287,9 +287,42 @@ cancel/available/accept/status/carrying) — базовая M3 уже на пр�
 состояние без краша. Оплата рекламы и подписки бизнеса — СБП «на доверии» (админ подтверждает в
 Telegram); реквизиты бэкенд отдаёт при создании платежа.
 
-### Волна 7 — Доверие/безопасность/поддержка/настройки (17)
-Sos, TrustedContacts, FamilyOrder, CallbackHelp, VoiceRequest, SimpleMode + крупный шрифт, Notifications,
-Support, SupportTickets, SupportTicket, Settings, Privacy, Rules, Blocklist, Report, Help, AppReview.
+### Волна 7А — Безопасность и доступность (СДЕЛАНО, 6 экранов)
+- `SosScreen` → `/sos` (ПУБЛИЧНО): экстренные звонки 112/103/102/101 через `tel:` (без входа) +
+  «Сообщить близким» (`POST /sos`, `safety.py`) — только со входом (гостю мягко на Login).
+  Крупные тач-цели, спокойный дизайн, категория (здоровье/трасса/другое) + заметка.
+- `TrustedContactsScreen` → `/trusted` (RequireAuth): список/добавить(имя+тел+кто)/удалить.
+  `GET/POST /trusted-contacts` (`family.py`). DELETE — best-effort (на бэке пока нет): при 404/405
+  контакт честно возвращается + мягкая подсказка «удаление появится позже».
+- `FamilyOrderScreen` → `/family-order` (RequireAuth): заявка «за близкого» (`POST /requests` с
+  `for_relative_name` + `assisted:true`; телефон близкого — в комментарии, у RequestIn нет поля phone).
+- `CallbackHelpScreen` → `/callback` (ПУБЛИЧНО): `POST /callback` (`safety.py`) — крупно, для пожилых.
+  Ручка требует аккаунт (телефон берётся из профиля) → гостю мягко предлагаем войти. Показываем номер,
+  на который перезвонят.
+- `VoiceRequestScreen` → `/voice` (RequireAuth): запись через браузерный `MediaRecorder` → загрузка в
+  `POST /voice` (multipart `file`, `discovery.py`) → `voice_url` в `POST /requests` (`assisted:true`).
+  Отказ микрофона / неподдержка / 404-405 загрузки → честный текстовый фолбэк на ту же заявку.
+- `SimpleModeScreen` → `/simple` (ПУБЛИЧНО): хаб доступности крупными карточками (Найти поездку/Вызвать/
+  Голосовая/За близкого/Доверенные/Перезвоните/Чат/SOS) + переключатель размера шрифта.
+
+**Крупный шрифт — единая точка правды:** `src/fontScale.ts` (`getFontScale/setFontScale/applyFontScale/
+useFontScale`). Значение (`normal|large|xlarge`) в localStorage; применяется на старте (`main.tsx`) ДО
+первого кадра. Дизайн-система на px, поэтому масштабируем весь UI глобальным множителем через CSS `zoom`
+на `<html>` (растёт весь текст и заодно тач-цели — для пожилых даже лучше). Хук переиспользуется в
+Настройках. Множители: 1 / 1.15 / 1.3.
+
+**Связки:** входы SOS / Простой режим / Доверенные / За близкого / Голосовая / Перезвоните — добавлены
+в Профиль. Онбординг: выбор простого режима на финальном шаге ведёт на `/simple`. Простой режим —
+карточки-ссылки на все ключевые действия. Новые CSS-классы Canon в `ui.css` (sos/hub/fontscale/voice/
+callback/safe-note — только токены, светлая/тёмная тема).
+
+**Зависит от деплоя release:** `DELETE /trusted-contacts/{id}` (на бэке пока только GET/POST) → удаление
+контакта деградирует мягко. `POST /voice` есть на release — до мержа отдаёт 404/405 → голосовая
+автоматически уходит в текстовый фолбэк. `POST /sos`, `POST /callback`, `POST /requests` — уже на проде.
+
+### Волна 7 — остаток (11)
+Notifications, Support, SupportTickets, SupportTicket, Settings (переиспользует `useFontScale`),
+Privacy, Rules, Blocklist, Report, Help, AppReview.
 
 ### Волна 8 — Админка (16)
 AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, AdminPaymentRequests, AdminReviews,

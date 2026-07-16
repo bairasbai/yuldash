@@ -20,6 +20,7 @@ import {
   IconBox,
   IconWallet,
   IconReceipt,
+  IconPhone,
 } from "../components/Icons";
 
 function initials(name: string): string {
@@ -184,6 +185,51 @@ export default function ProfileScreen() {
       icon: <IconFilter size={22} />,
       title: appText("Фильтры", "Фильтрҙар"),
       sub: appText("Настрой ленту под себя", "Таҫманы үҙеңә көйлә"),
+    },
+    {
+      key: "simple",
+      to: "/simple",
+      icon: <span style={{ fontSize: 20 }}>🔎</span>,
+      title: appText("Простой режим", "Ябай режим"),
+      sub: appText("Крупно и просто — и размер шрифта", "Ҙур һәм ябай — һәм шрифт ҙурлығы"),
+    },
+    {
+      key: "sos",
+      to: "/sos",
+      icon: <span style={{ fontSize: 20 }}>🆘</span>,
+      title: appText("Экстренная помощь", "Ашығыс ярҙам"),
+      sub: appText("SOS и звонок в службы", "SOS һәм хеҙмәткә шылтыратыу"),
+    },
+    {
+      key: "trusted",
+      to: "/trusted",
+      icon: <span style={{ fontSize: 20 }}>👪</span>,
+      title: appText("Доверенные контакты", "Ышаныслы контакттар"),
+      sub: appText("Кому сообщить в поездке", "Сәфәрҙә кемгә хәбәр итергә"),
+      authed: true,
+    },
+    {
+      key: "family-order",
+      to: "/family-order",
+      icon: <span style={{ fontSize: 20 }}>💚</span>,
+      title: appText("За близкого", "Яҡын өсөн"),
+      sub: appText("Заказать поездку другому", "Башҡаға сәфәр заказ итергә"),
+      authed: true,
+    },
+    {
+      key: "voice",
+      to: "/voice",
+      icon: <span style={{ fontSize: 20 }}>🎙️</span>,
+      title: appText("Голосовая заявка", "Тауышлы заявка"),
+      sub: appText("Надиктуй поездку голосом", "Сәфәрҙе тауыш менән әйт"),
+      authed: true,
+    },
+    {
+      key: "callback",
+      to: "/callback",
+      icon: <IconPhone size={22} />,
+      title: appText("Перезвоните мне", "Миңә шылтыратығыҙ"),
+      sub: appText("Мы позвоним и всё оформим", "Беҙ шылтыратып рәтләйбеҙ"),
     },
     {
       key: "trust",

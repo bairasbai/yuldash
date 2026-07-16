@@ -24,6 +24,10 @@ export interface RequestInput {
   air_conditioner?: boolean;
   only_trusted?: boolean;
   comment?: string;
+  for_relative_name?: string | null; // заявка «за близкого» — имя того, для кого едем
+  voice_url?: string | null; // ссылка на голосовое (из POST /voice)
+  transcript?: string | null; // расшифровка/текст голосовой заявки
+  assisted?: boolean; // режим «помощь» (пожилой/голос/за близкого) — сервер сразу зовёт админа
 }
 
 /** Полная строка заявки (ответ POST /requests, GET /requests/mine). */

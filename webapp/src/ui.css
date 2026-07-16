@@ -3860,3 +3860,363 @@ button.list-row:active {
   line-height: 1.55;
   color: var(--muted);
 }
+
+/* ================================================================
+   Волна 7А — Безопасность и доступность (SOS / Простой режим /
+   Доверенные / За близкого / Голосовая / Перезвоните мне).
+   Только токены Canon*, крупные тач-цели, светлая/тёмная тема.
+   ================================================================ */
+
+/* ---- Крупные кнопки / варианты ---- */
+.btn-lg {
+  min-height: 60px;
+  font-size: 18px;
+  border-radius: 18px;
+}
+.btn-danger {
+  margin-top: 18px;
+  width: 100%;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--danger);
+  color: #fff;
+  font-weight: 800;
+  transition: transform 0.12s ease, opacity 0.2s ease;
+}
+.btn-danger:active {
+  transform: scale(0.97);
+}
+.btn-primary:disabled,
+.btn-danger:disabled {
+  opacity: 0.55;
+}
+.link-btn {
+  display: block;
+  margin: 14px auto 0;
+  padding: 10px 14px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ---- Успех / крупные состояния ---- */
+.state--ok h2 {
+  color: var(--green);
+}
+.state--big {
+  padding: 48px 20px;
+}
+.state--big .state__emoji {
+  font-size: 60px;
+}
+.state--big h2 {
+  font-size: 24px;
+}
+.state--big p {
+  font-size: 16px;
+  max-width: 360px;
+}
+.state--big .btn-primary,
+.state--ok .btn-primary,
+.state--ok .btn-ghost {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ---- Мягкие пояснительные плашки ---- */
+.safe-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 20px 18px;
+  background: var(--mint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+}
+.safe-note p {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.safe-note__emoji {
+  font-size: 40px;
+}
+.safe-note__ic {
+  font-size: 24px;
+}
+.safe-note--big {
+  padding: 26px 20px;
+}
+.safe-note--big p {
+  font-size: 17px;
+}
+.safe-note--tight {
+  flex-direction: row;
+  align-items: flex-start;
+  text-align: left;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.safe-note--tight p {
+  font-size: 14px;
+}
+.soft-note {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* ---- SOS: экстренные звонки ---- */
+.sos-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.sos-call {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 108px;
+  padding: 14px;
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  border: 1.5px solid transparent;
+  color: var(--danger);
+  transition: transform 0.12s ease;
+}
+.sos-call:active {
+  transform: scale(0.97);
+}
+.sos-call__emoji {
+  font-size: 28px;
+}
+.sos-call__num {
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.sos-call__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  opacity: 0.8;
+}
+.sos-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 2px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.sos-hint--center {
+  justify-content: center;
+  margin-top: 12px;
+}
+.sos-panel {
+  margin-top: 4px;
+  padding: 18px 16px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.sos-panel__q {
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+.sos-send {
+  margin-top: 18px;
+}
+
+/* ---- «Перезвоните мне» ---- */
+.callback-panel {
+  margin-top: 6px;
+  text-align: center;
+}
+.callback-illust {
+  font-size: 64px;
+  margin-top: 8px;
+}
+.callback-lead {
+  margin: 10px auto 18px;
+  max-width: 380px;
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.callback-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 15px;
+}
+.callback-panel .field {
+  text-align: left;
+}
+.callback-btn {
+  width: 100%;
+  margin-top: 16px;
+}
+
+/* ---- Голосовая заявка ---- */
+.voice-panel {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.voice-hint {
+  margin: 14px auto 0;
+  max-width: 320px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.voice-hint--center {
+  text-align: center;
+}
+.rec-btn {
+  width: 116px;
+  height: 116px;
+  margin-top: 8px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--green-btn);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 14px 34px -14px var(--canon-green-deep);
+  transition: transform 0.14s ease;
+}
+.rec-btn:active {
+  transform: scale(0.95);
+}
+.rec-btn__mic {
+  font-size: 46px;
+}
+.rec-btn.is-recording {
+  background: var(--danger);
+  animation: recPulse 1.4s ease-in-out infinite;
+}
+.rec-btn__stop {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #fff;
+}
+@keyframes recPulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--danger-bg); }
+  50% { box-shadow: 0 0 0 16px transparent; }
+}
+.rec-time {
+  margin: 14px 0 0;
+  font-size: 26px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--danger);
+}
+.voice-audio {
+  width: 100%;
+  margin-top: 12px;
+}
+.voice-actions {
+  margin-top: 10px;
+}
+
+/* ---- Простой режим: хаб крупными карточками ---- */
+.fontscale {
+  margin: 6px 0 18px;
+  padding: 16px;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.fontscale__label {
+  font-size: 15px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+.fontscale__seg .seg__item {
+  min-height: 68px;
+}
+.fontscale__a {
+  font-weight: 900;
+  line-height: 1;
+}
+.fontscale__a--normal { font-size: 18px; }
+.fontscale__a--large { font-size: 24px; }
+.fontscale__a--xlarge { font-size: 30px; }
+
+.hub-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.hub-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 130px;
+  padding: 18px 16px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  text-align: left;
+  transition: transform 0.12s ease, border-color 0.2s ease;
+}
+.hub-card:active {
+  transform: scale(0.97);
+  border-color: var(--canon-green-bright);
+}
+.hub-card__emoji {
+  font-size: 38px;
+  margin-bottom: 6px;
+}
+.hub-card__title {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.hub-card__sub {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.hub-card--sos {
+  background: var(--danger-bg);
+  border-color: transparent;
+}
+.hub-card--sos .hub-card__title {
+  color: var(--danger);
+}
