@@ -2,7 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy import BigInteger, Index, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 from .timeutil import utcnow
@@ -1197,7 +1197,7 @@ class AnalyticsEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     event: str = Field(default="", max_length=64)              # имя события (напр. "web_open", "role_pick")
     client_id: str = Field(default="", index=True, max_length=64)  # анонимный id браузера
-    ts: Optional[int] = Field(default=None)                    # клиентское время события (epoch ms), опц.
+    ts: Optional[int] = Field(default=None, sa_type=BigInteger)  # клиентское время события (epoch ms), опц. BigInteger — не влезает в int4 Postgres
     context_json: str = Field(default="")                     # безопасные props (JSON, после чистки)
     created_at: datetime = Field(default_factory=utcnow, index=True)
     # Сводка воронки для админа: WHERE created_at >= since GROUP BY event — композит покрывает.

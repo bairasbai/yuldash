@@ -44,7 +44,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True, nullable=False),
         sa.Column("event", sa.String(length=64), nullable=False, server_default=""),
         sa.Column("client_id", sa.String(length=64), nullable=False, server_default=""),
-        sa.Column("ts", sa.Integer(), nullable=True),
+        sa.Column("ts", sa.BigInteger(), nullable=True),
         sa.Column("context_json", sa.Text(), nullable=False, server_default=""),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
