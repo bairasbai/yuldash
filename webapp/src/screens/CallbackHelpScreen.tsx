@@ -51,7 +51,7 @@ export default function CallbackHelpScreen() {
 
       {state === "sent" ? (
         <div className="state state--ok state--big">
-          <div className="state__emoji" aria-hidden><IconPhone size={34} /></div>
+          <div className="state__icon" aria-hidden><IconPhone size={34} /></div>
           <h2>{appText("Скоро перезвоним", "Тиҙҙән шылтыратабыҙ")}</h2>
           <p>
             {appText(

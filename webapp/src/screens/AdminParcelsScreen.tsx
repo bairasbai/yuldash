@@ -114,7 +114,7 @@ export default function AdminParcelsScreen() {
 
       {state === "ready" && shown.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconBox size={40} /></div>
+          <div className="state__icon"><IconBox size={40} /></div>
           <h2>{appText("Здесь пусто", "Бында буш")}</h2>
           <p>{appText("Посылок в этом разделе нет.", "Был бүлектә бандеролдәр юҡ.")}</p>
         </div>

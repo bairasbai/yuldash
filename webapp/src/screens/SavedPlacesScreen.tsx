@@ -146,7 +146,7 @@ export default function SavedPlacesScreen() {
         <>
           {places.length === 0 ? (
             <div className="state" style={{ paddingBottom: 24 }}>
-              <div className="state__emoji"><IconPin size={34} /></div>
+              <div className="state__icon"><IconPin size={34} /></div>
               <h2>{appText("Пока нет адресов", "Әле адрестар юҡ")}</h2>
               <p>
                 {appText(

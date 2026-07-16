@@ -106,7 +106,7 @@ export default function SosScreen() {
         </div>
       ) : state === "sent" ? (
         <div className="state state--ok">
-          <div className="state__emoji" aria-hidden><IconCheck size={34} /></div>
+          <div className="state__icon" aria-hidden><IconCheck size={34} /></div>
           <h2>{appText("Мы получили сигнал", "Сигнал ҡабул ителде")}</h2>
           <p>
             {appText(

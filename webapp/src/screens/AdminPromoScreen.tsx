@@ -108,7 +108,7 @@ export default function AdminPromoScreen() {
 
       {state === "ready" && promos.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconGift size={40} /></div>
+          <div className="state__icon"><IconGift size={40} /></div>
           <h2>{appText("Пока нет кампаний", "Әле кампаниялар юҡ")}</h2>
           <p>{appText("Создай первый промокод для блогера или акции.", "Блогер йәки акция өсөн беренсе промокод булдыр.")}</p>
         </div>

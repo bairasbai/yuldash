@@ -14,7 +14,7 @@ import {
 } from "../api/requests";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconStar, IconCheck } from "../components/Icons";
+import { IconStar, IconCheck, IconClock } from "../components/Icons";
 import { priceLabel } from "../utils/format";
 
 export default function RequestResponsesScreen() {
@@ -84,7 +84,7 @@ export default function RequestResponsesScreen() {
       {status === "ready" &&
         (items.length === 0 ? (
           <div className="state">
-            <div className="state__emoji">⏳</div>
+            <div className="state__icon"><IconClock size={34} /></div>
             <h2>{appText("Пока нет откликов", "Әле яуап юҡ")}</h2>
             <p>{appText("Водители ещё думают. Мы сообщим, как только кто-то предложит поездку.", "Водителдәр уйлай әле. Кемдер тәҡдим итһә, хәбәр итәбеҙ.")}</p>
           </div>

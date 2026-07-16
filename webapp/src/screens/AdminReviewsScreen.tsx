@@ -137,7 +137,7 @@ export default function AdminReviewsScreen() {
 
       {state === "ready" && list.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><YuStar size={40} /></div>
+          <div className="state__icon"><YuStar size={40} /></div>
           <h2>{appText("Очередь пуста", "Сират буш")}</h2>
           <p>
             {tab === "rides"

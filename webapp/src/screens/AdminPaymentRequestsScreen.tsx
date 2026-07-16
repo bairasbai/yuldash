@@ -115,7 +115,7 @@ export default function AdminPaymentRequestsScreen() {
 
       {state === "ready" && items.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconWallet size={40} /></div>
+          <div className="state__icon"><IconWallet size={40} /></div>
           <h2>{appText("Всё подтверждено", "Барыһы раҫланған")}</h2>
           <p>{appText("Новых переводов на подтверждение нет.", "Раҫларға яңы күсереүҙәр юҡ.")}</p>
         </div>

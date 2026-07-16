@@ -135,7 +135,7 @@ export default function AdminPartnersScreen() {
 
       {state === "ready" && shown.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconWork size={40} /></div>
+          <div className="state__icon"><IconWork size={40} /></div>
           <h2>{appText("Здесь пусто", "Бында буш")}</h2>
           <p>{appText("Бизнесов в этом разделе нет.", "Был бүлектә бизнестар юҡ.")}</p>
         </div>

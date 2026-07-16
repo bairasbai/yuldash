@@ -93,7 +93,7 @@ export default function AdminTaxiPulseScreen() {
           </h2>
           {pulse.by_city.length === 0 ? (
             <div className="state" style={{ paddingTop: 12 }}>
-              <div className="state__emoji"><IconCar size={40} /></div>
+              <div className="state__icon"><IconCar size={40} /></div>
               <h2>{appText("Пока тихо", "Әлегә тыныс")}</h2>
               <p>{appText("Никто не на линии и нет активных заказов.", "Бер кем дә линияла түгел, әүҙем заказдар юҡ.")}</p>
             </div>

@@ -70,7 +70,7 @@ export default function TripReceiptScreen() {
 
       {state.kind === "soft" && (
         <div className="state">
-          <div className="state__emoji"><IconReceipt size={34} /></div>
+          <div className="state__icon"><IconReceipt size={34} /></div>
           <h2>
             {state.reason === "pending"
               ? appText("Поездка ещё не завершена", "Сәфәр әле тамамланмаған")

@@ -80,7 +80,7 @@ export default function BlocklistScreen() {
 
       {status === "ready" && blocks.length === 0 && (
         <div className="state state--big">
-          <div className="state__emoji"><IconShield size={34} /></div>
+          <div className="state__icon"><IconShield size={34} /></div>
           <h2>{appText("Никто не заблокирован", "Бер кем дә блокланмаған")}</h2>
           <p>
             {appText(

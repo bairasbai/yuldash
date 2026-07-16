@@ -69,7 +69,7 @@ export default function AppReviewScreen() {
       <>
         <SubHeader title={appText("Оценить приложение", "Ҡушымтаны баһалау")} onBack={() => navigate(-1)} />
         <div className="state state--ok state--big">
-          <div className="state__emoji" aria-hidden><IconHeart size={34} /></div>
+          <div className="state__icon" aria-hidden><IconHeart size={34} /></div>
           <h2>{appText("Спасибо за отзыв!", "Фекерең өсөн рәхмәт!")}</h2>
           <p>
             {appText(

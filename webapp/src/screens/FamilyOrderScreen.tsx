@@ -65,7 +65,7 @@ export default function FamilyOrderScreen() {
       <>
         <SubHeader title={appText("За близкого", "Яҡын өсөн")} onBack={() => navigate("/profile")} />
         <div className="state state--ok">
-          <div className="state__emoji" aria-hidden><IconHeart size={34} /></div>
+          <div className="state__icon" aria-hidden><IconHeart size={34} /></div>
           <h2>{appText("Заявка принята", "Заявка ҡабул ителде")}</h2>
           <p>
             {appText(

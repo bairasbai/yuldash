@@ -173,7 +173,7 @@ export default function AdminWaitlistScreen() {
 
       {state === "ready" && data && data.items.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconClock size={40} /></div>
+          <div className="state__icon"><IconClock size={40} /></div>
           <h2>{appText("Здесь пусто", "Бында буш")}</h2>
           <p>{appText("В этом фильтре никого нет.", "Был фильтрҙа бер кем дә юҡ.")}</p>
         </div>

@@ -125,7 +125,7 @@ export default function RepeatTripScreen() {
       {status === "ready" &&
         (routes.length === 0 ? (
           <div className="state">
-            <div className="state__emoji"><IconRoute size={34} /></div>
+            <div className="state__icon"><IconRoute size={34} /></div>
             <h2>{appText("Пока нет маршрутов", "Әле маршруттар юҡ")}</h2>
             <p>
               {appText(

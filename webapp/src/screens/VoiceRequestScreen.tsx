@@ -160,7 +160,7 @@ export default function VoiceRequestScreen() {
       <>
         <SubHeader title={appText("Голосовая заявка", "Тауышлы заявка")} onBack={() => navigate("/profile")} />
         <div className="state state--ok state--big">
-          <div className="state__emoji" aria-hidden><IconMic size={34} /></div>
+          <div className="state__icon" aria-hidden><IconMic size={34} /></div>
           <h2>{appText("Заявка отправлена", "Заявка ебәрелде")}</h2>
           <p>
             {appText(

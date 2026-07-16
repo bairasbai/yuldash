@@ -87,7 +87,7 @@ export default function ClinicRidesScreen() {
         {ridesStatus === "ready" &&
           (rides.length === 0 ? (
             <div className="state">
-              <div className="state__emoji"><IconCar size={34} /></div>
+              <div className="state__icon"><IconCar size={34} /></div>
               <h2>{appText("Пока никто не едет", "Әле бер кем бармай")}</h2>
               <p>
                 {appText(
@@ -132,7 +132,7 @@ export default function ClinicRidesScreen() {
       {status === "error" && <ErrorState onRetry={() => load()} />}
       {status === "soon" && (
         <div className="state">
-          <div className="state__emoji"><IconHospital size={34} /></div>
+          <div className="state__icon"><IconHospital size={34} /></div>
           <h2>{appText("Скоро появится", "Тиҙҙән буласаҡ")}</h2>
           <p>
             {appText(
@@ -145,7 +145,7 @@ export default function ClinicRidesScreen() {
       {status === "ready" &&
         (partners.length === 0 ? (
           <div className="state">
-            <div className="state__emoji"><IconHospital size={34} /></div>
+            <div className="state__icon"><IconHospital size={34} /></div>
             <h2>{appText("Клиник пока нет", "Әле клиникалар юҡ")}</h2>
             <p>{appText("Справочник скоро наполнится.", "Белешмә тиҙҙән тулыр.")}</p>
           </div>

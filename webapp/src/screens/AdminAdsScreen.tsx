@@ -139,7 +139,7 @@ export default function AdminAdsScreen() {
 
       {state === "ready" && shown.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconRocket size={40} /></div>
+          <div className="state__icon"><IconRocket size={40} /></div>
           <h2>{appText("Здесь пусто", "Бында буш")}</h2>
           <p>{appText("Объявлений в этом разделе нет.", "Был бүлектә иғландар юҡ.")}</p>
         </div>

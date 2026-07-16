@@ -123,7 +123,7 @@ export default function TrustedContactsScreen() {
         <>
           {contacts.length === 0 ? (
             <div className="state" style={{ paddingBottom: 20 }}>
-              <div className="state__emoji" aria-hidden><IconUsers size={34} /></div>
+              <div className="state__icon" aria-hidden><IconUsers size={34} /></div>
               <h2>{appText("Пока никого нет", "Әле бер кем дә юҡ")}</h2>
               <p>{appText("Добавь близкого — он будет знать, что ты в пути.", "Яҡыныңды өҫтә — ул һинең юлда икәнеңде белер.")}</p>
             </div>

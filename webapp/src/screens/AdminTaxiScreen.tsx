@@ -204,7 +204,7 @@ function Applications({ ru }: { ru: boolean }) {
 
       {state === "ready" && apps.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconCar size={40} /></div>
+          <div className="state__icon"><IconCar size={40} /></div>
           <h2>{appText("Пусто", "Буш")}</h2>
           <p>{appText("Заявок в этом разделе нет.", "Был бүлектә заявкалар юҡ.")}</p>
         </div>
@@ -390,7 +390,7 @@ function Cities() {
 
       {state === "ready" && cities.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconCar size={40} /></div>
+          <div className="state__icon"><IconCar size={40} /></div>
           <h2>{appText("Городов пока нет", "Ҡалалар юҡ әле")}</h2>
           <p>{appText("Добавь первый город, где включаешь такси.", "Такси ҡабыҙған беренсе ҡаланы өҫтә.")}</p>
         </div>
