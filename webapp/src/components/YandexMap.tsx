@@ -9,6 +9,7 @@
 // ================================================================
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
+import { IconPin } from "./Icons";
 
 const YMAPS_KEY = (import.meta.env.VITE_YANDEX_MAPS_JS_KEY ?? "").trim();
 
@@ -223,7 +224,7 @@ export default function YandexMap({
       <div className={"map-placeholder" + (className ? ` ${className}` : "")}
         style={{ height: heightStyle }}>
         <div className="map-placeholder__glow" aria-hidden />
-        <div className="map-placeholder__pin" aria-hidden>📍</div>
+        <div className="map-placeholder__pin" aria-hidden><IconPin size={28} /></div>
         <div className="map-placeholder__title">
           {status === "error"
             ? appText("Карта временно недоступна", "Карта ваҡытлыса юҡ") /* DRAFT */

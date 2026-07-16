@@ -15,7 +15,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import YandexMap from "../components/YandexMap";
 import { SubHeader } from "./ConsentsScreen";
 import { StatusPill } from "../components/StatusPill";
-import { IconArrow, IconPhone, IconPin } from "../components/Icons";
+import { IconArrow, IconPhone, IconPin, IconCheck, IconLock } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 
 export default function BookingScreen() {
@@ -115,7 +115,7 @@ export default function BookingScreen() {
                 {d.driver_name}
                 {d.driver_verified && (
                   <span className="badge badge--mint" style={{ marginLeft: 6 }}>
-                    ✓ {appText("Проверен", "Тикшерелгән")}
+                    <IconCheck size={14} /> {appText("Проверен", "Тикшерелгән")}
                   </span>
                 )}
               </span>
@@ -150,7 +150,7 @@ export default function BookingScreen() {
             </div>
           ) : (
             <div className="auth__note" style={{ marginTop: 14 }}>
-              🔒{" "}
+              <IconLock size={15} />{" "}
               {appText(
                 "Телефон и точное место встречи откроются, как только водитель подтвердит поездку.",
                 "Телефон һәм осрашыу урыны водитель сәфәрҙе раҫлағас асыла."

@@ -1,6 +1,6 @@
 import { useLang } from "../i18n/lang";
 import type { Ride } from "../api/rides";
-import { IconArrow } from "./Icons";
+import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly } from "./BrandIcons";
 
 function initials(name: string): string {
@@ -89,7 +89,7 @@ export default function RideCard({ ride, index }: { ride: Ride; index: number })
               {ride.driver_name}
               {ride.driver_verified && (
                 <span className="badge badge--mint" style={{ marginLeft: 6 }}>
-                  ✓ {appText("Проверен", "Тикшерелгән")}
+                  <IconCheck size={14} /> {appText("Проверен", "Тикшерелгән")}
                 </span>
               )}
             </div>

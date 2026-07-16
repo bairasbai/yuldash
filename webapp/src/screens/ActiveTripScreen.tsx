@@ -31,7 +31,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
 import { StatusPill } from "../components/StatusPill";
 import { SubHeader } from "./ConsentsScreen";
-import { IconArrow, IconStar, IconPhone } from "../components/Icons";
+import { IconArrow, IconStar, IconPhone, IconWarn } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 
 export default function ActiveTripScreen() {
@@ -239,7 +239,7 @@ export default function ActiveTripScreen() {
             )
           }
         >
-          🆘 {appText("SOS — помощь", "SOS — ярҙам")}
+          <IconWarn size={16} /> {appText("SOS — помощь", "SOS — ярҙам")}
         </button>
       )}
 

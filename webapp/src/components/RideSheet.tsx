@@ -11,7 +11,7 @@ import { ApiError } from "../api/client";
 import { createBooking } from "../api/bookings";
 import type { Ride } from "../api/rides";
 import { formatWhen, priceLabel } from "../utils/format";
-import { IconArrow } from "./Icons";
+import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 
 export default function RideSheet({
@@ -109,7 +109,7 @@ export default function RideSheet({
                 {ride.driver_name}
                 {ride.driver_verified && (
                   <span className="badge badge--mint" style={{ marginLeft: 6 }}>
-                    ✓ {appText("Проверен", "Тикшерелгән")}
+                    <IconCheck size={14} /> {appText("Проверен", "Тикшерелгән")}
                   </span>
                 )}
               </div>

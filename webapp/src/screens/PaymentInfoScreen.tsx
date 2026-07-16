@@ -83,7 +83,7 @@ export default function PaymentInfoScreen() {
       {/* Безопасность */}
       <div className="pay-way">
         <div className="pay-way__head">
-          <span className="pay-way__emoji">🔒</span>
+          <span className="pay-way__emoji"><IconLock size={22} /></span>
           <div>
             <div className="pay-way__title">
               {appText("Твои данные — под защитой", "Мәғлүмәттәрең — һаҡ аҫтында")}

@@ -16,7 +16,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
 import type { Ride } from "../api/rides";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
-import { IconRequest, IconRides, IconShield, IconGift, IconFilter, IconPin } from "../components/Icons";
+import { IconRequest, IconRides, IconShield, IconGift, IconFilter, IconPin, IconCar } from "../components/Icons";
 import { YuModeTaxi } from "../components/BrandIcons";
 
 type Status = "loading" | "error" | "ready";
@@ -196,7 +196,7 @@ export default function HomeScreen() {
       {status === "ready" &&
         (shownRides.length === 0 ? (
           <div className="state">
-            <div className="state__emoji">🚗</div>
+            <div className="state__emoji"><IconCar size={34} /></div>
             <h2>
               {filterOn && rides.length > 0
                 ? appText("Ничего под фильтры", "Фильтргә тап килмәй")

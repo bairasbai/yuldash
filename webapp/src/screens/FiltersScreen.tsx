@@ -131,7 +131,8 @@ export default function FiltersScreen() {
 
         {saved && (
           <div className="consents__status ok" style={{ marginTop: 16 }}>
-            {appText("Фильтры сохранены ✓", "Фильтрҙар һаҡланды ✓")}
+            <IconCheck size={13} />{" "}
+            {appText("Фильтры сохранены", "Фильтрҙар һаҡланды")}
           </div>
         )}
 
