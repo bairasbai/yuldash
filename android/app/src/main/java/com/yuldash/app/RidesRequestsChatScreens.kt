@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -2386,7 +2387,8 @@ internal fun ChatComposer(
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onVoiceRecorded: (String, Int) -> Unit,
-    onPhotoPicked: (ByteArray) -> Unit = {}
+    onPhotoPicked: (ByteArray) -> Unit = {},
+    onQuickSend: (String) -> Unit = {},   // тап по готовой фразе → отправить сразу (тот же путь, что и обычное сообщение)
 ) {
     val context = LocalContext.current
     val recorder = remember { VoiceRecorder(context) }
@@ -2414,6 +2416,22 @@ internal fun ChatComposer(
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Быстрые ответы: частые фразы в дороге — тап отправляет сразу (без набора).
+    AnimatedVisibility(visible = !recording && !showEmoji) {
+        val quickReplies = listOf(
+            appText("Выезжаю", "Сығам"),
+            appText("Жду у подъезда", "Подъезд янында көтәм"),
+            appText("Опаздываю на 5 минут", "5 минутҡа һуңлайым"),
+            appText("Я на месте", "Урынымда"),
+            appText("Спасибо!", "Рәхмәт!"),
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp),
+        ) {
+            items(quickReplies, key = { it }) { phrase -> QuickReplyChip(phrase) { onQuickSend(phrase) } }
+        }
+    }
     AnimatedVisibility(visible = showEmoji && !recording) {
         EmojiPicker(onPick = { e -> onDraftChange(draft + e) })
     }
@@ -2492,6 +2510,21 @@ internal fun ChatComposer(
             }
         }
     }
+    }
+}
+
+// Чип «быстрого ответа»: готовая фраза, тач-цель ≥48dp, тап отправляет сразу.
+@Composable
+private fun QuickReplyChip(text: String, onClick: () -> Unit) {
+    Surface(
+        color = CanonMint,
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, CanonHairlineGreen),
+        modifier = Modifier.heightIn(min = 48.dp).bounceClick(onClick = onClick),
+    ) {
+        Box(Modifier.fillMaxHeight().padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            Text(text, color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
     }
 }
 

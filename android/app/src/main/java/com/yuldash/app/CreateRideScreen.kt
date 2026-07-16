@@ -109,6 +109,7 @@ import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
@@ -254,6 +255,7 @@ import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 // Диапазон цены поездки (₽): не бесплатно, но и не абсурд. Чистая константа → используется и в
 // хелпере валидации, и в UI-подсказке. Меняется в одном месте.
@@ -302,7 +304,9 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var pickupPointId by remember { mutableStateOf<Int?>(null) }   // F14: id выбранной точки справочника (null = ручной ввод/карта)
     val isBa = LocalAppLanguage.current == AppLanguage.Ba
     var showPicker by remember { mutableStateOf(false) }
-    var priceHint by remember { mutableStateOf(0) }
+    // Подсказка цены + честный расчёт бензина по маршруту (аддитивные поля сервера).
+    var priceHintDto by remember { mutableStateOf<PriceHintDto?>(null) }
+    val priceHint = priceHintDto?.takeIf { it.count > 0 }?.avg ?: 0
     var publishing by remember { mutableStateOf(false) }   // ждём ответ сервера, блок двойного нажатия
     var publishError by remember { mutableStateOf<String?>(null) }
     val publishScope = rememberCoroutineScope()
@@ -311,10 +315,10 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var geoRoutes by remember { mutableStateOf<List<SettlementRouteDto>>(emptyList()) }
     LaunchedEffect(Unit) { ApiClient.getSettlementPopularRoutes().onSuccess { geoRoutes = it } }
     LaunchedEffect(from, to) {
-        priceHint = if (from.isNotBlank() && to.isNotBlank()) {
+        priceHintDto = if (from.isNotBlank() && to.isNotBlank()) {
             delay(450)
-            ApiClient.getPriceHint(from.trim(), to.trim()).getOrNull()?.takeIf { it.count > 0 }?.avg ?: 0
-        } else 0
+            ApiClient.getPriceHint(from.trim(), to.trim()).getOrNull()
+        } else null
     }
     val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
     val defaultCar = appText("Моя машина", "Минең машина")
@@ -334,7 +338,9 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
             baggage = baggage, airConditioner = airConditioner, smoking = smoking,
             onlyTrusted = onlyTrusted, quiet = quiet, waypoints = waypoints,
-            priceHint = priceHint, loading = publishing, error = publishError,
+            priceHint = priceHint,
+            fuelDistanceKm = priceHintDto?.distanceKm, fuelEstimateKop = priceHintDto?.fuelEstimateKop,
+            loading = publishing, error = publishError,
             onFromChange = { from = it }, onToChange = { to = it },
             onSeatsChange = { seats = it.filter(Char::isDigit) },
             onPriceChange = { price = it.filter(Char::isDigit) },
@@ -436,6 +442,8 @@ internal fun CreateRideFormContent(
     smoking: Boolean,
     onlyTrusted: Boolean,
     priceHint: Int,
+    fuelDistanceKm: Float? = null,
+    fuelEstimateKop: Int? = null,
     loading: Boolean,
     error: String?,
     onFromChange: (String) -> Unit,
@@ -601,6 +609,15 @@ internal fun CreateRideFormContent(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (priceHint > 0) {
                     PriceHintChip(price = priceHint) { onUsePriceHint() }
+                }
+                // Честно про бензин: примерная длина маршрута + расход и по-соседски справедливый сплит.
+                val fuelKop = fuelEstimateKop
+                if (fuelKop != null && fuelKop > 0) {
+                    val fuelRub = (fuelKop / 100.0).roundToInt()
+                    val seatsInt = (seats.toIntOrNull() ?: 0).coerceAtLeast(1)
+                    val perPerson = (fuelRub.toDouble() / seatsInt).roundToInt().coerceAtLeast(1)
+                    val km = fuelDistanceKm?.let { it.roundToInt() } ?: 0
+                    FuelHintBlock(km = km, fuelRub = fuelRub, perPerson = perPerson, seats = seatsInt)
                 }
                 Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
             }
@@ -870,6 +887,32 @@ internal fun PriceHintChip(price: Int, onClick: () -> Unit) {
             Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text(appText("Обычно по маршруту ~$price ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$price ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp)
+        }
+    }
+}
+
+/**
+ * Честный бензин по маршруту: примерная длина + оценка топлива (с сервера) + мягкий по-соседски
+ * справедливый сплит «≈ N ₽ с человека». Только информирует — цену водитель ставит сам.
+ * Данные приходят параметрами (сервер), поля отсутствуют → блок не рисуется (гейт выше).
+ */
+@Composable
+internal fun FuelHintBlock(km: Int, fuelRub: Int, perPerson: Int, seats: Int) {
+    Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CanonBorder)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Top) {
+            Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    if (km > 0) appText("≈ $km км · бензин ≈ $fuelRub ₽", "≈ $km км · бензин ≈ $fuelRub ₽")
+                    else appText("Бензин на маршрут ≈ $fuelRub ₽", "Юлға бензин ≈ $fuelRub ₽"),
+                    color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold, lineHeight = 17.sp,
+                )
+                Text(
+                    appText("По-соседски: ≈ $perPerson ₽ с человека, если разделить на $seats.", "Күршеләрсә: бүлешһәгеҙ, ≈ $perPerson ₽ бер кешенән ($seats кешегә)."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                )
+            }
         }
     }
 }

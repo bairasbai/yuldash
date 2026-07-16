@@ -505,7 +505,11 @@ object ApiClient {
             toCity.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
         }
         val path = "/rides/price_hint" + if (params.isEmpty()) "" else "?" + params.joinToString("&")
-        return call("GET", path, null, auth = false).map { PriceHintDto(it.optInt("avg"), it.optInt("count")) }
+        return call("GET", path, null, auth = false).map {
+            val dist = if (it.has("distance_km") && !it.isNull("distance_km")) it.optDouble("distance_km").toFloat() else null
+            val fuel = if (it.has("fuel_estimate_kop") && !it.isNull("fuel_estimate_kop")) it.optInt("fuel_estimate_kop") else null
+            PriceHintDto(it.optInt("avg"), it.optInt("count"), dist, fuel)
+        }
     }
 
     private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
@@ -3451,8 +3455,14 @@ data class InviteDto(val code: String, val usesLeft: Int, val createdAt: String)
 /** Зафиксированное согласие (152-ФЗ): вид + время. */
 data class ConsentDto(val kind: String, val grantedAt: String)
 
-/** Поездка с витрины сервера (бэкенд RideOut: поездка + данные водителя). */
-data class PriceHintDto(val avg: Int, val count: Int)
+/** Ориентир цены по маршруту. distanceKm/fuelEstimateKop приходят от сервера аддитивно
+ *  (могут отсутствовать у старого бэкенда → null, блок «бензин» просто не показываем). */
+data class PriceHintDto(
+    val avg: Int,
+    val count: Int,
+    val distanceKm: Float? = null,
+    val fuelEstimateKop: Int? = null,
+)
 
 /** Страница «Ближайших»: показанные + всего на маршруте (для кнопки «Показать ещё»). */
 data class NearbyPage(val items: List<RideDto>, val total: Int)

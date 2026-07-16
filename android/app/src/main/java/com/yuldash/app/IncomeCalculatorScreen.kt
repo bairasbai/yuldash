@@ -59,6 +59,10 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
     var avgCheck by remember { mutableStateOf(500f) }
     var commissionPct by remember { mutableStateOf(8f) }
     var routes by remember { mutableStateOf(1f) }
+    // Бензин водителя — чтобы доход был честным, а не завышенным (расход реально ест выручку).
+    var kmPerRide by remember { mutableStateOf(40f) }     // средняя длина поездки, км
+    var fuelPer100 by remember { mutableStateOf(8f) }     // расход, л/100 км
+    var fuelPrice by remember { mutableStateOf(55f) }     // цена литра, ₽
 
     // Расчёт (в месяц). Boost — фикс ~70 ₽/подъём; расходы (серверы/налог/платёжка) ~15%.
     val boostPrice = 70.0
@@ -70,6 +74,13 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
     val gross = perRoute * routes.toDouble()                               // выручка со всех маршрутов
     val net = gross * (1.0 - costsPct / 100.0)                             // чистыми автору
     val animatedNet by animateFloatAsState(net.toFloat(), label = "net")
+
+    // Честная экономика водителя (такси-режим): что платят пассажиры − бензин − комиссия сервиса.
+    val fuelPerRide = kmPerRide.toDouble() / 100.0 * fuelPer100.toDouble() * fuelPrice.toDouble()
+    val fuelMonth = fuelPerRide * ridesPerDay.toDouble() * 30 * routes.toDouble()
+    val driverGrossMonth = ridesPerDay.toDouble() * avgCheck.toDouble() * 30 * routes.toDouble()
+    val driverCommissionMonth = driverGrossMonth * (commissionPct.toDouble() / 100.0)
+    val driverNetMonth = (driverGrossMonth - fuelMonth - driverCommissionMonth).coerceAtLeast(0.0)
 
     Scaffold(
         containerColor = CanonBg,
@@ -126,6 +137,31 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                         if (taxiOn) {
                             CalcSlider(appText("Средний чек места, ₽", "Урын уртаса хаҡы, ₽"), avgCheck, 200f..1500f, "${avgCheck.roundToInt()} ₽") { avgCheck = it }
                             CalcSlider(appText("Комиссия, %", "Комиссия, %"), commissionPct, 0f..10f, "${commissionPct.roundToInt()} %") { commissionPct = it }
+                            // Бензин — вычитаем честно, иначе доход водителя завышен.
+                            CalcSlider(appText("Длина поездки, км", "Сәфәр оҙонлоғо, км"), kmPerRide, 5f..300f, "${kmPerRide.roundToInt()} км") { kmPerRide = it }
+                            CalcSlider(appText("Расход бензина, л/100 км", "Бензин сарыфы, л/100 км"), fuelPer100, 4f..15f, "${fuelPer100.roundToInt()} л") { fuelPer100 = it }
+                            CalcSlider(appText("Цена бензина, ₽/л", "Бензин хаҡы, ₽/л"), fuelPrice, 40f..80f, "${fuelPrice.roundToInt()} ₽") { fuelPrice = it }
+                            // «Чистыми после бензина» рядом с валовым — прозрачно, что именно вычли.
+                            Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(appText("Сколько остаётся водителю", "Водителгә күпме ҡала"), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(appText("Валовый (что платят)", "Ялпы (нимә түләйҙәр)"), color = CanonMuted, fontSize = 12.sp)
+                                            Text(rub(driverGrossMonth), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                        }
+                                        Column(Modifier.weight(1f)) {
+                                            Text(appText("Чистыми после бензина", "Бензиндан һуң таҙа"), color = CanonMuted, fontSize = 12.sp)
+                                            Text(rub(driverNetMonth), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                                        }
+                                    }
+                                    Text(
+                                        appText("Из валового вычли: бензин ${rub(fuelMonth)} + комиссия ${commissionPct.roundToInt()}% (${rub(driverCommissionMonth)}).",
+                                                "Ялпынан алдыҡ: бензин ${rub(fuelMonth)} + комиссия ${commissionPct.roundToInt()}% (${rub(driverCommissionMonth)})."),
+                                        color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                                    )
+                                }
+                            }
                         } else {
                             Text(appText("Попутка бесплатна для людей — доход только с бизнеса. Такси добавляет комиссию.",
                                          "Юлдаш кешеләргә бушлай — килем тик бизнестан. Такси комиссия өҫтәй."),

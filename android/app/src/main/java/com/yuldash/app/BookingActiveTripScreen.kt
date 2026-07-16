@@ -1581,7 +1581,8 @@ internal fun ActiveTripScreen(
                                 }
                                 .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
                         }
-                    }
+                    },
+                    onQuickSend = { phrase -> sendText(phrase) }   // готовая фраза — тот же надёжный путь (WS→REST)
                 )
             }
             // F12 «Застрял на трассе» — уровень мягче паники SOS: зовём своих на помощь в дороге.

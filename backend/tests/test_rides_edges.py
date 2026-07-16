@@ -112,7 +112,11 @@ def test_rides_cache_hit_still_applies_user_block_filter(client, user_factory, m
 
 
 def test_price_hint_empty_route_returns_zero(client):
-    assert client.get("/rides/price_hint", params={"from_city": "NoSuchFrom", "to_city": "NoSuchTo"}).json() == {"avg": 0, "count": 0}
+    # Неизвестные города → без цен и без координат: старые поля нулевые,
+    # новые (distance_km / fuel_estimate_kop) = null (без краша).
+    assert client.get("/rides/price_hint", params={"from_city": "NoSuchFrom", "to_city": "NoSuchTo"}).json() == {
+        "avg": 0, "count": 0, "distance_km": None, "fuel_estimate_kop": None,
+    }
 
 
 def test_ride_quiet_amenity_flows_through(client, user_factory):

@@ -55,7 +55,33 @@ def test_price_hint(client, user_factory):
     drv = user_factory("PHDrv", role=UserRole.driver)
     _publish(client, drv, frm="Зилаир", to="Уфа", price=900)
     body = client.get("/rides/price_hint", params={"from_city": "Зилаир", "to_city": "Уфа"}).json()
+    # Обратная совместимость: старые поля на месте.
     assert body["count"] >= 1 and body["avg"] > 0
+
+
+def test_price_hint_fuel_estimate_known_cities(client):
+    """Справедливая цена: для известных городов (справочник БашРТ) считаются
+    distance_km и fuel_estimate_kop = км × расход × цена бензина."""
+    from app.config import settings
+    from app.services import geocode_city, haversine_km
+
+    body = client.get("/rides/price_hint", params={"from_city": "Уфа", "to_city": "Сибай"}).json()
+    assert body["distance_km"] is not None and body["distance_km"] > 0
+    assert body["fuel_estimate_kop"] is not None and body["fuel_estimate_kop"] > 0
+
+    # Сверяем с формулой контракта напрямую.
+    f, t = geocode_city("Уфа"), geocode_city("Сибай")
+    dist = round(haversine_km(f[0], f[1], t[0], t[1]), 1)
+    expected_kop = round(dist * (settings.fuel_consumption_l_per_100km / 100.0) * settings.fuel_price_rub_per_liter * 100)
+    assert body["distance_km"] == dist
+    assert body["fuel_estimate_kop"] == expected_kop
+
+
+def test_price_hint_fuel_null_unknown_city(client):
+    """Нет координат хотя бы одного конца → distance_km / fuel_estimate_kop = null (без краша)."""
+    body = client.get("/rides/price_hint", params={"from_city": "Уфа", "to_city": "ГородКоторогоНет"}).json()
+    assert body["distance_km"] is None
+    assert body["fuel_estimate_kop"] is None
 
 
 def test_rides_near_distance(client, user_factory):

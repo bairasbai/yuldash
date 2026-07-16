@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlmodel import Session, select
 
+from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..logs import log
@@ -252,22 +253,51 @@ def search_rides(
     return _hide_trusted_only(out, user, session)
 
 
+def _route_distance_km(from_city: Optional[str], to_city: Optional[str]) -> Optional[float]:
+    """Расстояние между городами маршрута по прямой (haversine), км. Координаты берём
+    из геокодера (известные города БашРТ — бесплатно, иначе Яндекс). Нет координат
+    хотя бы одного конца → None (не завышаем, честно «не знаем»)."""
+    if not from_city or not to_city:
+        return None
+    f = geocode_city(from_city)
+    t = geocode_city(to_city)
+    if not f or not t:
+        return None
+    return round(haversine_km(f[0], f[1], t[0], t[1]), 1)
+
+
 @router.get("/rides/price_hint")
 def price_hint(
     from_city: Optional[str] = None,
     to_city: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
-    """Ориентир цены по маршруту: средняя цена поездок (price>0). Подсказка водителю, не навязываем."""
+    """Ориентир цены по маршруту: средняя цена прошлых поездок (price>0) + честная оценка
+    бензина на весь маршрут по километражу. Подсказка водителю, не навязываем.
+
+    Поля distance_km / fuel_estimate_kop = null, если координаты городов неизвестны
+    (без краша) — коэффициенты бензина в config, уточнит Александр."""
     q = select(Ride.price).where(Ride.price > 0)
     if from_city:
         q = q.where(Ride.from_city.contains(from_city))
     if to_city:
         q = q.where(Ride.to_city.contains(to_city))
     prices = [p for p in session.exec(q).all() if p and p > 0]
-    if not prices:
-        return {"avg": 0, "count": 0}
-    return {"avg": round(sum(prices) / len(prices)), "count": len(prices)}
+
+    # Бензин на весь маршрут: км × (расход/100) × цена_литра → ₽ → копейки.
+    distance_km = _route_distance_km(from_city, to_city)
+    fuel_estimate_kop = None
+    if distance_km is not None:
+        fuel_rub = distance_km * (settings.fuel_consumption_l_per_100km / 100.0) * settings.fuel_price_rub_per_liter
+        fuel_estimate_kop = round(fuel_rub * 100)
+
+    avg = round(sum(prices) / len(prices)) if prices else 0
+    return {
+        "avg": avg,
+        "count": len(prices),
+        "distance_km": distance_km,
+        "fuel_estimate_kop": fuel_estimate_kop,
+    }
 
 
 @router.get("/rides/near")

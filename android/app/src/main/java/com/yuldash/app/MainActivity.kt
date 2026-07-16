@@ -349,6 +349,7 @@ internal enum class Screen {
     Privacy,
     Rules,
     PaymentInfo,
+    PricingInfo,   // «Честно о цене»: как считается цена попутки/такси и куда идёт комиссия
     Blocklist,
     Report,
     Filters,

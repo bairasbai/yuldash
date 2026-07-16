@@ -944,7 +944,7 @@ internal fun RulesScreen(onBack: () -> Unit) {
 
 /** Как оплачивать поездки — статический экран (сейчас СБП напрямую, ЮКасса позже). */
 @Composable
-internal fun PaymentInfoScreen(onBack: () -> Unit) {
+internal fun PaymentInfoScreen(onBack: () -> Unit, onOpenPricing: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Оплата поездок", "Сәфәр түләүе"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -993,8 +993,153 @@ internal fun PaymentInfoScreen(onBack: () -> Unit) {
                 }
             }
             item {
+                // Вход в подробную страницу «Честно о цене» (формула, комиссия, куда идёт).
+                Surface(
+                    color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder),
+                    modifier = Modifier.fillMaxWidth().bounceClick(onClick = onOpenPricing)
+                ) {
+                    Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(26.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(appText("Честно о цене", "Хаҡ тураһында асыҡтан-асыҡ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                            Text(appText("Как считается цена и куда идёт комиссия", "Хаҡ нисек иҫәпләнә һәм комиссия ҡайҙа китә"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                        }
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
+                    }
+                }
+            }
+            item {
                 Text(appText("Скоро: оплата картой прямо в приложении.", "Тиҙҙән: ҡушымтала карта менән түләү."), color = CanonMuted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
             }
+        }
+    }
+}
+
+/**
+ * «Честно о цене» — по-соседски и с гордостью объясняем, за что платят и куда идёт комиссия.
+ * Никаких выдуманных цифр: попутка бесплатна (только бензин напрямую), у такси честный потолок
+ * суржа ×1.5 (не ×3), комиссия водителя 3–8% по стажу — и открыто, на что она уходит.
+ */
+@Composable
+internal fun PricingInfoScreen(onBack: () -> Unit) {
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Честно о цене", "Хаҡ тураһында"), onBack) }) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item {
+                Surface(color = CanonMint, shape = CanonItemShape) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(appText("Мы не прячем, на что живём", "Нимә менән йәшәгәнде йәшермәйбеҙ"), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp, lineHeight = 22.sp)
+                        Text(appText("Юлдаш — между своими. Здесь ты всегда видишь, из чего цена и куда уходит каждая копейка.", "Юлдаш — үҙ кешеләр араһында. Бында хаҡтың нимәнән торғанын һәм һәр тин ҡайҙа киткәнен күрәһең."), color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                    }
+                }
+            }
+            // (а) Попутка
+            item {
+                PricingBlock(
+                    icon = Icons.Default.VolunteerActivism,
+                    title = appText("Попутка — бесплатна", "Юлдаш — бушлай"),
+                    body = appText(
+                        "За саму поездку между своими Юлдаш не берёт ничего. Ты просто скидываешься водителю на бензин напрямую — по-соседски. Сумму видно заранее и можно честно поделить на всех.",
+                        "Үҙ кешеләр араһындағы сәфәр өсөн Юлдаш бер нәмә лә алмай. Һин бензинға тура водителгә өҫтәйһең — күршеләрсә. Сумма алдан күренә, бөтәһенә лә намыҫлы бүленә.",
+                    ),
+                )
+            }
+            // (б) Такси — формула тарифа + честный сурж
+            item {
+                PricingBlock(
+                    icon = Icons.Default.LocalTaxi,
+                    accent = CanonTaxi,
+                    title = appText("Такси — понятный тариф", "Такси — асыҡ тариф"),
+                    body = appText(
+                        "Цену показываем ДО заказа, без сюрпризов. Она складывается из подачи + за километры + за минуты в пути, и есть минимальная стоимость короткой поездки. Никакого счётчика, который «набегает» незаметно.",
+                        "Хаҡты заказға тиклем күрһәтәбеҙ, сюрприздарһыҙ. Ул килеү + километрҙар + юлдағы минуттар өсөн, һәм ҡыҫҡа сәфәрҙең минималь хаҡы бар. Һиҙҙермәй «үҫкән» счётчик юҡ.",
+                    ),
+                )
+            }
+            item {
+                Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
+                        Text("⚡", fontSize = 22.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Честный сурж: максимум ×1.5", "Намыҫлы сурж: күп тигәндә ×1.5"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Text(
+                                appText(
+                                    "Когда машин мало, цена может подрасти — но у нас потолок ×1.5, а не ×3, как у больших сервисов. И мы честно пишем, почему дороже, ещё до того, как ты вызовешь.",
+                                    "Машина аҙ булғанда хаҡ бер аҙ үҫә ала — тик бездә түшәм ×1.5, ҙур сервистарҙағыса ×3 түгел. Һәм ниңә ҡиммәтерәк икәнен саҡырғанға тиклем үк яҙабыҙ.",
+                                ),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                            )
+                        }
+                    }
+                }
+            }
+            // (в) Комиссия водителя + куда идёт
+            item {
+                PricingBlock(
+                    icon = Icons.Default.Verified,
+                    title = appText("Комиссия водителя — 3–8%", "Водитель комиссияһы — 3–8%"),
+                    body = appText(
+                        "С поездок такси Юлдаш берёт небольшую комиссию с водителя — от 3% до 8% в зависимости от стажа: чем дольше и надёжнее возишь, тем меньше платишь. У попутки комиссии нет вовсе.",
+                        "Такси сәфәрҙәренән Юлдаш водителдән бәләкәй комиссия ала — стажға ҡарап 3%-тан 8%-ҡа тиклем: оҙағыраҡ һәм ышаныслыраҡ йөрөтһәң, шунса аҙ түләйһең. Юлдашта комиссия бөтөнләй юҡ.",
+                    ),
+                )
+            }
+            item {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(appText("Куда идёт комиссия", "Комиссия ҡайҙа китә"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                        PricingWhereRow(Icons.Default.Info, appText("Серверы и связь", "Серверҙар һәм бәйләнеш"), appText("чтобы карта, чат и заказы работали без сбоев", "карта, чат һәм заказдар өҙлөкһөҙ эшләһен"))
+                        PricingWhereRow(Icons.Default.Map, appText("Карты и маршруты", "Карталар һәм маршруттар"), appText("оплата картографии, по которой строятся поездки", "сәфәрҙәр төҙөлгән картография түләүе"))
+                        PricingWhereRow(Icons.Default.TrendingUp, appText("Развитие приложения", "Ҡушымтаны үҫтереү"), appText("новые функции и поддержка — чтобы Юлдаш рос", "яңы мөмкинлектәр һәм ярҙам — Юлдаш үҫһен өсөн"))
+                        Text(appText("Мы не прячем, на что живём — сервис должен окупаться честно, без скрытых наценок.", "Нимә менән йәшәгәнде йәшермәйбеҙ — сервис йәшерен өҫтәмәләрһеҙ, намыҫлы аҡланырға тейеш."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                    }
+                }
+            }
+            // (г) Оплата
+            item {
+                PricingBlock(
+                    icon = Icons.Default.CreditCard,
+                    title = appText("Оплата — пока напрямую по СБП", "Түләү — әлегә СБП аша тура"),
+                    body = appText(
+                        "Сейчас деньги идут напрямую водителю переводом по СБП — «на доверии», как между своими. Юлдаш их не держит. Скоро добавим оплату картой прямо в приложении.",
+                        "Хәҙер аҡса водителгә СБП аша тура күсә — «ышаныс менән», үҙ-ара кеүек. Юлдаш уны тотмай. Тиҙҙән ҡушымтала карта менән түләү өҫтәйбеҙ.",
+                    ),
+                )
+            }
+            item {
+                Text(appText("Цифры могут меняться — но правило одно: ты всегда видишь, за что платишь.", "Һандар үҙгәрергә мөмкин — тик ҡағиҙә бер: нимә өсөн түләгәнеңде һәр ваҡыт күрәһең."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 4.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PricingBlock(icon: ImageVector, title: String, body: String, accent: Color? = null) {
+    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.Top) {
+            Icon(icon, contentDescription = null, tint = accent ?: CanonGreen2, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PricingWhereRow(icon: ImageVector, title: String, sub: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(sub, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
         }
     }
 }

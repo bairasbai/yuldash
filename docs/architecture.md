@@ -3,6 +3,13 @@
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
 > ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
 
+## 💡 Волна В: честность и прозрачность (2026-07-16, только `android/`)
+
+- **Бензин при создании поездки** (`CreateRideScreen.kt`): `PriceHintDto` (`data/ApiClient.kt`) получил аддитивные `distanceKm: Float?`, `fuelEstimateKop: Int?` (парс `distance_km`/`fuel_estimate_kop`, дефолт null). Экран хранит `priceHintDto` (не голый `Int`), под ценой рисует `FuelHintBlock` (≈км · бензин ≈₽ + по-соседски сплит `fuel/seats ₽/чел`). Null → блок скрыт, без краша.
+- **Топливо в калькуляторе дохода** (`IncomeCalculatorScreen.kt`): в такси-блоке — ползунки км/поездку, л/100км, ₽/л (8×55 дефолт) + карточка «Сколько остаётся водителю» (валовый vs «Чистыми после бензина», подпись что вычли). Расчёт на клиенте.
+- **Быстрые ответы в чате**: `ChatComposer` (`RidesRequestsChatScreens.kt`) получил параметр `onQuickSend`; над полем ввода — `LazyRow` из `QuickReplyChip` (5 готовых фраз, тач-цель ≥48dp). `BookingActiveTripScreen.kt` (ActiveTrip) прокидывает `onQuickSend = { sendText(it) }` — тот же надёжный путь WS→REST.
+- **Экран «Честно о цене»**: новый `Screen.PricingInfo` → `PricingInfoScreen` (`SecondaryScreens.kt`, хелперы `PricingBlock`/`PricingWhereRow`). Объясняет: попутка бесплатна (бензин напрямую), тариф такси, сурж-потолок ×1.5, комиссия водителя 3–8% + куда идёт, оплата СБП «на доверии». Вход — карточка «Честно о цене» в `PaymentInfoScreen` (`onOpenPricing`, ветка в `YuldashApp.kt`). Цифры — реальные (без выдуманных), стиль сверен с сурж-плашкой `InstantOrderScreen`.
+
 ## 🔌 Волна А: подключены готовые бэкенд-фичи к UI (2026-07-16)
 
 Клиент начал вызывать эндпоинты, которые уже были на бэке, но UI их не дёргал. Правки только `android/`, зона данных + точечный UI.
@@ -152,7 +159,7 @@
 - **Текстовый отзыв** — карточка оценки в `BookingActiveTripScreen` (при `bookingStatus==done`): звёзды уходят сразу, опц. поле отзыва (≤500) → `ApiClient.rateBooking(id, stars, text)`. Текст идёт на модерацию (в профиле появляется только после одобрения).
 - **Бэкенд:** `Rating.text` + `Rating.text_published` (модель + alembic `0005_rating_text_review`, идемпотентная). `family.py::rate_booking` принимает `text`; смена текста → снова на модерацию. `drivers.py::GET /drivers/{id}/public` (без auth, без телефона): агрегаты (done-брони по поездкам водителя, средний рейтинг, стаж в днях) + последние N отзывов с `text_published=True`. Модерация текста — `reviews.py`: `GET /admin/ratings/pending`, `POST /admin/ratings/{id}/publish` (паттерн 1-в-1 как у `AppReview`). Тесты — `tests/test_reviews_driver_profile.py`.
 
-**enum `Screen`** пополнен: Rules, PaymentInfo, Blocklist, Report, Filters, AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, RequestsFeed, RequestResponses, **DriverProfile** — каждый ветка в `when(screen)` (`YuldashApp.kt`).
+**enum `Screen`** пополнен: Rules, PaymentInfo, **PricingInfo** («Честно о цене»), Blocklist, Report, Filters, AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, RequestsFeed, RequestResponses, **DriverProfile** — каждый ветка в `when(screen)` (`YuldashApp.kt`).
 
 - **Application:** `android/app/src/main/java/com/yuldash/app/YuldashApplication.kt` — отдаёт ключ Яндекс MapKit (`MapKitFactory.setApiKey`) при старте. Прописан в манифесте как `android:name=".YuldashApplication"`.
 - **Ключ карты:** `local.properties` → `YANDEX_MAPKIT_KEY` (в `.gitignore`) → пробрасывается в `BuildConfig.YANDEX_MAPKIT_KEY` через `app/build.gradle.kts` (`buildConfig = true`). В коде ключ не хардкодим.
