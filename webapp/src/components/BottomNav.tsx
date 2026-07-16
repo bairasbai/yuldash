@@ -2,12 +2,12 @@ import { NavLink } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import type { DictKey } from "../i18n/dict";
 import {
-  IconChat,
-  IconMap,
-  IconProfile,
-  IconRequest,
-  IconRides,
-} from "./Icons";
+  YuChat,
+  YuMapTab,
+  YuProfile,
+  YuRequestAdd,
+  YuTripList,
+} from "./BrandIcons";
 
 type Tab = {
   to: string;
@@ -15,13 +15,14 @@ type Tab = {
   Icon: (p: { size?: number }) => JSX.Element;
 };
 
+// Иконки — брендовый набор из Android (res/drawable/yu_*.xml), 1:1 с приложением.
 // Порядок 1:1 как в приложении: Карта · Поездки · Заявка · Чат · Профиль
 const tabs: Tab[] = [
-  { to: "/map", key: "navMap", Icon: IconMap },
-  { to: "/rides", key: "navRides", Icon: IconRides },
-  { to: "/request", key: "navRequest", Icon: IconRequest },
-  { to: "/chat", key: "navChat", Icon: IconChat },
-  { to: "/profile", key: "navProfile", Icon: IconProfile },
+  { to: "/map", key: "navMap", Icon: YuMapTab },
+  { to: "/rides", key: "navRides", Icon: YuTripList },
+  { to: "/request", key: "navRequest", Icon: YuRequestAdd },
+  { to: "/chat", key: "navChat", Icon: YuChat },
+  { to: "/profile", key: "navProfile", Icon: YuProfile },
 ];
 
 export default function BottomNav() {

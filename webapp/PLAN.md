@@ -542,3 +542,56 @@ API-слой — расширен `src/api/admin.ts` (partners/promo/parcels/cou
 - CORS: добавить `app.yulbash.ru` в `CORS_ORIGINS` на бэке.
 - VAPID-ключи для веб-пушей.
 - Поддомен `app.yulbash.ru` (DNS + nginx).
+
+---
+
+## Паритет дизайна — D0 (токены + иконки)
+
+Цель: чтобы веб выглядел как Android-приложение. Источник правды (только чтение) —
+`android/app/src/main/java/com/yuldash/app/CanonTokens.kt`, `UiKit.kt`, `ui/theme/Theme.kt`,
+`res/drawable/yu_*.xml`.
+
+### Сделано
+- **Токены Canon* 1:1 с андроидом** (`src/index.css`). Выверены/добавлены hex светлой и тёмной темы:
+  - Исправлено: `--bg` (dark) `#0e1512 → #0f1613` (CanonBg); `--border` `0.1/0.14 → 0.122/0.141`
+    (CanonBorder `0x1F` чёрного / `0x24` белого).
+  - `--canon-gold` стал адаптивным: light `#f5b301`, dark `#e8c36b` (CanonGold).
+  - Добавлены недостающие Canon-цвета (свет/тьма): `--muted-strong` `#4c534b`/`#c2cbc3`,
+    `--green2` `#0b6b3a`/`#27a463`, `--gold-ink` `#0b3d20`, `--taxi` `#e8a200`/`#f2c14e`,
+    `--taxi-bg` `#ffefc2`/`#3a2e12`, `--taxi-ink` `#3a2a00`, `--pooling` `#0b6b3a`/`#27a463`,
+    `--pooling-bg` `#e7f5ec`/`#0f2419`, `--woman` `#8e3b6b`/`#e39bc4`,
+    `--woman-bg` `#f7e9f1`/`#2e1a27`, `--danger-border`, `--hairline-green`.
+  - Уже совпадали: bg light, surface, text, muted, mint, green, green-btn, warn*, danger*,
+    star, header-gradient — не трогал.
+- **Радиусы = андроид** (`CanonCardShape 28dp`, `CanonItemShape 22dp`). `--radius-card:28px`,
+  `--radius-item:22px` уже были; применил `--radius-card` к шапке (`.screen-header`) и
+  нижней шторке (`.sheet`) вместо хардкода `26px`. **Кнопки оставлены на `16px`** — это точное
+  значение `AppButton` в `UiKit.kt` (`RoundedCornerShape(16.dp)`), а не 22px.
+- **Порт брендовых иконок** → `src/components/BrandIcons.tsx`. Портированы ВСЕ 27 `yu_*.xml`
+  1:1 (viewBox `0 0 48 48`, `currentColor`, strokeWidth 2.2 / 2.4 у маршрута):
+  YuMapTab, YuTripList, YuRequestAdd, YuChat, YuProfile, YuModeRideshare/Taxi/Courier/Parcel,
+  YuStar, YuRoute, YuSafeTrip, YuSupport, YuSun, YuMoon, YuAc, YuChildSeat, YuLuggage, YuPet,
+  YuSmokeFree, YuWomenOnly, YuQuiet, YuMultiStop, YuCourierWalk, YuAccessible, YuService, YuMapCar.
+- **Нижняя навигация** (`BottomNav.tsx`) переведена на брендовые иконки:
+  Карта→YuMapTab, Поездки→YuTripList, Заявка→YuRequestAdd, Чат→YuChat, Профиль→YuProfile.
+- **Hero-картинки** скопированы в `public/`: `yuldash_logo.png`, `login_car_hero_square.png`,
+  `onboarding_bashkir_hero.png`, `login_salavat_yulaev_hero.png`.
+  Два тяжёлых (>2 МБ) исключены из PWA-precache через `workbox.globIgnores` (грузятся по требованию).
+- `npm run build` — **зелёный**.
+
+### Осталось (пер-экранные проходы)
+- **Заменить эмодзи/самодельные SVG на брендовые** в экранах (BrandIcons уже готов):
+  - переключатель режимов (seg/ModeSwitch) в `CreateRideScreen`, `CreateRequestScreen`,
+    `InstantOrderScreen` → YuModeRideshare/Taxi/Courier/Parcel;
+  - удобства поездки (opt-chip) в `CreateRideScreen`, `FiltersScreen`, `RideSheet` →
+    YuAc/YuChildSeat/YuLuggage/YuPet/YuSmokeFree/YuWomenOnly/YuQuiet;
+  - тема (Настройки) → YuSun/YuMoon; поддержка → YuSupport; безопасная поездка → YuSafeTrip;
+    маршрут → YuRoute; звёзды рейтинга → YuStar (сейчас `IconStar`, визуально эквивалентен);
+  - простой режим (`SimpleModeScreen`) — заменить 🚗📌🎤💚📞 на yu_* где есть.
+- **Подставить hero-PNG** в `IntroScreen` / `OnboardingScreen` / `LoginScreen` / `SplashScreen`
+  вместо самодельных градиентов-заглушек.
+- Использовать новые токены (`--taxi*`, `--pooling*`, `--woman*`, `--muted-strong`,
+  `--hairline-green`) в соответствующих экранах вместо частичных хардкодов.
+- Ландшафт `src/theme.ts` (nav bar цвет и т.п.) — при желании довести до Theme.kt.
+- Оптимизировать вес hero-PNG (сейчас 2.2–2.3 МБ) — нет инструмента в этой среде; сделать при
+  наличии sharp/imagemagick или заранее ужать исходники.

@@ -3,35 +3,47 @@
    Светлая/тёмная тема через prefers-color-scheme.
    ================================================================ */
 :root {
-  /* Бренд (фиксированные) */
-  --canon-green-deep: #0b6b3a;
-  --canon-green-bright: #2fb36e;
-  --canon-green-glow: #7fe3ab;
-  --canon-gold: #f5b301;
-  --canon-gold-soft: #ffe3a1;
-  --canon-star: #e7a921;
+  /* Бренд (фиксированные, совпадают с CanonTokens.kt) */
+  --canon-green-deep: #0b6b3a; /* CanonGreenInk */
+  --canon-green-bright: #2fb36e; /* акцент активных состояний (веб) */
+  --canon-green-glow: #7fe3ab; /* CanonGreen (dark) */
+  --canon-gold: #f5b301; /* CanonGold light (dark override ниже) */
+  --canon-gold-soft: #ffe3a1; /* CanonYellow light */
+  --canon-star: #e7a921; /* CanonStar (обе темы) */
+  --gold-ink: #0b3d20; /* CanonGoldInk (текст на золоте) */
+  --taxi-ink: #3a2a00; /* CanonTaxiInk (текст на жёлтом такси) */
 
-  /* Адаптивные — светлая тема (по умолчанию) */
-  --bg: #fafaf6;
-  --surface: #ffffff;
+  /* Адаптивные — светлая тема (по умолчанию), hex = CanonTokens.kt */
+  --bg: #fafaf6; /* CanonBg */
+  --surface: #ffffff; /* CanonSurface */
   --surface-2: #f2f4f0;
-  --text: #0b1f14;
-  --muted: #686f66;
-  --border: rgba(0, 0, 0, 0.1);
-  --mint: #e7f5ec;
-  --green: #073f25; /* акцентный текст-зелёный */
+  --text: #0b1f14; /* CanonText */
+  --muted: #686f66; /* CanonMuted */
+  --muted-strong: #4c534b; /* CanonMutedStrong */
+  --border: rgba(0, 0, 0, 0.122); /* CanonBorder 0x1F чёрного */
+  --mint: #e7f5ec; /* CanonMint */
+  --green: #073f25; /* CanonGreen — акцентный текст-зелёный */
+  --green2: #0b6b3a; /* CanonGreen2 */
   --green-btn: #0b6b3a; /* заливка кнопки (белый текст ≥3:1) */
-  --warn-bg: #fff2d6;
-  --warn: #9a6200;
-  --danger-bg: #fdecea;
-  --danger: #cc2a20;
+  --warn-bg: #fff2d6; /* CanonWarnBg */
+  --warn: #9a6200; /* CanonWarn */
+  --danger-bg: #fdecea; /* CanonDangerBg */
+  --danger: #cc2a20; /* CanonRed */
+  --danger-border: rgba(217, 48, 37, 0.2); /* CanonDangerBorder 0x33D93025 */
+  --hairline-green: rgba(11, 107, 58, 0.102); /* CanonHairlineGreen */
+  --taxi: #e8a200; /* CanonTaxi */
+  --taxi-bg: #ffefc2; /* CanonTaxiBg */
+  --pooling: #0b6b3a; /* CanonPooling */
+  --pooling-bg: #e7f5ec; /* CanonPoolingBg */
+  --woman: #8e3b6b; /* CanonWoman */
+  --woman-bg: #f7e9f1; /* CanonWomanBg */
   --nav-bg: rgba(255, 255, 255, 0.82);
   --skeleton: #eceee9;
   --skeleton-shine: rgba(255, 255, 255, 0.6);
 
   /* Шапка-градиент (фиксированный тёмно-зелёный, белый текст) */
-  --header-top: #0b6b3a;
-  --header-bottom: #073f25;
+  --header-top: #0b6b3a; /* CanonGreenInk */
+  --header-bottom: #073f25; /* CanonGreenInkDark */
 
   --radius-card: 28px;
   --radius-item: 22px;
@@ -47,19 +59,30 @@
    даже под тёмной системой. Точка правды переключения — src/theme.ts. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #0e1512;
+    --canon-gold: #e8c36b; /* CanonGold dark */
+    --bg: #0f1613; /* CanonBg dark */
     --surface: #192420;
     --surface-2: #101a16;
     --text: #eaf2ec;
     --muted: #9ba49d;
-    --border: rgba(255, 255, 255, 0.14);
+    --muted-strong: #c2cbc3;
+    --border: rgba(255, 255, 255, 0.141); /* CanonBorder 0x24 белого */
     --mint: #0f2419;
     --green: #7fe3ab;
+    --green2: #27a463;
     --green-btn: #27a463;
     --warn-bg: #3a2e12;
     --warn: #e8b86a;
     --danger-bg: #3a1b18;
     --danger: #f25a4d;
+    --danger-border: rgba(242, 90, 77, 0.33);
+    --hairline-green: rgba(127, 227, 171, 0.18);
+    --taxi: #f2c14e;
+    --taxi-bg: #3a2e12;
+    --pooling: #27a463;
+    --pooling-bg: #0f2419;
+    --woman: #e39bc4;
+    --woman-bg: #2e1a27;
     --nav-bg: rgba(16, 26, 22, 0.86);
     --skeleton: #212d28;
     --skeleton-shine: rgba(255, 255, 255, 0.06);
@@ -67,19 +90,30 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0e1512;
+  --canon-gold: #e8c36b; /* CanonGold dark */
+  --bg: #0f1613; /* CanonBg dark */
   --surface: #192420;
   --surface-2: #101a16;
   --text: #eaf2ec;
   --muted: #9ba49d;
-  --border: rgba(255, 255, 255, 0.14);
+  --muted-strong: #c2cbc3;
+  --border: rgba(255, 255, 255, 0.141); /* CanonBorder 0x24 белого */
   --mint: #0f2419;
   --green: #7fe3ab;
+  --green2: #27a463;
   --green-btn: #27a463;
   --warn-bg: #3a2e12;
   --warn: #e8b86a;
   --danger-bg: #3a1b18;
   --danger: #f25a4d;
+  --danger-border: rgba(242, 90, 77, 0.33);
+  --hairline-green: rgba(127, 227, 171, 0.18);
+  --taxi: #f2c14e;
+  --taxi-bg: #3a2e12;
+  --pooling: #27a463;
+  --pooling-bg: #0f2419;
+  --woman: #e39bc4;
+  --woman-bg: #2e1a27;
   --nav-bg: rgba(16, 26, 22, 0.86);
   --skeleton: #212d28;
   --skeleton-shine: rgba(255, 255, 255, 0.06);

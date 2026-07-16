@@ -27,7 +27,7 @@
   padding: calc(env(safe-area-inset-top) + 16px) 16px 16px;
   background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
   color: #fff;
-  border-radius: 0 0 26px 26px;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
   box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.6);
 }
 .screen-header__row {
@@ -1414,7 +1414,7 @@ button.list-row:active {
   width: 100%;
   max-width: 640px;
   background: var(--surface);
-  border-radius: 26px 26px 0 0;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
   padding: 12px 18px calc(20px + env(safe-area-inset-bottom));
   box-shadow: 0 -20px 60px -20px rgba(0, 0, 0, 0.5);
   animation: sheetUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;

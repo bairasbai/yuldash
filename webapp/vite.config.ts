@@ -13,6 +13,12 @@ export default defineConfig({
       manifest: false, // используем свой public/manifest.webmanifest
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        // Тяжёлые hero-картинки (> 2 МБ) не кладём в precache app-shell —
+        // это экранные ассеты (онбординг/логин), грузятся по требованию.
+        globIgnores: [
+          "**/onboarding_bashkir_hero.png",
+          "**/login_salavat_yulaev_hero.png",
+        ],
         navigateFallback: "/index.html",
         // Подключаем наш обработчик Web Push (push / notificationclick) к
         // сгенерированному Workbox SW. autoUpdate и кеш остаются как есть —
