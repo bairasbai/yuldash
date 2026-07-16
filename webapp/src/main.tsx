@@ -6,10 +6,12 @@ import App from "./App";
 import { LangProvider } from "./i18n/lang";
 import { AuthProvider } from "./auth/AuthProvider";
 import { applyFontScale } from "./fontScale";
+import { applyTheme } from "./theme";
 import "./index.css";
 import "./ui.css";
 
-// Крупный шрифт (доступность) — применяем ДО первого кадра, чтобы не мигало.
+// Тема и крупный шрифт — применяем ДО первого кадра, чтобы не мигало.
+applyTheme();
 applyFontScale();
 
 // Service worker: автообновление (registerType: autoUpdate в vite.config.ts).

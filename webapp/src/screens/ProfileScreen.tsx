@@ -24,6 +24,7 @@ import {
   IconWallet,
   IconReceipt,
   IconPhone,
+  IconSettings,
 } from "../components/Icons";
 
 function initials(name: string): string {
@@ -65,6 +66,14 @@ export default function ProfileScreen() {
     authed?: boolean;
     badge?: number;
   }[] = [
+    {
+      key: "settings",
+      to: "/settings",
+      icon: <IconSettings size={22} />,
+      title: appText("Настройки", "Көйләүҙәр"),
+      sub: appText("Язык, тема, размер текста, приватность", "Тел, тема, текст ҙурлығы, ҡупшылыҡ"),
+      authed: true,
+    },
     {
       key: "notifications",
       to: "/notifications",

@@ -87,6 +87,13 @@ export function logoutServer(): Promise<{ ok: boolean }> {
   return apiPost<{ ok: boolean }>("/auth/logout");
 }
 
+/** POST /me/delete — необратимое удаление аккаунта и всех персональных данных
+ *  (152-ФЗ, право на удаление). После успеха токен на сервере становится недействителен —
+ *  вызывающий экран сам чистит локальную сессию и уводит на старт. */
+export function deleteAccount(): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>("/me/delete");
+}
+
 /** Имя бота из окружения (VITE_TELEGRAM_BOT). Пусто → Telegram-вход показывает заглушку. */
 export const TELEGRAM_BOT = (import.meta.env.VITE_TELEGRAM_BOT ?? "").trim();
 

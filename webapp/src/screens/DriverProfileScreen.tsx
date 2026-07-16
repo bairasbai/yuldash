@@ -7,11 +7,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
+import { useAuth } from "../auth/AuthProvider";
 import { fetchDriverPublic, type DriverPublic } from "../api/driver";
 import { apiGet } from "../api/client";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconStar, IconArrow, IconCalendar } from "../components/Icons";
+import { IconStar, IconArrow, IconCalendar, IconFlag } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
 
@@ -58,6 +59,7 @@ function timeAgo(iso: string, ru: boolean): string {
 
 export default function DriverProfileScreen() {
   const { appText, lang } = useLang();
+  const { isAuthed } = useAuth();
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -220,6 +222,20 @@ export default function DriverProfileScreen() {
               "Телефон һәм теүәл урын — тик раҫланған сәфәр ҡатнашыусыларында."
             )}
           </p>
+
+          {/* Пожаловаться на водителя (только со входом; гостю — мягко на вход) */}
+          <button
+            type="button"
+            className="report-link"
+            onClick={() =>
+              isAuthed
+                ? navigate(`/report?user=${driverId}&name=${encodeURIComponent(driver.name)}`)
+                : navigate("/login")
+            }
+          >
+            <IconFlag size={17} />
+            {appText("Пожаловаться на водителя", "Водителгә зарланырға")}
+          </button>
         </>
       )}
     </>

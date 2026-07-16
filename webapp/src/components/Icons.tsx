@@ -18,6 +18,26 @@ export const IconMap = ({ size = 24 }: P) => (
   </svg>
 );
 
+export const IconSettings = ({ size = 24 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="3.2" />
+    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19" />
+  </svg>
+);
+
+export const IconBlock = ({ size = 24 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M5.6 5.6l12.8 12.8" />
+  </svg>
+);
+
+export const IconFlag = ({ size = 24 }: P) => (
+  <svg {...base(size)}>
+    <path d="M5 21V4M5 4h11l-1.5 3.5L16 11H5" />
+  </svg>
+);
+
 export const IconRides = ({ size = 24 }: P) => (
   <svg {...base(size)}>
     <path d="M5 17H3v-5l2-5h11l3 5h1a1 1 0 0 1 1 1v4h-2" />

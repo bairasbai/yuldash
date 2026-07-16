@@ -357,8 +357,43 @@ callback/safe-note — только токены, светлая/тёмная т
 контракты есть в `release/backend`; на проде `yulbash.ru` появятся после мержа `release`. До мержа отдают
 404/405 → экраны показывают мягкое пустое/ошибку без краша, бейджи в профиле просто не появляются.
 
-### Волна 7 — остаток (6)
-Settings (переиспользует `useFontScale`), Privacy, Rules, Blocklist, Report.
+### ✅ Волна 7Б-2 — Настройки и правовое (5 экранов) (готово, сборка зелёная — завершает волну 7)
+5 экранов + связки. Все состояния (загрузка/пусто/ошибка/404), два языка (ба-черновик →
+`BASHKIR_DRAFT.md`), токены Canon, safe-area, тач-цели ≥48px, мягкая деградация. Зеркало
+`backend/app/routers/safety.py` (`/blocks`, `/reports`, `/reportable-users`), `auth.py`
+(`/me/delete`); юр-тексты — зеркало `web/components/legal-content.ts`.
+
+**Экраны и роуты:**
+- `SettingsScreen` → `/settings` (RequireAuth): Язык РУС/БАШ (`useLang`), Тема светлая/тёмная/
+  системная (`src/theme.ts`), Размер текста (`useFontScale` — переиспользован, не продублирован),
+  тумблеры уведомления/звуки (`src/uiPrefs.ts`, локально), ссылки Приватность/Правила/Чёрный список/
+  Согласия/Как оплатить/Пожаловаться, Выход, «Удалить аккаунт» (danger, двойное подтверждение →
+  `POST /me/delete` → чистка сессии → `/splash`).
+- `PrivacyScreen` → `/privacy` (ПУБЛИЧНО) и `RulesScreen` → `/rules` (ПУБЛИЧНО): общий `LegalScreen`
+  рендерит `LegalDoc` из `src/legal.ts` (PRIVACY/TERMS, тело RU, заголовки двуязычны). Плашка «полный
+  текст на сайте» + ссылка на `${API_BASE}/<slug>`.
+- `BlocklistScreen` → `/blocklist` (RequireAuth): `GET /blocks`, разблокировать `DELETE /blocks/{id}`
+  (оптимистично). Пусто → «Никто не заблокирован».
+- `ReportScreen` → `/report` (RequireAuth): форма жалобы (категория §9 + описание) → `POST /reports`.
+  Цель: предзаполнена `?user=&name=` (из профиля водителя) / контекст поездки `?booking=&order=` /
+  выбор из `GET /reportable-users`. Опция «заблокировать тоже» (`POST /blocks`). Спасибо-состояние.
+
+**Тема — единая точка правды:** `src/theme.ts` (`getTheme/setTheme/applyTheme/useTheme`). Режим
+(`system|light|dark`) в localStorage; применяется на старте (`main.tsx`) ДО первого кадра через
+`data-theme` на `<html>`. `index.css`: тёмные токены — под `@media (prefers-color-scheme:dark)
+:root:not([data-theme])` (система) И `:root[data-theme="dark"]` (ручной), `:root[data-theme="light"]`
+остаётся светлым даже под тёмной системой. Язык и размер шрифта — как раньше (`i18n/lang`, `fontScale`),
+всё переживает перезагрузку.
+
+**Связки:** «Настройки» (шестерёнка `IconSettings`) — верхняя строка в Профиле; Приватность/Правила/
+Чёрный список/Согласия/Как оплатить/Пожаловаться — из Настроек; «Пожаловаться на водителя» —
+кнопка внизу `DriverProfileScreen` (гостю мягко на `/login`). Новые CSS-классы Canon в `ui.css`
+(danger-zone, legal, report-target, report-link, btn-soft--sm, select.field__input — только токены).
+
+**Зависит от деплоя release:** `/blocks*`, `/reports`, `/reportable-users`, `/me/delete` — контракты
+есть в `release/backend`; на проде `yulbash.ru` появятся после мержа `release`. До мержа отдают 404/405
+→ Чёрный список показывает «пусто», Жалоба/Удаление — мягкое «скоро, напиши в поддержку», без краша.
+Юр-страницы `/privacy`, `/rules` полностью автономны (текст в приложении).
 
 ### Волна 8 — Админка (16)
 AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, AdminPaymentRequests, AdminReviews,

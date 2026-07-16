@@ -59,6 +59,11 @@ import SupportTicketsScreen from "./screens/SupportTicketsScreen";
 import SupportTicketScreen from "./screens/SupportTicketScreen";
 import HelpScreen from "./screens/HelpScreen";
 import AppReviewScreen from "./screens/AppReviewScreen";
+import SettingsScreen from "./screens/SettingsScreen";
+import PrivacyScreen from "./screens/PrivacyScreen";
+import RulesScreen from "./screens/RulesScreen";
+import BlocklistScreen from "./screens/BlocklistScreen";
+import ReportScreen from "./screens/ReportScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -92,6 +97,34 @@ export default function App() {
         <Route path="/profile" element={<ProfileScreen />} />
         {/* Согласия — локальные (152-ФЗ), доступны и гостю */}
         <Route path="/consents" element={<ConsentsScreen />} />
+        {/* --- Волна 7Б-2: настройки и правовое --- */}
+        {/* Приватность и Правила — публичны (юр-документы доступны всем) */}
+        <Route path="/privacy" element={<PrivacyScreen />} />
+        <Route path="/rules" element={<RulesScreen />} />
+        <Route
+          path="/settings"
+          element={
+            <RequireAuth>
+              <SettingsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/blocklist"
+          element={
+            <RequireAuth>
+              <BlocklistScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/report"
+          element={
+            <RequireAuth>
+              <ReportScreen />
+            </RequireAuth>
+          }
+        />
         {/* Фильтры — локальная UX-настройка, вход не нужен */}
         <Route path="/filters" element={<FiltersScreen />} />
         {/* --- Волна 7А: безопасность и доступность --- */}

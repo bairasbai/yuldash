@@ -4503,3 +4503,159 @@ button.list-row:active {
   font-weight: 700;
   color: var(--green);
 }
+
+/* ================================================================
+   Волна 7Б-2 — Настройки и правовое (Settings / Legal / Blocklist / Report).
+   Только токены Canon, светлая/тёмная тема, тач-цели ≥48px.
+   ================================================================ */
+
+/* ---- Опасная зона: удаление аккаунта ---- */
+.danger-zone {
+  margin: 26px 0 8px;
+  padding: 18px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  animation: fadeUp 0.3s ease both;
+}
+.danger-zone__title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--danger);
+}
+.danger-zone__text {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.danger-zone__confirm {
+  margin-top: 14px;
+}
+.danger-zone__confirm-q {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--danger);
+  margin-bottom: 12px;
+}
+.danger-zone__actions {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.danger-zone__actions .btn-soft,
+.danger-zone__actions .btn-danger {
+  flex: 1;
+  margin-top: 0;
+}
+.danger-zone__err {
+  margin: 4px 0 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+/* ---- Юридический документ (Политика / Соглашение) ---- */
+.legal {
+  margin-top: 14px;
+  animation: fadeUp 0.3s ease both;
+}
+.legal__note {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.legal__link {
+  font-weight: 800;
+  text-decoration: underline;
+  word-break: break-word;
+}
+.legal__section {
+  margin-top: 22px;
+}
+.legal__h {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.legal__p {
+  margin: 0 0 10px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.legal__p--intro {
+  color: var(--muted);
+}
+
+/* ---- Report: цель жалобы (предзаполнена) ---- */
+.report-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.report-target__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.report-target__name {
+  font-size: 16px;
+  font-weight: 800;
+  text-align: right;
+  min-width: 0;
+}
+
+/* Компактная кнопка «Разблокировать» в строке чёрного списка */
+.btn-soft--sm {
+  flex: none;
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+/* Ссылка-кнопка «Пожаловаться» (профиль водителя) */
+.report-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px auto 8px;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14.5px;
+  font-weight: 700;
+  transition: transform 0.12s ease, color 0.2s ease;
+}
+.report-link:active {
+  transform: scale(0.98);
+  color: var(--danger);
+}
+
+/* select как поле формы (используется в Report) */
+select.field__input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23686f66' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}

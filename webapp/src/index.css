@@ -39,8 +39,14 @@
   color-scheme: light dark;
 }
 
+/* Тёмные значения токенов — вынесены в общий набор правил, чтобы применялись
+   в ДВУХ случаях без дубля логики:
+   1) системная тема тёмная И пользователь НЕ выбрал вручную (нет data-theme);
+   2) пользователь выбрал тёмную вручную (data-theme="dark") — независимо от системы.
+   Ручной светлый режим (data-theme="light") сюда не попадает → остаётся светлым
+   даже под тёмной системой. Точка правды переключения — src/theme.ts. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #0e1512;
     --surface: #192420;
     --surface-2: #101a16;
@@ -58,6 +64,30 @@
     --skeleton: #212d28;
     --skeleton-shine: rgba(255, 255, 255, 0.06);
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0e1512;
+  --surface: #192420;
+  --surface-2: #101a16;
+  --text: #eaf2ec;
+  --muted: #9ba49d;
+  --border: rgba(255, 255, 255, 0.14);
+  --mint: #0f2419;
+  --green: #7fe3ab;
+  --green-btn: #27a463;
+  --warn-bg: #3a2e12;
+  --warn: #e8b86a;
+  --danger-bg: #3a1b18;
+  --danger: #f25a4d;
+  --nav-bg: rgba(16, 26, 22, 0.86);
+  --skeleton: #212d28;
+  --skeleton-shine: rgba(255, 255, 255, 0.06);
+  color-scheme: dark; /* нативные контролы/скроллбары — тёмные */
+}
+
+:root[data-theme="light"] {
+  color-scheme: light; /* принудительно светлые нативные контролы */
 }
 
 * {
