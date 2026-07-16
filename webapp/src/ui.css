@@ -4787,3 +4787,172 @@ select.field__input {
 .chip-scroll .chip {
   flex: 0 0 auto;
 }
+
+/* ================================================================
+   Волна 8Б — отзывы, реклама, такси, лист ожидания, пульс, доход.
+   Только токены Canon, тач-цели ≥48px, светлая/тёмная тема.
+   ================================================================ */
+
+/* Звёзды отзыва (текстом, доступно) */
+.review-stars {
+  font-size: 17px;
+  letter-spacing: 1px;
+  color: var(--gold);
+}
+.review-stars__dim {
+  color: var(--border);
+}
+
+/* Статистика показов/кликов рекламы */
+.ad-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-item);
+  font-size: 13px;
+  color: var(--muted);
+}
+.ad-stat-row b {
+  color: var(--text);
+}
+.ad-stat-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Лист ожидания — плавающая панель приглашения */
+.wait-invite-bar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 10px 12px 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.wait-invite-bar .btn-primary {
+  margin-top: 0;
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+/* Пульс такси — сетка плиток */
+.pulse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.stat-tile--hl {
+  background: var(--mint);
+  border-color: var(--canon-green-bright);
+}
+.stat-tile--hl b {
+  color: var(--green);
+}
+.pulse-updated {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 16px 0 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* Калькулятор дохода */
+.income-hero {
+  margin-top: 12px;
+  padding: 20px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(160deg, var(--header-top), var(--header-bottom));
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.income-hero__cap {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.92;
+}
+.income-hero__net {
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.income-hero__note {
+  font-size: 12px;
+  opacity: 0.86;
+  line-height: 1.4;
+}
+.income-breakdown {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.income-breakdown b {
+  color: var(--text);
+  font-weight: 700;
+}
+.calc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.calc-slider {
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+}
+.calc-slider__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.calc-slider__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.calc-slider__value {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: var(--mint);
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 800;
+}
+.calc-range {
+  width: 100%;
+  height: 28px;
+  accent-color: var(--green-btn);
+  cursor: pointer;
+}
+.calc-disclaimer {
+  margin: 14px 4px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}

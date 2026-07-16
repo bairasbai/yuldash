@@ -73,16 +73,53 @@ export default function AdminCabinetScreen() {
       title: appText("Заявки на оплату", "Түләү заявкалары"),
       sub: appText("Подтвердить переводы (СБП)", "Күсереүҙәрҙе раҫлау (СБП)"),
     },
+    // Волна 8Б — отзывы, реклама, такси, лист ожидания, пульс, доход.
+    {
+      key: "reviews",
+      to: "/admin/reviews",
+      icon: <IconStar size={22} />,
+      title: appText("Отзывы", "Фекерҙәр"),
+      sub: appText("Модерация текстов отзывов", "Фекер текстарын тикшереү"),
+    },
+    {
+      key: "ads",
+      to: "/admin/ads",
+      icon: <IconRocket size={22} />,
+      title: appText("Реклама", "Реклама"),
+      sub: appText("Модерация объявлений партнёров", "Партнёр иғландарын тикшереү"),
+    },
+    {
+      key: "taxi",
+      to: "/admin/taxi",
+      icon: <IconCar size={22} />,
+      title: appText("Такси", "Такси"),
+      sub: appText("Заявки таксистов и города", "Такси заявкалары һәм ҡалалар"),
+    },
+    {
+      key: "waitlist",
+      to: "/admin/waitlist",
+      icon: <IconClock size={22} />,
+      title: appText("Лист ожидания", "Көтөү исемлеге"),
+      sub: appText("Ранний доступ и волны", "Иртә инеү һәм тулҡындар"),
+    },
+    {
+      key: "pulse",
+      to: "/admin/taxi-pulse",
+      icon: <IconTrend size={22} />,
+      title: appText("Пульс такси", "Такси тибеше"),
+      sub: appText("Спрос и предложение вживую", "Ихтыяж һәм тәҡдим тере"),
+    },
+    {
+      key: "income",
+      to: "/admin/income",
+      icon: <IconWallet size={22} />,
+      title: appText("Калькулятор дохода", "Килем калькуляторы"),
+      sub: appText("Прогноз выручки автора", "Автор килеме фаразы"),
+    },
   ];
 
   // Будущие волны — заглушки.
   const soon: AdminLink[] = [
-    { key: "reviews", icon: <IconStar size={22} />, title: appText("Отзывы", "Фекерҙәр"), sub: appText("Модерация текстов отзывов", "Фекер текстарын тикшереү") },
-    { key: "ads", icon: <IconRocket size={22} />, title: appText("Реклама", "Реклама"), sub: appText("Баннеры и партнёры", "Баннерҙар һәм партнёрҙар") },
-    { key: "taxi", icon: <IconCar size={22} />, title: appText("Такси", "Такси"), sub: appText("Заказы и водители такси", "Заказдар һәм такси водителдәре") },
-    { key: "waitlist", icon: <IconClock size={22} />, title: appText("Лист ожидания", "Көтөү исемлеге"), sub: appText("Ранний доступ и очередь", "Иртә инеү һәм сират") },
-    { key: "pulse", icon: <IconTrend size={22} />, title: appText("Пульс такси", "Такси тибеше"), sub: appText("Спрос и предложение вживую", "Ихтыяж һәм тәҡдим тере") },
-    { key: "income", icon: <IconWallet size={22} />, title: appText("Калькулятор дохода", "Табыш иҫәпләгес"), sub: appText("Прогноз заработка водителя", "Водитель табышы фаразы") },
     { key: "business", icon: <IconWork size={22} />, title: appText("Бизнесы", "Бизнестар"), sub: appText("Партнёрские компании", "Партнёр компаниялар") },
     { key: "promo", icon: <IconGift size={22} />, title: appText("Промо", "Промо"), sub: appText("Промокоды и купоны", "Промокодтар һәм купондар") },
     { key: "parcels", icon: <IconBox size={22} />, title: appText("Посылки", "Бандеролдәр"), sub: appText("Модерация доставок", "Доставкаларҙы тикшереү") },

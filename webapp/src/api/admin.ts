@@ -11,7 +11,7 @@
 //                   GET /admin/payments/summary
 //  Все ручки требуют role == "admin" (иначе 403). До мержа release на прод — 404/405 (мягко).
 // ================================================================
-import { apiGet, apiPost, getToken } from "./client";
+import { apiGet, apiPost, apiDelete, getToken } from "./client";
 import type { ResponseItem } from "./requests";
 
 // ----------------------------- 2. Заявка за юзера -----------------------------
@@ -174,4 +174,245 @@ export interface PaymentsSummary {
 /** GET /admin/payments/summary — сводка подтверждённых платежей. */
 export function fetchPaymentsSummary(signal?: AbortSignal): Promise<PaymentsSummary> {
   return apiGet<PaymentsSummary>("/admin/payments/summary", { signal });
+}
+
+// ================================================================
+//  Волна 8Б — расширение админки. Зеркало backend-роутеров:
+//    reviews.py · GET /admin/reviews/pending, /admin/ratings/pending;
+//                 POST /admin/{reviews|ratings}/{id}/publish {published}
+//    ads.py     · GET /admin/ads, /ads/stats; POST /admin/ads/{id}/approve|reject|status; DELETE /admin/ads/{id}
+//    taxi.py    · GET /admin/taxi-applications, /admin/taxi-cities, /admin/taxi/pulse;
+//                 POST /admin/taxi-applications/{id}/approve|reject, /admin/taxi-cities; DELETE …
+//    waitlist.py· GET /admin/waitlist; POST /admin/waitlist/invite
+//  Все требуют role == "admin" (иначе 403). До мержа release на прод — 404/405 (мягко).
+// ================================================================
+
+// ----------------------------- 7. Модерация отзывов -----------------------------
+/** Отзыв о приложении (для лендинга) — ждёт модерации. */
+export interface PendingAppReview {
+  id: number;
+  user_id?: number | null;
+  name: string;
+  city: string;
+  stars: number;
+  text: string;
+  published: boolean;
+  created_at: string;
+}
+
+/** Текстовый отзыв о поездке (Rating.text) — ждёт модерации. */
+export interface PendingRating {
+  id: number;
+  author: string; // кто оставил (видит только админ)
+  ratee_id: number; // кому адресован
+  stars: number;
+  text: string;
+  created_at: string;
+}
+
+/** GET /admin/reviews/pending — отзывы о приложении на модерации. */
+export function fetchPendingAppReviews(signal?: AbortSignal): Promise<PendingAppReview[]> {
+  return apiGet<PendingAppReview[]>("/admin/reviews/pending", { signal });
+}
+
+/** POST /admin/reviews/{id}/publish — одобрить (или снять) отзыв о приложении. */
+export function publishAppReview(id: number, published: boolean): Promise<PendingAppReview> {
+  return apiPost<PendingAppReview>(`/admin/reviews/${id}/publish`, { published });
+}
+
+/** GET /admin/ratings/pending — текстовые отзывы о поездках на модерации. */
+export function fetchPendingRatings(signal?: AbortSignal): Promise<PendingRating[]> {
+  return apiGet<PendingRating[]>("/admin/ratings/pending", { signal });
+}
+
+/** POST /admin/ratings/{id}/publish — одобрить (или снять) текст отзыва о поездке. */
+export function publishRating(id: number, published: boolean): Promise<PendingRating> {
+  return apiPost<PendingRating>(`/admin/ratings/${id}/publish`, { published });
+}
+
+// ----------------------------- 8. Модерация рекламы -----------------------------
+export interface AdminAd {
+  id: string;
+  partner: string;
+  partner_contact: string;
+  title: string;
+  text: string;
+  button: string;
+  target: string;
+  image: string;
+  erid: string;
+  plan: string; // founder | standard | premium
+  package: string; // код тарифа партнёра (city/route/main), '' у админских
+  placements: string[];
+  cities: string[];
+  priority: number;
+  status: string; // draft | pending_review | active | rejected | paused | expired | archived
+  reject_reason: string;
+  owner_id: number | null; // партнёр (self-serve) или null (админское)
+  paid: boolean;
+  live: boolean;
+  expired: boolean;
+  founder_lock: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  created_at: string | null;
+}
+
+export interface AdminAdsResponse {
+  founder_used: number;
+  founder_limit: number;
+  items: AdminAd[];
+}
+
+/** Показы/клики по объявлениям: { [ad_id]: {impressions, clicks} }. */
+export type AdStats = Record<string, { impressions: number; clicks: number }>;
+
+/** GET /admin/ads — все объявления (кроме архива) + занятые founder-слоты. */
+export function fetchAdminAds(signal?: AbortSignal): Promise<AdminAdsResponse> {
+  return apiGet<AdminAdsResponse>("/admin/ads", { signal });
+}
+
+/** GET /ads/stats — сводка показов/кликов (только админ). */
+export function fetchAdStats(signal?: AbortSignal): Promise<AdStats> {
+  return apiGet<AdStats>("/ads/stats", { signal });
+}
+
+/** POST /admin/ads/{id}/approve — одобрить (pending_review → active). erid — маркировка ОРД. */
+export function approveAd(id: string, erid: string): Promise<unknown> {
+  return apiPost(`/admin/ads/${id}/approve`, { erid });
+}
+
+/** POST /admin/ads/{id}/reject — отклонить с причиной (→ rejected). */
+export function rejectAd(id: string, reason: string): Promise<unknown> {
+  return apiPost(`/admin/ads/${id}/reject`, { reason });
+}
+
+/** POST /admin/ads/{id}/status — опубликовать/пауза/архив. */
+export function setAdStatus(id: string, status: string): Promise<unknown> {
+  return apiPost(`/admin/ads/${id}/status`, { status });
+}
+
+/** DELETE /admin/ads/{id} — мягкое удаление (в архив). */
+export function archiveAd(id: string): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(`/admin/ads/${id}`);
+}
+
+// ----------------------------- 9. Заявки таксистов + города -----------------------------
+export interface TaxiApplication {
+  id: number;
+  status: string; // pending | approved | rejected
+  inn: string;
+  permit_number: string;
+  permit_photo_url: string;
+  osago_url: string;
+  selfie_url: string;
+  criminal_record_url: string;
+  birth_date: string;
+  license_since_year: number;
+  comment: string;
+  created_at: string;
+  reviewed_at: string | null;
+  user_id: number;
+  name: string;
+  phone: string;
+  car_class: string; // economy | comfort (заявленный)
+  invited_by: string | null; // кто пригласил (доверие «между своими»)
+}
+
+export interface TaxiCity {
+  id: number;
+  city: string;
+  enabled: boolean;
+  created_at: string;
+}
+
+/** GET /admin/taxi-applications?status= — очередь заявок таксистов (580-ФЗ). */
+export function fetchTaxiApplications(status: string, signal?: AbortSignal): Promise<TaxiApplication[]> {
+  return apiGet<TaxiApplication[]>(`/admin/taxi-applications?status=${encodeURIComponent(status)}`, { signal });
+}
+
+/** POST /admin/taxi-applications/{id}/approve — одобрить (опц. финальный класс машины). */
+export function approveTaxiApp(id: number, carClass?: "economy" | "comfort"): Promise<{ id: number; status: string }> {
+  return apiPost(`/admin/taxi-applications/${id}/approve`, carClass ? { car_class: carClass } : {});
+}
+
+/** POST /admin/taxi-applications/{id}/reject — отклонить с комментарием. */
+export function rejectTaxiApp(id: number, comment: string): Promise<{ id: number; status: string }> {
+  return apiPost(`/admin/taxi-applications/${id}/reject`, { comment });
+}
+
+/** GET /admin/taxi-cities — города, где включено такси. */
+export function fetchTaxiCities(signal?: AbortSignal): Promise<TaxiCity[]> {
+  return apiGet<TaxiCity[]>("/admin/taxi-cities", { signal });
+}
+
+/** POST /admin/taxi-cities — добавить город или обновить его флаг (без дублей по имени). */
+export function upsertTaxiCity(city: string, enabled: boolean): Promise<TaxiCity> {
+  return apiPost<TaxiCity>("/admin/taxi-cities", { city, enabled });
+}
+
+/** DELETE /admin/taxi-cities/{id} — убрать город из списка такси. */
+export function deleteTaxiCity(id: number): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(`/admin/taxi-cities/${id}`);
+}
+
+// ----------------------------- 10. Пульс такси -----------------------------
+export interface TaxiPulseCity {
+  city: string;
+  online: number;
+  active: number;
+}
+
+export interface TaxiPulse {
+  drivers_online: number;
+  orders_active: number;
+  orders_today: number;
+  done_today: number;
+  cancelled_today: number;
+  no_show_today: number;
+  gps_suspects_today: number;
+  contact_then_cancel_today: number;
+  avg_search_sec_today: number | null;
+  by_city: TaxiPulseCity[];
+}
+
+/** GET /admin/taxi/pulse — живая сводка такси (на линии / активные заказы / по городам). */
+export function fetchTaxiPulse(signal?: AbortSignal): Promise<TaxiPulse> {
+  return apiGet<TaxiPulse>("/admin/taxi/pulse", { signal });
+}
+
+// ----------------------------- 11. Лист ожидания -----------------------------
+export interface WaitlistEntry {
+  id: number;
+  phone: string;
+  city: string;
+  role: string; // passenger | driver
+  created_at: string;
+  invited_at: string | null;
+}
+
+export interface WaitlistResponse {
+  total: number;
+  invited: number;
+  by_city: { city: string; count: number }[];
+  by_role: { passenger: number; driver: number };
+  items: WaitlistEntry[];
+}
+
+/** GET /admin/waitlist — счётчики набора (по всей базе) + список по фильтрам. */
+export function fetchWaitlist(
+  opts?: { city?: string; role?: string; invited?: boolean; limit?: number; signal?: AbortSignal }
+): Promise<WaitlistResponse> {
+  const q = new URLSearchParams();
+  if (opts?.city) q.set("city", opts.city);
+  if (opts?.role) q.set("role", opts.role);
+  if (opts?.invited !== undefined) q.set("invited", String(opts.invited));
+  if (opts?.limit) q.set("limit", String(opts.limit));
+  const qs = q.toString();
+  return apiGet<WaitlistResponse>(`/admin/waitlist${qs ? `?${qs}` : ""}`, { signal: opts?.signal });
+}
+
+/** POST /admin/waitlist/invite — пометить волну: проставить invited_at выбранным. */
+export function inviteWaitlist(ids: number[]): Promise<{ ok: boolean; invited: number }> {
+  return apiPost<{ ok: boolean; invited: number }>("/admin/waitlist/invite", { ids });
 }

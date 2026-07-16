@@ -71,6 +71,12 @@ import AdminResponsesScreen from "./screens/AdminResponsesScreen";
 import AdminDriversScreen from "./screens/AdminDriversScreen";
 import AdminReportsScreen from "./screens/AdminReportsScreen";
 import AdminPaymentRequestsScreen from "./screens/AdminPaymentRequestsScreen";
+import AdminReviewsScreen from "./screens/AdminReviewsScreen";
+import AdminAdsScreen from "./screens/AdminAdsScreen";
+import AdminTaxiScreen from "./screens/AdminTaxiScreen";
+import AdminWaitlistScreen from "./screens/AdminWaitlistScreen";
+import AdminTaxiPulseScreen from "./screens/AdminTaxiPulseScreen";
+import IncomeCalculatorScreen from "./screens/IncomeCalculatorScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -518,6 +524,56 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminPaymentRequestsScreen />
+            </RequireAdmin>
+          }
+        />
+
+        {/* --- Волна 8Б: отзывы, реклама, такси, лист ожидания, пульс, доход --- */}
+        <Route
+          path="/admin/reviews"
+          element={
+            <RequireAdmin>
+              <AdminReviewsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/ads"
+          element={
+            <RequireAdmin>
+              <AdminAdsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/taxi"
+          element={
+            <RequireAdmin>
+              <AdminTaxiScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/waitlist"
+          element={
+            <RequireAdmin>
+              <AdminWaitlistScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/taxi-pulse"
+          element={
+            <RequireAdmin>
+              <AdminTaxiPulseScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/income"
+          element={
+            <RequireAdmin>
+              <IncomeCalculatorScreen />
             </RequireAdmin>
           }
         />

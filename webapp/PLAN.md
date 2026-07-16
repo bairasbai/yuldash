@@ -431,6 +431,41 @@ API-слой — `src/api/admin.ts` (все ручки + `fetchSecureDoc`). Но
 показывают ошибку/пусто, без краша. Роль `admin` пользователю на проде тоже проставит бэк (по
 telegram_id/телефону из конфига) — без этого раздел просто не виден.
 
+#### ✅ Волна 8Б — Отзывы, реклама, такси, лист ожидания, пульс, доход (готово)
+6 новых экранов под `RequireAdmin` (шапка `SubHeader`, все состояния, двуязычно, тач-цели ≥48px). В
+`AdminCabinet` их 6 ссылок переведены из «скоро» в активные (осталось «скоро»: бизнесы, промо, посылки, курьеры).
+
+- **AdminReviews** → `/admin/reviews` — две вкладки (`.seg`): «О поездках» (`GET /admin/ratings/pending`,
+  `POST /admin/ratings/{id}/publish {published:true}`) и «О приложении» (`GET /admin/reviews/pending`,
+  `POST /admin/reviews/{id}/publish {published:true}`). Опубликовать = одобрить к показу; звёзды текстом.
+- **AdminAds** → `/admin/ads` — `GET /admin/ads` (→ `{founder_used, founder_limit, items}`) + `GET /ads/stats`
+  (показы/клики/CTR). Фильтр-чипы (pending_review/active/rejected/все). Модерация: одобрить с erid-маркировкой
+  ОРД `POST /admin/ads/{id}/approve {erid}`, отклонить с причиной `POST /admin/ads/{id}/reject {reason}`.
+  Активные/пауза: `POST /admin/ads/{id}/status {status}`, архив `DELETE /admin/ads/{id}`.
+- **AdminTaxi** → `/admin/taxi` — две вкладки. «Заявки» (580-ФЗ): `GET /admin/taxi-applications?status=`
+  (pending/approved/rejected/all), документы (разрешение/ОСАГО/селфи/справка) защищены → `fetchSecureDoc` →
+  blob-URL; одобрить `POST …/approve`, отклонить с комментарием `POST …/reject {comment}`. «Города»:
+  `GET /admin/taxi-cities`, вкл/выкл/добавить `POST /admin/taxi-cities {city, enabled}`, `DELETE …/{id}`.
+- **AdminWaitlist** → `/admin/waitlist` — `GET /admin/waitlist?role=&invited=&limit=500` (счётчики по всей
+  базе + список по фильтрам). Чекбоксы → плавающая панель «Отметить волну» `POST /admin/waitlist/invite {ids}`.
+  CSV-экспорт `GET /admin/waitlist.csv` (fetch с Bearer → blob download). Телефоны видит только админ (152-ФЗ).
+- **AdminTaxiPulse** → `/admin/taxi-pulse` — `GET /admin/taxi/pulse` (на линии/активные заказы/счётчики дня/
+  средний подбор/анти-фрод/по городам). Плитки + список городов, автообновление раз в 20 сек (silent refetch).
+  Без Redis presence = 0 (панель честно показывает, не падает).
+- **IncomeCalculator** → `/admin/income` — чистый клиентский расчёт (зеркало android
+  `IncomeCalculatorScreen.kt`), БЕЗ бэкенда. Ползунки (`input[type=range]`): поездки/день, партнёры, цена
+  подписки, Boost, маршруты + вкл/выкл такси (средний чек, комиссия). Формула: `couponsIncome = partners*subPrice`,
+  `boostIncome = boosts*70*30`, `taxiIncome = rides*avgCheck*(comm%/100)*30`, `gross = (сумма)*routes`,
+  `net = gross*(1−15%)`. Коэффициенты (Boost 70 ₽, расходы 15%) — константы в файле.
+
+API-слой — расширен `src/api/admin.ts` (reviews/ads/taxi/waitlist/pulse + `apiDelete`). Новые CSS-классы Canon
+в `ui.css` (`review-stars`, `ad-stat-row`, `wait-invite-bar`, `pulse-grid`/`stat-tile--hl`/`pulse-updated`,
+`income-hero`/`income-breakdown`/`calc-*`) — только токены, светлая/тёмная тема.
+
+**Зависит от деплоя release:** контракты `reviews.py`, `ads.py`, `taxi.py`, `waitlist.py` есть в
+`release/backend`; на проде `yulbash.ru` появятся после мержа `release`. До мержа → 404/405, экраны
+показывают ошибку/пусто без краша. IncomeCalculator работает офлайн (расчёт на клиенте).
+
 ### Волна 9 — Полировка + деплой
 Web Push (iOS 16.4+, только после установки на экран, VAPID), офлайн-кеш, тёмная тема/крупный шрифт финал,
 деплой статики `dist/` на `app.yulbash.ru` (nginx).
