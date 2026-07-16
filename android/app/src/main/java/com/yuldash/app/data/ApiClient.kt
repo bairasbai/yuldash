@@ -825,9 +825,9 @@ object ApiClient {
 
     /** «Поделиться поездкой» из такси-заказа (B7b-2): близкий получит SMS о маршруте и статусах.
      *  B7c: сервер возвращает token live-ссылки — отдаём готовый URL (null на старом сервере). */
-    suspend fun shareInstantTrip(orderId: Int, contactId: Int): Result<String?> =
+    suspend fun shareInstantTrip(orderId: Int, contactId: Int): Result<TripShareDto?> =
         call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true)
-            .map { liveLinkOrNull(it) }
+            .map { parseTripShare(it) }
             .onSuccess { Analytics.log("instant_share_trip") }
 
     /** Live-ссылка близкого (B7c) из ответа share: {token} → "$BASE/t/{token}".
@@ -846,6 +846,18 @@ object ApiClient {
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
     suspend fun requestCallback(note: String): Result<Unit> =
         call("POST", "/callback", JSONObject().put("note", note), auth = true).map { }.onSuccess { Analytics.log("callback_request") }
+
+    /** F12 «Зимний протокол»: арм авто-проверки «доехал?». Идемпотентна — сервер сам решает
+     *  (too_early / check_sent / waiting / escalated). Возвращает поле state. Клиент зовёт,
+     *  когда его ETA+буфер истёк, а поездка ещё активна. */
+    suspend fun winterCheck(bookingId: Int): Result<String> =
+        call("POST", "/bookings/$bookingId/winter-check", JSONObject(), auth = true)
+            .map { it.optString("state") }.onSuccess { Analytics.log("winter_check") }
+
+    /** F12: участник ответил «всё в порядке» на проверку «доехал?» — гасит эскалацию доверенным. */
+    suspend fun winterCheckOk(bookingId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/winter-check/ok", JSONObject(), auth = true).map { }
+            .onSuccess { Analytics.log("winter_check_ok") }
 
     // ---------- Жалобы и чёрный список ----------
     /** Пожаловаться (§9 Качество). category — из закрытого перечня (см. ReportCategoryUi);
@@ -923,6 +935,35 @@ object ApiClient {
     /** Пассажир отменяет свою заявку → сервер ставит status=cancelled (идемпотентно; matched → 400). */
     suspend fun cancelRequest(requestId: Int): Result<Unit> =
         call("POST", "/requests/$requestId/cancel", null, auth = true).map { }.onSuccess { Analytics.log("cancel_request") }
+
+    /** F3: правка своей активной заявки (по образцу editRide). POST-алиас /edit — HttpURLConnection не умеет PATCH.
+     *  Шлём только непустые поля (null = не менять). Смена города → сервер перегеокодит концы. */
+    suspend fun editRequest(
+        requestId: Int,
+        fromCity: String? = null,
+        toCity: String? = null,
+        maxPrice: Int? = null,
+        comment: String? = null,
+        seats: Int? = null,
+        desiredAt: String? = null,   // ISO "yyyy-MM-dd'T'HH:mm:ss"
+    ): Result<Unit> {
+        val body = JSONObject()
+        fromCity?.takeIf { it.isNotBlank() }?.let { body.put("from_city", it) }
+        toCity?.takeIf { it.isNotBlank() }?.let { body.put("to_city", it) }
+        maxPrice?.let { body.put("max_price", it) }
+        comment?.let { body.put("comment", it) }
+        seats?.let { body.put("seats", it) }
+        desiredAt?.takeIf { it.isNotBlank() }?.let { body.put("desired_at", it) }
+        return call("POST", "/requests/$requestId/edit", body, auth = true).map { }.onSuccess { Analytics.log("edit_request") }
+    }
+
+    /** F: авто-подбор попуток под заявку пассажира (GET /match/rides?request_id=). Только владелец заявки.
+     *  Возврат — публичная витрина поездок (без ПДн до брони), совпадающих по маршруту/местам/категории. */
+    suspend fun matchRides(requestId: Int): Result<List<RideDto>> =
+        call("GET", "/match/rides?request_id=$requestId", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
+        }
 
     suspend fun getRequestResponses(requestId: Int): Result<List<ResponseDto>> =
         call("GET", "/requests/$requestId/responses", null, auth = true).map { obj ->
@@ -1600,10 +1641,38 @@ object ApiClient {
 
     // ---------- Активная поездка: поделиться / статус ----------
 
-    /** Поделиться бронью попутки. B7c: возвращает live-ссылку близкого (null на старом сервере). */
-    suspend fun shareTrip(bookingId: Int, contactId: Int): Result<String?> =
+    /** Поделиться бронью попутки. B7c: возвращает шаринг (id для отзыва + live-ссылка близкого). */
+    suspend fun shareTrip(bookingId: Int, contactId: Int): Result<TripShareDto?> =
         call("POST", "/bookings/$bookingId/share", JSONObject().put("contact_id", contactId), auth = true)
-            .map { liveLinkOrNull(it) }
+            .map { parseTripShare(it) }
+
+    /** Отозвать шаринг брони (B7c): live-токен «сгорает», SMS-статусы контакту прекращаются. Приватность. */
+    suspend fun revokeBookingShare(bookingId: Int, shareId: Int): Result<Unit> =
+        call("DELETE", "/bookings/$bookingId/share/$shareId", null, auth = true).map { }
+            .onSuccess { Analytics.log("revoke_share") }
+
+    /** Активные шаринги такси-заказа (пассажиру — «уже поделился с …» + отозвать). */
+    suspend fun getInstantShares(orderId: Int): Result<List<TripShareDto>> =
+        call("GET", "/instant/orders/$orderId/shares", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).mapNotNull { parseTripShare(arr.getJSONObject(it)) }
+        }
+
+    /** Отозвать шаринг такси-заказа (B7c). */
+    suspend fun revokeInstantShare(orderId: Int, shareId: Int): Result<Unit> =
+        call("DELETE", "/instant/orders/$orderId/share/$shareId", null, auth = true).map { }
+            .onSuccess { Analytics.log("revoke_share") }
+
+    /** Разбор TripShare с сервера → id/contact_id/token + готовый live-URL (или null, старый сервер). */
+    private fun parseTripShare(j: JSONObject): TripShareDto? {
+        val id = j.optInt("id", 0)
+        if (id == 0) return null
+        return TripShareDto(
+            id = id,
+            contactId = j.optInt("contact_id", 0),
+            link = liveLinkOrNull(j),
+        )
+    }
 
     suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
@@ -3699,6 +3768,13 @@ data class ContactDto(
     val relation: String,
     val phone: String,
     val notifyByDefault: Boolean,
+)
+
+/** Активный шаринг поездки близкому (B7c): id для отзыва, к какому контакту, готовая live-ссылка. */
+data class TripShareDto(
+    val id: Int,
+    val contactId: Int,
+    val link: String? = null,
 )
 
 /** Сообщение чата с сервера. */

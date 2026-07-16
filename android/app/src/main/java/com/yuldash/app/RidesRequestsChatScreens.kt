@@ -203,6 +203,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.content.Context
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
@@ -1195,11 +1196,30 @@ private fun Metric(icon: androidx.compose.ui.graphics.vector.ImageVector, text: 
 }
 
 @Composable
-internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> Unit, onViewResponses: (Int) -> Unit, onCancel: (Int) -> Unit, loading: Boolean = false) {
+internal fun MyRequestsScreen(
+    requests: List<LocalRequest>,
+    onCreateNew: () -> Unit,
+    onViewResponses: (Int) -> Unit,
+    onCancel: (Int) -> Unit,
+    loading: Boolean = false,
+    onEditRequest: (Int, String, String, Int, String) -> Unit = { _, _, _, _, _ -> },   // F3: id, from, to, maxPrice, comment
+    onOpenRide: (com.yuldash.app.data.RideDto) -> Unit = {},                              // авто-подбор: открыть подходящую поездку
+) {
     // Один честный список заявок. Прежние вкладки «Отклики»/«Черновики» были вечными
     // заглушками (статичный текст + фейковый черновик «Баймак→Уфа 450₽») → убраны.
     // Отклики открываются с карточки заявки кнопкой «Посмотреть отклики».
     var cancelTarget by remember { mutableStateOf<LocalRequest?>(null) }
+    var editTarget by remember { mutableStateOf<LocalRequest?>(null) }
+    editTarget?.let { et ->
+        EditRequestDialog(
+            request = et,
+            onDismiss = { editTarget = null },
+            onSave = { from, to, price, comment ->
+                onEditRequest(et.serverId, from, to, price, comment)
+                editTarget = null
+            },
+        )
+    }
     cancelTarget?.let { ct ->
         AlertDialog(
             onDismissRequest = { cancelTarget = null },
@@ -1241,18 +1261,23 @@ internal fun MyRequestsScreen(requests: List<LocalRequest>, onCreateNew: () -> U
         } else {
             itemsIndexed(requests, key = { i, r -> (if (r.serverId != 0) "id-${r.serverId}" else r.route + r.time + r.title) + "#$i" }) { i, req ->
                 Box(Modifier.appearIn(0)) {
-                    RequestSummaryCard(
-                        icon = if (req.title.contains("больниц", ignoreCase = true)) Icons.Default.LocalHospital else Icons.Default.DirectionsCar,
-                        from = req.route.substringBefore(" → "),
-                        to = req.route.substringAfter(" → "),
-                        date = req.time,
-                        reason = req.title,
-                        price = if (req.price > 0) appText("${req.price} ₽ предлагаю", "${req.price} ₽ тәҡдим итәм") else appText("цена договорная", "хаҡ килешеү буйынса"),
-                        badge = req.status,
-                        action = appText("Посмотреть отклики", "Яуаптарҙы ҡарау"),
-                        onAction = { onViewResponses(req.serverId) },
-                        onCancel = if (req.serverId != 0) ({ cancelTarget = req }) else null
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        RequestSummaryCard(
+                            icon = if (req.title.contains("больниц", ignoreCase = true)) Icons.Default.LocalHospital else Icons.Default.DirectionsCar,
+                            from = req.route.substringBefore(" → "),
+                            to = req.route.substringAfter(" → "),
+                            date = req.time,
+                            reason = req.title,
+                            price = if (req.price > 0) appText("${req.price} ₽ предлагаю", "${req.price} ₽ тәҡдим итәм") else appText("цена договорная", "хаҡ килешеү буйынса"),
+                            badge = req.status,
+                            action = appText("Посмотреть отклики", "Яуаптарҙы ҡарау"),
+                            onAction = { onViewResponses(req.serverId) },
+                            onCancel = if (req.serverId != 0) ({ cancelTarget = req }) else null,
+                            onEdit = if (req.serverId != 0) ({ editTarget = req }) else null
+                        )
+                        // Авто-подбор попуток под эту заявку (только для заявок с серверным id).
+                        if (req.serverId != 0) MatchingRidesSection(requestId = req.serverId, onOpenRide = onOpenRide)
+                    }
                 }
             }
         }
@@ -1282,7 +1307,8 @@ internal fun RequestSummaryCard(
     badge: String,
     action: String,
     onAction: () -> Unit,
-    onCancel: (() -> Unit)? = null   // не null → показываем «Отменить заявку» (только для активных)
+    onCancel: (() -> Unit)? = null,   // не null → показываем «Отменить заявку» (только для активных)
+    onEdit: (() -> Unit)? = null      // не null → показываем «Редактировать» (только для активных)
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
@@ -1326,11 +1352,117 @@ internal fun RequestSummaryCard(
                 Spacer(Modifier.weight(1f))
                 Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonGreen2)
             }
-            onCancel?.let { doCancel ->
-                TextButton(onClick = doCancel, modifier = Modifier.fillMaxWidth().height(40.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(appText("Отменить заявку", "Заявканы кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            if (onEdit != null || onCancel != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    onEdit?.let { doEdit ->
+                        TextButton(onClick = doEdit, modifier = Modifier.weight(1f).height(44.dp)) {
+                            Icon(Icons.Default.Edit, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(appText("Редактировать", "Үҙгәртеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                    onCancel?.let { doCancel ->
+                        TextButton(onClick = doCancel, modifier = Modifier.weight(1f).height(44.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(appText("Отменить заявку", "Заявканы кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** F3: диалог правки заявки — прегружаем текущие значения (маршрут/цена/комментарий),
+ *  шлём только то, что задано. Время и число мест правим отдельно (тут — частые правки). */
+@Composable
+private fun EditRequestDialog(
+    request: LocalRequest,
+    onDismiss: () -> Unit,
+    onSave: (from: String, to: String, maxPrice: Int, comment: String) -> Unit,
+) {
+    var from by remember { mutableStateOf(request.route.substringBefore(" → ").trim()) }
+    var to by remember { mutableStateOf(request.route.substringAfter(" → ").trim()) }
+    var price by remember { mutableStateOf(if (request.price > 0) request.price.toString() else "") }
+    var comment by remember { mutableStateOf(request.trustedContact ?: "") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CanonSurface,
+        title = { Text(appText("Редактировать заявку", "Заявканы үҙгәртеү"), color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = from, onValueChange = { from = it }, singleLine = true,
+                    label = { Text(appText("Откуда", "Ҡайҙан")) }, modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = to, onValueChange = { to = it }, singleLine = true,
+                    label = { Text(appText("Куда", "Ҡайҙа")) }, modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = price, onValueChange = { s -> price = s.filter { it.isDigit() }.take(6) }, singleLine = true,
+                    label = { Text(appText("Цена, ₽ (необязательно)", "Хаҡ, ₽ (мотлаҡ түгел)")) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = comment, onValueChange = { comment = it.take(300) },
+                    label = { Text(appText("Комментарий", "Аңлатма")) }, modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(from.trim(), to.trim(), price.toIntOrNull() ?: 0, comment.trim()) },
+                enabled = from.isNotBlank() && to.isNotBlank(),
+            ) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) } },
+    )
+}
+
+/** Авто-подбор попуток под заявку пассажира: показывает подходящие поездки (matchRides).
+ *  Все состояния: загрузка / пусто («как появятся — покажем») / ошибка+повтор / список карточек. */
+@Composable
+private fun MatchingRidesSection(requestId: Int, onOpenRide: (com.yuldash.app.data.RideDto) -> Unit) {
+    var rides by remember(requestId) { mutableStateOf<List<com.yuldash.app.data.RideDto>?>(null) }
+    var error by remember(requestId) { mutableStateOf(false) }
+    var reload by remember(requestId) { mutableStateOf(0) }
+    LaunchedEffect(requestId, reload) {
+        error = false
+        rides = null
+        ApiClient.matchRides(requestId)
+            .onSuccess { rides = it }
+            .onFailure { error = true }
+    }
+    val list = rides
+    Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            appText("Подходящие поездки", "Тап килгән сәфәрҙәр"),
+            color = CanonGreen2, fontSize = 15.sp, fontWeight = FontWeight.Black,
+        )
+        when {
+            error -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(appText("Не удалось загрузить.", "Йөкләп булманы."), color = CanonMuted, fontSize = 13.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(appText("Повторить", "Ҡабатларға"),
+                    color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.bounceClick { reload++ })
+            }
+            list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = CanonGreen2)
+                Spacer(Modifier.width(8.dp))
+                Text(appText("Ищем совпадения…", "Тап килгәндәрҙе эҙләйбеҙ…"), color = CanonMuted, fontSize = 13.sp)
+            }
+            list.isEmpty() -> Text(
+                appText("Пока нет совпадений — как появятся, покажем.",
+                    "Әлегә тап килгәне юҡ — булыу менән күрһәтербеҙ."),
+                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+            else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(end = 8.dp)) {
+                itemsIndexed(list, key = { _, r -> r.id }) { i, dto ->
+                    NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onOpenRide(dto) })
                 }
             }
         }

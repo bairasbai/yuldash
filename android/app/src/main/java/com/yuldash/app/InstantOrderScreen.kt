@@ -1301,12 +1301,16 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
     var contacts by remember { mutableStateOf<List<com.yuldash.app.data.ContactDto>?>(null) }
     var loadError by remember { mutableStateOf(false) }
     var liveLink by remember { mutableStateOf<String?>(null) }   // ссылка после share (B7c)
+    // Приватность: активные ссылки этого заказа (сервер отдаёт GET shares) + отозвать.
+    var activeShares by remember { mutableStateOf<List<com.yuldash.app.data.TripShareDto>>(emptyList()) }
     val sharedMsg = appText("Близкий получит SMS о поездке", "Яҡын кеше сәфәр тураһында SMS алыр")
     val shareFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
+    val revokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
     LaunchedEffect(Unit) {
         ApiClient.getContacts()
             .onSuccess { contacts = it }
             .onFailure { loadError = true; contacts = emptyList() }
+        ApiClient.getInstantShares(orderId).onSuccess { activeShares = it }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1321,42 +1325,73 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
         text = {
             val list = contacts
             val link = liveLink
-            when {
-                link != null -> LiveLinkCard(link)
-                list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
-                    Spacer(Modifier.width(10.dp))
-                    Text(appText("Загружаем близких…", "Яҡындарҙы йөкләйбеҙ…"), color = CanonMuted, fontSize = 14.sp)
-                }
-                loadError -> Text(appText("Не удалось загрузить контакты. Проверь сеть и попробуй ещё раз.",
-                    "Контакттарҙы йөкләп булманы. Селтәрҙе тикшереп ҡабат ҡара."), color = CanonMuted, fontSize = 14.sp)
-                list.isEmpty() -> Text(appText("Добавь близкого в «Доверенные контакты» в профиле — и делись поездкой в одно касание.",
-                    "Профилдә «Ышаныслы кешеләр»гә яҡыныңды өҫтә — сәфәр менән бер баҫыуҙа бүлеш."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
-                else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    list.forEach { c ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    scope.launch {
-                                        ApiClient.shareInstantTrip(orderId, c.id)
-                                            .onSuccess { link2 ->
-                                                Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show()
-                                                if (link2 != null) liveLink = link2 else onDismiss()
-                                            }
-                                            .onFailure {
-                                                onDismiss()
-                                                Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show()
-                                            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                when {
+                    link != null -> LiveLinkCard(link)
+                    list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
+                        Spacer(Modifier.width(10.dp))
+                        Text(appText("Загружаем близких…", "Яҡындарҙы йөкләйбеҙ…"), color = CanonMuted, fontSize = 14.sp)
+                    }
+                    loadError -> Text(appText("Не удалось загрузить контакты. Проверь сеть и попробуй ещё раз.",
+                        "Контакттарҙы йөкләп булманы. Селтәрҙе тикшереп ҡабат ҡара."), color = CanonMuted, fontSize = 14.sp)
+                    list.isEmpty() -> Text(appText("Добавь близкого в «Доверенные контакты» в профиле — и делись поездкой в одно касание.",
+                        "Профилдә «Ышаныслы кешеләр»гә яҡыныңды өҫтә — сәфәр менән бер баҫыуҙа бүлеш."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+                    else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        list.forEach { c ->
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        scope.launch {
+                                            ApiClient.shareInstantTrip(orderId, c.id)
+                                                .onSuccess { share ->
+                                                    Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show()
+                                                    if (share != null) {
+                                                        activeShares = activeShares.filterNot { it.id == share.id } + share
+                                                        if (!share.link.isNullOrBlank()) liveLink = share.link
+                                                    } else onDismiss()
+                                                }
+                                                .onFailure {
+                                                    onDismiss()
+                                                    Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show()
+                                                }
+                                        }
                                     }
+                                    .padding(horizontal = 8.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Text(c.name, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    if (c.relation.isNotBlank()) Text(c.relation, color = CanonMuted, fontSize = 12.sp)
                                 }
-                                .padding(horizontal = 8.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text(c.name, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                if (c.relation.isNotBlank()) Text(c.relation, color = CanonMuted, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+                // Приватность (B7c): активные ссылки заказа + «Отозвать» (сгорит /t/{token}, SMS-статусы стоп).
+                if (activeShares.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(appText("Активные ссылки", "Әүҙем һылтанмалар"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    activeShares.forEach { share ->
+                        val name = contacts?.firstOrNull { it.id == share.contactId }?.name
+                            ?: appText("Близкий", "Яҡын кеше")
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(name, color = CanonText, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                            TextButton(onClick = {
+                                scope.launch {
+                                    ApiClient.revokeInstantShare(orderId, share.id)
+                                        .onSuccess {
+                                            activeShares = activeShares.filterNot { it.id == share.id }
+                                            Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
+                                        }
+                                        .onFailure { Toast.makeText(ctx, shareFailMsg, Toast.LENGTH_SHORT).show() }
+                                }
+                            }, modifier = Modifier.heightIn(min = 44.dp)) {
+                                Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
                     }
@@ -1364,12 +1399,12 @@ private fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            if (liveLink != null) TextButton(onClick = onDismiss) {
-                Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+            if (liveLink != null) TextButton(onClick = { liveLink = null }) {
+                Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            if (liveLink == null) TextButton(onClick = onDismiss) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
+            TextButton(onClick = onDismiss) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
         },
     )
 }

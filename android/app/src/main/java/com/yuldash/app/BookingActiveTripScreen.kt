@@ -952,6 +952,34 @@ internal fun ActiveTripScreen(
             }
         }
     }
+    // F12 «Зимний протокол»: мягкая проверка «доехал?». Показываем ОДИН раз за поездку
+    // (rememberSaveable переживает поворот и kill процесса). departIso — старт поездки (raw ISO);
+    // точного ETA в этом экране нет → будим карточку по буферу после выезда, сервер сам гейтит.
+    var showArrivalCheck by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var arrivalAsked by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var departIso by remember(bookingId) { mutableStateOf("") }
+    // F12: пробудить проверку «доехал?» один раз, когда прошёл буфер после выезда, а поездка
+    // ещё активна (не done/cancelled). Буфер — эвристика (ETA в этом экране нет): сервер сам
+    // не пошлёт пуш до depart_at и не эскалирует раньше 30 мин + активного шаринга.
+    LaunchedEffect(bookingId, lifecycleOwner) {
+        val id = bookingId ?: return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (!arrivalAsked) {
+                val iso = departIso.ifBlank { tripPass?.departAt ?: "" }
+                val departMs = iso.takeIf { it.isNotBlank() }?.let(::parseIsoUtcMillis)
+                val active = bookingStatus != "done" && bookingStatus != "cancelled"
+                if (active && role != "driver" && departMs != null &&
+                    System.currentTimeMillis() >= departMs + ARRIVAL_CHECK_AFTER_MS
+                ) {
+                    arrivalAsked = true
+                    showArrivalCheck = true
+                    ApiClient.winterCheck(id)   // арм (сервер решает: too_early / check_sent)
+                    break
+                }
+                kotlinx.coroutines.delay(60_000)
+            }
+        }
+    }
     // Ключуем по bookingId: черновик/режим редактирования/выбранный статус не должны утекать в другую бронь.
     var draft by remember(bookingId) { mutableStateOf("") }
     var editingId by remember(bookingId) { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
@@ -959,6 +987,7 @@ internal fun ActiveTripScreen(
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
     val tripSharedPrefix = appText("Поездка отправлена", "Сәфәр ебәрелде")
+    val shareRevokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
 
     val myId = remember { ApiClient.myUserId() ?: -1 }
     val frostyNight = remember { isFrostyWinterNight() }   // F12: морозная ночь — считаем один раз (LazyListScope не @Composable)
@@ -995,7 +1024,7 @@ internal fun ActiveTripScreen(
             TripPassStore.updateBoardingCode(context, id, code)
             tripPass = TripPassStore.load(context, id)
         }
-        ApiClient.getBookingDetails(id).onSuccess { d -> payMethod = d.payMethod; payAmount = d.payAmount }
+        ApiClient.getBookingDetails(id).onSuccess { d -> payMethod = d.payMethod; payAmount = d.payAmount; if (d.departAt.isNotBlank()) departIso = d.departAt }
     }
 
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
@@ -1614,19 +1643,70 @@ internal fun ActiveTripScreen(
         }
     }
 
+    if (showArrivalCheck) {
+        val bid = bookingId
+        AlertDialog(
+            onDismissRequest = { showArrivalCheck = false },
+            containerColor = CanonSurface,
+            icon = { Icon(Icons.Default.AcUnit, contentDescription = null, tint = CanonGreen2) },
+            title = { Text(appText("Ты доехал(а)?", "Барып еттеңме?"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Text(
+                    appText("Отметь, что всё хорошо — и близкие не будут волноваться.",
+                        "Бөтәһе лә яҡшы тип билдәлә — яҡындарың борсолмаҫ."),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showArrivalCheck = false
+                    if (bid != null) voiceScope.launch { ApiClient.winterCheckOk(bid) }
+                }) { Text(appText("Доехал ✓", "Барып еттем ✓"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showArrivalCheck = false }) {
+                    Text(appText("Ещё в пути", "Юлдамын"), color = CanonMuted)
+                }
+            },
+        )
+    }
+
     if (showShare) {
         ModalBottomSheet(onDismissRequest = { showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
             // Ссылка live-поездки (B7c): после выбора близкого показываем её тут же —
             // скопировать или отправить самому через системный share-sheet.
             var liveLink by remember { mutableStateOf<String?>(null) }
+            // Приватность: активные ссылки этой сессии + возможность отозвать (на бэке нет GET
+            // shares для брони, поэтому копим созданные тут; отозванные убираем сразу).
+            var activeShares by remember { mutableStateOf<List<Pair<com.yuldash.app.data.TripShareDto, String>>>(emptyList()) }
+            // «Поделиться ещё» гасит вид ссылки, но список активных ссылок оставляем видимым.
+            var showContacts by remember { mutableStateOf(true) }
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
                 val link = liveLink
-                if (link != null) {
+                if (activeShares.isNotEmpty() && !showContacts) {
                     Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
-                    LiveLinkCard(link)
+                    if (!link.isNullOrBlank()) LiveLinkCard(link)
+                    ActiveSharesList(activeShares) { share ->
+                        val bid = bookingId
+                        if (bid != null) voiceScope.launch {
+                            ApiClient.revokeBookingShare(bid, share.id)
+                                .onSuccess {
+                                    activeShares = activeShares.filterNot { it.first.id == share.id }
+                                    if (activeShares.none { !it.first.link.isNullOrBlank() }) liveLink = null
+                                    if (activeShares.isEmpty()) showContacts = true
+                                    Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
+                                }
+                                .onFailure { Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show() }
+                        }
+                    }
                     Spacer(Modifier.height(12.dp))
-                    TextButton(onClick = { showShare = false }, modifier = Modifier.align(Alignment.End)) {
-                        Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextButton(onClick = { showContacts = true }) {
+                            Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(onClick = { showShare = false }) {
+                            Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                        }
                     }
                 } else {
                 Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
@@ -1639,9 +1719,13 @@ internal fun ActiveTripScreen(
                             val bid = bookingId
                             if (bid != null) voiceScope.launch {
                                 ApiClient.shareTrip(bid, c.id)
-                                    .onSuccess { url ->
+                                    .onSuccess { share ->
                                         Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
-                                        if (url != null) liveLink = url else showShare = false
+                                        if (share != null) {
+                                            activeShares = activeShares.filterNot { it.first.id == share.id } + (share to c.name)
+                                            if (!share.link.isNullOrBlank()) liveLink = share.link
+                                            showContacts = false
+                                        } else showShare = false
                                     }
                                     .onFailure {
                                         showShare = false
@@ -1673,6 +1757,21 @@ internal fun ActiveTripScreen(
 // Surface/Card. Двуязычие считается внутри через appText (по LocalAppLanguage). Анимацию появления
 // (`appearIn`) экран навешивает снаружи через modifier — тела остаются без анимаций/эффектов, что
 // делает их покрываемыми на JVM (Robolectric). Поведение 1:1 с прежним инлайном.
+
+/** F12: буфер после времени выезда, по которому будим мягкую проверку «доехал?». Эвристика:
+ *  ETA в экране активной поездки нет, поэтому берём разумный запас; сервер сам не пошлёт пуш
+ *  до depart_at и не эскалирует раньше 30 мин + активного шаринга. */
+private const val ARRIVAL_CHECK_AFTER_MS = 60L * 60_000L
+
+/** ISO выезда (UTC-наивный с сервера) → epoch millis. Терпимо к 'Z'/смещению/долям секунды. */
+internal fun parseIsoUtcMillis(iso: String): Long? = try {
+    val s = iso.substringBefore('.').substringBefore('+').removeSuffix("Z").take(19)
+    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+    fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+    fmt.parse(s)?.time
+} catch (e: Exception) {
+    null
+}
 
 /** F12 «Зимний протокол»: сейчас морозная ночь? Зима по МЕСЯЦУ (ноя–мар) + ночное время
  *  (20:00–07:00) по календарю устройства. Без внешних API/погоды в v1 — простое и честное правило. */
@@ -1941,6 +2040,39 @@ internal fun ShareTripRow(
                 Text(appText("Близкий будет видеть статус поездки", "Яҡының сәфәр хәлен күреп торор"), color = CanonMuted, fontSize = 13.sp)
             }
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
+        }
+    }
+}
+
+/** Список активных live-ссылок поездки с кнопкой «Отозвать» (приватность B7c). */
+@Composable
+private fun ActiveSharesList(
+    shares: List<Pair<com.yuldash.app.data.TripShareDto, String>>,
+    onRevoke: (com.yuldash.app.data.TripShareDto) -> Unit,
+) {
+    if (shares.isEmpty()) return
+    Spacer(Modifier.height(14.dp))
+    Text(
+        appText("Активные ссылки", "Әүҙем һылтанмалар"),
+        color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+    )
+    Spacer(Modifier.height(6.dp))
+    shares.forEach { (share, name) ->
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(name, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            TextButton(
+                onClick = { onRevoke(share) },
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
+                Icon(Icons.Default.Close, contentDescription = appText("Отозвать ссылку", "Һылтанманы кире алыу"), tint = CanonRed, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
         }
     }
 }

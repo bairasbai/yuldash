@@ -823,6 +823,23 @@ internal fun YuldashApp() {
                             }
                     }
                 },
+                onEditRequest = { id, from, to, price, comment ->
+                    // F3: правка заявки. Успех — оптимистично обновляем карточку; сбой — серверная причина.
+                    appScope.launch {
+                        ApiClient.editRequest(id, fromCity = from, toCity = to, maxPrice = price, comment = comment)
+                            .onSuccess {
+                                val idx = localRequests.indexOfFirst { it.serverId == id }
+                                if (idx >= 0) {
+                                    val r = localRequests[idx]
+                                    localRequests[idx] = r.copy(route = "$from → $to", price = price, trustedContact = comment.ifBlank { null })
+                                }
+                                Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка үҙгәртелде" else "Заявка обновлена", Toast.LENGTH_SHORT).show()
+                            }
+                            .onFailure { e ->
+                                Toast.makeText(context, (e as? com.yuldash.app.data.ApiException)?.message ?: if (language == AppLanguage.Ba) "Булманы. Ҡабатла" else "Не получилось. Повтори", Toast.LENGTH_LONG).show()
+                            }
+                    }
+                },
                 onSafety = { screen = Screen.Safety },
                 onSettings = { screen = Screen.Settings },
                 onPrivacy = { screen = Screen.Privacy },
@@ -1838,6 +1855,7 @@ internal fun HomeScreen(
     onOpenChat: (Int, String, String) -> Unit,
     onOpenResponses: (Int) -> Unit = {},
     onCancelRequest: (Int) -> Unit = {},
+    onEditRequest: (Int, String, String, Int, String) -> Unit = { _, _, _, _, _ -> },   // F3: правка заявки
     onSafety: () -> Unit,
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
@@ -1919,7 +1937,9 @@ internal fun HomeScreen(
                     onCreateNew = onCreateRequest,
                     onViewResponses = onOpenResponses,   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
                     onCancel = onCancelRequest,
-                    loading = requestsLoading
+                    loading = requestsLoading,
+                    onEditRequest = onEditRequest,
+                    onOpenRide = { dto -> onBookRide(dto.toUiRide()) }   // авто-подбор → открыть бронь поездки
                 )
                 HomeTab.Chat -> ChatScreen(
                     voiceMessages = voiceMessages,
