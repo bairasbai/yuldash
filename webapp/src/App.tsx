@@ -54,6 +54,11 @@ import FamilyOrderScreen from "./screens/FamilyOrderScreen";
 import CallbackHelpScreen from "./screens/CallbackHelpScreen";
 import VoiceRequestScreen from "./screens/VoiceRequestScreen";
 import SimpleModeScreen from "./screens/SimpleModeScreen";
+import NotificationsScreen from "./screens/NotificationsScreen";
+import SupportTicketsScreen from "./screens/SupportTicketsScreen";
+import SupportTicketScreen from "./screens/SupportTicketScreen";
+import HelpScreen from "./screens/HelpScreen";
+import AppReviewScreen from "./screens/AppReviewScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -122,6 +127,41 @@ export default function App() {
         />
         {/* Клиники — публичная витрина «поездки к клинике» */}
         <Route path="/clinics" element={<ClinicRidesScreen />} />
+        {/* --- Волна 7Б: поддержка и помощь --- */}
+        {/* Помощь / FAQ — публична (частые вопросы полезны и гостю) */}
+        <Route path="/help" element={<HelpScreen />} />
+        <Route
+          path="/notifications"
+          element={
+            <RequireAuth>
+              <NotificationsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/support"
+          element={
+            <RequireAuth>
+              <SupportTicketsScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/support/:id"
+          element={
+            <RequireAuth>
+              <SupportTicketScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/app-review"
+          element={
+            <RequireAuth>
+              <AppReviewScreen />
+            </RequireAuth>
+          }
+        />
         {/* Публичный профиль водителя — открывается тапом с карточки поездки */}
         <Route path="/drivers/:id" element={<DriverProfileScreen />} />
         {/* Приватное — только с токеном */}

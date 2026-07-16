@@ -23,6 +23,23 @@ export function formatWhen(iso?: string | null, ru = true): string {
   return `${date} ${time}`;
 }
 
+/** Относительное время: «только что» / «5 мин» / «2 ч» / «3 дн» / дата. */
+export function formatRelative(iso?: string | null, ru = true): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const diff = Date.now() - d.getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return ru ? "только что" : "хәҙер генә";
+  if (min < 60) return ru ? `${min} мин` : `${min} мин`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return ru ? `${hr} ч` : `${hr} сәғ`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return ru ? `${day} дн` : `${day} көн`;
+  // Старше недели — показываем дату (формат как formatWhen для дальних дат).
+  return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+}
+
 /** «1 200 ₽» либо «Бесплатно/Договорная» при 0. */
 export function priceLabel(price: number, ru = true): string {
   if (price > 0) return `${price.toLocaleString("ru-RU")} ₽`;

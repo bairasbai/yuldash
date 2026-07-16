@@ -4220,3 +4220,286 @@ button.list-row:active {
 .hub-card--sos .hub-card__title {
   color: var(--danger);
 }
+
+/* ============================================================
+   Волна 7Б — Поддержка и помощь (уведомления / тикеты / FAQ / отзыв)
+   Только токены Canon, светлая/тёмная тема наследуется.
+   ============================================================ */
+
+/* --- Бейдж непрочитанного в строке профиля --- */
+.list-row__badge {
+  flex: none;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--green-btn);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* --- Точка «непрочитано» --- */
+.notif-dot {
+  flex: none;
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--green-btn);
+  vertical-align: middle;
+}
+
+/* --- Список уведомлений --- */
+.notif-readall {
+  margin: 12px 0 0;
+}
+.notif-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.notif-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  transition: transform 0.12s ease, border-color 0.2s ease;
+  animation: fadeUp 0.24s ease both;
+}
+.notif-row:active {
+  transform: scale(0.99);
+}
+.notif-row--unread {
+  border-color: var(--canon-green-bright);
+  background: var(--mint);
+}
+.notif-row__ico {
+  flex: none;
+  font-size: 22px;
+  line-height: 1;
+  margin-top: 2px;
+}
+.notif-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.notif-row__title {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+}
+.notif-row__body {
+  margin-top: 3px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.notif-row__meta {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.notif-row__open {
+  font-weight: 800;
+  color: var(--green);
+}
+
+/* --- Поддержка: новое обращение + список --- */
+.support-new {
+  margin-top: 16px;
+}
+.support-compose {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: fadeUp 0.24s ease both;
+}
+.support-compose__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+.support-compose__actions .btn-soft,
+.support-compose__actions .btn-primary {
+  flex: 1;
+}
+.support-list {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.support-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  transition: transform 0.12s ease;
+  animation: fadeUp 0.24s ease both;
+}
+.support-row:active {
+  transform: scale(0.99);
+}
+.support-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.support-row__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.support-row__subject {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.support-row__last {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.support-row__meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.badge--muted {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+/* --- Тред обращения: время в пузыре + кнопка «закрыть» --- */
+.bubble__time {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.7;
+  text-align: right;
+}
+.support-close {
+  margin: 8px auto 0;
+}
+
+/* --- Помощь / FAQ --- */
+.help-search {
+  margin-top: 16px;
+}
+.faq-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.faq-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  overflow: hidden;
+  animation: fadeUp 0.24s ease both;
+}
+.faq-item--open {
+  border-color: var(--canon-green-bright);
+}
+.faq-q {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 16px;
+  min-height: 56px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.faq-q__chev {
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+}
+.faq-item--open .faq-q__chev {
+  transform: rotate(90deg);
+  color: var(--green);
+}
+.faq-a {
+  padding: 0 16px 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--muted);
+  animation: fadeUp 0.2s ease both;
+}
+.help-cta {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-align: center;
+}
+.help-cta__lead {
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 14px;
+}
+.help-tg {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  min-height: 44px;
+  padding: 0 14px;
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* --- Оценить приложение: активная звезда + подпись --- */
+.rate-star--on {
+  color: var(--canon-star);
+}
+.rate-card__hint {
+  margin-top: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--green);
+}

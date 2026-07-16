@@ -1,6 +1,9 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
+import { fetchNotifUnread } from "../api/notifications";
+import { fetchSupportUnread } from "../api/support";
 import ScreenHeader from "../components/ScreenHeader";
 import {
   IconChevron,
@@ -38,6 +41,21 @@ export default function ProfileScreen() {
   const { user, isAuthed, logout } = useAuth();
   const navigate = useNavigate();
 
+  // Бейджи непрочитанного (уведомления + поддержка). Мягко: ошибку глотаем.
+  const [notifUnread, setNotifUnread] = useState(0);
+  const [supportUnread, setSupportUnread] = useState(0);
+  useEffect(() => {
+    if (!isAuthed) {
+      setNotifUnread(0);
+      setSupportUnread(0);
+      return;
+    }
+    const ac = new AbortController();
+    fetchNotifUnread(ac.signal).then(setNotifUnread).catch(() => {});
+    fetchSupportUnread(ac.signal).then(setSupportUnread).catch(() => {});
+    return () => ac.abort();
+  }, [isAuthed]);
+
   const rows: {
     key: string;
     to: string;
@@ -45,7 +63,17 @@ export default function ProfileScreen() {
     title: string;
     sub: string;
     authed?: boolean;
+    badge?: number;
   }[] = [
+    {
+      key: "notifications",
+      to: "/notifications",
+      icon: <IconBell size={22} />,
+      title: appText("Уведомления", "Хәбәрҙәр"),
+      sub: appText("Отклики, сообщения и новости", "Яуаптар, хәбәрҙәр һәм яңылыҡтар"),
+      authed: true,
+      badge: notifUnread,
+    },
     {
       key: "cabinet",
       to: "/cabinet",
@@ -252,6 +280,30 @@ export default function ProfileScreen() {
       title: appText("Согласия", "Ризалыҡтар"),
       sub: appText("Оферта, приватность, гео (152-ФЗ)", "Оферта, ҡупшылыҡ, гео (152-ФЗ)"),
     },
+    {
+      key: "help",
+      to: "/help",
+      icon: <span style={{ fontSize: 20 }}>❓</span>,
+      title: appText("Помощь", "Ярҙам"),
+      sub: appText("Частые вопросы и ответы", "Йыш бирелгән һорауҙар"),
+    },
+    {
+      key: "support",
+      to: "/support",
+      icon: <span style={{ fontSize: 20 }}>💬</span>,
+      title: appText("Поддержка Юлдаш", "Юлдаш ярҙамы"),
+      sub: appText("Напиши нам — поможем с любым вопросом", "Беҙгә яҙ — теләһә ниҙә ярҙам итәбеҙ"),
+      authed: true,
+      badge: supportUnread,
+    },
+    {
+      key: "app-review",
+      to: "/app-review",
+      icon: <IconStar size={22} />,
+      title: appText("Оценить приложение", "Ҡушымтаны баһалау"),
+      sub: appText("Поставь звёзды и оставь отзыв", "Йондоҙ ҡуй һәм фекер яҙ"),
+      authed: true,
+    },
   ];
 
   return (
@@ -309,6 +361,11 @@ export default function ProfileScreen() {
               <div className="list-row__title">{r.title}</div>
               <div className="list-row__sub">{r.sub}</div>
             </div>
+            {r.badge ? (
+              <span className="list-row__badge" aria-label={appText(`${r.badge} новых`, `${r.badge} яңы`)}>
+                {r.badge > 99 ? "99+" : r.badge}
+              </span>
+            ) : null}
             <span className="list-row__chev">
               <IconChevron size={20} />
             </span>

@@ -320,9 +320,45 @@ callback/safe-note — только токены, светлая/тёмная т
 контакта деградирует мягко. `POST /voice` есть на release — до мержа отдаёт 404/405 → голосовая
 автоматически уходит в текстовый фолбэк. `POST /sos`, `POST /callback`, `POST /requests` — уже на проде.
 
-### Волна 7 — остаток (11)
-Notifications, Support, SupportTickets, SupportTicket, Settings (переиспользует `useFontScale`),
-Privacy, Rules, Blocklist, Report, Help, AppReview.
+### ✅ Волна 7Б-1 — Поддержка и помощь (5 экранов) (готово, сборка зелёная)
+5 экранов + связки. Все состояния (загрузка/пусто/ошибка/404), два языка
+(ба-черновик → `BASHKIR_DRAFT.md`), токены Canon, safe-area, тач-цели ≥48px, мягкая
+деградация. Зеркало `backend/app/routers/` (`notifications.py`, `support.py`, `reviews.py`).
+
+**Экраны и роуты:**
+- `NotificationsScreen` → `/notifications` (RequireAuth): `GET /notifications` — лента (непрочитанные
+  сверху с бэка), вкладки Все/Поездки/Сообщения/Система (client-side по `type`), относительное время
+  (`formatRelative` в `utils/format.ts`). Тап → оптимистичный mark-read (`POST /notifications/read {id}`)
+  + deep-link по `ref_kind`: booking→`/booking/:ref_id`, request→`/requests/:ref_id/responses`,
+  support→`/support/:ref_id`. «Прочитать всё» (`{all:true}`). Бейдж непрочитанного в шапке.
+- `SupportTicketsScreen` → `/support` (RequireAuth): `GET /support/tickets` — список обращений
+  (статус Открыто/Закрыто, превью, точка непрочитанного, относительное время). «Новое обращение»
+  (тема+текст → `POST /support/tickets`) → сразу в тред. Бейдж `unread`.
+- `SupportTicketScreen` → `/support/:id` (RequireAuth): `GET /support/tickets/{id}` — тред пузырями
+  (переиспользован паттерн `.chat`/`.bubble` из чата такси; user справа, поддержка слева + метка «Поддержка»
+  + время). Ввод+отправка `POST /support/tickets/{id}/messages`, «Закрыть обращение»
+  `POST /support/tickets/{id}/close`; закрытый — можно снова написать (бэк переоткрывает). 404 → мягко.
+- `HelpScreen` → `/help` (ПУБЛИЧНО): FAQ-эндпоинта на бэке нет → статичный двуязычный список 7 частых
+  вопросов (аккордеон) + client-side поиск. Крупная кнопка «Написать в поддержку» → `/support`
+  (гостю мягко на `/login`), Telegram-ссылка доп.вариантом.
+- `AppReviewScreen` → `/app-review` (RequireAuth): оценка звёздами + отзыв + город → `POST /reviews`
+  (`reviews.py`). Текст ≥ 10 символов (валидация клиентом до отправки, чтобы не ловить 400). Спасибо-состояние
+  («после модерации попадёт на лендинг»).
+
+**Инфраструктура:** API-слой `api/notifications.ts` (fetch/markRead/markAllRead + `fetchNotifUnread`),
+`api/support.ts` (tickets/thread/create/message/close + `fetchSupportUnread`), `api/reviews.ts`
+(`submitAppReview`, `POST /reviews`). Хелпер `formatRelative` в `utils/format.ts`. Новые CSS-классы Canon
+в `ui.css` (notif-list/row/dot, support-list/row/compose, faq-list/item, help-cta, `list-row__badge`,
+`badge--muted`, `bubble__time`, `rate-star--on`, `rate-card__hint` — только токены, светлая/тёмная тема).
+Связки в Профиле: «Уведомления» (с бейджем непрочитанного) вверху списка; «Помощь / Поддержка Юлдаш
+(с бейджем) / Оценить приложение» рядом с Согласиями. Deep-link support из Уведомлений открывает тред.
+
+**Зависит от деплоя release:** `/notifications`, `/notifications/read`, `/support/tickets*`, `/reviews` —
+контракты есть в `release/backend`; на проде `yulbash.ru` появятся после мержа `release`. До мержа отдают
+404/405 → экраны показывают мягкое пустое/ошибку без краша, бейджи в профиле просто не появляются.
+
+### Волна 7 — остаток (6)
+Settings (переиспользует `useFontScale`), Privacy, Rules, Blocklist, Report.
 
 ### Волна 8 — Админка (16)
 AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, AdminPaymentRequests, AdminReviews,
