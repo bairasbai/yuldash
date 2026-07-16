@@ -152,7 +152,7 @@ export default function HomeScreen() {
       />
 
       <div className="home-map">
-        <YandexMap markers={markers} me={me} height={220} />
+        <YandexMap markers={markers} me={me} height={280} />
       </div>
 
       <div className="chips">

@@ -464,7 +464,7 @@ function ComposeView({
 
       <button
         type="button"
-        className="btn-primary submit-btn"
+        className="btn-primary btn-taxi submit-btn"
         style={{ marginTop: 14 }}
         onClick={order}
         disabled={!canOrder}

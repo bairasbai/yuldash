@@ -9,13 +9,12 @@ import { useLang } from "../i18n/lang";
 import { useFontScale, type FontScale } from "../fontScale";
 import { SubHeader } from "./ConsentsScreen";
 import {
-  YuMapCar,
+  YuRoute,
   YuModeTaxi,
-  YuProfile,
   YuChat,
   YuSupport,
 } from "../components/BrandIcons";
-import { IconMic, IconHeart, IconPhone } from "../components/Icons";
+import { IconMic, IconHeart, IconPhone, IconUsers } from "../components/Icons";
 
 interface Tile {
   to: string;
@@ -33,7 +32,7 @@ export default function SimpleModeScreen() {
   const tiles: Tile[] = [
     {
       to: "/rides",
-      icon: <YuMapCar size={40} />,
+      icon: <YuRoute size={40} />,
       title: appText("Найти поездку", "Сәфәр табырға"),
       sub: appText("Попутки рядом", "Яҡындағы юлдаштар"),
     },
@@ -63,7 +62,7 @@ export default function SimpleModeScreen() {
     },
     {
       to: "/trusted",
-      icon: <YuProfile size={40} />,
+      icon: <IconUsers size={38} />,
       title: appText("Доверенные", "Ышаныслылар"),
       sub: appText("Кому сообщить", "Кемгә хәбәр итергә"),
     },

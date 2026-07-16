@@ -227,17 +227,18 @@ export default function CreateRequestScreen() {
           ))}
         </div>
 
-        <button
-          type="button"
-          className="more-toggle"
-          onClick={() => setShowMore((v) => !v)}
-          aria-expanded={showMore}
-        >
-          {appText("Дополнительно", "Өҫтәмә")}
-          <span className={"more-toggle__chev" + (showMore ? " open" : "")}>⌄</span>
-        </button>
+        <div className="more-block">
+          <button
+            type="button"
+            className="more-toggle"
+            onClick={() => setShowMore((v) => !v)}
+            aria-expanded={showMore}
+          >
+            {appText("Дополнительно", "Өҫтәмә")}
+            <span className={"more-toggle__chev" + (showMore ? " open" : "")}>⌄</span>
+          </button>
 
-        {showMore && (
+          {showMore && (
           <div className="more-body">
             <div className="opt-grid">
               {optList.map((o) => (
@@ -286,7 +287,8 @@ export default function CreateRequestScreen() {
               />
             </label>
           </div>
-        )}
+          )}
+        </div>
 
         {error && <div className="auth__error">{error}</div>}
 
