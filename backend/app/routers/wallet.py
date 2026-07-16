@@ -17,12 +17,15 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..ledger import driver_balance, ledger_entries, reconcile
-from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, Payment, User, UserRole
+from ..ledger import PayoutError, driver_balance, ledger_entries, reconcile, request_payout
+from ..models import (
+    Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus,
+    LedgerEntry, LedgerKind, Payment, User, UserRole,
+)
 from ..security import current_user
 from ..timeutil import utcnow
 from .payments import _activate_payment, _start_yookassa
@@ -156,3 +159,103 @@ def admin_ledger_reconcile(days: int = 1, date_from: str = "", date_to: str = ""
     except ValueError:
         raise HTTPException(400, "Неверный формат даты (нужен ISO 8601)")
     return reconcile(session, start, end)
+
+
+# ============================ Выплаты водителям (Модель Б, ВЫКЛ по умолчанию) ============================
+# ГОТОВНОСТЬ. Режим доступен, только когда Александр оформит ИП + бизнес-ЮKassa + ключи выплат
+# и выставит PAYOUTS_ENABLED=true. Выключено → «Выплаты скоро» (не 500), Модель А остаётся рабочей.
+_PAYOUT_SOON = "Выплаты на карту скоро будут доступны"
+
+
+def _payout_profile(session: Session, user_id: int) -> DriverProfile | None:
+    return session.exec(select(DriverProfile).where(DriverProfile.user_id == user_id)).first()
+
+
+@router.get("/wallet/payout/status")
+def wallet_payout_status(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Доступны ли выплаты + баланс и сохранённые реквизиты. Клиент по `enabled` рисует
+    активную кнопку «Вывести на карту» либо заглушку «Скоро». Границы — с сервера, не хардкод клиента."""
+    dp = _payout_profile(session, user.id)
+    return {
+        "enabled": settings.payouts_ready,          # реально ли можно выводить (флаг + ключи в проде)
+        "balance_kop": driver_balance(session, user.id),
+        "has_requisite": bool(dp and dp.payout_card_last4),
+        "card_last4": (dp.payout_card_last4 if dp else ""),
+        "min_kop": settings.payout_min_kop,
+        "max_kop": settings.payout_max_kop,
+    }
+
+
+class PayoutRequisiteIn(BaseModel):
+    # Номер карты вводится в UI и идёт ТРАНЗИТОМ: сервер берёт только последние 4 и забывает
+    # остальное (полный PAN не логируем и не храним). `card_last4`/`payout_token` — путь виджета
+    # провайдера (prod), когда PAN на сервер вообще не попадает.
+    card_number: str = Field("", max_length=32)
+    card_last4: str = Field("", max_length=4)
+    payout_token: str = Field("", max_length=128)
+
+
+@router.post("/wallet/payout/requisite")
+def save_payout_requisite(body: PayoutRequisiteIn, user: User = Depends(current_user),
+                          session: Session = Depends(get_session)):
+    """Сохранить карту для выплат. Храним ТОЛЬКО последние 4 цифры + токен провайдера — НЕ полный номер."""
+    digits = "".join(c for c in body.card_number if c.isdigit())
+    last4 = (digits[-4:] if len(digits) >= 4 else "") or "".join(c for c in body.card_last4 if c.isdigit())[-4:]
+    if not last4 or (digits and len(digits) < 12):
+        raise HTTPException(400, "Проверь номер карты для вывода")
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    if not dp:
+        dp = DriverProfile(user_id=user.id)
+    dp.payout_card_last4 = last4                 # только 4 цифры — не PAN
+    dp.payout_token = body.payout_token.strip()  # токен провайдера (не PAN); в dev может быть пустым
+    dp.payout_card_at = utcnow()
+    session.add(dp)
+    session.commit()
+    # digits/card_number намеренно НЕ сохраняем и не логируем — уходят из памяти с концом запроса.
+    return {"ok": True, "card_last4": last4}
+
+
+class PayoutIn(BaseModel):
+    amount_kop: int
+    # Ключ идемпотентности: клиент шлёт один и тот же при ретрае → повтор не спишет баланс дважды.
+    idempotency_key: str = Field("", max_length=64)
+
+
+@router.post("/wallet/payout")
+def wallet_payout(body: PayoutIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Вывести деньги с баланса на карту водителя (Модель Б). ВЫКЛ по умолчанию.
+
+    payouts_ready=False → 503 «Выплаты скоро» (не падаем). Иначе: нужны сохранённые реквизиты,
+    сумма в границах и ≤ баланса; списание идёт в ledger записью payout (−сумма), идемпотентно."""
+    if not settings.payouts_ready:                          # выключено → мягко «скоро», не 500
+        raise HTTPException(503, _PAYOUT_SOON)
+    dp = _payout_profile(session, user.id)
+    if not dp or not dp.payout_card_last4:
+        raise HTTPException(400, "Сначала добавь карту для вывода")
+    try:
+        res = request_payout(
+            session, user.id, int(body.amount_kop),
+            payout_token=dp.payout_token, card_last4=dp.payout_card_last4,
+            idempotency_key=body.idempotency_key.strip(),
+        )
+    except PayoutError as e:
+        raise HTTPException(400, e.message)
+    return res
+
+
+# ------------------------------ выплаты (админ) ------------------------------
+@router.get("/admin/payouts")
+def admin_payouts(limit: int = 100, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Реестр выплат (ledger kind=payout), свежие сверху. Только админ. Пока выплаты авто
+    (ЮKassa Payout), реестр — для сверки/контроля; ручное подтверждение появится, если авто нет."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    rows = session.exec(
+        select(LedgerEntry).where(LedgerEntry.kind == LedgerKind.payout)
+        .order_by(LedgerEntry.id.desc()).limit(max(1, min(limit, 500)))
+    ).all()
+    return [
+        {"id": e.id, "driver_id": e.driver_id, "amount_kop": -e.amount_kop,
+         "ext_id": e.ext_id, "note": e.note, "created_at": e.created_at}
+        for e in rows
+    ]

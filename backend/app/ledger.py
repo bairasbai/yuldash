@@ -62,6 +62,73 @@ def ledger_entries(session: Session, driver_id: int, limit: int = 100) -> list[L
     ).all()
 
 
+class PayoutError(Exception):
+    """Отказ вывода средств (границы / недостаточно баланса / провайдер).
+    code — машинный (для тестов/логики), message — человеку (RU, на клиент)."""
+    def __init__(self, code: str, message: str):
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
+def request_payout(session: Session, driver_id: int, amount_kop: int, *,
+                   payout_token: str = "", card_last4: str = "",
+                   idempotency_key: str = "") -> dict:
+    """Вывод с баланса водителя на карту (Модель Б). Идемпотентно, под row-lock.
+
+    Инварианты денег: сумма в границах [min, max]; нельзя вывести больше баланса; списание
+    пишется в ledger записью kind=payout (−сумма) РОВНО один раз (ключ идемпотентности в ext_id).
+    Полный номер карты НЕ фигурирует — платим по токену, в note храним только последние 4."""
+    from .models import User
+    from .payments import create_payout
+
+    if amount_kop <= 0:
+        raise PayoutError("amount", "Сумма вывода должна быть больше нуля")
+    if amount_kop < settings.payout_min_kop:
+        raise PayoutError("min", f"Минимальная сумма вывода — {settings.payout_min_kop // 100} ₽")
+    if amount_kop > settings.payout_max_kop:
+        raise PayoutError("max", f"Максимум за один вывод — {settings.payout_max_kop // 100} ₽")
+
+    # Row-lock строки водителя → два параллельных вывода сериализуются (не спишут баланс дважды).
+    locked = session.exec(select(User).where(User.id == driver_id).with_for_update()).one_or_none()
+    if locked is None:
+        raise PayoutError("no_user", "Водитель не найден")
+
+    # Идемпотентность: вывод с тем же ключом уже проведён → возвращаем его, второй раз НЕ списываем.
+    if idempotency_key:
+        existing = session.exec(
+            select(LedgerEntry).where(
+                LedgerEntry.driver_id == driver_id,
+                LedgerEntry.kind == LedgerKind.payout,
+                LedgerEntry.ext_id == idempotency_key,
+            )
+        ).first()
+        if existing:
+            return {"status": "already", "entry_id": existing.id, "amount_kop": -existing.amount_kop,
+                    "balance_kop": driver_balance(session, driver_id)}
+
+    bal = driver_balance(session, driver_id)
+    if amount_kop > bal:
+        raise PayoutError("insufficient", "Недостаточно средств на балансе")
+
+    # Отправляем выплату провайдеру (без реальных ключей выплат — mock succeeded, денег не двигает).
+    res = create_payout(amount_kop, payout_token, f"Юлдаш · выплата водителю #{driver_id}",
+                        {"driver_id": str(driver_id)}, idempotence_key=idempotency_key)
+    if res["status"] not in ("succeeded", "pending"):
+        raise PayoutError("provider", "Не получилось отправить выплату. Попробуй позже")
+
+    entry = LedgerEntry(
+        driver_id=driver_id, kind=LedgerKind.payout, amount_kop=-amount_kop,
+        ext_id=idempotency_key or res.get("payout_id", ""),
+        note=(f"Вывод на карту ····{card_last4}" if card_last4 else "Вывод на карту"),
+    )
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    return {"status": "ok", "entry_id": entry.id, "amount_kop": amount_kop,
+            "provider_status": res["status"], "balance_kop": driver_balance(session, driver_id)}
+
+
 def _post_earn_and_fee(session: Session, driver_id: int, amount_kop: int, *,
                        order_id: Optional[int] = None, booking_id: Optional[int] = None,
                        note: str = "") -> None:
