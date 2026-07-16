@@ -16,6 +16,7 @@ import { useLang } from "../i18n/lang";
 import { useTheme, type ThemeMode } from "../theme";
 import { useFontScale, type FontScale } from "../fontScale";
 import { getUiPref, setUiPref, type UiPrefKey } from "../uiPrefs";
+import PushToggle from "../components/PushToggle";
 import { deleteAccount } from "../api/auth";
 import { ApiError } from "../api/client";
 import { SubHeader } from "./ConsentsScreen";
@@ -207,6 +208,8 @@ export default function SettingsScreen() {
 
       {/* Уведомления / звуки */}
       <h2 className="section-title">{appText("Уведомления", "Хәбәрҙәр")}</h2>
+      {/* Web Push — честная подписка с мягкой деградацией (см. PushToggle) */}
+      <PushToggle />
       <div className="list">
         <button
           type="button"

@@ -22,3 +22,23 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -q
         # Тесты на изолированной SQLite (conftest), прод-БД не нужна.
+
+  # Сборка PWA-фронта (webapp/). Защищает ветку: PR не пройдёт, если фронт не собрался.
+  # Не зависит от backend-tests — гоняется параллельно, своя рабочая папка.
+  webapp-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Install deps
+        run: npm ci
+      - name: Build
+        run: npm run build
+        # tsc (типы) + vite build → dist/. Секреты не нужны: VITE_* пустые → мягкие плейсхолдеры.

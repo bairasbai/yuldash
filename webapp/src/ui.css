@@ -4956,3 +4956,137 @@ select.field__input {
   line-height: 1.5;
   color: var(--muted);
 }
+
+/* ================================================================
+   Волна 9 — Офлайн-индикатор + Web Push (Настройки).
+   Только токены Canon* (index.css), safe-area, тач-цели ≥48px.
+   ================================================================ */
+
+/* ---- Баннер «Нет сети» ---- */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 8px) 16px 8px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 8px 24px -16px rgba(0, 0, 0, 0.5);
+  animation: fadeDown 0.28s ease both;
+}
+.offline-banner--back {
+  background: var(--mint);
+  color: var(--green);
+}
+.offline-banner__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+  animation: pulseDot 1.4s ease-in-out infinite;
+}
+@keyframes fadeDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---- Секция «Пуш-уведомления» (Настройки) ---- */
+.push-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.push-block__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.push-block__main {
+  flex: 1;
+  min-width: 0;
+}
+.push-block__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.push-block__sub {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.push-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+}
+.push-dot--on {
+  background: var(--canon-green-bright);
+  border-color: var(--canon-green-bright);
+  box-shadow: 0 0 0 4px var(--mint);
+}
+.push-block__hint {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.push-block__actions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.push-block__note {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.push-block__msg {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.push-block__msg--ok {
+  color: var(--green);
+}
+.push-block__msg--info {
+  color: var(--muted);
+}
+.push-block__msg--warn {
+  color: var(--warn);
+}

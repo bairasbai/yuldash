@@ -2,6 +2,7 @@ import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useLang } from "./i18n/lang";
 import BottomNav from "./components/BottomNav";
 import InstallPrompt from "./components/InstallPrompt";
+import OfflineBanner from "./components/OfflineBanner";
 import RequireAuth from "./components/RequireAuth";
 import RequireAdmin from "./components/RequireAdmin";
 import RidesScreen from "./screens/RidesScreen";
@@ -86,6 +87,7 @@ import AdminCourierScreen from "./screens/AdminCourierScreen";
 function Shell() {
   return (
     <div className="app-shell">
+      <OfflineBanner />
       <main className="app-main">
         <Outlet />
       </main>

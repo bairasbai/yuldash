@@ -14,6 +14,10 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         navigateFallback: "/index.html",
+        // Подключаем наш обработчик Web Push (push / notificationclick) к
+        // сгенерированному Workbox SW. autoUpdate и кеш остаются как есть —
+        // мы лишь ДОБАВЛЯЕМ слушатели (см. public/push-sw.js).
+        importScripts: ["push-sw.js"],
         // Ленту поездок не кешируем агрессивно — сеть в приоритете, кеш как фолбэк.
         runtimeCaching: [
           {

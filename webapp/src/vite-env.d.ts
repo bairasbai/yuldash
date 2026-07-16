@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_TELEGRAM_BOT?: string;
   /** Ключ Яндекс Карт (JS API) для домена. Пусто → карта показывает брендовый плейсхолдер. */
   readonly VITE_YANDEX_MAPS_JS_KEY?: string;
+  /** Публичный VAPID-ключ (base64url) для Web Push. Пусто → «Включить пуши» показывает мягкую заглушку. */
+  readonly VITE_VAPID_PUBLIC_KEY?: string;
 }
 
 interface ImportMeta {

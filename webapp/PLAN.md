@@ -496,9 +496,41 @@ API-слой — расширен `src/api/admin.ts` (partners/promo/parcels/cou
 показывают ошибку/пусто без краша. `/admin/parcels` (базовая M3) частично уже на проде; admin-модерация
 бизнесов/промо/курьеров активируется после мержа release.
 
-### Волна 9 — Полировка + деплой
-Web Push (iOS 16.4+, только после установки на экран, VAPID), офлайн-кеш, тёмная тема/крупный шрифт финал,
-деплой статики `dist/` на `app.yulbash.ru` (nginx).
+### ✅ Волна 9 — Полировка + деплой (готово, сборка зелёная) — PWA ЗАВЕРШЕНА
+Финальная волна: клиентский Web Push, офлайн-полировка, финальная консистентность, деплой-доки, CI-джоба.
+
+**1. Web Push (клиент, честно + мягкая деградация):**
+- `src/push/webPush.ts` — точка правды: проверка поддержки (`Notification`+`serviceWorker`+`PushManager`),
+  `navigator.standalone`/`display-mode` (на iOS пуши ТОЛЬКО после установки на «Домой»),
+  `Notification.requestPermission()` → `pushManager.subscribe({userVisibleOnly, applicationServerKey})`.
+- `src/api/push.ts` — `POST /push/web/subscribe` (стандартная форма endpoint+keys). Эндпоинта на проде **НЕТ**
+  (есть только FCM `/push/register`) → 404/405 глотается как `PushBackendMissing` (не ошибка клиента).
+- `src/components/PushToggle.tsx` — секция «Пуш-уведомления» в Настройках: кнопка «Включить пуши», честные
+  состояния (iOS без установки / браузер без Push / нет VAPID / запрет / «включится после настройки на сервере»).
+- `public/push-sw.js` — обработчик `push` + `notificationclick`, подключён к Workbox SW через
+  `workbox.importScripts` (autoUpdate/generateSW НЕ сломан — только добавлены слушатели).
+- `VITE_VAPID_PUBLIC_KEY` в `.env.example` + `vite-env.d.ts`. **Пуши НЕ работают до серверной части** (см. ниже).
+
+**2. Офлайн-полировка:** `src/components/OfflineBanner.tsx` (в оболочке `App.tsx`) — `navigator.onLine` +
+события `online`/`offline`, аккуратный баннер «Нет сети» вместо белого экрана. App shell кешируется SW
+(precache + `navigateFallback`), лента `GET /rides|/feed` — NetworkFirst (проверено).
+
+**3. Консистентность:** аудит экранов — хардкод-цветов в экранах нет (только пины карты `YandexMap` и
+градиент логотипа `BrandMark` — легитимно), select-SVG (`%23686f66`) — известное исключение. Шапки
+единообразны (`SubHeader`/`ScreenHeader`; Privacy/Rules → `LegalScreen`). Крупный шрифт — глобальный `zoom`.
+
+**4. Деплой-доки:** `README.md` доведён (сборка `npm ci && npm run build` → `dist/`, `.env.production`,
+чек-лист операционки за Александром). `nginx.conf.example` — SPA-fallback, кеш assets/no-cache для SW.
+
+**5. CI:** джоба `webapp-build` в `.github/workflows/ci.yml` (setup-node 22 → `npm ci` → `npm run build`,
+аддитивно, параллельно backend-tests). Ветка защищена сборкой фронта.
+
+**⚠️ Требует серверной настройки (клиент готов, ждёт бэк/операционку):**
+- **Пуши:** сгенерировать VAPID-пару (public → `VITE_VAPID_PUBLIC_KEY`, private → `.env` бэка);
+  добавить эндпоинт `POST /push/web/subscribe` (приём подписки) + научить `send_push` слать web-push.
+- **CORS:** `app.yulbash.ru` в `CORS_ORIGINS` бэка.
+- **Ключ Яндекс JS** для домена `app.yulbash.ru`.
+- **Поддомен** `app.yulbash.ru` (DNS + nginx-статика из `dist/`, HTTPS).
 
 ## Веб-ограничения (адаптируем, не буквально 1:1)
 - Фоновый GPS-трекинг поездки — только при открытом приложении (iOS PWA).
