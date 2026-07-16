@@ -1,7 +1,7 @@
 // ================================================================
 //  Кабинет админа → /admin (RequireAdmin).
-//  Хаб-меню всех админ-разделов. Волна 8А реализована (навигация активна),
-//  остальные разделы — заглушки «скоро» (появятся в следующих волнах).
+//  Хаб-меню всех админ-разделов. Волны 8А/8Б/8В реализованы — вся админка
+//  активна (модерация + рост + бизнесы/промо/посылки/курьеры).
 //  Двуязычно, токены Canon, тач-цели ≥48px.
 // ================================================================
 import { useNavigate } from "react-router-dom";
@@ -116,14 +116,35 @@ export default function AdminCabinetScreen() {
       title: appText("Калькулятор дохода", "Килем калькуляторы"),
       sub: appText("Прогноз выручки автора", "Автор килеме фаразы"),
     },
-  ];
-
-  // Будущие волны — заглушки.
-  const soon: AdminLink[] = [
-    { key: "business", icon: <IconWork size={22} />, title: appText("Бизнесы", "Бизнестар"), sub: appText("Партнёрские компании", "Партнёр компаниялар") },
-    { key: "promo", icon: <IconGift size={22} />, title: appText("Промо", "Промо"), sub: appText("Промокоды и купоны", "Промокодтар һәм купондар") },
-    { key: "parcels", icon: <IconBox size={22} />, title: appText("Посылки", "Бандеролдәр"), sub: appText("Модерация доставок", "Доставкаларҙы тикшереү") },
-    { key: "couriers", icon: <IconBox size={22} />, title: appText("Курьеры", "Курьерҙар"), sub: appText("Заявки и проверка курьеров", "Курьер заявкалары һәм тикшереү") },
+    // Волна 8В — бизнесы, промо, посылки, курьеры (завершает админку).
+    {
+      key: "business",
+      to: "/admin/partners",
+      icon: <IconWork size={22} />,
+      title: appText("Бизнесы", "Бизнестар"),
+      sub: appText("Модерация партнёрских компаний", "Партнёр компанияларын тикшереү"),
+    },
+    {
+      key: "promo",
+      to: "/admin/promo",
+      icon: <IconGift size={22} />,
+      title: appText("Промокоды и кампании", "Промокодтар һәм кампаниялар"),
+      sub: appText("Блогеры, партнёры, акции", "Блогерҙар, партнёрҙар, акциялар"),
+    },
+    {
+      key: "parcels",
+      to: "/admin/parcels",
+      icon: <IconBox size={22} />,
+      title: appText("Доставки посылок", "Бандероль доставкалары"),
+      sub: appText("Контроль и доход", "Контроль һәм килем"),
+    },
+    {
+      key: "couriers",
+      to: "/admin/courier",
+      icon: <IconBox size={22} />,
+      title: appText("Заявки курьеров", "Курьер заявкалары"),
+      sub: appText("Проверка и одобрение", "Тикшереү һәм хуплау"),
+    },
   ];
 
   return (
@@ -152,20 +173,6 @@ export default function AdminCabinetScreen() {
               <IconChevron size={20} />
             </span>
           </button>
-        ))}
-      </div>
-
-      <h2 className="section-title">{appText("Скоро", "Тиҙҙән")}</h2>
-      <div className="list">
-        {soon.map((r) => (
-          <div key={r.key} className="list-row" style={{ opacity: 0.55 }}>
-            <span className="list-row__icon">{r.icon}</span>
-            <div className="list-row__main">
-              <div className="list-row__title">{r.title}</div>
-              <div className="list-row__sub">{r.sub}</div>
-            </div>
-            <span className="badge badge--gold">{appText("скоро", "тиҙҙән")}</span>
-          </div>
         ))}
       </div>
     </>

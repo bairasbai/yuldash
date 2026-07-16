@@ -77,6 +77,10 @@ import AdminTaxiScreen from "./screens/AdminTaxiScreen";
 import AdminWaitlistScreen from "./screens/AdminWaitlistScreen";
 import AdminTaxiPulseScreen from "./screens/AdminTaxiPulseScreen";
 import IncomeCalculatorScreen from "./screens/IncomeCalculatorScreen";
+import AdminPartnersScreen from "./screens/AdminPartnersScreen";
+import AdminPromoScreen from "./screens/AdminPromoScreen";
+import AdminParcelsScreen from "./screens/AdminParcelsScreen";
+import AdminCourierScreen from "./screens/AdminCourierScreen";
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
@@ -574,6 +578,40 @@ export default function App() {
           element={
             <RequireAdmin>
               <IncomeCalculatorScreen />
+            </RequireAdmin>
+          }
+        />
+
+        {/* --- Волна 8В: бизнесы, промо, посылки, курьеры (завершает админку) --- */}
+        <Route
+          path="/admin/partners"
+          element={
+            <RequireAdmin>
+              <AdminPartnersScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/promo"
+          element={
+            <RequireAdmin>
+              <AdminPromoScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/parcels"
+          element={
+            <RequireAdmin>
+              <AdminParcelsScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/courier"
+          element={
+            <RequireAdmin>
+              <AdminCourierScreen />
             </RequireAdmin>
           }
         />

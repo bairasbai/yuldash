@@ -13,6 +13,7 @@
 // ================================================================
 import { apiGet, apiPost, apiDelete, getToken } from "./client";
 import type { ResponseItem } from "./requests";
+import type { Parcel } from "./parcels";
 
 // ----------------------------- 2. Заявка за юзера -----------------------------
 export interface AdminRequestIn {
@@ -415,4 +416,163 @@ export function fetchWaitlist(
 /** POST /admin/waitlist/invite — пометить волну: проставить invited_at выбранным. */
 export function inviteWaitlist(ids: number[]): Promise<{ ok: boolean; invited: number }> {
   return apiPost<{ ok: boolean; invited: number }>("/admin/waitlist/invite", { ids });
+}
+
+// ================================================================
+//  Волна 8В — завершение админки. Зеркало backend-роутеров:
+//    coupons.py · GET /admin/partners; POST /admin/partners/{id}/approve|reject
+//    promo.py   · GET/POST /admin/promo; POST /admin/promo/{id}/status
+//    parcels.py · GET /admin/parcels (+ statement дохода)
+//    courier.py · GET /admin/courier-applications; POST …/{id}/approve|reject
+//  Все требуют role == "admin" (иначе 403). До мержа release на прод — 404/405 (мягко).
+// ================================================================
+
+// ----------------------------- 12. Модерация бизнесов -----------------------------
+export interface AdminPartner {
+  id: number;
+  owner_id: number;
+  name: string;
+  category: string;
+  city: string;
+  address: string;
+  phone: string; // публичный контакт БИЗНЕСА (не пользователя)
+  description: string;
+  status: string; // pending | active | rejected | paused | archived
+  reject_reason: string;
+  subscription_plan: string;
+  subscription_until: string | null;
+  subscription_active: boolean;
+  created_at: string | null;
+  reviewed_at: string | null;
+}
+
+/** GET /admin/partners — все бизнесы (очередь модерации), pending сверху. */
+export function fetchAdminPartners(
+  opts?: { limit?: number; offset?: number; signal?: AbortSignal }
+): Promise<AdminPartner[]> {
+  const q = new URLSearchParams();
+  if (opts?.limit) q.set("limit", String(opts.limit));
+  if (opts?.offset) q.set("offset", String(opts.offset));
+  const qs = q.toString();
+  return apiGet<AdminPartner[]>(`/admin/partners${qs ? `?${qs}` : ""}`, { signal: opts?.signal });
+}
+
+/** POST /admin/partners/{id}/approve — одобрить бизнес (→ active). */
+export function approvePartner(id: number): Promise<AdminPartner> {
+  return apiPost<AdminPartner>(`/admin/partners/${id}/approve`);
+}
+
+/** POST /admin/partners/{id}/reject — отклонить бизнес (→ rejected) с причиной. */
+export function rejectPartner(id: number, reason: string): Promise<AdminPartner> {
+  return apiPost<AdminPartner>(`/admin/partners/${id}/reject`, { reason });
+}
+
+// ----------------------------- 13. Промокоды и кампании -----------------------------
+export interface AdminPromo {
+  id: number;
+  code: string;
+  title: string;
+  description: string;
+  owner_id: number | null; // блогер/партнёр (по owner_phone) или null (акция Юлдаша)
+  campaign: string;
+  kind: string; // welcome | boost
+  perk_value: number; // boost → число бесплатных поднятий
+  limit_total: number;
+  limit_per_user: number;
+  redeemed_count: number;
+  applied: number; // всего применили код
+  active: number; // из них РЕАЛЬНО активны («живая поездка») — по ним платят блогеру
+  valid_from: string | null;
+  valid_until: string | null;
+  active_flag: boolean; // включена ли кампания
+  created_at: string | null;
+}
+
+export interface AdminPromoIn {
+  code: string;
+  title?: string;
+  description?: string;
+  owner_phone?: string | null; // привязать код к блогеру по телефону
+  campaign?: string;
+  kind?: "welcome" | "boost";
+  perk_value?: number;
+  limit_total?: number;
+  limit_per_user?: number;
+  valid_from?: string | null;
+  valid_until?: string | null;
+}
+
+/** GET /admin/promo — все промокоды со счётчиками applied/active, новые сверху. */
+export function fetchAdminPromos(signal?: AbortSignal): Promise<AdminPromo[]> {
+  return apiGet<AdminPromo[]>("/admin/promo", { signal });
+}
+
+/** POST /admin/promo — создать промокод/кампанию (code → upper, уникальность). */
+export function createAdminPromo(body: AdminPromoIn): Promise<AdminPromo> {
+  return apiPost<AdminPromo>("/admin/promo", body);
+}
+
+/** POST /admin/promo/{id}/status — вкл/выкл кампанию. */
+export function setPromoStatus(id: number, active: boolean): Promise<AdminPromo> {
+  return apiPost<AdminPromo>(`/admin/promo/${id}/status`, { active });
+}
+
+// ----------------------------- 14. Доставки посылок -----------------------------
+/** Доход платформы по доставленным посылкам (сумма fee + число доставленных). */
+export interface ParcelsStatement {
+  delivered_count: number;
+  collected_fee_kop: number;
+}
+
+export interface AdminParcelsResponse {
+  parcels: Parcel[]; // с приватным (телефон получателя + код вручения) — для поддержки/споров
+  statement: ParcelsStatement;
+}
+
+/** GET /admin/parcels — все заявки (контроль/поддержка) + statement дохода платформы. */
+export function fetchAdminParcels(
+  opts?: { limit?: number; offset?: number; signal?: AbortSignal }
+): Promise<AdminParcelsResponse> {
+  const q = new URLSearchParams();
+  if (opts?.limit) q.set("limit", String(opts.limit));
+  if (opts?.offset) q.set("offset", String(opts.offset));
+  const qs = q.toString();
+  return apiGet<AdminParcelsResponse>(`/admin/parcels${qs ? `?${qs}` : ""}`, { signal: opts?.signal });
+}
+
+// ----------------------------- 15. Заявки курьеров -----------------------------
+export interface AdminCourierApplication {
+  id: number;
+  transport: string; // car | cargo
+  status: string; // pending | approved | rejected
+  selfie_url: string; // защищённое фото (fetchSecureDoc)
+  invited_by: number | null;
+  reject_reason: string;
+  created_at: string | null;
+  reviewed_at: string | null;
+  user_id: number;
+  name: string;
+  phone: string;
+  invited_by_name: string | null; // кто пригласил (доверие «между своими»)
+}
+
+/** GET /admin/courier-applications?status= — очередь заявок курьеров. status=pending|approved|rejected|all. */
+export function fetchCourierApplications(
+  status: string,
+  signal?: AbortSignal
+): Promise<AdminCourierApplication[]> {
+  return apiGet<AdminCourierApplication[]>(
+    `/admin/courier-applications?status=${encodeURIComponent(status)}`,
+    { signal }
+  );
+}
+
+/** POST /admin/courier-applications/{id}/approve — одобрить заявку курьера. */
+export function approveCourierApp(id: number): Promise<{ id: number; status: string }> {
+  return apiPost(`/admin/courier-applications/${id}/approve`);
+}
+
+/** POST /admin/courier-applications/{id}/reject — отклонить заявку с причиной. */
+export function rejectCourierApp(id: number, reason: string): Promise<{ id: number; status: string }> {
+  return apiPost(`/admin/courier-applications/${id}/reject`, { reason });
 }

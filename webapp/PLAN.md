@@ -395,7 +395,7 @@ callback/safe-note — только токены, светлая/тёмная т
 → Чёрный список показывает «пусто», Жалоба/Удаление — мягкое «скоро, напиши в поддержку», без краша.
 Юр-страницы `/privacy`, `/rules` полностью автономны (текст в приложении).
 
-### Волна 8 — Админка (16)
+### ✅ Волна 8 — Админка (16 экранов) (ГОТОВО — вся админка, сборка зелёная)
 AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, AdminPaymentRequests, AdminReviews,
 AdminAds, AdminTaxi, AdminWaitlist, AdminTaxiPulse, IncomeCalculator, AdminPartners, AdminPromo, AdminParcels, AdminCourier.
 
@@ -465,6 +465,36 @@ API-слой — расширен `src/api/admin.ts` (reviews/ads/taxi/waitlist/
 **Зависит от деплоя release:** контракты `reviews.py`, `ads.py`, `taxi.py`, `waitlist.py` есть в
 `release/backend`; на проде `yulbash.ru` появятся после мержа `release`. До мержа → 404/405, экраны
 показывают ошибку/пусто без краша. IncomeCalculator работает офлайн (расчёт на клиенте).
+
+#### ✅ Волна 8В — Бизнесы, промо, посылки, курьеры (готово — завершает волну 8, всю админку)
+4 новых экрана под `RequireAdmin` (шапка `SubHeader`, все состояния, двуязычно, тач-цели ≥48px). В
+`AdminCabinet` последние 4 ссылки переведены из «скоро» в активные — раздел «Скоро» убран, вся админка активна.
+
+- **AdminPartners** → `/admin/partners` (`coupons.py` admin) — `GET /admin/partners` (pending сверху с бэка),
+  плитки (на проверке/активных/всего), фильтр-чипы (pending/active/rejected/все). Одобрить
+  `POST /admin/partners/{id}/approve` (→ active); отклонить с причиной `POST /admin/partners/{id}/reject {reason}`
+  (→ rejected). Карточка: категория/город/адрес/телефон бизнеса/описание/статус подписки/причина отказа.
+- **AdminPromo** → `/admin/promo` (`promo.py` admin) — `GET /admin/promo` со счётчиками applied/active
+  (по active платим блогеру «на результат»). Плитки-статистика. Форма создания (сворачиваемая):
+  code (→upper)/название/тип бонуса welcome|boost/perk_value/телефон блогера/кампания/лимиты/сроки →
+  `POST /admin/promo`. Список: код моноширинно, applied/active/лимит, вкл/выкл `POST /admin/promo/{id}/status {active}`.
+- **AdminParcels** → `/admin/parcels` (`parcels.py` admin) — `GET /admin/parcels` → `{parcels, statement}`.
+  Плашка дохода (`income-hero`): собрано ₽ (`collected_fee_kop`) + доставлено N + в работе. Активные сверху
+  (client-sort по стадии created→accepted→in_transit, затем delivered/canceled), фильтр-чипы. Карточка:
+  маршрут, размер, тип доставки, сбор, получатель+телефон, **код вручения** (для поддержки/споров), курьер.
+- **AdminCourier** → `/admin/courier` (`courier.py` admin) — `GET /admin/courier-applications?status=`
+  (pending/approved/rejected/all). Селфи с документом защищено → `fetchSecureDoc` (Bearer→blob-URL, как в
+  AdminDrivers). Одобрить `POST …/approve`; отклонить с причиной `POST …/reject {reason}`. Карточка:
+  имя/телефон/транспорт/«кто пригласил» (доверие «между своими»)/селфи/причина отказа.
+
+API-слой — расширен `src/api/admin.ts` (partners/promo/parcels/courier, `import type Parcel`). Переиспользованы
+`sizeLabel`/`StatusPillParcel` из `components/parcelUi.tsx`, `income-hero`/`stat-grid`/`stat-tile`/`admin-card*`/
+`chip-scroll`/`field__area` из `ui.css` — новых CSS-классов не заводили.
+
+**Зависит от деплоя release:** контракты `coupons.py` (admin-часть), `promo.py`, `parcels.py`, `courier.py`
+есть в `release/backend`; на проде `yulbash.ru` появятся после мержа `release`. До мержа → 404/405, экраны
+показывают ошибку/пусто без краша. `/admin/parcels` (базовая M3) частично уже на проде; admin-модерация
+бизнесов/промо/курьеров активируется после мержа release.
 
 ### Волна 9 — Полировка + деплой
 Web Push (iOS 16.4+, только после установки на экран, VAPID), офлайн-кеш, тёмная тема/крупный шрифт финал,
