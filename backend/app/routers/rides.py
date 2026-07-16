@@ -1,6 +1,7 @@
 """Поездки: публикация (вкл. регулярные серии), поиск, ценовой ориентир,
 ближайшие по маршруту+гео, карточка поездки."""
 from datetime import date as date_type, datetime, timedelta
+from functools import lru_cache
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -253,10 +254,12 @@ def search_rides(
     return _hide_trusted_only(out, user, session)
 
 
+@lru_cache(maxsize=512)
 def _route_distance_km(from_city: Optional[str], to_city: Optional[str]) -> Optional[float]:
     """Расстояние между городами маршрута по прямой (haversine), км. Координаты берём
-    из геокодера (известные города БашРТ — бесплатно, иначе Яндекс). Нет координат
-    хотя бы одного конца → None (не завышаем, честно «не знаем»)."""
+    из геокодера (известные города БашРТ — бесплатно из справочника, иначе Яндекс). Нет координат
+    хотя бы одного конца → None (не завышаем, честно «не знаем»).
+    lru_cache: подсказка цены дёргается при вводе (debounce), одинаковый маршрут не геокодим повторно."""
     if not from_city or not to_city:
         return None
     f = geocode_city(from_city)

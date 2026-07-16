@@ -953,11 +953,14 @@ internal fun ActiveTripScreen(
         }
     }
     // F12 «Зимний протокол»: мягкая проверка «доехал?». Показываем ОДИН раз за поездку
-    // (rememberSaveable переживает поворот и kill процесса). departIso — старт поездки (raw ISO);
-    // точного ETA в этом экране нет → будим карточку по буферу после выезда, сервер сам гейтит.
+    // (rememberSaveable переживает поворот и kill процесса). departIso — старт поездки (raw ISO).
+    // Момент проверки считаем по РАСЧЁТНОЙ ETA маршрута (расстояние/скорость + запас), а НЕ по
+    // фиксированному часу — иначе на длинном межгороде спросили бы «доехал?» в середине пути и
+    // могли зря потревожить близкого через шаринг. Нет координат маршрута → щедрый фолбэк.
     var showArrivalCheck by rememberSaveable(bookingId) { mutableStateOf(false) }
     var arrivalAsked by rememberSaveable(bookingId) { mutableStateOf(false) }
     var departIso by remember(bookingId) { mutableStateOf("") }
+    var armAfterMs by remember(bookingId) { mutableStateOf(ARRIVAL_CHECK_FALLBACK_MS) }
     // F12: пробудить проверку «доехал?» один раз, когда прошёл буфер после выезда, а поездка
     // ещё активна (не done/cancelled). Буфер — эвристика (ETA в этом экране нет): сервер сам
     // не пошлёт пуш до depart_at и не эскалирует раньше 30 мин + активного шаринга.
@@ -969,7 +972,7 @@ internal fun ActiveTripScreen(
                 val departMs = iso.takeIf { it.isNotBlank() }?.let(::parseIsoUtcMillis)
                 val active = bookingStatus != "done" && bookingStatus != "cancelled"
                 if (active && role != "driver" && departMs != null &&
-                    System.currentTimeMillis() >= departMs + ARRIVAL_CHECK_AFTER_MS
+                    System.currentTimeMillis() >= departMs + armAfterMs
                 ) {
                     arrivalAsked = true
                     showArrivalCheck = true
@@ -1024,7 +1027,7 @@ internal fun ActiveTripScreen(
             TripPassStore.updateBoardingCode(context, id, code)
             tripPass = TripPassStore.load(context, id)
         }
-        ApiClient.getBookingDetails(id).onSuccess { d -> payMethod = d.payMethod; payAmount = d.payAmount; if (d.departAt.isNotBlank()) departIso = d.departAt }
+        ApiClient.getBookingDetails(id).onSuccess { d -> payMethod = d.payMethod; payAmount = d.payAmount; if (d.departAt.isNotBlank()) departIso = d.departAt; armAfterMs = arrivalCheckAfterMs(d.fromLat, d.fromLng, d.toLat, d.toLng) }
     }
 
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
@@ -1759,10 +1762,28 @@ internal fun ActiveTripScreen(
 // (`appearIn`) экран навешивает снаружи через modifier — тела остаются без анимаций/эффектов, что
 // делает их покрываемыми на JVM (Robolectric). Поведение 1:1 с прежним инлайном.
 
-/** F12: буфер после времени выезда, по которому будим мягкую проверку «доехал?». Эвристика:
- *  ETA в экране активной поездки нет, поэтому берём разумный запас; сервер сам не пошлёт пуш
- *  до depart_at и не эскалирует раньше 30 мин + активного шаринга. */
-private const val ARRIVAL_CHECK_AFTER_MS = 60L * 60_000L
+/** F12: параметры мягкой проверки «доехал?». Момент проверки = расчётная ETA маршрута
+ *  (расстояние по прямой / средняя скорость) + запас. Скорость консервативная (со стопами и
+ *  трафиком), запас щедрый — чтобы НЕ спросить «доехал?» посреди длинной межгородской поездки
+ *  и не потревожить близкого зря. Нет координат маршрута → фолбэк (3 ч). */
+private const val ARRIVAL_CHECK_FALLBACK_MS = 3L * 60 * 60_000L   // нет ETA → щедрый фолбэк
+private const val ARRIVAL_CHECK_GRACE_MS = 45L * 60_000L          // запас после расчётного прибытия
+private const val ARRIVAL_ASSUMED_KMH = 45.0                      // консервативная средняя скорость
+
+/** Через сколько после выезда будить проверку «доехал?»: расчётное время в пути (haversine/скорость)
+ *  + запас. Нет полных координат → фолбэк. Никаких сетевых вызовов — считаем локально. */
+internal fun arrivalCheckAfterMs(fromLat: Double?, fromLng: Double?, toLat: Double?, toLng: Double?): Long {
+    if (fromLat == null || fromLng == null || toLat == null || toLng == null) return ARRIVAL_CHECK_FALLBACK_MS
+    val r = 6371.0
+    val dLat = Math.toRadians(toLat - fromLat)
+    val dLon = Math.toRadians(toLng - fromLng)
+    val h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(Math.toRadians(fromLat)) * Math.cos(Math.toRadians(toLat)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    val km = 2 * r * Math.asin(Math.min(1.0, Math.sqrt(h)))
+    if (km <= 0.0) return ARRIVAL_CHECK_FALLBACK_MS
+    val travelMs = (km / ARRIVAL_ASSUMED_KMH * 3_600_000.0).toLong()
+    return travelMs + ARRIVAL_CHECK_GRACE_MS
+}
 
 /** ISO выезда (UTC-наивный с сервера) → epoch millis. Терпимо к 'Z'/смещению/долям секунды. */
 internal fun parseIsoUtcMillis(iso: String): Long? = try {
