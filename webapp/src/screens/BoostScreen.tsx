@@ -23,7 +23,7 @@ import type { Ride } from "../api/rides";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { formatWhen } from "../utils/format";
-import { IconArrow, IconRocket, IconCheck, IconCopy } from "../components/Icons";
+import { IconArrow, IconRocket, IconCheck, IconCopy, IconClock, IconWarn, IconCar } from "../components/Icons";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -132,7 +132,7 @@ export default function BoostScreen() {
       <>
         <SubHeader title={appText("Поездка поднята", "Сәфәр күтәрелде")} onBack={() => navigate("/driver")} />
         <div className="state">
-          <div className="state__emoji">🚀</div>
+          <div className="state__icon"><IconRocket size={34} /></div>
           <h2>{appText("Готово! Ты в топе ленты", "Әҙер! Һин таҫма башында")}</h2>
           <p>
             {appText(
@@ -203,7 +203,7 @@ export default function BoostScreen() {
       <>
         <SubHeader title={appText("Ждём оплату", "Түләүҙе көтәбеҙ")} onBack={() => navigate("/driver")} />
         <div className="state">
-          <div className="state__emoji">⏳</div>
+          <div className="state__icon"><IconClock size={34} /></div>
           <h2>{appText("Оплата обрабатывается", "Түләү эшкәртелә")}</h2>
           <p>
             {appText(
@@ -231,7 +231,7 @@ export default function BoostScreen() {
 
       {status === "soon" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">🚀</div>
+          <div className="state__icon"><IconRocket size={34} /></div>
           <h2>{appText("Поднятие скоро", "Күтәреү тиҙҙән")}</h2>
           <p>{appText("Функция включится после обновления сервиса.", "Был хеҙмәт яңыртыуҙан һуң эшләй башлар.")}</p>
         </div>
@@ -239,7 +239,7 @@ export default function BoostScreen() {
 
       {status === "error" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}
@@ -253,7 +253,7 @@ export default function BoostScreen() {
           <h2 className="section-title">{appText("Какую поездку поднять", "Ниндәй сәфәр күтәрергә")}</h2>
           {rides.length === 0 ? (
             <div className="state" style={{ paddingTop: 12 }}>
-              <div className="state__emoji">🚗</div>
+              <div className="state__icon"><IconCar size={34} /></div>
               <p>{appText("Нет активных поездок для поднятия.", "Күтәрер өсөн әүҙем сәфәр юҡ.")}</p>
               <button type="button" className="btn-primary" onClick={() => navigate("/create-ride")}>
                 {appText("Опубликовать поездку", "Сәфәр баҫтырырға")}

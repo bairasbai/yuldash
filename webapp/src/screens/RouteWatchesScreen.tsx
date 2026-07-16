@@ -105,7 +105,7 @@ export default function RouteWatchesScreen() {
         <>
           {watches.length === 0 ? (
             <div className="state" style={{ paddingBottom: 20 }}>
-              <div className="state__emoji">🔔</div>
+              <div className="state__icon"><IconBell size={34} /></div>
               <h2>{appText("Нет подписок", "Яҙылыуҙар юҡ")}</h2>
               <p>
                 {appText(

@@ -12,7 +12,7 @@ import { fetchDriverPublic, type DriverPublic } from "../api/driver";
 import { apiGet } from "../api/client";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconArrow, IconCalendar, IconFlag } from "../components/Icons";
+import { IconArrow, IconCalendar, IconFlag, IconCheck, IconChat } from "../components/Icons";
 import { YuStar } from "../components/BrandIcons";
 
 type Status = "loading" | "error" | "ready";
@@ -129,7 +129,7 @@ export default function DriverProfileScreen() {
             <div className="dprofile-name">{driver.name}</div>
             {driver.verified && (
               <span className="badge badge--mint" style={{ marginTop: 6 }}>
-                ✓ {appText("Проверен", "Тикшерелгән")}
+                <IconCheck size={14} /> {appText("Проверен", "Тикшерелгән")}
               </span>
             )}
             <div className="dprofile-meta">
@@ -191,7 +191,7 @@ export default function DriverProfileScreen() {
           <h2 className="section-title">{appText("Отзывы", "Кире бәйләнеш")}</h2>
           {driver.reviews.length === 0 ? (
             <div className="state" style={{ paddingTop: 12 }}>
-              <div className="state__emoji">💬</div>
+              <div className="state__icon"><IconChat size={34} /></div>
               <p>
                 {appText(
                   "Пока нет отзывов. Проедьте вместе — и оставьте первый.",

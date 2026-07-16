@@ -20,7 +20,7 @@ import {
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import { formatRelative } from "../utils/format";
-import { IconCheck, IconFlag, IconPhone } from "../components/Icons";
+import { IconCheck, IconFlag, IconPhone, IconShield } from "../components/Icons";
 
 type State = "loading" | "error" | "ready";
 
@@ -118,7 +118,7 @@ export default function AdminReportsScreen() {
 
       {state === "ready" && reports.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji">🕊️</div>
+          <div className="state__icon"><IconShield size={34} /></div>
           <h2>{appText("Здесь пусто", "Бында буш")}</h2>
           <p>{appText("Жалоб в этом разделе нет.", "Был бүлектә зарланыуҙар юҡ.")}</p>
         </div>

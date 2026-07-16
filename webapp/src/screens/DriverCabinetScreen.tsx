@@ -38,6 +38,9 @@ import {
   IconCheck,
   IconChevron,
   IconCar,
+  IconClock,
+  IconWarn,
+  IconIdCard,
 } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
@@ -52,25 +55,25 @@ function VerifyBanner({ docs }: { docs: string }) {
   if (docs === "verified") {
     return (
       <div className="consents__status" style={{ marginTop: 12 }}>
-        ✅ {appText("Ты проверенный водитель", "Һин тикшерелгән водитель")}
+        <IconCheck size={16} /> {appText("Ты проверенный водитель", "Һин тикшерелгән водитель")}
       </div>
     );
   }
-  const map: Record<string, { emoji: string; ru: string; ba: string; cta: boolean }> = {
+  const map: Record<string, { Icon: (p: { size?: number }) => JSX.Element; ru: string; ba: string; cta: boolean }> = {
     pending: {
-      emoji: "⏳",
+      Icon: IconClock,
       ru: "Документы на проверке. Обычно это занимает недолго.",
       ba: "Документтар тикшереүҙә. Ғәҙәттә оҙаҡ түгел.",
       cta: false,
     },
     rejected: {
-      emoji: "⚠️",
+      Icon: IconWarn,
       ru: "Проверка не пройдена. Проверь фото и отправь снова.",
       ba: "Тикшереү үтмәне. Фотоны ҡара һәм ҡабат ебәр.",
       cta: true,
     },
     none: {
-      emoji: "🪪",
+      Icon: IconIdCard,
       ru: "Чтобы возить пассажиров, пройди проверку водителя.",
       ba: "Юлаусы йөрөтөр өсөн водитель тикшереүен үт.",
       cta: true,
@@ -85,7 +88,7 @@ function VerifyBanner({ docs }: { docs: string }) {
       disabled={!m.cta}
       style={{ marginTop: 12 }}
     >
-      <span className="trust-cta__emoji">{m.emoji}</span>
+      <span className="trust-cta__emoji"><m.Icon size={22} /></span>
       <span className="trust-cta__text">{appText(m.ru, m.ba)}</span>
       {m.cta && <IconChevron size={20} />}
     </button>
@@ -172,7 +175,7 @@ export default function DriverCabinetScreen() {
             onClick={toggleOnline}
             disabled={onlineBusy}
           >
-            <span className="onb__simple-emoji">{driver.online ? "🟢" : "⚪️"}</span>
+            <span className={"status-dot" + (driver.online ? " status-dot--on" : "")} aria-hidden />
             <span className="onb__simple-text">
               <b>{appText("Я на линии", "Мин линияла")}</b>
               <span>

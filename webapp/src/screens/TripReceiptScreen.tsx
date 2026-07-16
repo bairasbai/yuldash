@@ -11,7 +11,7 @@ import { ApiError } from "../api/client";
 import { fetchReceipt, type TripReceipt } from "../api/bookings";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconArrow } from "../components/Icons";
+import { IconArrow, IconReceipt, IconHeart, IconCheck } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 
 type State =
@@ -70,7 +70,7 @@ export default function TripReceiptScreen() {
 
       {state.kind === "soft" && (
         <div className="state">
-          <div className="state__emoji">🧾</div>
+          <div className="state__emoji"><IconReceipt size={34} /></div>
           <h2>
             {state.reason === "pending"
               ? appText("Поездка ещё не завершена", "Сәфәр әле тамамланмаған")
@@ -92,7 +92,7 @@ export default function TripReceiptScreen() {
 
       {state.kind === "ready" && (
         <div className="receipt">
-          <div className="receipt__brand">🌿 {appText("Юлдаш", "Юлдаш")}</div>
+          <div className="receipt__brand"><IconHeart size={16} /> {appText("Юлдаш", "Юлдаш")}</div>
           <div className="receipt__route">
             <span>{state.r.from_city}</span>
             <span className="ride-card__arrow">
@@ -108,7 +108,7 @@ export default function TripReceiptScreen() {
               <span className="info-row__v">
                 {state.r.driver_name}
                 {state.r.driver_verified && (
-                  <span className="badge badge--mint" style={{ marginLeft: 6 }}>✓</span>
+                  <span className="badge badge--mint" style={{ marginLeft: 6 }}><IconCheck size={12} /></span>
                 )}
               </span>
             </div>

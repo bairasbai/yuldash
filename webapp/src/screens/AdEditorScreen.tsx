@@ -22,7 +22,7 @@ import {
 } from "../api/ads";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconMap } from "../components/Icons";
+import { IconMap, IconMegaphone, IconWarn } from "../components/Icons";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -164,7 +164,7 @@ export default function AdEditorScreen() {
 
       {status === "soon" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📣</div>
+          <div className="state__icon"><IconMegaphone size={34} /></div>
           <h2>{appText("Реклама скоро", "Реклама тиҙҙән")}</h2>
           <p>{appText("Кабинет рекламы включится после обновления сервиса.", "Реклама кабинеты яңыртыуҙан һуң эшләй башлар.")}</p>
         </div>
@@ -172,7 +172,7 @@ export default function AdEditorScreen() {
 
       {status === "error" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}

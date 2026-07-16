@@ -4,22 +4,23 @@
 //  «Сообщить своим» (POST /sos) — только со входом; гостю мягко
 //  предлагаем войти. Крупные тач-цели, всё двуязычно.
 // ================================================================
-import { useState } from "react";
+import { useState, type ComponentType } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { sendSos, type SosCategory } from "../api/safety";
 import { SubHeader } from "./ConsentsScreen";
-import { IconPhone, IconShield, IconCheck } from "../components/Icons";
+import { IconPhone, IconShield, IconCheck, IconWarn, IconHospital, IconHeart, IconCar } from "../components/Icons";
 
 type SendState = "idle" | "sending" | "sent" | "error";
+type IconCmp = ComponentType<{ size?: number }>;
 
-const EMERGENCY: { num: string; ru: string; ba: string; emoji: string }[] = [
-  { num: "112", ru: "Единая служба", ba: "Берҙәм хеҙмәт", emoji: "🆘" },
-  { num: "103", ru: "Скорая", ba: "Тиҙ ярҙам", emoji: "🚑" },
-  { num: "102", ru: "Полиция", ba: "Полиция", emoji: "🚓" },
-  { num: "101", ru: "Пожарные / МЧС", ba: "Янғын / ФАЙ", emoji: "🚒" },
+const EMERGENCY: { num: string; ru: string; ba: string; Icon: IconCmp }[] = [
+  { num: "112", ru: "Единая служба", ba: "Берҙәм хеҙмәт", Icon: IconWarn },
+  { num: "103", ru: "Скорая", ba: "Тиҙ ярҙам", Icon: IconHospital },
+  { num: "102", ru: "Полиция", ba: "Полиция", Icon: IconShield },
+  { num: "101", ru: "Пожарные / МЧС", ba: "Янғын / ФАЙ", Icon: IconWarn },
 ];
 
 export default function SosScreen() {
@@ -32,10 +33,10 @@ export default function SosScreen() {
   const [state, setState] = useState<SendState>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const cats: { key: SosCategory; label: string; emoji: string }[] = [
-    { key: "medical", label: appText("Здоровье", "Һаулыҡ"), emoji: "❤️" },
-    { key: "breakdown", label: appText("На трассе", "Юлда"), emoji: "🚗" },
-    { key: "other", label: appText("Другое", "Башҡа"), emoji: "❗" },
+  const cats: { key: SosCategory; label: string; Icon: IconCmp }[] = [
+    { key: "medical", label: appText("Здоровье", "Һаулыҡ"), Icon: IconHeart },
+    { key: "breakdown", label: appText("На трассе", "Юлда"), Icon: IconCar },
+    { key: "other", label: appText("Другое", "Башҡа"), Icon: IconWarn },
   ];
 
   async function fire() {
@@ -73,7 +74,7 @@ export default function SosScreen() {
       <div className="sos-grid">
         {EMERGENCY.map((e) => (
           <a key={e.num} className="sos-call" href={`tel:${e.num}`}>
-            <span className="sos-call__emoji" aria-hidden>{e.emoji}</span>
+            <span className="sos-call__emoji" aria-hidden><e.Icon size={26} /></span>
             <span className="sos-call__num">{e.num}</span>
             <span className="sos-call__label">{appText(e.ru, e.ba)}</span>
           </a>
@@ -92,7 +93,7 @@ export default function SosScreen() {
 
       {!isAuthed ? (
         <div className="safe-note">
-          <div className="safe-note__emoji" aria-hidden>🛡️</div>
+          <div className="safe-note__emoji" aria-hidden><IconShield size={30} /></div>
           <p>
             {appText(
               "Войди, чтобы одним касанием оповестить своих доверенных о том, что нужна помощь.",
@@ -105,7 +106,7 @@ export default function SosScreen() {
         </div>
       ) : state === "sent" ? (
         <div className="state state--ok">
-          <div className="state__emoji" aria-hidden>✅</div>
+          <div className="state__emoji" aria-hidden><IconCheck size={34} /></div>
           <h2>{appText("Мы получили сигнал", "Сигнал ҡабул ителде")}</h2>
           <p>
             {appText(
@@ -128,7 +129,7 @@ export default function SosScreen() {
                 className={"seg__item" + (category === c.key ? " is-active" : "")}
                 onClick={() => setCategory(c.key)}
               >
-                <span>{c.emoji}</span>
+                <span><c.Icon size={18} /></span>
                 {c.label}
               </button>
             ))}

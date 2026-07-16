@@ -20,21 +20,34 @@ import {
 } from "../api/coupons";
 import { LoadingList } from "../components/States";
 import ScreenHeader from "../components/ScreenHeader";
-import { IconCopy, IconCheck, IconPin, IconChevron } from "../components/Icons";
+import {
+  IconCopy,
+  IconCheck,
+  IconPin,
+  IconChevron,
+  IconStore,
+  IconCar,
+  IconStar,
+  IconHospital,
+  IconGift,
+  IconTicket,
+  IconWarn,
+  IconProfile,
+} from "../components/Icons";
 
 type Tab = "near" | "mine";
 type Status = "loading" | "error" | "soon" | "ready";
 
-/** Эмодзи по категории заведения (мягкий фолбэк). */
-function categoryEmoji(cat: string): string {
+/** Линиевая иконка по категории заведения (мягкий фолбэк). */
+function categoryIcon(cat: string): typeof IconStore {
   const c = (cat || "").toLowerCase();
-  if (c.includes("cafe") || c.includes("food") || c.includes("кафе") || c.includes("рестор")) return "🍽️";
-  if (c.includes("shop") || c.includes("store") || c.includes("магаз")) return "🛍️";
-  if (c.includes("auto") || c.includes("car") || c.includes("авто")) return "🚗";
-  if (c.includes("beauty") || c.includes("салон") || c.includes("красот")) return "💇";
-  if (c.includes("health") || c.includes("med") || c.includes("аптек") || c.includes("здоров")) return "💊";
-  if (c.includes("fun") || c.includes("entertain") || c.includes("развлеч")) return "🎉";
-  return "🎟️";
+  if (c.includes("cafe") || c.includes("food") || c.includes("кафе") || c.includes("рестор")) return IconStore;
+  if (c.includes("shop") || c.includes("store") || c.includes("магаз")) return IconStore;
+  if (c.includes("auto") || c.includes("car") || c.includes("авто")) return IconCar;
+  if (c.includes("beauty") || c.includes("салон") || c.includes("красот")) return IconStar;
+  if (c.includes("health") || c.includes("med") || c.includes("аптек") || c.includes("здоров")) return IconHospital;
+  if (c.includes("fun") || c.includes("entertain") || c.includes("развлеч")) return IconGift;
+  return IconTicket;
 }
 
 export default function CouponsScreen() {
@@ -156,7 +169,7 @@ export default function CouponsScreen() {
       <>
         <ScreenHeader title={appText("Купон активирован", "Купон әүҙем")} />
         <div className="coupon-code">
-          <div className="coupon-code__emoji">🎟️</div>
+          <div className="coupon-code__emoji"><IconTicket size={34} /></div>
           {c && <div className="coupon-code__title">{c.title}</div>}
           {c?.discount_text && (
             <div className="coupon-code__discount">{c.discount_text}</div>
@@ -221,7 +234,7 @@ export default function CouponsScreen() {
 
           {status === "soon" && (
             <div className="state" style={{ paddingTop: 28 }}>
-              <div className="state__emoji">🎟️</div>
+              <div className="state__icon"><IconTicket size={34} /></div>
               <h2>{appText("Скидки скоро", "Ташламалар тиҙҙән")}</h2>
               <p>{appText("Заведения уже подключаются. Загляни чуть позже.", "Заведениелар ҡушыла инде. Аҙыраҡ һуңынан кил.")}</p>
             </div>
@@ -229,7 +242,7 @@ export default function CouponsScreen() {
 
           {status === "error" && (
             <div className="state" style={{ paddingTop: 28 }}>
-              <div className="state__emoji">📡</div>
+              <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
               <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
               <button type="button" className="btn-primary" onClick={() => loadNear()}>
                 {appText("Повторить", "Ҡабатларға")}
@@ -265,7 +278,7 @@ export default function CouponsScreen() {
 
               {visible.length === 0 ? (
                 <div className="state" style={{ paddingTop: 20 }}>
-                  <div className="state__emoji">🌤️</div>
+                  <div className="state__icon"><IconTicket size={34} /></div>
                   <h2>{appText("Пока нет скидок", "Әле ташламалар юҡ")}</h2>
                   <p>
                     {appText(
@@ -276,11 +289,13 @@ export default function CouponsScreen() {
                 </div>
               ) : (
                 <div>
-                  {visible.map((c) => (
+                  {visible.map((c) => {
+                    const Cat = categoryIcon(c.partner?.category || "");
+                    return (
                     <div key={c.id} className="coupon-card">
                       <div className="coupon-card__head">
                         <span className="coupon-card__emoji">
-                          {categoryEmoji(c.partner?.category || "")}
+                          <Cat size={22} />
                         </span>
                         <div className="coupon-card__partner">
                           <div className="coupon-card__name">
@@ -326,7 +341,8 @@ export default function CouponsScreen() {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -339,7 +355,7 @@ export default function CouponsScreen() {
         <>
           {!isAuthed ? (
             <div className="state" style={{ paddingTop: 24 }}>
-              <div className="state__emoji">👋</div>
+              <div className="state__icon"><IconProfile size={34} /></div>
               <h2>{appText("Войди в Юлдаш", "Юлдашҡа ин")}</h2>
               <p>{appText("Активированные купоны хранятся в профиле — войди, чтобы их видеть.", "Активлаштырылған купондар профилдә һаҡлана — күрер өсөн ин.")}</p>
               <button type="button" className="btn-primary" onClick={() => navigate("/login")}>
@@ -352,7 +368,9 @@ export default function CouponsScreen() {
 
               {(mineStatus === "soon" || mineStatus === "error") && (
                 <div className="state" style={{ paddingTop: 28 }}>
-                  <div className="state__emoji">{mineStatus === "soon" ? "🎟️" : "📡"}</div>
+                  <div className={"state__icon" + (mineStatus === "error" ? " state__icon--warn" : "")}>
+                    {mineStatus === "soon" ? <IconTicket size={34} /> : <IconWarn size={34} />}
+                  </div>
                   <h2>
                     {mineStatus === "soon"
                       ? appText("Скоро здесь", "Тиҙҙән бында")
@@ -370,7 +388,7 @@ export default function CouponsScreen() {
                 <>
                   {mine.length === 0 ? (
                     <div className="state" style={{ paddingTop: 24 }}>
-                      <div className="state__emoji">🎟️</div>
+                      <div className="state__icon"><IconTicket size={34} /></div>
                       <h2>{appText("Пока нет купонов", "Әле купондар юҡ")}</h2>
                       <p>{appText("Активируй скидку рядом — код появится здесь.", "Яҡындағы ташламаны активлаштыр — код бында күренер.")}</p>
                       <button type="button" className="btn-primary" onClick={() => setTab("near")}>
@@ -425,7 +443,7 @@ export default function CouponsScreen() {
         style={{ marginTop: 16 }}
         onClick={() => navigate("/partner")}
       >
-        <span className="list-row__icon">🏪</span>
+        <span className="list-row__icon"><IconStore size={22} /></span>
         <div className="list-row__main">
           <div className="list-row__title">{appText("У меня бизнес", "Минең бизнесым бар")}</div>
           <div className="list-row__sub">

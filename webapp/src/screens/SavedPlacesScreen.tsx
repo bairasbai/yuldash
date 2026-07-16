@@ -86,10 +86,10 @@ export default function SavedPlacesScreen() {
     };
   }, [address]);
 
-  const kinds: { key: SavedPlaceKind; label: string; emoji: string }[] = [
-    { key: "home", label: appText("Дом", "Өй"), emoji: "🏠" },
-    { key: "work", label: appText("Работа", "Эш"), emoji: "💼" },
-    { key: "custom", label: appText("Другое", "Башҡа"), emoji: "📍" },
+  const kinds: { key: SavedPlaceKind; label: string }[] = [
+    { key: "home", label: appText("Дом", "Өй") },
+    { key: "work", label: appText("Работа", "Эш") },
+    { key: "custom", label: appText("Другое", "Башҡа") },
   ];
 
   async function add() {
@@ -146,7 +146,7 @@ export default function SavedPlacesScreen() {
         <>
           {places.length === 0 ? (
             <div className="state" style={{ paddingBottom: 24 }}>
-              <div className="state__emoji">📍</div>
+              <div className="state__emoji"><IconPin size={34} /></div>
               <h2>{appText("Пока нет адресов", "Әле адрестар юҡ")}</h2>
               <p>
                 {appText(
@@ -195,7 +195,7 @@ export default function SavedPlacesScreen() {
                   className={"seg__item" + (kind === k.key ? " is-active" : "")}
                   onClick={() => setKind(k.key)}
                 >
-                  <span>{k.emoji}</span>
+                  <span>{kindIcon(k.key)}</span>
                   {k.label}
                 </button>
               ))}
@@ -226,7 +226,8 @@ export default function SavedPlacesScreen() {
               />
               {coords && (
                 <span className="field__hint">
-                  {appText("Точка на карте выбрана ✓", "Картала нөктә һайланды ✓")}
+                  <IconCheck size={13} />{" "}
+                  {appText("Точка на карте выбрана", "Картала нөктә һайланды")}
                 </span>
               )}
             </label>

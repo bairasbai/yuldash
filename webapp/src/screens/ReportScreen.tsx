@@ -19,7 +19,7 @@ import {
 import { ApiError } from "../api/client";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck } from "../components/Icons";
+import { IconCheck, IconShield, IconCar } from "../components/Icons";
 
 type Status = "loading" | "error" | "form" | "sent";
 
@@ -137,7 +137,7 @@ export default function ReportScreen() {
           onBack={() => navigate("/settings")}
         />
         <div className="state state--big state--ok">
-          <div className="state__emoji">🤝</div>
+          <div className="state__emoji"><IconShield size={34} /></div>
           <h2>{appText("Спасибо, что сказал", "Әйткәнең өсөн рәхмәт")}</h2>
           <p>
             {appText(
@@ -181,7 +181,7 @@ export default function ReportScreen() {
             </div>
           ) : people.length === 0 ? (
             <div className="state" style={{ paddingTop: 8 }}>
-              <div className="state__emoji">🚗</div>
+              <div className="state__emoji"><IconCar size={34} /></div>
               <h2>{appText("Пока не на кого жаловаться", "Хәҙергә зарланырға кем юҡ")}</h2>
               <p>
                 {appText(

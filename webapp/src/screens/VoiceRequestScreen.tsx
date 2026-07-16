@@ -12,7 +12,7 @@ import { ApiError } from "../api/client";
 import { uploadVoice } from "../api/voice";
 import { createRequest } from "../api/requests";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck } from "../components/Icons";
+import { IconCheck, IconMic } from "../components/Icons";
 
 type Rec = "idle" | "recording" | "recorded";
 type Send = "idle" | "sending" | "sent" | "error";
@@ -160,7 +160,7 @@ export default function VoiceRequestScreen() {
       <>
         <SubHeader title={appText("Голосовая заявка", "Тауышлы заявка")} onBack={() => navigate("/profile")} />
         <div className="state state--ok state--big">
-          <div className="state__emoji" aria-hidden>🎙️</div>
+          <div className="state__emoji" aria-hidden><IconMic size={34} /></div>
           <h2>{appText("Заявка отправлена", "Заявка ебәрелде")}</h2>
           <p>
             {appText(
@@ -215,7 +215,7 @@ export default function VoiceRequestScreen() {
           {rec === "idle" && (
             <>
               <button type="button" className="rec-btn" onClick={startRecording} aria-label={appText("Записать", "Яҙырға")}>
-                <span className="rec-btn__mic" aria-hidden>🎙️</span>
+                <span className="rec-btn__mic" aria-hidden><IconMic size={26} /></span>
               </button>
               <p className="voice-hint">{appText("Нажми и наговори, куда и когда нужно ехать", "Баҫ та ҡайҙа, ҡасан барырға кәрәклеген һөйлә")}</p>
             </>

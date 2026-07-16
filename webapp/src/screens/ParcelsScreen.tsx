@@ -34,7 +34,7 @@ import {
   CarryParcelCard,
   CodeDialog,
 } from "../components/parcelUi";
-import { IconBox, IconCheck, IconCopy, IconStar } from "../components/Icons";
+import { IconBox, IconCheck, IconCopy, IconGift, IconRoute, IconShield, IconStar } from "../components/Icons";
 
 type Tab = "send" | "mine" | "carry";
 
@@ -130,7 +130,7 @@ function SendTab({ onSent }: { onSent: () => void }) {
     const price = created.price_kop > 0 ? created.price_kop : created.fee_kop;
     return (
       <div className="parcel-done">
-        <div className="parcel-done__emoji">📦</div>
+        <div className="parcel-done__emoji"><IconBox size={34} /></div>
         <h2>{appText("Заявка создана!", "Заявка яһалды!")}</h2>
         <p className="parcel-card__desc" style={{ textAlign: "center" }}>
           {appText(
@@ -187,7 +187,7 @@ function SendTab({ onSent }: { onSent: () => void }) {
       <div className="seg" style={{ marginTop: 6 }}>
         {(["small", "medium", "large"] as ParcelSize[]).map((s) => (
           <button key={s} type="button" className={"seg__item" + (size === s ? " is-active" : "")} onClick={() => setSize(s)}>
-            <span>{s === "small" ? "📦" : s === "medium" ? "🎁" : "🧳"}</span>
+            <span>{s === "small" ? <IconBox size={20} /> : s === "medium" ? <IconGift size={20} /> : <IconBox size={20} />}</span>
             {sizeLabel(s, ru)}
           </button>
         ))}
@@ -286,7 +286,7 @@ function MineTab() {
   if (items.length === 0) {
     return (
       <div className="state" style={{ paddingTop: 28 }}>
-        <div className="state__emoji">📭</div>
+        <div className="state__icon"><IconBox size={34} /></div>
         <h2>{appText("Пока нет посылок", "Әле бандеролдәр юҡ")}</h2>
         <p>{appText("Создай заявку — попутный курьер довезёт её «между своими».", "Заявка яһа — юл ыңғайы курьер уны «үҙебеҙ» еткерә.")}</p>
       </div>
@@ -319,7 +319,7 @@ function MineTab() {
             {p.courier && (
               <div className="parcel-card__courier">
                 <div className="parcel-card__courier-name">
-                  🚴 {p.courier.name || appText("Курьер", "Курьер")}
+                  <IconRoute size={15} /> {p.courier.name || appText("Курьер", "Курьер")}
                   {p.courier.rating != null && (
                     <span className="taxi-driver__rating"><IconStar size={13} /> {p.courier.rating.toFixed(1)}</span>
                   )}
@@ -406,7 +406,7 @@ function AvailableList() {
   if (items.length === 0) {
     return (
       <div className="state" style={{ paddingTop: 28 }}>
-        <div className="state__emoji">🕊️</div>
+        <div className="state__icon"><IconShield size={34} /></div>
         <h2>{appText("Пока нет посылок «по пути»", "Әле «юл ыңғайы» бандеролдәр юҡ")}</h2>
         <p>{appText("Как появятся заявки на твоём маршруте — покажем здесь. Помоги соседу по пути.", "Маршрутыңда заявка сыҡһа — бында күрһәтәбеҙ. Юл ыңғайы күршегә ярҙам ит.")}</p>
       </div>
@@ -489,7 +489,7 @@ function CarryingList() {
   if (items.length === 0) {
     return (
       <div className="state" style={{ paddingTop: 28 }}>
-        <div className="state__emoji">✅</div>
+        <div className="state__icon"><IconCheck size={34} /></div>
         <h2>{appText("Ты ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
         <p>{appText("Возьми заявку во вкладке «Доступные» — она появится здесь.", "«Асыҡ» бүлегендә заявка ал — ул бында күренер.")}</p>
       </div>

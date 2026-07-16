@@ -13,7 +13,7 @@ import type { ResponseItem } from "../api/requests";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import { priceLabel } from "../utils/format";
-import { IconStar, IconCheck, IconChat } from "../components/Icons";
+import { IconStar, IconCheck, IconChat, IconShield } from "../components/Icons";
 
 type State = "idle" | "loading" | "error" | "ready";
 
@@ -116,7 +116,7 @@ export default function AdminResponsesScreen() {
 
       {accepted && (
         <div className="safe-note" style={{ marginTop: 12 }}>
-          <div className="safe-note__emoji" aria-hidden>✅</div>
+          <div className="safe-note__emoji" aria-hidden><IconCheck size={22} /></div>
           <p>
             {appText(
               `Отклик принят. Поездка и бронь #${accepted.bookingId} созданы за пользователя.`,
@@ -128,7 +128,7 @@ export default function AdminResponsesScreen() {
 
       {state === "ready" && items.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji">🕊️</div>
+          <div className="state__icon"><IconShield size={34} /></div>
           <h2>{appText("Откликов пока нет", "Яуаптар әле юҡ")}</h2>
           <p>
             {appText(
@@ -183,7 +183,7 @@ export default function AdminResponsesScreen() {
 
       {state === "idle" && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji"><IconChat size={40} /></div>
+          <div className="state__icon"><IconChat size={34} /></div>
           <h2>{appText("Введи номер заявки", "Заявка номерын индер")}</h2>
           <p>
             {appText(

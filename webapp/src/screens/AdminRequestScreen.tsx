@@ -80,7 +80,7 @@ export default function AdminRequestScreen() {
           onBack={() => navigate(-1)}
         />
         <div className="state state--ok">
-          <div className="state__emoji" aria-hidden>✅</div>
+          <div className="state__icon" aria-hidden><IconCheck size={34} /></div>
           <h2>{appText("Заявка создана", "Заявка булдырылды")}</h2>
           <p>
             {appText(

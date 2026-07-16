@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { SubHeader } from "./ConsentsScreen";
-import { IconChevron, IconTelegram } from "../components/Icons";
+import { IconChevron, IconTelegram, IconSearch } from "../components/Icons";
 
 interface Faq {
   q: [string, string];
@@ -107,7 +107,7 @@ export default function HelpScreen() {
 
       {shown.length === 0 ? (
         <div className="state">
-          <div className="state__emoji">🔎</div>
+          <div className="state__icon"><IconSearch size={34} /></div>
           <h2>{appText("Ничего не нашли", "Бер нәмә лә табылманы")}</h2>
           <p>{appText("Попробуй другие слова или напиши в поддержку.", "Башҡа һүҙҙәр менән ҡара йәки ярҙамға яҙ.")}</p>
         </div>

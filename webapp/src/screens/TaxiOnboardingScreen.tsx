@@ -22,7 +22,7 @@ import {
 } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
-import { IconCheck, IconCamera, IconShield } from "../components/Icons";
+import { IconCheck, IconCamera, IconShield, IconWarn, IconCar, IconClock } from "../components/Icons";
 
 type Boot = "loading" | "error" | "gate" | "ready";
 
@@ -209,7 +209,7 @@ export default function TaxiOnboardingScreen() {
       <>
         <SubHeader title={appText("Стать таксистом", "Таксист булыу")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}
@@ -224,7 +224,7 @@ export default function TaxiOnboardingScreen() {
       <>
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">🚕</div>
+          <div className="state__icon"><IconCar size={34} /></div>
           <h2>{appText("Такси скоро в вашем городе", "Такси тиҙҙән ҡалағыҙҙа")}</h2>
           <p>
             {gateMsg
@@ -247,7 +247,8 @@ export default function TaxiOnboardingScreen() {
   if (app && !editing && (st === "pending" || st === "approved" || st === "rejected")) {
     const map = {
       approved: {
-        emoji: "🎉",
+        Icon: IconCheck,
+        warn: false,
         title: appText("Ты в такси Юлдаша!", "Һин Юлдаш таксиһында!"),
         body: appText(
           "Заявка одобрена. Выходи на линию — принимай быстрые заказы рядом.",
@@ -255,7 +256,8 @@ export default function TaxiOnboardingScreen() {
         ),
       },
       pending: {
-        emoji: "⏳",
+        Icon: IconClock,
+        warn: false,
         title: appText("Заявка на проверке", "Ғариза тикшереүҙә"),
         body: appText(
           "Мы проверяем документы. Обычно это недолго — пришлём уведомление.",
@@ -263,7 +265,8 @@ export default function TaxiOnboardingScreen() {
         ),
       },
       rejected: {
-        emoji: "⚠️",
+        Icon: IconWarn,
+        warn: true,
         title: appText("Заявка отклонена", "Ғариза кире ҡағылды"),
         body: appText(
           "Поправь данные или документы и подай снова.",
@@ -276,12 +279,14 @@ export default function TaxiOnboardingScreen() {
       <>
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 36 }}>
-          <div className="state__emoji">{map.emoji}</div>
+          <div className={"state__icon" + (map.warn ? " state__icon--warn" : "")}>
+            <map.Icon size={34} />
+          </div>
           <h2>{map.title}</h2>
           <p>{map.body}</p>
           {st === "rejected" && app.comment && (
             <div className="consents__status" style={{ marginTop: 4 }}>
-              ⚠️ {app.comment}
+              <IconWarn size={15} /> {app.comment}
             </div>
           )}
           {st === "approved" ? (

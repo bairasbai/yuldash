@@ -189,7 +189,7 @@ export default function CourierScreen() {
         disabled={onlineBusy || paused}
         style={{ marginTop: 14 }}
       >
-        <span className="onb__simple-emoji">{online ? "🟢" : "⚪️"}</span>
+        <span className={"status-dot" + (online ? " status-dot--on" : "")} aria-hidden />
         <span className="onb__simple-text">
           <b>{appText("Я на линии", "Мин линияла")}</b>
           <span>

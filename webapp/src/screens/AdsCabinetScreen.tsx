@@ -20,6 +20,7 @@ import {
 } from "../api/ads";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
+import { IconReceipt, IconMegaphone, IconWarn } from "../components/Icons";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -108,7 +109,7 @@ export default function AdsCabinetScreen() {
       <>
         <SubHeader title={appText("Оплата размещения", "Урынлаштырыу түләүе")} onBack={() => { setPaid(null); load(); }} />
         <div className="state" style={{ paddingTop: 20 }}>
-          <div className="state__emoji">🧾</div>
+          <div className="state__icon"><IconReceipt size={34} /></div>
           <h2>{appText("Заявка на оплату создана", "Түләү заявкаһы булдырылды")}</h2>
           <p>
             {appText(
@@ -139,7 +140,7 @@ export default function AdsCabinetScreen() {
 
       {status === "soon" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📣</div>
+          <div className="state__icon"><IconMegaphone size={34} /></div>
           <h2>{appText("Реклама скоро", "Реклама тиҙҙән")}</h2>
           <p>{appText("Кабинет рекламы включится после обновления сервиса.", "Реклама кабинеты яңыртыуҙан һуң эшләй башлар.")}</p>
         </div>
@@ -147,7 +148,7 @@ export default function AdsCabinetScreen() {
 
       {status === "error" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}
@@ -161,7 +162,7 @@ export default function AdsCabinetScreen() {
 
           {ads.length === 0 ? (
             <div className="state" style={{ paddingTop: 24 }}>
-              <div className="state__emoji">📣</div>
+              <div className="state__icon"><IconMegaphone size={34} /></div>
               <h2>{appText("Пока нет объявлений", "Әле иғландар юҡ")}</h2>
               <p>
                 {appText(

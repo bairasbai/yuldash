@@ -12,7 +12,7 @@ import { ApiError } from "../api/client";
 import { applyPromo, fetchPromoMine, type PromoMine } from "../api/promo";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconGift, IconCheck } from "../components/Icons";
+import { IconGift, IconCheck, IconWarn } from "../components/Icons";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -84,7 +84,7 @@ export default function PromoCodeScreen() {
 
       {status === "soon" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">🎁</div>
+          <div className="state__icon"><IconGift size={34} /></div>
           <h2>{appText("Промокоды скоро", "Промокодтар тиҙҙән")}</h2>
           <p>{appText("Раздел включится после ближайшего обновления.", "Был бүлек яҡын яңыртыуҙан һуң эшләй башлар.")}</p>
         </div>
@@ -92,7 +92,7 @@ export default function PromoCodeScreen() {
 
       {status === "error" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}

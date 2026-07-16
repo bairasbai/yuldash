@@ -34,7 +34,8 @@ import {
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
-import { IconCar, IconStar, IconPhone, IconChat, IconCheck } from "../components/Icons";
+import { IconCar, IconStar, IconPhone, IconChat, IconCheck, IconWarn, IconProfile } from "../components/Icons";
+import { YuMoon } from "../components/BrandIcons";
 import { priceLabel } from "../utils/format";
 
 type Boot = "loading" | "error" | "need-approval" | "ready";
@@ -280,7 +281,7 @@ export default function InstantDriverTripScreen() {
       <>
         <SubHeader title={appText("Я на линии", "Мин линияла")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}
@@ -295,7 +296,7 @@ export default function InstantDriverTripScreen() {
       <>
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">🚕</div>
+          <div className="state__icon"><IconCar size={34} /></div>
           <h2>{appText("Сначала стань таксистом", "Башта таксист бул")}</h2>
           <p>
             {appText(
@@ -338,7 +339,7 @@ export default function InstantDriverTripScreen() {
         onClick={toggleOnline}
         disabled={onlineBusy}
       >
-        <span className="onb__simple-emoji">{online ? "🟢" : "⚪️"}</span>
+        <span className={"status-dot" + (online ? " status-dot--on" : "")} aria-hidden />
         <span className="onb__simple-text">
           <b>{appText("Я на линии", "Мин линияла")}</b>
           <span>
@@ -365,7 +366,7 @@ export default function InstantDriverTripScreen() {
         </div>
       ) : (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji">🌙</div>
+          <div className="state__icon"><YuMoon size={34} /></div>
           <h2>{appText("Ты не на линии", "Һин линияла түгел")}</h2>
           <p>
             {appText(
@@ -476,7 +477,7 @@ function DriverTrip({
       <>
         <SubHeader title={appText("Поездка завершена", "Сәфәр тамамланды")} onBack={() => navigate("/driver")} />
         <div className="taxi-done">
-          <div className="taxi-done__emoji">✅</div>
+          <div className="state__icon"><IconCheck size={34} /></div>
           <div className="taxi-fare">
             <span>{appText("Заработано", "Табылды")}</span>
             <b>{priceLabel(order.price_final ?? order.price_estimate, ru)}</b>
@@ -515,7 +516,7 @@ function DriverTrip({
 
       {/* Пассажир */}
       <div className="taxi-driver">
-        <div className="taxi-driver__avatar">🙋</div>
+        <div className="taxi-driver__avatar"><IconProfile size={24} /></div>
         <div className="taxi-driver__info">
           <div className="taxi-driver__name">
             {order.passenger_name || appText("Пассажир", "Юлаусы")}

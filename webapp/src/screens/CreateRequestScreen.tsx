@@ -105,7 +105,7 @@ export default function CreateRequestScreen() {
           onBack={() => navigate("/map")}
         />
         <div className="state">
-          <div className="state__emoji">✅</div>
+          <div className="state__icon"><IconCheck size={34} /></div>
           <h2>{appText("Готово! Ищем водителя", "Әҙер! Водитель эҙләйбеҙ")}</h2>
           <p>
             {appText(

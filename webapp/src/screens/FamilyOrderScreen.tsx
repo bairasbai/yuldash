@@ -10,7 +10,7 @@ import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { createRequest } from "../api/requests";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck } from "../components/Icons";
+import { IconCheck, IconHeart } from "../components/Icons";
 
 type State = "idle" | "sending" | "sent" | "error";
 
@@ -65,7 +65,7 @@ export default function FamilyOrderScreen() {
       <>
         <SubHeader title={appText("За близкого", "Яҡын өсөн")} onBack={() => navigate("/profile")} />
         <div className="state state--ok">
-          <div className="state__emoji" aria-hidden>💚</div>
+          <div className="state__emoji" aria-hidden><IconHeart size={34} /></div>
           <h2>{appText("Заявка принята", "Заявка ҡабул ителде")}</h2>
           <p>
             {appText(
@@ -90,7 +90,7 @@ export default function FamilyOrderScreen() {
       />
 
       <div className="safe-note safe-note--tight">
-        <span className="safe-note__ic" aria-hidden>💚</span>
+        <span className="safe-note__ic" aria-hidden><IconHeart size={18} /></span>
         <p>
           {appText(
             "Оставь заявку — водители увидят, что поездка нужна близкому человеку.",

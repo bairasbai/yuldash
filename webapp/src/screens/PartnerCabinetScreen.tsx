@@ -37,20 +37,32 @@ import {
 import { rubLabel } from "../utils/format";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconStar } from "../components/Icons";
+import {
+  IconStar,
+  IconStore,
+  IconCar,
+  IconHospital,
+  IconGift,
+  IconHeart,
+  IconCheck,
+  IconClock,
+  IconReceipt,
+  IconTicket,
+  IconWarn,
+} from "../components/Icons";
 
 type Status = "loading" | "error" | "soon" | "ready";
 type Mode = "cabinet" | "biz-form" | "coupon-form";
 
-/** Категории бизнеса (код → эмодзи + подпись). */
-const CATEGORIES: { code: string; emoji: string; ru: string; ba: string }[] = [
-  { code: "cafe", emoji: "🍽️", ru: "Кафе/еда", ba: "Кафе/аш" },
-  { code: "shop", emoji: "🛍️", ru: "Магазин", ba: "Магазин" },
-  { code: "auto", emoji: "🚗", ru: "Авто", ba: "Авто" },
-  { code: "beauty", emoji: "💇", ru: "Красота", ba: "Матурлыҡ" },
-  { code: "health", emoji: "💊", ru: "Здоровье", ba: "Һаулыҡ" },
-  { code: "fun", emoji: "🎉", ru: "Досуг", ba: "Ял" },
-  { code: "other", emoji: "🏪", ru: "Другое", ba: "Башҡа" },
+/** Категории бизнеса (код → линиевая иконка + подпись). */
+const CATEGORIES: { code: string; Icon: typeof IconStore; ru: string; ba: string }[] = [
+  { code: "cafe", Icon: IconStore, ru: "Кафе/еда", ba: "Кафе/аш" },
+  { code: "shop", Icon: IconStore, ru: "Магазин", ba: "Магазин" },
+  { code: "auto", Icon: IconCar, ru: "Авто", ba: "Авто" },
+  { code: "beauty", Icon: IconStar, ru: "Красота", ba: "Матурлыҡ" },
+  { code: "health", Icon: IconHospital, ru: "Здоровье", ba: "Һаулыҡ" },
+  { code: "fun", Icon: IconGift, ru: "Досуг", ba: "Ял" },
+  { code: "other", Icon: IconStore, ru: "Другое", ba: "Башҡа" },
 ];
 
 /** Подпись статуса купона + класс бейджа. */
@@ -276,7 +288,7 @@ export default function PartnerCabinetScreen() {
       <>
         <SubHeader title={appText("Мой бизнес", "Минең бизнесым")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">🏪</div>
+          <div className="state__icon"><IconStore size={34} /></div>
           <h2>{appText("Бизнес-кабинет скоро", "Бизнес-кабинет тиҙҙән")}</h2>
           <p>{appText("Раздел «Скидки по пути» для бизнеса включится после обновления сервиса.", "Бизнес өсөн «Юлда ташламалар» бүлеге яңыртыуҙан һуң эшләй башлар.")}</p>
         </div>
@@ -288,7 +300,7 @@ export default function PartnerCabinetScreen() {
       <>
         <SubHeader title={appText("Мой бизнес", "Минең бизнесым")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}
@@ -304,7 +316,7 @@ export default function PartnerCabinetScreen() {
       <>
         <SubHeader title={appText("Оплата подписки", "Яҙылыу түләүе")} onBack={() => { setSubPaid(null); load(); }} />
         <div className="state" style={{ paddingTop: 20 }}>
-          <div className="state__emoji">🧾</div>
+          <div className="state__icon"><IconReceipt size={34} /></div>
           <h2>{appText("Заявка на оплату создана", "Түләү заявкаһы булдырылды")}</h2>
           <p>
             {appText(
@@ -356,7 +368,7 @@ export default function PartnerCabinetScreen() {
                   className={"chip" + (biz.category === c.code ? " chip--on" : "")}
                   onClick={() => setBiz({ ...biz, category: c.code })}
                 >
-                  {c.emoji} {ru ? c.ru : c.ba}
+                  <c.Icon size={16} /> {ru ? c.ru : c.ba}
                 </button>
               ))}
             </div>
@@ -576,7 +588,7 @@ export default function PartnerCabinetScreen() {
       {!partner && (
         <>
           <div className="biz-banner">
-            <div className="biz-banner__emoji">🏪</div>
+            <div className="biz-banner__emoji"><IconStore size={28} /></div>
             <h2>{appText("Подключи свой бизнес", "Бизнесыңды ҡуш")}</h2>
             <p>
               {appText(
@@ -594,7 +606,7 @@ export default function PartnerCabinetScreen() {
       {/* На модерации */}
       {partner?.status === "pending" && (
         <div className="biz-banner is-warn">
-          <div className="biz-banner__emoji">⏳</div>
+          <div className="biz-banner__emoji"><IconClock size={28} /></div>
           <h2>{appText("Бизнес на проверке", "Бизнес тикшереүҙә")}</h2>
           <p>{appText("Обычно это недолго. Как одобрим — сможешь выбрать тариф и разместить купоны.", "Ғәҙәттә оҙаҡ түгел. Раҫлағас — тариф һайлап, купондар ҡуя алаһың.")}</p>
         </div>
@@ -604,7 +616,7 @@ export default function PartnerCabinetScreen() {
       {partner?.status === "rejected" && (
         <>
           <div className="biz-banner is-warn">
-            <div className="biz-banner__emoji">🙏</div>
+            <div className="biz-banner__emoji"><IconHeart size={28} /></div>
             <h2>{appText("Нужно поправить", "Төҙәтергә кәрәк")}</h2>
             <p>{partner.reject_reason || appText("Проверь данные бизнеса и отправь снова.", "Бизнес мәғлүмәтен тикшереп ҡабат ебәр.")}</p>
           </div>
@@ -668,7 +680,7 @@ export default function PartnerCabinetScreen() {
                     onClick={() => subscribe(p.code)}
                     disabled={subBusy !== null}
                   >
-                    <div className="plan-card__icon">{p.premium ? <IconStar size={22} /> : "🏪"}</div>
+                    <div className="plan-card__icon">{p.premium ? <IconStar size={22} /> : <IconStore size={22} />}</div>
                     <div className="plan-card__title">{ru ? p.title : p.title_ba}</div>
                     <div className="plan-card__hours">{appText(`${p.period_days} дней`, `${p.period_days} көн`)}</div>
                     <div className="plan-card__price">{(p.amount_kop / 100).toLocaleString("ru-RU")} ₽</div>
@@ -700,7 +712,7 @@ export default function PartnerCabinetScreen() {
           <h2 className="section-title">{appText("Погасить код", "Кодты ҡулланыу")}</h2>
           {redeemRes ? (
             <div className="biz-banner">
-              <div className="biz-banner__emoji">✅</div>
+              <div className="biz-banner__emoji"><IconCheck size={28} /></div>
               <h2>{appText("Код погашен", "Код ҡулланылды")}</h2>
               <p>
                 {redeemRes.coupon_title}
@@ -748,7 +760,7 @@ export default function PartnerCabinetScreen() {
 
           {coupons.length === 0 ? (
             <div className="state" style={{ paddingTop: 16 }}>
-              <div className="state__emoji">🎟️</div>
+              <div className="state__icon"><IconTicket size={34} /></div>
               <p>{appText("Пока нет купонов. Создай первый — и он появится в витрине.", "Әле купон юҡ. Беренсен булдыр — ул витринала күренер.")}</p>
             </div>
           ) : (

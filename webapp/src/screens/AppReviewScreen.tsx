@@ -10,6 +10,7 @@ import { ApiError } from "../api/client";
 import { REVIEW_MAX_LEN, REVIEW_MIN_LEN, submitAppReview } from "../api/reviews";
 import { SubHeader } from "./ConsentsScreen";
 import { YuStar } from "../components/BrandIcons";
+import { IconHeart } from "../components/Icons";
 
 type State = "idle" | "sending" | "sent" | "error";
 
@@ -68,7 +69,7 @@ export default function AppReviewScreen() {
       <>
         <SubHeader title={appText("Оценить приложение", "Ҡушымтаны баһалау")} onBack={() => navigate(-1)} />
         <div className="state state--ok state--big">
-          <div className="state__emoji" aria-hidden>🌿</div>
+          <div className="state__emoji" aria-hidden><IconHeart size={34} /></div>
           <h2>{appText("Спасибо за отзыв!", "Фекерең өсөн рәхмәт!")}</h2>
           <p>
             {appText(

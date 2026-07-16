@@ -19,7 +19,7 @@ import {
 } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
-import { IconClock, IconArrow, IconTrash, IconCar } from "../components/Icons";
+import { IconClock, IconArrow, IconTrash, IconCar, IconWarn, IconClockCal } from "../components/Icons";
 import { priceLabel } from "../utils/format";
 
 type Status = "loading" | "error" | "ready";
@@ -121,7 +121,7 @@ export default function ScheduledOrdersScreen() {
 
       {status === "error" && (
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}
@@ -143,7 +143,7 @@ export default function ScheduledOrdersScreen() {
                   style={{ marginTop: 10 }}
                   onClick={() => navigate("/taxi")}
                 >
-                  <span className="trust-cta__emoji">🚕</span>
+                  <span className="trust-cta__emoji"><IconCar size={22} /></span>
                   <span className="trust-cta__text">
                     {appText("Заказ активирован — ищем машину", "Заказ әүҙемләште — машина эҙләйбеҙ")}
                     {" · "}
@@ -157,7 +157,7 @@ export default function ScheduledOrdersScreen() {
 
           {rows.length === 0 && dueNow.length === 0 ? (
             <div className="state" style={{ paddingTop: 40 }}>
-              <div className="state__emoji">🕰️</div>
+              <div className="state__icon"><IconClockCal size={34} /></div>
               <h2>{appText("Пока нет предзаказов", "Әле алдан заказдар юҡ")}</h2>
               <p>
                 {appText(

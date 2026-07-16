@@ -665,6 +665,22 @@
 .onb__simple-emoji {
   font-size: 22px;
 }
+/* Точка статуса «на линии» — вместо эмодзи 🟢/⚪️. Приглушённый кружок,
+   зелёный когда онлайн. Наследует Canon-токены (свет/тьма). */
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.55;
+  flex: 0 0 auto;
+  display: inline-block;
+}
+.status-dot--on {
+  background: var(--canon-green-bright);
+  opacity: 1;
+  box-shadow: 0 0 0 3px var(--mint);
+}
 .onb__simple-text {
   flex: 1;
   display: flex;

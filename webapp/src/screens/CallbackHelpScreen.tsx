@@ -11,7 +11,7 @@ import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { requestCallback } from "../api/safety";
 import { SubHeader } from "./ConsentsScreen";
-import { IconPhone, IconCheck } from "../components/Icons";
+import { IconPhone, IconCheck, IconHeart } from "../components/Icons";
 
 type State = "idle" | "sending" | "sent" | "error";
 
@@ -51,7 +51,7 @@ export default function CallbackHelpScreen() {
 
       {state === "sent" ? (
         <div className="state state--ok state--big">
-          <div className="state__emoji" aria-hidden>📞</div>
+          <div className="state__emoji" aria-hidden><IconPhone size={34} /></div>
           <h2>{appText("Скоро перезвоним", "Тиҙҙән шылтыратабыҙ")}</h2>
           <p>
             {appText(
@@ -65,7 +65,7 @@ export default function CallbackHelpScreen() {
         </div>
       ) : !isAuthed ? (
         <div className="safe-note safe-note--big">
-          <div className="safe-note__emoji" aria-hidden>👋</div>
+          <div className="safe-note__emoji" aria-hidden><IconHeart size={30} /></div>
           <p>
             {appText(
               "Войди один раз — и мы будем знать, на какой номер перезвонить. Это быстро.",
@@ -78,7 +78,7 @@ export default function CallbackHelpScreen() {
         </div>
       ) : (
         <div className="callback-panel">
-          <div className="callback-illust" aria-hidden>📱</div>
+          <div className="callback-illust" aria-hidden><IconPhone size={40} /></div>
           <p className="callback-lead">
             {appText(
               "Нажми большую кнопку — и мы сами наберём тебя, поможем найти поездку или ответим на вопрос.",

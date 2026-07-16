@@ -9,6 +9,7 @@
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { SubHeader } from "./ConsentsScreen";
+import { IconShield, IconPhone, IconReceipt, IconLock } from "../components/Icons";
 
 export default function PaymentInfoScreen() {
   const { appText } = useLang();
@@ -27,7 +28,7 @@ export default function PaymentInfoScreen() {
 
       {/* Главная мысль: с пассажиров денег не берём */}
       <div className="biz-banner">
-        <div className="biz-banner__emoji">🤝</div>
+        <div className="biz-banner__emoji"><IconShield size={30} /></div>
         <h2>{appText("Попутки — бесплатны", "Юлдаштар — бушлай")}</h2>
         <p>
           {appText(
@@ -40,7 +41,7 @@ export default function PaymentInfoScreen() {
       {/* Способ 1 — СБП «на доверии» */}
       <div className="pay-way">
         <div className="pay-way__head">
-          <span className="pay-way__emoji">📲</span>
+          <span className="pay-way__emoji"><IconPhone size={22} /></span>
           <div>
             <div className="pay-way__title">
               {appText("Перевод по СБП «на доверии»", "СБП аша күсереү «ышаныс менән»")}
@@ -61,7 +62,7 @@ export default function PaymentInfoScreen() {
       {/* Способ 2 — ЮKassa (когда включат) */}
       <div className="pay-way">
         <div className="pay-way__head">
-          <span className="pay-way__emoji">💳</span>
+          <span className="pay-way__emoji"><IconReceipt size={22} /></span>
           <div>
             <div className="pay-way__title">
               {appText("Оплата картой (ЮKassa)", "Карта менән түләү (ЮKassa)")}

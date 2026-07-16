@@ -6,7 +6,7 @@ import ScreenHeader from "../components/ScreenHeader";
 import RideCard from "../components/RideCard";
 import { EmptyState, ErrorState, LoadingList } from "../components/States";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
-import { IconFilter } from "../components/Icons";
+import { IconFilter, IconSearch } from "../components/Icons";
 
 type State =
   | { kind: "loading" }
@@ -70,7 +70,7 @@ export default function RidesScreen() {
             // Совсем пусто vs «фильтры всё скрыли» — разные подсказки.
             return filterOn && state.rides.length > 0 ? (
               <div className="state">
-                <div className="state__emoji">🔍</div>
+                <div className="state__icon"><IconSearch size={34} /></div>
                 <h2>{appText("Ничего под фильтры", "Фильтргә тап килмәй")}</h2>
                 <p>
                   {appText(

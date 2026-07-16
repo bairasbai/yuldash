@@ -23,7 +23,7 @@ import {
 } from "../api/courier";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
-import { IconCheck, IconCamera, IconShield, IconBox } from "../components/Icons";
+import { IconCheck, IconCamera, IconShield, IconBox, IconCar, IconClock, IconWarn } from "../components/Icons";
 
 type Boot = "loading" | "error" | "ready";
 
@@ -119,7 +119,7 @@ export default function CourierOnboardingScreen() {
       <>
         <SubHeader title={appText("Стать курьером", "Курьер булыу")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}
@@ -134,7 +134,8 @@ export default function CourierOnboardingScreen() {
   if (app && !editing && (st === "pending" || st === "approved" || st === "rejected")) {
     const map = {
       approved: {
-        emoji: "🎉",
+        Icon: IconCheck,
+        warn: false,
         title: appText("Ты курьер Юлдаша!", "Һин Юлдаш курьеры!"),
         body: appText(
           "Заявка одобрена. Выходи на линию — бери доставки рядом и зарабатывай.",
@@ -142,7 +143,8 @@ export default function CourierOnboardingScreen() {
         ),
       },
       pending: {
-        emoji: "⏳",
+        Icon: IconClock,
+        warn: false,
         title: appText("Заявка на проверке", "Ғариза тикшереүҙә"),
         body: appText(
           "Мы проверяем селфи и приглашение. Обычно это недолго — пришлём уведомление.",
@@ -150,7 +152,8 @@ export default function CourierOnboardingScreen() {
         ),
       },
       rejected: {
-        emoji: "⚠️",
+        Icon: IconWarn,
+        warn: true,
         title: appText("Заявка отклонена", "Ғариза кире ҡағылды"),
         body: appText(
           "Поправь фото и подай снова.",
@@ -163,12 +166,14 @@ export default function CourierOnboardingScreen() {
       <>
         <SubHeader title={appText("Курьер Юлдаш", "Юлдаш курьеры")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 36 }}>
-          <div className="state__emoji">{map.emoji}</div>
+          <div className={"state__icon" + (map.warn ? " state__icon--warn" : "")}>
+            <map.Icon size={34} />
+          </div>
           <h2>{map.title}</h2>
           <p>{map.body}</p>
           {st === "rejected" && app.reject_reason && (
             <div className="consents__status" style={{ marginTop: 4 }}>
-              ⚠️ {app.reject_reason}
+              <IconWarn size={15} /> {app.reject_reason}
             </div>
           )}
           {st === "approved" ? (
@@ -234,7 +239,7 @@ export default function CourierOnboardingScreen() {
           className={"seg__item" + (transport === "car" ? " is-active" : "")}
           onClick={() => setTransport("car")}
         >
-          <span>🚗</span>
+          <span><IconCar size={20} /></span>
           {appText("Легковой", "Еңел авто")}
         </button>
         <button
@@ -242,7 +247,7 @@ export default function CourierOnboardingScreen() {
           className={"seg__item" + (transport === "cargo" ? " is-active" : "")}
           onClick={() => setTransport("cargo")}
         >
-          <span>🚚</span>
+          <span><IconBox size={20} /></span>
           {appText("Грузовой", "Йөк авто")}
         </button>
       </div>

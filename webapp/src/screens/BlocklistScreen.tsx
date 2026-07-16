@@ -11,7 +11,7 @@ import { fetchBlocks, unblockUser, type BlockedUser } from "../api/safety";
 import { ApiError } from "../api/client";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconBlock } from "../components/Icons";
+import { IconBlock, IconShield } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
 
@@ -80,7 +80,7 @@ export default function BlocklistScreen() {
 
       {status === "ready" && blocks.length === 0 && (
         <div className="state state--big">
-          <div className="state__emoji">🕊️</div>
+          <div className="state__emoji"><IconShield size={34} /></div>
           <h2>{appText("Никто не заблокирован", "Бер кем дә блокланмаған")}</h2>
           <p>
             {appText(

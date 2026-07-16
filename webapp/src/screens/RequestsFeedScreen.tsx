@@ -14,7 +14,7 @@ import {
 } from "../api/requests";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconArrow } from "../components/Icons";
+import { IconArrow, IconRequest, IconCheck } from "../components/Icons";
 import { formatWhen } from "../utils/format";
 
 const PREF_LABEL: Record<string, [string, string]> = {
@@ -68,7 +68,7 @@ export default function RequestsFeedScreen() {
       {status === "ready" &&
         (items.length === 0 ? (
           <div className="state">
-            <div className="state__emoji">📭</div>
+            <div className="state__icon"><IconRequest size={34} /></div>
             <h2>{appText("Пока нет заявок", "Әле заявкалар юҡ")}</h2>
             <p>{appText("Как только кто-то будет искать попутку — покажем здесь.", "Кемдер юлдаш эҙләһә — бында күрһәтәбеҙ.")}</p>
           </div>
@@ -114,7 +114,7 @@ export default function RequestsFeedScreen() {
                   </div>
                   {it.responded ? (
                     <span className="badge badge--mint">
-                      ✓ {appText("Вы откликнулись", "Яуап бирҙегеҙ")}
+                      <IconCheck size={14} /> {appText("Вы откликнулись", "Яуап бирҙегеҙ")}
                     </span>
                   ) : (
                     <button

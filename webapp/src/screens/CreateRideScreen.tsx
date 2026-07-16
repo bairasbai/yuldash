@@ -148,7 +148,7 @@ export default function CreateRideScreen() {
           onBack={() => navigate("/driver")}
         />
         <div className="state">
-          <div className="state__emoji">✅</div>
+          <div className="state__icon"><IconCheck size={34} /></div>
           <h2>{appText("Готово! Пассажиры увидят поездку", "Әҙер! Юлаусылар күрер")}</h2>
           <p>
             {appText(

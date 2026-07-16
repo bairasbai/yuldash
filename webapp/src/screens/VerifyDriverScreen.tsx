@@ -18,7 +18,7 @@ import {
 } from "../api/driver";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconCheck, IconCamera, IconShield } from "../components/Icons";
+import { IconCheck, IconCamera, IconShield, IconClock, IconWarn } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
 
@@ -184,7 +184,7 @@ export default function VerifyDriverScreen() {
       <>
         <SubHeader title={appText("Проверка водителя", "Водитель тикшереүе")} onBack={() => navigate("/driver")} />
         <div className="state">
-          <div className="state__emoji">{verified ? "✅" : "⏳"}</div>
+          <div className="state__icon">{verified ? <IconCheck size={34} /> : <IconClock size={34} />}</div>
           <h2>
             {verified
               ? appText("Ты проверенный водитель", "Һин тикшерелгән водитель")
@@ -221,7 +221,7 @@ export default function VerifyDriverScreen() {
 
       {status === "error" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}
@@ -233,7 +233,7 @@ export default function VerifyDriverScreen() {
         <>
           {docs === "rejected" && (
             <div className="consents__status" style={{ marginTop: 12 }}>
-              ⚠️ {appText(
+              <IconWarn size={15} /> {appText(
                 "Прошлая проверка не пройдена. Проверь, что фото чёткие, и отправь снова.",
                 "Үткән тикшереү үтмәне. Фото асыҡ булһын, ҡабат ебәр."
               )}

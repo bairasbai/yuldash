@@ -148,7 +148,7 @@ export default function AdminDriversScreen() {
 
       {state === "ready" && drivers.length === 0 && (
         <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__emoji">🎉</div>
+          <div className="state__icon"><IconCheck size={34} /></div>
           <h2>{appText("Очередь пуста", "Сират буш")}</h2>
           <p>{appText("Все заявки водителей проверены.", "Бар водитель заявкалары тикшерелгән.")}</p>
         </div>

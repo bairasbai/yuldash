@@ -46,7 +46,10 @@ import {
   IconWork,
   IconPin,
   IconClock,
+  IconCheck,
+  IconBolt,
 } from "../components/Icons";
+import { YuMoon, YuQuiet } from "../components/BrandIcons";
 import { priceLabel } from "../utils/format";
 
 type Point = { lat: number; lng: number; text: string };
@@ -158,7 +161,7 @@ export default function InstantOrderScreen() {
       <>
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">🚕</div>
+          <div className="state__icon"><IconCar size={34} /></div>
           <h2>{appText("Такси скоро в вашем городе", "Такси тиҙҙән ҡалағыҙҙа")}</h2>
           <p>
             {gateMsg
@@ -414,7 +417,7 @@ function ComposeView({
       {/* Сурж */}
       {to && estimate?.surge_note && (
         <div className="taxi-surge">
-          ⚡ {ru ? estimate.surge_note.ru : estimate.surge_note.ba}
+          <IconBolt size={14} /> {ru ? estimate.surge_note.ru : estimate.surge_note.ba}
         </div>
       )}
 
@@ -706,7 +709,7 @@ function TrackingView({
       <>
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">🌙</div>
+          <div className="state__icon"><YuMoon size={34} /></div>
           <h2>{appText("Рядом пока никого", "Яҡында әлегә бер кем юҡ")}</h2>
           <p>
             {appText(
@@ -729,7 +732,7 @@ function TrackingView({
       <>
         <SubHeader title={appText("Заказ отменён", "Заказ кире алынды")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">🫧</div>
+          <div className="state__icon"><YuQuiet size={34} /></div>
           <h2>{byDriver ? appText("Водитель отменил заказ", "Водитель заказды кире алды") : appText("Заказ отменён", "Заказ кире алынды")}</h2>
           <p>
             {appText(
@@ -751,7 +754,7 @@ function TrackingView({
       <>
         <SubHeader title={appText("Поездка завершена", "Сәфәр тамамланды")} onBack={() => navigate(-1)} />
         <div className="taxi-done">
-          <div className="taxi-done__emoji">🎉</div>
+          <div className="state__icon"><IconCheck size={34} /></div>
           <div className="taxi-fare">
             <span>{appText("К оплате", "Түләргә")}</span>
             <b>{priceLabel(order.price_final ?? order.price_estimate, ru)}</b>

@@ -17,6 +17,13 @@ import {
 import { formatRelative } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
+import {
+  IconChat,
+  IconCar,
+  IconRoute,
+  IconBell,
+  IconWarn,
+} from "../components/Icons";
 
 type Tab = "all" | "trips" | "messages" | "system";
 type Load = "loading" | "ok" | "error";
@@ -49,18 +56,18 @@ function matchesTab(n: AppNotification, tab: Tab): boolean {
   }
 }
 
-/** Эмодзи-маркер типа (спокойный, без цветовой перегрузки). */
-function typeEmoji(n: AppNotification): string {
-  if (n.ref_kind === "support") return "💬";
+/** Линиевая иконка-маркер типа (спокойная, без цветовой перегрузки). */
+function TypeIcon({ n }: { n: AppNotification }) {
+  if (n.ref_kind === "support") return <IconChat size={20} />;
   switch (n.type) {
     case "booking":
-      return "🚗";
+      return <IconCar size={20} />;
     case "ride":
-      return "🧭";
+      return <IconRoute size={20} />;
     case "message":
-      return "✉️";
+      return <IconBell size={20} />;
     default:
-      return "🔔";
+      return <IconBell size={20} />;
   }
 }
 
@@ -166,7 +173,7 @@ export default function NotificationsScreen() {
 
       {state === "error" && (
         <div className="state">
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не удалось загрузить", "Йөкләп булманы")}</h2>
           <p>{appText("Проверь соединение и попробуй снова.", "Бәйләнеште тикшереп, ҡабат ҡара.")}</p>
           <button type="button" className="btn-primary" onClick={() => load()}>
@@ -177,7 +184,7 @@ export default function NotificationsScreen() {
 
       {state === "ok" && shown.length === 0 && (
         <div className="state">
-          <div className="state__emoji">🔔</div>
+          <div className="state__icon"><IconBell size={34} /></div>
           <h2>{appText("Пока пусто", "Әлегә буш")}</h2>
           <p>
             {appText(
@@ -199,7 +206,7 @@ export default function NotificationsScreen() {
                 className={"notif-row" + (n.read ? "" : " notif-row--unread")}
                 onClick={() => open(n)}
               >
-                <span className="notif-row__ico" aria-hidden>{typeEmoji(n)}</span>
+                <span className="notif-row__ico" aria-hidden><TypeIcon n={n} /></span>
                 <div className="notif-row__main">
                   <div className="notif-row__title">
                     {appText(n.title_ru, n.title_ba)}

@@ -339,3 +339,53 @@ export const IconBolt = ({ size = 22 }: P) => (
     <path d="M13 3 5 13h6l-1 8 8-10h-6l1-8Z" />
   </svg>
 );
+
+// Поиск (пустой поиск, ничего не найдено).
+export const IconSearch = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="10.5" cy="10.5" r="6.5" />
+    <path d="M20 20l-4.7-4.7" />
+  </svg>
+);
+
+// Предупреждение (ошибка, нет связи, отклонено).
+export const IconWarn = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M12 3.5 21 19H3L12 3.5Z" />
+    <path d="M12 10v4.5M12 17.2v.2" />
+  </svg>
+);
+
+// Удостоверение / бейдж (документы водителя).
+export const IconIdCard = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <rect x="3" y="5" width="18" height="14" rx="2.5" />
+    <circle cx="8.5" cy="11" r="2" />
+    <path d="M5.5 16.5c.4-1.7 1.7-2.6 3-2.6s2.6.9 3 2.6M14.5 10h4M14.5 13.5h3" />
+  </svg>
+);
+
+// Сигнал / трансляция (ищем поблизости, нет связи).
+export const IconSignal = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="2" />
+    <path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9M4.7 4.7a10.3 10.3 0 0 0 0 14.6M19.3 4.7a10.3 10.3 0 0 1 0 14.6" />
+  </svg>
+);
+
+// Календарь-часы / запланировано (отложенные заказы).
+export const IconClockCal = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 7.5V12l3 1.8" />
+  </svg>
+);
+
+// Замок (защищённая оплата, безопасность).
+export const IconLock = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <rect x="4.5" y="10.5" width="15" height="10" rx="2.2" />
+    <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+    <path d="M12 14.5v2.5" />
+  </svg>
+);

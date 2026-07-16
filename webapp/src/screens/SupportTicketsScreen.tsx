@@ -15,6 +15,7 @@ import {
 import { formatRelative } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
+import { IconWarn, IconChat } from "../components/Icons";
 
 type Load = "loading" | "ok" | "error";
 type Send = "idle" | "sending";
@@ -154,7 +155,7 @@ export default function SupportTicketsScreen() {
 
       {state === "error" && (
         <div className="state">
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
           <h2>{appText("Не удалось загрузить", "Йөкләп булманы")}</h2>
           <p>{appText("Проверь соединение и попробуй снова.", "Бәйләнеште тикшереп, ҡабат ҡара.")}</p>
           <button type="button" className="btn-primary" onClick={() => load()}>
@@ -165,7 +166,7 @@ export default function SupportTicketsScreen() {
 
       {state === "ok" && items.length === 0 && !composing && (
         <div className="state">
-          <div className="state__emoji">💚</div>
+          <div className="state__icon"><IconChat size={34} /></div>
           <h2>{appText("Пока нет обращений", "Әлегә мөрәжәғәт юҡ")}</h2>
           <p>
             {appText(

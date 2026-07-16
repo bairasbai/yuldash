@@ -10,7 +10,7 @@ import { useLang } from "../i18n/lang";
 import { fetchMyStats, type MyStats } from "../api/stats";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconShare, IconCheck } from "../components/Icons";
+import { IconShare, IconCheck, IconHeart } from "../components/Icons";
 
 type Status = "loading" | "error" | "ready";
 
@@ -85,7 +85,7 @@ export default function MyStatsScreen() {
           {/* Звание + прогресс (переиспользуем стиль trust-hero) */}
           <div className="trust-hero">
             <div className="trust-hero__badge" style={{ fontSize: 28 }}>
-              🌿
+              <IconHeart size={34} />
             </div>
             <div className="trust-hero__level">
               {appText(stats.rank.title_ru, stats.rank.title_ba)}
