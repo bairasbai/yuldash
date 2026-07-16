@@ -112,7 +112,7 @@ export default function App() {
         <Route path="/rides" element={<RidesScreen />} />
         {/* Home-витрина (карта) — публична, гость тоже видит */}
         <Route path="/map" element={<HomeScreen />} />
-        <Route path="/chat" element={<StubScreen title={t("navChat")} emoji="💬" />} />
+        <Route path="/chat" element={<StubScreen title={t("navChat")} />} />
         <Route path="/profile" element={<ProfileScreen />} />
         {/* Согласия — локальные (152-ФЗ), доступны и гостю */}
         <Route path="/consents" element={<ConsentsScreen />} />
