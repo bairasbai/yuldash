@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { createRequest, type RequestInput } from "../api/requests";
+import { track } from "../analytics";
 import type { RideCategory } from "../api/rides";
 import { SubHeader } from "./ConsentsScreen";
 import { IconCheck, IconBolt, IconHospital, IconUsers } from "../components/Icons";
@@ -84,6 +85,8 @@ export default function CreateRequestScreen() {
     };
     try {
       const row = await createRequest(body);
+      // Заявка создана — ключевая конверсия пассажира. Категория безопасна (не PII).
+      track("create_request", { category });
       setCreatedId(row.id);
       setDone(true);
     } catch (e) {

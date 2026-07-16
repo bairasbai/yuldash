@@ -50,6 +50,7 @@ import PartnerCabinetScreen from "./screens/PartnerCabinetScreen";
 import AdsCabinetScreen from "./screens/AdsCabinetScreen";
 import AdEditorScreen from "./screens/AdEditorScreen";
 import PaymentInfoScreen from "./screens/PaymentInfoScreen";
+import PricingInfoScreen from "./screens/PricingInfoScreen";
 import SosScreen from "./screens/SosScreen";
 import TrustedContactsScreen from "./screens/TrustedContactsScreen";
 import FamilyOrderScreen from "./screens/FamilyOrderScreen";
@@ -435,6 +436,8 @@ export default function App() {
         {/* «Скидки по пути» и «Как оплатить» — публичные витрины */}
         <Route path="/coupons" element={<CouponsScreen />} />
         <Route path="/payment-info" element={<PaymentInfoScreen />} />
+        {/* «Честно о цене» — публичная витрина (паритет с android PricingInfo) */}
+        <Route path="/pricing" element={<PricingInfoScreen />} />
         <Route
           path="/wallet"
           element={

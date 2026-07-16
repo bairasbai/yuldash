@@ -26,6 +26,7 @@ import {
   IconBlock,
   IconFlag,
   IconReceipt,
+  IconWallet,
   IconLogout,
   IconTrash,
   IconSettings,
@@ -114,6 +115,13 @@ export default function SettingsScreen() {
       icon: <IconReceipt size={22} />,
       title: appText("Как оплатить", "Нисек түләргә"),
       sub: appText("Способы оплаты — честно и просто", "Түләү ысулдары — намыҫлы"),
+    },
+    {
+      key: "pricing",
+      to: "/pricing",
+      icon: <IconWallet size={22} />,
+      title: appText("Честно о цене", "Хаҡ тураһында асыҡтан"),
+      sub: appText("Попутка, тариф такси и комиссия", "Юлдаш, такси тарифы, комиссия"),
     },
   ];
 

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { flags, type Role } from "../flags";
 import { useLang } from "../i18n/lang";
+import { track, trackOnce } from "../analytics";
 import BrandMark from "../components/BrandMark";
 import { IconCheck } from "../components/Icons";
 import { YuProfile, YuModeRideshare, YuAccessible, YuRoute, YuSafeTrip } from "../components/BrandIcons";
@@ -43,7 +44,13 @@ export default function OnboardingScreen() {
 
   const isSetup = step === slides.length; // финальный слайд-настройка
 
+  // Начало онбординга — вход в воронку первого запуска. Раз за сессию.
+  useEffect(() => {
+    trackOnce("onboarding_start", "onboarding_start");
+  }, []);
+
   const finish = () => {
+    track("onboarding_done", { chosen_role: role, simple });
     flags.setRole(role);
     flags.setSimpleMode(simple);
     flags.setOnboarded();

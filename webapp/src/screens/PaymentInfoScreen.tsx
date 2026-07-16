@@ -9,7 +9,7 @@
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { SubHeader } from "./ConsentsScreen";
-import { IconShield, IconPhone, IconReceipt, IconLock } from "../components/Icons";
+import { IconShield, IconPhone, IconReceipt, IconLock, IconWallet, IconChevron } from "../components/Icons";
 
 export default function PaymentInfoScreen() {
   const { appText } = useLang();
@@ -96,6 +96,27 @@ export default function PaymentInfoScreen() {
             "Беҙ карта мәғлүмәтеңде һаҡламайбыҙ — түләү банк йәки ЮKassa аша бара. Телефон тик чек һәм түләү буйынса бәйләнеш өсөн кәрәк. Берәй нәмә тура килмәһә — ярҙамға яҙ, кешеләрсә хәл итәбеҙ."
           )}
         </p>
+      </div>
+
+      {/* Вход на «Честно о цене» — как устроены деньги (попутка/такси/комиссия) */}
+      <div className="list" style={{ marginTop: 16 }}>
+        <button
+          type="button"
+          className="list-row list-row--link"
+          onClick={() => navigate("/pricing")}
+        >
+          <span className="list-row__icon"><IconWallet size={22} /></span>
+          <div className="list-row__main">
+            <div className="list-row__title">{appText("Честно о цене", "Хаҡ тураһында асыҡтан")}</div>
+            <div className="list-row__sub">
+              {appText(
+                "Попутка бесплатна, тариф такси и комиссия — без мелкого шрифта",
+                "Юлдаш бушлай, такси тарифы һәм комиссия — ваҡ хәрефһеҙ"
+              )}
+            </div>
+          </div>
+          <span className="list-row__chev"><IconChevron size={20} /></span>
+        </button>
       </div>
 
       <p className="receipt__foot">

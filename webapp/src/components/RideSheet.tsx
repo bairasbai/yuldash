@@ -3,12 +3,13 @@
 //  Открывается тапом по поездке на витрине (Home). Гость → на вход.
 //  Бронь: POST /bookings → переход на активную поездку /trip/{id}.
 // ================================================================
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { createBooking } from "../api/bookings";
+import { track } from "../analytics";
 import type { Ride } from "../api/rides";
 import { formatWhen, priceLabel } from "../utils/format";
 import { IconArrow, IconCheck } from "./Icons";
@@ -28,6 +29,11 @@ export default function RideSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Открыли карточку поездки — заинтересовался конкретной поездкой.
+  useEffect(() => {
+    track("open_ride", { category: ride.category ?? "regular" });
+  }, [ride.category]);
+
   async function book() {
     if (!isAuthed) {
       navigate("/login", { state: { from: "/map" } });
@@ -35,8 +41,10 @@ export default function RideSheet({
     }
     setBusy(true);
     setError(null);
+    track("booking_start");
     try {
       const b = await createBooking({ ride_id: ride.id, seats: 1 });
+      track("booking_done");
       onClose();
       navigate(`/trip/${b.id}`);
     } catch (e) {

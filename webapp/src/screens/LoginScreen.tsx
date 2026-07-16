@@ -12,6 +12,7 @@ import {
 } from "../api/auth";
 import BrandMark from "../components/BrandMark";
 import { IconChevron, IconTelegram } from "../components/Icons";
+import { track } from "../analytics";
 
 type Step = "choose" | "code";
 
@@ -50,6 +51,7 @@ export default function LoginScreen() {
     }
     setLoading(true);
     setError(null);
+    track("login_start", { method: "telegram" });
     try {
       const { request_id } = await tgStart();
       setRequestId(request_id);
@@ -76,6 +78,7 @@ export default function LoginScreen() {
       const res = await tgVerify(requestId, code.trim());
       // Сначала сохраняем сессию (токен в localStorage) — тогда /me/update пойдёт с авторизацией.
       login(res.access_token, res.refresh_token, res.user);
+      track("login_success", { method: "telegram" });
       // Необязательное имя при первом входе — обновим профиль (реальный /me/update).
       const nm = name.trim();
       if (nm) {

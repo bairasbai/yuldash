@@ -34,6 +34,7 @@ import {
 } from "../api/instant";
 import { fetchSavedPlaces, fetchRecentPlaces } from "../api/places";
 import { geocode } from "../api/discovery";
+import { track } from "../analytics";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
@@ -294,6 +295,8 @@ function ComposeView({
     if (!from || !to || busy) return;
     setBusy(true);
     setError(null);
+    // Начало заказа такси — без координат/адресов, только безопасный контекст.
+    track("taxi_order_start", { category, when });
     const body = {
       from_lat: from.lat,
       from_lng: from.lng,

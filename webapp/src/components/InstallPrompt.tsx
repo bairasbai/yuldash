@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLang } from "../i18n/lang";
+import { track, trackOnce } from "../analytics";
 
 const DISMISS_KEY = "yuldash.install.dismissed";
 
@@ -54,6 +55,11 @@ export default function InstallPrompt() {
     };
   }, []);
 
+  // Показали подсказку установки — важный шаг «дороги к айфонам». Раз за сессию.
+  useEffect(() => {
+    if (show) trackOnce("install_prompt_shown", "install_prompt_shown");
+  }, [show]);
+
   if (!show) return null;
 
   const dismiss = () => {
@@ -64,7 +70,8 @@ export default function InstallPrompt() {
   const install = async () => {
     if (!deferred) return;
     await deferred.prompt();
-    await deferred.userChoice;
+    const choice = await deferred.userChoice;
+    if (choice?.outcome === "accepted") track("install_accepted");
     setDeferred(null);
     dismiss();
   };

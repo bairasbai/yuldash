@@ -7,6 +7,7 @@ import RideCard from "../components/RideCard";
 import { EmptyState, ErrorState, LoadingList } from "../components/States";
 import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
 import { IconFilter, IconSearch } from "../components/Icons";
+import { track } from "../analytics";
 
 type State =
   | { kind: "loading" }
@@ -45,6 +46,11 @@ export default function RidesScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
+
+  // Просмотр ленты поездок — ключевой шаг воронки (нашёл, что ехать).
+  useEffect(() => {
+    track("view_rides", { filtered: filterOn });
+  }, [filterOn]);
 
   return (
     <>

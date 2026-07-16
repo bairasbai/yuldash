@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { REVIEW_MAX_LEN, REVIEW_MIN_LEN, submitAppReview } from "../api/reviews";
+import { track } from "../analytics";
 import { SubHeader } from "./ConsentsScreen";
 import { YuStar } from "../components/BrandIcons";
 import { IconHeart } from "../components/Icons";
@@ -53,6 +54,8 @@ export default function AppReviewScreen() {
     setError(null);
     try {
       await submitAppReview({ stars, text: text.trim(), city: city.trim() });
+      // Оценка приложения отправлена — только число звёзд (отзыв-текст НЕ шлём).
+      track("rate_submit", { stars });
       setState("sent");
     } catch (e) {
       setState("error");

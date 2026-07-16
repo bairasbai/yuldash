@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { flags } from "../flags";
 import { useLang } from "../i18n/lang";
+import { trackOnce } from "../analytics";
 
 /**
  * Стартовый экран-гейт. Пока AuthProvider проверяет сохранённую сессию (GET /me) —
@@ -15,6 +16,11 @@ export default function SplashScreen() {
   const { status } = useAuth();
   const navigate = useNavigate();
   const { appText } = useLang();
+
+  // Старт сессии — вход в воронку. Раз за вкладку (Splash — первый экран).
+  useEffect(() => {
+    trackOnce("app_open", "app_open");
+  }, []);
 
   useEffect(() => {
     if (status === "loading") return;

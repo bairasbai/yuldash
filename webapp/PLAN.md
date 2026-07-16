@@ -532,6 +532,35 @@ API-слой — расширен `src/api/admin.ts` (partners/promo/parcels/cou
 - **Ключ Яндекс JS** для домена `app.yulbash.ru`.
 - **Поддомен** `app.yulbash.ru` (DNS + nginx-статика из `dist/`, HTTPS).
 
+### ✅ Волна 10 — Аналитика + «Честно о цене» (готово, сборка зелёная)
+Продуктовая аналитика веб-воронки (без PII) + паритетный экран «Честно о цене».
+
+**1. Аналитика (`src/analytics.ts`):** `track(event, props?)` + `trackOnce(key, event, props?)`.
+- **Приватность строго (§8):** НЕ шлём телефон/имя/точные координаты/адрес/токен/e-mail. Только имя события +
+  безопасный контекст. Общий контекст (`lang`, `role`, `standalone`) подставляется автоматически; денилист-регэксп
+  (`phone|name|lat|lng|token|…`) отбрасывает чувствительные ключи, строки обрезаются до 64 симв.
+- **Анонимность:** `client_id` — uuid в localStorage (`yuldash.cid`), не привязан к личности.
+- **Сток:** best-effort `POST ${VITE_API_BASE}/events` (fire-and-forget, `keepalive`, БЕЗ `Authorization`).
+  Эндпоинта на бэке **пока НЕТ** → 404/405/сеть/CORS глотаются молча (в dev — `console.debug`). UI не блокируем,
+  не ретраим. Появится ручка — заработает без правок клиента.
+- **Форма payload `/events`:** `{ event, client_id, ts, lang, role, standalone, ...safeProps }`.
+- **Инструментированы 15 узлов воронки** (зеркало android `data/Analytics.kt`, но без PII):
+  `app_open` (Splash, раз/сессию), `install_prompt_shown`+`install_accepted` (InstallPrompt),
+  `onboarding_start`+`onboarding_done` (Onboarding), `login_start`+`login_success` (Login),
+  `view_rides` (RidesScreen), `open_ride`+`booking_start`+`booking_done` (RideSheet),
+  `create_request` (CreateRequest), `taxi_order_start` (InstantOrder), `rate_submit` (AppReview),
+  `lang_switch` (LangToggle).
+
+**2. «Честно о цене» (`src/screens/PricingInfoScreen.tsx` → `/pricing`, публично):** паритет с android PricingInfo.
+Честно и тёпло, двуязычно (ба-черновик → `BASHKIR_DRAFT.md`), токены Canon (переиспользованы `biz-banner`/`pay-way`/
+`list-row` из `ui.css`): (а) попутка бесплатна — платишь за бензин напрямую водителю; (б) такси — формула тарифа
+(подача + за км + за минуту, минимум) + честный сурж максимум ×1.5 (не ×3); (в) комиссия водителя 3–8% по стажу и
+КУДА идёт (серверы/карты/развитие); (г) оплата пока напрямую по СБП «на доверии». Выдуманных сумм тарифа нет —
+только реальные 3–8% и ×1.5. **Входы:** карточка «Честно о цене» в `PaymentInfoScreen` + пункт в Настройках.
+
+**⚠️ Требует серверной части (клиент готов):** эндпоинт `POST /events` (приём анонимных событий воронки) —
+до него аналитика no-op (в dev видно в консоли).
+
 ## Веб-ограничения (адаптируем, не буквально 1:1)
 - Фоновый GPS-трекинг поездки — только при открытом приложении (iOS PWA).
 - Полноэкранный «звонок» оффера такси — баннер + звук/вибро.
