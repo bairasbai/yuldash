@@ -243,7 +243,9 @@ export default function DriverCabinetScreen() {
           <h2 className="section-title">{appText("Мои поездки", "Сәфәрҙәрем")}</h2>
           {rides.length === 0 ? (
             <div className="state" style={{ paddingTop: 12 }}>
-              <div className="state__emoji">🚗</div>
+              <div className="state__icon">
+                <IconCar size={34} />
+              </div>
               <h2>{appText("Пока нет поездок", "Әле сәфәрҙәр юҡ")}</h2>
               <p>
                 {appText(

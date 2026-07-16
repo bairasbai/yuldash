@@ -18,7 +18,7 @@ import {
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { rubLabel, formatWhen } from "../utils/format";
-import { IconWallet, IconArrow } from "../components/Icons";
+import { IconWallet, IconArrow, IconReceipt } from "../components/Icons";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -93,7 +93,9 @@ export default function WalletScreen() {
 
       {status === "soon" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">👛</div>
+          <div className="state__icon">
+            <IconWallet size={34} />
+          </div>
           <h2>{appText("Кошелёк скоро", "Янсыҡ тиҙҙән")}</h2>
           <p>
             {appText(
@@ -106,7 +108,9 @@ export default function WalletScreen() {
 
       {status === "error" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn">
+            <IconWallet size={34} />
+          </div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load()}>
             {appText("Повторить", "Ҡабатларға")}
@@ -140,7 +144,9 @@ export default function WalletScreen() {
 
           {ledger.length === 0 ? (
             <div className="state" style={{ paddingTop: 12 }}>
-              <div className="state__emoji">🧾</div>
+              <div className="state__icon">
+                <IconReceipt size={32} />
+              </div>
               <p>
                 {appText(
                   "Пока операций нет. Заверши безналичную поездку — начисление появится здесь.",

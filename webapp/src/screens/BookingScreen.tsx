@@ -15,7 +15,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import YandexMap from "../components/YandexMap";
 import { SubHeader } from "./ConsentsScreen";
 import { StatusPill } from "../components/StatusPill";
-import { IconArrow } from "../components/Icons";
+import { IconArrow, IconPhone, IconPin } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 
 export default function BookingScreen() {
@@ -138,13 +138,13 @@ export default function BookingScreen() {
           {d.contact_unlocked ? (
             <div className="unlock-card">
               {d.driver_phone && (
-                <a className="btn-primary" href={`tel:${d.driver_phone}`} style={{ display: "flex", width: "100%" }}>
-                  📞 {appText("Позвонить водителю", "Водителгә шылтыратырға")}
+                <a className="btn-primary" href={`tel:${d.driver_phone}`} style={{ display: "flex", width: "100%", gap: 8 }}>
+                  <IconPhone size={18} /> {appText("Позвонить водителю", "Водителгә шылтыратырға")}
                 </a>
               )}
               {d.pickup && (
-                <p className="unlock-card__point">
-                  📍 {appText("Место встречи:", "Осрашыу урыны:")} {d.pickup}
+                <p className="unlock-card__point" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <IconPin size={18} /> {appText("Место встречи:", "Осрашыу урыны:")} {d.pickup}
                 </p>
               )}
             </div>

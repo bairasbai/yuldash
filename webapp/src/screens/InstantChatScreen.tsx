@@ -20,6 +20,7 @@ import {
 import { fetchInstantOrder, isUnlocked, type InstantOrder } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow } from "../components/Icons";
+import { YuChat } from "../components/BrandIcons";
 
 export default function InstantChatScreen() {
   const { appText } = useLang();
@@ -128,7 +129,9 @@ export default function InstantChatScreen() {
 
       {noChat ? (
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">💬</div>
+          <div className="state__icon">
+            <YuChat size={36} />
+          </div>
           <h2>{appText("Чат откроется после принятия", "Чат ҡабул иткәс асыла")}</h2>
           <p>
             {appText(

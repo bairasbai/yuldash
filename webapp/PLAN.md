@@ -660,3 +660,40 @@ API-слой — расширен `src/api/admin.ts` (partners/promo/parcels/cou
 - **Profile**: шапка профиля → **зелёный градиент + белый текст** (CanonGreenInk→InkDark),
   аватар 60→**70px**, имя 20→**22px**; список кабинетов gap 10→**12px**, padding строки 16→**14px**.
 - `npm run build` — **зелёный** (css 79.79 kB).
+
+## Паритет дизайна — D3 (вёрстка след. группы + де-эмодзификация ключевых экранов) ✅
+
+Сверено по андроид-эталону (`BookingActiveTripScreen.kt`, `ProfileScreen.kt` Wallet/DriverEarnings,
+`CourierScreen.kt`, `RidesRequestsChatScreens.kt`, `UiKit.kt`, `CanonTokens.kt`). Вёрстка ключевых
+экранов группы (Booking/ActiveTrip, Wallet, DriverEarnings, Driver/PassengerCabinet, Courier, чат)
+уже несла андроид-числа из D0–D2 и волн 3–6: карта деталей брони, крупный моноширинный код посадки
+(`.code-card` 40px/letter-spacing 0.28em, зелёный градиент), live-баннер фазы, пузыри чата
+(`.bubble`/`.bubble--mine` — свои справа зелёные 16/16/4/16, чужие слева, поле ввода-«пилюля» 46px),
+оценка при done, карточка баланса (`.wallet-card` зелёный градиент, 40px сумма, radius 28), строки
+ledger (иконка-стрелка mint/приглушённая + назначение/дата/сумма со знаком), плитки заработка +
+бары по дням (`.earn-chart`), сетка кабинетов (`.cabinet-grid` 2 колонки, тумблер «на линии»),
+вкладки/карточки/статус-плашки курьера. Числа (карты 28, item 22, кнопка 52/16/800, аватар 44,
+gap 12) подтверждены — не трогал, чтобы не регрессить.
+
+### Главная работа D3 — убрал «веб-эмодзи», поставил брендовые иконки в кружке Canon
+- Новый переиспользуемый стиль **`.state__icon`** (76px кружок, `--mint` фон + `--green` линиевая
+  иконка; варианты `--warn`/`--danger`) — вместо hero-эмодзи в пустых/«скоро»/ошибка состояниях.
+- **Карточка гостя (Профиль):** 👋 → **`<BrandMark size={64}>`** (фирменный знак: зелёный камень +
+  золотая точка маршрута) через `.profile-guest__mark`.
+- **Пустые/«скоро» состояния** ключевых экранов на брендовую иконку в кружке:
+  - Кошелёк: 👛→IconWallet, 🧾→IconReceipt, ошибка 📡→IconWallet(warn).
+  - Заработок: 📊→IconTrend, ошибка 📡→IconTrend(warn); убрал 🚗 из текста новичка.
+  - Поездки (общий `States.tsx`): 🌤️/📡→**YuTripList** (empty / warn).
+  - Чат заявки (InstantChat): 💬→**YuChat**; Обращение (SupportTicket): 🔍→YuChat, 📡→YuSupport(warn).
+  - Кабинет водителя: 🚗→IconCar; кабинет пассажира: 🚗→IconRoute.
+  - Курьер: 📦→IconBox, 🚴→YuCourierWalk, 🔍(нет заказов)→IconBox, 📦(ничего не везёшь)→YuCourierWalk.
+- **Инлайн-иконки на видных кнопках** (тоже «выдавали веб»): Booking 📞→IconPhone, 📍→IconPin;
+  ActiveTrip 📞→IconPhone. Мелкий декор в тексте/тумблерах оставлен (правило D3).
+- `npm run build` — **зелёный** (css 80.18 kB, tsc без ошибок).
+
+### Осталось для полного паритета (числами, не трогал в D3)
+- Мелкие статус-эмодзи тумблера «на линии» 🟢/⚪️ (DriverCabinet, Courier) и бейджи статуса проверки
+  водителя ⏳/⚠️/🪪/✅ (DriverCabinet) — можно заменить на CSS-точку/линиевые иконки позже.
+- Не проходил визуально: такси-группа (`InstantOrderScreen`, `InstantDriverTripScreen`,
+  `ScheduledOrdersScreen`), посылки (`ParcelsScreen`), 16 админ-экранов (`Admin*Screen`) — их пустые
+  состояния ещё на эмодзи.

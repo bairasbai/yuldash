@@ -247,7 +247,9 @@ export default function PassengerCabinetScreen() {
           {/* Пусто совсем */}
           {active.length === 0 && history.length === 0 && (
             <div className="state" style={{ paddingTop: 32 }}>
-              <div className="state__emoji">🚗</div>
+              <div className="state__icon">
+                <IconRoute size={34} />
+              </div>
               <h2>{appText("Пока нет поездок", "Әле сәфәрҙәр юҡ")}</h2>
               <p>
                 {appText(

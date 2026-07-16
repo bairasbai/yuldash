@@ -1,4 +1,5 @@
 import { useLang } from "../i18n/lang";
+import { YuTripList } from "./BrandIcons";
 
 /** Скелетон карточки поездки (состояние загрузки). */
 export function RideCardSkeleton() {
@@ -45,7 +46,9 @@ export function EmptyState() {
   const { t } = useLang();
   return (
     <div className="state">
-      <div className="state__emoji">🌤️</div>
+      <div className="state__icon">
+        <YuTripList size={36} />
+      </div>
       <h2>{t("emptyTitle")}</h2>
       <p>{t("emptyHint")}</p>
     </div>
@@ -56,7 +59,9 @@ export function ErrorState({ onRetry }: { onRetry: () => void }) {
   const { t } = useLang();
   return (
     <div className="state">
-      <div className="state__emoji">📡</div>
+      <div className="state__icon state__icon--warn">
+        <YuTripList size={36} />
+      </div>
       <h2>{t("errorTitle")}</h2>
       <p>{t("errorHint")}</p>
       <button type="button" className="btn-primary" onClick={onRetry}>

@@ -5,6 +5,7 @@ import { useLang } from "../i18n/lang";
 import { fetchNotifUnread } from "../api/notifications";
 import { fetchSupportUnread } from "../api/support";
 import ScreenHeader from "../components/ScreenHeader";
+import BrandMark from "../components/BrandMark";
 import {
   IconChevron,
   IconGift,
@@ -368,7 +369,9 @@ export default function ProfileScreen() {
         </div>
       ) : (
         <div className="profile-guest">
-          <div className="profile-guest__emoji">👋</div>
+          <div className="profile-guest__mark">
+            <BrandMark size={64} />
+          </div>
           <h2>{appText("Войди в Юлдаш", "Юлдашҡа ин")}</h2>
           <p>
             {appText(

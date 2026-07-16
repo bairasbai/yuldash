@@ -208,6 +208,27 @@
 .state__emoji {
   font-size: 44px;
 }
+/* Брендовая линиевая иконка в кружке Canon — вместо hero-эмодзи в пустых
+   и «скоро» состояниях (кошелёк/поездки/чат и т.п.). Как аватар-плейсхолдер
+   в андроиде: мятный круг + зелёная иконка. */
+.state__icon {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 2px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint);
+  color: var(--green);
+}
+.state__icon--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.state__icon--danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
 .state h2 {
   margin: 14px 0 6px;
   font-size: 19px;
@@ -1216,6 +1237,12 @@ button.list-row:active {
 }
 .profile-guest__emoji {
   font-size: 40px;
+}
+/* Брендовый знак Юлдаша в карточке гостя — вместо эмодзи-приветствия. */
+.profile-guest__mark {
+  display: inline-flex;
+  margin: 0 auto 4px;
+  filter: drop-shadow(0 12px 24px rgba(11, 107, 58, 0.28));
 }
 .profile-guest h2 {
   margin: 12px 0 6px;

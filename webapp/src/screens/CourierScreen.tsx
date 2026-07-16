@@ -37,7 +37,8 @@ import { rubLabel, formatWhen } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/parcelUi";
-import { IconStar, IconCheck, IconCopy } from "../components/Icons";
+import { IconStar, IconCheck, IconCopy, IconBox } from "../components/Icons";
+import { YuCourierWalk } from "../components/BrandIcons";
 
 type Boot = "loading" | "error" | "soon" | "need-approval" | "ready";
 type Tab = "available" | "carry" | "cabinet";
@@ -132,7 +133,9 @@ export default function CourierScreen() {
       <>
         <SubHeader title={appText("Курьер Юлдаш", "Юлдаш курьеры")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">📦</div>
+          <div className="state__icon">
+            <IconBox size={34} />
+          </div>
           <h2>{appText("Курьер скоро запустится", "Курьер тиҙҙән асыла")}</h2>
           <p>{appText("А пока доступна доставка «по пути» — довези посылку соседу.", "Ә әлегә «юл ыңғайы» доставка бар — күршегә бандероль еткер.")}</p>
           <button type="button" className="btn-primary" onClick={() => navigate("/parcels")}>
@@ -147,7 +150,9 @@ export default function CourierScreen() {
       <>
         <SubHeader title={appText("Курьер Юлдаш", "Юлдаш курьеры")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">🚴</div>
+          <div className="state__icon">
+            <YuCourierWalk size={36} />
+          </div>
           <h2>{appText("Сначала стань курьером", "Башта курьер бул")}</h2>
           <p>{appText("Чтобы брать заказы, нужна одобренная заявка. Это займёт пару минут.", "Заказ алыр өсөн хупланған ғариза кәрәк. Был бер-ике минут.")}</p>
           <button type="button" className="btn-primary" onClick={() => navigate("/courier-onboarding")}>
@@ -275,7 +280,9 @@ function AvailableOrders({ zone }: { zone: CourierZone }) {
   if (items.length === 0) {
     return (
       <div className="state" style={{ paddingTop: 28 }}>
-        <div className="state__emoji">🔍</div>
+        <div className="state__icon">
+          <IconBox size={34} />
+        </div>
         <h2>{appText("Пока нет заказов", "Әле заказдар юҡ")}</h2>
         <p>{appText("В твоей зоне сейчас пусто. Оставайся на линии — заказ появится со временем.", "Зонаңда хәҙер буш. Линияла ҡал — заказ ваҡыт менән сыға.")}</p>
       </div>
@@ -370,7 +377,9 @@ function CarryOrders() {
   if (items.length === 0) {
     return (
       <div className="state" style={{ paddingTop: 28 }}>
-        <div className="state__emoji">📦</div>
+        <div className="state__icon">
+          <YuCourierWalk size={36} />
+        </div>
         <h2>{appText("Ты ничего не везёшь", "Һин бер нәмә лә йөрөтмәйһең")}</h2>
         <p>{appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер.")}</p>
       </div>

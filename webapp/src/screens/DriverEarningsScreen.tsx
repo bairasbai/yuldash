@@ -16,6 +16,7 @@ import {
 } from "../api/driver";
 import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
+import { IconTrend } from "../components/Icons";
 
 type Status = "loading" | "error" | "soon" | "ready";
 
@@ -87,7 +88,9 @@ export default function DriverEarningsScreen() {
 
       {status === "soon" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📊</div>
+          <div className="state__icon">
+            <IconTrend size={34} />
+          </div>
           <h2>{appText("Заработок скоро появится", "Табыш тиҙҙән буласаҡ")}</h2>
           <p>
             {appText(
@@ -100,7 +103,9 @@ export default function DriverEarningsScreen() {
 
       {status === "error" && (
         <div className="state" style={{ paddingTop: 28 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn">
+            <IconTrend size={34} />
+          </div>
           <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
           <button type="button" className="btn-primary" onClick={() => load(period)}>
             {appText("Повторить", "Ҡабатларға")}
@@ -124,8 +129,8 @@ export default function DriverEarningsScreen() {
           {data.trips === 0 ? (
             <p className="stat-newbie">
               {appText(
-                "Пока пусто. Возьми первый заказ — и заработок появится здесь 🚗",
-                "Әле буш. Беренсе заказды ал — табыш бында күренер 🚗"
+                "Пока пусто. Возьми первый заказ — и заработок появится здесь.",
+                "Әле буш. Беренсе заказды ал — табыш бында күренер."
               )}
             </p>
           ) : (

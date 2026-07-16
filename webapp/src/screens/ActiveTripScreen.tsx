@@ -31,7 +31,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
 import { StatusPill } from "../components/StatusPill";
 import { SubHeader } from "./ConsentsScreen";
-import { IconArrow, IconStar } from "../components/Icons";
+import { IconArrow, IconStar, IconPhone } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 
 export default function ActiveTripScreen() {
@@ -212,7 +212,9 @@ export default function ActiveTripScreen() {
         {details.contact_unlocked && details.driver_phone && (
           <a className="info-row info-row--link" href={`tel:${details.driver_phone}`}>
             <span className="info-row__k">{appText("Водитель", "Водитель")}</span>
-            <span className="info-row__v">📞 {appText("Позвонить", "Шылтыратырға")}</span>
+            <span className="info-row__v" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <IconPhone size={16} /> {appText("Позвонить", "Шылтыратырға")}
+            </span>
           </a>
         )}
         {details.contact_unlocked && details.pickup && (

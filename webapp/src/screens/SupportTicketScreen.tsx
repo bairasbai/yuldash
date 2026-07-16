@@ -17,6 +17,7 @@ import {
 import { formatRelative } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow } from "../components/Icons";
+import { YuChat, YuSupport } from "../components/BrandIcons";
 
 type Load = "loading" | "ok" | "error" | "missing";
 
@@ -101,7 +102,9 @@ export default function SupportTicketScreen() {
           onBack={() => navigate("/support")}
         />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">🔍</div>
+          <div className="state__icon">
+            <YuChat size={36} />
+          </div>
           <h2>{appText("Обращение не найдено", "Мөрәжәғәт табылманы")}</h2>
           <p>{appText("Возможно, оно было удалено.", "Бәлки, ул юйылған.")}</p>
           <button type="button" className="btn-primary" onClick={() => navigate("/support")}>
@@ -117,7 +120,9 @@ export default function SupportTicketScreen() {
       <>
         <SubHeader title={appText("Обращение", "Мөрәжәғәт")} onBack={() => navigate(-1)} />
         <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__emoji">📡</div>
+          <div className="state__icon state__icon--warn">
+            <YuSupport size={34} />
+          </div>
           <h2>{appText("Не удалось загрузить", "Йөкләп булманы")}</h2>
           <p>{appText("Проверь соединение и попробуй снова.", "Бәйләнеште тикшереп, ҡабат ҡара.")}</p>
           <button type="button" className="btn-primary" onClick={() => load()}>
