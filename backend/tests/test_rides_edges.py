@@ -103,7 +103,7 @@ def test_rides_cache_hit_still_applies_user_block_filter(client, user_factory, m
     ride = _publish(client, driver, frm="CachedBlockA", to="CachedBlockB")
     cached_payload = client.get(f"/rides/{ride['id']}").json()
 
-    monkeypatch.setattr("app.routers.rides.cache_get_json", lambda key: [cached_payload] if key == "rides:active:v1" else None)
+    monkeypatch.setattr("app.routers.rides.cache_get_json", lambda key: [cached_payload] if key == "rides:active:v2" else None)
     assert len(client.get("/rides").json()) == 1
 
     assert client.post("/blocks", headers=passenger["auth"], json={"blocked_user_id": driver["id"]}).status_code == 200

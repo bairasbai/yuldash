@@ -29,6 +29,13 @@ router = APIRouter(tags=["rides"])
 
 RIDE_PAST_GRACE_HOURS = 2   # сколько часов после depart_at поездка ещё видна в выдаче (поздняя бронь / уехал впритык)
 
+# Перф (2026-07): дефолтный потолок выдачи /rides и /rides/near. Раньше limit=None
+# означал «отдать ВСЁ» — на 30k+ поездок (11k активных) каждый запрос сериализовал
+# ~11 000 карточек (~400мс CPU), а 20 параллельных клиентов клали сервер в таймауты.
+# Клиенту столько не нужно: выдача отсортирована (Boost → ближайший выезд),
+# «показать ещё» ходит с limit/offset. Явный limit по-прежнему капится 200/страница.
+DEFAULT_FEED_LIMIT = 200
+
 
 def _date_bounds(date: Optional[date_type]):
     """F4: границы суток для фильтра «когда едем» (date=YYYY-MM-DD → [00:00, +1день))."""
@@ -203,13 +210,14 @@ def search_rides(
 ):
     # Горячий путь: дефолтный вызов без фильтров (его шлют ВСЕ на карте/вкладке поездок).
     # Кешируем в Redis на 20с → снимаем нагрузку с БД при наплыве. Фильтрованные запросы (реже) — мимо кеша.
-    # Кеш хранит ПОЛНЫЙ список; фильтр заблокированных — поверх, per-user (кеш не портим).
+    # Кеш хранит топ-DEFAULT_FEED_LIMIT (v2; v1 хранил всё и на 11k поездок стоил ~400мс/запрос);
+    # фильтр заблокированных — поверх, per-user (кеш не портим).
     no_filter = (
         not any([from_city, to_city, category, pets_allowed, child_seat, women_only, baggage, date])
         and limit is None
     )
     if no_filter:
-        cached = cache_get_json("rides:active:v1")
+        cached = cache_get_json("rides:active:v2")
         if cached is not None:
             out = _hide_blocked(public_rides_payload(cached), user, session)
             return _hide_trusted_only(out, user, session)
@@ -243,13 +251,14 @@ def search_rides(
     if bounds:
         q = q.where(Ride.depart_at >= bounds[0], Ride.depart_at < bounds[1])
     q = q.order_by(*boost_then_depart_order())   # поднятые (Boost) — первыми
-    if limit is not None:
-        q = q.offset(max(0, offset)).limit(max(1, min(limit, 200)))   # потолок 200/страница
+    # Потолок всегда: явный limit капится 200/страница, без limit — DEFAULT_FEED_LIMIT.
+    eff_limit = min(max(1, limit), 200) if limit is not None else DEFAULT_FEED_LIMIT
+    q = q.offset(max(0, offset)).limit(eff_limit)
     rides = session.exec(q).all()
     out = rides_out(rides, session)
     public_out = public_rides_payload(out)
     if no_filter:
-        cache_set_json("rides:active:v1", [r.model_dump(mode="json") for r in public_out], 20)
+        cache_set_json("rides:active:v2", [r.model_dump(mode="json") for r in public_out], 20)
     out = _hide_blocked(public_out, user, session)
     return _hide_trusted_only(out, user, session)
 
@@ -335,18 +344,28 @@ def rides_near(
             # отфильтрует Python-haversine по CITY_COORDS ниже. ST_DWithin (с GiST-индексом)
             # отсекает далёкие среди геокоженных.
             ids = [row[0] for row in session.execute(text(
-                "SELECT id FROM ride WHERE from_lat IS NULL OR "
+                "SELECT id FROM ride WHERE status = 'active' AND (from_lat IS NULL OR "
                 "ST_DWithin(ST_MakePoint(from_lng, from_lat)::geography, "
-                "ST_MakePoint(:lng, :lat)::geography, :r)"
+                "ST_MakePoint(:lng, :lat)::geography, :r))"
             ), {"lng": lng, "lat": lat, "r": radius_km * 1000.0}).all()]
             q = q.where(Ride.id.in_(ids)) if ids else q.where(Ride.id.is_(None))
         except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк
             session.rollback()  # снять aborted-транзакцию, иначе следующий запрос упадёт InFailedSqlTransaction
             log.warning(f"[GEO] PostGIS prefilter skipped: {e}")
-    rides = session.exec(q.order_by(*boost_then_depart_order())).all()  # Boost первыми, затем по времени выезда ↑
-    users, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in rides})
-    items: list = []
-    for r in rides:
+    # Перф (2026-07): фазу «дистанция + фильтры + счёт total» гоним по ЛЁГКИМ колонкам
+    # (id/driver_id/only_trusted/координаты), а не по полным ORM-объектам: без from_city
+    # запрос матчит ВСЕ активные (12k+), и гидрация полных моделей стоила ~350мс/запрос.
+    # Полные строки и тяжёлая сериализация (drivers_bundle + RideOut) — только для страницы.
+    # session.execute (не .exec): sqlmodel-select(Ride) — SelectOfScalar, его exec()
+    # схлопнул бы Row до первой колонки; execute отдаёт полные Row с атрибутами.
+    light_rows = session.execute(
+        q.with_only_columns(Ride.id, Ride.driver_id, Ride.only_trusted,
+                            Ride.from_lat, Ride.from_lng, Ride.from_city)
+        .order_by(*boost_then_depart_order())   # Boost первыми, затем по времени выезда ↑
+    ).all()
+    kept: list = []
+    dist_by_id: dict = {}
+    for r in light_rows:
         dist = None
         if lat is not None and lng is not None:
             # реальные геокодированные координаты концов → иначе известный город → иначе нет дистанции
@@ -355,14 +374,24 @@ def rides_near(
                 dist = round(haversine_km(lat, lng, c[0], c[1]), 1)
         if radius_km is not None and dist is not None and dist > radius_km:
             continue
-        out = public_ride_payload(ride_out_with(r, users, profiles, rating_agg, trips_agg)).model_dump()
-        out["distance_km"] = dist
+        dist_by_id[r.id] = dist
+        kept.append(r)
+    kept = _hide_blocked(kept, user, session)   # прячем заблокированных до подсчёта total/пагинации
+    kept = _hide_trusted_only(kept, user, session)   # «только для своих» видит лишь L3
+    total = len(kept)
+    eff_limit = min(max(1, limit), 200) if limit is not None else DEFAULT_FEED_LIMIT
+    page_ids = [r.id for r in kept[max(0, offset):max(0, offset) + eff_limit]]
+    by_id = (
+        {r.id: r for r in session.exec(select(Ride).where(Ride.id.in_(page_ids))).all()}
+        if page_ids else {}
+    )
+    page = [by_id[i] for i in page_ids if i in by_id]   # порядок страницы сохраняем
+    users_map, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in page})
+    items = []
+    for r in page:
+        out = public_ride_payload(ride_out_with(r, users_map, profiles, rating_agg, trips_agg)).model_dump()
+        out["distance_km"] = dist_by_id.get(r.id)
         items.append(out)
-    items = _hide_blocked(items, user, session)   # прячем заблокированных до подсчёта total/пагинации
-    items = _hide_trusted_only(items, user, session)   # «только для своих» видит лишь L3
-    total = len(items)
-    if limit is not None:
-        items = items[max(0, offset):max(0, offset) + max(1, min(limit, 200))]
     return {"count": total, "items": items}   # count = всего (чтобы клиент знал, есть ли «ещё»)
 
 
