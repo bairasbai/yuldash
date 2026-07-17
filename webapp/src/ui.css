@@ -923,6 +923,27 @@
   flex-direction: column;
   gap: 12px;
 }
+
+/* ---- Секции меню (профиль как в настройках iOS) ---- */
+.list-group {
+  display: block;
+  margin-top: 22px;
+}
+.list-group:first-of-type {
+  margin-top: 16px;
+}
+.list-group__label {
+  margin: 0 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.list-group .list {
+  margin-top: 0;
+  gap: 8px;
+}
 .list-row {
   display: flex;
   align-items: center;

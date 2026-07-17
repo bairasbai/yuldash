@@ -385,27 +385,76 @@ export default function ProfileScreen() {
         </div>
       )}
 
-      <div className="list">
-        {rows
-          .filter((r) => (!r.authed || isAuthed) && (!r.admin || user?.role === "admin"))
-          .map((r) => (
-          <button key={r.key} type="button" className="list-row list-row--link" onClick={() => navigate(r.to)}>
-            <span className="list-row__icon">{r.icon}</span>
-            <div className="list-row__main">
-              <div className="list-row__title">{r.title}</div>
-              <div className="list-row__sub">{r.sub}</div>
-            </div>
-            {r.badge ? (
-              <span className="list-row__badge" aria-label={appText(`${r.badge} новых`, `${r.badge} яңы`)}>
-                {r.badge > 99 ? "99+" : r.badge}
-              </span>
-            ) : null}
-            <span className="list-row__chev">
-              <IconChevron size={20} />
-            </span>
-          </button>
-        ))}
-      </div>
+      {(() => {
+        const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
+        const visible = (r: (typeof rows)[number] | undefined) =>
+          !!r && (!r.authed || isAuthed) && (!r.admin || user?.role === "admin");
+        // Разделы, как в настройках iOS: тихие подписи + сгруппированные карточки.
+        const sections: { label: string; keys: string[] }[] = [
+          { label: appText("Управление", "Идара итеү"), keys: ["admin"] },
+          { label: appText("Аккаунт", "Иҫәп"), keys: ["settings", "notifications"] },
+          {
+            label: appText("Заказать поездку", "Сәфәр заказ итеү"),
+            keys: ["taxi", "parcels", "scheduled", "clinics", "family-order", "voice", "callback"],
+          },
+          {
+            label: appText("Мои поездки", "Сәфәрҙәрем"),
+            keys: ["cabinet", "watch", "filters", "places", "stats"],
+          },
+          {
+            label: appText("Заработок", "Табыш"),
+            keys: ["driver", "taxi-drive", "courier", "wallet"],
+          },
+          {
+            label: appText("Выгода и бизнес", "Файҙа һәм бизнес"),
+            keys: ["coupons", "promo", "invites", "partner", "ads", "payment-info"],
+          },
+          {
+            label: appText("Безопасность и доверие", "Именлек һәм ышаныс"),
+            keys: ["sos", "trusted", "trust"],
+          },
+          {
+            label: appText("Приложение", "Ҡушымта"),
+            keys: ["simple", "consents", "help", "support", "app-review"],
+          },
+        ];
+        return sections.map((sec) => {
+          const items = sec.keys.map((k) => byKey[k]).filter(visible);
+          if (!items.length) return null;
+          return (
+            <section key={sec.label} className="list-group">
+              <div className="list-group__label">{sec.label}</div>
+              <div className="list">
+                {items.map((r) => (
+                  <button
+                    key={r.key}
+                    type="button"
+                    className="list-row list-row--link"
+                    onClick={() => navigate(r.to)}
+                  >
+                    <span className="list-row__icon">{r.icon}</span>
+                    <div className="list-row__main">
+                      <div className="list-row__title">{r.title}</div>
+                      <div className="list-row__sub">{r.sub}</div>
+                    </div>
+                    {r.badge ? (
+                      <span
+                        className="list-row__badge"
+                        aria-label={appText(`${r.badge} новых`, `${r.badge} яңы`)}
+                      >
+                        {r.badge > 99 ? "99+" : r.badge}
+                      </span>
+                    ) : null}
+                    <span className="list-row__chev">
+                      <IconChevron size={20} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          );
+        });
+      })()}
 
       {isAuthed && (
         <button type="button" className="logout-btn" onClick={() => void logout()}>
