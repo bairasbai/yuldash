@@ -62,6 +62,26 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         putAll(demoPartnerAds.associate { it.id to AdStats() })
     }
 
+    /**
+     * Полная очистка пользовательских данных при выходе/удалении аккаунта. VM переживает переход
+     * logout→login (та же Activity), а стартовые загрузчики висят на LaunchedEffect(Unit) и при повторном
+     * входе не перезапускаются — без этой очистки следующий вошедший на общем устройстве увидит контакты
+     * (имена+телефоны) и заявки прошлого пользователя. Реклама (partnerAds/adStats) — публичная, не PII.
+     */
+    fun clearUserData() {
+        selectedRide.value = null
+        activeTrip.value = null
+        activeBookingId.value = null
+        isAdmin.value = false
+        callbackRequested.value = false
+        responsesRequestId.value = 0
+        trustedContacts.clear()
+        localRequests.clear()
+        voiceMessages.clear()
+        navHistory.clear()
+        rides.clear(); rides.addAll(demoRides)
+    }
+
     private companion object {
         const val KEY_SCREEN = "yuldash_screen"
         const val KEY_LANG = "yuldash_lang"
