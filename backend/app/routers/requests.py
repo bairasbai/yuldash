@@ -299,7 +299,11 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         notify_admin_telegram(
             f"🚗 Отклик на заявку #{req.id}\n"
             f"Пассажир: {(p.name if p else '—')} ({p.phone if p else '—'})\n"
-            f"Водитель: {user.name or '—'}\n{req.from_city} → {req.to_city}{price_s}"
+            f"Водитель: {user.name or '—'}\n{req.from_city} → {req.to_city}{price_s}",
+            reply_markup={"inline_keyboard": [[   # админ принимает/отклоняет прямо в Telegram, как модерацию водителей/рекламы
+                {"text": "✅ Принять", "callback_data": f"resp:ok:{resp.id}"},
+                {"text": "❌ Отклонить", "callback_data": f"resp:no:{resp.id}"},
+            ]]},
         )
     return {"ok": True, "id": resp.id}
 
@@ -339,18 +343,13 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
     return out
 
 
-@router.post("/responses/{response_id}/accept")
-def accept_response(response_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Пассажир принимает отклик → создаётся Ride+Booking (поездка с чатом/кодом посадки),
-    заявка закрывается, водителю — push. Возвращает booking_id для перехода в активную поездку."""
-    resp = session.get(RequestResponse, response_id)
-    if not resp:
-        raise HTTPException(404, "Отклик не найден")
+def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
+    """Принять отклик водителя: Ride+Booking одной транзакцией, заявка → matched, водителю push.
+    Общая логика для приложения (пассажир/админ) и Telegram-кнопки ✅ у админа — чтобы приём
+    отклика вёл себя одинаково откуда угодно. Заявка должна быть active, иначе HTTP 400/404."""
     req = session.get(RideRequest, resp.request_id)
     if not req:
         raise HTTPException(404, "Заявка не найдена")
-    if req.passenger_id != user.id and user.role != UserRole.admin:   # админ принимает ЗА юзера (без интернета)
-        raise HTTPException(403, "Нет доступа")
     if req.status != "active":
         raise HTTPException(400, "Заявка уже закрыта")
     depart = req.desired_at or (utcnow() + timedelta(hours=1))
@@ -374,6 +373,22 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     notify_map_changed()   # заявка исполнена (matched) → её маркер уходит, новая поездка появляется — live
     pax = session.get(User, req.passenger_id)
     send_push(session, resp.driver_id, "Заявку приняли", f"{(pax.name if pax else 'Пассажир')}: {req.from_city} → {req.to_city}")
+    return booking
+
+
+@router.post("/responses/{response_id}/accept")
+def accept_response(response_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пассажир (или админ ЗА юзера без интернета) принимает отклик → Ride+Booking.
+    Возвращает booking_id для перехода в активную поездку."""
+    resp = session.get(RequestResponse, response_id)
+    if not resp:
+        raise HTTPException(404, "Отклик не найден")
+    req = session.get(RideRequest, resp.request_id)
+    if not req:
+        raise HTTPException(404, "Заявка не найдена")
+    if req.passenger_id != user.id and user.role != UserRole.admin:   # админ принимает ЗА юзера (без интернета)
+        raise HTTPException(403, "Нет доступа")
+    booking = accept_request_response(session, resp)
     return {"booking_id": booking.id}
 
 

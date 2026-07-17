@@ -2,6 +2,7 @@
 
 from sqlmodel import Session, select
 
+from app.config import settings
 from app.db import engine
 from app.models import Block, Booking, BookingStatus, RequestResponse, Ride, RideRequest, User, UserRole
 
@@ -163,3 +164,62 @@ def test_missing_request_endpoints_return_404(client, user_factory):
     assert client.get("/requests/99999999/responses", headers=user["auth"]).status_code == 404
     assert client.post("/requests/99999999/respond", headers=user["auth"], json={}).status_code == 404
     assert client.post("/responses/99999999/accept", headers=user["auth"]).status_code == 404
+
+
+def test_admin_telegram_callback_accepts_request_response(client, user_factory, monkeypatch):
+    """Кнопка ✅ Принять под откликом в Telegram = приём отклика: Ride+Booking, заявка matched.
+    Только от admin_telegram_chat_id; чужой id ничего не меняет."""
+    passenger = user_factory("TgRespPassenger")
+    driver = user_factory("TgRespDriver", role=UserRole.driver)
+    request = _create_request(client, passenger)
+    response_id = client.post(
+        f"/requests/{request['id']}/respond", headers=driver["auth"], json={"price": 300, "comment": "еду"},
+    ).json()["id"]
+
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "5141534025")
+    monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: None)
+    headers = {"x-telegram-bot-api-secret-token": "secret"}
+
+    # Чужой Telegram-id → нет доступа, отклик остаётся offered.
+    forbidden = client.post("/telegram/webhook", headers=headers, json={"callback_query": {
+        "id": "r0", "from": {"id": 1}, "data": f"resp:ok:{response_id}",
+        "message": {"message_id": 30, "chat": {"id": 1}}}})
+    assert forbidden.status_code == 200
+    with Session(engine) as s:
+        assert s.get(RequestResponse, response_id).status == "offered"
+
+    # Админ жмёт ✅ Принять → поездка создана, заявка закрыта.
+    approved = client.post("/telegram/webhook", headers=headers, json={"callback_query": {
+        "id": "r1", "from": {"id": 5141534025}, "data": f"resp:ok:{response_id}",
+        "message": {"message_id": 31, "chat": {"id": 5141534025}}}})
+    assert approved.status_code == 200
+    with Session(engine) as s:
+        resp = s.get(RequestResponse, response_id)
+        req = s.get(RideRequest, request["id"])
+        assert resp.status == "accepted"
+        assert req.status == "matched"
+        assert s.exec(select(Booking).where(Booking.passenger_id == passenger["id"])).first() is not None
+
+
+def test_admin_telegram_callback_declines_request_response(client, user_factory, monkeypatch):
+    """Кнопка ❌ Отклонить → отклик declined, заявка остаётся active (можно принять другого)."""
+    passenger = user_factory("TgDeclinePassenger")
+    driver = user_factory("TgDeclineDriver", role=UserRole.driver)
+    request = _create_request(client, passenger)
+    response_id = client.post(
+        f"/requests/{request['id']}/respond", headers=driver["auth"], json={"price": 200},
+    ).json()["id"]
+
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "5141534025")
+    monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: None)
+
+    declined = client.post("/telegram/webhook", headers={"x-telegram-bot-api-secret-token": "secret"},
+                           json={"callback_query": {
+                               "id": "r2", "from": {"id": 5141534025}, "data": f"resp:no:{response_id}",
+                               "message": {"message_id": 32, "chat": {"id": 5141534025}}}})
+    assert declined.status_code == 200
+    with Session(engine) as s:
+        assert s.get(RequestResponse, response_id).status == "declined"
+        assert s.get(RideRequest, request["id"]).status == "active"

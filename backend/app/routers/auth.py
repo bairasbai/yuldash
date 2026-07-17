@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 from ..account import delete_user_account
 from ..config import settings
 from ..db import engine, get_session
-from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, Ride, TgAuth, User, UserRole
+from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, Ride, TgAuth, User, UserRole
 from ..payments import BOOST_PLANS
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
 from ..services import send_push, send_sms, user_rating
@@ -221,6 +221,17 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         if reply_markup is not None:
             out["reply_markup"] = reply_markup
         return out
+    # Админ пишет боту текстом («Одобрить», «/Одобрить», «#1») — раньше бот молчал, и это путало.
+    # Подсказываем, где реально одобрять (кнопка под откликом / Кабинет админа), вместо тишины.
+    low = text.strip().lower()
+    if str(frm.get("id")) == str(settings.admin_telegram_chat_id) and (
+        low.startswith(("/", "#")) or "одобр" in low or "принят" in low or "прими" in low
+    ):
+        return {"method": "sendMessage", "chat_id": chat.get("id"),
+                "text": "Заявку нельзя одобрить текстом. Отклик водителя принимается так:\n"
+                        "• кнопкой ✅ Принять прямо под сообщением «🚗 Отклик на заявку»;\n"
+                        "• или в приложении: Профиль → Кабинет админа → «Отклики по заявке» → введи № заявки → «Принять за пользователя».\n"
+                        "Кнопка появляется после того, как на заявку откликнется водитель."}
     return {"ok": True}
 
 
@@ -274,7 +285,7 @@ def _handle_admin_callback(callback: dict):
         return {"ok": True}
 
     parts = data.split(":")
-    if len(parts) != 3 or parts[0] not in ("drv", "ad", "pay") or parts[1] not in ("ok", "no"):
+    if len(parts) != 3 or parts[0] not in ("drv", "ad", "pay", "resp") or parts[1] not in ("ok", "no"):
         if cb_id:
             _telegram_api("answerCallbackQuery", {"callback_query_id": cb_id, "text": "Неизвестная команда"})
         return {"ok": True}
@@ -327,6 +338,24 @@ def _handle_admin_callback(callback: dict):
                 if ad.owner_id:
                     send_push(s, ad.owner_id, "Реклама отклонена", ad.reject_reason)
                 text = f"Отклонена реклама #{ad.id}: «{ad.title}»"
+        elif parts[0] == "resp":
+            resp = s.get(RequestResponse, user_id)   # user_id здесь = id отклика
+            if not resp:
+                text = f"Отклик #{user_id} не найден"
+            elif resp.status == "accepted":
+                text = f"Отклик #{resp.id} уже принят"
+            elif not approve:
+                resp.status = "declined"
+                s.add(resp)
+                s.commit()
+                text = f"Отклонён отклик #{resp.id}"
+            else:
+                from .requests import accept_request_response   # локальный импорт — без цикла на старте
+                try:
+                    accept_request_response(s, resp)
+                    text = f"Принят отклик #{resp.id} — поездка создана. Перезвони пассажиру и водителю."
+                except HTTPException as e:
+                    text = f"Не удалось принять отклик #{resp.id}: {e.detail}"
         else:
             payment = s.get(Payment, user_id)
             if not payment:
