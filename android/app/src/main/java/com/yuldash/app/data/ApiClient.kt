@@ -3093,6 +3093,69 @@ object ApiClient {
             }
         }
 
+    // ---------- Вывод на карту (Модель Б, за флагом PAYOUTS_ENABLED) ----------
+    // Приватность: полный номер карты на сервер НЕ уходит — клиент шлёт ТОЛЬКО последние 4 цифры.
+    // enabled=false с сервера → UI рисует честную заглушку «скоро», без кнопок-обманок.
+
+    /** Статус выплат: включены ли, баланс, сохранённая карта, границы суммы. Всё — с сервера (не хардкод). */
+    suspend fun getPayoutStatus(): Result<PayoutStatusDto> =
+        call("GET", "/wallet/payout/status", null, auth = true).map { o ->
+            PayoutStatusDto(
+                enabled = o.optBoolean("enabled"),
+                balanceKop = o.optInt("balance_kop"),
+                hasRequisite = o.optBoolean("has_requisite"),
+                cardLast4 = o.optString("card_last4"),
+                minKop = o.optInt("min_kop"),
+                maxKop = o.optInt("max_kop"),
+            )
+        }
+
+    /** Сохранить карту для вывода. ВАЖНО: передаём ТОЛЬКО последние 4 цифры — полный номер
+     *  не покидает телефон (и никогда не логируется). payoutToken — токен провайдера (prod-путь). */
+    suspend fun savePayoutRequisite(cardLast4: String, payoutToken: String = ""): Result<String> =
+        call(
+            "POST", "/wallet/payout/requisite",
+            JSONObject().put("card_last4", cardLast4).put("payout_token", payoutToken),
+            auth = true,
+        ).map { it.optString("card_last4") }
+
+    /** Вывести с баланса на сохранённую карту. idempotencyKey — ОДИН на попытку (UUID с клиента):
+     *  ретрай той же попытки с тем же ключом не спишет баланс дважды (сервер вернёт status=already).
+     *  400 → ApiException с человеческим detail (мин/макс/недостаточно); 503 → выплаты ещё выключены. */
+    suspend fun requestPayout(amountKop: Int, idempotencyKey: String): Result<PayoutResultDto> =
+        call(
+            "POST", "/wallet/payout",
+            JSONObject().put("amount_kop", amountKop).put("idempotency_key", idempotencyKey),
+            auth = true,
+        ).map { o ->
+            PayoutResultDto(
+                status = o.optString("status"),
+                entryId = o.optInt("entry_id"),
+                amountKop = o.optInt("amount_kop"),
+                balanceKop = o.optInt("balance_kop"),
+            )
+        }
+
+    // ---------- Оплата завершённой поездки онлайн (ЮKassa, за флагом провайдера) ----------
+    // 503 = онлайн-оплата ещё не включена (mock в проде) → UI прячет карточку, «на доверии» остаётся.
+
+    /** Оплатить ЗАВЕРШЁННУЮ бронь плановой поездки. methodKey: cash | card | sbp. */
+    suspend fun payBooking(bookingId: Int, methodKey: String): Result<PayTripResultDto> =
+        call("POST", "/bookings/$bookingId/pay", JSONObject().put("method", methodKey), auth = true)
+            .map { it.toPayTripResult() }
+
+    /** Оплатить ЗАВЕРШЁННЫЙ быстрый заказ (такси). methodKey: cash | card | sbp. */
+    suspend fun payInstantOrder(orderId: Int, methodKey: String): Result<PayTripResultDto> =
+        call("POST", "/instant/orders/$orderId/pay", JSONObject().put("method", methodKey), auth = true)
+            .map { it.toPayTripResult() }
+
+    private fun JSONObject.toPayTripResult() = PayTripResultDto(
+        status = optString("status"),
+        method = optString("method"),
+        paymentId = if (isNull("payment_id")) null else optInt("payment_id"),
+        confirmationUrl = optString("confirmation_url").ifBlank { null },
+    )
+
     /** История заработка водителя за период (week|month|all): суммарно + разбивка по дням.
      *  ВАЖНО: total/sum — в РУБЛЯХ (₽, целые), НЕ в копейках (см. backend debt.py::driver_earnings). */
     suspend fun getDriverEarnings(period: String = "week"): Result<DriverEarningsDto> =
@@ -3979,6 +4042,29 @@ data class WalletLedgerEntryDto(
     val note: String,
     val createdAt: String,
 )
+/** Статус выплат на карту (GET /wallet/payout/status). enabled=false → честная заглушка «скоро».
+ *  minKop/maxKop — границы одной выплаты (источник истины — сервер, клиент не хардкодит). */
+data class PayoutStatusDto(
+    val enabled: Boolean,
+    val balanceKop: Int,
+    val hasRequisite: Boolean,
+    val cardLast4: String,
+    val minKop: Int,
+    val maxKop: Int,
+)
+/** Результат вывода (POST /wallet/payout). status: ok | already (идемпотентный повтор той же попытки). */
+data class PayoutResultDto(val status: String, val entryId: Int, val amountKop: Int, val balanceKop: Int)
+/** Результат оплаты поездки (POST /bookings/{id}/pay, POST /instant/orders/{id}/pay).
+ *  status: paid (наличные) | already_paid | succeeded (mock/dev) | pending (ждём подтверждения ЮKassa).
+ *  pending + confirmationUrl → открыть браузер, потом поллить getPaymentStatus(paymentId). */
+data class PayTripResultDto(
+    val status: String,
+    val method: String,
+    val paymentId: Int?,
+    val confirmationUrl: String?,
+) {
+    val isPaid: Boolean get() = status == "paid" || status == "already_paid" || status == "succeeded"
+}
 /** День в разбивке заработка (GET /driver/earnings). sum — в ₽ (не копейки). */
 data class DriverEarningsDayDto(val date: String, val sum: Int, val trips: Int)
 /** Заработок водителя за период (GET /driver/earnings?period=week|month|all).

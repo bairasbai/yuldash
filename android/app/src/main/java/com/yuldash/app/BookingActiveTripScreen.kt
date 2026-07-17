@@ -1339,6 +1339,17 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
+            // Онлайн-оплата завершённой поездки (карта/СБП через ЮKassa, за флагом провайдера).
+            // Только пассажиру — платит владелец брони. Сумма для показа — из договорённости/цены,
+            // списывает сервер по цене брони. 503 (провайдер выключен) → карточка тихо исчезает
+            // на всю сессию (OnlinePayGate) — договорённость «на доверии» остаётся как раньше.
+            if (bookingStatus == "done" && bookingId != null && role == "passenger") item {
+                PayOnlineCard(
+                    amountRub = payAmount ?: ride?.price?.takeIf { it > 0 },
+                    pay = { m -> ApiClient.payBooking(bookingId, m) },
+                    modifier = Modifier.appearIn(2),
+                )
+            }
             // Квитанция завершённой поездки: маршрут, дата, сумма, способ оплаты, водитель.
             if (bookingStatus == "done" && bookingId != null) item {
                 AppButton(

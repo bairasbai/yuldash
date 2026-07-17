@@ -448,7 +448,17 @@ internal fun InstantOrderScreen(
                     action = appText("Новый заказ", "Яңы заказ"),
                     onAction = { order = null },
                     onSecondary = onBack,
-                    extra = { InstantRateAndReport(current, isDriver = false) },   // §9: оценить/пожаловаться
+                    extra = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // Онлайн-оплата завершённого такси-заказа (карта/СБП через ЮKassa, за флагом).
+                            // 503 (провайдер выключен) → карточка тихо исчезает на сессию (OnlinePayGate).
+                            PayOnlineCard(
+                                amountRub = (current.priceFinal ?: current.priceEstimate).takeIf { it > 0 },
+                                pay = { m -> ApiClient.payInstantOrder(current.id, m) },
+                            )
+                            InstantRateAndReport(current, isDriver = false)   // §9: оценить/пожаловаться
+                        }
+                    },
                 )
             }
             // Связь потеряна во время живого заказа: мягкий баннер сверху, поллинг сам возобновится.
