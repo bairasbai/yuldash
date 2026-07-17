@@ -29,7 +29,9 @@ import {
   onboardOrder,
   doneOrder,
   cancelInstantOrder,
+  fetchDemand,
   type InstantOrder,
+  type DemandZone,
 } from "../api/instant";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList } from "../components/States";
@@ -41,7 +43,19 @@ import { priceLabel } from "../utils/format";
 type Boot = "loading" | "error" | "need-approval" | "ready";
 const PRESENCE_MS = 15000;
 const OFFER_POLL_MS = 3000;
+const DEMAND_MS = 60000; // карта спроса — авто-обновление раз в минуту на линии
 const ACTIVE_KEY = "yuldash.taxi.activeOrder";
+
+/** Расстояние по прямой, км (хаверсин) — «зона в ≈N км от меня». */
+function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(bLat - aLat);
+  const dLng = rad(bLng - aLng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(s));
+}
 
 // Короткий сигнал оффера (WebAudio) + вибрация — вместо звонка на вебе.
 function ringOffer() {
@@ -352,18 +366,22 @@ export default function InstantDriverTripScreen() {
       </button>
 
       {online ? (
-        <div className="taxi-online-wait">
-          <div className="taxi-search__pulse" aria-hidden>
-            <IconCar size={38} />
+        <>
+          <div className="taxi-online-wait">
+            <div className="taxi-search__pulse" aria-hidden>
+              <IconCar size={38} />
+            </div>
+            <h2>{appText("Ждём заказ", "Заказ көтәбеҙ")}</h2>
+            <p>
+              {appText(
+                "Как только рядом появится пассажир — покажем заказ со звуком. Держи телефон под рукой.",
+                "Яҡында юлаусы сыҡһа — заказды тауыш менән күрһәтәбеҙ. Телефоныңды әҙер тот."
+              )}
+            </p>
           </div>
-          <h2>{appText("Ждём заказ", "Заказ көтәбеҙ")}</h2>
-          <p>
-            {appText(
-              "Как только рядом появится пассажир — покажем заказ со звуком. Держи телефон под рукой.",
-              "Яҡында юлаусы сыҡһа — заказды тауыш менән күрһәтәбеҙ. Телефоныңды әҙер тот."
-            )}
-          </p>
-        </div>
+          {/* Карта спроса: где сейчас ищут такси (анонимные зоны) */}
+          <DemandNearby getPos={() => posRef.current} />
+        </>
       ) : (
         <div className="state" style={{ paddingTop: 24 }}>
           <div className="state__icon"><YuMoon size={34} /></div>
@@ -380,6 +398,74 @@ export default function InstantDriverTripScreen() {
       {/* Оффер — полноэкранный оверлей */}
       {offer && <OfferOverlay order={offer} ru={ru} onAccept={accept} onSkip={skip} />}
     </>
+  );
+}
+
+// ----------------------------- Спрос рядом (карта спроса) -----------------------------
+// GET /instant/demand — анонимные зоны «где сейчас ищут такси». Только одобренный
+// таксист; 403/404 (до деплоя release) → блок скрыт. Авто-обновление раз в минуту.
+function DemandNearby({ getPos }: { getPos: () => GeoPoint | null }) {
+  const { appText } = useLang();
+  const [zones, setZones] = useState<DemandZone[] | null>(null); // null = скрыт
+  const pos = getPos();
+
+  useEffect(() => {
+    let alive = true;
+    const tick = () => {
+      fetchDemand()
+        .then((d) => {
+          if (alive) setZones(d.zones);
+        })
+        .catch(() => {
+          // 403 (не одобрен) / 404 (нет ручки) / сеть → блок скрыт, не мешаем.
+          if (alive) setZones(null);
+        });
+    };
+    tick();
+    const iv = window.setInterval(tick, DEMAND_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(iv);
+    };
+  }, []);
+
+  if (zones === null) return null;
+
+  return (
+    <div className="demand">
+      <h2 className="section-title">{appText("Спрос рядом", "Яҡында ихтыяж")}</h2>
+      {zones.length === 0 ? (
+        <p className="demand__quiet">
+          {appText("Пока тихо — как появятся поиски, покажем зоны.", "Әле тыныс — эҙләүҙәр сыҡһа, зоналарҙы күрһәтәбеҙ.")}
+        </p>
+      ) : (
+        <div className="list">
+          {zones.slice(0, 6).map((z, i) => {
+            const km = pos ? distanceKm(pos.lat, pos.lng, z.lat, z.lng) : null;
+            return (
+              <div key={`${z.lat},${z.lng}`} className="demand-row">
+                <div className="demand-row__top">
+                  <span className="demand-row__name">
+                    {km != null
+                      ? appText(`Зона в ≈${km < 1 ? 1 : Math.round(km)} км`, `Зона ≈${km < 1 ? 1 : Math.round(km)} км алыҫлыҡта`)
+                      : appText(`Горячая зона ${i + 1}`, `Ҡыҙыу зона ${i + 1}`)}
+                  </span>
+                  <span className="demand-row__count">
+                    {z.requests} {appText("поисков", "эҙләү")}
+                  </span>
+                </div>
+                <div className="demand-bar" aria-hidden>
+                  <span
+                    className="demand-bar__fill"
+                    style={{ width: `${Math.max(8, Math.round(z.weight * 100))}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

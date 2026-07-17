@@ -118,3 +118,38 @@ export function sendReport(body: ReportInput): Promise<ReportCreated> {
     booking_id: body.booking_id ?? null,
   });
 }
+
+// ================================================================
+//  Зимняя проверка «доехал?» (safety.py: /bookings/{id}/winter-check).
+//  Клиент сам считает ETA (сервер страхует по depart_at) и по её
+//  истечении дергает winter-check → сервер шлёт пуш обеим сторонам,
+//  а при молчании ≥30 мин и активном шаринге — эскалирует близким.
+//  До деплоя release эндпоинты отдают 404 → мягкая деградация.
+// ================================================================
+
+/** Состояние проверки (ответ POST /bookings/{id}/winter-check). */
+export type WinterCheckState =
+  | "closed" // поездка done/cancelled — проверять нечего
+  | "ok" // участник уже ответил «всё в порядке»
+  | "too_early" // поездка ещё не началась (по depart_at)
+  | "check_sent" // пуш «всё в порядке?» отправлен обеим сторонам
+  | "waiting" // пуш был, ждём ответа
+  | "no_share" // эскалировать некому (нет шаринга близким)
+  | "escalated"; // близкие уведомлены
+
+export interface WinterCheckResult {
+  state: WinterCheckState | string;
+  waited_min?: number;
+  sos_event_id?: number;
+  contacts_notified?: number;
+}
+
+/** Запустить/продвинуть проверку «доехал?» (идемпотентна, можно дергать повторно). */
+export function winterCheck(bookingId: number): Promise<WinterCheckResult> {
+  return apiPost<WinterCheckResult>(`/bookings/${bookingId}/winter-check`);
+}
+
+/** «Я доехал(а), всё в порядке» — гасит эскалацию доверенным. */
+export function winterCheckOk(bookingId: number): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/bookings/${bookingId}/winter-check/ok`);
+}

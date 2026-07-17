@@ -19,6 +19,7 @@ import HomeScreen from "./screens/HomeScreen";
 import CreateRequestScreen from "./screens/CreateRequestScreen";
 import RequestsFeedScreen from "./screens/RequestsFeedScreen";
 import RequestResponsesScreen from "./screens/RequestResponsesScreen";
+import EditRequestScreen from "./screens/EditRequestScreen";
 import BookingScreen from "./screens/BookingScreen";
 import ActiveTripScreen from "./screens/ActiveTripScreen";
 import TripReceiptScreen from "./screens/TripReceiptScreen";
@@ -239,6 +240,14 @@ export default function App() {
           element={
             <RequireAuth>
               <RequestResponsesScreen />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/requests/:id/edit"
+          element={
+            <RequireAuth>
+              <EditRequestScreen />
             </RequireAuth>
           }
         />

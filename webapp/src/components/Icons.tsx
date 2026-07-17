@@ -381,6 +381,14 @@ export const IconClockCal = ({ size = 22 }: P) => (
   </svg>
 );
 
+// Карандаш (редактирование заявки/данных).
+export const IconPencil = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+    <path d="m13.5 6.5 3 3" />
+  </svg>
+);
+
 // Замок (защищённая оплата, безопасность).
 export const IconLock = ({ size = 22 }: P) => (
   <svg {...base(size)}>

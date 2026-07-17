@@ -21,6 +21,7 @@ import { fetchInstantOrder, isUnlocked, type InstantOrder } from "../api/instant
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow } from "../components/Icons";
 import { YuChat } from "../components/BrandIcons";
+import QuickReplies from "../components/QuickReplies";
 
 export default function InstantChatScreen() {
   const { appText } = useLang();
@@ -104,10 +105,9 @@ export default function InstantChatScreen() {
       ? order?.passenger_name || appText("Пассажир", "Юлаусы")
       : order?.driver_name || appText("Водитель", "Водитель");
 
-  async function send() {
-    const t = text.trim();
+  // Общая отправка (поле ввода и быстрые ответы): живой сокет, фолбэк — REST.
+  async function sendText(t: string) {
     if (!t) return;
-    setText("");
     const sentLive = chatRef.current?.send(t);
     if (!sentLive) {
       try {
@@ -117,6 +117,13 @@ export default function InstantChatScreen() {
         if (e instanceof ApiError) setText(t);
       }
     }
+  }
+
+  async function send() {
+    const t = text.trim();
+    if (!t) return;
+    setText("");
+    await sendText(t);
   }
 
   return (
@@ -164,7 +171,10 @@ export default function InstantChatScreen() {
               {appText("Поездка завершена — чат только для чтения.", "Сәфәр тамамланды — чат тик уҡыу өсөн.")}
             </div>
           ) : (
-            <div className="chat__input">
+            <>
+              {/* Быстрые ответы — один тап отправляет готовую фразу */}
+              <QuickReplies onPick={(t) => void sendText(t)} />
+              <div className="chat__input">
               <input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -177,7 +187,8 @@ export default function InstantChatScreen() {
               <button type="button" onClick={send} aria-label={appText("Отправить", "Ебәрергә")}>
                 <IconArrow size={20} />
               </button>
-            </div>
+              </div>
+            </>
           )}
         </div>
       )}

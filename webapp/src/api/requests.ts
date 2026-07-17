@@ -4,7 +4,7 @@
 //  пассажир принимает отклик → создаётся бронь (booking_id).
 // ================================================================
 import { apiGet, apiPost } from "./client";
-import type { RideCategory } from "./rides";
+import type { Ride, RideCategory } from "./rides";
 
 /** Тело создания заявки. Совпадает 1:1 с RequestIn (только нужные поля). */
 export interface RequestInput {
@@ -118,4 +118,33 @@ export function fetchRequestResponses(
 /** Принять отклик → создаётся бронь. Возвращает booking_id. */
 export function acceptResponse(responseId: number): Promise<{ booking_id: number }> {
   return apiPost<{ booking_id: number }>(`/responses/${responseId}/accept`);
+}
+
+/** Подходящие поездки под мою заявку (GET /match/rides?request_id=).
+ *  Публичный payload RideOut (без точной точки сбора до брони).
+ *  До деплоя release эндпоинт отдаёт 404 → вызывающий скрывает блок. */
+export function fetchMatchRides(
+  requestId: number,
+  signal?: AbortSignal
+): Promise<Ride[]> {
+  return apiGet<Ride[]>(`/match/rides?request_id=${requestId}`, { signal });
+}
+
+/** Тело правки заявки (RequestEditIn) — все поля опциональны, меняется только присланное. */
+export interface RequestEditInput {
+  from_city?: string;
+  to_city?: string;
+  desired_at?: string | null; // ISO
+  seats?: number; // 1..8
+  max_price?: number | null;
+  comment?: string;
+}
+
+/** Править свою АКТИВНУЮ заявку (POST /requests/{id}/edit — алиас PATCH).
+ *  400 = уже не активная; 404 до деплоя release → мягкая деградация. */
+export function editRequest(
+  requestId: number,
+  body: RequestEditInput
+): Promise<RideRequestRow> {
+  return apiPost<RideRequestRow>(`/requests/${requestId}/edit`, body);
 }

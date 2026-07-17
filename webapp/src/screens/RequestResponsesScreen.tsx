@@ -2,6 +2,9 @@
 //  Отклики на мою заявку (GET /requests/{id}/responses).
 //  Пассажир видит предложения водителей и принимает одно
 //  (POST /responses/{id}/accept → booking_id) → активная поездка.
+//  Плюс мэтчинг: «Подходящие поездки» (GET /match/rides?request_id=)
+//  — готовые поездки по маршруту заявки, тап → бронь (RideSheet).
+//  Плюс «Редактировать» → /requests/{id}/edit (форма с префиллом).
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -9,13 +12,18 @@ import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
   fetchRequestResponses,
+  fetchMatchRides,
   acceptResponse,
   type ResponseItem,
 } from "../api/requests";
+import type { Ride } from "../api/rides";
+import RideCard from "../components/RideCard";
+import RideSheet from "../components/RideSheet";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconStar, IconCheck, IconClock } from "../components/Icons";
+import { IconStar, IconCheck, IconClock, IconPencil } from "../components/Icons";
 import { priceLabel } from "../utils/format";
+import { track } from "../analytics";
 
 export default function RequestResponsesScreen() {
   const { appText, lang } = useLang();
@@ -28,6 +36,9 @@ export default function RequestResponsesScreen() {
   const [items, setItems] = useState<ResponseItem[]>([]);
   const [accepting, setAccepting] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Мэтчинг: null = блок скрыт (эндпоинта ещё нет / нет доступа), [] = «пока нет совпадений».
+  const [matches, setMatches] = useState<Ride[] | null>(null);
+  const [openedRide, setOpenedRide] = useState<Ride | null>(null);
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -55,6 +66,19 @@ export default function RequestResponsesScreen() {
     return () => ac.abort();
   }, [load]);
 
+  // Мэтчинг — параллельно откликам. Любая ошибка (404 до деплоя, 403) → блок скрыт.
+  useEffect(() => {
+    if (!requestId) return;
+    const ac = new AbortController();
+    fetchMatchRides(requestId, ac.signal)
+      .then((rides) => {
+        setMatches(rides);
+        if (rides.length > 0) track("match_shown", { count: rides.length });
+      })
+      .catch(() => setMatches(null));
+    return () => ac.abort();
+  }, [requestId]);
+
   async function accept(responseId: number) {
     setAccepting(responseId);
     setError(null);
@@ -78,6 +102,15 @@ export default function RequestResponsesScreen() {
         subtitle={appText("Выбери, с кем поедешь", "Кем менән барырыңды һайла")}
         onBack={() => navigate(-1)}
       />
+
+      <button
+        type="button"
+        className="btn-soft"
+        style={{ marginTop: 10 }}
+        onClick={() => navigate(`/requests/${requestId}/edit`)}
+      >
+        <IconPencil size={17} /> {appText("Редактировать заявку", "Заявканы үҙгәртергә")}
+      </button>
 
       {status === "loading" && <LoadingList count={3} />}
       {status === "error" && <ErrorState onRetry={() => load()} />}
@@ -133,6 +166,44 @@ export default function RequestResponsesScreen() {
             {error && <div className="auth__error">{error}</div>}
           </div>
         ))}
+
+      {/* Мэтчинг: готовые поездки по маршруту заявки. Эндпоинта нет/ошибка → блок скрыт. */}
+      {status === "ready" && matches !== null && (
+        <>
+          <h2 className="section-title">
+            {appText("Подходящие поездки", "Тап килгән сәфәрҙәр")}
+          </h2>
+          {matches.length === 0 ? (
+            <div className="state" style={{ paddingTop: 8 }}>
+              <div className="state__icon">
+                <IconClock size={30} />
+              </div>
+              <p>
+                {appText(
+                  "Пока нет совпадений — как появятся, покажем.",
+                  "Әле тап килгәндәр юҡ — булыу менән күрһәтәбеҙ."
+                )}
+              </p>
+            </div>
+          ) : (
+            <div className="list">
+              {matches.map((r, i) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="ride-card-btn"
+                  onClick={() => setOpenedRide(r)}
+                >
+                  <RideCard ride={r} index={i} />
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Шторка поездки — тап по совпадению → бронь (как на витрине). */}
+      {openedRide && <RideSheet ride={openedRide} onClose={() => setOpenedRide(null)} />}
     </>
   );
 }

@@ -5230,3 +5230,122 @@ select.field__input {
   vertical-align: -2px;
   margin-right: 2px;
 }
+
+/* ================================================================
+   Волны А–Г (веб догоняет Android): зимняя проверка «доехал?»,
+   быстрые ответы в чате, спрос рядом (такси), выплаты на карту.
+   Только токены Canon, светлая/тёмная тема, тач-цели ≥48px.
+   ================================================================ */
+
+/* ---- Зимняя проверка «Ты доехал(а)?» (ActiveTrip) ---- */
+.winter-check {
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--mint);
+  border: 1px solid var(--hairline-green);
+  border-radius: var(--radius-item);
+  animation: fadeUp 0.35s ease both;
+}
+.winter-check__title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--green);
+}
+.winter-check__hint {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--muted-strong);
+}
+.winter-check__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.winter-check__actions .btn-primary,
+.winter-check__actions .btn-ghost {
+  flex: 1;
+  min-height: 48px;
+  margin: 0;
+}
+
+/* ---- Быстрые ответы в чате ---- */
+.quick-replies {
+  margin: 8px 0 0;
+  padding: 0 2px 6px;
+}
+.quick-replies .chip:disabled {
+  opacity: 0.5;
+}
+
+/* ---- Спрос рядом (карта спроса водителю) ---- */
+.demand {
+  margin-top: 6px;
+  animation: fadeUp 0.35s ease both;
+}
+.demand__quiet {
+  margin: 8px 2px 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.demand-row {
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  margin-bottom: 8px;
+}
+.demand-row__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.demand-row__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.demand-row__count {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--green2);
+  white-space: nowrap;
+}
+.demand-bar {
+  margin-top: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.demand-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--canon-green-bright), var(--green2));
+  transition: width 0.6s ease;
+}
+
+/* ---- Выплаты на карту (кошелёк) ---- */
+.payout {
+  margin-top: 4px;
+}
+.payout__change {
+  margin-left: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--green2);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.payout__privacy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 2px 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}

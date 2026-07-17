@@ -6,6 +6,8 @@
 //  - Чат брони: REST-история + живой WS /ws/bookings/{id} (иначе поллинг).
 //  - Оценка при завершении: POST /bookings/{id}/rate.
 //  - Договорённость об оплате — read-only. SOS — заглушка (волна 7).
+//  - Зимняя проверка «доехал?» (safety.py): по расчётной ETA пассажиру
+//    показываем мягкий вопрос; «Доехал ✓» → POST winter-check/ok.
 // ================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -27,12 +29,44 @@ import {
   openTripLocation,
   type ChatMessage,
 } from "../api/chat";
+import { winterCheck, winterCheckOk } from "../api/safety";
 import { LoadingList, ErrorState } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
 import { StatusPill } from "../components/StatusPill";
+import QuickReplies from "../components/QuickReplies";
 import { SubHeader } from "./ConsentsScreen";
-import { IconArrow, IconStar, IconPhone, IconWarn } from "../components/Icons";
+import { IconArrow, IconStar, IconPhone, IconWarn, IconCheck } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
+
+// ---- Зимняя проверка «доехал?» ----
+const WINTER_ASKED_KEY = (id: number) => `yuldash.winterAsk.${id}`;
+const WINTER_SPEED_KMH = 45; // средняя скорость по региональным дорогам
+const WINTER_BUFFER_MS = 45 * 60_000; // запас 45 минут сверх расчётного пути
+const WINTER_FALLBACK_MS = 3 * 60 * 60_000; // нет координат → спросим через 3 часа
+
+/** Расстояние по прямой, км (хаверсин). */
+function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = rad(bLat - aLat);
+  const dLng = rad(bLng - aLng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+/** Когда пора мягко спросить «доехал?» (мс epoch) — ETA + запас; без координат — фолбэк. */
+function winterDueAt(d: BookingDetails): number {
+  const depart = new Date(d.depart_at).getTime();
+  if (isNaN(depart)) return Number.POSITIVE_INFINITY;
+  if (d.from_lat != null && d.from_lng != null && d.to_lat != null && d.to_lng != null) {
+    const km = haversineKm(d.from_lat, d.from_lng, d.to_lat, d.to_lng);
+    const travelMs = (km / WINTER_SPEED_KMH) * 3_600_000;
+    return depart + travelMs + WINTER_BUFFER_MS;
+  }
+  return depart + WINTER_FALLBACK_MS;
+}
 
 export default function ActiveTripScreen() {
   const { appText, lang } = useLang();
@@ -48,6 +82,7 @@ export default function ActiveTripScreen() {
   const [code, setCode] = useState<string | null>(null);
   const [driverLoc, setDriverLoc] = useState<GeoPoint | null>(null);
   const [rated, setRated] = useState(false);
+  const [winterAsk, setWinterAsk] = useState(false); // показать мягкий вопрос «Ты доехал(а)?»
 
   // ---- Загрузка деталей ----
   const load = useCallback(
@@ -123,6 +158,55 @@ export default function ActiveTripScreen() {
     return () => conn.close();
   }, [bookingId, active]);
 
+  // ---- Зимняя проверка «доехал?» — только пассажиру, один раз на бронь ----
+  useEffect(() => {
+    if (!bookingId || !details) return;
+    if (details.role !== "passenger") return; // водителю не показываем
+    if (!(st === "confirmed" || st === "onboard")) return; // только живая поездка
+    let asked = false;
+    try {
+      asked = sessionStorage.getItem(WINTER_ASKED_KEY(bookingId)) === "1";
+    } catch {
+      /* приватный режим — просто не дедупим */
+    }
+    if (asked) return;
+
+    const delay = Math.max(0, winterDueAt(details) - Date.now());
+    if (!isFinite(delay)) return;
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      // Сервер идемпотентен: шлёт пуш обеим сторонам / говорит «уже ок»/«рано».
+      winterCheck(bookingId)
+        .then((r) => {
+          if (!alive) return;
+          if (["check_sent", "waiting", "no_share", "escalated"].includes(String(r.state))) {
+            try {
+              sessionStorage.setItem(WINTER_ASKED_KEY(bookingId), "1");
+            } catch {
+              /* не критично */
+            }
+            setWinterAsk(true);
+          }
+        })
+        .catch(() => {
+          /* 404 до деплоя release / сеть — тихо, без вопроса */
+        });
+    }, delay);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [bookingId, details, st]);
+
+  async function winterAnswerOk() {
+    setWinterAsk(false);
+    try {
+      await winterCheckOk(bookingId);
+    } catch {
+      /* уже отмечено / нет ручки — не критично */
+    }
+  }
+
   async function onRate(stars: number) {
     if (!bookingId) return;
     try {
@@ -173,6 +257,29 @@ export default function ActiveTripScreen() {
           </span>
         )}
       </div>
+
+      {/* Зимняя проверка: мягкий вопрос «Ты доехал(а)?» по расчётной ETA */}
+      {winterAsk && (
+        <div className="winter-check">
+          <div className="winter-check__title">
+            {appText("Ты доехал(а)? ❄️", "Барып еттеңме? ❄️")}
+          </div>
+          <p className="winter-check__hint">
+            {appText(
+              "По нашим расчётам поездка уже могла завершиться. Отметь, что всё хорошо — и близкие будут спокойны.",
+              "Иҫәпләүебеҙсә, сәфәр тамамланырға тейеш ине. Барыһы ла яҡшы тип билдәлә — яҡындарың тыныс булыр."
+            )}
+          </p>
+          <div className="winter-check__actions">
+            <button type="button" className="btn-primary" onClick={winterAnswerOk}>
+              <IconCheck size={17} /> {appText("Доехал ✓", "Барып еттем ✓")}
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setWinterAsk(false)}>
+              {appText("Ещё в пути", "Әле юлда")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {(from || to || driverLoc) && (
         <div className="home-map" style={{ marginTop: 12 }}>
@@ -342,11 +449,9 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages]);
 
-  async function send() {
-    const t = text.trim();
+  // Общая отправка (поле ввода и быстрые ответы): живой сокет, фолбэк — REST.
+  async function sendText(t: string) {
     if (!t) return;
-    setText("");
-    // Пробуем живым сокетом; если не отправилось — REST (он тоже разошлёт в сокеты).
     const sentLive = chatRef.current?.send(t);
     if (!sentLive) {
       try {
@@ -356,6 +461,13 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
         if (e instanceof ApiError) setText(t); // вернём текст, чтобы не потерять
       }
     }
+  }
+
+  async function send() {
+    const t = text.trim();
+    if (!t) return;
+    setText("");
+    await sendText(t);
   }
 
   return (
@@ -380,6 +492,8 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
         })}
         <div ref={endRef} />
       </div>
+      {/* Быстрые ответы — один тап отправляет готовую фразу */}
+      <QuickReplies onPick={(t) => void sendText(t)} />
       <div className="chat__input">
         <input
           value={text}

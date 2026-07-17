@@ -6,7 +6,7 @@
 //  fee/payout (−), adj (любой знак). Появятся на проде после мержа release
 //  → мягкая деградация (404/405 → «скоро»).
 // ================================================================
-import { apiGet } from "./client";
+import { apiGet, apiPost } from "./client";
 
 export interface WalletBalance {
   balance_kop: number;
@@ -36,4 +36,40 @@ export function fetchWalletLedger(
   signal?: AbortSignal
 ): Promise<LedgerEntry[]> {
   return apiGet<LedgerEntry[]>(`/wallet/ledger?limit=${limit}`, { signal });
+}
+
+// ------------------------------- Выплаты на карту (Модель Б) -------------------------------
+/** GET /wallet/payout/status — доступны ли выплаты + баланс и реквизиты.
+ *  enabled=false → рисуем «Выплаты на карту скоро». Границы — с сервера. */
+export interface PayoutStatus {
+  enabled: boolean;
+  balance_kop: number;
+  has_requisite: boolean;
+  card_last4: string;
+  min_kop: number;
+  max_kop: number;
+}
+
+export function fetchPayoutStatus(signal?: AbortSignal): Promise<PayoutStatus> {
+  return apiGet<PayoutStatus>("/wallet/payout/status", { signal });
+}
+
+/** Сохранить карту для выплат. ПРИВАТНОСТЬ: шлём ТОЛЬКО последние 4 цифры —
+ *  полный номер карты не покидает устройство (сервер и так хранит только last4). */
+export function savePayoutRequisite(cardLast4: string): Promise<{ ok: boolean; card_last4: string }> {
+  return apiPost<{ ok: boolean; card_last4: string }>("/wallet/payout/requisite", {
+    card_last4: cardLast4,
+  });
+}
+
+/** Вывести на карту. idempotency_key — uuid на попытку: ретрай не спишет дважды.
+ *  503 = выплаты ещё выключены («скоро»), 400 = границы/баланс/нет карты. */
+export function requestPayout(
+  amountKop: number,
+  idempotencyKey: string
+): Promise<{ ok?: boolean; [k: string]: unknown }> {
+  return apiPost(`/wallet/payout`, {
+    amount_kop: amountKop,
+    idempotency_key: idempotencyKey,
+  });
 }

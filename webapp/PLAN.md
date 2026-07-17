@@ -749,3 +749,47 @@ gap 12) подтверждены — не трогал, чтобы не регр
 - Состояния: все fetch-экраны имеют loading/error/empty; форм-экраны (POST) — через submit-стейт.
 - Эмодзи в роли иконок не осталось; уцелевший декор — только в тёплом тексте/поздравлениях (правило §9).
 - `npm run build` зелёный, `tsc --noEmit` без ошибок.
+
+---
+
+## ✅ Волны А–Г — веб догнал Android (готово, сборка зелёная)
+
+Фичи, которые Android получил в волнах А–Г, перенесены в PWA. Все новые эндпоинты до деплоя
+release отдают 404/403 → мягкая деградация (блок скрыт или честное «скоро»), без крашей.
+
+1. **Мэтчинг заявка→поездки** — `RequestResponsesScreen` (`/requests/:id/responses`):
+   секция «Подходящие поездки» (`GET /match/rides?request_id=`, `api/requests.ts: fetchMatchRides`).
+   Карточки через `RideCard`, тап → шторка `RideSheet` → бронь → `/trip/{id}`.
+   Пусто → «Пока нет совпадений»; непусто → `track('match_shown', {count})`. 404/403 → блок скрыт.
+2. **Зимняя проверка «доехал?»** — `ActiveTripScreen`: пассажиру (роль из details) по расчётной ETA
+   (хаверсин концов из деталей брони, 45 км/ч + запас 45 мин; без координат — фолбэк 3 ч от depart_at)
+   один раз показываем мягкий вопрос «Ты доехал(а)?». «Доехал ✓» → `POST /bookings/{id}/winter-check/ok`;
+   «Ещё в пути» → скрыть. Триггер — `POST /bookings/{id}/winter-check` (идемпотентен; сервер шлёт пуш
+   и эскалирует близким при молчании). Флаг «уже спросили» — sessionStorage `yuldash.winterAsk.{bookingId}`.
+   API: `api/safety.ts: winterCheck/winterCheckOk`.
+3. **Быстрые ответы в чатах** — `components/QuickReplies.tsx` (один компонент, чипы `.chip-scroll`):
+   «Выезжаю / Жду у подъезда / Опаздываю на 5 минут / Я на месте / Спасибо!» — тап отправляет обычным
+   сообщением (WS, фолбэк REST). Встроен в чат брони (`ActiveTripScreen`) и такси-чат (`InstantChatScreen`).
+4. **Редактирование заявки** — `EditRequestScreen` (`/requests/:id/edit`, RequireAuth): кнопка
+   «Редактировать заявку» на экране откликов → форма с префиллом (из `GET /requests/mine`) →
+   `POST /requests/{id}/edit` (шлём только изменённые поля RequestEditIn: from/to/desired_at/seats/
+   max_price/comment). Не-активная заявка → честное «уже не изменить»; 404/405 → «появится после обновления».
+5. **Отзыв live-ссылки** — НЕПРИМЕНИМО: веб пока не создаёт шаринг поездки близким
+   (POST /bookings/{id}/share нет в PWA), поэтому список/отзыв ссылок не добавлен. Появится вместе
+   с функцией «поделиться поездкой» (доверенные контакты уже есть — `/trusted`).
+6. **Карта спроса водителю** — `InstantDriverTripScreen` (`/taxi-drive`), блок «Спрос рядом» пока
+   водитель на линии и без активного заказа: `GET /instant/demand` (`api/instant.ts: fetchDemand`),
+   авто-обновление раз в 60 с. Список зон по weight: полоса-индикатор (Canon-зелёный градиент,
+   ширина ∝ weight) + «N поисков» + расстояние от текущей позиции (хаверсин). Пусто → «Пока тихо»;
+   403 (не одобрен) / 404 → блок скрыт.
+7. **Кошелёк: выплаты на карту** — `WalletScreen`: секция «Вывод на карту» (`GET /wallet/payout/status`).
+   `enabled=false` → «Выплаты на карту скоро»; `enabled=true` → карта ····last4 + «Изменить», сумма
+   (границы min/max с сервера) + «Вывести» = `POST /wallet/payout {amount_kop, idempotency_key}`
+   (uuid на попытку, кнопки заблокированы на время запроса — двойной клик исключён).
+   Карта: `POST /wallet/payout/requisite {card_last4}` — на сервер уходят ТОЛЬКО последние 4 цифры,
+   полный номер не покидает устройство. 404 status → блок скрыт (кошелёк работает как раньше).
+
+**Инфраструктура:** `api/requests.ts` (+fetchMatchRides, editRequest), `api/safety.ts` (+winter-check),
+`api/instant.ts` (+fetchDemand, DemandZone), `api/wallet.ts` (+payout status/requisite/payout),
+`components/QuickReplies.tsx`, `IconPencil`, стили `ui.css` (winter-check / quick-replies / demand / payout),
+роут `/requests/:id/edit` в `App.tsx`. Черновой башкирский — в `BASHKIR_DRAFT.md` (раздел «Волны А–Г»).

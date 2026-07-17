@@ -286,3 +286,24 @@ export const ACTIVE_PASSENGER_STATUSES: InstantStatus[] = [
 export function isUnlocked(s: InstantStatus): boolean {
   return s === "accepted" || s === "arriving" || s === "onboard";
 }
+
+// ------------------------------- Карта спроса (водителю) -------------------------------
+/** Анонимная тепловая зона «где сейчас ищут такси» (~1 км сетка, без личностей). */
+export interface DemandZone {
+  lat: number;
+  lng: number;
+  weight: number; // 0..1 относительно самой горячей зоны
+  requests: number; // активных поисков в зоне
+}
+
+export interface DemandMap {
+  zones: DemandZone[];
+  updated_at: string;
+}
+
+/** GET /instant/demand?city= — только одобренный таксист (403 → скрыть блок).
+ *  До деплоя release отдаёт 404 → мягкая деградация. */
+export function fetchDemand(city?: string, signal?: AbortSignal): Promise<DemandMap> {
+  const q = city ? `?city=${encodeURIComponent(city)}` : "";
+  return apiGet<DemandMap>(`/instant/demand${q}`, { signal });
+}
