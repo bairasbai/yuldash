@@ -2,8 +2,12 @@
 
 from sqlmodel import Session, select
 
+from app import automatch
+from app.config import settings
 from app.db import engine
-from app.models import Block, Booking, BookingStatus, RequestResponse, Ride, RideRequest, User, UserRole
+from app.models import (
+    Block, Booking, BookingStatus, DeviceToken, Rating, RequestResponse, Ride, RideRequest, User, UserRole,
+)
 
 
 def _create_request(client, passenger, **overrides):
@@ -163,3 +167,140 @@ def test_missing_request_endpoints_return_404(client, user_factory):
     assert client.get("/requests/99999999/responses", headers=user["auth"]).status_code == 404
     assert client.post("/requests/99999999/respond", headers=user["auth"], json={}).status_code == 404
     assert client.post("/responses/99999999/accept", headers=user["auth"]).status_code == 404
+
+
+def test_admin_telegram_callback_accepts_request_response(client, user_factory, monkeypatch):
+    """Кнопка ✅ Принять под откликом в Telegram = приём отклика: Ride+Booking, заявка matched.
+    Только от admin_telegram_chat_id; чужой id ничего не меняет."""
+    passenger = user_factory("TgRespPassenger")
+    driver = user_factory("TgRespDriver", role=UserRole.driver)
+    request = _create_request(client, passenger)
+    response_id = client.post(
+        f"/requests/{request['id']}/respond", headers=driver["auth"], json={"price": 300, "comment": "еду"},
+    ).json()["id"]
+
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "5141534025")
+    monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: None)
+    headers = {"x-telegram-bot-api-secret-token": "secret"}
+
+    # Чужой Telegram-id → нет доступа, отклик остаётся offered.
+    forbidden = client.post("/telegram/webhook", headers=headers, json={"callback_query": {
+        "id": "r0", "from": {"id": 1}, "data": f"resp:ok:{response_id}",
+        "message": {"message_id": 30, "chat": {"id": 1}}}})
+    assert forbidden.status_code == 200
+    with Session(engine) as s:
+        assert s.get(RequestResponse, response_id).status == "offered"
+
+    # Админ жмёт ✅ Принять → поездка создана, заявка закрыта.
+    approved = client.post("/telegram/webhook", headers=headers, json={"callback_query": {
+        "id": "r1", "from": {"id": 5141534025}, "data": f"resp:ok:{response_id}",
+        "message": {"message_id": 31, "chat": {"id": 5141534025}}}})
+    assert approved.status_code == 200
+    with Session(engine) as s:
+        resp = s.get(RequestResponse, response_id)
+        req = s.get(RideRequest, request["id"])
+        assert resp.status == "accepted"
+        assert req.status == "matched"
+        assert s.exec(select(Booking).where(Booking.passenger_id == passenger["id"])).first() is not None
+
+
+def test_admin_telegram_callback_declines_request_response(client, user_factory, monkeypatch):
+    """Кнопка ❌ Отклонить → отклик declined, заявка остаётся active (можно принять другого)."""
+    passenger = user_factory("TgDeclinePassenger")
+    driver = user_factory("TgDeclineDriver", role=UserRole.driver)
+    request = _create_request(client, passenger)
+    response_id = client.post(
+        f"/requests/{request['id']}/respond", headers=driver["auth"], json={"price": 200},
+    ).json()["id"]
+
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "5141534025")
+    monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: None)
+
+    declined = client.post("/telegram/webhook", headers={"x-telegram-bot-api-secret-token": "secret"},
+                           json={"callback_query": {
+                               "id": "r2", "from": {"id": 5141534025}, "data": f"resp:no:{response_id}",
+                               "message": {"message_id": 32, "chat": {"id": 5141534025}}}})
+    assert declined.status_code == 200
+    with Session(engine) as s:
+        assert s.get(RequestResponse, response_id).status == "declined"
+        assert s.get(RideRequest, request["id"]).status == "active"
+
+
+def _seed_rating(ratee_id: int, stars: int) -> None:
+    with Session(engine) as s:
+        s.add(Rating(booking_id=1, rater_id=1, ratee_id=ratee_id, stars=stars))
+        s.commit()
+
+
+def _add_device(user_id: int) -> None:
+    with Session(engine) as s:
+        s.add(DeviceToken(user_id=user_id, token=f"tok-{user_id}"))
+        s.commit()
+
+
+def _respond(client, request_id, driver, price):
+    return client.post(f"/requests/{request_id}/respond", headers=driver["auth"], json={"price": price}).json()["id"]
+
+
+def test_automatch_picks_best_response_for_no_app_passenger(client, user_factory, monkeypatch):
+    """«Помощь»-заявка (пассажир без приложения): авто-подбор сам принимает ЛУЧШИЙ отклик
+    (выше рейтинг водителя), без админа. Проигравший отклик остаётся offered."""
+    passenger = user_factory("AutoPax")   # user_factory не создаёт DeviceToken → «без приложения»
+    driver_hi = user_factory("AutoDriverHi", role=UserRole.driver)
+    driver_lo = user_factory("AutoDriverLo", role=UserRole.driver)
+    _seed_rating(driver_hi["id"], 5)
+    _seed_rating(driver_lo["id"], 3)
+    request = _create_request(client, passenger)
+    resp_hi = _respond(client, request["id"], driver_hi, 300)
+    resp_lo = _respond(client, request["id"], driver_lo, 300)
+
+    monkeypatch.setattr(settings, "automatch_enabled", True)
+    monkeypatch.setattr(settings, "automatch_grace_sec", 0)   # без ожидания — сразу зрелая
+    with Session(engine) as s:
+        matched = automatch.automatch_once(s, dry_run=False)
+
+    assert (request["id"], resp_hi) in matched
+    with Session(engine) as s:
+        assert s.get(RequestResponse, resp_hi).status == "accepted"
+        assert s.get(RequestResponse, resp_lo).status == "offered"
+        assert s.get(RideRequest, request["id"]).status == "matched"
+        assert s.exec(select(Booking).where(Booking.passenger_id == passenger["id"])).first() is not None
+
+
+def test_automatch_skips_passenger_with_app(client, user_factory, monkeypatch):
+    """У пассажира есть приложение (DeviceToken) → он выбирает сам, авто-подбор НЕ вмешивается."""
+    passenger = user_factory("AppPax")
+    _add_device(passenger["id"])
+    driver = user_factory("AppDriver", role=UserRole.driver)
+    request = _create_request(client, passenger)
+    resp_id = _respond(client, request["id"], driver, 250)
+
+    monkeypatch.setattr(settings, "automatch_enabled", True)
+    monkeypatch.setattr(settings, "automatch_grace_sec", 0)
+    with Session(engine) as s:
+        matched = automatch.automatch_once(s, dry_run=False)
+        assert request["id"] not in [r for r, _ in matched]   # эту заявку авто-подбор не трогает
+        assert s.get(RideRequest, request["id"]).status == "active"
+        assert s.get(RequestResponse, resp_id).status == "offered"
+
+
+def test_automatch_respects_grace_and_disabled(client, user_factory, monkeypatch):
+    """Свежий отклик в пределах паузы не берём; при выключенном флаге — вообще ничего."""
+    passenger = user_factory("GracePax")
+    driver = user_factory("GraceDriver", role=UserRole.driver)
+    request = _create_request(client, passenger)
+    _respond(client, request["id"], driver, 400)
+
+    monkeypatch.setattr(settings, "automatch_enabled", True)
+    monkeypatch.setattr(settings, "automatch_grace_sec", 120)   # пауза не прошла
+    with Session(engine) as s:
+        matched = automatch.automatch_once(s, dry_run=False)
+        assert request["id"] not in [r for r, _ in matched]
+        assert s.get(RideRequest, request["id"]).status == "active"
+
+    monkeypatch.setattr(settings, "automatch_enabled", False)   # выключено → детерминированно пусто
+    with Session(engine) as s:
+        assert automatch.automatch_once(s, dry_run=False) == []
+        assert s.get(RideRequest, request["id"]).status == "active"

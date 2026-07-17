@@ -1,0 +1,10 @@
+[Unit]
+Description=Yuldash auto-match driver for help-requests (no-app passengers)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=yuldash
+WorkingDirectory=/opt/yuldash
+ExecStart=/opt/yuldash/.venv/bin/python -m app.automatch
+Nice=10

@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Yuldash auto-match every minute (help-requests → best driver)
+
+[Timer]
+OnCalendar=*:0/1
+Persistent=false
+
+[Install]
+WantedBy=timers.target
