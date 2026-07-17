@@ -3987,7 +3987,10 @@ button.list-row:active {
 }
 .btn-primary:disabled,
 .btn-danger:disabled {
-  opacity: 0.55;
+  background: var(--btn-disabled-bg);
+  color: var(--btn-disabled-fg);
+  opacity: 1;
+  cursor: not-allowed;
 }
 .link-btn {
   display: block;

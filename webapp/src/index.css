@@ -40,6 +40,8 @@
   --nav-bg: rgba(255, 255, 255, 0.82);
   --skeleton: #eceee9;
   --skeleton-shine: rgba(255, 255, 255, 0.6);
+  --btn-disabled-bg: #dfe4de; /* неактивная кнопка — спокойный серый, не мутно-зелёный */
+  --btn-disabled-fg: #9aa39b;
 
   /* Шапка-градиент (фиксированный тёмно-зелёный, белый текст) */
   --header-top: #0b6b3a; /* CanonGreenInk */
@@ -117,6 +119,8 @@
   --nav-bg: rgba(16, 26, 22, 0.86);
   --skeleton: #212d28;
   --skeleton-shine: rgba(255, 255, 255, 0.06);
+  --btn-disabled-bg: rgba(255, 255, 255, 0.12);
+  --btn-disabled-fg: #7f887f;
   color-scheme: dark; /* нативные контролы/скроллбары — тёмные */
 }
 
