@@ -49,8 +49,10 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
                   method: str, description: str, order_id=None, booking_id=None) -> dict:
     """Общий безналичный поток через ЮKassa (карта/СБП). mock/dev → succeeded сразу
     (активируем и начисляем); yookassa → confirmation_url, начисление придёт по webhook."""
-    # В проде mock = «оплата» без денег → не начисляем «бесплатно».
-    if settings.is_prod and settings.payments_provider == "mock":
+    # Онлайн-оплата поездки идёт ТОЛЬКО через реальный yookassa. В проде любой другой провайдер
+    # (mock/sbp_manual) вернул бы «succeeded» без денег → начисление фантома. Блокируем 503:
+    # клиент по 503 прячет карту (OnlinePayGate), остаётся нал / перевод «на доверии».
+    if settings.is_prod and settings.payments_provider != "yookassa":
         raise HTTPException(503, "Оплата скоро будет доступна")
     payment = Payment(
         user_id=payer.id, purpose=purpose, amount_kop=amount_kop, method=method,

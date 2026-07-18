@@ -70,6 +70,12 @@ def delete_user_account(session: Session, user: User) -> None:
     ca = session.exec(select(CourierApplication).where(CourierApplication.user_id == uid)).first()
     if ca:
         media_urls.append(ca.selfie_url)   # селфи с документом — чувствительное, стираем
+    ta = session.exec(select(TaxiApplication).where(TaxiApplication.user_id == uid)).first()
+    if ta:
+        # Документы таксиста в /secure/docs (ретеншен их НЕ трогает) — самые чувствительные ПДн:
+        # селфи с правами, справка о несудимости, ОСАГО, разрешение. Строка удаляется на 3.16 —
+        # без этого файлы оставались бы навсегда (нарушение «необратимого удаления», 152-ФЗ).
+        media_urls += [ta.selfie_url, ta.permit_photo_url, ta.osago_url, ta.criminal_record_url]
     media_urls += list(session.exec(select(Message.voice_url).where(Message.sender_id == uid)).all())
     media_urls += list(session.exec(select(RideRequest.voice_url).where(RideRequest.passenger_id == uid)).all())
 

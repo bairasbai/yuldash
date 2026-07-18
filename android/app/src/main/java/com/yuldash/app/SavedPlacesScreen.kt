@@ -212,7 +212,7 @@ private fun SaveAsChip(icon: ImageVector, label: String, active: Boolean, loadin
     Surface(
         shape = RoundedCornerShape(999.dp),
         color = if (active) CanonGreen2 else CanonMint,
-        modifier = Modifier.heightIn(min = 40.dp).clickable(enabled = !loading && !active, onClick = onClick),
+        modifier = Modifier.heightIn(min = 48.dp).clickable(enabled = !loading && !active, onClick = onClick),   // P3: тач-цель ≥48dp (§4.5)
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (loading) {

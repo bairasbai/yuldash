@@ -165,6 +165,10 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
     if method in _CASHLESS:
         _post_earn_and_fee(session, order.driver_id, amount_kop,
                            order_id=order.id, note=f"Быстрый заказ #{order.id}")
+        # B2: комиссия удержана в ledger fee → снимаем долг Модели А по этому заказу, иначе
+        # двойная комиссия + фантомный unpaid-долг заблокирует водителя на онлайн-оплате.
+        from . import debt as _debt
+        _debt.void_debt_for_order(session, order.id)
     session.commit()
     return "settled"
 

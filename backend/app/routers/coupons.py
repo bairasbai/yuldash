@@ -262,7 +262,10 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
     Гранулярные ошибки (не общий 404): срок истёк → 422, лимиты → 409. «Недоступен вообще»
     (нет партнёра / не одобрен / подписка не оплачена / купон не active) → 404, как в витрине."""
     now = utcnow()
-    coupon = session.get(Coupon, coupon_id)
+    # V2: row-lock на купоне сериализует параллельные активации — иначе два запроса оба проходят
+    # COUNT-проверки limit_total/limit_per_user и оба вставляют бронь (пробитие лимита). На SQLite
+    # FOR UPDATE — no-op (тесты однопоточны), на проде Postgres второй ждёт коммита первого.
+    coupon = session.exec(select(Coupon).where(Coupon.id == coupon_id).with_for_update()).one_or_none()
     partner = session.get(Partner, coupon.partner_id) if coupon else None
     # Базовая доступность (без окна дат и лимитов — их проверяем отдельно ниже с точными кодами).
     available = (

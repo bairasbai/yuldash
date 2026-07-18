@@ -583,6 +583,15 @@ def winter_check(
     shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id)).all()
     if not shares:
         return {"state": "no_share"}
+    # V9: не эскалировать ПОВТОРНО — иначе каждый следующий вызов после порога заново шлёт SMS
+    # доверенным (флуд/травля + расход SMS). Уже есть эскалация-событие по этой брони → выходим.
+    already = session.exec(select(SosEvent).where(
+        SosEvent.booking_id == booking_id,
+        SosEvent.user_id == booking.passenger_id,
+        SosEvent.category == "other",
+    ).limit(1)).first()
+    if already:
+        return {"state": "escalated", "already": True, "sos_event_id": already.id}
     # Эскалация: SOS-событие от имени пассажира (его контакты) + SMS доверенным.
     escalate = SosEvent(
         user_id=booking.passenger_id, booking_id=booking_id, category="other",

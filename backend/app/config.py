@@ -251,7 +251,9 @@ class Settings(BaseSettings):
 
     @property
     def is_prod(self) -> bool:
-        return self.env.lower() in ("prod", "production")
+        # V10: strip() — иначе ENV="prod " (случайный пробел) → is_prod=False → все прод-гварды
+        # молча отключаются (fail-open). Пробел/регистр не должны разоружать защиту.
+        return self.env.strip().lower() in ("prod", "production")
 
     @property
     def payouts_ready(self) -> bool:
@@ -292,6 +294,10 @@ class Settings(BaseSettings):
 
     def validate_production(self) -> None:
         """Запрещаем запускать прод с небезопасными значениями по умолчанию."""
+        # V10: fail-safe — совсем нераспознанный ENV (опечатка «production1», мусор) не должен
+        # молча уводить в dev-режим и снимать прод-гварды. Требуем явный известный ENV.
+        if self.env.strip().lower() not in ("dev", "development", "prod", "production", "test"):
+            raise RuntimeError(f"ENV нераспознан: {self.env!r} — задай dev или prod")
         if not self.is_prod:
             return
         problems: list[str] = []
