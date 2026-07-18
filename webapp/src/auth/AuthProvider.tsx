@@ -109,6 +109,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null, null);
     setUser(null);
     setStatus("guest");
+    // P1-1: чистим рантайм-кеши Service Worker — иначе приватные ответы (ленты/координаты)
+    // переживают logout и доступны на общем устройстве через DevTools → Cache Storage.
+    if (typeof caches !== "undefined") {
+      caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).catch(() => {});
+    }
   }, []);
 
   const refresh = useCallback(async () => {
