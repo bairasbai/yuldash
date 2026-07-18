@@ -27,6 +27,18 @@ server {
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         HIGH:!aNULL:!MD5;
 
+    # --- Security-заголовки (P1-2) ---
+    # `always` — отдаём и на ошибках. Внимание (nginx-quirk): add_header в location НЕ наследует
+    # серверные, поэтому в location =/index.html они продублированы (главный HTML обязан нести CSP).
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(self), camera=(), microphone=()" always;
+    # CSP: свой origin + API (yulbash.ru) + Яндекс.Карты (внешний скрипт). При выкатке откалибровать
+    # под реальные хосты карт/тайлов; style-src 'unsafe-inline' — минимально необходимое.
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https://yulbash.ru; script-src 'self' https://api-maps.yandex.ru; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'" always;
+
     # Каталог со собранной статикой (dist/)
     root  /var/www/yuldash-webapp/dist;
     index index.html;
@@ -64,5 +76,12 @@ server {
     }
     location = /index.html {
         add_header Cache-Control "no-cache";
+        # nginx-quirk: location со своим add_header не наследует серверные → дублируем security.
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(self), camera=(), microphone=()" always;
+        add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https://yulbash.ru; script-src 'self' https://api-maps.yandex.ru; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'" always;
     }
 }

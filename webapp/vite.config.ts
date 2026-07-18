@@ -24,18 +24,10 @@ export default defineConfig({
         // сгенерированному Workbox SW. autoUpdate и кеш остаются как есть —
         // мы лишь ДОБАВЛЯЕМ слушатели (см. public/push-sw.js).
         importScripts: ["push-sw.js"],
-        // Ленту поездок не кешируем агрессивно — сеть в приоритете, кеш как фолбэк.
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith("/rides") || url.pathname.startsWith("/feed"),
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "yuldash-api",
-              networkTimeoutSeconds: 6,
-              expiration: { maxEntries: 40, maxAgeSeconds: 60 * 5 },
-            },
-          },
-        ],
+        // P1-1: приватные ленты (/rides, /feed — имена, маршруты, координаты попутчиков) НЕ
+        // кешируем на диск. Иначе на общем устройстве кеш переживает logout и читается через
+        // DevTools → Cache Storage. App-shell (precache выше) достаточно для офлайн-оболочки.
+        runtimeCaching: [],
       },
       devOptions: { enabled: false },
     }),
