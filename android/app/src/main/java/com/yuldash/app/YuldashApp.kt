@@ -355,20 +355,25 @@ internal fun YuldashApp() {
     // Кнопки «Написать»/SOS живут глубоко в экранах такси (в т.ч. встроенных в главную) —
     // навигация через NavSignals (паттерн openDriverCabinet), без колбэков через все слои.
     val wantInstantChat by NavSignals.openInstantChat
-    LaunchedEffect(wantInstantChat) {
-        if (wantInstantChat > 0 && ApiClient.isLoggedIn()) {
+    LaunchedEffect(wantInstantChat, screen) {
+        if (wantInstantChat <= 0) return@LaunchedEffect
+        // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал
+        // уже погашен (value=0) и тап по пушу «Написать» на холодном старте потерялся бы.
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (ApiClient.isLoggedIn()) {
             instantChatOrderId = wantInstantChat
             NavSignals.openInstantChat.value = 0
             screen = Screen.InstantChat
         }
     }
     val wantSosForOrder by NavSignals.openSosForOrder
-    LaunchedEffect(wantSosForOrder) {
-        if (wantSosForOrder > 0) {
-            sosOrderId = wantSosForOrder
-            NavSignals.openSosForOrder.value = 0
-            screen = Screen.Sos
-        }
+    LaunchedEffect(wantSosForOrder, screen) {
+        if (wantSosForOrder <= 0) return@LaunchedEffect
+        // P3: тот же guard — тап по пушу SOS на холодном старте не должен теряться под сплэшем.
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        sosOrderId = wantSosForOrder
+        NavSignals.openSosForOrder.value = 0
+        screen = Screen.Sos
     }
     // Пуш о ходе такси-заказа (B9b-2): тап по «Водитель найден / Машина на месте / …» →
     // экран заказа пассажира (сам подхватывает активный заказ). Ждём, пока сплэш отработает.

@@ -358,6 +358,9 @@ object ApiClient {
         ).onSuccess { obj ->
             obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
             obj.optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
+            // V12: чистим сессионные кеши на ЛОГИНЕ (не только на логауте) — иначе me/contacts/referral
+            // могут до TTL отдать данные прошлого аккаунта, если logout не отработал (edge: 401 при пустом refresh).
+            respCache.clear(); cachedUserId = null; cachedUserIdForToken = null
             // Имя сервер кладёт в user.name (не в корень) — читаем оттуда, иначе фолбэк на введённое.
             val serverName = obj.optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }
             saveName(serverName ?: name)
@@ -2217,12 +2220,13 @@ object ApiClient {
     suspend fun getSettlementPopularRoutes(): Result<List<SettlementRouteDto>> = cachedGet("settlement-popular-routes", TTL_SLOW) {
         call("GET", "/settlements/popular-routes", null, auth = false).map { obj ->
             val arr = obj.optJSONArray("routes") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                SettlementRouteDto(
-                    from = o.getJSONObject("from").toSettlementDto(),
-                    to = o.getJSONObject("to").toSettlementDto(),
-                )
+            // V6: битый элемент (нет объекта from/to) пропускаем, а не роняем весь экран —
+            // getJSONObject кидал бы исключение мимо Result (в .map), краша вызывающий экран.
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val f = o.optJSONObject("from") ?: return@mapNotNull null
+                val t = o.optJSONObject("to") ?: return@mapNotNull null
+                SettlementRouteDto(from = f.toSettlementDto(), to = t.toSettlementDto())
             }
         }
     }
