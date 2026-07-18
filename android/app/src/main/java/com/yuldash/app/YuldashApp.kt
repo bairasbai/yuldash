@@ -660,10 +660,10 @@ internal fun YuldashApp() {
         // Доверенные контакты — с сервера (после входа). Перечитываем и при смене sessionVersion (после логина).
         LaunchedEffect(sessionVersion) {
             ApiClient.getContacts().onSuccess { list ->
-                if (list.isNotEmpty()) {
-                    trustedContacts.clear()
-                    trustedContacts.addAll(list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) })
-                }
+                // Чистим БЕЗУСЛОВНО: у нового вошедшего (после logout на общем устройстве) может быть
+                // 0 контактов — тогда без clear() остались бы видны контакты (имена+телефоны) прошлого юзера.
+                trustedContacts.clear()
+                trustedContacts.addAll(list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) })
             }
         }
         BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash && screen != Screen.Intro) {

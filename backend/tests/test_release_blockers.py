@@ -126,3 +126,30 @@ def test_cancel_buy_bring_before_purchase_allowed(client, user_factory):
         assert r.status_code == 200, r.text
     finally:
         settings.courier_enabled = prev
+
+
+# ------------------------------- B2 -------------------------------
+
+def test_online_pay_voids_commission_debt(user_factory):
+    """B2: онлайн-оплата (cashless) завершённого такси-заказа гасит долг Модели А по этому заказу —
+    иначе водитель обложен комиссией дважды (ledger fee + долг), а фантомный долг блокирует такси."""
+    from app import ledger, debt
+    from app.models import CommissionDebt, DebtStatus
+    from app.timeutil import utcnow
+    passenger = user_factory("B2Pax")
+    driver = user_factory("B2Drv", role=UserRole.driver)
+    with Session(engine) as s:
+        order = InstantOrder(
+            passenger_id=passenger["id"], driver_id=driver["id"],
+            status=InstantOrderStatus.done, price_final=1000, done_at=utcnow(),
+            from_lat=54.0, from_lng=55.0, to_lat=54.1, to_lng=55.1,
+        )
+        s.add(order); s.commit(); s.refresh(order)
+        oid = order.id
+        d = debt.accrue_for_order(s, order)                       # долг Модели А (как на done)
+        assert d is not None and d.amount_kop > 0
+        ledger.settle_instant_order(s, oid, "card", 1000 * 100)   # пассажир платит онлайн
+    with Session(engine) as s:
+        dd = s.exec(select(CommissionDebt).where(CommissionDebt.order_id == oid)).first()
+        assert dd is not None and dd.status == DebtStatus.paid    # долг снят → не двойная комиссия
+        assert debt.taxi_block_reason(s, driver["id"]) is None    # фантомный долг не блокирует такси

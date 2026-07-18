@@ -243,6 +243,26 @@ def accrue_for_order(session: Session, order: InstantOrder) -> Optional[Commissi
     return debt
 
 
+def void_debt_for_order(session: Session, order_id: int) -> bool:
+    """B2: снять долг по комиссии за заказ, оплаченный ОНЛАЙН (Модель Б).
+
+    На done заказа всегда заводится долг Модели А («водитель взял нал напрямую, должен комиссию»).
+    Если пассажир затем оплатил заказ картой/СБП через платформу, комиссия уже удержана в ledger
+    (fee), а деньги получила платформа — значит долг Модели А фиктивен. Помечаем его paid, иначе
+    водитель обложен комиссией дважды, а фантомный unpaid-долг блокирует ему такси.
+
+    Идемпотентно. НЕ коммитит — вызывается внутри транзакции settle_* (та и коммитит)."""
+    debt = session.exec(
+        select(CommissionDebt).where(CommissionDebt.order_id == order_id)
+    ).first()
+    if debt is None or debt.status == DebtStatus.paid:
+        return False
+    debt.status = DebtStatus.paid
+    debt.confirmed_at = utcnow()
+    session.add(debt)
+    return True
+
+
 def _unpaid(session: Session, driver_id: int) -> list[CommissionDebt]:
     return session.exec(
         select(CommissionDebt).where(
