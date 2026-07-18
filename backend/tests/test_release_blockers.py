@@ -153,3 +153,32 @@ def test_online_pay_voids_commission_debt(user_factory):
         dd = s.exec(select(CommissionDebt).where(CommissionDebt.order_id == oid)).first()
         assert dd is not None and dd.status == DebtStatus.paid    # долг снят → не двойная комиссия
         assert debt.taxi_block_reason(s, driver["id"]) is None    # фантомный долг не блокирует такси
+
+
+# ------------------------------- V5 -------------------------------
+
+def test_get_ride_hides_only_trusted_from_outsiders(client, user_factory):
+    """V5: поездка «только для своих» (only_trusted) не отдаётся по прямому /rides/{id} тому, кто не L3."""
+    from app.models import Ride, RideStatus
+    from app.timeutil import utcnow
+    driver = user_factory("V5Drv", role=UserRole.driver)
+    outsider = user_factory("V5Out")
+    with Session(engine) as s:
+        ride = Ride(driver_id=driver["id"], from_city="Аҡ", to_city="Бе", depart_at=utcnow(),
+                    price=100, seats_total=3, seats_left=3, only_trusted=True, status=RideStatus.active)
+        s.add(ride); s.commit(); s.refresh(ride)
+        rid = ride.id
+    assert client.get(f"/rides/{rid}", headers=outsider["auth"]).status_code == 404   # чужой не L3 → скрыта
+    assert client.get(f"/rides/{rid}", headers=driver["auth"]).status_code == 200      # владелец видит
+
+
+# ------------------------------- V10 -------------------------------
+
+def test_unknown_env_is_rejected(monkeypatch):
+    """V10: нераспознанный ENV → RuntimeError (не тихий fail-open); ENV c пробелом всё равно = prod."""
+    import pytest as _pytest
+    monkeypatch.setattr(settings, "env", "production1")            # опечатка
+    with _pytest.raises(RuntimeError):
+        settings.validate_production()
+    monkeypatch.setattr(settings, "env", "prod ")                 # случайный пробел
+    assert settings.is_prod is True                               # всё равно прод (гварды не отключились)

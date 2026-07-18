@@ -33,6 +33,8 @@ def _ensure_share_token(session: Session, share: TripShare) -> str:
     с token=NULL — догенерируем при первом обращении (лениво, без бэкфилла)."""
     if not share.token:
         share.token = secrets.token_urlsafe(16)
+        if share.expires_at is None:
+            share.expires_at = utcnow() + _SHARE_TTL   # P3: легаси-строки без TTL иначе жили бы вечно
         session.add(share)
         session.commit()
         session.refresh(share)

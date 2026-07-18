@@ -95,6 +95,11 @@ def redeem_invite(body: RedeemIn, user: User = Depends(current_user), session: S
         raise HTTPException(400, "Нельзя активировать собственный код")
     if inv.uses_left <= 0:
         raise HTTPException(400, "Код уже использован")
+    # V11: пригласивший мог быть разжалован (verified снят админом) ПОСЛЕ выпуска кода. Тогда код
+    # больше не вводит в круг своих — иначе бывший проверенный продолжает плодить L3 в обход модерации.
+    owner = session.get(User, inv.owner_id)
+    if owner is None or trust_level(session, owner) < MIN_INVITER_LEVEL:
+        raise HTTPException(400, "Код больше не действителен")
     row = session.exec(select(Trust).where(Trust.user_id == user.id)).first()
     if row and row.level >= INSIDER_LEVEL:
         raise HTTPException(400, "Ты уже в кругу своих")

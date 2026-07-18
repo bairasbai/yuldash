@@ -275,7 +275,8 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     if body.status not in {"departed", "arriving", "done"}:
         raise HTTPException(400, "Недопустимый статус")
     if body.status == "done":
-        # Идемпотентно: уже завершённую/отменённую бронь не трогаем.
+        # Идемпотентно: уже завершённую/отменённую бронь не трогаем. (pending→done — легитимный
+        # поток: пассажир не «подтверждает» отдельно, водитель завершает поездку напрямую.)
         if booking.status not in (BookingStatus.done, BookingStatus.cancelled):
             booking.status = BookingStatus.done
             booking.driver_phase = ""        # поездка кончилась — фазу сбрасываем
@@ -345,7 +346,10 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
     только сигнал в админ-пульс, честных не наказываем."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if booking.status not in (BookingStatus.cancelled, BookingStatus.done):
-        # Блокируем строки брони и поездки → две одновременные отмены не вернут места ДВАЖДЫ.
+        # Блокируем строки поездки и брони → две одновременные отмены не вернут места ДВАЖДЫ.
+        # V4: порядок локов Ride → Booking — ЕДИНЫЙ с cancel_ride (иначе обратный порядок
+        # cancel_ride(Ride→Booking) vs cancel_booking(Booking→Ride) даёт deadlock под нагрузкой).
+        ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
         # Бронь перечитываем под локом и ПЕРЕПРОВЕРЯЕМ статус: первая отмена уже могла отработать.
         booking = session.exec(select(Booking).where(Booking.id == booking_id).with_for_update()).first()
         if booking.status in (BookingStatus.cancelled, BookingStatus.done):
@@ -354,7 +358,6 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
             session.exec(select(Message.id).where(Message.booking_id == booking_id).limit(1)).first()
             is not None
         )
-        ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
         booking.status = BookingStatus.cancelled
         booking.cancelled_at = utcnow()
         booking.contact_then_cancel = contact_opened
