@@ -259,6 +259,12 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
         raise herr(409, "Посылка уже доставлена", "Бандероль инде еткерелгән")
     if parcel.status == "canceled":
         raise herr(409, "Заявка уже отменена", "Заявка инде кире алынған")
+    # B5: для «Купи и привези» после закупки товара курьером (goods_actual_kop>0) отмена запрещена —
+    # иначе курьер остаётся с товаром и без денег. Разбирается только через спор (parcel_dispute).
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "buy_bring" \
+            and (getattr(parcel, "goods_actual_kop", 0) or 0) > 0:
+        raise herr(409, "Курьер уже купил товар — отмена только через спор",
+                   "Курьер тауарҙы һатып алған — кире алыу тик бәхәс аша")
     prev_courier = parcel.courier_id
     parcel.status = "canceled"
     session.add(parcel)
