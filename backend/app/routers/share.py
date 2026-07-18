@@ -26,7 +26,7 @@ from ..config import settings
 from ..db import get_session
 from ..livepos import livepos_get
 from ..models import (
-    Booking, BookingStatus, InstantOrder, InstantOrderStatus, Ride, TripShare, User,
+    Booking, BookingStatus, InstantOrder, InstantOrderStatus, Ride, RideStatus, TripShare, User,
 )
 from ..services import public_ride_payload, ride_out
 from ..timeutil import utcnow
@@ -360,11 +360,18 @@ def _preview_dict(ride: Ride, session: Session) -> dict:
     }
 
 
+def _shareable(ride: Ride) -> bool:
+    """Публичную OG/preview-витрину показываем только для «живой» поездки и НЕ «только для своих».
+    История (done/cancelled) и «круг своих» (only_trusted) по прямому /r/{id} не раскрываем — иначе
+    перебор ride_id даёт анонимный скрейпинг графа поездок (кто/куда/когда возит). Паритет с /rides/{id}."""
+    return ride.status == RideStatus.active and not getattr(ride, "only_trusted", False)
+
+
 @router.get("/r/{ride_id}/preview")
 def ride_preview(ride_id: int, session: Session = Depends(get_session)) -> dict:
     """Публичные данные поездки для веб-превью и deep-link. Без ПДн."""
     ride = session.get(Ride, ride_id)
-    if not ride:
+    if not ride or not _shareable(ride):
         raise HTTPException(404, "Поездка не найдена")
     return _preview_dict(ride, session)
 
@@ -538,7 +545,7 @@ def ride_share_page(
 ):
     """Красивая server-rendered страница поездки с OG-тегами (карточка в мессенджерах)."""
     ride = session.get(Ride, ride_id)
-    if not ride:
+    if not ride or not _shareable(ride):
         raise HTTPException(404, "Поездка не найдена")
     lang = "ba" if str(lang).lower().startswith("ba") else "ru"
     return HTMLResponse(_render_html(_preview_dict(ride, session), lang))

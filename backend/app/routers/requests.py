@@ -339,7 +339,10 @@ class RespondIn(BaseModel):
 def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель откликается на заявку. Уведомляет пассажира (push); если у пассажира нет
     устройства (заявка создана админом, без приложения) — уведомляет админа в Telegram."""
-    req = session.get(RideRequest, request_id)
+    # Дедуп-хвост (P3): row-lock на заявке сериализует параллельные отклики одного водителя — иначе
+    # два одновременных respond оба проходят dup-проверку ниже и создают дубль. На SQLite no-op
+    # (тесты однопоточны), на проде Postgres второй ждёт коммита первого и видит dup.
+    req = session.exec(select(RideRequest).where(RideRequest.id == request_id).with_for_update()).first()
     if not req or req.status != "active":
         raise HTTPException(404, "Заявка не найдена или закрыта")
     if req.passenger_id == user.id:
