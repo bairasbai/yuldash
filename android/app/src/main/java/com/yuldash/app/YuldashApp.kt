@@ -690,7 +690,7 @@ internal fun YuldashApp() {
             Screen.Splash -> {
                 // Зелёный «мост» — продолжение СИСТЕМНОГО сплэша, БЕЗ повторной анимации лого.
                 // Это убирает «дубль» (раньше Compose-сплэш заново анимировал то же лого поверх системного).
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0B6B3A), Color(0xFF073F25)))))
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark))))
                 // Первый запуск → брендовое интро; повтор → быстро в приложение (без второго лого).
                 LaunchedEffect(Unit) { delay(if (splashTarget == Screen.Intro) 60 else 140); screen = splashTarget }
             }

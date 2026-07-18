@@ -1057,6 +1057,7 @@ internal fun DriverCabinetScreen(
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
     // Отличаем «маршрутов нет» от «сеть упала»: иначе при обрыве водитель видит ложное «нет маршрутов».
     var ridesError by remember { mutableStateOf(false) }
+    var ridesLoading by remember { mutableStateOf(true) }   // первая загрузка → скелетон вместо ложного «пусто»
     val ctx = LocalContext.current
     val rateScope = rememberCoroutineScope()
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
@@ -1097,6 +1098,7 @@ internal fun DriverCabinetScreen(
             .onSuccess { driverRides = it.map { dto -> dto.toUiRide() }; ridesError = false }
             // 401 (не вошёл) → это не сеть, показываем обычное «пусто». Иначе — ошибка сети + «Повторить».
             .onFailure { e -> ridesError = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401 }
+        ridesLoading = false
         ApiClient.getDriverBookings().onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess { online = it.online; onlineLoaded = true; isWomanDriver = it.gender == "female" }
@@ -1179,6 +1181,7 @@ internal fun DriverCabinetScreen(
             isWomanDriver = isWomanDriver,
             driverRides = driverRides,
             ridesError = ridesError,
+            ridesLoading = ridesLoading,
             onRetryRides = { ridesReload++ },
             driverBookings = driverBookings,
             ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
@@ -1898,6 +1901,7 @@ internal fun DriverCabinetContent(
     online: Boolean,
     driverRides: List<Ride>,
     ridesError: Boolean = false,           // true → загрузка маршрутов упала по сети (не «пусто»)
+    ridesLoading: Boolean = false,         // true → идёт первая загрузка → скелетон (не «пусто»)
     onRetryRides: () -> Unit = {},
     driverBookings: List<com.yuldash.app.data.DriverBookingDto>,
     ratingText: String,
@@ -2039,7 +2043,9 @@ internal fun DriverCabinetContent(
                 CabinetMetric(appText("Рейтинг", "Рейтинг"), ratingText, Modifier.weight(1f))
             }
         }
-        if (driverRides.isEmpty() && ridesError) {
+        if (driverRides.isEmpty() && ridesLoading) {
+            item { SkeletonCard(lines = 2) }
+        } else if (driverRides.isEmpty() && ridesError) {
             // Сеть упала — не выдаём это за «нет маршрутов», даём «Повторить».
             item {
                 EmptyStateCard(
@@ -2551,7 +2557,7 @@ private fun AddScheduleDialog(onDismiss: () -> Unit, onSaved: (DriverScheduleDto
                             color = if (on) CanonGreen2 else CanonBg,
                             shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, if (on) CanonGreen2 else CanonBorder),
-                            modifier = Modifier.size(44.dp).clickable {
+                            modifier = Modifier.minimumInteractiveComponentSize().size(44.dp).clickable {
                                 if (on) selectedDays.remove(d) else selectedDays.add(d)
                             },
                         ) {
