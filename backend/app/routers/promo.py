@@ -149,7 +149,9 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Sess
     code = (body.code or "").strip().upper()
     promo = None
     if code:
-        promo = session.exec(select(PromoCode).where(PromoCode.code == code)).first()
+        # V3: row-lock на промокоде сериализует параллельные активации — иначе двойной POST одним
+        # юзером с одним кодом проходит проверку «уже активировал» дважды (двойной бонус + счётчик).
+        promo = session.exec(select(PromoCode).where(PromoCode.code == code).with_for_update()).first()
     # Существование и активность кампании — не раскрываем детали, общий 404.
     if not promo or not promo.active:
         raise herr(404, "Промокод не найден", "Промокод табылманы")
