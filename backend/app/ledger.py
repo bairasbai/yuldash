@@ -74,11 +74,20 @@ class PayoutError(Exception):
 def request_payout(session: Session, driver_id: int, amount_kop: int, *,
                    payout_token: str = "", card_last4: str = "",
                    idempotency_key: str = "") -> dict:
-    """Вывод с баланса водителя на карту (Модель Б). Идемпотентно, под row-lock.
+    """Вывод с баланса водителя на карту (Модель Б). Идемпотентно; лок держим коротко.
 
     Инварианты денег: сумма в границах [min, max]; нельзя вывести больше баланса; списание
-    пишется в ledger записью kind=payout (−сумма) РОВНО один раз (ключ идемпотентности в ext_id).
-    Полный номер карты НЕ фигурирует — платим по токену, в note храним только последние 4."""
+    пишется в ledger записью kind=payout (−сумма) РОВНО один раз на ключ идемпотентности (ext_id).
+    Полный номер карты НЕ фигурирует — платим по токену, в note храним только последние 4.
+
+    V7: ключ идемпотентности ОБЯЗАТЕЛЕН. Пустой ключ → отказ: без него проверка «уже проведён»
+    не срабатывает и повтор запроса (дабл-тап / ретрай сети) провёл бы ВТОРУЮ реальную выплату.
+    V8: списание резервируем под КОРОТКИМ row-lock и коммитим ДО вызова банка — сам HTTP к провайдеру
+    (ЮKassa, ~30 с) идёт УЖЕ БЕЗ лока. Иначе row-lock строки водителя висел бы весь HTTP и под нагрузкой
+    вычерпал бы пул соединений БД. Резерв (списание до банка) не даёт параллельному выводу увести баланс
+    в минус. Явный отказ банка → компенсируем append-only записью (+сумма, kind=adj). Неоднозначный ответ
+    (таймаут/сеть) — резерв НЕ трогаем: деньги могли уйти, разбирается сверкой (для реальных выплат;
+    сейчас провайдер mock и такого не даёт)."""
     from .models import User
     from .payments import create_payout
 
@@ -89,43 +98,65 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
     if amount_kop > settings.payout_max_kop:
         raise PayoutError("max", f"Максимум за один вывод — {settings.payout_max_kop // 100} ₽")
 
-    # Row-lock строки водителя → два параллельных вывода сериализуются (не спишут баланс дважды).
-    locked = session.exec(select(User).where(User.id == driver_id).with_for_update()).one_or_none()
-    if locked is None:
-        raise PayoutError("no_user", "Водитель не найден")
+    # V7: без ключа идемпотентности не выводим (иначе повтор = вторая реальная выплата).
+    idempotency_key = (idempotency_key or "").strip()
+    if not idempotency_key:
+        raise PayoutError("idempotency", "Не получилось начать вывод. Повтори попытку.")
 
-    # Идемпотентность: вывод с тем же ключом уже проведён → возвращаем его, второй раз НЕ списываем.
-    if idempotency_key:
-        existing = session.exec(
+    def _existing():
+        return session.exec(
             select(LedgerEntry).where(
                 LedgerEntry.driver_id == driver_id,
                 LedgerEntry.kind == LedgerKind.payout,
                 LedgerEntry.ext_id == idempotency_key,
             )
         ).first()
-        if existing:
-            return {"status": "already", "entry_id": existing.id, "amount_kop": -existing.amount_kop,
-                    "balance_kop": driver_balance(session, driver_id)}
 
-    bal = driver_balance(session, driver_id)
-    if amount_kop > bal:
+    # --- Короткий критический участок: под row-lock проверяем идемпотентность и баланс и СРАЗУ
+    #     резервируем списание (пишем payout-запись), затем commit снимает лок. Банк — уже без лока (V8).
+    locked = session.exec(select(User).where(User.id == driver_id).with_for_update()).one_or_none()
+    if locked is None:
+        session.rollback()
+        raise PayoutError("no_user", "Водитель не найден")
+    prev = _existing()
+    if prev is not None:                         # ключ уже проведён → второй раз НЕ списываем
+        prev_id, prev_amount = prev.id, prev.amount_kop   # снимаем ДО rollback (объект протухнет)
+        session.rollback()
+        return {"status": "already", "entry_id": prev_id, "amount_kop": -prev_amount,
+                "balance_kop": driver_balance(session, driver_id)}
+    if amount_kop > driver_balance(session, driver_id):
+        session.rollback()
         raise PayoutError("insufficient", "Недостаточно средств на балансе")
-
-    # Отправляем выплату провайдеру (без реальных ключей выплат — mock succeeded, денег не двигает).
-    res = create_payout(amount_kop, payout_token, f"Юлдаш · выплата водителю #{driver_id}",
-                        {"driver_id": str(driver_id)}, idempotence_key=idempotency_key)
-    if res["status"] not in ("succeeded", "pending"):
-        raise PayoutError("provider", "Не получилось отправить выплату. Попробуй позже")
-
     entry = LedgerEntry(
         driver_id=driver_id, kind=LedgerKind.payout, amount_kop=-amount_kop,
-        ext_id=idempotency_key or res.get("payout_id", ""),
+        ext_id=idempotency_key,
         note=(f"Вывод на карту ····{card_last4}" if card_last4 else "Вывод на карту"),
     )
     session.add(entry)
-    session.commit()
+    session.commit()                             # фиксируем резерв и СНИМАЕМ row-lock
     session.refresh(entry)
-    return {"status": "ok", "entry_id": entry.id, "amount_kop": amount_kop,
+    entry_id = entry.id
+
+    # --- Вызов банка ВНЕ лока. idempotence_key делает провайдера идемпотентным (повтор не задвоит).
+    declined = False
+    try:
+        res = create_payout(amount_kop, payout_token, f"Юлдаш · выплата водителю #{driver_id}",
+                            {"driver_id": str(driver_id)}, idempotence_key=idempotency_key)
+        if res.get("status") not in ("succeeded", "pending"):
+            declined = True                      # банк ЯВНО отказал → деньги не ушли, резерв возвращаем
+    except Exception:
+        # Неоднозначно: деньги могли уйти. Резерв НЕ откатываем (безопаснее для платформы) — разберёт сверка.
+        raise PayoutError("provider", "Не получилось отправить выплату. Попробуй позже")
+
+    if declined:
+        session.add(LedgerEntry(                 # компенсация append-only: +сумма (историю денег не правим)
+            driver_id=driver_id, kind=LedgerKind.adj, amount_kop=amount_kop,
+            ext_id=idempotency_key, note="Возврат резерва: банк отклонил выплату",
+        ))
+        session.commit()
+        raise PayoutError("provider", "Не получилось отправить выплату. Попробуй позже")
+
+    return {"status": "ok", "entry_id": entry_id, "amount_kop": amount_kop,
             "provider_status": res["status"], "balance_kop": driver_balance(session, driver_id)}
 
 
