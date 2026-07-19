@@ -318,7 +318,14 @@ internal enum class Screen {
     AppReview,
     AdminReviews,
     AdminAds,
-    AdEditor
+    AdEditor,
+    // Система «Справедливость» (Trust, Safety & Fairness) — docs/trust-safety.md
+    SafetyCenter,      // хаб: standing + Надёжность + споры + правила
+    FileComplaint,     // подать жалобу / открыть спор (апгрейд Report)
+    MyDisputes,        // мои споры (заявитель/обвинённый)
+    DisputeDetail,     // деталь спора: версии + решение + обжаловать/мир
+    SafetyRules,       // 7 принципов справедливости
+    AdminIncidents     // админ: разбор споров
 }
 
 internal enum class HomeTab {

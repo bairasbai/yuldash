@@ -506,6 +506,8 @@ internal fun ProfileScreen(
                     }
                 }
             }
+            // Карточка доверия: standing + «Надёжность» (Система «Справедливость»). Тап → хаб безопасности.
+            item { ProfileStandingCard(onOpen = onSafety) }
             item {
                 referral?.let { ref ->
                     Box(Modifier.appearIn(0)) {
@@ -1395,6 +1397,40 @@ internal fun AdField(label: String, value: String, onValueChange: (String) -> Un
             unfocusedTextColor = CanonText,
         )
     )
+}
+
+@Composable
+/** Карточка доверия в профиле: кольцо «Надёжности» + бейдж standing (Система «Справедливость»).
+ *  До загрузки / для гостя не рисуется — не мигаем скелетоном в профиле. Тап ведёт в хаб безопасности. */
+@Composable
+private fun ProfileStandingCard(onOpen: () -> Unit) {
+    var standing by remember { mutableStateOf<com.yuldash.app.data.StandingDto?>(null) }
+    LaunchedEffect(Unit) {
+        if (ApiClient.isLoggedIn()) ApiClient.getMyStanding().onSuccess { standing = it }
+    }
+    val s = standing
+    if (s != null) {
+        Card(
+            modifier = Modifier.appearIn(0).bounceClick(onOpen),
+            colors = CardDefaults.cardColors(containerColor = CanonSurface),
+            shape = CanonItemShape,
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            border = BorderStroke(1.dp, CanonBorder),
+        ) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                ReliabilityRing(percent = s.reliability, size = 64.dp, stroke = 7.dp)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(appText("Центр справедливости", "Ғәҙеллек үҙәге"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    TrustBadge(standing = Standing.fromCode(s.standing), reliability = s.reliability)
+                    if (s.activeIncidents > 0) {
+                        Text(appText("Активных споров: ", "Әүҙем бәхәс: ") + s.activeIncidents, color = CanonMuted, fontSize = 12.sp)
+                    }
+                }
+                Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
+            }
+        }
+    }
 }
 
 @Composable

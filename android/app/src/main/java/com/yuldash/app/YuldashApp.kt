@@ -329,6 +329,8 @@ internal fun YuldashApp() {
     var partnerAds by vm.partnerAds
     // Объявление, открытое в редакторе кабинета партнёра (null = создание нового).
     var adEditorTarget by remember { mutableStateOf<com.yuldash.app.data.MyAdDto?>(null) }
+    // Какой спор открыть в деталях (Система «Справедливость»). Переживает поворот.
+    var disputeIncidentId by rememberSaveable { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         ApiClient.getAds().onSuccess { srv ->
             val tmpl = demoPartnerAds.firstOrNull()
@@ -714,7 +716,8 @@ internal fun YuldashApp() {
             Screen.Rules -> RulesScreen(onBack = { goBack() })
             Screen.PaymentInfo -> PaymentInfoScreen(onBack = { goBack() })
             Screen.Blocklist -> BlocklistScreen(onBack = { goBack() })
-            Screen.Report -> ReportScreen(onBack = { goBack() })
+            // Апгрейд: «Пожаловаться» теперь открывает поток спора (выбор типа §1 → fileIncident).
+            Screen.Report -> FileComplaintScreen(onBack = { goBack() }, onDone = { navPopping = false; screen = Screen.MyDisputes })
             Screen.Filters -> FiltersScreen(onBack = { goBack() })
             Screen.Safety -> SafetyScreen(
                 onBack = { goBack() },
@@ -723,8 +726,35 @@ internal fun YuldashApp() {
                 onShareTrip = { openTrustedContacts(returnScreen = Screen.Safety) },
                 onRules = { screen = Screen.Rules },
                 onBlocklist = { screen = Screen.Blocklist },
-                onReport = { screen = Screen.Report }
+                onReport = { screen = Screen.Report },
+                onSafetyCenter = { screen = Screen.SafetyCenter }
             )
+            // ── Система «Справедливость» ──
+            Screen.SafetyCenter -> SafetyCenterScreen(
+                onBack = { goBack() },
+                onSelectTab = { tab -> openHome(tab) },
+                onFileComplaint = { screen = Screen.FileComplaint },
+                onMyDisputes = { screen = Screen.MyDisputes },
+                onRules = { screen = Screen.SafetyRules },
+                onSos = { screen = Screen.Sos }
+            )
+            Screen.FileComplaint -> FileComplaintScreen(
+                onBack = { goBack() },
+                onDone = { navPopping = false; screen = Screen.MyDisputes }
+            )
+            Screen.MyDisputes -> MyDisputesScreen(
+                onBack = { goBack() },
+                onSelectTab = { tab -> openHome(tab) },
+                onOpenDispute = { id -> disputeIncidentId = id; screen = Screen.DisputeDetail },
+                onFileComplaint = { screen = Screen.FileComplaint }
+            )
+            Screen.DisputeDetail -> DisputeDetailScreen(
+                incidentId = disputeIncidentId,
+                onBack = { goBack() },
+                onFindRide = { openHome(HomeTab.Map) }   // §1.1: брошенному пассажиру — альтернативы на карте
+            )
+            Screen.SafetyRules -> SafetyRulesScreen(onBack = { goBack() })
+            Screen.AdminIncidents -> AdminIncidentsScreen(onBack = { goBack() })
             Screen.Settings -> SettingsScreen(
                 onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) },
@@ -750,7 +780,8 @@ internal fun YuldashApp() {
                 onAds = { screen = Screen.AdsCabinet },
                 onDrivers = { screen = Screen.AdminDrivers },
                 onReports = { screen = Screen.AdminReports },
-                onPaymentRequests = { screen = Screen.AdminPaymentRequests }
+                onPaymentRequests = { screen = Screen.AdminPaymentRequests },
+                onIncidents = { screen = Screen.AdminIncidents }
             )
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })

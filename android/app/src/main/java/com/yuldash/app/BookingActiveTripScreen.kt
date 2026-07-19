@@ -355,8 +355,12 @@ internal fun BookingScreen(
                                 DetailMeta(Icons.Default.Person, seatsText(displayRide.seats), modifier = Modifier.weight(0.8f))
                             }
                         }
-                        Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
-                            Text("${displayRide.price} ₽", modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                        // Цена + ненавязчивый бейдж «Гарантия цены» (§1.1 против «бампинга»).
+                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                                Text("${displayRide.price} ₽", modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                            }
+                            PriceGuaranteeBadge()
                         }
                     }
                 }
@@ -791,6 +795,13 @@ internal fun ActiveTripScreen(
     var failedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
     var tempSeq by remember(bookingId) { mutableStateOf(-2) }
     var boardingCode by remember(bookingId) { mutableStateOf("") }
+    // Система «Справедливость»: порог таймера ожидания с сервера (не хардкод), фолбэк 7 мин.
+    var waitMin by remember { mutableStateOf(7) }
+    LaunchedEffect(Unit) { ApiClient.getSafetyPolicy().onSuccess { waitMin = it.waitTimerMin } }
+    val noShowOkMsg = appText("Записали. Разберёмся по-справедливости.", "Яҙҙыҡ. Ғәҙеллек буйынса ҡарарбыҙ.")
+    val noShowFailMsg = appText("Не получилось. Проверь сеть.", "Булманы. Селтәрҙе тикшер.")
+    // Посылка/курьер: показываем фото-доказательства (детектим по данным поездки).
+    val isParcel = (ride?.receiverName?.isNotBlank() == true) || (ride?.parcelSize?.isNotBlank() == true)
     val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
     // Состояние первой загрузки истории чата: спиннер, ошибка (с «Повторить»), пусто.
     var historyLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
@@ -911,6 +922,30 @@ internal fun ActiveTripScreen(
                     BoardingCodeCard(code = boardingCode, modifier = Modifier.appearIn(1))
                 }
             }
+            // Таймер ожидания (§1.1/§1.2): водитель на месте — отсчёт, затем «Пассажир не вышел» /
+            // «Водитель не приехал». Мирно: сначала ждём и напоминаем, не наказываем за минуту.
+            if (role.isNotBlank() && driverPhase == "arriving" && bookingStatusAllowsBoarding(bookingStatus)) {
+                item {
+                    WaitTimerNoShowCard(
+                        role = role,
+                        waitMinutes = waitMin,
+                        onReport = {
+                            bookingId?.let { bid ->
+                                voiceScope.launch {
+                                    ApiClient.reportNoShow(bid)
+                                        .onSuccess { Toast.makeText(context, noShowOkMsg, Toast.LENGTH_LONG).show() }
+                                        .onFailure { Toast.makeText(context, noShowFailMsg, Toast.LENGTH_SHORT).show() }
+                                }
+                            }
+                        },
+                        modifier = Modifier.appearIn(2),
+                    )
+                }
+            }
+            // Курьер: фото при приёме/вручении (§1.11) — доказательство, защищает обе стороны.
+            if (isParcel && bookingId != null && bookingStatusAllowsBoarding(bookingStatus)) {
+                item { ParcelPhotoCard(bookingId = bookingId, role = role, modifier = Modifier.appearIn(2)) }
+            }
             val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
             if (canChangeTripStatus) {
                 item { Text(if (role == "driver") appText("Сообщить пассажиру", "Пассажирға хәбәр итеү") else appText("Статус поездки", "Сәфәр хәле"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(2)) }
@@ -952,37 +987,87 @@ internal fun ActiveTripScreen(
                     )
                 }
             }
+            // Водитель на завершении: отметить получение наличной оплаты (§1.3). received=false → мягкий инцидент.
+            if (bookingStatus == "done" && role == "driver") item {
+                PaymentReceivedCard(
+                    onMark = { received ->
+                        bookingId?.let { bid ->
+                            voiceScope.launch {
+                                ApiClient.markPayment(bid, received)
+                                    .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                            }
+                        }
+                    },
+                    modifier = Modifier.appearIn(2),
+                )
+            }
+            // Оценка при завершении (§3): звёзды + теги + слепой режим + подсказка про спор.
             if (bookingStatus == "done") item {
                 var myStars by remember { mutableStateOf(0) }
-                var rating by remember { mutableStateOf(false) }   // запрос в полёте — блок повторных тапов, откат при сбое
+                var selectedTags by remember { mutableStateOf(setOf<String>()) }
+                var rating by remember { mutableStateOf(false) }   // запрос в полёте — блок повторных тапов
+                var rated by remember { mutableStateOf(false) }
                 val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
                 val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
+                val rateeIsDriver = role != "driver"   // пассажир оценивает водителя; водитель — пассажира
+                val tagOptions = listOf(
+                    "polite" to appText("Вежливый", "Итәғәтле"),
+                    "ontime" to appText("Вовремя", "Ваҡытында"),
+                    "clean" to appText("Чисто", "Таҙа"),
+                    "safe" to appText("Безопасно", "Хәүефһеҙ"),
+                )
                 Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(appText("Оцените водителя", "Водителде баһалағыҙ"), fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            (1..5).forEach { n ->
-                                Icon(
-                                    Icons.Default.Star,
-                                    contentDescription = "$n",
-                                    tint = if (n <= myStars) CanonStar else CanonBorder,
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clickable(enabled = !rating) {
-                                            val prev = myStars
-                                            myStars = n
-                                            val id = bookingId
-                                            if (id != null) {
-                                                rating = true
-                                                voiceScope.launch {
-                                                    ApiClient.rateBooking(id, n)
-                                                        .onSuccess { rating = false; Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show() }
-                                                        .onFailure { rating = false; myStars = prev; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }   // откат: не показываем «оценено», если не сохранилось
-                                                }
-                                            }
-                                        }
-                                )
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            if (rateeIsDriver) appText("Оцените водителя", "Водителде баһалағыҙ") else appText("Оцените пассажира", "Пассажирҙы баһалағыҙ"),
+                            fontWeight = FontWeight.Bold,
+                        )
+                        if (rated) {
+                            Text(appText("Спасибо! Оценка сохранена 💚", "Рәхмәт! Баһа һаҡланды 💚"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                (1..5).forEach { n ->
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = "$n",
+                                        tint = if (n <= myStars) CanonStar else CanonBorder,
+                                        modifier = Modifier.size(38.dp).clickable(enabled = !rating) { myStars = n },
+                                    )
+                                }
                             }
+                            if (myStars > 0) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    tagOptions.forEach { (code, label) ->
+                                        val on = code in selectedTags
+                                        Surface(
+                                            color = if (on) CanonMint else CanonSurface,
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, if (on) CanonGreen2 else CanonBorder),
+                                            modifier = Modifier.bounceClick { selectedTags = if (on) selectedTags - code else selectedTags + code },
+                                        ) {
+                                            Text(label, color = if (on) CanonGreen2 else CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+                                        }
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        val id = bookingId
+                                        if (id != null && myStars > 0) {
+                                            rating = true
+                                            voiceScope.launch {
+                                                ApiClient.rateBooking(id, myStars, selectedTags.toList())
+                                                    .onSuccess { rating = false; rated = true; Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show() }
+                                                    .onFailure { rating = false; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                                            }
+                                        } else if (id == null) { rated = true }
+                                    },
+                                    enabled = myStars > 0 && !rating,
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                                ) { Text(appText("Отправить оценку", "Баһаны ебәреү"), color = Color.White, fontWeight = FontWeight.Bold) }
+                            }
+                            Text(appText("Оценка попутчика скрыта, пока вы не поставите свою — так честнее.", "Юлдаштың баһаһы, һеҙ баһа ҡуйғансы, йәшерен — шулай намыҫлыраҡ."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                            Text(appText("Несогласны с оценкой? Спокойно опишите это в споре — «Центр справедливости».", "Баһа менән килешмәйһегеҙме? Тыныс ҡына бәхәстә яҙығыҙ — «Ғәҙеллек үҙәге»."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
                         }
                     }
                 }
@@ -993,6 +1078,7 @@ internal fun ActiveTripScreen(
             if (bookingId == null || bookingStatus == "confirmed") item {
                 var showCancel by remember { mutableStateOf(false) }
                 val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
+                val cancelLateMsg = appText("Поездка отменена. Учтём, что отмена поздняя.", "Сәфәр кире алынды. Иҫкә алабыҙ: һуң кире алыу.")
                 val cancelFailMsg = appText("Не удалось отменить", "Кире алып булманы")
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
@@ -1008,23 +1094,21 @@ internal fun ActiveTripScreen(
                     Text(appText("Отмена бесплатна до начала поездки — место вернётся в поездку.", "Сәфәр башланғанға тиклем кире алыу бушлай — урын кире ҡайта."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
                 }
                 if (showCancel) {
-                    AlertDialog(
-                        onDismissRequest = { showCancel = false },
-                        title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")) },
-                        text = { Text(appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай.")) },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                showCancel = false
-                                bookingId?.let { id ->
-                                    voiceScope.launch {
-                                        ApiClient.cancelBooking(id)
-                                            .onSuccess { Toast.makeText(context, cancelOkMsg, Toast.LENGTH_SHORT).show(); onTripEnd() }
-                                            .onFailure { Toast.makeText(context, cancelFailMsg, Toast.LENGTH_SHORT).show() }
-                                    }
-                                } ?: onTripEnd()
-                            }) { Text(appText("Да, отменить", "Эйе, кире алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                    // Пикер причины (§4): форс-мажор → без штрафа; поздняя отмена → мягкое предупреждение.
+                    CancelReasonSheet(
+                        onDismiss = { showCancel = false },
+                        onConfirm = { reason, note ->
+                            showCancel = false
+                            bookingId?.let { id ->
+                                voiceScope.launch {
+                                    ApiClient.cancelBookingReason(id, reason, note)
+                                        .onSuccess { late ->
+                                            Toast.makeText(context, if (late) cancelLateMsg else cancelOkMsg, Toast.LENGTH_SHORT).show(); onTripEnd()
+                                        }
+                                        .onFailure { Toast.makeText(context, cancelFailMsg, Toast.LENGTH_SHORT).show() }
+                                }
+                            } ?: onTripEnd()
                         },
-                        dismissButton = { TextButton(onClick = { showCancel = false }) { Text(appText("Назад", "Кире")) } }
                     )
                 }
             }
@@ -1250,6 +1334,8 @@ internal fun TripRouteHeaderCard(
                 Text(driver ?: appText("Водитель", "Водитель"), color = CanonMuted)
                 time?.let { Spacer(Modifier.width(10.dp)); Text(it, color = CanonMuted) }
             }
+            // Гарантия цены (§1.1): договорённую цену не поднимут — козырь доверия в активной поездке.
+            PriceGuaranteeBadge()
         }
     }
 }

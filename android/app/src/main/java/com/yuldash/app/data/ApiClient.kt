@@ -4,6 +4,11 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.yuldash.app.BuildConfig
+import com.yuldash.app.Incident
+import com.yuldash.app.IncidentStatus
+import com.yuldash.app.IncidentType
+import com.yuldash.app.SafetyPolicy
+import com.yuldash.app.TrustSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -1092,9 +1097,14 @@ object ApiClient {
     suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
 
-    /** Оценить вторую сторону поездки (1..5 звёзд). Пассажир → водитель, водитель → пассажир. */
-    suspend fun rateBooking(bookingId: Int, stars: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/rate", JSONObject().put("stars", stars), auth = true).map { }
+    /** Оценить вторую сторону поездки (1..5 звёзд) + необязательные теги (§3, CSV: polite,ontime,…).
+     *  Теги шлём только когда есть — старый сервер их проигнорит (обратно совместимо). */
+    suspend fun rateBooking(bookingId: Int, stars: Int, tags: List<String> = emptyList()): Result<Unit> =
+        call(
+            "POST", "/bookings/$bookingId/rate",
+            JSONObject().put("stars", stars).apply { if (tags.isNotEmpty()) put("tags", tags.joinToString(",")) },
+            auth = true,
+        ).map { }
 
     /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку. */
     suspend fun cancelBooking(bookingId: Int): Result<Unit> =
@@ -1175,6 +1185,180 @@ object ApiClient {
             val b = o.optJSONObject("boost") ?: JSONObject()
             PaymentsSummaryDto(d.optInt("count"), d.optInt("sum_rub"), b.optInt("count"), b.optInt("sum_rub"))
         }
+
+    // ══════════ Система «Справедливость» (Trust, Safety & Fairness) ══════════
+    // Контракт: docs/trust-safety.md §6. Инциденты/споры, standing, доверие, отмена/неявка/оплата, курьер.
+
+    /** Подать жалобу / открыть спор. evidenceUrls — публичные URL фото (реюз uploadChatPhoto). */
+    suspend fun fileIncident(
+        respondentId: Int,
+        type: String,
+        description: String,
+        bookingId: Int? = null,
+        evidenceUrls: List<String> = emptyList(),
+    ): Result<Incident> = call(
+        "POST", "/incidents",
+        JSONObject()
+            .put("respondent_id", respondentId)
+            .put("type", type)
+            .put("description", description)
+            .put("booking_id", bookingId ?: JSONObject.NULL)
+            .put("evidence_urls", JSONArray(evidenceUrls)),
+        auth = true,
+    ).map { it.toIncident() }.onSuccess { Analytics.log("file_incident", mapOf("type" to type)) }
+
+    /** Мои споры (где я заявитель ИЛИ обвинённый). Поле my_role различает роль. */
+    suspend fun getMyIncidents(): Result<List<Incident>> =
+        call("GET", "/incidents/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toIncident() }
+        }
+
+    /** Детали спора (только участники + админ; иначе 403). */
+    suspend fun getIncident(id: Int): Result<Incident> =
+        call("GET", "/incidents/$id", null, auth = true).map { it.toIncident() }
+
+    /** Обвинённый описывает свою версию (право на объяснение, §0.1). */
+    suspend fun respondIncident(id: Int, statement: String, evidenceUrls: List<String> = emptyList()): Result<Incident> =
+        call(
+            "POST", "/incidents/$id/respond",
+            JSONObject().put("statement", statement).put("evidence_urls", JSONArray(evidenceUrls)),
+            auth = true,
+        ).map { it.toIncident() }
+
+    /** Обжаловать решение → к человеку (§4 апелляция). */
+    suspend fun appealIncident(id: Int, text: String): Result<Incident> =
+        call("POST", "/incidents/$id/appeal", JSONObject().put("text", text), auth = true).map { it.toIncident() }
+
+    /** «Мы решили миром» — заявитель закрывает спор без последствий (§4). */
+    suspend fun withdrawIncident(id: Int): Result<Incident> =
+        call("POST", "/incidents/$id/withdraw", JSONObject(), auth = true).map { it.toIncident() }
+
+    /** Моё состояние: standing + Надёжность % + активные споры + пауза (§6 GET /me/standing). */
+    suspend fun getMyStanding(): Result<StandingDto> =
+        call("GET", "/me/standing", null, auth = true).map { o ->
+            StandingDto(
+                standing = o.optString("standing", "good"),
+                strikes = o.optInt("strikes"),
+                warnings = o.optInt("warnings"),
+                reliability = o.optInt("reliability", 100),
+                suspendedUntil = o.optString("suspended_until").ifBlank { null },
+                suspendReason = o.optString("suspend_reason"),
+                activeIncidents = o.optInt("active_incidents"),
+                canAct = o.optBoolean("can_act", true),
+            )
+        }
+
+    /** Публичный снимок доверия пользователя (для карточек/бейджа). Без телефона/приватного. */
+    suspend fun getUserTrust(userId: Int): Result<TrustSnapshot> =
+        call("GET", "/users/$userId/trust", null, auth = true).map { o ->
+            TrustSnapshot(
+                rating = o.optDouble("rating", 5.0),
+                ratingCount = o.optInt("rating_count"),
+                trips = o.optInt("trips"),
+                verified = o.optBoolean("verified"),
+                reliability = o.optInt("reliability", 100),
+                memberSince = o.optString("member_since"),
+            )
+        }
+
+    /** Пороги системы справедливости (§5.5). Клиент показывает числа с сервера, не хардкодит. */
+    suspend fun getSafetyPolicy(): Result<SafetyPolicy> = cachedGet("safety-policy", TTL_STATIC) {
+        call("GET", "/safety/policy", null, auth = false).map { o ->
+            SafetyPolicy(
+                freeCancelMin = o.optInt("free_cancel_min", 5),
+                lateCancelBeforeDepartMin = o.optInt("late_cancel_before_depart_min", 60),
+                waitTimerMin = o.optInt("wait_timer_min", 7),
+                strikesToLimit = o.optInt("strikes_to_limit", 2),
+                strikesToSuspend = o.optInt("strikes_to_suspend", 3),
+                suspend1Days = o.optInt("suspend_1_days", 3),
+                suspend2Days = o.optInt("suspend_2_days", 7),
+                suspend3Days = o.optInt("suspend_3_days", 30),
+                strikeDecayDays = o.optInt("strike_decay_days", 60),
+                minRating = o.optDouble("min_rating", 4.0),
+                reliabilityWindow = o.optInt("reliability_window", 30),
+            )
+        }
+    }
+
+    /** Отмена брони с причиной (§6). Возвращает late=true, если отмена поздняя (клиент мягко предупреждает).
+     *  Обратно совместимо: старый cancelBooking() без тела остаётся. */
+    suspend fun cancelBookingReason(bookingId: Int, reason: String, note: String = ""): Result<Boolean> =
+        call("POST", "/bookings/$bookingId/cancel", JSONObject().put("reason", reason).put("note", note), auth = true)
+            .map { it.optBoolean("late") }.onSuccess { Analytics.log("booking_cancel", mapOf("reason" to reason)) }
+
+    /** Неявка: водитель→passenger_no_show, пассажир→driver_no_show (сервер решает по роли). */
+    suspend fun reportNoShow(bookingId: Int, note: String = ""): Result<Incident> =
+        call("POST", "/bookings/$bookingId/no-show", JSONObject().put("note", note), auth = true)
+            .map { it.toIncident() }.onSuccess { Analytics.log("no_show") }
+
+    /** Водитель отмечает получение наличной оплаты. received=false → мягкий инцидент non_payment. */
+    suspend fun markPayment(bookingId: Int, received: Boolean, note: String = ""): Result<Unit> =
+        call("POST", "/bookings/$bookingId/payment", JSONObject().put("received", received).put("note", note), auth = true).map { }
+
+    /** Курьер: фото-доказательство при приёме/вручении. phase: "pickup"|"delivery", url из uploadChatPhoto. */
+    suspend fun uploadParcelPhoto(bookingId: Int, phase: String, url: String): Result<Unit> =
+        call("POST", "/bookings/$bookingId/parcel-photo", JSONObject().put("phase", phase).put("url", url), auth = true).map { }
+
+    // ---------- Справедливость: админ (разбор споров) ----------
+    /** Очередь споров для админа (обе версии + телефоны сторон + severity). status="" → все открытые. */
+    suspend fun getAdminIncidents(status: String = ""): Result<List<AdminIncidentDto>> {
+        val path = "/admin/incidents" + if (status.isBlank()) "" else "?status=" + enc(status)
+        return call("GET", path, null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                AdminIncidentDto(
+                    id = o.optInt("id"),
+                    bookingId = if (o.isNull("booking_id")) null else o.optInt("booking_id"),
+                    type = o.optString("type"),
+                    status = o.optString("status"),
+                    severe = o.optBoolean("severe"),
+                    suspectedBump = o.optBoolean("suspected_bump"),
+                    reporterName = o.optString("reporter_name"),
+                    reporterPhone = o.optString("reporter_phone"),
+                    respondentName = o.optString("respondent_name"),
+                    respondentPhone = o.optString("respondent_phone"),
+                    reporterRole = o.optString("reporter_role"),
+                    description = o.optString("description"),
+                    evidenceUrls = o.jsonStringList("evidence_urls"),
+                    respondentStatement = o.optString("respondent_statement"),
+                    respondentEvidenceUrls = o.jsonStringList("respondent_evidence_urls"),
+                    resolution = o.optString("resolution"),
+                    fault = o.optString("fault"),
+                    resolutionNote = o.optString("resolution_note"),
+                    compensationKop = o.optInt("compensation_kop"),
+                    bookingRoute = o.optString("booking_route"),
+                    createdAt = o.optString("created_at"),
+                )
+            }
+        }
+    }
+
+    /** Разобрать спор: решение + вина + объяснение + последствия (страйк/пауза/компенсация/щит). */
+    suspend fun resolveIncident(
+        id: Int,
+        resolution: String,
+        fault: String,
+        note: String,
+        compensationKop: Int = 0,
+        strike: Boolean = false,
+        suspendDays: Int = 0,
+        excludeRating: Boolean = false,
+        shield: Boolean = false,
+    ): Result<Incident> = call(
+        "POST", "/admin/incidents/$id/resolve",
+        JSONObject()
+            .put("resolution", resolution)
+            .put("fault", fault)
+            .put("note", note)
+            .put("compensation_kop", compensationKop)
+            .put("strike", strike)
+            .put("suspend_days", suspendDays)
+            .put("exclude_rating", excludeRating)
+            .put("shield", shield),
+        auth = true,
+    ).map { it.toIncident() }
 
     // ---------- Базовый вызов ----------
 
@@ -1596,3 +1780,74 @@ data class MyAdDto(
 )
 /** Тариф размещения (из конфига сервера). */
 data class AdPackageDto(val code: String, val title: String, val titleBa: String, val amountKop: Int, val periodDays: Int)
+
+// ---------- Система «Справедливость»: DTO + парс-шов ----------
+
+/** Моё состояние (§6 GET /me/standing). can_act=false → приостановлен (клиент блокирует действия). */
+data class StandingDto(
+    val standing: String,          // good/warned/limited/suspended
+    val strikes: Int,
+    val warnings: Int,
+    val reliability: Int,          // 0..100 «Надёжность»
+    val suspendedUntil: String?,   // ISO — когда снимется пауза (null = не приостановлен)
+    val suspendReason: String,
+    val activeIncidents: Int,
+    val canAct: Boolean,
+)
+
+/** Спор в очереди админа (§6 AdminIncidentOut): обе версии + телефоны сторон + severity. */
+data class AdminIncidentDto(
+    val id: Int,
+    val bookingId: Int?,
+    val type: String,
+    val status: String,
+    val severe: Boolean,
+    val suspectedBump: Boolean = false,
+    val reporterName: String,
+    val reporterPhone: String,
+    val respondentName: String,
+    val respondentPhone: String,
+    val reporterRole: String,
+    val description: String,
+    val evidenceUrls: List<String>,
+    val respondentStatement: String,
+    val respondentEvidenceUrls: List<String>,
+    val resolution: String,
+    val fault: String,
+    val resolutionNote: String,
+    val compensationKop: Int,
+    val bookingRoute: String,
+    val createdAt: String,
+)
+
+/** JSON-массив строк → List<String> (evidence_urls и т.п.), пустые отбрасываем. */
+private fun JSONObject.jsonStringList(key: String): List<String> {
+    val arr = optJSONArray(key) ?: return emptyList()
+    return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+}
+
+/** JSON инцидента с сервера → доменный Incident (один шов, как toRideDto). Коды → typed enum. */
+private fun JSONObject.toIncident(): Incident = Incident(
+    id = optInt("id"),
+    bookingId = if (isNull("booking_id")) null else optInt("booking_id"),
+    type = IncidentType.fromCode(optString("type")),
+    status = IncidentStatus.fromCode(optString("status")),
+    suspectedBump = optBoolean("suspected_bump"),
+    myRole = optString("my_role"),
+    reporterRole = optString("reporter_role"),
+    description = optString("description"),
+    evidenceUrls = jsonStringList("evidence_urls"),
+    respondentStatement = optString("respondent_statement"),
+    respondentEvidenceUrls = jsonStringList("respondent_evidence_urls"),
+    resolution = optString("resolution"),
+    fault = optString("fault"),
+    resolutionNote = optString("resolution_note"),
+    compensationKop = optInt("compensation_kop"),
+    appealText = optString("appeal_text"),
+    appealStatus = optString("appeal_status"),
+    otherName = optString("other_name"),
+    bookingRoute = optString("booking_route"),
+    createdAt = optString("created_at"),
+    respondedAt = optString("responded_at").ifBlank { null },
+    resolvedAt = optString("resolved_at").ifBlank { null },
+)

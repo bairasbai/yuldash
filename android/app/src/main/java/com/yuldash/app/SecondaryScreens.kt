@@ -100,6 +100,7 @@ import androidx.compose.material.icons.filled.HeadsetMic
 import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
@@ -353,6 +354,7 @@ internal fun SafetyScreen(
     onRules: () -> Unit = {},
     onBlocklist: () -> Unit = {},
     onReport: () -> Unit = {},
+    onSafetyCenter: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     var hidePhone by remember { mutableStateOf(AppPrefs.hidePhone(ctx)) }
@@ -374,6 +376,22 @@ internal fun SafetyScreen(
                     color = CanonMuted,
                     fontSize = 15.sp
                 )
+            }
+            // Вход в Систему «Справедливость»: standing, Надёжность, споры, правила.
+            item {
+                Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonHairlineGreen), modifier = Modifier.bounceClick(onSafetyCenter)) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp)) {
+                            Icon(Icons.Default.Gavel, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(11.dp).size(24.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(appText("Центр справедливости", "Ғәҙеллек үҙәге"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                            Text(appText("Твоя надёжность, споры и правила. Справедливо к каждому.", "Ышаныслылығың, бәхәстәр һәм ҡағиҙәләр. Һәр кемгә ғәҙел."), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                        }
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonGreen2)
+                    }
+                }
             }
             item {
                 Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
@@ -887,7 +905,7 @@ internal fun AdminReportsContent(
 
 /** Кабинет админа — единый центр: заявки помощи, отклики, реклама. Виден только админу. */
 @Composable
-internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}) {
+internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onIncidents: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
@@ -900,7 +918,8 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
             item {
                 SettingsGroup {
                     SettingsNavRow(Icons.Default.Verified, appText("Модерация водителей", "Водителдәрҙе модерациялау"), appText("Проверить права и фото, одобрить", "Права һәм фотоны тикшереп раҫлау"), onClick = onDrivers)
-                    SettingsNavRow(Icons.Default.Report, appText("Жалобы", "Ялыуҙар"), appText("Разобрать жалобы пользователей", "Ҡулланыусы ялыуҙарын тикшереү"), onClick = onReports)
+                    SettingsNavRow(Icons.Default.Gavel, appText("Разбор споров", "Бәхәстәрҙе ҡарау"), appText("Справедливость: обе версии, решение с объяснением", "Ғәҙеллек: ике версия, аңлатмалы ҡарар"), onClick = onIncidents)
+                    SettingsNavRow(Icons.Default.Report, appText("Жалобы (старые)", "Ялыуҙар (иҫке)"), appText("Прежние жалобы пользователей", "Элекке ҡулланыусы ялыуҙары"), onClick = onReports)
                 }
             }
             item {
