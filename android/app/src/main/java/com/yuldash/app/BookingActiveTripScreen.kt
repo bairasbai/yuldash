@@ -1403,6 +1403,7 @@ internal fun ActiveTripScreen(
             }
             if (bookingId == null || bookingStatus == "confirmed") item {
                 var showCancel by remember { mutableStateOf(false) }
+                var cancelReason by remember { mutableStateOf("") }   // код причины отмены (по желанию пассажира)
                 val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
                 // B8-8: отмена после открытия телефона/чата — мягкое напоминание (не обвиняем).
                 val contactCancelMsg = appText(
@@ -1427,13 +1428,35 @@ internal fun ActiveTripScreen(
                     AlertDialog(
                         onDismissRequest = { showCancel = false },
                         title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")) },
-                        text = { Text(appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай.")) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай."))
+                                Text(appText("Причина (по желанию):", "Сәбәбе (теләгәнсә):"), color = CanonMuted, fontSize = 12.sp)
+                                listOf(
+                                    "plans_changed" to appText("Планы поменялись", "Пландар үҙгәрҙе"),
+                                    "found_other" to appText("Нашёл другой вариант", "Башҡа юл таптым"),
+                                    "driver_no_response" to appText("Водитель не отвечает", "Водитель яуап бирмәй"),
+                                ).forEach { (code, label) ->
+                                    val on = cancelReason == code
+                                    Text(
+                                        label,
+                                        color = if (on) CanonGreen2 else CanonText,
+                                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                            .clickable { cancelReason = if (on) "" else code }
+                                            .background(if (on) CanonMint else Color.Transparent)
+                                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                        },
                         confirmButton = {
                             TextButton(onClick = {
                                 showCancel = false
                                 bookingId?.let { id ->
                                     voiceScope.launch {
-                                        ApiClient.cancelBooking(id)
+                                        ApiClient.cancelBooking(id, cancelReason)
                                             .onSuccess { contactThenCancel ->
                                                 // F11: локальный паспорт поездки больше не нужен — бронь отменена.
                                                 TripPassStore.remove(context, id)
