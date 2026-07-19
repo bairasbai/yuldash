@@ -137,7 +137,8 @@ class Settlement(SQLModel, table=True):
     name_ru: str = Field(index=True)
     name_ba: Optional[str] = None
     region: str = ""                 # «РБ», «Челябинская обл.», «Татарстан»…
-    kind: str = "city"               # city | district_center | neighbor
+    kind: str = "city"               # city | district_center | neighbor | village
+    district: Optional[str] = None   # район (для village: различать тёзок «Берёзовка, Иглинский р-н»)
     lat: float = 0.0
     lng: float = 0.0
     active: bool = True
