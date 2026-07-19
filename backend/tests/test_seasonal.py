@@ -77,12 +77,12 @@ def test_ufa_city_day_present_in_june():
 
 def test_endpoint_public_ok(client):
     r = client.get("/seasonal-events")
-    assert r.status_code == 200 and isinstance(r.json(), list)
+    assert r.status_code == 200 and isinstance(r.json().get("items"), list)
 
 
 def test_endpoint_window_param(client):
     r = client.get("/seasonal-events?days=60")
     assert r.status_code == 200
-    for e in r.json():                       # контракт ответа для клиента-баннера
+    for e in r.json()["items"]:              # контракт ответа для клиента-баннера
         assert {"code", "name_ru", "name_ba", "emoji", "anchor",
                 "starts_at", "ends_at", "active", "category"} <= set(e.keys())

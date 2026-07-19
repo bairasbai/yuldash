@@ -1920,7 +1920,8 @@ internal fun HomeScreen(
                     onTaxiOnboarding = onTaxiOnboarding,
                     onClinicRides = onClinicRides,
                     onRouteWatch = onRouteWatch,
-                    onOpenScheduled = onOpenScheduled
+                    onOpenScheduled = onOpenScheduled,
+                    onSeasonalPublish = onCreateRide,   // F15: баннер «на праздник» → создать поездку
                 )
                 HomeTab.Rides -> RidesScreen(
                     rides = rides,

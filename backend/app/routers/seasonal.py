@@ -229,6 +229,8 @@ def active_events(today: date, window: int = _LOOKAHEAD_DAYS) -> list:
 
 @router.get("/seasonal-events")
 def seasonal_events(days: Optional[int] = None):
-    """Актуальные сезонные события (публично — для баннера на карте). days — окно вперёд (по умолч. 21)."""
+    """Актуальные сезонные события (публично — для баннера на карте). days — окно вперёд (по умолч. 21).
+
+    Ответ — {"items": [...]} (единый контракт списков клиента: `optJSONArray("items")`)."""
     window = _LOOKAHEAD_DAYS if not days else max(1, min(days, _MAX_WINDOW))
-    return active_events(utcnow().date(), window)
+    return {"items": active_events(utcnow().date(), window)}
