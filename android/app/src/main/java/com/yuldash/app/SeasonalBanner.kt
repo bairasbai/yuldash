@@ -123,3 +123,12 @@ private fun shortDate(iso: String): String {
     val p = iso.split("-")
     return if (p.size == 3) "${p[2]}.${p[1]}" else ""
 }
+
+/**
+ * Шаблон для формы создания поездки под праздник: дата события → «dd.MM.yyyy, 09:00»
+ * (тот же формат, что даёт пикер даты). Пусто, если дату не разобрали — форма откроется как обычно.
+ */
+internal fun seasonalRidePrefillDate(event: SeasonalEventDto): String {
+    val p = event.anchor.split("-")   // «2026-06-13»
+    return if (p.size == 3) "${p[2]}.${p[1]}.${p[0]}, 09:00" else ""
+}

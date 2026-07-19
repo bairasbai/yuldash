@@ -276,7 +276,7 @@ internal fun MapScreen(
     onBoost: () -> Unit,
     onClinicRides: () -> Unit,   // F22: раздел «Поездки к клинике»
     onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13 «карауль поездку»: открыть «Мои подписки»
-    onSeasonalPublish: () -> Unit = {}   // F15: баннер «на праздник» → форма создания поездки
+    onSeasonalPublish: (String) -> Unit = {}   // F15: баннер «на праздник» → форма создания поездки (аргумент — дата-шаблон)
 ) {
     val nearbyAd = ads.forPlacement(AdPlacement.Nearby).firstOrNull { it.city == "Баймаҡ" }
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
@@ -419,7 +419,7 @@ internal fun MapScreen(
                     item(key = "seasonal") {
                         SeasonalBanner(
                             event = sev,
-                            onPublish = onSeasonalPublish,
+                            onPublish = { onSeasonalPublish(seasonalRidePrefillDate(sev)) },
                             onDismiss = { seasonalDismissed = true },
                         )
                     }

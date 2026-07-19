@@ -319,6 +319,7 @@ internal fun YuldashApp() {
     var driverProfileId by rememberSaveable { mutableStateOf(0) }   // чей публичный профиль открыть (0 = никакой)
     var createRideReturnScreen by rememberSaveable { mutableStateOf(Screen.Home) }
     var createRideReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Request) }
+    var createRidePrefillDate by rememberSaveable { mutableStateOf<String?>(null) }   // F15: дата-шаблон праздника для формы поездки
     var trustedContactsReturnScreen by rememberSaveable { mutableStateOf(Screen.SimpleMode) }
     var trustedContactsReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Profile) }
     var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
@@ -543,9 +544,10 @@ internal fun YuldashApp() {
         if (prev != null && prev != screen && prev != Screen.Home) { navPopping = true; screen = prev }
         else openHome(startHomeTab)
     }
-    fun openCreateRide(returnScreen: Screen = Screen.Home, returnHomeTab: HomeTab = HomeTab.Request) {
+    fun openCreateRide(returnScreen: Screen = Screen.Home, returnHomeTab: HomeTab = HomeTab.Request, prefillDate: String? = null) {
         createRideReturnScreen = returnScreen
         createRideReturnHomeTab = returnHomeTab
+        createRidePrefillDate = prefillDate   // null для обычного создания → форма как раньше
         screen = Screen.CreateRide
     }
     fun closeCreateRide() {
@@ -735,6 +737,7 @@ internal fun YuldashApp() {
                 initialTab = startHomeTab,
                 onTabChange = { startHomeTab = it },   // «Назад» с под-экранов вернётся на активную вкладку Home
                 onCreateRide = { openCreateRide(returnScreen = Screen.Home, returnHomeTab = HomeTab.Request) },
+                onSeasonalPublish = { date -> openCreateRide(returnScreen = Screen.Home, returnHomeTab = HomeTab.Request, prefillDate = date) },   // F15: дата праздника уже в форме
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onSupport = { screen = Screen.Support },
                 onMyStats = { screen = Screen.MyStats },
@@ -865,6 +868,7 @@ internal fun YuldashApp() {
                 onInstantLogin = { screen = Screen.Login }   // такси требует входа → на экран входа
             )
             Screen.CreateRide -> CreateRideScreen(
+                prefillDate = createRidePrefillDate,   // F15: если пришли из баннера — дата праздника уже стоит
                 onBack = { goBack() },
                 onPublish = { ride ->
                     rides.add(0, ride)
@@ -1889,6 +1893,7 @@ internal fun HomeScreen(
     onInstantLogin: () -> Unit = {},
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» водитель уходит в онбординг
     onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан из встроенного такси → «Мои предзаказы»
+    onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
     onTabChange: (HomeTab) -> Unit = {}
 ) {
     var ridesPresetTo by remember { mutableStateOf("") }
@@ -1921,7 +1926,7 @@ internal fun HomeScreen(
                     onClinicRides = onClinicRides,
                     onRouteWatch = onRouteWatch,
                     onOpenScheduled = onOpenScheduled,
-                    onSeasonalPublish = onCreateRide,   // F15: баннер «на праздник» → создать поездку
+                    onSeasonalPublish = onSeasonalPublish,   // F15: баннер «на праздник» → создать поездку (с датой-шаблоном)
                 )
                 HomeTab.Rides -> RidesScreen(
                     rides = rides,

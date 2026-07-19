@@ -91,7 +91,7 @@ internal fun PassengerModeHome(
     onClinicRides: () -> Unit = {},       // F22: раздел «Поездки к клинике» (проброс в карту попутки)
     onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13: «карауль поездку» из карты попутки
     onOpenScheduled: () -> Unit = {},     // «На время»: предзаказ создан → «Мои предзаказы»
-    onSeasonalPublish: () -> Unit = {},   // F15: баннер «на праздник» → форма создания поездки
+    onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → форма создания поездки (аргумент — дата-шаблон)
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE) }
