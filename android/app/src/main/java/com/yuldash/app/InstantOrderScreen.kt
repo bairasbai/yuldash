@@ -1622,6 +1622,51 @@ internal fun UnpaidReportButton(orderId: Int? = null, bookingId: Int? = null, mo
 }
 
 
+// Водитель отмечает неявку пассажира (no-show). Само-содержащая кнопка (как UnpaidReportButton):
+// дёргает /bookings/{id}/no-show, при успехе показывает подтверждение на месте. Места возвращаются на сервере.
+@Composable
+internal fun NoShowButton(bookingId: Int, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var sent by remember(bookingId) { mutableStateOf(false) }
+    var sending by remember(bookingId) { mutableStateOf(false) }
+    val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
+    if (sent) {
+        Row(
+            modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                appText("Отмечена неявка. Место вернулось в поездку.",
+                        "Килмәгәнлек билдәләнде. Урын сәфәргә ҡайтты."),
+                color = CanonGreen2, fontSize = 13.sp, lineHeight = 17.sp,
+            )
+        }
+    } else {
+        OutlinedButton(
+            onClick = {
+                if (sending) return@OutlinedButton
+                sending = true
+                scope.launch {
+                    ApiClient.markNoShow(bookingId)
+                        .onSuccess { sent = true }
+                        .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                    sending = false
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, CanonRed),
+            modifier = modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) {
+            Text(appText("Пассажир не явился", "Пассажир килмәне"), color = CanonRed, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+
 @Composable
 private fun InstantCenterLoader(text: String) {
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
