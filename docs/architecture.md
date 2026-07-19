@@ -31,6 +31,13 @@
 
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
 
+## 🛡️ Система «Справедливость» (защита от плохих сценариев) — 2026-07-19
+
+Дизайн + контракт: [trust-safety.md](trust-safety.md). Защита от неявки/неоплаты/грубости/повреждения посылки/бампинга — справедливо ко всем сторонам (мир → предупреждение → страйк → пауза со затуханием; слепой рейтинг; апелляции).
+
+- **Android — новый файл `TrustSafetyScreens.kt`:** `SafetyCenterScreen` (хаб: `ReliabilityRing` «Надёжность %» + `TrustBadge` standing + активные споры), `FileComplaintScreen` (апгрейд `Screen.Report`: тип-чипы + фото → `fileIncident`), `MyDisputesScreen`, `DisputeDetailScreen` (обе версии + фото, «Объясниться»/«Обжаловать»/«Мы решили миром», плашка `suspected_bump`), `SafetyRulesScreen`, `AdminIncidentsScreen` (очередь + inline-resolve), `PriceGuaranteeBadge`. Модели — `Domain.kt` (`Incident`/`Standing`/`TrustSnapshot`/`SafetyPolicy`/`IncidentType`+`incidentTypeLabel`). Методы+DTO+шов `toIncident()` — `data/ApiClient.kt` (16 методов). Навигация — 6 веток в `enum Screen` (`MainActivity.kt`) + `YuldashApp.kt`. Точки входа — `SecondaryScreens.kt` (Безопасность→Центр справедливости; Кабинет админа→Разбор споров), `ProfileScreen.kt` (`ProfileStandingCard`). Хуки — `BookingActiveTripScreen.kt` (таймер ожидания 7мин→no-show, оплата наличными, `CancelReasonSheet`, теги оценки+слепой режим, курьер-фото, `PriceGuaranteeBadge`).
+- **Backend — новый роутер `routers/incidents.py`** (`/incidents` CRUD+respond/appeal/withdraw, `/admin/incidents`+`/resolve`, `/me/standing`, `/users/{id}/trust`, `/safety/policy`) + **`safety_logic.py`** (лестница эскалации, «Надёжность», ленивый `SafetyProfile`, снятие спорных оценок, `detect_bump`). Расширены: `models.py` (`Incident`+`suspected_bump`/`SafetyProfile`; поля на `Booking`/`Rating`), `bookings.py` (отмена с причиной+`late`, `/no-show`, `/payment`, `/parcel-photo`, детект бампинга), `family.py` (`/rate` +`tags`/`comment`), `services.py` (фильтр `excluded` в рейтинге), `config.py` (пороги `SAFETY_*`), `account.py` (удаление инцидентов). Прод-миграция — `backend/migrate_safety.sql`. Тесты — `tests/test_incidents.py` (pytest 215 passed).
+
 ## Лендинг web/ — интерактивная версия 2026-06-29
 - **Production-hardening 2026-06-30:** `web/` обновлён до Next.js 16.2.9, PostCSS поднят до 8.5.x через `overrides`, потому `npm audit --omit=dev` теперь 0 vulnerabilities. Build остаётся статическим (`output: "export"`) и деплоится как `web/out/` в `/var/www/yuldash-landing`.
 - Главная страница `web/app/page.tsx` стала тонкой оболочкой: `MotionConfig` → `LangProvider` → `DownloadProvider` → `YuldashLanding`.
