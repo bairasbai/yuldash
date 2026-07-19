@@ -99,6 +99,8 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
 
 class RateIn(BaseModel):
     stars: int
+    tags: str = ""       # CSV тегов оценки (polite,ontime,clean,safe,late,rude…) — необязательно
+    comment: str = ""    # короткий комментарий к оценке — необязательно
 
 
 @router.post("/bookings/{booking_id}/rate")
@@ -120,14 +122,18 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
     if b.status != BookingStatus.done:
         raise HTTPException(status_code=409, detail="Оценить можно только завершённую поездку")
     stars = max(1, min(5, body.stars))
+    tags = (body.tags or "").strip()[:200]
+    comment = (body.comment or "").strip()[:500]
     existing = session.exec(
         select(Rating).where(Rating.booking_id == booking_id, Rating.rater_id == user.id)
     ).first()
     if existing:
         existing.stars = stars
+        existing.tags = tags
+        existing.comment = comment
         session.add(existing)
     else:
-        session.add(Rating(booking_id=booking_id, rater_id=user.id, ratee_id=ratee_id, stars=stars))
+        session.add(Rating(booking_id=booking_id, rater_id=user.id, ratee_id=ratee_id, stars=stars, tags=tags, comment=comment))
     session.commit()
     avg, cnt = user_rating(session, ratee_id)
     # Оценили водителя → обновим витринный рейтинг в профиле.
