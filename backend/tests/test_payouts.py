@@ -114,7 +114,9 @@ def test_payout_more_than_balance_rejected(client, user_factory, payouts_on):
     drv = user_factory("PoOverDrv", role=UserRole.driver)
     _seed_balance(drv["id"], 20000)
     _save_card(client, drv)
-    r = client.post("/wallet/payout", headers=drv["auth"], json={"amount_kop": 30000})
+    # ключ обязателен (V7) — иначе отказ был бы по пустому ключу, а мы проверяем именно гейт баланса
+    r = client.post("/wallet/payout", headers=drv["auth"],
+                    json={"amount_kop": 30000, "idempotency_key": "k-over"})
     assert r.status_code == 400, r.text
     assert _bal(drv["id"]) == 20000          # ничего не списано
 
