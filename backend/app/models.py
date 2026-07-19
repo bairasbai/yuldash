@@ -204,6 +204,15 @@ class Booking(SQLModel, table=True):
     status: BookingStatus = BookingStatus.pending
     driver_phase: str = ""           # подфаза активной поездки от водителя: "" / departed / arriving (для live-баннера пассажиру)
     boarding_code: str = ""
+    # --- Система «Справедливость»: отмена / неявка / оплата / курьер (всё nullable/дефолт — обратно совместимо) ---
+    cancelled_by: Optional[int] = Field(default=None, foreign_key="user.id")  # кто отменил (пассажир/водитель)
+    cancel_reason: str = ""          # plans_changed/found_other/price/driver_late/passenger_late/emergency/safety/other
+    cancel_note: str = ""            # свободная заметка при отмене
+    cancelled_at: Optional[datetime] = None
+    no_show: bool = False            # была неявка (кто-то не приехал/не вышел)
+    payment_state: str = ""          # ""/received/unpaid/waived (наличные «на доверии»)
+    parcel_pickup_photo: str = ""    # фото при приёме курьером (category=parcel)
+    parcel_delivery_photo: str = ""  # фото при вручении
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -272,7 +281,59 @@ class Rating(SQLModel, table=True):
     rater_id: int = Field(index=True, foreign_key="user.id")        # кто оценил
     ratee_id: int = Field(index=True, foreign_key="user.id")        # кого оценили (водитель или пассажир)
     stars: int = 5                           # 1..5
+    # --- Система «Справедливость»: защита от мести/накрутки ---
+    excluded: bool = False                   # снята админом из среднего (спорная/месть)
+    comment: str = ""                        # необязательный текст к оценке (max 500)
+    tags: str = ""                           # CSV: polite,ontime,clean,safe,late,rude,...
+    incident_id: Optional[int] = Field(default=None, foreign_key="incident.id")  # если оценка привязана к спору
     created_at: datetime = Field(default_factory=utcnow)
+
+
+# ---- Фаза 3: система «Справедливость» (Trust, Safety & Fairness) ----
+
+class Incident(SQLModel, table=True):
+    """Спор/жалоба по поездке или доставке. Обе стороны слышимы (due process):
+    заявитель описывает, обвинённый объясняется, админ решает соразмерно и объясняет.
+    См. docs/trust-safety.md §5.1."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")  # к какой поездке (может быть null)
+    reporter_id: int = Field(index=True, foreign_key="user.id")     # кто заявил
+    respondent_id: int = Field(index=True, foreign_key="user.id")   # на кого (обвиняемый)
+    type: str = Field(index=True)            # код из §1 (passenger_no_show, parcel_damage, ...)
+    reporter_role: str = ""                  # passenger/driver/courier/sender/recipient
+    description: str = ""                    # версия заявителя (max 2000)
+    evidence_urls: str = ""                  # CSV media-URL (фото)
+    status: str = Field(default="open", index=True)  # open/awaiting_response/under_review/resolved/appealed/closed
+    suspected_bump: bool = False             # авто-детект «бампинга»: водитель бросил подтверждённых (§1.1)
+    respondent_statement: str = ""           # объяснение обвинённого (max 2000)
+    respondent_evidence_urls: str = ""
+    responded_at: Optional[datetime] = None
+    resolution: str = ""                     # none/dismissed/warning/strike/compensation/rating_adjust/suspend/ban/mutual_resolved
+    fault: str = ""                          # none/reporter/respondent/both/unclear
+    resolution_note: str = ""                # объяснение админа (видно обеим сторонам, max 2000)
+    compensation_kop: int = 0                # предложенная компенсация (не списываем автоматически)
+    appeal_text: str = ""                    # текст апелляции (max 2000)
+    appeal_status: str = ""                  # ""/requested/upheld/overturned
+    resolved_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+    resolved_at: Optional[datetime] = None
+
+
+class SafetyProfile(SQLModel, table=True):
+    """Состояние «справедливости» пользователя (1:1 с User, ленивое создание).
+    reliability НЕ храним — считаем на лету из истории Booking. См. §5.2."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, unique=True, foreign_key="user.id")
+    strikes: int = 0
+    warnings: int = 0
+    standing: str = "good"                   # good/warned/limited/suspended
+    suspended_until: Optional[datetime] = None
+    suspend_reason: str = ""
+    last_strike_at: Optional[datetime] = None
+    rating_shield: bool = False              # админ защитил оболганного (щит рейтинга)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class RequestResponse(SQLModel, table=True):

@@ -61,6 +61,25 @@ class Settings(BaseSettings):
     sbp_bank: str = ""                  # банк получателя (напр. Сбербанк)
     sbp_name: str = ""                  # имя получателя как в СБП (напр. Александр А.)
 
+    # --- Система «Справедливость» (Trust & Safety) — пороги эскалации и отмен ---
+    # Клиент читает эти числа из GET /safety/policy (не хардкодит «5 минут» и т.п.).
+    safety_free_cancel_min: int = 5                  # мин бесплатной отмены после брони
+    safety_late_cancel_before_depart_min: int = 60   # отмена в этом окне до выезда = поздняя
+    safety_wait_timer_min: int = 7                   # таймер ожидания пассажира (клиент)
+    safety_strikes_to_limit: int = 2                 # >= → standing=limited (мягкие ограничения)
+    safety_strikes_to_suspend: int = 3               # >= → пауза
+    safety_suspend_1_days: int = 3                   # 1-я пауза
+    safety_suspend_2_days: int = 7                   # 2-я пауза
+    safety_suspend_3_days: int = 30                  # 3-я и далее
+    safety_strike_decay_days: int = 60               # страйк «сгорает» без новых нарушений
+    safety_min_rating: float = 4.0                   # ниже → мягкие ограничения (мягче Яндекса 4.5)
+    safety_reliability_window: int = 30              # окно поездок для «Надёжности»
+    # Анти-спам жалоб: сколько инцидентов один заявитель может открыть за час (не в policy — внутреннее).
+    safety_incidents_per_hour: int = 10
+    # «Бампинг» (§1.1): окно детекта фиктивной «не еду» и вес отмены подтверждённой брони водителем.
+    safety_bump_window_hours: int = 6                # окно поиска сигналов подмены (перебронь/republish)
+    safety_bump_cancel_weight: int = 3               # вес такой отмены в Надёжности (тяжелее обычной ×3)
+
     # --- Redis (масштаб) ---
     # Один URL на всё: общий rate-limit между воркерами + WS-чат pub/sub между процессами.
     # Пусто → rate-limit in-memory на воркер, WS — локальный режим (один воркер). Пример: redis://127.0.0.1:6379/0

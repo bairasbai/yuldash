@@ -28,9 +28,10 @@ from sqlalchemy import delete, or_, update
 from sqlmodel import Session, select
 
 from .models import (
-    Ad, AdEvent, AppReview, Block, Booking, DeviceToken, DriverProfile, Message,
-    OtpCode, Payment, Rating, RefreshToken, Report, RequestResponse, Ride,
-    RideRequest, SosEvent, TgAuth, TripShare, TrustedContact, UploadEvent, User,
+    Ad, AdEvent, AppReview, Block, Booking, DeviceToken, DriverProfile, Incident,
+    Message, OtpCode, Payment, Rating, RefreshToken, Report, RequestResponse, Ride,
+    RideRequest, SafetyProfile, SosEvent, TgAuth, TripShare, TrustedContact,
+    UploadEvent, User,
 )
 from .services import CHAT_DIR, DOC_DIR, MEDIA_DIR, VOICE_DIR
 
@@ -113,6 +114,21 @@ def delete_user_account(session: Session, user: User) -> None:
     if ad_ids:
         pay.append(Payment.ad_id.in_(ad_ids))
     dele(Payment, *pay)
+    # 3.5.1 Система «Справедливость»: споры и профиль. Где я сторона — удаляем
+    # (сперва отвязываем ссылающиеся оценки, чтобы не нарушить FK). Где я лишь
+    # резолвер (админ) — отвязываем resolved_by. Ссылки на удаляемые брони — обнуляем,
+    # чтобы удаление броней ниже не упёрлось в FK на Postgres.
+    my_inc_ids = list(session.exec(
+        select(Incident.id).where(or_(Incident.reporter_id == uid, Incident.respondent_id == uid))
+    ).all())
+    if my_inc_ids:
+        session.execute(update(Rating).where(Rating.incident_id.in_(my_inc_ids)).values(incident_id=None))
+        session.execute(delete(Incident).where(Incident.id.in_(my_inc_ids)))
+    session.execute(update(Incident).where(Incident.resolved_by == uid).values(resolved_by=None))
+    if booking_ids:
+        session.execute(update(Incident).where(Incident.booking_id.in_(booking_ids)).values(booking_id=None))
+    session.execute(update(Booking).where(Booking.cancelled_by == uid).values(cancelled_by=None))
+    session.execute(delete(SafetyProfile).where(SafetyProfile.user_id == uid))
     # 3.6 Брони.
     if booking_ids:
         session.execute(delete(Booking).where(Booking.id.in_(booking_ids)))

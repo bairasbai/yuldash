@@ -1,15 +1,25 @@
 """Брони: бронирование (с защитой от овербукинга и блокировок), подтверждение,
-отмена, список своих, список броней водителя для оценки пассажиров."""
-from typing import List, Optional
+отмена, список своих, список броней водителя для оценки пассажиров.
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+Плюс хуки системы «Справедливость»: причина отмены (+флаг поздней), неявка,
+отметка оплаты наличными, фото посылки. См. docs/trust-safety.md §6."""
+from datetime import timedelta
+from typing import Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import Booking, BookingStatus, DriverProfile, Ride, RideStatus, User
+from ..safety_logic import CANCEL_REASONS, clamp, detect_bump, is_late_cancel
 from ..security import current_user, gen_otp
-from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, send_push, user_rating
+from ..services import (
+    booking_and_ride_for_user, geocode_city, is_blocked, notify_admin_telegram,
+    notify_map_changed, send_push, user_rating,
+)
+from ..timeutil import utcnow
+from .incidents import _incident_out, create_incident
 
 router = APIRouter(tags=["bookings"])
 
@@ -220,21 +230,171 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     return booking
 
 
-@router.post("/bookings/{booking_id}/cancel", response_model=Booking)
-def cancel_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Отмена поездки пассажиром или водителем. Места возвращаются в поездку."""
+class CancelIn(BaseModel):
+    reason: Optional[str] = None   # plans_changed/found_other/price/driver_late/passenger_late/emergency/safety/other
+    note: Optional[str] = Field(None, max_length=500)
+
+
+@router.post("/bookings/{booking_id}/cancel", response_model=None)
+def cancel_booking(booking_id: int, background: BackgroundTasks, body: Optional[CancelIn] = None,
+                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отмена поездки пассажиром или водителем. Места возвращаются в поездку.
+
+    Опц. тело `{reason, note}` записывает причину (§5.3). Возвращает `late:true`,
+    если отмена поздняя. Без тела — как раньше. Если отменяет ВОДИТЕЛЬ по подтверждённой
+    брони — детект «бампинга» (§1.1): тяжёлый вес в Надёжности + авто-инцидент при сигналах."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    late = False
+    # Захватываем ДО мутации: кто отменяет и была ли бронь «подтверждённой договорённостью».
+    is_driver_cancel = ride.driver_id == user.id
+    was_committed = booking.status in (BookingStatus.confirmed, BookingStatus.onboard)
     if booking.status not in (BookingStatus.cancelled, BookingStatus.done):
         # Блокируем строку поездки (как в book) → две одновременные отмены не затрут инкремент мест.
         ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
+        late = is_late_cancel(booking, ride, when=utcnow())   # считаем ДО пометки cancelled
         booking.status = BookingStatus.cancelled
+        booking.cancelled_by = user.id
+        booking.cancelled_at = utcnow()
+        if body is not None:
+            reason = (body.reason or "").strip()
+            if reason in CANCEL_REASONS:
+                booking.cancel_reason = reason
+            booking.cancel_note = clamp(body.note, 500)
+        # Форс-мажор — защищено: без пометки «поздняя» (щит от несправедливого штрафа, §1 п.10).
+        if booking.cancel_reason == "emergency":
+            late = False
+        # Водитель бросил ПОДТВЕРЖДЁННУЮ бронь (не форс-мажор) → тяжёлый минус Надёжности (§1.1, Рычаг 3).
+        # Реальный emergency от штрафа Надёжности освобождаем (но детект-улику ниже всё равно проверяем).
+        if is_driver_cancel and was_committed and booking.cancel_reason != "emergency":
+            booking.no_show = True
         ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
         session.add(booking)
         session.add(ride)
         session.commit()
         session.refresh(booking)
         notify_map_changed()   # места вернулись → поездка снова видна на карте live
-    return booking
+        # Детект фиктивной «не еду»: только когда водитель сбросил подтверждённого пассажира.
+        if is_driver_cancel and was_committed:
+            _handle_driver_bump(session, ride, booking, background)
+    data = booking.model_dump(mode="json")
+    data["late"] = late
+    return data
+
+
+def _handle_driver_bump(session: Session, ride: Ride, booking: Booking, background: BackgroundTasks) -> None:
+    """§1.1 Рычаг 2: при сигналах подмены — авто-инцидент driver_no_show(suspected_bump),
+    уведомление админа и пуш пассажиру с альтернативами. Реальный форс-мажор без сигналов — тихо."""
+    signals = detect_bump(session, ride, booking, booking.cancel_reason)
+    if not signals:
+        return
+    passenger = session.get(User, booking.passenger_id)
+    if not passenger:
+        return
+    create_incident(
+        session, reporter=passenger, respondent_id=ride.driver_id, type="driver_no_show",
+        description="", booking_id=booking.id, reporter_role="passenger",
+        background=background, rate_limit=False, suspected_bump=True,
+    )
+    background.add_task(
+        notify_admin_telegram,
+        f"🚩 Подозрение на «бампинг» (Юлдаш)\n"
+        f"Поездка: {ride.from_city}→{ride.to_city}\n"
+        f"Водитель отменил подтверждённую бронь #{booking.id}\n"
+        f"Причина: {booking.cancel_reason or '—'}\n"
+        f"Сигналы: {', '.join(signals)}"
+    )
+    # Пассажиру — тёплый пуш с обещанием альтернатив (клиент откроет «Ближайшие» на его маршрут).
+    send_push(session, booking.passenger_id, "Водитель отменил поездку",
+              "Не переживай — подобрали альтернативы на твой маршрут. Открой приложение.")
+
+
+class NoShowIn(BaseModel):
+    note: Optional[str] = Field(None, max_length=2000)
+
+
+# Насколько раньше времени выезда уже можно отметить неявку (не наказываем за минуты до).
+_NO_SHOW_EARLY_MIN = 15
+
+
+@router.post("/bookings/{booking_id}/no-show", response_model=None)
+def report_no_show(booking_id: int, background: BackgroundTasks, body: Optional[NoShowIn] = None,
+                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Неявка второй стороны. Водитель → passenger_no_show, пассажир → driver_no_show.
+    Гейт: бронь confirmed/onboard, не раньше времени выезда − окно, одна на бронь."""
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
+        raise HTTPException(409, "Неявку можно отметить только по подтверждённой поездке")
+    if ride.depart_at and utcnow() < ride.depart_at - timedelta(minutes=_NO_SHOW_EARLY_MIN):
+        raise HTTPException(409, "Ещё рано отмечать неявку")
+    if booking.no_show:
+        raise HTTPException(409, "Неявка уже отмечена")
+    if ride.driver_id == user.id:
+        inc_type, respondent_id = "passenger_no_show", booking.passenger_id
+    else:
+        inc_type, respondent_id = "driver_no_show", ride.driver_id
+    booking.no_show = True
+    session.add(booking)
+    session.commit()
+    inc = create_incident(
+        session, reporter=user, respondent_id=respondent_id, type=inc_type,
+        description=clamp(body.note if body else "", 2000), booking_id=booking_id, background=background,
+    )
+    return _incident_out(session, inc, user)
+
+
+class PaymentIn(BaseModel):
+    received: bool
+    note: Optional[str] = Field(None, max_length=2000)
+
+
+@router.post("/bookings/{booking_id}/payment", response_model=None)
+def mark_payment(booking_id: int, body: PaymentIn, background: BackgroundTasks,
+                 user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель отмечает получение наличных. received=false → payment_state=unpaid +
+    мягкий инцидент non_payment (не списываем — наличные «на доверии», §1 п.3)."""
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    if ride.driver_id != user.id:
+        raise HTTPException(403, "Оплату отмечает только водитель")
+    if booking.status != BookingStatus.done:
+        raise HTTPException(409, "Оплату можно отметить только по завершённой поездке")
+    booking.payment_state = "received" if body.received else "unpaid"
+    session.add(booking)
+    session.commit()
+    session.refresh(booking)
+    inc = None
+    if not body.received:
+        inc = create_incident(
+            session, reporter=user, respondent_id=booking.passenger_id, type="non_payment",
+            description=clamp(body.note, 2000), booking_id=booking_id, background=background,
+        )
+    data = booking.model_dump(mode="json")
+    data["incident_id"] = inc.id if inc else None
+    return data
+
+
+class ParcelPhotoIn(BaseModel):
+    phase: str                                   # pickup | delivery
+    url: str = Field(..., max_length=500)
+
+
+@router.post("/bookings/{booking_id}/parcel-photo", response_model=None)
+def parcel_photo(booking_id: int, body: ParcelPhotoIn,
+                 user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Фото-доказательство посылки (parcel): «до» при приёме курьером и «после» при вручении."""
+    booking, _ride = booking_and_ride_for_user(session, booking_id, user)
+    if body.phase not in ("pickup", "delivery"):
+        raise HTTPException(400, "Фаза: pickup или delivery")
+    url = (body.url or "").strip()[:500]
+    if not url:
+        raise HTTPException(400, "Пустой URL фото")
+    if body.phase == "pickup":
+        booking.parcel_pickup_photo = url
+    else:
+        booking.parcel_delivery_photo = url
+    session.add(booking)
+    session.commit()
+    session.refresh(booking)
+    return booking.model_dump(mode="json")
 
 
 @router.get("/bookings/mine")

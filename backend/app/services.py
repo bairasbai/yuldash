@@ -333,8 +333,11 @@ def send_sms(phone: str, code: str) -> None:
 
 # ----------------------------- Рейтинги / витрина водителей -----------------------------
 def user_rating(session: Session, user_id: int) -> tuple[float, int]:
-    """Средний рейтинг пользователя из реальных оценок (звёзды) + их число."""
-    rows = list(session.exec(select(Rating.stars).where(Rating.ratee_id == user_id)).all())
+    """Средний рейтинг пользователя из реальных оценок (звёзды) + их число.
+    Исключаем снятые админом (Rating.excluded) — защита от жалоб-мести (§3)."""
+    rows = list(session.exec(
+        select(Rating.stars).where(Rating.ratee_id == user_id, Rating.excluded == False)  # noqa: E712
+    ).all())
     return (sum(rows) / len(rows), len(rows)) if rows else (0.0, 0)
 
 
@@ -346,7 +349,12 @@ def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict]
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(driver_ids))).all()}
     profiles = {p.user_id: p for p in session.exec(select(DriverProfile).where(DriverProfile.user_id.in_(driver_ids))).all()}
     stars_by_driver: dict = {}
-    for ratee_id, stars in session.exec(select(Rating.ratee_id, Rating.stars).where(Rating.ratee_id.in_(driver_ids))).all():
+    # Исключаем снятые админом оценки (Rating.excluded) — спорные/месть не тянут средний вниз (§3).
+    for ratee_id, stars in session.exec(
+        select(Rating.ratee_id, Rating.stars).where(
+            Rating.ratee_id.in_(driver_ids), Rating.excluded == False,  # noqa: E712
+        )
+    ).all():
         stars_by_driver.setdefault(ratee_id, []).append(stars)
     rating_agg = {rid: (sum(s) / len(s), len(s)) for rid, s in stars_by_driver.items()}
     return users, profiles, rating_agg

@@ -1,0 +1,393 @@
+"""Ядро системы «Справедливость» (Trust, Safety & Fairness).
+
+Здесь — доменная логика, переиспользуемая роутерами incidents/bookings:
+белые списки типов инцидентов, лестница эскалации (§2), «Надёжность» из истории
+Booking, ленивое создание SafetyProfile, применение решения админа к профилю
+обвинённого, снятие спорных оценок из среднего. Роутеры остаются тонкими.
+
+См. docs/trust-safety.md §2, §3, §5, §6.
+"""
+from datetime import timedelta
+from typing import Optional
+
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session, select
+
+from .config import settings
+from .models import (
+    Booking, BookingStatus, DriverProfile, Incident, Rating, Ride, RideStatus, SafetyProfile,
+)
+from .services import user_rating
+from .timeutil import utcnow
+
+# ----------------------------- Белые списки -----------------------------
+# Коды типов инцидентов из docs/trust-safety.md §1. Клиент локализует по коду.
+INCIDENT_TYPES: set[str] = {
+    # A. Попутки и такси
+    "passenger_no_show", "driver_no_show", "non_payment", "rude", "unsafe",
+    "harassment", "route_detour", "overcharge", "rules_violation",
+    # B. Курьер / посылки
+    "parcel_damage", "parcel_lost", "parcel_delay", "recipient_absent", "wrong_contents",
+}
+
+# Тяжёлые типы — мгновенный разбор человеком (уведомляем админа сразу). §5.1
+SEVERE_TYPES: set[str] = {"harassment", "unsafe", "non_payment", "parcel_lost", "wrong_contents"}
+
+# Причины отмены (§5.3). emergency — форс-мажор, защищено от штрафа. not_going — водительское «не еду» (§1.1).
+CANCEL_REASONS: set[str] = {
+    "plans_changed", "found_other", "price", "driver_late", "passenger_late",
+    "emergency", "safety", "not_going", "other",
+}
+
+# Разрешённые теги оценки (§3). Неизвестные отбрасываем.
+RATING_TAGS: set[str] = {
+    "polite", "ontime", "clean", "safe", "comfortable", "helpful",  # позитивные
+    "late", "rude", "unsafe", "dirty", "detour",                    # негативные
+}
+
+# Статусы инцидента, считающиеся «активным спором».
+ACTIVE_INCIDENT_STATUSES = ("open", "awaiting_response", "under_review", "appealed")
+
+
+def clamp(text: Optional[str], limit: int) -> str:
+    return (text or "").strip()[:limit]
+
+
+def csv_from_urls(urls, max_items: int = 10, max_len: int = 500) -> str:
+    """Список URL → безопасный CSV: клампим количество и длину каждого, без запятых внутри."""
+    if not urls:
+        return ""
+    clean = []
+    for u in urls[:max_items]:
+        s = str(u or "").replace(",", "").strip()[:max_len]
+        if s:
+            clean.append(s)
+    return ",".join(clean)
+
+
+def urls_from_csv(csv: str) -> list[str]:
+    return [u for u in (csv or "").split(",") if u]
+
+
+def clean_tags(csv: Optional[str]) -> str:
+    """Оставляем только известные теги (§3), максимум 5 — против мусора/спама."""
+    if not csv:
+        return ""
+    got = [t.strip().lower() for t in csv.split(",") if t.strip()]
+    keep = [t for t in got if t in RATING_TAGS][:5]
+    return ",".join(dict.fromkeys(keep))  # без дублей, порядок сохранён
+
+
+# ----------------------------- SafetyProfile -----------------------------
+def get_or_create_safety_profile(session: Session, user_id: int) -> SafetyProfile:
+    """Профиль справедливости пользователя. Ленивое создание (1:1 с User),
+    защищено от гонки уникальным индексом user_id."""
+    prof = session.exec(select(SafetyProfile).where(SafetyProfile.user_id == user_id)).first()
+    if prof:
+        return prof
+    prof = SafetyProfile(user_id=user_id)
+    session.add(prof)
+    try:
+        session.commit()
+        session.refresh(prof)
+    except IntegrityError:                       # другой запрос создал параллельно
+        session.rollback()
+        prof = session.exec(select(SafetyProfile).where(SafetyProfile.user_id == user_id)).first()
+    return prof
+
+
+def recompute_standing(profile: SafetyProfile, now=None) -> SafetyProfile:
+    """Пересчитать standing по лестнице §2 + затухание страйков.
+
+    suspended (пока пауза активна) → limited (страйков ≥ порога) → warned (есть
+    страйк/замечание) → good. Страйки «сгорают» через SAFETY_STRIKE_DECAY_DAYS."""
+    now = now or utcnow()
+    # Затухание: без новых страйков дольше окна — обнуляем (никакого «клейма навсегда», §4).
+    if profile.last_strike_at and (now - profile.last_strike_at) >= timedelta(days=settings.safety_strike_decay_days):
+        profile.strikes = 0
+    if profile.suspended_until and profile.suspended_until > now:
+        profile.standing = "suspended"
+    elif profile.strikes >= settings.safety_strikes_to_limit:
+        profile.standing = "limited"
+    elif profile.strikes >= 1 or profile.warnings >= 1:
+        profile.standing = "warned"
+    else:
+        profile.standing = "good"
+    profile.updated_at = now
+    return profile
+
+
+def refresh_standing(session: Session, user_id: int) -> SafetyProfile:
+    """Ленивый пересчёт при чтении (затухание/истёкшая пауза) + сохранение."""
+    prof = get_or_create_safety_profile(session, user_id)
+    before = (prof.standing, prof.strikes)
+    recompute_standing(prof)
+    if before != (prof.standing, prof.strikes):
+        session.add(prof)
+        session.commit()
+        session.refresh(prof)
+    return prof
+
+
+def is_suspended(profile: SafetyProfile, now=None) -> bool:
+    now = now or utcnow()
+    return bool(profile.suspended_until and profile.suspended_until > now)
+
+
+# ----------------------------- Надёжность / поездки -----------------------------
+def _participant_terminal_bookings(session: Session, user_id: int, limit: int) -> list[Booking]:
+    """Учётные для «Надёжности» брони, где пользователь — пассажир ИЛИ водитель:
+    завершённые/отменённые ИЛИ с отметкой неявки (no_show остаётся confirmed/onboard,
+    но обязана влиять на надёжность)."""
+    my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user_id)).all())
+    conds = [Booking.passenger_id == user_id]
+    if my_ride_ids:
+        conds.append(Booking.ride_id.in_(my_ride_ids))
+    return list(session.exec(
+        select(Booking)
+        .where(
+            or_(*conds),
+            or_(
+                Booking.status.in_([BookingStatus.done, BookingStatus.cancelled]),
+                Booking.no_show == True,  # noqa: E712
+            ),
+        )
+        .order_by(Booking.id.desc())
+        .limit(limit)
+    ).all())
+
+
+def is_late_cancel(booking: Booking, ride: Optional[Ride], when=None) -> bool:
+    """Поздняя отмена: в окне SAFETY_LATE_CANCEL_BEFORE_DEPART_MIN до выезда (или после),
+    либо когда водитель уже выехал/подъезжает. Ранняя отмена — без последствий (§1 п.4)."""
+    if booking.driver_phase in ("departed", "arriving"):
+        return True
+    if not ride or not ride.depart_at:
+        return False
+    when = when or booking.cancelled_at or utcnow()
+    threshold = ride.depart_at - timedelta(minutes=settings.safety_late_cancel_before_depart_min)
+    return when >= threshold
+
+
+def reliability_for(session: Session, user_id: int) -> int:
+    """«Надёжность» 0..100 — добрый аналог «Активности». completed / (completed +
+    no_show + late_cancel) по последним N поездкам. Новичок — нейтральные 100% (§2)."""
+    window = settings.safety_reliability_window
+    bookings = _participant_terminal_bookings(session, user_id, window)
+    if not bookings:
+        return 100
+    booking_ids = [b.id for b in bookings]
+    # Неявки, где виноват ИМЕННО этот пользователь (он respondent no-show инцидента).
+    noshow_ids: set[int] = set()
+    for inc in session.exec(select(Incident).where(
+        Incident.booking_id.in_(booking_ids),
+        Incident.respondent_id == user_id,
+        Incident.type.in_(["passenger_no_show", "driver_no_show"]),
+    )).all():
+        if inc.booking_id is not None:
+            noshow_ids.add(inc.booking_id)
+    ride_ids = {b.ride_id for b in bookings}
+    rides = {r.id: r for r in session.exec(select(Ride).where(Ride.id.in_(ride_ids))).all()} if ride_ids else {}
+    completed = 0
+    failed_weight = 0.0
+    for b in bookings:
+        if b.status == BookingStatus.done and not b.no_show:
+            completed += 1
+            continue
+        if b.no_show and b.cancelled_by == user_id:
+            # Водитель бросил ПОДТВЕРЖДЁННУЮ бронь (бампинг) — бьёт по Надёжности тяжелее (§1.1, Рычаг 3).
+            failed_weight += settings.safety_bump_cancel_weight
+        elif b.id in noshow_ids:
+            failed_weight += 1        # неявка (пассажир не вышел / водитель не приехал)
+        elif b.cancelled_by == user_id and is_late_cancel(b, rides.get(b.ride_id)):
+            failed_weight += 1        # обычная поздняя отмена
+    denom = completed + failed_weight
+    return 100 if denom == 0 else round(100 * completed / denom)
+
+
+def completed_trips_for(session: Session, user_id: int) -> int:
+    """Число завершённых поездок пользователя (как пассажир или водитель) — для витрины доверия."""
+    my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user_id)).all())
+    conds = [Booking.passenger_id == user_id]
+    if my_ride_ids:
+        conds.append(Booking.ride_id.in_(my_ride_ids))
+    return len(list(session.exec(
+        select(Booking.id).where(or_(*conds), Booking.status == BookingStatus.done)
+    ).all()))
+
+
+def active_incidents_count(session: Session, user_id: int) -> int:
+    return len(list(session.exec(select(Incident.id).where(
+        or_(Incident.reporter_id == user_id, Incident.respondent_id == user_id),
+        Incident.status.in_(ACTIVE_INCIDENT_STATUSES),
+    )).all()))
+
+
+def incidents_last_hour(session: Session, reporter_id: int) -> int:
+    edge = utcnow() - timedelta(hours=1)
+    return len(list(session.exec(select(Incident.id).where(
+        Incident.reporter_id == reporter_id, Incident.created_at >= edge,
+    )).all()))
+
+
+# ----------------------------- Бампинг (§1.1, Рычаг 2) -----------------------------
+def detect_bump(session: Session, ride: Ride, booking: Booking, reason: str) -> list[str]:
+    """Сигналы фиктивной «не еду»: водитель сбросил ПОДТВЕРЖДЁННОГО пассажира, но реально
+    поехал. Детерминированно и без слежки — только по данным БД. Любой сигнал → подозрение.
+
+    Возвращает список кодов сработавших сигналов (пусто = не бампинг):
+      - `ride_still_active` — поездку не отменил, только сбросил пассажира;
+      - `seat_rebooked`     — освободившееся место заняла новая бронь в окне N часов;
+      - `republish`         — водитель опубликовал другую поездку тем же from→to в ±2ч
+                              от того же времени, созданную в окне N часов.
+    """
+    signals: list[str] = []
+    window = timedelta(hours=settings.safety_bump_window_hours)
+    now = utcnow()
+    since = booking.cancelled_at or now
+
+    # 1) Поездка осталась активной — честный водитель отменил бы саму поездку, а не одного пассажира.
+    if ride.status == RideStatus.active:
+        signals.append("ride_still_active")
+
+    # 2) На это место пришла НОВАЯ бронь после сброса (в окне).
+    rebooked = session.exec(select(Booking.id).where(
+        Booking.ride_id == ride.id,
+        Booking.id != booking.id,
+        Booking.created_at >= since,
+        Booking.created_at <= since + window,
+        Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
+    )).first()
+    if rebooked is not None:
+        signals.append("seat_rebooked")
+
+    # 3) Republish: другая поездка того же водителя тем же маршрутом в ±2ч, созданная в окне.
+    twoh = timedelta(hours=2)
+    republish = session.exec(select(Ride.id).where(
+        Ride.driver_id == ride.driver_id,
+        Ride.id != ride.id,
+        Ride.from_city == ride.from_city,
+        Ride.to_city == ride.to_city,
+        Ride.created_at >= now - window,
+        Ride.depart_at >= ride.depart_at - twoh,
+        Ride.depart_at <= ride.depart_at + twoh,
+    )).first()
+    if republish is not None:
+        signals.append("republish")
+
+    return signals
+
+
+# ----------------------------- Применение решения админа -----------------------------
+def _escalation_days(session: Session, respondent_id: int, exclude_incident_id: Optional[int]) -> int:
+    """Длина паузы по лестнице §2: 1-я → 3д, 2-я → 7д, 3-я и далее → 30д.
+    Считаем прошлые приостановки этого пользователя (resolution suspend/ban)."""
+    prior = [
+        i for i in session.exec(select(Incident.id).where(
+            Incident.respondent_id == respondent_id,
+            Incident.resolution.in_(["suspend", "ban"]),
+        )).all()
+        if i != exclude_incident_id
+    ]
+    ladder = [settings.safety_suspend_1_days, settings.safety_suspend_2_days, settings.safety_suspend_3_days]
+    return ladder[min(len(prior), len(ladder) - 1)]
+
+
+def _exclude_linked_ratings(session: Session, incident: Incident) -> None:
+    """Снять из среднего оценку(и), связанную со спором (месть): явную по incident_id
+    и оценку заявителя на обвинённого по этой броне. Пересчитать витринный рейтинг."""
+    ratings = list(session.exec(select(Rating).where(Rating.incident_id == incident.id)).all())
+    if incident.booking_id:
+        ratings += session.exec(select(Rating).where(
+            Rating.booking_id == incident.booking_id,
+            Rating.rater_id == incident.reporter_id,
+            Rating.ratee_id == incident.respondent_id,
+        )).all()
+    seen: set[int] = set()
+    affected: set[int] = set()
+    for r in ratings:
+        if r.id in seen:
+            continue
+        seen.add(r.id)
+        if not r.excluded:
+            r.excluded = True
+            r.incident_id = r.incident_id or incident.id
+            session.add(r)
+            affected.add(r.ratee_id)
+    session.flush()
+    for ratee_id in affected:
+        avg, cnt = user_rating(session, ratee_id)     # уже фильтрует excluded
+        prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ratee_id)).first()
+        if prof:
+            prof.rating = round(avg, 1) if cnt > 0 else 5.0   # все сняты → нейтральный сид
+            session.add(prof)
+
+
+def apply_incident_resolution(
+    session: Session,
+    incident: Incident,
+    *,
+    resolution: str = "",
+    fault: str = "",
+    note: str = "",
+    compensation_kop: int = 0,
+    strike: bool = False,
+    suspend_days: Optional[int] = None,
+    exclude_rating: bool = False,
+    shield: bool = False,
+    resolver_id: Optional[int] = None,
+) -> tuple[Incident, SafetyProfile]:
+    """Применить решение админа: последствия к SafetyProfile обвинённого по лестнице §2,
+    снятие спорной оценки, щит рейтинга, запись объяснения. Коммитит сам."""
+    now = utcnow()
+    resolution = (resolution or "").strip() or "none"
+
+    if exclude_rating:
+        _exclude_linked_ratings(session, incident)
+
+    prof = get_or_create_safety_profile(session, incident.respondent_id)
+    if shield:
+        prof.rating_shield = True
+
+    added_strike = False
+    if resolution == "warning":
+        prof.warnings += 1
+    if strike or resolution == "strike":
+        prof.strikes += 1
+        prof.last_strike_at = now
+        added_strike = True
+
+    # Приостановка: явные дни от админа > ban > лестница (3-й страйк / resolution=suspend).
+    days = suspend_days if (suspend_days and suspend_days > 0) else None
+    if days is None:
+        if resolution == "ban":
+            days = 3650
+        elif resolution == "suspend":
+            days = _escalation_days(session, incident.respondent_id, incident.id)
+        elif added_strike and prof.strikes >= settings.safety_strikes_to_suspend:
+            days = _escalation_days(session, incident.respondent_id, incident.id)
+    if days and days > 0:
+        prof.suspended_until = now + timedelta(days=days)
+        prof.suspend_reason = note or resolution
+        if resolution not in ("ban",):   # для консистентного счёта эскалации
+            resolution = "suspend"
+
+    recompute_standing(prof, now)
+    session.add(prof)
+
+    incident.resolution = resolution
+    incident.fault = (fault or "").strip()
+    incident.resolution_note = clamp(note, 2000)
+    incident.compensation_kop = max(0, int(compensation_kop or 0))
+    incident.resolved_by = resolver_id
+    incident.resolved_at = now
+    incident.updated_at = now
+    incident.status = "resolved"
+    if incident.appeal_status == "requested":
+        incident.appeal_status = "overturned" if incident.resolution in ("dismissed", "mutual_resolved") else "upheld"
+    session.add(incident)
+    session.commit()
+    session.refresh(incident)
+    session.refresh(prof)
+    return incident, prof
