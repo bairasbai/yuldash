@@ -9,7 +9,8 @@
 - 🔄 **Фаза 1 — фундамент (в процессе):**
   - ✅ **B2 «эффект толпы» на карте** (2026-07-20, pytest 193): дебаунс `notify_map_changed` (`SET NX EX 3с`) + кэш `/rides/near` 15с. Только backend, без схемы. **НЕ задеплоено.**
   - ⬜ **Клиентское (нужен Android SDK, не в облаке):** резать экраны по файлам → пилот Repository+ViewModel на карте. + джиттер на перезапрос near.
-  - ⬜ **Backend с прод-доступом (за Александром):** B3 Alembic baseline (нужна прод-схема по SSH), B5 индексы/пагинация (нужна миграция).
+  - ✅ **B5 индекс `riderequest.status`** (2026-07-20, pytest 195): было seq-scan ленты заявок. `models.py` + `migrate_requeststatus_index.sql`. Прод-применение SQL — за Александром.
+  - ⬜ **Backend с прод-доступом (за Александром):** B3 Alembic baseline (нужна прод-схема по SSH). B1 per-booking каналы — реалтайм, без live-Redis-интеграции здесь не проверить, отложено.
 - ⬜ **Фаза 2 — качество:** Navigation-Compose (deep links под FCM) → распространить VM+Repo → per-booking Redis-каналы → zero-downtime деплой → эквайринг ЮKassa → CI для Android + Postgres.
 
 ## ✅ Авто-подбор водителя для «помощь»-заявок (без ручного одобрения) — 2026-07-17

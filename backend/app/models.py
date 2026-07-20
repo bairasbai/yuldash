@@ -191,7 +191,9 @@ class RideRequest(SQLModel, table=True):
     for_relative_name: Optional[str] = None
     voice_url: Optional[str] = None
     transcript: Optional[str] = None        # расшифровка голосовой заявки
-    status: str = "active"
+    # index: /requests/feed и /requests/near фильтруют status=='active' (зеркально Ride.status,
+    # у которого индекс уже есть) — без индекса лента заявок водителю = seq-scan на каждый запрос.
+    status: str = Field(default="active", index=True)
     created_at: datetime = Field(default_factory=utcnow)
 
 
