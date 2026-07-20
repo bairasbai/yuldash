@@ -628,6 +628,7 @@ internal fun YuldashApp() {
                     }
                 },
                 onSafety = { screen = Screen.Safety },
+                onSafetyCenter = { screen = Screen.SafetyCenter },
                 onSettings = { screen = Screen.Settings },
                 onPrivacy = { screen = Screen.Privacy },
                 onHelp = { screen = Screen.Help },
@@ -1481,6 +1482,7 @@ internal fun HomeScreen(
     onOpenResponses: (Int) -> Unit = {},
     onCancelRequest: (Int) -> Unit = {},
     onSafety: () -> Unit,
+    onSafetyCenter: () -> Unit = {},
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
     onHelp: () -> Unit,
@@ -1558,6 +1560,7 @@ internal fun HomeScreen(
                     onSupport = onSupport,
                     onVerifyDriver = onVerifyDriver,
                     onSafety = onSafety,
+                    onSafetyCenter = onSafetyCenter,
                     onSettings = onSettings,
                     onPrivacy = onPrivacy,
                     onHelp = onHelp,

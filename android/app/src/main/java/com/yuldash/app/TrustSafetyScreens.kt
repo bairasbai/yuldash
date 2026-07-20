@@ -1394,8 +1394,8 @@ internal fun WaitTimerNoShowCard(
     onReport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var secondsLeft by remember { mutableStateOf(waitMinutes * 60) }
-    LaunchedEffect(Unit) {
+    var secondsLeft by remember(waitMinutes) { mutableStateOf(waitMinutes * 60) }
+    LaunchedEffect(waitMinutes) {
         while (secondsLeft > 0) { kotlinx.coroutines.delay(1000); secondsLeft -= 1 }
     }
     val ready = secondsLeft <= 0

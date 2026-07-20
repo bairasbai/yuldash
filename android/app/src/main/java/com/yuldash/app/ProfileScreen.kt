@@ -258,6 +258,7 @@ internal fun ProfileScreen(
     onSupport: () -> Unit,
     onVerifyDriver: () -> Unit,
     onSafety: () -> Unit,
+    onSafetyCenter: () -> Unit = {},
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
     onHelp: () -> Unit,
@@ -506,8 +507,8 @@ internal fun ProfileScreen(
                     }
                 }
             }
-            // Карточка доверия: standing + «Надёжность» (Система «Справедливость»). Тап → хаб безопасности.
-            item { ProfileStandingCard(onOpen = onSafety) }
+            // Карточка доверия: standing + «Надёжность» (Система «Справедливость»). Тап → Центр справедливости.
+            item { ProfileStandingCard(onOpen = onSafetyCenter) }
             item {
                 referral?.let { ref ->
                     Box(Modifier.appearIn(0)) {
@@ -1399,9 +1400,8 @@ internal fun AdField(label: String, value: String, onValueChange: (String) -> Un
     )
 }
 
-@Composable
 /** Карточка доверия в профиле: кольцо «Надёжности» + бейдж standing (Система «Справедливость»).
- *  До загрузки / для гостя не рисуется — не мигаем скелетоном в профиле. Тап ведёт в хаб безопасности. */
+ *  До загрузки / для гостя не рисуется — не мигаем скелетоном в профиле. Тап ведёт в Центр справедливости. */
 @Composable
 private fun ProfileStandingCard(onOpen: () -> Unit) {
     var standing by remember { mutableStateOf<com.yuldash.app.data.StandingDto?>(null) }
