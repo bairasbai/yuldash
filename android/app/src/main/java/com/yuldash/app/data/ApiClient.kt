@@ -1190,7 +1190,7 @@ object ApiClient {
     // Контракт: docs/trust-safety.md §6. Инциденты/споры, standing, доверие, отмена/неявка/оплата, курьер.
 
     /** Подать жалобу / открыть спор. evidenceUrls — публичные URL фото (реюз uploadChatPhoto). */
-    suspend fun fileIncident(
+    internal suspend fun fileIncident(
         respondentId: Int,
         type: String,
         description: String,
@@ -1208,18 +1208,18 @@ object ApiClient {
     ).map { it.toIncident() }.onSuccess { Analytics.log("file_incident", mapOf("type" to type)) }
 
     /** Мои споры (где я заявитель ИЛИ обвинённый). Поле my_role различает роль. */
-    suspend fun getMyIncidents(): Result<List<Incident>> =
+    internal suspend fun getMyIncidents(): Result<List<Incident>> =
         call("GET", "/incidents/mine", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { arr.getJSONObject(it).toIncident() }
         }
 
     /** Детали спора (только участники + админ; иначе 403). */
-    suspend fun getIncident(id: Int): Result<Incident> =
+    internal suspend fun getIncident(id: Int): Result<Incident> =
         call("GET", "/incidents/$id", null, auth = true).map { it.toIncident() }
 
     /** Обвинённый описывает свою версию (право на объяснение, §0.1). */
-    suspend fun respondIncident(id: Int, statement: String, evidenceUrls: List<String> = emptyList()): Result<Incident> =
+    internal suspend fun respondIncident(id: Int, statement: String, evidenceUrls: List<String> = emptyList()): Result<Incident> =
         call(
             "POST", "/incidents/$id/respond",
             JSONObject().put("statement", statement).put("evidence_urls", JSONArray(evidenceUrls)),
@@ -1227,11 +1227,11 @@ object ApiClient {
         ).map { it.toIncident() }
 
     /** Обжаловать решение → к человеку (§4 апелляция). */
-    suspend fun appealIncident(id: Int, text: String): Result<Incident> =
+    internal suspend fun appealIncident(id: Int, text: String): Result<Incident> =
         call("POST", "/incidents/$id/appeal", JSONObject().put("text", text), auth = true).map { it.toIncident() }
 
     /** «Мы решили миром» — заявитель закрывает спор без последствий (§4). */
-    suspend fun withdrawIncident(id: Int): Result<Incident> =
+    internal suspend fun withdrawIncident(id: Int): Result<Incident> =
         call("POST", "/incidents/$id/withdraw", JSONObject(), auth = true).map { it.toIncident() }
 
     /** Моё состояние: standing + Надёжность % + активные споры + пауза (§6 GET /me/standing). */
@@ -1250,7 +1250,7 @@ object ApiClient {
         }
 
     /** Публичный снимок доверия пользователя (для карточек/бейджа). Без телефона/приватного. */
-    suspend fun getUserTrust(userId: Int): Result<TrustSnapshot> =
+    internal suspend fun getUserTrust(userId: Int): Result<TrustSnapshot> =
         call("GET", "/users/$userId/trust", null, auth = true).map { o ->
             TrustSnapshot(
                 rating = o.optDouble("rating", 5.0),
@@ -1263,7 +1263,7 @@ object ApiClient {
         }
 
     /** Пороги системы справедливости (§5.5). Клиент показывает числа с сервера, не хардкодит. */
-    suspend fun getSafetyPolicy(): Result<SafetyPolicy> = cachedGet("safety-policy", TTL_STATIC) {
+    internal suspend fun getSafetyPolicy(): Result<SafetyPolicy> = cachedGet("safety-policy", TTL_STATIC) {
         call("GET", "/safety/policy", null, auth = false).map { o ->
             SafetyPolicy(
                 freeCancelMin = o.optInt("free_cancel_min", 5),
@@ -1288,7 +1288,7 @@ object ApiClient {
             .map { it.optBoolean("late") }.onSuccess { Analytics.log("booking_cancel", mapOf("reason" to reason)) }
 
     /** Неявка: водитель→passenger_no_show, пассажир→driver_no_show (сервер решает по роли). */
-    suspend fun reportNoShow(bookingId: Int, note: String = ""): Result<Incident> =
+    internal suspend fun reportNoShow(bookingId: Int, note: String = ""): Result<Incident> =
         call("POST", "/bookings/$bookingId/no-show", JSONObject().put("note", note), auth = true)
             .map { it.toIncident() }.onSuccess { Analytics.log("no_show") }
 
@@ -1336,7 +1336,7 @@ object ApiClient {
     }
 
     /** Разобрать спор: решение + вина + объяснение + последствия (страйк/пауза/компенсация/щит). */
-    suspend fun resolveIncident(
+    internal suspend fun resolveIncident(
         id: Int,
         resolution: String,
         fault: String,
