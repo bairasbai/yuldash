@@ -500,6 +500,7 @@ def me(user: User = Depends(current_user), session: Session = Depends(get_sessio
 class MeUpdateIn(BaseModel):
     name: Optional[str] = Field(None, max_length=120)
     avatar_url: Optional[str] = Field(None, max_length=500)
+    language: Optional[str] = Field(None, max_length=2)   # "ru" | "ba" — чтобы двуязычные push шли на языке юзера
 
 
 @router.post("/me/update")
@@ -511,10 +512,14 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
             user.name = n[:120]
     if body.avatar_url is not None:
         user.avatar_url = body.avatar_url.strip()[:500]
+    if body.language is not None:
+        lang = body.language.strip().lower()
+        if lang in ("ru", "ba"):        # только поддерживаемые языки; мусор молча игнорируем
+            user.language = lang
     session.add(user)
     session.commit()
     session.refresh(user)
-    return {"ok": True, "name": user.name, "avatar_url": user.avatar_url}
+    return {"ok": True, "name": user.name, "avatar_url": user.avatar_url, "language": user.language}
 
 
 @router.post("/me/delete")
@@ -562,5 +567,21 @@ def push_register(body: PushTokenIn, user: User = Depends(current_user), session
         if row:
             row.user_id = user.id
             session.add(row)
+            session.commit()
+    return {"ok": True}
+
+
+@router.post("/push/unregister")
+def push_unregister(body: PushTokenIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Снятие FCM-токена ЭТОГО устройства (клиент зовёт при выходе). Иначе на общем телефоне
+    прежнему пользователю продолжают идти его пуши (бронь/чат) — утечка приватности. Снимаем
+    только СВОЙ токен (scoped по user_id) — чужой не тронуть."""
+    tok = body.token.strip()
+    if tok:
+        row = session.exec(
+            select(DeviceToken).where(DeviceToken.token == tok, DeviceToken.user_id == user.id)
+        ).first()
+        if row:
+            session.delete(row)
             session.commit()
     return {"ok": True}

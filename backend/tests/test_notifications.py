@@ -89,6 +89,34 @@ def test_driver_moderation_pushes_driver(client, user_factory, pushes):
     assert any(uid == drv["id"] and title == "Проверка не пройдена" for uid, title, _ in pushes)
 
 
+def test_me_update_sets_language(client, user_factory):
+    """Клиент задаёт язык на сервере → двуязычные push пойдут на этом языке. Мусор игнорируется."""
+    u = user_factory("LangUser")
+    assert client.post("/me/update", headers=u["auth"], json={"language": "ba"}).status_code == 200
+    assert client.get("/me", headers=u["auth"]).json()["language"] == "ba"
+    client.post("/me/update", headers=u["auth"], json={"language": "xx"})   # неподдерживаемое → игнор
+    assert client.get("/me", headers=u["auth"]).json()["language"] == "ba"
+
+
+def test_push_unregister_removes_own_token_only(client, user_factory):
+    """Выход снимает СВОЙ push-токен (приватность на общем телефоне), но не чужой."""
+    from sqlmodel import select as _select
+    from app.models import DeviceToken
+    u = user_factory("PushUser")
+    client.post("/push/register", headers=u["auth"], json={"token": "tok-OWN"})
+    with Session(engine) as s:
+        assert s.exec(_select(DeviceToken).where(DeviceToken.token == "tok-OWN")).first() is not None
+    # чужой не может снять мой токен
+    other = user_factory("PushOther")
+    client.post("/push/unregister", headers=other["auth"], json={"token": "tok-OWN"})
+    with Session(engine) as s:
+        assert s.exec(_select(DeviceToken).where(DeviceToken.token == "tok-OWN")).first() is not None
+    # владелец — снимает
+    assert client.post("/push/unregister", headers=u["auth"], json={"token": "tok-OWN"}).status_code == 200
+    with Session(engine) as s:
+        assert s.exec(_select(DeviceToken).where(DeviceToken.token == "tok-OWN")).first() is None
+
+
 def test_report_alerts_admin(client, user_factory, monkeypatch):
     """Жалоба на пользователя → алерт админу в Telegram (раньше молчал)."""
     alerts = []
