@@ -108,8 +108,9 @@ def test_pay_cashless_posts_earn_and_fee(client, user_factory):
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "succeeded"
 
-    # Баланс = 20000 − 1600 (8%) = 18400 коп (свежий водитель → детерминированно).
-    assert _bal(drv["id"]) == 18400
+    # Баланс = 20000 − 600 (лесенка: свежий таксист = tier1 3%, та же ставка, что Model-A долг,
+    # который эта онлайн-оплата гасит) = 19400 коп. Раньше тест ждал 8% (18400) — до лесенки.
+    assert _bal(drv["id"]) == 19400
     with Session(engine) as s:
         rows = s.exec(select(LedgerEntry).where(LedgerEntry.driver_id == drv["id"])).all()
         kinds = sorted(e.kind.value for e in rows)
@@ -117,7 +118,7 @@ def test_pay_cashless_posts_earn_and_fee(client, user_factory):
         earn = next(e for e in rows if e.kind == LedgerKind.earn)
         fee = next(e for e in rows if e.kind == LedgerKind.fee)
         assert earn.amount_kop == 20000 and earn.order_id == oid
-        assert fee.amount_kop == -1600
+        assert fee.amount_kop == -600      # лесенка: tier1 3% (не плоские 8%)
         assert s.get(InstantOrder, oid).paid is True
 
 
@@ -129,7 +130,7 @@ def test_wallet_balance_and_ledger_endpoints(client, user_factory):
     client.post(f"/instant/orders/{oid}/pay", headers=pax["auth"], json={"method": "card"})
 
     bal = client.get("/wallet/balance", headers=drv["auth"]).json()
-    assert bal["balance_kop"] == 18400 and bal["balance_rub"] == 184
+    assert bal["balance_kop"] == 19400 and bal["balance_rub"] == 194   # tier1 3% (лесенка)
     entries = client.get("/wallet/ledger", headers=drv["auth"]).json()
     assert len(entries) == 2
     assert {e["kind"] for e in entries} == {"earn", "fee"}
@@ -173,7 +174,7 @@ def test_settle_idempotent_no_double(client, user_factory):
         assert ledger.settle_instant_order(s, oid, "card", 20000) == "settled"
     with Session(engine) as s:
         assert ledger.settle_instant_order(s, oid, "card", 20000) == "already"
-    assert _bal(drv["id"]) == 18400
+    assert _bal(drv["id"]) == 19400
     with Session(engine) as s:
         rows = s.exec(select(LedgerEntry).where(LedgerEntry.driver_id == drv["id"])).all()
         assert len(rows) == 2                            # ровно earn+fee, не 4
@@ -187,7 +188,7 @@ def test_pay_twice_returns_already_paid(client, user_factory):
     assert client.post(f"/instant/orders/{oid}/pay", headers=pax["auth"], json={"method": "card"}).json()["status"] == "succeeded"
     r2 = client.post(f"/instant/orders/{oid}/pay", headers=pax["auth"], json={"method": "card"})
     assert r2.json()["status"] == "already_paid"
-    assert _bal(drv["id"]) == 18400
+    assert _bal(drv["id"]) == 19400
 
 
 def test_webhook_repeat_does_not_double_ledger(client, user_factory, monkeypatch):
@@ -210,7 +211,7 @@ def test_webhook_repeat_does_not_double_ledger(client, user_factory, monkeypatch
             assert client.post("/payments/yookassa/webhook",
                                json={"object": {"id": "pid_ride_idem"}}).status_code == 200
 
-        assert _bal(drv["id"]) == 18400
+        assert _bal(drv["id"]) == 19400
         with Session(engine) as s:
             rows = s.exec(select(LedgerEntry).where(LedgerEntry.driver_id == drv["id"])).all()
             assert len(rows) == 2

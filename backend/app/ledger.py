@@ -162,10 +162,15 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
 
 def _post_earn_and_fee(session: Session, driver_id: int, amount_kop: int, *,
                        order_id: Optional[int] = None, booking_id: Optional[int] = None,
-                       note: str = "") -> None:
+                       note: str = "", percent: Optional[float] = None) -> None:
     """Добавить в ledger начисление за поездку: earn (+вся сумма) и fee (−комиссия).
-    Вызывать ТОЛЬКО под уже открытой транзакцией с залоченной строкой заказа/брони."""
-    fee = fee_kop_for(amount_kop)
+    Вызывать ТОЛЬКО под уже открытой транзакцией с залоченной строкой заказа/брони.
+
+    percent — ставка комиссии. None → плоский service_fee_percent. Для ТАКСИ передаём
+    driver_fee_percent (лесенка 3/5/8 + промо запуска 0%): иначе онлайн-оплата удержала бы
+    8% в обход промо/лесенки, при этом Model-A долг с верной ставкой гасится → перебор + споры."""
+    fee = fee_kop_for(amount_kop, percent)
+    eff = percent if percent is not None else settings.service_fee_percent
     session.add(LedgerEntry(
         driver_id=driver_id, order_id=order_id, booking_id=booking_id,
         kind=LedgerKind.earn, amount_kop=amount_kop, note=note,
@@ -174,7 +179,7 @@ def _post_earn_and_fee(session: Session, driver_id: int, amount_kop: int, *,
         session.add(LedgerEntry(
             driver_id=driver_id, order_id=order_id, booking_id=booking_id,
             kind=LedgerKind.fee, amount_kop=-fee,
-            note=f"Комиссия сервиса {settings.service_fee_percent:g}%",
+            note=f"Комиссия сервиса {eff:g}%",
         ))
 
 
@@ -194,11 +199,14 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
     order.payment_method = method
     session.add(order)
     if method in _CASHLESS:
-        _post_earn_and_fee(session, order.driver_id, amount_kop,
-                           order_id=order.id, note=f"Быстрый заказ #{order.id}")
-        # B2: комиссия удержана в ledger fee → снимаем долг Модели А по этому заказу, иначе
-        # двойная комиссия + фантомный unpaid-долг заблокирует водителя на онлайн-оплате.
+        # Комиссия по фактической ставке водителя (лесенка/промо), той же, что Model-A долг,
+        # который мы тут же гасим — иначе онлайн-оплата удержит плоские 8% в обход промо/лесенки.
         from . import debt as _debt
+        pct = _debt.driver_fee_percent(session, order.driver_id)
+        _post_earn_and_fee(session, order.driver_id, amount_kop,
+                           order_id=order.id, note=f"Быстрый заказ #{order.id}", percent=pct)
+        # Комиссия удержана в ledger fee → снимаем долг Модели А по этому заказу, иначе
+        # двойная комиссия + фантомный unpaid-долг заблокирует водителя на онлайн-оплате.
         _debt.void_debt_for_order(session, order.id)
     session.commit()
     return "settled"
