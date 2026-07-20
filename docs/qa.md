@@ -10,7 +10,41 @@
 - CI: `.github/workflows/ci.yml` — авто-прогон при push (заработает, когда проект будет на GitHub).
 - ⚠️ Локально без deps не запустятся (нет fastapi/jose в системном python) — гонять на сервере или `pip install -r backend/requirements-dev.txt`.
 
-## Сборка (JBR из Android Studio)
+## ☁️ Сборка APK в облаке (GitHub CI) — ОСНОВНОЙ способ сейчас
+
+> Работа идёт в облачных сессиях Claude Code. Там **Android APK не собрать**: сетевая
+> политика окружения блокирует `dl.google.com` (403) — это и Android SDK, и Google-репозиторий
+> (AGP/AndroidX/Compose/Firebase). Поэтому сборку приложения делает **GitHub Actions** на своих
+> раннерах (у них доступ к Google есть). Бэкенд в облаке собирается/тестируется обычно (pypi открыт).
+
+**Как это работает (автоматически):**
+- Workflow `.github/workflows/android.yml` (job `build`) при каждом пуше в `android/**` собирает
+  `:app:assembleDebug` на `ubuntu-latest`: ставит JDK 17 (`setup-java`) + Android SDK (`setup-android`),
+  качает Gradle 8.13 и зависимости, компилирует, пакует APK. ~9 минут.
+- Бэкенд — отдельный `.github/workflows/ci.yml` (job `backend-tests`, pytest).
+- ⚠️ Фильтр по путям: пуш ТОЛЬКО в `docs/`/`backend/` не запускает Android-джобу (экономия минут) — это норма.
+
+**Собралось или нет:** смотри галочку у джобы **build** в PR или у коммита (зелёная ✔ = APK собран).
+Красная → открой лог джобы (ищи строки `e: …Kotlin` — ошибки компиляции) и чини.
+
+**Скачать готовый APK (поставить на телефон):**
+1. GitHub → репозиторий `bairasbai/yuldash` → вкладка **Actions**.
+2. Открой нужный прогон workflow **Android** (по коммиту/PR).
+3. Внизу страницы прогона блок **Artifacts** → скачай **`app-debug-apk`** (внутри `app-debug.apk`).
+4. Перекинь на телефон, разреши «установку из неизвестных источников», поставь. Это **debug**-сборка
+   (не для Play, но для проверки на устройстве — то что нужно).
+
+**Пересобрать вручную:** любой коммит с изменением в `android/**` триггерит заново; либо на странице
+прогона кнопка **Re-run jobs**.
+
+**Релиз для Play (подписанный AAB/APK) — НЕ в CI:** нужен keystore (`android/yuldash.jks` +
+`keystore.properties`, оба НЕ в git, только у Александра). Собирается локально (см. ниже). В облаке/CI
+релиз не делаем — нет секретов подписи (при желании позже можно добавить их в GitHub Secrets).
+
+## Сборка локально (JBR из Android Studio) — для релиза/подписи и офлайна
+
+> В облаке Claude так НЕ собрать (Google заблокирован политикой). Это для машины Александра с Android SDK.
+> Для обычной проверки debug-APK проще взять артефакт из CI (раздел выше).
 
 ```powershell
 cd C:\Users\Bayra\Yuldash\android
@@ -18,7 +52,9 @@ $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 .\gradlew.bat :app:assembleDebug --no-daemon
 ```
 
-Последняя проверенная сборка: `BUILD SUCCESSFUL`.
+Релиз (подписанный, для Play): `.\gradlew.bat :app:assembleRelease :app:bundleRelease` (нужны `yuldash.jks` + `keystore.properties`).
+
+Последняя проверенная сборка: `BUILD SUCCESSFUL` (в т.ч. на GitHub CI, см. выше).
 
 ## ADB и эмулятор
 

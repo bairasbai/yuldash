@@ -276,6 +276,11 @@
 
 ## Сборка и запуск
 
+> ☁️ **Сейчас (работа в облаке) APK собирает GitHub CI** — `.github/workflows/android.yml`, т.к. в облачных
+> сессиях сетевая политика блокирует `dl.google.com` (SDK + Google-репозиторий). Готовый `app-debug.apk` —
+> в артефактах прогона (GitHub → Actions → workflow **Android** → Artifacts → `app-debug-apk`). Пошагово и про
+> релиз — [qa.md](qa.md) «☁️ Сборка APK в облаке». Локальный способ (для подписи/релиза, машина с SDK) — ниже.
+
 ```powershell
 cd C:\Users\Bayra\Yuldash\android
 $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
