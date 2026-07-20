@@ -600,16 +600,28 @@ def _member_driver_id(member: str) -> int:
 
 
 def busy_driver_ids(session: Session, ids: list) -> set:
-    """Водители, уже занятые активным заказом (accepted/arriving/onboard) — их не предлагаем."""
+    """Водители, которых matcher НЕ предлагает: заняты активным заказом (accepted/arriving/onboard)
+    ИЛИ уже держат открытый оффер (offered) на другой заказ. Второе — корень «дубля назначения»:
+    без него matcher мог предложить одного водителя двум заказам разом, и accept обоих создавал
+    двойное назначение."""
     if not ids:
         return set()
-    rows = session.exec(
+    busy = set()
+    active = session.exec(
         select(InstantOrder.driver_id).where(
             InstantOrder.driver_id.in_(ids),
             InstantOrder.status.in_([S.accepted, S.arriving, S.onboard]),
         )
     ).all()
-    return {r for r in rows if r is not None}
+    busy |= {r for r in active if r is not None}
+    offered = session.exec(
+        select(InstantOrder.current_offer_driver_id).where(
+            InstantOrder.current_offer_driver_id.in_(ids),
+            InstantOrder.status == S.offered,
+        )
+    ).all()
+    busy |= {r for r in offered if r is not None}
+    return busy
 
 
 def _order_zone_ctx(session: Session, order: InstantOrder) -> tuple:

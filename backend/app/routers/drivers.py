@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -104,7 +105,8 @@ async def upload_photo(request: Request, user: User = Depends(current_user), ses
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
     name = f"{user.id}_{uuid.uuid4().hex}.{ext}"
-    get_storage().save(f"docs/{name}", data)
+    # синхронный save() в async-хендлере → threadpool, чтобы заливка/зависший S3 не морозил event-loop.
+    await run_in_threadpool(get_storage().save, f"docs/{name}", data)
     return {"url": secure_docs_url(name)}
 
 
