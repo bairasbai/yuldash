@@ -464,6 +464,9 @@ internal fun YuldashApp() {
         }
     }
     CompositionLocalProvider(LocalAppLanguage provides language) {
+        // Синхронизируем выбранный язык на сервер (при смене и на старте) → серверные push приходят
+        // на языке пользователя (сервер читает User.language). Fire-and-forget, no-op если не вошли.
+        LaunchedEffect(language) { ApiClient.fireUpdateLanguage(if (language == AppLanguage.Ba) "ba" else "ru") }
         // Мои заявки — с сервера (после входа). Точное время в Фазе 1 не храним.
         val reqWaitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
         val reqByAgreement = appText("по договорённости", "килешеү буйынса")

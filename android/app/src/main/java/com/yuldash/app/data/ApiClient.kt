@@ -212,8 +212,26 @@ object ApiClient {
         // Серверный выход: помечаем токен недействительным на сервере (logout со всех устройств,
         // ревокация при потере телефона). Токен захватываем в local val — иначе гонка с очисткой ниже.
         val t = token
+        val pushTok = prefs?.getString("push_token", null)
         if (!t.isNullOrBlank()) {
             bg.launch {
+                // Приватность на ОБЩЕМ телефоне: сначала снимаем push-токен этого устройства, иначе
+                // прежнему юзеру продолжат идти его пуши (бронь/чат), пока не войдёт кто-то другой.
+                if (!pushTok.isNullOrBlank()) {
+                    runCatching {
+                        val u = (URL("$BASE/push/unregister").openConnection() as HttpURLConnection).apply {
+                            requestMethod = "POST"
+                            connectTimeout = 15000
+                            readTimeout = 15000
+                            doOutput = true
+                            setRequestProperty("Authorization", "Bearer $t")
+                            setRequestProperty("Content-Type", "application/json")
+                        }
+                        u.outputStream.use { it.write(JSONObject().put("token", pushTok).toString().toByteArray()) }
+                        u.responseCode
+                        u.disconnect()
+                    }
+                }
                 runCatching {
                     val conn = (URL("$BASE/auth/logout").openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
@@ -238,7 +256,7 @@ object ApiClient {
         cachedUserId = null
         cachedUserIdForToken = null
         respCache.clear()   // сброс кеша ответов (иначе следующий юзер увидит чужой /me/referral/contacts)
-        prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.apply()
+        prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.remove("push_token")?.apply()
     }
 
     /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).
@@ -259,10 +277,22 @@ object ApiClient {
     fun registerCurrentPushToken() {
         if (!isLoggedIn()) return
         prefs?.getString("push_token", null)?.let { fireRegisterPushToken(it) }   // дослать сохранённый
+        prefs?.getString("app_lang", null)?.let { lang ->                          // дослать язык после входа (двуязычные push)
+            bg.launch { call("POST", "/me/update", JSONObject().put("language", lang), auth = true) }
+        }
         runCatching {
             com.google.firebase.messaging.FirebaseMessaging.getInstance().token
                 .addOnSuccessListener { t -> fireRegisterPushToken(t) }
         }
+    }
+
+    /** Сохранить язык интерфейса (ru/ba): помним в prefs (дошлём после входа) + шлём сразу, если вошли.
+     *  Чтобы серверные push приходили на языке пользователя (сервер читает User.language). Fire-and-forget. */
+    fun fireUpdateLanguage(lang: String) {
+        if (lang != "ru" && lang != "ba") return
+        prefs?.edit()?.putString("app_lang", lang)?.apply()
+        if (!isLoggedIn()) return
+        bg.launch { call("POST", "/me/update", JSONObject().put("language", lang), auth = true).onSuccess { invalidate("me") } }
     }
 
     // ---------- Авторизация по SMS-коду ----------
@@ -281,6 +311,7 @@ object ApiClient {
             obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
             obj.optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
             saveName(obj.optString("name").ifBlank { name })
+            registerCurrentPushToken()   // как в OAuth (applyAuth): сразу регистрируем устройство для push + шлём язык
             Analytics.log("login", mapOf("method" to "sms"))
         }
 
