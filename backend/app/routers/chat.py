@@ -80,14 +80,15 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                         "text": msg.text,
                         "timestamp": msg.created_at.isoformat()
                     })
-                    # Push другой стороне (она может быть офлайн / не в чате). send_push — блокирующий
+                    # Push другой стороне (она может быть офлайн / не в чате). send_push_bi — блокирующий
                     # сетевой вызов к FCM; в async-WS гоним через threadpool, иначе залипший запрос к
                     # Google морозит event-loop и ВСЕ WS-соединения воркера.
                     sender = session.get(User, user_id)
+                    sender_name = (sender.name if sender else None)
                     await run_in_threadpool(
-                        send_push, session, other_id,
-                        (sender.name if sender else None) or "Новое сообщение",
-                        (msg.text or "Сообщение")[:120],
+                        send_push_bi, session, other_id,
+                        sender_name or "Новое сообщение", sender_name or "Яңы хәбәр",
+                        (msg.text or "Сообщение")[:120], (msg.text or "Тауыш хәбәре")[:120],
                     )
     except WebSocketDisconnect:
         pass
