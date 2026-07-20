@@ -338,8 +338,13 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     return booking
 
 
+class CancelIn(BaseModel):
+    reason: str = ""   # код причины отмены из пресетов UI (changed_mind/found_other/…); пусто = не указана
+
+
 @router.post("/bookings/{booking_id}/cancel", response_model=Booking)
-def cancel_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
+                   user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Отмена поездки пассажиром или водителем. Места возвращаются в поездку.
     B8-8 («увод мимо приложения»): отмена ПОСЛЕ открытия контакта (бронь подтверждена —
     телефон виден — или в чате уже переписывались) помечается contact_then_cancel —
@@ -361,6 +366,7 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
         booking.status = BookingStatus.cancelled
         booking.cancelled_at = utcnow()
         booking.contact_then_cancel = contact_opened
+        booking.cancel_reason = ((body.reason or "").strip()[:80] or None) if body else None
         ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
         session.add(booking)
         session.add(ride)
@@ -376,6 +382,41 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
             route, route,
             ref_kind="booking", ref_id=booking.id,
         )
+    return booking
+
+
+@router.post("/bookings/{booking_id}/no-show", response_model=Booking)
+def mark_no_show(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель отмечает, что пассажир НЕ ЯВИЛСЯ (no-show): бронь → cancelled, места возвращаются,
+    ставим no_show + cancel_reason='no_show'. Только водитель этой поездки и только по подтверждённой/в-пути
+    брони. Идемпотентно. Сигнал доверия «между своими» (отдельно от обычной отмены)."""
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    if user.id != ride.driver_id:
+        raise HTTPException(403, "Отметить неявку может только водитель поездки")
+    if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
+        raise HTTPException(409, "Неявку можно отметить только по подтверждённой брони")
+    # Порядок локов Ride → Booking — ЕДИНЫЙ с cancel_booking/cancel_ride (V4, без deadlock).
+    ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
+    booking = session.exec(select(Booking).where(Booking.id == booking_id).with_for_update()).first()
+    if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
+        return booking                         # параллельная отмена/неявка опередила — места уже возвращены
+    booking.status = BookingStatus.cancelled
+    booking.cancelled_at = utcnow()
+    booking.no_show = True
+    booking.cancel_reason = "no_show"
+    ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)   # вернуть освобождённые места
+    session.add(booking)
+    session.add(ride)
+    session.commit()
+    session.refresh(booking)
+    notify_map_changed()
+    route = f"{ride.from_city} → {ride.to_city}"
+    push_notification(
+        session, booking.passenger_id, "booking",
+        "Отмечена неявка", "Килмәгәнлек билдәләнде",
+        route, route,
+        ref_kind="booking", ref_id=booking.id,
+    )
     return booking
 
 

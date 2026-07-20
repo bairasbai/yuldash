@@ -376,6 +376,10 @@ class Booking(SQLModel, table=True):
     unpaid_reported: bool = False
     contact_then_cancel: bool = False
     cancelled_at: Optional[datetime] = None   # когда бронь отменили (для счётчиков за день)
+    # Причина отмены (код: changed_mind/found_other/plans_changed/driver_no_response/car_problem/no_show/other)
+    # и флаг неявки — сигнал доверия «между своими» и аргумент в споре. Пусто = причину не указали.
+    cancel_reason: Optional[str] = None
+    no_show: bool = False                     # пассажир не явился (ставит водитель) — отдельно от обычной отмены
     # Договорённость об оплате (НЕ платёж, деньги через приложение не идут): как решили платить.
     # Видно обеим сторонам, помогает в споре. Способ по умолчанию — «договоримся».
     pay_method: PayMethod = PayMethod.negotiate
