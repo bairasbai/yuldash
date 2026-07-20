@@ -89,6 +89,26 @@ def test_driver_moderation_pushes_driver(client, user_factory, pushes):
     assert any(uid == drv["id"] and title == "Проверка не пройдена" for uid, title, _ in pushes)
 
 
+def test_ws_chat_message_fires_push(client, user_factory, pushes):
+    """Регресс: WS-обработчик чата ссылался на send_push (не импортирован) → NameError на проде,
+    push при сообщении по WebSocket молча не доставлялся, а обычные тесты этот путь не гоняли.
+    Здесь гоним реальный WS-путь и проверяем, что push уходит второй стороне без ошибки."""
+    import json
+    drv = user_factory("WsPushDrv", role=UserRole.driver)
+    pax = user_factory("WsPushPax")
+    ride = _publish(client, drv)
+    booking = _book(client, pax, ride["id"])
+    pushes.clear()
+    with client.websocket_connect(f"/ws/bookings/{booking['id']}") as ws:
+        ws.send_text(json.dumps({"type": "auth", "token": pax["token"]}))
+        ws.send_text(json.dumps({"type": "message", "text": "Я на месте"}))
+        ws.receive_text()   # эхо-broadcast первого сообщения
+        # второй раунд гарантирует, что push первого (в threadpool ПОСЛЕ broadcast) уже завершился
+        ws.send_text(json.dumps({"type": "message", "text": "Жду у подъезда"}))
+        ws.receive_text()
+    assert any(uid == drv["id"] for uid, _t, _b in pushes), "WS-чат не отправил push (регресс NameError?)"
+
+
 def test_me_update_sets_language(client, user_factory):
     """Клиент задаёт язык на сервере → двуязычные push пойдут на этом языке. Мусор игнорируется."""
     u = user_factory("LangUser")
