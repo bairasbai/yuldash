@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     # --- Прод-параметры ---
     media_base_url: str = "https://yulbash.ru"   # база для публичных URL медиа (фото/голос)
     cors_origins: str = "*"                       # список origin через запятую; в проде сузить
-    seed_demo: bool = True                        # демо-поездки в пустой БД (в проде выкл.)
+    seed_demo: bool = False                       # демо-поездки в пустой БД. Безопасно по умолчанию ВЫКЛ (фейк в проде бьёт по доверию); для локальной разработки — SEED_DEMO=true
 
     # --- Анти-абуз / защита (важно перед публичным запуском) ---
     rate_limit_enabled: bool = True               # глобальный лимит запросов на IP
@@ -123,6 +123,9 @@ class Settings(BaseSettings):
             problems.append("TELEGRAM_WEBHOOK_SECRET обязателен при заданном TELEGRAM_BOT_TOKEN")
         if self.cors_origins.strip() == "*":
             problems.append("CORS_ORIGINS не должен быть '*' в проде")
+        # Демо-поездки в боевой БД бьют по доверию («между своими» = фейк недопустим). В проде — только выкл.
+        if self.seed_demo:
+            problems.append("SEED_DEMO должен быть false в проде (иначе фейковые демо-поездки в боевой базе)")
         # mock-платежи в проде = «оплата» без денег. Включён реальный приём → ключи/реквизиты обязательны.
         if self.payments_provider == "yookassa" and not (self.yookassa_shop_id and self.yookassa_secret_key):
             problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")
