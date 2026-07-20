@@ -87,3 +87,16 @@ internal class MapViewModel(private val repo: RidesRepository) : ViewModel() {
 4. Отдельный коммит на шаг; `docs/architecture.md` обновлён.
 
 > Оценка объёма (ревью): Шаг 1 — 2-3 дня; Шаг 2 (пилот) — 3-4 дня; Шаг 3 — по фиче; Шаг 4 — 1-2 дня (параллелится); Шаг 5 — 3-5 дней.
+
+---
+
+## 🐞 Известные Android-баги из код-аудита 2026-07-20 (чинить на сборочной машине)
+
+Крашей нет, но при рефакторинге/перед мержем клиентских веток закрыть (из [code-audit-2026-07-20.md](code-audit-2026-07-20.md)):
+- **P2 — `MapView` пересоздаётся на каждой рекомпозиции.** `BookingActiveTripScreen.kt:541` — `remember(fromPoint, toPoint)` завязан на MapKit-`Point`, который НЕ переопределяет `equals()` → новый ключ каждую рекомпозицию → видимая карта маршрута гаснет + утечка `MapView`. Фикс: `remember(fromPoint.latitude, fromPoint.longitude, toPoint.latitude, toPoint.longitude)` (примитивы стабильны).
+- **P3 — stale role/status при смене брони.** `BookingActiveTripScreen.kt:764,782` — `remember { mutableStateOf("") }` без ключа `bookingId` → до ответа `getTripState` (~12с) видна старая роль. Фикс: `remember(bookingId)`.
+- **P3 — молчаливый сбой.** `MapScreen.kt:305` — `getNearbyRequests` только `.onSuccess`; нет сети → маркеры заявок не появляются без индикации. Фикс: `.onFailure`.
+- **P3 — MapKit-локаль.** `BookingActiveTripScreen.kt:542` и `MapScreen.kt:1706` зовут `MapKitFactory.initialize` мимо `ensureMapKit` → карта не в ru-локали при определённом порядке экранов. Фикс: единая точка `ensureMapKit(context)`.
+- **P3 — утечка `MediaPlayer`.** `BookingActiveTripScreen.kt:1400` — при битом `voiceUrl` созданный плеер не `release()`-ится. Фикс: создавать в локальную переменную, `release()` в catch.
+
+Проверка каждого — `gradlew :app:assembleDebug` зелёный + smoke на эмуляторе (карта маршрута не гаснет, заявки-маркеры при офлайне показывают состояние).

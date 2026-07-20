@@ -28,7 +28,7 @@ def _send_sos_sms(phones: list, text: str) -> None:
 
 
 class SosIn(BaseModel):
-    category: str = "other"      # medical / breakdown / other
+    category: str = Field("other", max_length=32)   # medical / breakdown / other (в БД как есть → лимит)
     booking_id: Optional[int] = None
     note: str = Field("", max_length=2000)
 

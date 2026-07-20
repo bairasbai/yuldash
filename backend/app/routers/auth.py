@@ -2,6 +2,7 @@
 профиль `/me`, регистрация push-токена."""
 from datetime import timedelta
 from typing import Optional
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -96,7 +97,7 @@ def verify(body: VerifyIn, session: Session = Depends(get_session)):
         raise HTTPException(400, "Неверный или просроченный код")
     if otp.attempts >= 5:                       # защита от перебора 6-значного кода
         raise HTTPException(429, "Слишком много попыток. Запроси новый код.")
-    if otp.code != body.code:
+    if not secrets.compare_digest(otp.code, body.code or ""):   # константное сравнение кода
         otp.attempts += 1
         session.add(otp)
         session.commit()
@@ -145,9 +146,15 @@ def tg_start(session: Session = Depends(get_session)):
 @router.post("/telegram/webhook")
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(default="")):
     """Telegram шлёт сюда апдейты. На /start <request_id> привязываем юзера и шлём код."""
-    if settings.telegram_webhook_secret and x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
+    # compare_digest — сравнение секрета за константное время (против тайминг-атаки).
+    secret = settings.telegram_webhook_secret
+    if secret and not secrets.compare_digest(x_telegram_bot_api_secret_token, secret):
         raise HTTPException(403, "bad secret")
-    update = await request.json()
+    # Битый JSON НЕ роняем в 500: иначе Telegram ретраит «ядовитый» апдейт по расписанию (шум/дубли).
+    try:
+        update = await request.json()
+    except Exception:  # noqa: BLE001
+        return {"ok": True}
     callback = update.get("callback_query") or {}
     if callback:
         return _handle_admin_callback(callback)

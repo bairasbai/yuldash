@@ -13,8 +13,10 @@ from .models import RideCategory, RideStatus
 
 
 class RideIn(BaseModel):
-    from_city: str
-    to_city: str
+    # max_length: город идёт в ИНДЕКСИРОВАННЫЕ колонки (Ride.from_city/to_city) и в каждую ленту —
+    # без лимита аутентифицированный юзер раздувает БД/ответы мегабайтным «городом».
+    from_city: str = Field(..., max_length=120)
+    to_city: str = Field(..., max_length=120)
     depart_at: datetime
     seats_total: int = 3
     price: int = 0

@@ -24,8 +24,8 @@ router = APIRouter(tags=["requests"])
 
 
 class RequestIn(BaseModel):
-    from_city: str
-    to_city: str
+    from_city: str = Field(..., max_length=120)   # см. RideIn: город индексируется, лимит против раздувания
+    to_city: str = Field(..., max_length=120)
     desired_at: Optional[datetime] = None
     seats: int = Field(1, ge=1, le=8)                       # ≥1 место, разумный потолок (защита от мусора/минуса)
     max_price: Optional[int] = Field(None, ge=0, le=1_000_000)
@@ -135,10 +135,10 @@ def requests_near(
 
 
 class AdminRequestIn(BaseModel):
-    phone: str
+    phone: str = Field(..., max_length=32)
     name: str = Field("", max_length=120)
-    from_city: str
-    to_city: str
+    from_city: str = Field(..., max_length=120)
+    to_city: str = Field(..., max_length=120)
     desired_at: Optional[datetime] = None
     seats: int = Field(1, ge=1, le=8)
     comment: str = Field("", max_length=2000)
@@ -348,20 +348,29 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     """Принять отклик водителя: Ride+Booking одной транзакцией, заявка → matched, водителю push.
     Общая логика для приложения (пассажир/админ) и Telegram-кнопки ✅ у админа — чтобы приём
     отклика вёл себя одинаково откуда угодно. Заявка должна быть active, иначе HTTP 400/404."""
-    req = session.get(RideRequest, resp.request_id)
+    # with_for_update: блокируем строку заявки на время транзакции. Раньше был session.get без лока →
+    # два одновременных accept (двойной тап пассажира ИЛИ пассажир + админ-кнопка в Telegram разом)
+    # оба видели status=="active" и создавали ПО Ride+Booking = две брони на одну заявку. Теперь второй
+    # ждёт лока, перечитывает status=="matched" → 400. (На sqlite lock — no-op, реальная защита на Postgres.)
+    req = session.exec(
+        select(RideRequest).where(RideRequest.id == resp.request_id).with_for_update()
+    ).first()
     if not req:
         raise HTTPException(404, "Заявка не найдена")
     if req.status != "active":
         raise HTTPException(400, "Заявка уже закрыта")
+    # Цена отклика идёт прямо в Ride/Booking мимо клампа create_ride (0..100000) → кламп здесь же,
+    # иначе водитель отдаёт цену до 1_000_000 (потолок RespondIn) в обход общего лимита.
+    price = max(0, min(resp.price, 100_000))
     depart = req.desired_at or (utcnow() + timedelta(hours=1))
     ride = Ride(
         driver_id=resp.driver_id, from_city=req.from_city, to_city=req.to_city, depart_at=depart,
-        seats_total=req.seats, seats_left=0, price=resp.price, category=req.category, status=RideStatus.active,
+        seats_total=req.seats, seats_left=0, price=price, category=req.category, status=RideStatus.active,
     )
     session.add(ride)
     session.flush()   # flush выдаёт ride.id БЕЗ commit → Ride+Booking+статусы фиксируем ОДНОЙ транзакцией.
     booking = Booking(   # бронь на ПАССАЖИРА заявки (а не на того, кто принял — важно при admin-accept)
-        ride_id=ride.id, passenger_id=req.passenger_id, seats=req.seats, price=resp.price * req.seats,
+        ride_id=ride.id, passenger_id=req.passenger_id, seats=req.seats, price=price * req.seats,
         status=BookingStatus.confirmed, boarding_code=gen_otp(),
     )
     session.add(booking)

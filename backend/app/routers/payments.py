@@ -146,7 +146,13 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
         }
 
     # mock/yookassa. user.phone реальный (current_user не пускает плейсхолдер) → на него ЮKassa шлёт чек.
-    res = create_payment(amount_kop, f"Юлдаш · {title}", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    try:
+        res = create_payment(amount_kop, f"Юлдаш · {title}", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    except Exception:  # noqa: BLE001 — сбой провайдера (таймаут/5xx) не оставляем осиротевшим pending
+        payment.status = "canceled"
+        session.add(payment)
+        session.commit()
+        raise HTTPException(502, "Оплата временно недоступна, попробуй позже")
     payment.provider_id = res["provider_id"]
     session.add(payment)
     session.commit()
@@ -187,7 +193,13 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
             "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank},
         }
 
-    res = create_payment(amount * 100, "Юлдаш · донат", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    try:
+        res = create_payment(amount * 100, "Юлдаш · донат", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    except Exception:  # noqa: BLE001 — сбой провайдера не оставляем осиротевшим pending
+        payment.status = "canceled"
+        session.add(payment)
+        session.commit()
+        raise HTTPException(502, "Оплата временно недоступна, попробуй позже")
     payment.provider_id = res["provider_id"]
     session.add(payment)
     session.commit()

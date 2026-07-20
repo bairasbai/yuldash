@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from .config import settings
@@ -69,12 +70,21 @@ def issue_tokens(session: Session, user_id: int) -> dict:
 
 def rotate_refresh(session: Session, raw: str) -> dict:
     """Проверить refresh, ОТОЗВАТЬ его (one-time) и выдать новую пару. Иначе 401."""
-    rt = session.exec(select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw))).first()
+    h = _hash_refresh(raw)
+    rt = session.exec(select(RefreshToken).where(RefreshToken.token_hash == h)).first()
     if not rt or rt.revoked or rt.expires_at < utcnow():
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
-    rt.revoked = True                       # ротация: старый refresh больше не работает
-    session.add(rt)
+    # Атомарный «захват»: revoked False→True выполнит РОВНО ОДИН из параллельных /auth/refresh.
+    # Раньше было SELECT→проверка→revoked=True: гонка двух запросов одним токеном давала ДВЕ
+    # валидные пары (украденный refresh переживал ротацию). Теперь второй получит rowcount 0 → 401.
+    result = session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.token_hash == h, RefreshToken.revoked == False)  # noqa: E712
+        .values(revoked=True)
+    )
     session.commit()
+    if result.rowcount != 1:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
     return issue_tokens(session, rt.user_id)
 
 
