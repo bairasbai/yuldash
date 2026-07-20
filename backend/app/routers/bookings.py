@@ -12,7 +12,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import Booking, BookingStatus, DriverProfile, Ride, RideStatus, User
-from ..safety_logic import CANCEL_REASONS, clamp, detect_bump, is_late_cancel
+from ..safety_logic import CANCEL_REASONS, clamp, detect_bump, ensure_active, is_late_cancel
 from ..security import current_user, gen_otp
 from ..services import (
     booking_and_ride_for_user, geocode_city, is_blocked, notify_admin_telegram,
@@ -78,6 +78,7 @@ class BookingDetailsOut(BaseModel):
 
 @router.post("/bookings", response_model=Booking)
 def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    ensure_active(session, user.id)   # приостановленный аккаунт не бронирует (лестница §2)
     if body.seats < 1:
         raise HTTPException(400, "Количество мест должно быть больше 0")
     # FOR UPDATE: блокируем строку поездки на время транзакции → нет овербукинга при гонке.
@@ -215,6 +216,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
 
 @router.post("/bookings/{booking_id}/confirm", response_model=Booking)
 def confirm_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    ensure_active(session, user.id)   # приостановленный водитель не подтверждает брони
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if ride.driver_id != user.id:
         raise HTTPException(403, "Подтвердить бронь может только водитель")
@@ -249,8 +251,13 @@ def cancel_booking(booking_id: int, background: BackgroundTasks, body: Optional[
     is_driver_cancel = ride.driver_id == user.id
     was_committed = booking.status in (BookingStatus.confirmed, BookingStatus.onboard)
     if booking.status not in (BookingStatus.cancelled, BookingStatus.done):
-        # Блокируем строку поездки (как в book) → две одновременные отмены не затрут инкремент мест.
+        # Блокируем строку поездки (как в book) → две одновременные отмены сериализуются на локе.
         ride = session.exec(select(Ride).where(Ride.id == booking.ride_id).with_for_update()).first()
+        # ПЕРЕЧИТЫВАЕМ бронь под этим локом: пока ждали лок, первая отмена уже могла пометить
+        # cancelled → без перечитки второй запрос вернул бы места ПОВТОРНО (двойной возврат/овербукинг)
+        # и создал бы второй авто-инцидент бампинга. Стало cancelled/done → пропускаем мутацию.
+        session.refresh(booking)
+    if booking.status not in (BookingStatus.cancelled, BookingStatus.done):
         late = is_late_cancel(booking, ride, when=utcnow())   # считаем ДО пометки cancelled
         booking.status = BookingStatus.cancelled
         booking.cancelled_by = user.id

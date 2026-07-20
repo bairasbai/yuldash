@@ -18,7 +18,7 @@ from ..db import get_session
 from ..models import Booking, Incident, Ride, User, UserRole
 from ..safety_logic import (
     INCIDENT_TYPES, SEVERE_TYPES, active_incidents_count, apply_incident_resolution,
-    clamp, completed_trips_for, csv_from_urls, incidents_last_hour, is_suspended,
+    clamp, completed_trips_for, csv_from_urls, ensure_active, incidents_last_hour, is_suspended,
     refresh_standing, reliability_for, urls_from_csv,
 )
 from ..security import current_user
@@ -182,6 +182,11 @@ def create_incident(
         raise HTTPException(404, "Пользователь не найден")
     if rate_limit and incidents_last_hour(session, reporter.id) >= settings.safety_incidents_per_hour:
         raise HTTPException(429, "Слишком много обращений за час. Попробуй позже.")
+    # Анти-харассмент: обычная жалоба привязывается к ОБЩЕЙ поездке — иначе можно завалить
+    # инцидентами любого, с кем не пересекался (+ утечка его телефона админу по доносу). Только
+    # SEVERE (угроза безопасности) допускается без брони — там важнее не потерять сигнал.
+    if booking_id is None and type not in SEVERE_TYPES:
+        raise HTTPException(400, "Жалоба привязывается к вашей совместной поездке")
     # Участие в брони + роль + счётность обвинённого именно по этой поездке.
     if booking_id is not None:
         booking, ride = booking_and_ride_for_user(session, booking_id, reporter)  # 403/404 если не участник
@@ -228,6 +233,7 @@ def create_incident(
 @router.post("/incidents", response_model=IncidentOut)
 def file_incident(body: IncidentIn, background: BackgroundTasks,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+    ensure_active(session, user.id)   # приостановленный аккаунт не подаёт новые жалобы (анти-абуз)
     inc = create_incident(
         session, reporter=user, respondent_id=body.respondent_id, type=body.type,
         description=body.description, booking_id=body.booking_id,
@@ -362,6 +368,17 @@ def resolve_incident(incident_id: int, body: ResolveIn,
     inc = session.get(Incident, incident_id)
     if not inc:
         raise HTTPException(404, "Спор не найден")
+    # Идемпотентность: уже решённый/закрытый спор повторно не «дорешать» (двойной тап админа /
+    # ретрай сети иначе добавлял страйк второй раз). Апелляция переводит статус обратно в under_review.
+    if inc.status in ("resolved", "closed"):
+        raise HTTPException(409, "Спор уже решён")
+    # Whitelist: опечатка в resolution (напр. "Strike"≠"strike") иначе ТИХО не применяла наказание.
+    if body.resolution and body.resolution not in (
+        "none", "warning", "strike", "suspend", "ban", "dismissed", "mutual_resolved",
+    ):
+        raise HTTPException(422, "Неизвестное решение по спору")
+    if body.fault and body.fault not in ("none", "respondent", "reporter", "both"):
+        raise HTTPException(422, "Неизвестная сторона вины")
     inc, _prof = apply_incident_resolution(
         session, inc, resolution=body.resolution, fault=body.fault, note=body.note,
         compensation_kop=body.compensation_kop, strike=body.strike, suspend_days=body.suspend_days,

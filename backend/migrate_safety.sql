@@ -20,9 +20,6 @@ ALTER TABLE rating ADD COLUMN IF NOT EXISTS comment     varchar NOT NULL DEFAULT
 ALTER TABLE rating ADD COLUMN IF NOT EXISTS tags        varchar NOT NULL DEFAULT '';
 ALTER TABLE rating ADD COLUMN IF NOT EXISTS incident_id integer;
 
--- ---- Incident: авто-детект «бампинга» (§1.1). Для прод-БД, где incident уже создан без колонки. ----
-ALTER TABLE incident ADD COLUMN IF NOT EXISTS suspected_bump boolean NOT NULL DEFAULT false;
-
 -- ---- Новые таблицы (обычно уже созданы create_all; здесь — как fallback) ----
 CREATE TABLE IF NOT EXISTS incident (
     id                       SERIAL PRIMARY KEY,
@@ -54,6 +51,10 @@ CREATE INDEX IF NOT EXISTS ix_incident_reporter_id   ON incident (reporter_id);
 CREATE INDEX IF NOT EXISTS ix_incident_respondent_id ON incident (respondent_id);
 CREATE INDEX IF NOT EXISTS ix_incident_type          ON incident (type);
 CREATE INDEX IF NOT EXISTS ix_incident_status        ON incident (status);
+
+-- Incident: авто-детект «бампинга» (§1.1). ПОСЛЕ CREATE TABLE — для прод-БД, где incident уже
+-- создан раньше без этой колонки (на чистой БД колонка уже в CREATE выше; ALTER идемпотентен).
+ALTER TABLE incident ADD COLUMN IF NOT EXISTS suspected_bump boolean NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS safetyprofile (
     id              SERIAL PRIMARY KEY,

@@ -32,6 +32,8 @@ def _hide_blocked(items, user, session):
 
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    from ..safety_logic import ensure_active
+    ensure_active(session, user.id)   # приостановленный аккаунт не публикует поездки (лестница §2)
     # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
     body.seats_total = max(1, min(8, body.seats_total))
     body.price = max(0, min(100_000, body.price))

@@ -258,14 +258,58 @@ def test_no_show_gate_status(client, user_factory):
 def test_no_show_reliability_drops(client, user_factory):
     drv = user_factory("RelDrv", role=UserRole.driver)
     pax = user_factory("RelPax")
+    admin = user_factory("RelAdmin", role=UserRole.admin)
     ride = _publish(client, drv)
     booking = _book(client, pax, ride["id"])
     _confirm(client, drv, booking["id"])
     _set_departed(ride["id"])
     assert client.get("/me/standing", headers=pax["auth"]).json()["reliability"] == 100  # новичок
-    client.post(f"/bookings/{booking['id']}/no-show", headers=drv["auth"], json={"note": "не вышел"})
-    # у пассажира-виновника надёжность падает (0 completed / 1 no_show)
+    inc = client.post(f"/bookings/{booking['id']}/no-show", headers=drv["auth"], json={"note": "не вышел"}).json()
+    # НЕПОДТВЕРЖДЁННЫЙ no-show НЕ роняет Надёжность (фикс аудита: защита от доноса-мести —
+    # раньше метрика невиновного падала мгновенно и необратимо ещё до разбора).
+    assert client.get("/me/standing", headers=pax["auth"]).json()["reliability"] == 100
+    # админ подтвердил вину пассажира (fault=respondent) → теперь Надёжность падает.
+    r = client.post(f"/admin/incidents/{inc['id']}/resolve", headers=admin["auth"],
+                    json={"resolution": "strike", "fault": "respondent", "note": "Подтверждено", "strike": True})
+    assert r.status_code == 200, r.text
     assert client.get("/me/standing", headers=pax["auth"]).json()["reliability"] < 100
+
+
+# ----------------------------- харднинг из аудита (P1) -----------------------------
+def test_suspended_user_blocked_from_actions(client, user_factory):
+    """Приостановленный (§2) НЕ может бронировать/жаловаться — иначе лестница косметическая."""
+    drv = user_factory("SusDrv", role=UserRole.driver)
+    pax = user_factory("SusPax")
+    admin = user_factory("SusAdmin", role=UserRole.admin)
+    ride = _publish(client, drv)
+    booking = _book(client, pax, ride["id"])
+    inc = _file(client, drv, pax["id"], "rude", booking_id=booking["id"]).json()
+    r = client.post(f"/admin/incidents/{inc['id']}/resolve", headers=admin["auth"],
+                    json={"resolution": "suspend", "fault": "respondent", "suspend_days": 3, "strike": True})
+    assert r.status_code == 200, r.text
+    assert client.get("/me/standing", headers=pax["auth"]).json()["can_act"] is False
+    ride2 = _publish(client, drv)
+    assert client.post("/bookings", headers=pax["auth"],
+                       json={"ride_id": ride2["id"], "seats": 1}).status_code == 403
+    assert client.post("/incidents", headers=pax["auth"],
+                       json={"respondent_id": drv["id"], "type": "rude", "booking_id": booking["id"]}).status_code == 403
+
+
+def test_resolve_idempotent_no_double_strike(client, user_factory):
+    """Повторный resolve одного спора → 409, страйк НЕ добавляется второй раз."""
+    drv = user_factory("IdemRDrv", role=UserRole.driver)
+    pax = user_factory("IdemRPax")
+    admin = user_factory("IdemRAdmin", role=UserRole.admin)
+    ride = _publish(client, drv)
+    booking = _book(client, pax, ride["id"])
+    inc = _file(client, pax, drv["id"], "rude", booking_id=booking["id"]).json()
+    r1 = client.post(f"/admin/incidents/{inc['id']}/resolve", headers=admin["auth"],
+                     json={"resolution": "strike", "fault": "respondent", "strike": True})
+    assert r1.status_code == 200, r1.text
+    r2 = client.post(f"/admin/incidents/{inc['id']}/resolve", headers=admin["auth"],
+                     json={"resolution": "strike", "fault": "respondent", "strike": True})
+    assert r2.status_code == 409
+    assert client.get("/me/standing", headers=drv["auth"]).json()["strikes"] == 1
 
 
 # ----------------------------- оплата наличными -----------------------------
