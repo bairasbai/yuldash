@@ -2195,6 +2195,8 @@ internal fun DriverCabinetContent(
                         }
                         // B8-7: «пассажир не заплатил» одним тапом — только по завершённой поездке.
                         if (b.status == "done") UnpaidReportButton(bookingId = b.bookingId)
+                        // «Не явился» — по подтверждённой/в-пути брони (пассажир не пришёл на посадку).
+                        if (b.status == "confirmed" || b.status == "onboard") NoShowButton(bookingId = b.bookingId)
                     }
                 }
             }

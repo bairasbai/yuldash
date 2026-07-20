@@ -1719,10 +1719,15 @@ object ApiClient {
     /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку.
      *  Возврат: contact_then_cancel (B8-8) — отмена после открытия телефона/чата →
      *  UI показывает мягкий баннер «заверши поездку в приложении». */
-    suspend fun cancelBooking(bookingId: Int): Result<Boolean> =
-        call("POST", "/bookings/$bookingId/cancel", null, auth = true)
+    suspend fun cancelBooking(bookingId: Int, reason: String = ""): Result<Boolean> =
+        call("POST", "/bookings/$bookingId/cancel", JSONObject().put("reason", reason), auth = true)
             .map { it.optBoolean("contact_then_cancel") }
             .onSuccess { Analytics.log("booking_cancel") }
+
+    // Водитель отмечает неявку пассажира (no-show): бронь снимается, места возвращаются.
+    suspend fun markNoShow(bookingId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true).map { }
+            .onSuccess { Analytics.log("booking_no_show") }
 
     /** F2: водитель подтверждает бронь → пассажиру открываются телефон/точка сбора, приходит push. */
     suspend fun confirmBooking(bookingId: Int): Result<Unit> =
