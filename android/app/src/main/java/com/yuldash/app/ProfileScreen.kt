@@ -323,7 +323,7 @@ internal fun ProfileScreen(
     val profileAd = ads.forPlacement(AdPlacement.Profile).firstOrNull()
     // Свой рейтинг (как пассажира) — из реальных оценок водителей. null, пока никто не оценил.
     var myRating by remember { mutableStateOf<Double?>(null) }
-    var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: "Я") }
+    var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: (if (isBashkir) "Мин" else "Я")) }
     var avatarUrl by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
     var city by remember { mutableStateOf("") }   // родной город: показываем в шапке, редактируется тапом

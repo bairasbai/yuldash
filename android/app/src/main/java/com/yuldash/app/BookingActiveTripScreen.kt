@@ -893,11 +893,11 @@ internal fun CompactProfileBanner() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(Modifier.size(62.dp).background(Color.White.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
-                Text((ApiClient.cachedName() ?: "Я").take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 24.sp)
+                Text((ApiClient.cachedName() ?: appText("Я", "Мин")).take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 24.sp)
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(ApiClient.cachedName() ?: "Я", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                Text(ApiClient.cachedName() ?: appText("Я", "Мин"), color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
                 // Настоящая роль из кеша /me (города в профиле нет — не выдумываем «Баймаҡ»).
                 Text(roleLabel(ApiClient.cachedRole() ?: ""), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                 Text(appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерен"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
