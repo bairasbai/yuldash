@@ -109,6 +109,37 @@ def test_ws_chat_message_fires_push(client, user_factory, pushes):
     assert any(uid == drv["id"] for uid, _t, _b in pushes), "WS-чат не отправил push (регресс NameError?)"
 
 
+def test_rate_reminder_notifies_only_unrated_party(client, user_factory, pushes):
+    """Завершённую поездку один участник оценил, другой нет → напоминание уходит ТОЛЬКО не оценившему.
+    Повторный проход не спамит (флаг rate_reminded)."""
+    from app.rate_reminder import rate_reminder_once
+    drv = user_factory("RateRemDrv", role=UserRole.driver)
+    pax = user_factory("RateRemPax")
+    ride = _publish(client, drv)
+    booking = _book(client, pax, ride["id"])
+    client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "done"})
+    client.post(f"/bookings/{booking['id']}/rate", headers=pax["auth"], json={"stars": 5})   # пассажир оценил
+    pushes.clear()
+    with Session(engine) as s:
+        reminded = rate_reminder_once(s)
+    assert any(uid == drv["id"] and title == "Оцените поездку" for uid, title, _ in pushes)   # водителю — да
+    assert not any(uid == pax["id"] for uid, _t, _b in pushes)                                # пассажиру — нет
+    assert (booking["id"], drv["id"]) in reminded
+    # второй проход — бронь уже помечена, никого не дёргаем
+    pushes.clear()
+    with Session(engine) as s:
+        assert rate_reminder_once(s) == []
+    assert not pushes
+
+
+def test_rate_reminder_disabled(client, monkeypatch):
+    from app.config import settings
+    from app.rate_reminder import rate_reminder_once
+    monkeypatch.setattr(settings, "rate_reminder_enabled", False)
+    with Session(engine) as s:
+        assert rate_reminder_once(s) == []
+
+
 def test_me_update_sets_language(client, user_factory):
     """Клиент задаёт язык на сервере → двуязычные push пойдут на этом языке. Мусор игнорируется."""
     u = user_factory("LangUser")

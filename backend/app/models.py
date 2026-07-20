@@ -204,6 +204,7 @@ class Booking(SQLModel, table=True):
     status: BookingStatus = BookingStatus.pending
     driver_phase: str = ""           # подфаза активной поездки от водителя: "" / departed / arriving (для live-баннера пассажиру)
     boarding_code: str = ""
+    rate_reminded: bool = False       # напоминание «оцените поездку» уже отправлено (не спамим повторно)
     created_at: datetime = Field(default_factory=utcnow)
 
 
