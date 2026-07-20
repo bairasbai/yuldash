@@ -6,7 +6,10 @@
 
 - ✅ **Фаза 0 — прод-харднинг (сделана, pytest 189 passed):** пул соединений `25→15`/воркер (S0/P0); `/match/rides` без утечки точки сбора; `/docs` off в проде; `/geocode` требует токен; `payee` без ФИО + прод-гейт `SBP_PHONE`≠`ADMIN_PHONES`. Только backend, схему не трогали. **НЕ задеплоено** (ветка `claude/architecture-review-pqx309`, PR #90).
   - ⏳ Александру: в прод `.env` развести `SBP_PHONE` ≠ `ADMIN_PHONES`; опц. PG `max_connections` 150-200 / PgBouncer.
-- ⬜ **Фаза 1 — фундамент (следующая):** резать экраны по файлам (разблокирует параллелизм) → пилот Repository+ViewModel на карте → свести миграции на Alembic baseline → кэш/дебаунс `/rides/near`.
+- 🔄 **Фаза 1 — фундамент (в процессе):**
+  - ✅ **B2 «эффект толпы» на карте** (2026-07-20, pytest 193): дебаунс `notify_map_changed` (`SET NX EX 3с`) + кэш `/rides/near` 15с. Только backend, без схемы. **НЕ задеплоено.**
+  - ⬜ **Клиентское (нужен Android SDK, не в облаке):** резать экраны по файлам → пилот Repository+ViewModel на карте. + джиттер на перезапрос near.
+  - ⬜ **Backend с прод-доступом (за Александром):** B3 Alembic baseline (нужна прод-схема по SSH), B5 индексы/пагинация (нужна миграция).
 - ⬜ **Фаза 2 — качество:** Navigation-Compose (deep links под FCM) → распространить VM+Repo → per-booking Redis-каналы → zero-downtime деплой → эквайринг ЮKassa → CI для Android + Postgres.
 
 ## ✅ Авто-подбор водителя для «помощь»-заявок (без ручного одобрения) — 2026-07-17

@@ -145,41 +145,52 @@ def rides_near(
     """Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).
     Если переданы координаты клиента (lat/lng) — добавляем дистанцию до точки выезда и (опц.) фильтр по радиусу.
     Сценарий: водитель отменил/сломался → клиент видит ближайшую по времени машину на своём маршруте и уезжает."""
-    q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0)
-    if from_city:
-        q = q.where(Ride.from_city.contains(from_city))
-    if to_city:
-        q = q.where(Ride.to_city.contains(to_city))
-    # PostGIS-префильтр по радиусу (только postgres + есть координаты): индекс GiST → быстро на больших
-    # объёмах. Фолбэк (sqlite/без PostGIS/ошибка) — Python-haversine ниже даёт тот же результат.
-    if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
-        try:
-            # NULL-координатные поездки НЕ выкидываем (старые/негеокоженные) — их
-            # отфильтрует Python-haversine по CITY_COORDS ниже. ST_DWithin (с GiST-индексом)
-            # отсекает далёкие среди геокоженных.
-            ids = [row[0] for row in session.execute(text(
-                "SELECT id FROM ride WHERE from_lat IS NULL OR "
-                "ST_DWithin(ST_MakePoint(from_lng, from_lat)::geography, "
-                "ST_MakePoint(:lng, :lat)::geography, :r)"
-            ), {"lng": lng, "lat": lat, "r": radius_km * 1000.0}).all()]
-            q = q.where(Ride.id.in_(ids)) if ids else q.where(Ride.id.is_(None))
-        except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк
-            print(f"[GEO] PostGIS prefilter skipped: {e}")
-    rides = session.exec(q.order_by(*boost_then_depart_order())).all()  # Boost первыми, затем по времени выезда ↑
-    users, profiles, rating_agg = drivers_bundle(session, {r.driver_id for r in rides})
-    items: list = []
-    for r in rides:
-        dist = None
-        if lat is not None and lng is not None:
-            # реальные геокодированные координаты концов → иначе известный город → иначе нет дистанции
-            c = (r.from_lat, r.from_lng) if r.from_lat is not None and r.from_lng is not None else CITY_COORDS.get(r.from_city)
-            if c:
-                dist = round(haversine_km(lat, lng, c[0], c[1]), 1)
-        if radius_km is not None and dist is not None and dist > radius_km:
-            continue
-        out = public_ride_payload(ride_out_with(r, users, profiles, rating_agg)).model_dump()
-        out["distance_km"] = dist
-        items.append(out)
+    # Кэш против «эффекта толпы»: notify_map_changed будит ВСЕХ с открытой картой разом, и они
+    # дружно дёргают этот — самый тяжёлый — эндпоинт (гео-скан + drivers_bundle + haversine).
+    # Кэшируем базовый список на 15с по ключу (from,to,округл.координаты,радиус): залп читается из
+    # Redis, а не из БД. Пер-юзерное (скрытие заблокированных) и пагинацию применяем ПОСЛЕ кэша.
+    # Координаты округляем до ~0.01° (~1 км) → рядом стоящие делят кэш; «N км» точна в пределах ~1 км.
+    lat_k = round(lat, 2) if lat is not None else None
+    lng_k = round(lng, 2) if lng is not None else None
+    cache_key = f"rides:near:v1:{(from_city or '').lower()}:{(to_city or '').lower()}:{lat_k}:{lng_k}:{radius_km}"
+    items = cache_get_json(cache_key)
+    if items is None:
+        q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0)
+        if from_city:
+            q = q.where(Ride.from_city.contains(from_city))
+        if to_city:
+            q = q.where(Ride.to_city.contains(to_city))
+        # PostGIS-префильтр по радиусу (только postgres + есть координаты): индекс GiST → быстро на больших
+        # объёмах. Фолбэк (sqlite/без PostGIS/ошибка) — Python-haversine ниже даёт тот же результат.
+        if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
+            try:
+                # NULL-координатные поездки НЕ выкидываем (старые/негеокоженные) — их
+                # отфильтрует Python-haversine по CITY_COORDS ниже. ST_DWithin (с GiST-индексом)
+                # отсекает далёкие среди геокоженных.
+                ids = [row[0] for row in session.execute(text(
+                    "SELECT id FROM ride WHERE from_lat IS NULL OR "
+                    "ST_DWithin(ST_MakePoint(from_lng, from_lat)::geography, "
+                    "ST_MakePoint(:lng, :lat)::geography, :r)"
+                ), {"lng": lng, "lat": lat, "r": radius_km * 1000.0}).all()]
+                q = q.where(Ride.id.in_(ids)) if ids else q.where(Ride.id.is_(None))
+            except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк
+                print(f"[GEO] PostGIS prefilter skipped: {e}")
+        rides = session.exec(q.order_by(*boost_then_depart_order())).all()  # Boost первыми, затем по времени выезда ↑
+        users, profiles, rating_agg = drivers_bundle(session, {r.driver_id for r in rides})
+        items = []
+        for r in rides:
+            dist = None
+            if lat is not None and lng is not None:
+                # реальные геокодированные координаты концов → иначе известный город → иначе нет дистанции
+                c = (r.from_lat, r.from_lng) if r.from_lat is not None and r.from_lng is not None else CITY_COORDS.get(r.from_city)
+                if c:
+                    dist = round(haversine_km(lat, lng, c[0], c[1]), 1)
+            if radius_km is not None and dist is not None and dist > radius_km:
+                continue
+            out = public_ride_payload(ride_out_with(r, users, profiles, rating_agg)).model_dump()
+            out["distance_km"] = dist
+            items.append(out)
+        cache_set_json(cache_key, items, 15)
     items = _hide_blocked(items, user, session)   # прячем заблокированных до подсчёта total/пагинации
     total = len(items)
     if limit is not None:
