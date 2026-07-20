@@ -182,6 +182,11 @@ def create_incident(
         raise HTTPException(404, "Пользователь не найден")
     if rate_limit and incidents_last_hour(session, reporter.id) >= settings.safety_incidents_per_hour:
         raise HTTPException(429, "Слишком много обращений за час. Попробуй позже.")
+    # Анти-харассмент: обычная жалоба привязывается к ОБЩЕЙ поездке — иначе можно завалить
+    # инцидентами любого, с кем не пересекался (+ утечка его телефона админу по доносу). Только
+    # SEVERE (угроза безопасности) допускается без брони — там важнее не потерять сигнал.
+    if booking_id is None and type not in SEVERE_TYPES:
+        raise HTTPException(400, "Жалоба привязывается к вашей совместной поездке")
     # Участие в брони + роль + счётность обвинённого именно по этой поездке.
     if booking_id is not None:
         booking, ride = booking_and_ride_for_user(session, booking_id, reporter)  # 403/404 если не участник
@@ -367,6 +372,13 @@ def resolve_incident(incident_id: int, body: ResolveIn,
     # ретрай сети иначе добавлял страйк второй раз). Апелляция переводит статус обратно в under_review.
     if inc.status in ("resolved", "closed"):
         raise HTTPException(409, "Спор уже решён")
+    # Whitelist: опечатка в resolution (напр. "Strike"≠"strike") иначе ТИХО не применяла наказание.
+    if body.resolution and body.resolution not in (
+        "none", "warning", "strike", "suspend", "ban", "dismissed", "mutual_resolved",
+    ):
+        raise HTTPException(422, "Неизвестное решение по спору")
+    if body.fault and body.fault not in ("none", "respondent", "reporter", "both"):
+        raise HTTPException(422, "Неизвестная сторона вины")
     inc, _prof = apply_incident_resolution(
         session, inc, resolution=body.resolution, fault=body.fault, note=body.note,
         compensation_kop=body.compensation_kop, strike=body.strike, suspend_days=body.suspend_days,

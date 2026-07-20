@@ -56,13 +56,17 @@ def clamp(text: Optional[str], limit: int) -> str:
 
 
 def csv_from_urls(urls, max_items: int = 10, max_len: int = 500) -> str:
-    """Список URL → безопасный CSV: клампим количество и длину каждого, без запятых внутри."""
+    """Список URL доказательств → безопасный CSV: клампим количество/длину, без запятых.
+    Принимаем ТОЛЬКО свои media-URL: чужой `http://evil/x.png` при загрузке у оппонента/админа
+    слил бы его IP (деанон «между своими»). Внешние/чужие URL молча отбрасываем."""
     if not urls:
         return ""
+    base = (settings.media_base_url or "").rstrip("/")
     clean = []
     for u in urls[:max_items]:
         s = str(u or "").replace(",", "").strip()[:max_len]
-        if s:
+        is_own = s.startswith("/media/") or (bool(base) and s.startswith(base + "/media/"))
+        if s and is_own:
             clean.append(s)
     return ",".join(clean)
 
@@ -124,9 +128,12 @@ def recompute_standing(profile: SafetyProfile, now=None) -> SafetyProfile:
     suspended (пока пауза активна) → limited (страйков ≥ порога) → warned (есть
     страйк/замечание) → good. Страйки «сгорают» через SAFETY_STRIKE_DECAY_DAYS."""
     now = now or utcnow()
-    # Затухание: без новых страйков дольше окна — обнуляем (никакого «клейма навсегда», §4).
+    # Затухание: без новых нарушений дольше окна — обнуляем страйки И замечания (никакого
+    # «клейма навсегда», §4). last_strike_at ставится на любое наказание (страйк/замечание),
+    # иначе один warning держал standing='warned' вечно.
     if profile.last_strike_at and (now - profile.last_strike_at) >= timedelta(days=settings.safety_strike_decay_days):
         profile.strikes = 0
+        profile.warnings = 0
     if profile.suspended_until and profile.suspended_until > now:
         profile.standing = "suspended"
     elif profile.strikes >= settings.safety_strikes_to_limit:
@@ -378,6 +385,7 @@ def apply_incident_resolution(
     added_strike = False
     if resolution == "warning":
         prof.warnings += 1
+        prof.last_strike_at = now   # метка последнего наказания → замечание тоже затухает по окну (§4)
     if strike or resolution == "strike":
         prof.strikes += 1
         prof.last_strike_at = now
