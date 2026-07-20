@@ -15,7 +15,7 @@ from ..db import get_session
 from ..models import Ad, Payment, Ride, RideStatus, User, UserRole
 from ..payments import BOOST_PLANS, create_payment, fetch_payment
 from ..security import current_user
-from ..services import notify_admin_telegram
+from ..services import notify_admin_telegram, send_push_bi
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["payments"])
@@ -56,6 +56,14 @@ def _activate_payment(session: Session, payment: Payment) -> None:
                 ad.ends_at = utcnow() + timedelta(days=ad.period_days)
             session.add(ad)
     session.commit()
+    # Плательщику: платёж прошёл (рекламу уведомляет её собственный поток модерации/оплаты).
+    if payment.purpose == "boost":
+        send_push_bi(session, payment.user_id, "Платёж подтверждён", "Түләү раҫланды",
+                     "Твоя поездка поднята в топ.", "Сәфәрең өҫкә күтәрелде.")
+    elif payment.purpose == "donate":
+        send_push_bi(session, payment.user_id, "Спасибо за поддержку!", "Ярҙамың өсөн рәхмәт!",
+                     "Твой донат получен. Спасибо, что поддерживаешь Юлдаш 💚",
+                     "Донатың ҡабул ителде. Юлдашты яҡлағаның өсөн рәхмәт 💚")
 
 
 def _notify_new_payment(session: Session, payment: Payment) -> None:

@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models import Booking, BookingStatus, DriverProfile, Ride, RideStatus, User
 from ..security import current_user, gen_otp
-from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, send_push, user_rating
+from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, send_push_bi, user_rating
 
 router = APIRouter(tags=["bookings"])
 
@@ -101,8 +101,13 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     session.commit()
     session.refresh(booking)
     notify_map_changed()   # места убыли → если 0, поездка уходит с карты live
-    # Push водителю о новой брони.
-    send_push(session, ride.driver_id, "Новая бронь", f"{user.name or 'Пассажир'}: {ride.from_city} → {ride.to_city}, мест {body.seats}")
+    # Push водителю о новой брони (на его языке).
+    send_push_bi(
+        session, ride.driver_id,
+        "Новая бронь", "Яңы бронь",
+        f"{user.name or 'Пассажир'}: {ride.from_city} → {ride.to_city}, мест {body.seats}",
+        f"{user.name or 'Юлсы'}: {ride.from_city} → {ride.to_city}, урын {body.seats}",
+    )
     return booking
 
 
@@ -190,7 +195,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
             booking.driver_phase = ""        # поездка кончилась — фазу сбрасываем
             session.add(booking)
             session.commit()
-        send_push(session, booking.passenger_id, "Поездка завершена", f"{ride.from_city} → {ride.to_city}")
+        send_push_bi(session, booking.passenger_id, "Поездка завершена", "Сәфәр тамамланды", f"{ride.from_city} → {ride.to_city}")
         return {"ok": True, "status": "done"}
     # «выехал/подъезжает» бессмысленны на мёртвой броне — иначе push «Водитель выехал» по отменённой/завершённой.
     if booking.status in (BookingStatus.cancelled, BookingStatus.done):
@@ -198,8 +203,9 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     booking.driver_phase = body.status       # сохраняем «выехал/подъезжает» → пассажир увидит live, не только пушем
     session.add(booking)
     session.commit()
-    title = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
-    send_push(session, booking.passenger_id, title, f"{ride.from_city} → {ride.to_city}")
+    title_ru = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
+    title_ba = {"departed": "Водитель юлға сыҡты", "arriving": "Водитель яҡынлаша"}[body.status]
+    send_push_bi(session, booking.passenger_id, title_ru, title_ba, f"{ride.from_city} → {ride.to_city}")
     return {"ok": True, "driver_phase": body.status}
 
 
@@ -217,6 +223,8 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     session.add(booking)
     session.commit()
     session.refresh(booking)
+    # Пассажиру: водитель подтвердил бронь (раньше пассажир узнавал только поллингом статуса).
+    send_push_bi(session, booking.passenger_id, "Бронь подтверждена", "Бронь раҫланды", f"{ride.from_city} → {ride.to_city}")
     return booking
 
 
@@ -234,6 +242,9 @@ def cancel_booking(booking_id: int, user: User = Depends(current_user), session:
         session.commit()
         session.refresh(booking)
         notify_map_changed()   # места вернулись → поездка снова видна на карте live
+        # Уведомляем ВТОРУЮ сторону об отмене (тому, кто отменил, не шлём).
+        other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
+        send_push_bi(session, other_id, "Бронь отменена", "Бронь кире алынды", f"{ride.from_city} → {ride.to_city}")
     return booking
 
 

@@ -139,6 +139,14 @@ def create_report(body: ReportIn, user: User = Depends(current_user), session: S
     session.add(report)
     session.commit()
     session.refresh(report)
+    # Алерт админу в Telegram — жалоба не должна лежать незамеченной (доверие «между своими»).
+    target = session.get(User, body.target_user_id)
+    notify_admin_telegram(
+        "⚠️ Жалоба (Юлдаш)\n"
+        f"На: {(target.name if target and target.name else '—')} · {(target.phone if target else '—')}\n"
+        f"От: {user.name or '—'} · {user.phone or '—'}\n"
+        f"Причина: {body.reason or '—'}"
+    )
     return report
 
 

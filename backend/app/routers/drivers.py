@@ -14,7 +14,7 @@ from ..config import settings
 from ..db import get_session
 from ..models import DriverProfile, User, UserRole
 from ..security import current_user
-from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url
+from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url, send_push_bi
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["drivers"])
@@ -280,4 +280,11 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
     session.add(target)
     session.add(dp)
     session.commit()
+    # Уведомляем водителя о результате проверки (раньше он узнавал, только сам опросив статус).
+    if body.approve:
+        send_push_bi(session, user_id, "Проверка пройдена", "Тикшереү үтелде",
+                     "Теперь ты можешь публиковать поездки.", "Хәҙер һин сәфәрҙәр баҫтыра алаһың.")
+    else:
+        send_push_bi(session, user_id, "Проверка не пройдена", "Тикшереү үтелмәне",
+                     "Проверь фото и отправь снова.", "Фотоларҙы тикшереп, ҡабат ебәр.")
     return {"user_id": user_id, "verified": target.verified, "docs_status": dp.docs_status}

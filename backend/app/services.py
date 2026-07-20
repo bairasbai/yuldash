@@ -200,6 +200,26 @@ def send_push(session: Session, user_id: int, title: str, body: str) -> None:
         print(f"[FCM] init error: {e}")
 
 
+def send_push_bi(
+    session: Session,
+    user_id: int,
+    title_ru: str,
+    title_ba: str,
+    body_ru: str,
+    body_ba: str | None = None,
+) -> None:
+    """Двуязычный push: берёт язык получателя (User.language) и шлёт RU или BA.
+
+    body_ba можно опустить, когда тело одинаково на обоих языках (только имена/города/цифры).
+    Так правило «любая надпись — на двух языках» (CLAUDE.md §3) действует и для уведомлений."""
+    user = session.get(User, user_id)
+    lang = (user.language if user and user.language else "ru")
+    if lang == "ba":
+        send_push(session, user_id, title_ba, body_ba if body_ba is not None else body_ru)
+    else:
+        send_push(session, user_id, title_ru, body_ru)
+
+
 # ----------------------------- SMS -----------------------------
 def mask_phone(phone: str) -> str:
     """Маска телефона для логов (152-ФЗ): +7****1234. Полный номер в лог не пишем."""

@@ -16,7 +16,7 @@ from ..db import engine, get_session
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, Ride, TgAuth, User, UserRole
 from ..payments import BOOST_PLANS
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
-from ..services import send_push, send_sms, user_rating
+from ..services import send_push_bi, send_sms, user_rating
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["auth"])
@@ -267,6 +267,14 @@ def _activate_manual_payment(session: Session, payment: Payment) -> None:
                 ad.ends_at = utcnow() + timedelta(days=ad.period_days)
             session.add(ad)
     session.commit()
+    # Плательщику: оплата подтверждена (буст/донат). Рекламу ведёт её собственный поток.
+    if payment.purpose == "boost":
+        send_push_bi(session, payment.user_id, "Платёж подтверждён", "Түләү раҫланды",
+                     "Твоя поездка поднята в топ.", "Сәфәрең өҫкә күтәрелде.")
+    elif payment.purpose == "donate":
+        send_push_bi(session, payment.user_id, "Спасибо за поддержку!", "Ярҙамың өсөн рәхмәт!",
+                     "Твой донат получен. Спасибо, что поддерживаешь Юлдаш 💚",
+                     "Донатың ҡабул ителде. Юлдашты яҡлағаның өсөн рәхмәт 💚")
 
 
 def _handle_admin_callback(callback: dict):
@@ -312,6 +320,12 @@ def _handle_admin_callback(callback: dict):
                 s.add(target)
                 s.add(dp)
                 s.commit()
+                if approve:
+                    send_push_bi(s, user_id, "Проверка пройдена", "Тикшереү үтелде",
+                                 "Теперь ты можешь публиковать поездки.", "Хәҙер һин сәфәрҙәр баҫтыра алаһың.")
+                else:
+                    send_push_bi(s, user_id, "Проверка не пройдена", "Тикшереү үтелмәне",
+                                 "Проверь фото и отправь снова.", "Фотоларҙы тикшереп, ҡабат ебәр.")
                 text = f"{'Одобрен' if approve else 'Отклонён'} водитель #{user_id}: {target.name or target.phone}"
         elif parts[0] == "ad":
             ad = s.get(Ad, user_id)
@@ -327,7 +341,12 @@ def _handle_admin_callback(callback: dict):
                 s.add(ad)
                 s.commit()
                 if ad.owner_id:
-                    send_push(s, ad.owner_id, "Реклама одобрена", f"«{ad.title}» прошла модерацию. Осталось оплатить размещение.")
+                    send_push_bi(
+                        s, ad.owner_id,
+                        "Реклама одобрена", "Реклама раҫланды",
+                        f"«{ad.title}» прошла модерацию. Осталось оплатить размещение.",
+                        f"«{ad.title}» модерацияны үтте. Урынлаштырыуҙы түләргә ҡалды.",
+                    )
                 text = f"Одобрена реклама #{ad.id}: «{ad.title}»"
             else:
                 ad.status = "rejected"
@@ -336,7 +355,7 @@ def _handle_admin_callback(callback: dict):
                 s.add(ad)
                 s.commit()
                 if ad.owner_id:
-                    send_push(s, ad.owner_id, "Реклама отклонена", ad.reject_reason)
+                    send_push_bi(s, ad.owner_id, "Реклама отклонена", "Реклама кире ҡағылды", ad.reject_reason)
                 text = f"Отклонена реклама #{ad.id}: «{ad.title}»"
         elif parts[0] == "resp":
             resp = s.get(RequestResponse, user_id)   # user_id здесь = id отклика
@@ -348,6 +367,8 @@ def _handle_admin_callback(callback: dict):
                 resp.status = "declined"
                 s.add(resp)
                 s.commit()
+                send_push_bi(s, resp.driver_id, "Отклик отклонён", "Яуап кире ҡағылды",
+                             "По этой заявке выбрали другого попутчика.", "Был заявкаға башҡа юлдаш һайланылар.")
                 text = f"Отклонён отклик #{resp.id}"
             else:
                 from .requests import accept_request_response   # локальный импорт — без цикла на старте

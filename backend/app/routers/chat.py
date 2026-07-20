@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from ..db import engine, get_session
 from ..models import Booking, BookingStatus, Message, Ride, User
 from ..security import authenticate_ws, current_user
-from ..services import booking_and_ride_for_user, is_blocked, manager, public_media_url, send_push, user_bookings
+from ..services import booking_and_ride_for_user, is_blocked, manager, public_media_url, send_push_bi, user_bookings
 
 router = APIRouter(tags=["chat"])
 
@@ -111,7 +111,11 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     session.refresh(msg)
     # Push другой стороне брони (кто не отправитель).
     other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
-    send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120])
+    send_push_bi(
+        session, other_id,
+        user.name or "Новое сообщение", user.name or "Яңы хәбәр",
+        (msg.text or "Голосовое сообщение")[:120], (msg.text or "Тауыш хәбәре")[:120],
+    )
     return msg
 
 

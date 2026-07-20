@@ -15,7 +15,7 @@ from ..models import (
 from ..security import current_user, gen_otp
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
-    notify_map_changed, send_push, user_rating,
+    notify_map_changed, send_push_bi, user_rating,
 )
 from ..timeutil import utcnow
 
@@ -292,7 +292,7 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     session.commit()
     session.refresh(resp)
     price_s = f", {body.price}₽" if body.price else ""
-    send_push(session, req.passenger_id, "Отклик на заявку", f"{user.name or 'Водитель'}: {req.from_city} → {req.to_city}{price_s}")
+    send_push_bi(session, req.passenger_id, "Отклик на заявку", "Заявкаға яуап", f"{user.name or 'Водитель'}: {req.from_city} → {req.to_city}{price_s}")
     has_device = session.exec(select(DeviceToken).where(DeviceToken.user_id == req.passenger_id)).first() is not None
     if not has_device:   # пассажир без приложения (напр. создан админом по звонку) → зовём админа перезвонить
         p = session.get(User, req.passenger_id)
@@ -372,7 +372,7 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     session.refresh(booking)
     notify_map_changed()   # заявка исполнена (matched) → её маркер уходит, новая поездка появляется — live
     pax = session.get(User, req.passenger_id)
-    send_push(session, resp.driver_id, "Заявку приняли", f"{(pax.name if pax else 'Пассажир')}: {req.from_city} → {req.to_city}")
+    send_push_bi(session, resp.driver_id, "Заявку приняли", "Заявка ҡабул ителде", f"{(pax.name if pax else 'Пассажир')}: {req.from_city} → {req.to_city}")
     return booking
 
 

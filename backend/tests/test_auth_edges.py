@@ -206,7 +206,7 @@ def test_admin_telegram_callback_moderates_ad(monkeypatch, client):
     monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
     monkeypatch.setattr(settings, "admin_telegram_chat_id", "5141534025")
     monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: None)
-    monkeypatch.setattr("app.routers.auth.send_push", lambda session, user_id, title, body: None)
+    monkeypatch.setattr("app.routers.auth.send_push_bi", lambda session, user_id, title_ru, title_ba, body_ru, body_ba=None: None)
     with Session(engine) as session:
         owner = User(phone="+79990006060", name="Partner", verified=True)
         session.add(owner)

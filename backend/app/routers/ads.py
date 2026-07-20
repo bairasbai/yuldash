@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..security import current_user
-from ..services import notify_admin_telegram, send_push
+from ..services import notify_admin_telegram, send_push_bi
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["ads"])
@@ -454,7 +454,12 @@ def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(current
     session.commit()
     session.refresh(ad)
     if ad.owner_id:
-        send_push(session, ad.owner_id, "Реклама одобрена", f"«{ad.title}» прошла модерацию. Осталось оплатить размещение.")
+        send_push_bi(
+            session, ad.owner_id,
+            "Реклама одобрена", "Реклама раҫланды",
+            f"«{ad.title}» прошла модерацию. Осталось оплатить размещение.",
+            f"«{ad.title}» модерацияны үтте. Урынлаштырыуҙы түләргә ҡалды.",
+        )
     return ad
 
 
@@ -472,7 +477,7 @@ def admin_reject_ad(ad_id: int, body: AdRejectIn, user: User = Depends(current_u
     session.commit()
     session.refresh(ad)
     if ad.owner_id:
-        send_push(session, ad.owner_id, "Реклама отклонена", (ad.reject_reason or "Проверь и отправь снова")[:120])
+        send_push_bi(session, ad.owner_id, "Реклама отклонена", "Реклама кире ҡағылды", (ad.reject_reason or "Проверь и отправь снова")[:120])
     return ad
 
 
