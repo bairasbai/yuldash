@@ -11,8 +11,8 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Booking, BookingStatus, DriverProfile, Ride, RideStatus, User
-from ..safety_logic import CANCEL_REASONS, clamp, detect_bump, ensure_active, is_late_cancel
+from ..models import Booking, BookingStatus, DriverProfile, Incident, Ride, RideStatus, User
+from ..safety_logic import CANCEL_REASONS, clamp, detect_bump, ensure_active, is_late_cancel, is_own_media_url
 from ..security import current_user, gen_otp
 from ..services import (
     booking_and_ride_for_user, geocode_city, is_blocked, notify_admin_telegram,
@@ -267,12 +267,33 @@ def cancel_booking(booking_id: int, background: BackgroundTasks, body: Optional[
             if reason in CANCEL_REASONS:
                 booking.cancel_reason = reason
             booking.cancel_note = clamp(body.note, 500)
-        # Форс-мажор — защищено: без пометки «поздняя» (щит от несправедливого штрафа, §1 п.10).
+        # Форс-мажор защищён от штрафа, НО не безлимитно: серийный самозаявленный «emergency» —
+        # тихий обход наказания (бампер уходит без минуса Надёжности). Считаем ПРОШЛЫЕ emergency
+        # этого юзера за окно; сверх лимита щит снимается (late/no_show как обычно) + сигнал админу.
+        emergency_shielded = False
         if booking.cancel_reason == "emergency":
-            late = False
-        # Водитель бросил ПОДТВЕРЖДЁННУЮ бронь (не форс-мажор) → тяжёлый минус Надёжности (§1.1, Рычаг 3).
-        # Реальный emergency от штрафа Надёжности освобождаем (но детект-улику ниже всё равно проверяем).
-        if is_driver_cancel and was_committed and booking.cancel_reason != "emergency":
+            # Строго ПРОШЛЫЕ emergency этого юзера (исключаем текущую бронь: autoflush иначе
+            # засчитал бы её саму — она уже помечена emergency в этой транзакции).
+            prior_emergencies = len(session.exec(
+                select(Booking.id).where(
+                    Booking.id != booking.id,
+                    Booking.cancelled_by == user.id,
+                    Booking.cancel_reason == "emergency",
+                    Booking.cancelled_at >= utcnow() - timedelta(days=_EMERGENCY_WINDOW_DAYS),
+                ).limit(_EMERGENCY_FREE_MAX + 1)
+            ).all())
+            emergency_shielded = prior_emergencies < _EMERGENCY_FREE_MAX
+            if emergency_shielded:
+                late = False   # щит от несправедливого штрафа (§1 п.10)
+            elif background is not None:
+                background.add_task(
+                    notify_admin_telegram,
+                    f"🚩 Частые «emergency»-отмены (Юлдаш): пользователь #{user.id}, "
+                    f"{prior_emergencies}+ за {_EMERGENCY_WINDOW_DAYS}д — возможен обход штрафа.",
+                )
+        # Водитель бросил ПОДТВЕРЖДЁННУЮ бронь → тяжёлый минус Надёжности (§1.1, Рычаг 3);
+        # защищённый (в лимите) emergency освобождаем, сверх лимита — наказываем как обычно.
+        if is_driver_cancel and was_committed and not emergency_shielded:
             booking.no_show = True
         ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
         session.add(booking)
@@ -322,6 +343,11 @@ class NoShowIn(BaseModel):
 # Насколько раньше времени выезда уже можно отметить неявку (не наказываем за минуты до).
 _NO_SHOW_EARLY_MIN = 15
 
+# Форс-мажор бесплатен, но не безлимитно: сколько «emergency»-отмен за окно ещё защищены от
+# штрафа (сверх — щит снимается, чтобы серийный бампер не уходил тихо). Позже — в конфиг.
+_EMERGENCY_FREE_MAX = 3
+_EMERGENCY_WINDOW_DAYS = 30
+
 
 @router.post("/bookings/{booking_id}/no-show", response_model=None)
 def report_no_show(booking_id: int, background: BackgroundTasks, body: Optional[NoShowIn] = None,
@@ -333,6 +359,11 @@ def report_no_show(booking_id: int, background: BackgroundTasks, body: Optional[
         raise HTTPException(409, "Неявку можно отметить только по подтверждённой поездке")
     if ride.depart_at and utcnow() < ride.depart_at - timedelta(minutes=_NO_SHOW_EARLY_MIN):
         raise HTTPException(409, "Ещё рано отмечать неявку")
+    # Лочим бронь: две одновременные отметки (обе стороны разом / двойной тап) иначе обе проходят
+    # гейт `no_show` до коммита → два инцидента (гонка). Перечитываем статус под локом.
+    locked = session.exec(select(Booking).where(Booking.id == booking.id).with_for_update()).first()
+    if locked is not None:
+        booking = locked
     if booking.no_show:
         raise HTTPException(409, "Неявка уже отмечена")
     if ride.driver_id == user.id:
@@ -341,7 +372,8 @@ def report_no_show(booking_id: int, background: BackgroundTasks, body: Optional[
         inc_type, respondent_id = "driver_no_show", ride.driver_id
     booking.no_show = True
     session.add(booking)
-    session.commit()
+    # НЕ коммитим флаг отдельно: create_incident коммитит сам → флаг+инцидент атомарно
+    # (падение до его коммита не оставит no_show без инцидента — частичный коммит закрыт).
     inc = create_incident(
         session, reporter=user, respondent_id=respondent_id, type=inc_type,
         description=clamp(body.note if body else "", 2000), booking_id=booking_id, background=background,
@@ -364,16 +396,31 @@ def mark_payment(booking_id: int, body: PaymentIn, background: BackgroundTasks,
         raise HTTPException(403, "Оплату отмечает только водитель")
     if booking.status != BookingStatus.done:
         raise HTTPException(409, "Оплату можно отметить только по завершённой поездке")
+    # Лочим бронь: двойной тап «не заплатил» иначе плодит второй non_payment-инцидент.
+    locked = session.exec(select(Booking).where(Booking.id == booking.id).with_for_update()).first()
+    if locked is not None:
+        booking = locked
     booking.payment_state = "received" if body.received else "unpaid"
     session.add(booking)
-    session.commit()
-    session.refresh(booking)
     inc = None
     if not body.received:
-        inc = create_incident(
-            session, reporter=user, respondent_id=booking.passenger_id, type="non_payment",
-            description=clamp(body.note, 2000), booking_id=booking_id, background=background,
-        )
+        # Дедуп: уже есть non_payment по этой броне на пассажира — не плодим второй (повтор/ретрай).
+        inc = session.exec(select(Incident).where(
+            Incident.booking_id == booking_id,
+            Incident.respondent_id == booking.passenger_id,
+            Incident.type == "non_payment",
+        )).first()
+        if inc is None:
+            # create_incident коммитит сам → флаг payment_state + инцидент атомарно (нет частичного коммита).
+            inc = create_incident(
+                session, reporter=user, respondent_id=booking.passenger_id, type="non_payment",
+                description=clamp(body.note, 2000), booking_id=booking_id, background=background,
+            )
+        else:
+            session.commit()   # существующий инцидент — просто фиксируем флаг payment_state
+    else:
+        session.commit()
+    session.refresh(booking)
     data = booking.model_dump(mode="json")
     data["incident_id"] = inc.id if inc else None
     return data
@@ -394,6 +441,10 @@ def parcel_photo(booking_id: int, body: ParcelPhotoIn,
     url = (body.url or "").strip()[:500]
     if not url:
         raise HTTPException(400, "Пустой URL фото")
+    # Allowlist: только НАШ файл (media/приватный эвиденс). Чужой URL при просмотре у оппонента
+    # слил бы его IP — иначе фото посылки становится каналом деанона «между своими».
+    if not is_own_media_url(url):
+        raise HTTPException(400, "Фото нужно загрузить в приложение")
     if body.phase == "pickup":
         booking.parcel_pickup_photo = url
     else:

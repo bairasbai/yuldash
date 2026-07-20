@@ -13,8 +13,8 @@ from ..db import get_session
 from ..models import AdEvent, AppReview, Booking, Payment, Ride, User, UserRole
 from ..security import current_user
 from ..services import (
-    CHAT_DIR, VOICE_DIR, cache_get_json, cache_set_json,
-    enforce_upload_quota, public_media_url, read_upload,
+    CHAT_DIR, EVIDENCE_DIR, VOICE_DIR, cache_get_json, cache_set_json,
+    enforce_upload_quota, public_media_url, read_upload, secure_evidence_url,
 )
 from ..timeutil import utcnow
 
@@ -190,3 +190,17 @@ async def upload_chat_photo(request: Request, user: User = Depends(current_user)
     with open(os.path.join(CHAT_DIR, name), "wb") as f:
         f.write(data)
     return {"url": public_media_url(f"chat/{name}")}
+
+
+@router.post("/upload/evidence")
+async def upload_evidence(request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Фото-ДОКАЗАТЕЛЬСТВО спора/посылки (лица/номера/травмы) → ПРИВАТНАЯ папка → защищённый URL
+    (/secure/evidence). В отличие от чат-фото, эвиденс не должен лежать в публичной media-папке с
+    угадываемым URL (152-ФЗ, деанон «между своими»). Файл отдаётся только участникам спора/брони
+    или админу (см. /secure/evidence). Клиент шлёт полученный URL в evidence_urls / фото посылки."""
+    enforce_upload_quota(session, user.id)
+    data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
+    name = f"{user.id}_{uuid.uuid4().hex}.{ext}"
+    with open(os.path.join(EVIDENCE_DIR, name), "wb") as f:
+        f.write(data)
+    return {"url": secure_evidence_url(name)}

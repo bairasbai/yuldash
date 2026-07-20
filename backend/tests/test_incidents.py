@@ -573,3 +573,110 @@ def test_driver_bump_hits_reliability_harder(client, user_factory):
     client.post(f"/bookings/{b2['id']}/cancel", headers=drv["auth"], json={"reason": "not_going"})  # бамп
     rel = client.get("/me/standing", headers=drv["auth"]).json()["reliability"]
     assert rel == 25                                 # 1 / (1 + вес 3) = 25%
+
+
+# ----------------------------- P3-хвосты: дедуп/атомарность/приватность/щит -----------------------------
+_JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 48   # валидная JPEG-сигнатура для sniff_image
+
+
+def _upload_evidence(client, who):
+    r = client.post("/upload/evidence", headers=who["auth"],
+                    files={"file": ("e.jpg", _JPEG, "image/jpeg")})
+    assert r.status_code == 200, r.text
+    return r.json()["url"]
+
+
+def test_non_payment_dedup(client, user_factory):
+    """Двойной тап «не заплатил» → тот же инцидент, не второй non_payment (спам-защита + идемпотентность)."""
+    drv, pax, ride, booking = _trip(client, user_factory)
+    bid = booking["id"]
+    _done(client, pax, bid)
+    r1 = client.post(f"/bookings/{bid}/payment", headers=drv["auth"], json={"received": False})
+    assert r1.status_code == 200, r1.text
+    iid = r1.json()["incident_id"]
+    assert iid is not None
+    r2 = client.post(f"/bookings/{bid}/payment", headers=drv["auth"], json={"received": False})
+    assert r2.status_code == 200 and r2.json()["incident_id"] == iid
+    mine = client.get("/incidents/mine", headers=drv["auth"]).json()
+    assert sum(1 for i in mine if i["type"] == "non_payment") == 1
+
+
+def test_emergency_shield_rate_limited(client, user_factory):
+    """Форс-мажор бесплатен, но не безлимитно: первые 3 emergency защищены (no_show=False),
+    4-я сверх лимита → штраф (no_show=True) — серийный бампер не уходит тихо."""
+    drv = user_factory("EmgDrv", role=UserRole.driver)
+    pax = user_factory("EmgPax")
+    got = []
+    for _ in range(4):
+        ride = _publish(client, drv, seats=3)
+        b = _book(client, pax, ride["id"])
+        _confirm(client, drv, b["id"])
+        r = client.post(f"/bookings/{b['id']}/cancel", headers=drv["auth"], json={"reason": "emergency"})
+        assert r.status_code == 200, r.text
+        got.append(r.json()["no_show"])
+    assert got[:3] == [False, False, False]
+    assert got[3] is True
+
+
+def test_parcel_photo_rejects_external_url(client, user_factory):
+    """Фото посылки — только НАШ файл: чужой хост (деанон по IP) → 400; приватный эвиденс → ок."""
+    drv, pax, ride, booking = _trip(client, user_factory)
+    bid = booking["id"]
+    bad = client.post(f"/bookings/{bid}/parcel-photo", headers=drv["auth"],
+                      json={"phase": "pickup", "url": "http://evil.example/x.jpg"})
+    assert bad.status_code == 400, bad.text
+    ok = client.post(f"/bookings/{bid}/parcel-photo", headers=drv["auth"],
+                     json={"phase": "pickup", "url": "/secure/evidence/1_ab.jpg"})
+    assert ok.status_code == 200, ok.text
+
+
+def test_upload_evidence_is_private(client, user_factory):
+    """Эвиденс грузится в приватную папку → защищённый /secure/evidence URL (не публичный /media)."""
+    u = user_factory("EvU")
+    url = _upload_evidence(client, u)
+    assert "/secure/evidence/" in url and "/media/" not in url
+
+
+def test_secure_evidence_access(client, user_factory):
+    """Приватное фото-доказательство: видят только участники спора + админ; посторонний — 403."""
+    drv = user_factory("EvDrv", role=UserRole.driver)
+    pax = user_factory("EvPax")
+    stranger = user_factory("EvStranger")
+    admin = user_factory("EvAdmin", role=UserRole.admin)
+    ride = _publish(client, drv)
+    booking = _book(client, pax, ride["id"])
+    url = _upload_evidence(client, pax)
+    name = url.rsplit("/", 1)[-1]
+    r = client.post("/incidents", headers=pax["auth"],
+                    json={"respondent_id": drv["id"], "type": "rude",
+                          "booking_id": booking["id"], "evidence_urls": [url]})
+    assert r.status_code == 200, r.text
+    assert client.get(f"/secure/evidence/{name}", headers=pax["auth"]).status_code == 200        # заявитель
+    assert client.get(f"/secure/evidence/{name}", headers=drv["auth"]).status_code == 200        # обвинённый
+    assert client.get(f"/secure/evidence/{name}", headers=admin["auth"]).status_code == 200      # админ
+    assert client.get(f"/secure/evidence/{name}", headers=stranger["auth"]).status_code == 403   # посторонний
+    # отдаём только из приватной папки, не из ФС
+    assert client.get("/secure/evidence/nope.jpg", headers=admin["auth"]).status_code == 404
+
+
+def test_shield_excludes_revenge_rating(client, user_factory):
+    """Щит рейтинга РЕАЛЬНО защищает: только shield (без exclude_rating) снимает оценку-месть из среднего."""
+    drv = user_factory("ShDrv", role=UserRole.driver)
+    p_good = user_factory("ShGood")
+    p_bad = user_factory("ShBad")
+    admin = user_factory("ShAdmin", role=UserRole.admin)
+    ride = _publish(client, drv, seats=3)
+    b_good = _book(client, p_good, ride["id"])
+    b_bad = _book(client, p_bad, ride["id"])
+    _done(client, p_good, b_good["id"])
+    _done(client, p_bad, b_bad["id"])
+    _rate(client, p_good, b_good["id"], 5)
+    _rate(client, p_bad, b_bad["id"], 1)
+    assert client.get(f"/users/{drv['id']}/trust", headers=p_good["auth"]).json()["rating"] == 3.0
+    inc = _file(client, p_bad, drv["id"], "rude", booking_id=b_bad["id"]).json()
+    r = client.post(f"/admin/incidents/{inc['id']}/resolve", headers=admin["auth"],
+                    json={"resolution": "dismissed", "fault": "reporter", "shield": True})   # без exclude_rating
+    assert r.status_code == 200, r.text
+    trust2 = client.get(f"/users/{drv['id']}/trust", headers=p_good["auth"]).json()
+    assert trust2["rating"] == 5.0 and trust2["rating_count"] == 1
+    assert client.get("/me/standing", headers=drv["auth"]).json()["rating_shield"] is True

@@ -55,18 +55,29 @@ def clamp(text: Optional[str], limit: int) -> str:
     return (text or "").strip()[:limit]
 
 
+def is_own_media_url(s: str) -> bool:
+    """URL указывает на НАШ файл (публичное /media или приватный эвиденс /secure/evidence),
+    а не на чужой хост? Чужой `http://evil/x.png` при загрузке у оппонента/админа слил бы его IP
+    (деанон «между своими»). Приватный эвиденс — предпочтителен для доказательств (лица/номера)."""
+    s = (s or "").strip()
+    if not s:
+        return False
+    base = (settings.media_base_url or "").rstrip("/")
+    prefixes = ["/media/", "/secure/evidence/"]
+    if base:
+        prefixes += [base + "/media/", base + "/secure/evidence/"]
+    return any(s.startswith(p) for p in prefixes)
+
+
 def csv_from_urls(urls, max_items: int = 10, max_len: int = 500) -> str:
     """Список URL доказательств → безопасный CSV: клампим количество/длину, без запятых.
-    Принимаем ТОЛЬКО свои media-URL: чужой `http://evil/x.png` при загрузке у оппонента/админа
-    слил бы его IP (деанон «между своими»). Внешние/чужие URL молча отбрасываем."""
+    Принимаем ТОЛЬКО свои URL (см. is_own_media_url) — внешние/чужие молча отбрасываем."""
     if not urls:
         return ""
-    base = (settings.media_base_url or "").rstrip("/")
     clean = []
     for u in urls[:max_items]:
         s = str(u or "").replace(",", "").strip()[:max_len]
-        is_own = s.startswith("/media/") or (bool(base) and s.startswith(base + "/media/"))
-        if s and is_own:
+        if is_own_media_url(s):
             clean.append(s)
     return ",".join(clean)
 
@@ -375,7 +386,10 @@ def apply_incident_resolution(
     now = utcnow()
     resolution = (resolution or "").strip() or "none"
 
-    if exclude_rating:
+    # Щит рейтинга РЕАЛЬНО защищает: снимает связанную оценку-месть из среднего (раньше `shield`
+    # был косметическим — только флаг в /me/standing, а вес оценок не менял). Теперь любой из
+    # `exclude_rating`/`shield` убирает зеркальную оценку заявителя из витрины.
+    if exclude_rating or shield:
         _exclude_linked_ratings(session, incident)
 
     prof = get_or_create_safety_profile(session, incident.respondent_id, lock=True)  # лок: страйки без гонки
