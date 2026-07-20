@@ -51,17 +51,27 @@ def secure_docs_url(name: str) -> str:
     return f"{settings.media_base_url.rstrip('/')}/secure/docs/{name}"
 
 
-def _looks_like_image(data: bytes, ext: str) -> bool:
-    """Сигнатура (magic-bytes) совпадает с заявленным расширением изображения?
-    Защита от заливки произвольных байтов под видом .jpg. Неизвестный тип — пропускаем
-    (расширение уже прошло whitelist)."""
-    if ext in ("jpg", "jpeg"):
-        return data[:3] == b"\xff\xd8\xff"
-    if ext == "png":
-        return data[:8] == b"\x89PNG\r\n\x1a\n"
-    if ext == "webp":
-        return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
-    return True
+def _detect_image_ext(data: bytes) -> "str | None":
+    """Реальный тип изображения по magic-bytes (НЕ по заявленному клиентом расширению).
+
+    Зачем: клиент грузит фото профиля/чата, но всегда помечает его `ext=jpg`, а телефоны
+    отдают png (скриншот), webp (скачанное) или heic (совр. камера). Раньше строгая проверка
+    «содержимое ≠ заявленный jpg» отвергала такие фото 400-й → аватар «не сохранялся».
+    Теперь тип берём из содержимого. None = это не изображение (защита от заливки мусора)."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    # HEIC/HEIF: "....ftyp<brand>" (совр. фото с телефона)
+    if data[4:8] == b"ftyp" and data[8:12] in (
+        b"heic", b"heix", b"hevc", b"heim", b"heis", b"hevm", b"hevs", b"mif1", b"msf1",
+    ):
+        return "heic"
+    return None
 
 
 def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sniff_image: bool) -> tuple[bytes, str]:
@@ -72,10 +82,15 @@ def _validate_upload(data: bytes, allowed_ext: set[str], ext: str, kind: str, sn
         raise HTTPException(400, f"Пустой файл: {kind}")
     if len(data) > settings.max_upload_bytes:
         raise HTTPException(413, f"Файл слишком большой: максимум {settings.max_upload_mb} МБ")
+    if sniff_image:
+        # Тип берём из СОДЕРЖИМОГО, а не из заявленного клиентом ext (клиент всегда шлёт «jpg»,
+        # а телефон отдаёт png/webp/heic → фото раньше отвергалось и «не сохранялось»).
+        detected = _detect_image_ext(data)
+        if detected is None:
+            raise HTTPException(400, f"Файл не похож на изображение: {kind}")
+        ext = detected
     if ext not in allowed_ext:
         raise HTTPException(400, f"Недопустимый тип файла: .{ext}")
-    if sniff_image and not _looks_like_image(data, ext):
-        raise HTTPException(400, f"Файл не похож на изображение: {kind}")
     return data, ext
 
 

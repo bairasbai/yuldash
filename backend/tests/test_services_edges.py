@@ -61,10 +61,11 @@ def test_public_and_secure_urls_use_configured_base(monkeypatch):
 
 def test_upload_validation_and_base64_decoding(monkeypatch):
     monkeypatch.setattr(settings, "max_upload_mb", 1)
-    assert services._looks_like_image(b"\xff\xd8\xffdata", "jpg") is True
-    assert services._looks_like_image(b"\x89PNG\r\n\x1a\nrest", "png") is True
-    assert services._looks_like_image(b"RIFFxxxxWEBPrest", "webp") is True
-    assert services._looks_like_image(b"bad", "jpg") is False
+    # тип определяется по СОДЕРЖИМОМУ (magic-bytes), а не по заявленному расширению
+    assert services._detect_image_ext(b"\xff\xd8\xffdata") == "jpg"
+    assert services._detect_image_ext(b"\x89PNG\r\n\x1a\nrest") == "png"
+    assert services._detect_image_ext(b"RIFFxxxxWEBPrest") == "webp"
+    assert services._detect_image_ext(b"bad") is None
 
     data_url = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\nrest").decode()
     data, ext = services.decode_upload_b64(data_url, {"png"}, "png", "photo", sniff_image=True)
