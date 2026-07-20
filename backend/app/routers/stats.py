@@ -57,16 +57,18 @@ def _rank_for(trips: int) -> dict:
     }
 
 
-def _ride_km(ride: Ride) -> float:
+def _ride_km(ride: Ride, geo=geocode_city) -> float:
     """Дистанция поездки в км. Сначала сохранённые координаты концов маршрута,
-    иначе геокод городов (известные города БашРТ — бесплатно). Нет данных → 0."""
+    иначе геокод городов (известные города БашРТ — бесплатно). Нет данных → 0.
+    `geo` — геокодер (по умолчанию `geocode_city`); в `my_stats` передаём мемоизированный,
+    чтобы один и тот же город не геокодился заново для каждой поездки (новая Session + Яндекс)."""
     if (
         ride.from_lat is not None and ride.from_lng is not None
         and ride.to_lat is not None and ride.to_lng is not None
     ):
         return haversine_km(ride.from_lat, ride.from_lng, ride.to_lat, ride.to_lng)
-    f = geocode_city(ride.from_city)
-    t = geocode_city(ride.to_city)
+    f = geo(ride.from_city)
+    t = geo(ride.to_city)
     if f and t:
         return haversine_km(f[0], f[1], t[0], t[1])
     return 0.0
@@ -77,10 +79,18 @@ def my_stats(user: User = Depends(current_user), session: Session = Depends(get_
     """Личная статистика текущего пользователя (пассажир + водитель)."""
     # Кешируем дистанцию поездки внутри запроса (одна поездка ↔ несколько ролей/строк).
     km_cache: dict[int, float] = {}
+    # Мемо геокода по имени города за запрос: один город геокодится РАЗ, а не для каждой поездки
+    # (иначе N поездок = 2N новых Session + 2N блокирующих Яндекс-вызовов на горячем /me/stats).
+    geo_memo: dict[str, object] = {}
+
+    def _geo(city: str):
+        if city not in geo_memo:
+            geo_memo[city] = geocode_city(city)
+        return geo_memo[city]
 
     def km_of(ride: Ride) -> float:
         if ride.id not in km_cache:
-            km_cache[ride.id] = _ride_km(ride)
+            km_cache[ride.id] = _ride_km(ride, geo=_geo)
         return km_cache[ride.id]
 
     trips = 0

@@ -218,6 +218,9 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         raise HTTPException(403, isv.strike_pause_message())
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
     # Не даём плодить параллельные активные заказы одному пассажиру (двойной тап/спам).
+    # Лочим строку пассажира → два одновременных POST сериализуются: первый создаёт заказ,
+    # второй под локом видит existing и возвращает его (без row-lock оба проходили SELECT→INSERT).
+    session.exec(select(User).where(User.id == user.id).with_for_update()).first()
     existing = session.exec(
         select(InstantOrder).where(
             InstantOrder.passenger_id == user.id,
@@ -403,6 +406,18 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
         raise HTTPException(404, "Заказ не найден")
     # Гейты водителя: (a) флаг/город по точке подачи + (b) заявка таксиста + долг.
     _guard_taxi_driver(session, user.id, existing.from_lat, existing.from_lng)
+    # Анти-дубль назначения: нельзя взять ВТОРОЙ заказ при активном первом. Matcher мог
+    # предложить одного водителя двум заказам, пока оба ещё offered (на малом рынке «между
+    # своими» вероятно) → accept обоих дал бы двойное назначение, один пассажир брошен.
+    other_active = session.exec(
+        select(InstantOrder.id).where(
+            InstantOrder.driver_id == user.id,
+            InstantOrder.status.in_([S.accepted, S.arriving, S.onboard]),
+            InstantOrder.id != order_id,
+        )
+    ).first()
+    if other_active is not None:
+        raise HTTPException(409, "У тебя уже есть активная поездка — заверши её сначала")
     order = isv.transition(session, order_id, isv.Actor.driver, S.accepted, user.id, idempotent=False)
     return isv.order_payload(session, order, user)
 

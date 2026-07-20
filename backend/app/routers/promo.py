@@ -19,6 +19,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -176,7 +177,11 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user), session: Sess
     promo.redeemed_count += 1
     session.add(promo)
     session.add(PromoRedemption(promo_id=promo.id, user_id=user.id))
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:   # гонка: параллельный запрос уже активировал код у этого юзера (UNIQUE)
+        session.rollback()
+        raise herr(409, "Ты уже активировал промокод", "Һин промокодты активлаштырҙың инде")
 
     msg_ru, msg_ba = _apply_message(promo)
     return {

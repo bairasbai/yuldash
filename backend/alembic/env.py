@@ -43,6 +43,13 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
+            # lock_timeout: миграции идут по ЖИВОМУ приложению (alembic upgrade ДО рестарта). Без
+            # него CREATE INDEX / ADD CONSTRAINT на горячей ride/user встаёт в очередь за живой
+            # транзакцией и сам блокирует ВЕСЬ трафик к таблице (стойл выдачи/логина). С lock_timeout
+            # DDL, не взявший лок за 3с, падает быстро → деплой чисто фейлится (ретрай на низком
+            # трафике), а не морозит прод. SET LOCAL — на время этой миграционной транзакции.
+            if connection.dialect.name == "postgresql":
+                connection.exec_driver_sql("SET LOCAL lock_timeout = '3s'")
             context.run_migrations()
 
 

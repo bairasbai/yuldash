@@ -119,7 +119,7 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
         user = session.exec(select(User).where(User.phone == body.phone)).first()
         if not user:
             user = User(phone=body.phone, name=body.name or "Проверка стора",
-                        verified=True, is_reviewer=True)
+                        is_reviewer=True)   # B1: ревьюер = L0, verified только через модерацию
         user.is_reviewer = True
         session.add(user)
         session.commit()
@@ -148,7 +148,7 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
     session.commit()
     user = session.exec(select(User).where(User.phone == body.phone)).first()
     if not user:
-        user = User(phone=body.phone, name=body.name or "Пользователь", verified=True)
+        user = User(phone=body.phone, name=body.name or "Пользователь")   # B1: verified только через модерацию
         session.add(user)
         session.commit()
         session.refresh(user)
@@ -430,7 +430,7 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
         existing_by_phone = session.exec(select(User).where(User.phone == row.shared_phone)).first()
         if existing_by_phone and not existing_by_phone.telegram_id:
             existing_by_phone.telegram_id = row.telegram_id
-            existing_by_phone.verified = True
+            # B1: НЕ выставляем verified при входе — это только результат модерации документов.
             if not existing_by_phone.name:
                 existing_by_phone.name = row.first_name or row.username or "Telegram"
             session.add(existing_by_phone)
@@ -442,7 +442,7 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
             phone=f"tg{row.telegram_id}",   # плейсхолдер, пока юзер не поделился реальным номером
             name=row.first_name or row.username or "Telegram",
             telegram_id=row.telegram_id,
-            verified=True,
+            # B1: verified только через модерацию документов (не при входе)
         )
         session.add(user)
         session.commit()

@@ -33,6 +33,15 @@ def upgrade() -> None:
     if "commissiondebt" in tables:
         uniques = {c["name"] for c in insp.get_unique_constraints("commissiondebt")}
         if _UQ not in uniques:
+            # Дедуп ДО создания UNIQUE. Если в проде уже есть дубли order_id (гонка двойного «done»,
+            # от которой это ограничение и защищает) — create_unique_constraint упал бы и откатил
+            # ВЕСЬ upgrade head → деплой падает, сервис не встаёт. Схлопываем дубли, оставляя одну
+            # (последнюю физически) строку на order_id. На sqlite (тест) таблица чистая → пропускаем.
+            if bind.dialect.name == "postgresql":
+                op.execute(sa.text(
+                    "DELETE FROM commissiondebt a USING commissiondebt b "
+                    "WHERE a.ctid < b.ctid AND a.order_id = b.order_id"
+                ))
             op.create_unique_constraint(_UQ, "commissiondebt", ["order_id"])
 
     if "tripshare" in tables:
