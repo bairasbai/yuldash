@@ -129,8 +129,10 @@ def my_routes(user: User = Depends(current_user), session: Session = Depends(get
 
 
 @router.get("/geocode")
-def geocode(q: str = ""):
+def geocode(q: str = "", user: User = Depends(current_user)):
     """Прокси Яндекс.Геокодера: ключ живёт на сервере, не в APK (раньше клиент слал ключ в URL).
+    Требует авторизацию: без неё это был открытый прокси к платной квоте Яндекса (её выедали
+    анонимно → подсказки адресов ломались у реальных людей). Клиент всегда с токеном.
     Отдаём упрощённый список адресов для подсказок «Откуда/Куда»."""
     key = settings.yandex_geocoder_key
     query = (q or "").strip()

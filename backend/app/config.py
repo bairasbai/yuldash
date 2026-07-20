@@ -3,6 +3,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_JWT_SECRET = "dev-secret-change-me"
 
 
+def _phone_key(phone: str) -> str:
+    """Нормализованный ключ телефона для сравнения (последние 10 цифр, без +/8/пробелов).
+    +79990001122 и 89990001122 → один ключ 9990001122."""
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
 class Settings(BaseSettings):
     """Настройки берутся из .env (см .env.example)."""
     env: str = "dev"
@@ -66,6 +73,13 @@ class Settings(BaseSettings):
     # Пусто → rate-limit in-memory на воркер, WS — локальный режим (один воркер). Пример: redis://127.0.0.1:6379/0
     redis_url: str = ""
 
+    # --- Пул соединений к БД (только Postgres). Формула безопасности:
+    #   (db_pool_size + db_max_overflow) × воркеров ≤ Postgres max_connections − резерв.
+    # Прод: 5 воркеров × (8+7)=15 = 75 < 100 (дефолт PG). Меняешь число воркеров — пересчитай тут.
+    # Дальше по масштабу — PgBouncer (transaction pooling): пул перестаёт быть узким местом.
+    db_pool_size: int = 8
+    db_max_overflow: int = 7
+
     # --- Прод-параметры ---
     media_base_url: str = "https://yulbash.ru"   # база для публичных URL медиа (фото/голос)
     cors_origins: str = "*"                       # список origin через запятую; в проде сузить
@@ -125,6 +139,12 @@ class Settings(BaseSettings):
             problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")
         if self.payments_provider == "sbp_manual" and not self.sbp_phone:
             problems.append("SBP_PHONE обязателен при PAYMENTS_PROVIDER=sbp_manual")
+        # Платёжный номер СБП раздаётся в ответе оплаты ВСЕМ вошедшим, а автоадмин выдаётся
+        # по номеру из ADMIN_PHONES → совпадение = раскрытый номер становится ключом к роли admin.
+        if self.payments_provider == "sbp_manual" and self.sbp_phone:
+            admin_keys = {_phone_key(p) for p in self.admin_phones.split(",") if p.strip()}
+            if _phone_key(self.sbp_phone) in admin_keys:
+                problems.append("SBP_PHONE не должен совпадать с ADMIN_PHONES (раскрытый платёжный номер = ключ к админке)")
         # Авто-одобрять водителей без OCR нельзя — это пустит непроверенных. Нужен ключ Vision.
         if self.driver_autoapprove_enabled and not self.yandex_vision_key:
             problems.append("YANDEX_VISION_KEY обязателен при DRIVER_AUTOAPPROVE_ENABLED (нельзя авто-одобрять без OCR)")

@@ -12,10 +12,11 @@ from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
 )
+from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
-    notify_map_changed, send_push, user_rating,
+    notify_map_changed, public_rides_payload, rides_out, send_push, user_rating,
 )
 from ..timeutil import utcnow
 
@@ -392,7 +393,7 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     return {"booking_id": booking.id}
 
 
-@router.get("/match/rides", response_model=List[Ride])
+@router.get("/match/rides", response_model=List[RideOut])
 def match_rides(request_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     req = session.get(RideRequest, request_id)
     if not req:
@@ -406,4 +407,7 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
         Ride.seats_left >= req.seats,
         Ride.category == req.category,
     )
-    return session.exec(q.order_by(Ride.depart_at)).all()
+    rides = session.exec(q.order_by(Ride.depart_at)).all()
+    # Публичная витрина, как все остальные ленты: без точной точки сбора (pickup*) — она
+    # раскрывается только участнику подтверждённой брони. Раньше отдавали сырой ORM (утечка).
+    return public_rides_payload(rides_out(rides, session))

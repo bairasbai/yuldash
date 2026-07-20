@@ -42,7 +42,10 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Yuldash API", version=API_VERSION, lifespan=lifespan)
+    # В проде прячем интерактивную схему (/docs, /redoc, /openapi.json): она раскрывает
+    # карту всех приватных admin/payment/moderation-эндпоинтов. В dev — доступна для удобства.
+    doc_urls = {"docs_url": None, "redoc_url": None, "openapi_url": None} if settings.is_prod else {}
+    app = FastAPI(title="Yuldash API", version=API_VERSION, lifespan=lifespan, **doc_urls)
     # Порядок: последний add_middleware — внешний (выполняется первым).
     # Хотим: лимит запросов отсекает раньше всего → добавляем его последним.
     app.add_middleware(AccessLogMiddleware)

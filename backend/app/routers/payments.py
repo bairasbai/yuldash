@@ -140,7 +140,9 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
         return {
             "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
             "amount": amount_kop // 100,
-            "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
+            # Имя получателя НЕ отдаём: банк сам покажет его при подтверждении перевода по СБП.
+            # Раньше раздавали ФИО владельца всем вошедшим → почва для имперсонации.
+            "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank},
         }
 
     # mock/yookassa. user.phone реальный (current_user не пускает плейсхолдер) → на него ЮKassa шлёт чек.
@@ -180,7 +182,9 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
         return {
             "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
             "amount": amount,
-            "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
+            # Имя получателя НЕ отдаём: банк сам покажет его при подтверждении перевода по СБП.
+            # Раньше раздавали ФИО владельца всем вошедшим → почва для имперсонации.
+            "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank},
         }
 
     res = create_payment(amount * 100, "Юлдаш · донат", {"payment_id": str(payment.id)}, customer_phone=user.phone)
