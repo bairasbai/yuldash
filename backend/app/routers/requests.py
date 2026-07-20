@@ -276,6 +276,8 @@ class RespondIn(BaseModel):
 def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель откликается на заявку. Уведомляет пассажира (push); если у пассажира нет
     устройства (заявка создана админом, без приложения) — уведомляет админа в Telegram."""
+    from ..safety_logic import ensure_active
+    ensure_active(session, user.id)   # приостановленный водитель не откликается на заявки
     req = session.get(RideRequest, request_id)
     if not req or req.status != "active":
         raise HTTPException(404, "Заявка не найдена или закрыта")

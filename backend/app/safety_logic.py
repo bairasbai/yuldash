@@ -10,6 +10,7 @@ Booking, ленивое создание SafetyProfile, применение р�
 from datetime import timedelta
 from typing import Optional
 
+from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -80,10 +81,18 @@ def clean_tags(csv: Optional[str]) -> str:
 
 
 # ----------------------------- SafetyProfile -----------------------------
-def get_or_create_safety_profile(session: Session, user_id: int) -> SafetyProfile:
+def get_or_create_safety_profile(session: Session, user_id: int, *, lock: bool = False) -> SafetyProfile:
     """Профиль справедливости пользователя. Ленивое создание (1:1 с User),
-    защищено от гонки уникальным индексом user_id."""
-    prof = session.exec(select(SafetyProfile).where(SafetyProfile.user_id == user_id)).first()
+    защищено от гонки уникальным индексом user_id.
+
+    lock=True → строка берётся `with_for_update` (для путей МУТАЦИИ страйков/standing:
+    два параллельных resolve одного respondent иначе теряют инкремент `strikes += 1`)."""
+    def _fetch():
+        q = select(SafetyProfile).where(SafetyProfile.user_id == user_id)
+        if lock:
+            q = q.with_for_update()
+        return session.exec(q).first()
+    prof = _fetch()
     if prof:
         return prof
     prof = SafetyProfile(user_id=user_id)
@@ -93,8 +102,20 @@ def get_or_create_safety_profile(session: Session, user_id: int) -> SafetyProfil
         session.refresh(prof)
     except IntegrityError:                       # другой запрос создал параллельно
         session.rollback()
-        prof = session.exec(select(SafetyProfile).where(SafetyProfile.user_id == user_id)).first()
+        prof = _fetch()                          # уже с локом, если просили
     return prof
+
+
+def ensure_active(session: Session, user_id: int) -> None:
+    """Гейт лестницы наказаний (§2): приостановленный аккаунт НЕ может совершать активные
+    действия (бронь/публикация/отклик/жалоба). Без этого страйки/паузы были косметикой —
+    забаненный продолжал работать. Ленивый пересчёт снимает истёкшую паузу сам."""
+    prof = refresh_standing(session, user_id)
+    if is_suspended(prof):
+        raise HTTPException(
+            403,
+            "Аккаунт на паузе до разбора. Загляни в Центр справедливости — там причина и срок.",
+        )
 
 
 def recompute_standing(profile: SafetyProfile, now=None) -> SafetyProfile:
@@ -178,12 +199,16 @@ def reliability_for(session: Session, user_id: int) -> int:
     if not bookings:
         return 100
     booking_ids = [b.id for b in bookings]
-    # Неявки, где виноват ИМЕННО этот пользователь (он respondent no-show инцидента).
+    # Неявки, где виноват ИМЕННО этот пользователь — только ПОДТВЕРЖДЁННЫЕ админом инциденты
+    # (status=resolved + fault на respondent). Иначе непроверенный донос мгновенно и необратимо
+    # ронял Надёжность невиновного (оружие мести), а оправдание (dismissed) её не возвращало.
     noshow_ids: set[int] = set()
     for inc in session.exec(select(Incident).where(
         Incident.booking_id.in_(booking_ids),
         Incident.respondent_id == user_id,
         Incident.type.in_(["passenger_no_show", "driver_no_show"]),
+        Incident.status == "resolved",
+        Incident.fault.in_(["respondent", "both"]),
     )).all():
         if inc.booking_id is not None:
             noshow_ids.add(inc.booking_id)
@@ -346,7 +371,7 @@ def apply_incident_resolution(
     if exclude_rating:
         _exclude_linked_ratings(session, incident)
 
-    prof = get_or_create_safety_profile(session, incident.respondent_id)
+    prof = get_or_create_safety_profile(session, incident.respondent_id, lock=True)  # лок: страйки без гонки
     if shield:
         prof.rating_shield = True
 
