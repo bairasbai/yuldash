@@ -19,7 +19,7 @@
 - ✅ **B2 [P1] «эффект толпы» на карте** (2026-07-20, pytest 193 passed): дебаунс сигнала `notify_map_changed` (всплеск изменений → 1 refresh в 3-сек окно, `SET NX EX`) + кэш `/rides/near` на 15с по ключу (from,to,округл.координаты,радиус); скрытие заблокированных и пагинация — per-request после кэша. `services.py`, `rides.py`.
 - ✅ **B5 (индекс, часть)** (2026-07-20): индекс `riderequest.status` (было seq-scan ленты заявок; зеркально `ride.status`). `models.py` + `migrate_requeststatus_index.sql` (прод-применение за Александром). Тест `test_b5_indexes.py`.
 - ⬜ **B3** Alembic baseline (нужен доступ к прод-схеме по SSH — за Александром), **B5** пагинация `/conversations` (гейтится клиентом), **B1** per-booking каналы (реалтайм: без live-Redis-интеграции не проверить здесь).
-- ⬜ **Клиент:** резка экранов → пилот Repository+VM (на машине с Android SDK).
+- ⬜ **Клиент (самый большой рычаг):** резка экранов → пилот Repository+VM. Готов turnkey-план → [phase1-client-plan.md](phase1-client-plan.md) (пошагово, для машины с Android SDK: в облаке не собрать).
 
 **✨ Фаза 2 — после.**
 
