@@ -530,8 +530,10 @@ def test_upload_photo_and_bad_b64(client, user_factory):
     r = client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "jpg"})
     assert r.status_code == 200 and "/secure/docs/" in r.json()["url"]
     assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": "!!!notb64!!!", "ext": "jpg"}).status_code == 400
-    # запрещённое расширение
-    assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "exe"}).status_code == 400
+    # Ярлык расширения от клиента игнорируем — тип берём из содержимого (фикс «фото не сохраняется»):
+    # валидный JPEG, помеченный «exe», сохраняется как .jpg (не .exe), а не отвергается.
+    r_exe = client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "exe"})
+    assert r_exe.status_code == 200 and r_exe.json()["url"].endswith(".jpg")
     # R2: байты без JPEG-сигнатуры под видом .jpg → 400 (magic-bytes)
     notimg = base64.b64encode(b"this is not an image").decode()
     assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": notimg, "ext": "jpg"}).status_code == 400

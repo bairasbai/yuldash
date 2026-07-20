@@ -224,6 +224,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.PointF
@@ -382,7 +385,9 @@ internal fun ProfileScreen(
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { u ->
             editScope.launch {
-                val bytes = runCatching { editCtx.contentResolver.openInputStream(u)?.use { it.readBytes() } }.getOrNull()
+                // Перекодируем в компактный JPEG на IO-потоке: нормализует формат (png/webp/heic → jpg,
+                // иначе сервер отвергал не-jpeg) и уменьшает тяжёлое фото до размера аватара.
+                val bytes = withContext(Dispatchers.IO) { decodeToJpeg(editCtx, u) }
                 if (bytes == null) { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show(); return@launch }
                 ApiClient.uploadChatPhoto(bytes)
                     .onSuccess { url ->
@@ -3486,3 +3491,32 @@ internal fun TripInfoRow(
         }
     }
 }
+
+/**
+ * Декодирует выбранное фото и перекодирует в компактный JPEG: нормализует формат
+ * (png/webp/heic → jpg — сервер иначе отвергал не-jpeg, фото «не сохранялось») и уменьшает
+ * тяжёлое фото до размера аватара (экономит трафик и квоту). null при ошибке. Тяжёлое —
+ * звать на IO-потоке. Даунсэмпл через inSampleSize, чтобы не поймать OOM на больших снимках.
+ */
+private fun decodeToJpeg(
+    context: Context,
+    uri: Uri,
+    maxSize: Int = 1024,
+    quality: Int = 88,
+): ByteArray? = runCatching {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    var sample = 1
+    while (bounds.outWidth / sample > maxSize * 2 || bounds.outHeight / sample > maxSize * 2) sample *= 2
+    val decoded = context.contentResolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+    } ?: return@runCatching null
+    val scale = maxSize.toFloat() / maxOf(decoded.width, decoded.height, 1)
+    val bmp = if (scale < 1f) {
+        Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt(), (decoded.height * scale).toInt(), true)
+    } else decoded
+    java.io.ByteArrayOutputStream().use { bos ->
+        bmp.compress(Bitmap.CompressFormat.JPEG, quality, bos)
+        bos.toByteArray()
+    }
+}.getOrNull()
