@@ -275,7 +275,8 @@ internal fun MapScreen(
     onDriver: () -> Unit,
     onBoost: () -> Unit,
     onClinicRides: () -> Unit,   // F22: раздел «Поездки к клинике»
-    onRouteWatch: (String?, String?) -> Unit = { _, _ -> }   // F13 «карауль поездку»: открыть «Мои подписки»
+    onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13 «карауль поездку»: открыть «Мои подписки»
+    onSeasonalPublish: (String) -> Unit = {}   // F15: баннер «на праздник» → форма создания поездки (аргумент — дата-шаблон)
 ) {
     val nearbyAd = ads.forPlacement(AdPlacement.Nearby).firstOrNull { it.city == "Баймаҡ" }
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
@@ -290,6 +291,15 @@ internal fun MapScreen(
     var nearbyReload by remember { mutableStateOf(0) }
     var nearbyTotal by remember { mutableStateOf(0) }       // всего на маршруте (для «Показать ещё»)
     var nearbyLimit by remember { mutableStateOf(NEARBY_PAGE) }  // сколько показываем сейчас
+    // F15: сезонное событие для баннера «на праздник». Один запрос; сервер сам считает даты по годам.
+    var seasonalEvent by remember { mutableStateOf<com.yuldash.app.data.SeasonalEventDto?>(null) }
+    var seasonalDismissed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        ApiClient.getSeasonalEvents().onSuccess { list ->
+            // самое релевантное: идущее сейчас, иначе — ближайшее (сервер уже отсортировал по дате начала)
+            seasonalEvent = list.firstOrNull { it.active } ?: list.firstOrNull()
+        }
+    }
     val filterCtx = LocalContext.current
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
     val verifiedOnly = remember { AppPrefs.verifiedOnly(filterCtx) }  // «Только проверенные» из раздела Безопасность
@@ -404,6 +414,16 @@ internal fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(11.dp),
                 contentPadding = PaddingValues(top = 11.dp, bottom = 10.dp)   // низ потеснее (просьба: внизу было много места)
             ) {
+                // F15: баннер «на праздник» — только когда близко событие (нет события → пункта нет, без пустой дырки).
+                seasonalEvent?.takeIf { !seasonalDismissed }?.let { sev ->
+                    item(key = "seasonal") {
+                        SeasonalBanner(
+                            event = sev,
+                            onPublish = { onSeasonalPublish(seasonalRidePrefillDate(sev)) },
+                            onDismiss = { seasonalDismissed = true },
+                        )
+                    }
+                }
                 item {
                     Box(Modifier.appearIn(2)) {
                         Row(

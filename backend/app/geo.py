@@ -57,7 +57,7 @@ SETTLEMENTS_SEED: list[tuple] = [
     ("Толбазы", "Толбаҙы", RB, "district_center", 54.004, 55.886),       # Аургазинский
     ("Бакалы", "Баҡалы", RB, "district_center", 55.176, 53.802),         # Бакалинский
     ("Старобалтачево", "Иҫке Балтас", RB, "district_center", 55.997, 55.919),  # Балтачевский
-    ("Новобелокатай", None, RB, "district_center", 55.710, 58.960),      # Белокатайский
+    ("Новобелокатай", "Яңы Балаҡатай", RB, "district_center", 55.710, 58.960),  # Белокатайский (ba: ba.wikipedia)
     ("Бижбуляк", "Бишбүләк", RB, "district_center", 53.697, 54.262),     # Бижбулякский
     ("Языково", None, RB, "district_center", 54.699, 54.903),            # Благоварский
     ("Буздяк", "Буздяҡ", RB, "district_center", 54.573, 54.521),         # Буздякский
@@ -129,18 +129,26 @@ _KIND_ORDER = {"city": 0, "district_center": 1, "neighbor": 2}
 
 
 def seed_settlements(session: Session) -> None:
-    """Идемпотентный сид: добавляет только отсутствующие (по name_ru) — повторный запуск no-op.
-    Существующие строки НЕ трогаем (правки координат/названий в БД не затираются)."""
+    """Идемпотентный сид: добавляет отсутствующие (по name_ru) + БЭКФИЛЛ пустого башкирского имени.
+
+    - Новый НП (нет в БД) → вставляем.
+    - Существующий НП с ПУСТЫМ name_ba, а в сиде имя есть → заполняем (гэп двуязычия).
+      Заполненное имя НЕ трогаем — правки координат/названий в БД не затираются.
+    Так добавление имён в SEED само доезжает до прода без отдельной миграции."""
     if not _table_ready(session):
         return
-    existing = set(session.exec(select(Settlement.name_ru)).all())
-    added = False
+    rows = {s.name_ru: s for s in session.exec(select(Settlement)).all()}
+    changed = False
     for name_ru, name_ba, region, kind, lat, lng in SETTLEMENTS_SEED:
-        if name_ru in existing:
-            continue
-        session.add(Settlement(name_ru=name_ru, name_ba=name_ba, region=region, kind=kind, lat=lat, lng=lng))
-        added = True
-    if added:
+        s = rows.get(name_ru)
+        if s is None:
+            session.add(Settlement(name_ru=name_ru, name_ba=name_ba, region=region, kind=kind, lat=lat, lng=lng))
+            changed = True
+        elif name_ba and not (s.name_ba or "").strip():
+            s.name_ba = name_ba   # бэкфилл только пустого — заполненное (в т.ч. правки админа) не трогаем
+            session.add(s)
+            changed = True
+    if changed:
         session.commit()
 
 

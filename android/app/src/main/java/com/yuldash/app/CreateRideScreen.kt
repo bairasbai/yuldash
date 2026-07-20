@@ -276,10 +276,11 @@ internal fun createRideValid(from: String, to: String, price: String): Boolean {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
+internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, prefillDate: String? = null) {
     var from by remember { mutableStateOf("") }
     var to by remember { mutableStateOf("") }
-    var dateTime by remember { mutableStateOf("") }
+    // F15: если открыли из баннера «на праздник» — дата события уже стоит (можно поменять пикером).
+    var dateTime by remember { mutableStateOf(prefillDate.orEmpty()) }
     var seats by remember { mutableStateOf("2") }
     var price by remember { mutableStateOf("300") }
     var comment by remember { mutableStateOf("") }

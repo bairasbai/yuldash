@@ -604,6 +604,17 @@ object ApiClient {
             (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
         }
 
+    // ---------- F15: сезонные события (баннер «на праздник») ----------
+
+    /** Актуальные сезонные события для баннера на карте (публично). days — окно вперёд (по умолч. 21). */
+    suspend fun getSeasonalEvents(days: Int? = null): Result<List<SeasonalEventDto>> {
+        val path = "/seasonal-events" + (days?.let { "?days=$it" } ?: "")
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toSeasonalEventDto() }
+        }
+    }
+
     /** Забронировать поездку. Возвращает id брони.
      * payMethod/payAmount — договорённость об оплате (ЗАПИСЬ, не платёж): как решили платить.
      * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
@@ -3634,6 +3645,20 @@ private fun JSONObject.toMedicalPartnerDto() = MedicalPartnerDto(
     description = optString("description"),
 )
 
+private fun JSONObject.toSeasonalEventDto() = SeasonalEventDto(
+    code = optString("code"),
+    nameRu = optString("name_ru"),
+    nameBa = optString("name_ba"),
+    noteRu = optString("note_ru"),
+    noteBa = optString("note_ba"),
+    emoji = optString("emoji"),
+    category = optString("category"),
+    anchor = optString("anchor"),
+    startsAt = optString("starts_at"),
+    endsAt = optString("ends_at"),
+    active = optBoolean("active", false),
+)
+
 private fun JSONObject.toRequestNearDto() = RequestNearDto(
     id = optInt("id"),
     passengerName = optString("passenger_name").ifBlank { "Пассажир" },
@@ -3694,6 +3719,22 @@ data class MedicalPartnerDto(
     val lat: Double? = null,
     val lng: Double? = null,
     val description: String = "",
+)
+
+/** F15: сезонное событие для баннера на карте. Даты считает сервер (авто-обновление по годам).
+ *  active=true — праздник уже идёт; иначе «скоро». anchor — главный день (ISO). */
+data class SeasonalEventDto(
+    val code: String,
+    val nameRu: String,
+    val nameBa: String,
+    val noteRu: String = "",
+    val noteBa: String = "",
+    val emoji: String = "",
+    val category: String = "",
+    val anchor: String = "",
+    val startsAt: String = "",
+    val endsAt: String = "",
+    val active: Boolean = false,
 )
 
 /** Публичный профиль водителя (без ПДн: без телефона). Тапом с карточки поездки. */
