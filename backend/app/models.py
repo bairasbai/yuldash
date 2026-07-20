@@ -1078,7 +1078,10 @@ class PromoCode(SQLModel, table=True):
 
 class PromoRedemption(SQLModel, table=True):
     """Факт применения промокода пользователем. Уникальность «один промокод на юзера ВСЕГО»
-    (ввёл код один раз в жизни аккаунта) проверяется в коде — это и есть анти-абуз."""
+    (ввёл код один раз в жизни аккаунта). БД-барьер UNIQUE(user_id): прикладная проверка «уже
+    активировал» не сериализует гонку ДВУХ РАЗНЫХ кодов (лочатся разные строки promocode) →
+    без констрейнта юзер получал двойной бонус, а блогеру засчитывался результат дважды."""
+    __table_args__ = (UniqueConstraint("user_id", name="uq_promoredemption_user"),)
     id: Optional[int] = Field(default=None, primary_key=True)
     promo_id: int = Field(index=True, foreign_key="promocode.id")
     user_id: int = Field(index=True, foreign_key="user.id")

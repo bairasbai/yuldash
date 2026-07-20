@@ -144,12 +144,17 @@ class S3Storage(Storage):
         self.signed_ttl = signed_ttl
         if client is None:
             import boto3  # ленивый импорт: без S3-конфига boto3 на рантайме не нужен
+            from botocore.config import Config
+            # Таймауты + лимит ретраев: без них дефолт botocore = 60с × попытки, и зависший
+            # провайдер (Timeweb/VK Cloud) держал бы поток воркера до минуты.
             client = boto3.client(
                 "s3",
                 endpoint_url=endpoint_url or None,
                 region_name=region or None,
                 aws_access_key_id=access_key or None,
                 aws_secret_access_key=secret_key or None,
+                config=Config(connect_timeout=3, read_timeout=5,
+                              retries={"max_attempts": 2, "mode": "standard"}),
             )
         self.client = client
 
@@ -166,11 +171,11 @@ class S3Storage(Storage):
     def load(self, key: str) -> bytes:
         try:
             resp = self.client.get_object(Bucket=self.bucket, Key=self._key(key))
-        except Exception as e:  # NoSuchKey / ClientError → трактуем как «нет файла»
+            return resp["Body"].read()          # .read() тоже под try — обрыв чтения не 500
+        except Exception as e:  # NoSuchKey → «нет файла»; прочее (таймаут/5xx) → StorageError (503, не 500)
             if _is_not_found(e):
                 raise FileNotFoundError(key) from e
-            raise
-        return resp["Body"].read()
+            raise StorageError(str(e)) from e
 
     def exists(self, key: str) -> bool:
         try:
@@ -179,7 +184,7 @@ class S3Storage(Storage):
         except Exception as e:
             if _is_not_found(e):
                 return False
-            raise
+            raise StorageError(str(e)) from e   # флап S3 на чтении → 503, не поток 500 + спам-алертов
 
     def delete(self, key: str) -> None:
         try:

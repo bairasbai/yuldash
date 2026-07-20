@@ -218,6 +218,9 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         raise HTTPException(403, isv.strike_pause_message())
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category)
     # Не даём плодить параллельные активные заказы одному пассажиру (двойной тап/спам).
+    # Лочим строку пассажира → два одновременных POST сериализуются: первый создаёт заказ,
+    # второй под локом видит existing и возвращает его (без row-lock оба проходили SELECT→INSERT).
+    session.exec(select(User).where(User.id == user.id).with_for_update()).first()
     existing = session.exec(
         select(InstantOrder).where(
             InstantOrder.passenger_id == user.id,

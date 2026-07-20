@@ -600,10 +600,11 @@ def courier_estimate(from_lat: float, from_lng: float, to_lat: float, to_lng: fl
 class CourierOrderIn(BaseModel):
     from_city: str = Field("", max_length=80)
     to_city: str = Field("", max_length=80)
-    from_lat: Optional[float] = None
-    from_lng: Optional[float] = None
-    to_lat: Optional[float] = None
-    to_lng: Optional[float] = None
+    # Границы координат (как в instant): без них серверная цена (haversine) считалась от чего угодно.
+    from_lat: Optional[float] = Field(None, ge=-90, le=90)
+    from_lng: Optional[float] = Field(None, ge=-180, le=180)
+    to_lat: Optional[float] = Field(None, ge=-90, le=90)
+    to_lng: Optional[float] = Field(None, ge=-180, le=180)
     size: str = Field("small", max_length=16)
     description: str = Field("", max_length=2000)
     receiver_name: str = Field("", max_length=120)
@@ -611,8 +612,8 @@ class CourierOrderIn(BaseModel):
     rules_accepted: bool = False
     delivery_type: str = Field("courier", max_length=16)   # courier | buy_bring
     urgency: str = Field("bypath", max_length=16)
-    declared_value_kop: int = 0
-    cod_amount_kop: int = 0                                 # buy_bring: стоимость товара (наложка)
+    declared_value_kop: int = Field(0, ge=0, le=100_000_00)   # объявленная ценность ≤ 1 млн ₽
+    cod_amount_kop: int = Field(0, ge=0, le=100_000_00)       # buy_bring: наложка ≤ 1 млн ₽
     shopping_list: str = Field("", max_length=2000)        # buy_bring: что купить (уходит в description)
 
 
