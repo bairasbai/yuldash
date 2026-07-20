@@ -384,9 +384,10 @@ def test_send_push_initializes_firebase_and_ignores_per_token_errors(monkeypatch
             self.body = body
 
     class Message:
-        def __init__(self, notification, token):
+        def __init__(self, notification, token, data=None):
             self.notification = notification
             self.token = token
+            self.data = data
 
     def initialize_app(cert):
         initialized.append(cert.path)

@@ -38,7 +38,7 @@ def _set_lang(user_id, lang):
 def pushes(monkeypatch):
     """Перехват низкоуровневого send_push → (user_id, title, body). Язык уже выбран send_push_bi."""
     sent = []
-    monkeypatch.setattr(services, "send_push", lambda session, user_id, title, body: sent.append((user_id, title, body)))
+    monkeypatch.setattr(services, "send_push", lambda session, user_id, title, body, data=None: sent.append((user_id, title, body)))
     return sent
 
 

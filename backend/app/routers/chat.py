@@ -56,6 +56,7 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
 
     other_id = driver_id if user_id == passenger_id else passenger_id
     manager.register(booking_id, websocket)
+    msgs = 0
     try:
         while True:
             data = await websocket.receive_text()
@@ -64,6 +65,16 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
             except (json.JSONDecodeError, ValueError):
                 continue   # битый (не-JSON) кадр — игнорируем, соединение НЕ роняем
             if payload.get("type") == "message":
+                # Периодически перечитываем токен (как гео-WS): logout в течение сессии должен рвать
+                # открытый сокет, иначе он живёт до разрыва (дыра «ревокация не читается в чат-WS»).
+                msgs += 1
+                if msgs % 15 == 0:
+                    with Session(engine) as s2:
+                        try:
+                            authenticate_ws(token or "", s2)
+                        except Exception:
+                            await websocket.close(code=1008, reason="Token revoked")
+                            break
                 # `with` → коннект возвращается в пул сразу (без утечки сессий на каждое сообщение).
                 with Session(engine) as session:
                     # Блокировка (как в REST send_message): заблокированный не пишет — тихо игнор.
@@ -89,6 +100,7 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                         send_push_bi, session, other_id,
                         sender_name or "Новое сообщение", sender_name or "Яңы хәбәр",
                         (msg.text or "Сообщение")[:120], (msg.text or "Тауыш хәбәре")[:120],
+                        {"type": "chat", "id": str(booking_id)},   # deep-link → открыть этот чат
                     )
     except WebSocketDisconnect:
         pass
@@ -116,6 +128,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         session, other_id,
         user.name or "Новое сообщение", user.name or "Яңы хәбәр",
         (msg.text or "Голосовое сообщение")[:120], (msg.text or "Тауыш хәбәре")[:120],
+        data={"type": "chat", "id": str(booking_id)},   # тап по пушу → открыть этот чат (deep-link)
     )
     return msg
 

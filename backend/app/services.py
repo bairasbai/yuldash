@@ -177,8 +177,11 @@ def blocked_user_ids(session: Session, uid: int) -> set[int]:
 _fcm_app = None
 
 
-def send_push(session: Session, user_id: int, title: str, body: str) -> None:
-    """Push на все устройства пользователя. Тихо ничего, если Firebase не настроен (нет ключа)."""
+def send_push(session: Session, user_id: int, title: str, body: str, data: dict | None = None) -> None:
+    """Push на все устройства пользователя. Тихо ничего, если Firebase не настроен (нет ключа).
+
+    data (все значения — строки) — для deep-link на клиенте: {"type": "chat"/"trip"/..., "id": "..."}
+    → тап по уведомлению открывает нужный экран (чат/поездку), а не просто главный."""
     if not settings.firebase_credentials:
         return
     try:
@@ -187,11 +190,13 @@ def send_push(session: Session, user_id: int, title: str, body: str) -> None:
         from firebase_admin import credentials, messaging
         if _fcm_app is None:
             _fcm_app = firebase_admin.initialize_app(credentials.Certificate(settings.firebase_credentials))
+        payload = {str(k): str(v) for k, v in (data or {}).items()}   # FCM data — только строки
         tokens = [d.token for d in session.exec(select(DeviceToken).where(DeviceToken.user_id == user_id)).all()]
         for t in tokens:
             try:
                 messaging.send(messaging.Message(
                     notification=messaging.Notification(title=title, body=body),
+                    data=payload,
                     token=t,
                 ))
             except Exception as e:  # noqa: BLE001
@@ -207,17 +212,19 @@ def send_push_bi(
     title_ba: str,
     body_ru: str,
     body_ba: str | None = None,
+    data: dict | None = None,
 ) -> None:
     """Двуязычный push: берёт язык получателя (User.language) и шлёт RU или BA.
 
     body_ba можно опустить, когда тело одинаково на обоих языках (только имена/города/цифры).
-    Так правило «любая надпись — на двух языках» (CLAUDE.md §3) действует и для уведомлений."""
+    data — deep-link на клиенте ({"type": ..., "id": ...}). Так правило «любая надпись — на двух
+    языках» (CLAUDE.md §3) действует и для уведомлений."""
     user = session.get(User, user_id)
     lang = (user.language if user and user.language else "ru")
     if lang == "ba":
-        send_push(session, user_id, title_ba, body_ba if body_ba is not None else body_ru)
+        send_push(session, user_id, title_ba, body_ba if body_ba is not None else body_ru, data)
     else:
-        send_push(session, user_id, title_ru, body_ru)
+        send_push(session, user_id, title_ru, body_ru, data)
 
 
 # ----------------------------- SMS -----------------------------
