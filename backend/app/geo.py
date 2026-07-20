@@ -1,21 +1,31 @@
 """География (волна 2): справочник населённых пунктов РБ + соседние регионы.
 
-Три kind'а (см. docs/business-logic-2026-07.md §4):
+Четыре kind'а (см. docs/business-logic-2026-07.md §4):
   city            — 21 город республиканского значения РБ;
   district_center — центры 54 муниципальных районов (сёла; где центр = город, он уже в city);
+  village         — ВСЕ сельские НП РБ (~4500) из OSM; данные в app/data/villages_rb.json
+                    (в репо пустой — фича готова, ждёт данных; заливает scripts/import_villages.py);
   neighbor        — приграничные города соседних регионов (популярный межгород).
 
-Сид идемпотентный (insert-if-missing по name_ru) — зовётся из lifespan (main.py), как seed_tariffs.
+Сиды идемпотентные — зовутся из lifespan (main.py): seed_settlements (город/райцентр/сосед по
+name_ru) + seed_villages (деревни по (name_ru, district) — тёзки в разных районах различаем).
 Координаты городов, уже известных CITY_COORDS (services.py), совпадают с ними 1:1 —
 geocode_city() и тесты видят те же значения. Координаты сёл — прикидка по открытым данным
 (~0.01°), спорные сверяет Александр. name_ba — черновой башкирский (финал — за носителем).
 """
+import json
+from pathlib import Path
 from typing import Optional
 
 from sqlmodel import Session, select
 
 from .models import Settlement
 from .services import haversine_km
+
+# Датасет деревень РБ (заполняется скриптом scripts/import_villages.py из OSM; в репо — пустой []).
+_VILLAGES_JSON = Path(__file__).parent / "data" / "villages_rb.json"
+# Какие OSM place → «деревня» (плюс town: пгт/крупные сёла-райцентры уже в city/district_center — их отсеет дедуп).
+_OSM_VILLAGE_PLACES = {"village", "hamlet", "town", "isolated_dwelling"}
 
 # Радиус привязки точки заказа к ближайшему НП («город точки А/Б») для зон такси.
 NEAREST_KM = 30.0
@@ -125,7 +135,9 @@ POPULAR_ROUTES: list[tuple[str, str]] = [
     ("Баймак", "Уфа"),
 ]
 
-_KIND_ORDER = {"city": 0, "district_center": 1, "neighbor": 2}
+_KIND_ORDER = {"city": 0, "district_center": 1, "village": 2, "neighbor": 3}
+# village — деревни РБ идут в поиске ПОСЛЕ городов/райцентров (не мешаются наверху),
+# но перед городами соседних регионов (для попутки по РБ они ближе). Данные — app/data/villages_rb.json.
 
 
 def seed_settlements(session: Session) -> None:
@@ -158,6 +170,76 @@ def _table_ready(session: Session) -> bool:
         return True
     except Exception:  # noqa: BLE001 — таблицы ещё нет (до миграции) → сид молча пропускаем
         return False
+
+
+# ─────────────────────────── Деревни РБ (kind='village') ───────────────────────────
+# Данные тянет scripts/import_villages.py из OpenStreetMap → app/data/villages_rb.json.
+# В репозитории файл пустой ([]) — фича «готова, ждёт данных»: seed_villages на пустом = no-op.
+
+def parse_overpass_elements(elements: list) -> list[dict]:
+    """OSM Overpass elements → [{name_ru, name_ba, district, lat, lng}]. Чистая (тестируется).
+
+    Берём только узлы-места (place ∈ village/hamlet/town/...) с русским именем и координатами.
+    district — из тегов is_in:* / addr:district, если OSM их дал (иначе None; скрипт дозаполняет)."""
+    out = []
+    for e in elements:
+        if e.get("type") != "node":
+            continue
+        tags = e.get("tags") or {}
+        if tags.get("place") not in _OSM_VILLAGE_PLACES:
+            continue
+        name = (tags.get("name") or "").strip()
+        lat, lng = e.get("lat"), e.get("lon")
+        if not name or lat is None or lng is None:
+            continue
+        district = (tags.get("is_in:district") or tags.get("addr:district")
+                    or tags.get("is_in:county") or "").strip() or None
+        out.append({
+            "name_ru": name,
+            "name_ba": (tags.get("name:ba") or "").strip() or None,
+            "district": district,
+            "lat": round(float(lat), 5), "lng": round(float(lng), 5),
+        })
+    return out
+
+
+def _load_villages_data() -> list[dict]:
+    """Читает app/data/villages_rb.json (список деревень). Нет файла / битый / пустой → []."""
+    try:
+        raw = json.loads(_VILLAGES_JSON.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, list) else []
+    except Exception:  # noqa: BLE001 — файла нет или битый → просто без деревень
+        return []
+
+
+def seed_villages(session: Session) -> int:
+    """Идемпотентный сид деревень (kind='village'). Ключ — (name_ru, district) для тёзок.
+    Пустой датасет → no-op. Возвращает число добавленных (для лога)."""
+    if not _table_ready(session):
+        return 0
+    data = _load_villages_data()
+    if not data:
+        return 0
+    existing = {(s.name_ru, s.district or "")
+                for s in session.exec(select(Settlement).where(Settlement.kind == "village")).all()}
+    added = 0
+    for v in data:
+        name = (v.get("name_ru") or "").strip()
+        if not name or v.get("lat") is None or v.get("lng") is None:
+            continue
+        district = (v.get("district") or "").strip() or None
+        key = (name, district or "")
+        if key in existing:
+            continue
+        session.add(Settlement(
+            name_ru=name, name_ba=(v.get("name_ba") or None), region=RB, kind="village",
+            district=district, lat=float(v["lat"]), lng=float(v["lng"]),
+        ))
+        existing.add(key)
+        added += 1
+    if added:
+        session.commit()
+    return added
 
 
 def _active(session: Session) -> list[Settlement]:
@@ -204,7 +286,7 @@ def nearest_settlement(session: Session, lat: float, lng: float,
 def settlement_payload(s: Settlement) -> dict:
     return {
         "id": s.id, "name_ru": s.name_ru, "name_ba": s.name_ba,
-        "region": s.region, "kind": s.kind, "lat": s.lat, "lng": s.lng,
+        "region": s.region, "kind": s.kind, "district": s.district, "lat": s.lat, "lng": s.lng,
     }
 
 
