@@ -87,39 +87,32 @@ promo-codes (+4), partner-coupons (+2), payments-ui (+1): дельта прот�
 - **#88 P3 → PR #97** (коммит `8aba78a`): приватный эвиденс (`/upload/evidence` + `/secure/evidence` с проверкой участия) + allowlist фото посылки; дедуп/атомарность `non_payment` и `no_show` (локи, нет частичного коммита); лимит на самозаявленный `emergency` (3/30дн, дальше щит снимается + сигнал админу); `rating_shield` оживлён (реально снимает оценку-месть); Telegram в `appeal` → неблокирующе.
 - **#88 Sybil → PR #97** (коммит `0c30101`): детект накрутки доверия сговором (`app/collusion.py` + `GET /admin/sybil/suspects`) — взаимные инвайты / взаимные 5★ / много броней между парой → сигнал админу на ручной разбор, БЕЗ авто-наказаний. **pytest 229.**
 - **#73 P3 → PR #93** (коммит `6dee888`): витрина клиник под логин; батчинг `cleanup.py` + чистка медиа в S3 (`storage.iter_old`); счётчики `waitlist` агрегатами + гонка вставки; дедуп `driver_schedule`; неймспейс idempotency-key выплаты по водителю; `*_kop` INTEGER → BigInteger (миграция `p3_money_bigint`, только Postgres). **pytest 864.**
+- **webapp CSP → PR #99** (коммит `cdf338f`): при ревью найден реальный баг — `connect-src` без `wss://yulbash.ru` блокировал бы весь реалтайм (чат/карта/лента идут по `wss://yulbash.ru/ws/...`). Добавлен wss + хосты Яндекс-карт; **проверено сборкой + headless Chromium** (app-shell монтируется, 0 нарушений CSP). CSP — в `webapp/nginx.conf.example`.
 
-**P3, что осталось в бэклоге** (не блокеры релиза): **весь бэкенд-бэклог закрыт.** Осталось только **webapp** (фронт, отдельная ветка): токен в `localStorage` (SPA-компромисс) и CSP — оба требуют браузер-проверки, из облака вслепую не вшиваем. Директивы CSP — ниже.
-
----
-
-## 🌐 webapp CSP — директивы для тебя (НЕ вшиты вслепую)
-
-CSP не отправлен в код специально: в облаке нельзя открыть браузер и проверить, что строгая политика не сломала SPA молча (React/Vite грузит чанки, шрифты, карту, API). Неверный CSP = белый экран без ошибки. Поэтому — точные директивы, ты добавляешь и проверяешь в браузере (DevTools → Console: не должно быть `Refused to…`).
-
-**Куда:** мета-тег в `webapp/index.html` (в `<head>`, самый простой путь для SPA) **или** заголовок на прод-хостинге/Nginx.
-
-```
-Content-Security-Policy:
-  default-src 'self';
-  script-src 'self';
-  style-src 'self' 'unsafe-inline';
-  img-src 'self' data: blob: https://yulbash.ru https://*.maps.yandex.net https://*.yandex.ru;
-  font-src 'self' data:;
-  connect-src 'self' https://yulbash.ru wss://yulbash.ru https://*.maps.yandex.net https://*.yandex.ru;
-  frame-src 'self' https://api-maps.yandex.ru;
-  object-src 'none';
-  base-uri 'self';
-  form-action 'self';
-  frame-ancestors 'none';
-```
-
-**Что подстроить под факт:**
-- `style-src 'unsafe-inline'` — нужен, если стили инлайнятся (обычно да у Vite-сборки/CSS-in-JS). Если весь CSS во внешних файлах — убери, будет строже.
-- `connect-src` / `img-src` / `frame-src` для Яндекс-карт — оставь только то, что реально дёргает карта (проверь Network). Если карта не в webapp — убери яндекс-строки.
-- `wss://yulbash.ru` — под WebSocket (чат/гео/лента). Обязательно, иначе realtime отвалится.
-
-После добавления: прогони весь флоу (логин, лента, карта, чат, оплата) и смотри Console — каждый `Refused to load` = одна строка, которую надо добавить в нужную директиву.
+**P3, что осталось в бэклоге:** **весь бэкенд-бэклог + webapp CSP закрыты.** Осталось единственное — токен в `localStorage` (webapp): стандартный SPA-компромисс; перевод refresh-токена в httpOnly-cookie требует серверного веб-сессионного слоя (отдельная задача, не «хвост»). Финальная браузер-проверка CSP на реальном домене (с ключом карты) — за Александром.
 
 ---
 
-*Аудит 2026-07-20. Ревью — код чужих веток не правился (кроме #73 → фиксы в PR #93). UPD: B1/P2/P3 реализованы и запушены в PR #93/#94.*
+## 🌐 webapp CSP — ОТПРАВЛЕНО и проверено (PR #99)
+
+**UPD:** CSP больше не «на потом». При ревью нашёл реальный баг — `connect-src` без `wss://yulbash.ru` **заблокировал бы весь реалтайм** (чат/живая карта/лента идут по `new WebSocket("wss://yulbash.ru/ws/...")`). Исправленная политика отправлена в `webapp/nginx.conf.example` (оба `add_header` — серверный и `location = /index.html`).
+
+**Проверил не вслепую:** собрал webapp (`vite build`), поднял `dist/` с этим CSP-заголовком и загрузил в headless **Chromium** — app-shell (экран входа) монтируется, **0 нарушений CSP, 0 JS-ошибок**. Собранный `index.html` без инлайн-скриптов, поэтому `script-src 'self'` не ломает загрузку.
+
+**Отправленная политика** (в `nginx.conf.example`):
+```
+default-src 'self';
+connect-src 'self' https://yulbash.ru wss://yulbash.ru https://*.maps.yandex.net https://api-maps.yandex.ru;
+script-src 'self' https://api-maps.yandex.ru https://yastatic.net;
+style-src 'self' 'unsafe-inline';
+img-src 'self' data: blob: https:;
+font-src 'self' data:;
+worker-src 'self' blob:; manifest-src 'self';
+frame-ancestors 'none'; base-uri 'none'; object-src 'none';
+```
+
+**Что осталось тебе (нужен браузер на реальном домене):** после логина и при включённой карте (`VITE_YANDEX_MAPS_JS_KEY`) пройти чат/карту/ленту, глянуть DevTools → Console. WebSocket-часть (главный риск) уже закрыта; если карта потянет ещё хост Яндекса — добавить его в `connect-src`/`script-src`.
+
+---
+
+*Аудит 2026-07-20. Ревью — код чужих веток не правился (кроме #73 → фиксы в PR #93). UPD «доводи всё»: B1/P2/P3 + весь P3-бэклог + Sybil + webapp CSP реализованы и запушены (PR #93/#94/#97/#99).*
