@@ -26,7 +26,8 @@ from ..config import settings
 from ..db import get_session
 from ..livepos import livepos_get
 from ..models import (
-    Booking, BookingStatus, InstantOrder, InstantOrderStatus, Ride, RideStatus, TripShare, User,
+    Booking, BookingStatus, InstantOrder, InstantOrderStatus, ParcelDelivery, Ride, RideStatus,
+    TripShare, User,
 )
 from ..services import public_ride_payload, ride_out
 from ..timeutil import utcnow
@@ -47,12 +48,32 @@ _PHASES = {
 
 _ORDER_LIVE_CAR = (InstantOrderStatus.accepted, InstantOrderStatus.arriving, InstantOrderStatus.onboard)
 
+# Фазы ДОСТАВКИ для получателя (G1). Статусы посылки наружу упрощаем так же, как поездку.
+# BA — черновики модели, финалит Александр (docs/tasks.md «Переводы — Трекинг посылки»).
+_PARCEL_PHASES = {
+    "searching": {"ru": "Ищем курьера…", "ba": "Курьер эҙләйбеҙ…"},
+    "accepted":  {"ru": "Курьер принял заказ", "ba": "Курьер заказды алды"},
+    "onway":     {"ru": "Посылка в пути", "ba": "Бандероль юлда"},
+    "finished":  {"ru": "Посылка доставлена ✅", "ba": "Бандероль еткерелде ✅"},
+}
+# Позицию курьера показываем получателю, пока он назначен и едет (accepted/in_transit —
+# ровно когда курьер стримит гео, PARCEL_LOC_ACTIVE в location.py). До этого машины нет.
+_PARCEL_STATUS_PHASE = {"created": "searching", "accepted": "accepted", "in_transit": "onway"}
+_PARCEL_LIVE_CAR = ("accepted", "in_transit")
+
 
 def _first_name(session: Session, user_id: int) -> str:
     """ТОЛЬКО имя (первое слово) — без фамилии/телефона (минимум перс.данных)."""
     u = session.get(User, user_id)
     name = (u.name or "").strip() if u else ""
     return name.split()[0] if name else "Пассажир"
+
+
+def _first_name_of(name: str) -> str:
+    """Первое слово имени получателя (у посылки имя — свободный текст, не User).
+    Пусто → пустая строка: страница покажет просто фазу («Посылка в пути»), без имени."""
+    name = (name or "").strip()
+    return name.split()[0] if name else ""
 
 
 def _resolve_share(session: Session, token: str) -> TripShare:
@@ -100,14 +121,16 @@ def _booking_state(session: Session, share: TripShare) -> dict:
                  car=car)
 
 
-def _live(first_name: str, phase: str, frm: dict, to: dict, car) -> dict:
+def _live(first_name: str, phase: str, frm: dict, to: dict, car, *,
+          kind: str = "ride", phases: dict = _PHASES) -> dict:
     car_out = None
     if car is not None:
         # Отдаём близкому только сами координаты/направление — без ts и прочей кухни.
         car_out = {"lat": car.get("lat"), "lng": car.get("lng"), "bearing": car.get("bearing")}
     return {
+        "kind": kind,                       # ride | parcel — страница выбирает иконку/подписи
         "status": phase,
-        "phase_text": _PHASES[phase],
+        "phase_text": phases[phase],
         "from": frm,
         "to": to,
         "car": car_out,
@@ -116,15 +139,34 @@ def _live(first_name: str, phase: str, frm: dict, to: dict, car) -> dict:
     }
 
 
-def _finished(first_name: str) -> dict:
+def _finished(first_name: str, *, kind: str = "ride", phases: dict = _PHASES) -> dict:
     """Завершена/отменена: БЕЗ координат (маршрут и позиция после поездки — не дело ссылки)."""
     return {
+        "kind": kind,
         "status": "finished",
-        "phase_text": _PHASES["finished"],
+        "phase_text": phases["finished"],
         "car": None,
         "passenger_first_name": first_name,
         "updated_at": utcnow().isoformat(),
     }
+
+
+def _parcel_state(session: Session, share: TripShare) -> dict:
+    """G1: состояние ДОСТАВКИ для получателя. Статус посылки → упрощённая фаза; позиция
+    курьера (livepos «parcel», пишется в location.py) — пока курьер назначен и едет. После
+    вручения/отмены — «Посылка доставлена ✅» БЕЗ координат. Телефоны наружу не идут."""
+    parcel = session.get(ParcelDelivery, share.parcel_id)
+    if not parcel:
+        raise HTTPException(404, "Ссылка не найдена")
+    name = _first_name_of(parcel.receiver_name)      # имя получателя (первое слово) или ""
+    if parcel.status in ("delivered", "canceled"):
+        return _finished(name, kind="parcel", phases=_PARCEL_PHASES)
+    phase = _PARCEL_STATUS_PHASE.get(parcel.status, "searching")
+    car = livepos_get("parcel", parcel.id) if parcel.status in _PARCEL_LIVE_CAR else None
+    return _live(name, phase,
+                 frm={"lat": parcel.from_lat, "lng": parcel.from_lng, "text": parcel.from_city or "Точка А"},
+                 to={"lat": parcel.to_lat, "lng": parcel.to_lng, "text": parcel.to_city or "Точка Б"},
+                 car=car, kind="parcel", phases=_PARCEL_PHASES)
 
 
 def _state(session: Session, share: TripShare) -> dict:
@@ -132,6 +174,8 @@ def _state(session: Session, share: TripShare) -> dict:
         return _order_state(session, share)
     if share.booking_id:
         return _booking_state(session, share)
+    if share.parcel_id:
+        return _parcel_state(session, share)
     raise HTTPException(404, "Ссылка не найдена")
 
 
@@ -206,7 +250,7 @@ _PAGE_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot"></span>Юлдаш · живая поездка · тере сәфәр</div>
+  <div class="brand"><span class="dot"></span>Юлдаш · <span id="brandtxt">живая поездка · тере сәфәр</span></div>
   <h1 id="title">Загружаем поездку…</h1>
   <div class="ba" id="title-ba">Сәфәр тураһында мәғлүмәт тейәйбеҙ…</div>
   <div class="route" id="route"></div>
@@ -233,14 +277,25 @@ _PAGE_HTML = """<!DOCTYPE html>
     el("title").textContent = "Юлдаш"; el("title-ba").textContent = ""; el("route").textContent = "";
   }
 
+  function setKind(kind){
+    // Одна страница обслуживает и поездку, и посылку — подписи/иконку выбираем по kind.
+    var parcel = (kind === "parcel");
+    var sub = el("brandtxt");
+    if (sub) sub.textContent = parcel ? "посылка · бандероль" : "живая поездка · тере сәфәр";
+    document.title = parcel ? "Юлдаш — посылка · бандероль" : "Юлдаш — живая поездка · тере сәфәр";
+  }
+
   function showFinished(st){
     el("map").style.display = "none"; el("done").style.display = "flex";
     el("route").textContent = ""; el("foot").style.display = "none";
     var who = st.passenger_first_name || "";
-    el("title").textContent = who ? (who + " — поездка завершена ✅") : "Поездка завершена ✅";
-    el("title-ba").textContent = st.phase_text && st.phase_text.ba ? st.phase_text.ba : "";
-    el("done-title").textContent = st.phase_text && st.phase_text.ru ? st.phase_text.ru : "Поездка завершена ✅";
-    el("done-ba").textContent = st.phase_text && st.phase_text.ba ? st.phase_text.ba : "";
+    // Текст финала берём из phase_text (ride → «Поездка завершена ✅», parcel → «Посылка доставлена ✅»).
+    var ru = (st.phase_text && st.phase_text.ru) ? st.phase_text.ru : "Готово ✅";
+    var ba = (st.phase_text && st.phase_text.ba) ? st.phase_text.ba : "";
+    el("title").textContent = who ? (who + " · " + ru) : ru;
+    el("title-ba").textContent = ba;
+    el("done-title").textContent = ru;
+    el("done-ba").textContent = ba;
   }
 
   function ensureMap(st){
@@ -267,8 +322,9 @@ _PAGE_HTML = """<!DOCTYPE html>
     }
     var pos = [st.car.lat, st.car.lng];
     if (!carMarker){
+      var emoji = (st.kind === "parcel") ? "📦" : "🚗";   // посылку везёт курьер → коробка, не машина
       carMarker = L.marker(pos, {
-        icon: L.divIcon({ className:"", html:'<div class="carpin">🚗</div>', iconSize:[26,26], iconAnchor:[13,13] }),
+        icon: L.divIcon({ className:"", html:'<div class="carpin">' + emoji + '</div>', iconSize:[26,26], iconAnchor:[13,13] }),
         zIndexOffset: 1000
       }).addTo(map);
     } else {
@@ -277,6 +333,7 @@ _PAGE_HTML = """<!DOCTYPE html>
   }
 
   function render(st){
+    setKind(st.kind);
     if (st.status === "finished"){ showFinished(st); return true; }
     var who = st.passenger_first_name || "";
     var ru = st.phase_text && st.phase_text.ru ? st.phase_text.ru : "";

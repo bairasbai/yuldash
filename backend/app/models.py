@@ -427,12 +427,19 @@ class TrustedContact(SQLModel, table=True):
 
 
 class TripShare(SQLModel, table=True):
-    """Поездка, расшаренная близкому (семейный контроль). Привязка: booking_id (бронь
-    попутки) ИЛИ order_id (такси-заказ, B7b-2) — ровно одна из двух."""
+    """Публичная трекинг-ссылка на «движение» (капабилити-токен → /t/{token}).
+    Привязка — РОВНО ОДНА из трёх:
+      • booking_id — бронь попутки (семейный контроль, близкому);
+      • order_id   — такси-заказ (B7b-2, близкому);
+      • parcel_id  — доставка/посылка (G1): ссылку получает ПОЛУЧАТЕЛЬ, следит за
+        курьером в браузере без приложения (самая любимая фича отправителей).
+    Поэтому contact_id опционален: у брони/заказа он есть (доверенный контакт),
+    у посылки — нет (ссылку отправитель отдаёт получателю сам / SMS на его номер)."""
     id: Optional[int] = Field(default=None, primary_key=True)
     booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
-    contact_id: int = Field(foreign_key="trustedcontact.id")
+    parcel_id: Optional[int] = Field(default=None, index=True, foreign_key="parceldelivery.id")
+    contact_id: Optional[int] = Field(default=None, foreign_key="trustedcontact.id")
     # Live-ссылка близкому (B7c): capability-токен публичной страницы /t/{token}.
     # ≥16 случайных байт (secrets.token_urlsafe). NULL у строк до миграции w2_livelink —
     # догенерируется при следующем share. Отзыв share (DELETE) удаляет строку → токен «сгорает».

@@ -850,3 +850,19 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - `CouponsScreen.kt` — `LaunchedEffect(Unit)` читает `me().city` и ставит фильтр по умолчанию (легко сбросить чипом «Все города»).
 
 **Дальше (когда появятся данные):** бейдж «Земляк» (F8) теперь реализуем — сравнить `User.city` пассажира и водителя; по желанию — дефолт города посылок из профиля.
+
+## 2026-07-21 — 📦 G1 «Трекинг-ссылка посылки получателю» (GAP Яндекс Про, ветка `claude/gap-features` от `release-2026-07`)
+**Зачем (флагманский пробел G1⭐):** у поездок публичная live-ссылка `/t/{token}` для близких была (батч B7c), у **посылок — нет**. Это самая хвалимая фича отправителей Яндекс Доставки: получатель без приложения видит в браузере, где его посылка. Реализовано, переиспользуя готовую инфраструктуру: курьер и так стримит гео в Redis (`livepos("parcel")`, `location.py`), страница `/t/{token}` уже отрисована — не хватало лишь привязки токена к доставке.
+
+**Бэкенд (всё под тестами, монетизации НЕ касается):**
+- `models.py` — `TripShare.parcel_id` (index, FK `parceldelivery.id`); `contact_id` → `Optional` (у посылки контакта-«близкого» нет, ссылку отдаёт отправитель / SMS получателю). Ссылка привязана к РОВНО ОДНОМУ из трёх: `booking_id` / `order_id` / `parcel_id`.
+- `family.py` — `POST /parcels/{id}/track-link`: только отправитель (чужое → 404, IDOR), дедуп (одна ссылка на посылку — `_ensure_share_token`), завершённую/отменённую не шарим (409). Есть телефон получателя → сразу SMS со ссылкой (best-effort). Возвращает `{token, url, sms_sent}`. TTL посылки — 72ч (`_PARCEL_SHARE_TTL`, межгород едет дольше поездки).
+- `share.py` — `_parcel_state`: статус посылки → упрощённая фаза (`created→searching`, `accepted→accepted`, `in_transit→onway`, `delivered/canceled→finished` БЕЗ координат). Позиция курьера из `livepos_get("parcel", id)` — пока курьер назначен и едет (`_PARCEL_LIVE_CAR=("accepted","in_transit")`, ровно когда он стримит гео). `_state` диспатчит на `parcel_id`. В state добавлен `kind` (ride|parcel); `_live`/`_finished` теперь принимают `kind`+`phases` (обратносовместимо, поездки шлют `ride`+`_PHASES`).
+- Общая страница `/t/{token}` — по `kind` выбирает иконку маркера (📦 vs 🚗), подпись бренда («посылка · бандероль» vs «живая поездка») и заголовок финала (из `phase_text`). Старые ссылки поездок не сломаны (регресс-сюит `test_live_link`/`test_share` зелёный).
+- Приватность (как B7c): токен `secrets.token_urlsafe(16)` (≥16 байт, unique); короткий → 404; телефоны получателя/отправителя наружу НЕ идут; после вручения — координат нет; `/t/***` маскируется в логах.
+- Миграция: `alembic/versions/g1_parcel_track.py` (revision `g1_parcel_track`, down=`p2_promo_unique` — **новый единственный head**). Идемпотентно: колонка `parcel_id` + индекс + снять NOT NULL с `contact_id` на Postgres; SQLite dev пересоздаётся из моделей.
+- Тесты: `tests/test_parcel_track.py` (11). Полный сюит: **880 passed, 1 skipped.**
+
+**Android (по чеклисту у Александра — облако не собирает APK):** кнопка «Поделиться отслеживанием» в карточке отправителя посылки → `ApiClient.parcelTrackLink(id)` (POST `/parcels/{id}/track-link`) → `LiveLinkCard` (копировать + share-sheet, уже есть в `TripLiveLink.kt`).
+
+**💳 Монетизация — off by default (подтверждено, код не трогал):** просьба «по умолчанию выключен, пока юр.моменты» уже выполнена мастер-флагами релиза (`taxi_enabled=False`, `courier_enabled=False`, `payments_provider="mock"`→503 «Оплата скоро» в проде, `payouts_enabled=False`). Отдельный флаг НЕ добавлял — был бы костыль поверх готового гейта. Дорожная карта совпадает с кодом: OFF → интерим `sbp_manual` («на доверии») → позже `yookassa`.

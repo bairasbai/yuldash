@@ -12,7 +12,8 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..models import (
-    Booking, BookingStatus, DriverProfile, InstantOrder, Rating, Ride, TripShare, TrustedContact, User,
+    Booking, BookingStatus, DriverProfile, InstantOrder, ParcelDelivery, Rating, Ride,
+    TripShare, TrustedContact, User,
 )
 from ..security import current_user
 from ..services import booking_and_ride_for_user, send_text, user_rating
@@ -21,6 +22,9 @@ from ..timeutil import utcnow
 # Live-ссылка живёт 24ч (приватность): дольше любой реальной поездки, но не бессрочно —
 # если поездка «зависнет» в живом статусе, ссылка перестанет отдавать гео (см. _resolve_share).
 _SHARE_TTL = timedelta(hours=24)
+# Трекинг-ссылка посылки живёт дольше (G1): межгород-доставка «по пути» едет и сутки, и двое.
+# 72ч — щедро для реальной доставки, но не вечно (после — токен «сгорает», гео не отдаётся).
+_PARCEL_SHARE_TTL = timedelta(hours=72)
 
 router = APIRouter(tags=["family"])
 
@@ -157,6 +161,49 @@ def list_instant_shares(order_id: int, user: User = Depends(current_user),
     return session.exec(
         select(TripShare).where(TripShare.order_id == order_id, TripShare.contact_id.in_(contact_ids))
     ).all()
+
+
+# ---- Трекинг-ссылка посылки получателю (G1) ----
+@router.post("/parcels/{parcel_id}/track-link")
+def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
+                      session: Session = Depends(get_session)):
+    """G1: отправитель получает трекинг-ссылку для ПОЛУЧАТЕЛЯ. Получатель (без приложения)
+    открывает /t/{token} в браузере: статус доставки, движущийся курьер на карте, маршрут —
+    как «трекинг-ссылка» Яндекс Доставки, но без телефонов. Работает для любой доставки
+    (по пути / курьер / купи-привези), на любом статусе (можно следить с момента создания).
+
+    Только отправитель (иначе 404 — не раскрываем чужие посылки). Дедуп: одна ссылка на посылку
+    (повтор возвращает тот же токен — ссылка у получателя не протухает). Если у посылки есть
+    телефон получателя — сразу шлём ему SMS со ссылкой (best-effort). Завершённую/отменённую
+    посылку не шарим (следить уже не за чем)."""
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel or parcel.sender_id != user.id:
+        raise HTTPException(404, "Посылка не найдена")
+    if parcel.status in ("delivered", "canceled"):
+        raise HTTPException(409, "Посылка уже завершена")
+    existing = session.exec(
+        select(TripShare).where(TripShare.parcel_id == parcel_id).order_by(TripShare.id.desc())
+    ).first()
+    if existing:
+        token = _ensure_share_token(session, existing)   # дедуп: та же ссылка получателю
+        return {"token": token, "url": _live_link(token), "sms_sent": False}
+    share = TripShare(parcel_id=parcel_id, token=secrets.token_urlsafe(16),
+                      expires_at=utcnow() + _PARCEL_SHARE_TTL)
+    session.add(share)
+    session.commit()
+    session.refresh(share)
+    sms_sent = False
+    phone = (parcel.receiver_phone or "").strip()
+    if phone:   # получателю сразу: где посылка, без установки приложения (телефоны в ссылке не светятся)
+        who = user.name or "Отправитель"
+        route = f"{parcel.from_city or 'точка А'} → {parcel.to_city or 'точка Б'}"
+        try:
+            send_text(phone, f"Юлдаш: {who} отправил тебе посылку ({route}). "
+                             f"Следи за доставкой: {_live_link(share.token)}")
+            sms_sent = True
+        except Exception:   # SMS-шлюз мигнул — ссылку всё равно вернём отправителю (отдаст сам)
+            pass
+    return {"token": share.token, "url": _live_link(share.token), "sms_sent": sms_sent}
 
 
 def _revoke_share(session: Session, share_id: int, user: User, *, booking_id: int = None, order_id: int = None):
