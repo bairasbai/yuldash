@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from ..collusion import find_suspects
+from ..collusion import SCAN_CAP, find_suspects
 from ..db import get_session
 from ..models import User, UserRole
 from ..security import current_user
@@ -20,4 +20,5 @@ def sybil_suspects(user: User = Depends(current_user), session: Session = Depend
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для администратора")
     suspects = find_suspects(session)
-    return {"count": len(suspects), "suspects": suspects}
+    # scan_cap — сколько строк максимум сканируем на сигнал: усечение на большой БД не «тихое».
+    return {"count": len(suspects), "suspects": suspects, "scan_cap": SCAN_CAP}

@@ -13,6 +13,11 @@ from sqlmodel import Session, select
 
 from .models import Booking, BookingStatus, Rating, Ride, User
 
+# Предел строк на запрос — не тянем всю БД в память на большом объёме (эндпоинт админский, но
+# всё же). На раннем проде не достигается; при росте — ограничивает память. Значение отдаём в
+# ответе эндпоинта (scan_cap), чтобы усечение не было «тихим».
+SCAN_CAP = 100_000
+
 
 def _pair(a: int, b: int) -> tuple[int, int]:
     """Неориентированный ключ пары (меньший id первым) — чтобы A/B и B/A совпадали."""
@@ -22,7 +27,7 @@ def _pair(a: int, b: int) -> tuple[int, int]:
 def reciprocal_invites(session: Session) -> set[tuple[int, int]]:
     """Пары со взаимным рефералом: A ввёл код B И B ввёл код A. У честных так не бывает —
     код вводят один раз, обычно ДО появления «своих» в приложении."""
-    rows = session.exec(select(User.id, User.referred_by).where(User.referred_by != None)).all()  # noqa: E711
+    rows = session.exec(select(User.id, User.referred_by).where(User.referred_by != None).limit(SCAN_CAP)).all()  # noqa: E711
     ref = {uid: rby for uid, rby in rows}
     out: set[tuple[int, int]] = set()
     for uid, rby in ref.items():
@@ -37,6 +42,7 @@ def mutual_high_ratings(session: Session, min_each: int = 2) -> dict[tuple[int, 
     rows = session.exec(
         select(Rating.rater_id, Rating.ratee_id, Rating.booking_id)
         .where(Rating.stars >= 5, Rating.excluded == False)  # noqa: E712
+        .limit(SCAN_CAP)
     ).all()
     by_dir: dict[tuple[int, int], set] = defaultdict(set)
     for rater, ratee, bid in rows:
@@ -59,6 +65,7 @@ def pair_trip_counts(session: Session, min_trips: int = 4) -> dict[tuple[int, in
         select(Booking.passenger_id, Ride.driver_id)
         .join(Ride, Ride.id == Booking.ride_id)
         .where(Booking.status == BookingStatus.done)
+        .limit(SCAN_CAP)
     ).all()
     counts: dict[tuple[int, int], int] = defaultdict(int)
     for pax, drv in rows:
