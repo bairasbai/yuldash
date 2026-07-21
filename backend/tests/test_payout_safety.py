@@ -83,7 +83,7 @@ def test_payout_provider_decline_reverses_reserve(client, user_factory, payouts_
                     json={"amount_kop": 30000, "idempotency_key": "k-decl"})
     assert r.status_code == 400, r.text                 # провайдер отклонил
     assert _bal(drv["id"]) == 50000                     # резерв возвращён — баланс восстановлен
-    kinds = [e.kind for e in _payout_rows(drv["id"], "k-decl")]
+    kinds = [e.kind for e in _payout_rows(drv["id"], f"payout:{drv['id']}:k-decl")]
     assert LedgerKind.payout in kinds and LedgerKind.adj in kinds   # списание + компенсация
 
 
@@ -102,7 +102,7 @@ def test_payout_provider_exception_keeps_reserve(client, user_factory, payouts_o
                     json={"amount_kop": 30000, "idempotency_key": "k-exc"})
     assert r.status_code == 400, r.text
     assert _bal(drv["id"]) == 20000                     # резерв остался (50000 − 30000): контроль над суммой не потерян
-    kinds = [e.kind for e in _payout_rows(drv["id"], "k-exc")]
+    kinds = [e.kind for e in _payout_rows(drv["id"], f"payout:{drv['id']}:k-exc")]
     assert LedgerKind.payout in kinds and LedgerKind.adj not in kinds   # списание есть, компенсации нет
 
 
@@ -115,5 +115,5 @@ def test_payout_success_still_debits_once(client, user_factory, payouts_on):
                     json={"amount_kop": 30000, "idempotency_key": "k-ok-safe"})
     assert r.status_code == 200 and r.json()["status"] == "ok"
     assert _bal(drv["id"]) == 20000
-    rows = _payout_rows(drv["id"], "k-ok-safe")
+    rows = _payout_rows(drv["id"], f"payout:{drv['id']}:k-ok-safe")
     assert len(rows) == 1 and rows[0].kind == LedgerKind.payout and rows[0].amount_kop == -30000

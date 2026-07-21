@@ -14,7 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import MedicalPartner, Ride, RideStatus
+from ..models import MedicalPartner, Ride, RideStatus, User
+from ..security import current_user
 from ..services import public_rides_payload, rides_out
 from ..timeutil import utcnow
 from datetime import timedelta
@@ -47,10 +48,11 @@ def get_medical_partner(partner_id: int, session: Session = Depends(get_session)
 
 
 @router.get("/medical-partners/{partner_id}/rides")
-def rides_to_partner(partner_id: int, session: Session = Depends(get_session)):
+def rides_to_partner(partner_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Поездки «к этой клинике» — активные попутки, у которых клиника выбрана точкой назначения.
-    Пассажир из района видит, кто уже едет к нужной клинике, и может подсесть.
-    Витрина публичная (без телефона/точной точки сбора) — приватность как в остальной ленте."""
+    ТРЕБУЕТ ВХОДА: сам факт «кто и когда едет в конкретную клинику» — чувствительный вывод о
+    здоровье, анониму его не отдаём (152-ФЗ). Справочник клиник (без поездок) остаётся публичным.
+    Данные поездок и так урезаны (без телефона/точной точки сбора) — приватность как в ленте."""
     partner = session.get(MedicalPartner, partner_id)
     if not partner or not partner.active:
         raise HTTPException(404, "Клиника не найдена")

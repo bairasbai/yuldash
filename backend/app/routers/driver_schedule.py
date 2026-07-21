@@ -88,14 +88,23 @@ def create_schedule(body: ScheduleIn, user: User = Depends(current_user), sessio
         raise HTTPException(400, "Укажи откуда и куда")
     if from_city.lower() == to_city.lower():
         raise HTTPException(400, "Города отправления и назначения совпадают")
+    weekdays = _normalize_weekdays(body.weekdays)
+    tm = _normalize_time(body.time)
+    # Идемпотентность: двойной тап / ретрай не должен плодить одинаковые активные расписания.
+    # Возвращаем существующее вместо дубля (дедуп на уровне приложения — без миграции).
+    existing = session.exec(select(DriverSchedule).where(
+        DriverSchedule.driver_id == user.id,
+        DriverSchedule.from_city == from_city,
+        DriverSchedule.to_city == to_city,
+        DriverSchedule.weekdays == weekdays,
+        DriverSchedule.time == tm,
+        DriverSchedule.active == True,  # noqa: E712
+    )).first()
+    if existing is not None:
+        return existing
     sched = DriverSchedule(
-        driver_id=user.id,
-        from_city=from_city,
-        to_city=to_city,
-        weekdays=_normalize_weekdays(body.weekdays),
-        time=_normalize_time(body.time),
-        comment=(body.comment or "").strip()[:200],
-        active=True,
+        driver_id=user.id, from_city=from_city, to_city=to_city,
+        weekdays=weekdays, time=tm, comment=(body.comment or "").strip()[:200], active=True,
     )
     session.add(sched)
     session.commit()
