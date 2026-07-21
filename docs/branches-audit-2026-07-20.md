@@ -81,6 +81,8 @@ promo-codes (+4), partner-coupons (+2), payments-ui (+1): дельта прот�
 5. **Деплой бэкенда** (scp+systemctl / CI).
 6. **Развести `SBP_PHONE` ≠ `ADMIN_PHONES`** в прод `.env` (гейт из Ф0 проверит).
 
+> ⚠️ **При вливании обеих веток #73 и #88 будет конфликт в `models.py` по классу `Rating`:** #73 добавил `order_id`/`text_published` и сделал `booking_id` nullable, #88 добавил `excluded`. Разреши конфликт, **СОХРАНИВ ОБА набора полей** — особенно `excluded`: на нём держатся снятие оценки-мести (§3) и Sybil-детект (`mutual_high_ratings` фильтрует `excluded == False`). Потеряешь `excluded` → сломаются защита рейтинга и `/admin/sybil/suspects`. (Нашёл при самопроверке кода.)
+
 **P2/P3 — что закрыто заходом B1/P2/P3:**
 - **#73 → PR #93** (коммит `9fa5838`): промо-UNIQUE + `IntegrityError`→409, идемпотентность создания заказа (`with_for_update`), границы координат/сумм курьера, storage-таймауты + `StorageError`. **B1 закрыт** (коммит `e4deff9` + миграция-сброс `b1_reset_verified` + тест) — `verified` только через модерацию.
 - **#88 → PR #94** (коммит `f3d9b1d`): анти-харассмент (жалоба без поездки → 400), allowlist внешних URL (деанон), затухание `warnings`, enum на `ResolveIn`.
