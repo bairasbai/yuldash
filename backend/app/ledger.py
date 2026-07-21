@@ -108,11 +108,14 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
     scoped_key = f"payout:{driver_id}:{idempotency_key}"
 
     def _existing():
+        # Матчим и НОВЫЙ scoped-ключ, и СЫРОЙ: записи выплат до этого деплоя имели ext_id=сырой
+        # ключ, и ретрай той же выплаты через момент деплоя иначе не нашёл бы старую запись →
+        # зарезервировал бы списание второй раз. Оба — строго в рамках этого водителя (driver_id).
         return session.exec(
             select(LedgerEntry).where(
                 LedgerEntry.driver_id == driver_id,
                 LedgerEntry.kind == LedgerKind.payout,
-                LedgerEntry.ext_id == scoped_key,
+                LedgerEntry.ext_id.in_([scoped_key, idempotency_key]),
             )
         ).first()
 

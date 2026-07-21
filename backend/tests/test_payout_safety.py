@@ -117,3 +117,20 @@ def test_payout_success_still_debits_once(client, user_factory, payouts_on):
     assert _bal(drv["id"]) == 20000
     rows = _payout_rows(drv["id"], f"payout:{drv['id']}:k-ok-safe")
     assert len(rows) == 1 and rows[0].kind == LedgerKind.payout and rows[0].amount_kop == -30000
+
+
+def test_payout_matches_legacy_raw_ext_id(client, user_factory, payouts_on):
+    """Обратная совместимость: выплата со СТАРЫМ (сырым) ext_id (до неймспейс-деплоя) находится
+    ретраем с тем же ключом → второй раз НЕ списываем (нет двойного резерва через момент деплоя)."""
+    drv = user_factory("PoLegacyDrv", role=UserRole.driver)
+    _seed_balance(drv["id"], 50000)
+    _save_card(client, drv)
+    with Session(engine) as s:   # эмулируем «до деплоя»: payout со сырым ext_id, как писал старый код
+        s.add(LedgerEntry(driver_id=drv["id"], kind=LedgerKind.payout, amount_kop=-30000,
+                          ext_id="legacy-key", note="pre-deploy"))
+        s.commit()
+    assert _bal(drv["id"]) == 20000
+    r = client.post("/wallet/payout", headers=drv["auth"],
+                    json={"amount_kop": 30000, "idempotency_key": "legacy-key"})
+    assert r.status_code == 200 and r.json()["status"] == "already", r.text
+    assert _bal(drv["id"]) == 20000    # НЕ списано второй раз

@@ -90,8 +90,9 @@ def create_schedule(body: ScheduleIn, user: User = Depends(current_user), sessio
         raise HTTPException(400, "Города отправления и назначения совпадают")
     weekdays = _normalize_weekdays(body.weekdays)
     tm = _normalize_time(body.time)
-    # Идемпотентность: двойной тап / ретрай не должен плодить одинаковые активные расписания.
-    # Возвращаем существующее вместо дубля (дедуп на уровне приложения — без миграции).
+    # Идемпотентность ПОСЛЕДОВАТЕЛЬНОГО двойного тапа / ретрая: вернём существующее вместо дубля.
+    # Дедуп на уровне приложения (без миграции) — покрывает обычный кейс; РОВНО одновременные
+    # идентичные POST теоретически создадут дубль (расписание косметическое, не деньги/безопасность).
     existing = session.exec(select(DriverSchedule).where(
         DriverSchedule.driver_id == user.id,
         DriverSchedule.from_city == from_city,
