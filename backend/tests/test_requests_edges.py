@@ -230,7 +230,12 @@ def test_admin_telegram_callback_declines_request_response(client, user_factory,
 
 def _seed_rating(ratee_id: int, stars: int) -> None:
     with Session(engine) as s:
-        s.add(Rating(booking_id=1, rater_id=1, ratee_id=ratee_id, stars=stars))
+        # rater_id — реальный пользователь (не сам ratee): FK rating.rater_id→user.id PostgreSQL
+        # проверяет (SQLite — нет), поэтому прежний хардкод rater_id=1 падал на pg-прогоне CI.
+        # booking_id не задаём: агрегат рейтинга фильтрует только по ratee_id, а FK на booking.id
+        # с фиктивным booking_id=1 иначе тоже упал бы. Оценка анонимна — личность rater роли не играет.
+        rater_id = s.exec(select(User.id).where(User.id != ratee_id)).first()
+        s.add(Rating(rater_id=rater_id, ratee_id=ratee_id, stars=stars))
         s.commit()
 
 
