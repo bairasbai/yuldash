@@ -35,9 +35,11 @@ server {
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "geolocation=(self), camera=(), microphone=()" always;
-    # CSP: свой origin + API (yulbash.ru) + Яндекс.Карты (внешний скрипт). При выкатке откалибровать
-    # под реальные хосты карт/тайлов; style-src 'unsafe-inline' — минимально необходимое.
-    add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https://yulbash.ru; script-src 'self' https://api-maps.yandex.ru; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'" always;
+    # CSP: свой origin + API (https+wss yulbash.ru) + Яндекс.Карты. wss ОБЯЗАТЕЛЕН — без него
+    # WebSocket чата/гео/ленты (wss://yulbash.ru/ws/...) блокируется CSP и реалтайм отваливается.
+    # Хосты карт (api-maps/*.maps.yandex.net/yastatic) нужны, когда задан VITE_YANDEX_MAPS_JS_KEY.
+    # App-shell проверен в Chromium (0 нарушений); style-src 'unsafe-inline' — инлайн-стили React.
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https://yulbash.ru wss://yulbash.ru https://*.maps.yandex.net https://api-maps.yandex.ru; script-src 'self' https://api-maps.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'" always;
 
     # Каталог со собранной статикой (dist/)
     root  /var/www/yuldash-webapp/dist;
@@ -82,6 +84,6 @@ server {
         add_header X-Frame-Options "DENY" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
         add_header Permissions-Policy "geolocation=(self), camera=(), microphone=()" always;
-        add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https://yulbash.ru; script-src 'self' https://api-maps.yandex.ru; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'" always;
+        add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https://yulbash.ru wss://yulbash.ru https://*.maps.yandex.net https://api-maps.yandex.ru; script-src 'self' https://api-maps.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'" always;
     }
 }
