@@ -1,8 +1,12 @@
 """Подписка на маршрут «карауль поездку» (F13) — retention-двигатель.
 
-Пользователь подписывается на маршрут (Сибай→Уфа), и как только водитель публикует
-подходящую поездку, сторож получает push + запись в ленте уведомлений. Матчинг —
-в rides.create_ride через services.notify_route_watchers (анти-спам 1/сутки, протухание 14 дней).
+Пользователь подписывается на маршрут (Сибай→Уфа) и получает push + запись в ленте:
+- watch_kind="rides" (дефолт, F13) — когда ВОДИТЕЛЬ публикует подходящую поездку
+  (матчинг в rides.create_ride → services.notify_route_watchers);
+- watch_kind="requests" (G3) — когда ПАССАЖИР создаёт заявку по этому направлению
+  (матчинг в requests.create_request → services.notify_request_watchers). Это водительская
+  сторона попуток: «есть пассажир на твоём маршруте», бесплатно (ценность, не платная услуга);
+- "both" — и то, и то. Анти-спам 1/сутки на подписку, авто-протухание 14 дней.
 """
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -27,6 +31,9 @@ class RouteWatchIn(BaseModel):
     to_city: str = Field(..., min_length=1, max_length=120)
     watch_date: Optional[datetime] = None                      # опц.: интересует конкретный день
     direction: str = Field("forward", pattern="^(forward|both)$")   # forward | both (туда-обратно)
+    # G3 — что караулим: rides (жду поездки — дефолт) / requests (я водитель, жду заявки по
+    # направлению) / both. Дефолт rides сохраняет прежнее поведение старого клиента.
+    watch_kind: str = Field("rides", pattern="^(rides|requests|both)$")
 
 
 class RouteWatchOut(BaseModel):
@@ -35,6 +42,7 @@ class RouteWatchOut(BaseModel):
     to_city: str
     watch_date: Optional[datetime] = None
     direction: str
+    watch_kind: str
     created_at: datetime
     expires_at: datetime
 
@@ -60,7 +68,8 @@ def create_route_watch(
     for w in existing:
         if (w.from_city.strip().casefold() == frm.casefold()
                 and w.to_city.strip().casefold() == to.casefold()
-                and w.direction == body.direction):
+                and w.direction == body.direction
+                and w.watch_kind == body.watch_kind):   # G3: rides/requests — разные интенты, не сливаем
             w.watch_date = body.watch_date
             w.expires_at = expires
             w.last_notified_at = None
@@ -78,6 +87,7 @@ def create_route_watch(
         to_city=to,
         watch_date=body.watch_date,
         direction=body.direction,
+        watch_kind=body.watch_kind,
         created_at=now,
         expires_at=expires,
     )

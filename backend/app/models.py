@@ -167,6 +167,10 @@ class DriverProfile(SQLModel, table=True):
     car_color: str = ""
     car_plate: str = ""
     seats: int = 4
+    # «Сказать рәхмәт» (чаевые «на доверии»): реквизит СБП водителя для добровольных чаевых.
+    # OPT-IN: пусто = водитель НЕ принимает денежные чаевые. Показывается пассажиру только
+    # после завершённой поездки И при settings.tips_money_enabled (по умолчанию выключено).
+    tips_sbp: str = ""
     # Лестница качества (волна 2, §9). taxi_paused_until — пауза ТАКСИ (попутка работает):
     # авто (≥N resolved-жалоб за окно / тяжёлая категория до разбора) или вручную админом.
     # taxi_pause_reason: reports | review | admin (что показать водителю, без автора жалобы).
@@ -376,6 +380,7 @@ class Booking(SQLModel, table=True):
     # телефона/чата (паттерн «увод мимо приложения», счётчик в админ-пульсе).
     unpaid_reported: bool = False
     contact_then_cancel: bool = False
+    thanked: bool = False                     # «Сказать рәхмәт»: пассажир поблагодарил за поездку (дедуп)
     cancelled_at: Optional[datetime] = None   # когда бронь отменили (для счётчиков за день)
     # Причина отмены (код: changed_mind/found_other/plans_changed/driver_no_response/car_problem/no_show/other)
     # и флаг неявки — сигнал доверия «между своими» и аргумент в споре. Пусто = причину не указали.
@@ -427,12 +432,19 @@ class TrustedContact(SQLModel, table=True):
 
 
 class TripShare(SQLModel, table=True):
-    """Поездка, расшаренная близкому (семейный контроль). Привязка: booking_id (бронь
-    попутки) ИЛИ order_id (такси-заказ, B7b-2) — ровно одна из двух."""
+    """Публичная трекинг-ссылка на «движение» (капабилити-токен → /t/{token}).
+    Привязка — РОВНО ОДНА из трёх:
+      • booking_id — бронь попутки (семейный контроль, близкому);
+      • order_id   — такси-заказ (B7b-2, близкому);
+      • parcel_id  — доставка/посылка (G1): ссылку получает ПОЛУЧАТЕЛЬ, следит за
+        курьером в браузере без приложения (самая любимая фича отправителей).
+    Поэтому contact_id опционален: у брони/заказа он есть (доверенный контакт),
+    у посылки — нет (ссылку отправитель отдаёт получателю сам / SMS на его номер)."""
     id: Optional[int] = Field(default=None, primary_key=True)
     booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
-    contact_id: int = Field(foreign_key="trustedcontact.id")
+    parcel_id: Optional[int] = Field(default=None, index=True, foreign_key="parceldelivery.id")
+    contact_id: Optional[int] = Field(default=None, foreign_key="trustedcontact.id")
     # Live-ссылка близкому (B7c): capability-токен публичной страницы /t/{token}.
     # ≥16 случайных байт (secrets.token_urlsafe). NULL у строк до миграции w2_livelink —
     # догенерируется при следующем share. Отзыв share (DELETE) удаляет строку → токен «сгорает».
@@ -622,6 +634,11 @@ class RouteWatch(SQLModel, table=True):
     watch_date: Optional[datetime] = None
     # Направление: "forward" (только from→to) / "both" (ещё и обратно to→from).
     direction: str = "forward"
+    # G3 — что караулим: "rides" (пассажир ждёт поездки водителей — дефолт, прежнее поведение) /
+    # "requests" (водитель ждёт заявки пассажиров по своему направлению) / "both" (и то, и то).
+    # rides матчатся в create_ride (notify_route_watchers), requests — в create_request
+    # (notify_request_watchers). Один механизм — обе стороны попутки.
+    watch_kind: str = "rides"
     # Анти-спам: время последнего отправленного пуша по этой подписке (не чаще 1/сутки).
     last_notified_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow)

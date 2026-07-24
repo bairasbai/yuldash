@@ -12,15 +12,19 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import get_session
 from ..models import (
-    Booking, BookingStatus, DriverProfile, InstantOrder, Rating, Ride, TripShare, TrustedContact, User,
+    Booking, BookingStatus, DriverProfile, InstantOrder, ParcelDelivery, Rating, Ride,
+    TripShare, TrustedContact, User,
 )
 from ..security import current_user
-from ..services import booking_and_ride_for_user, send_text, user_rating
+from ..services import booking_and_ride_for_user, send_push, send_text, user_rating
 from ..timeutil import utcnow
 
 # Live-ссылка живёт 24ч (приватность): дольше любой реальной поездки, но не бессрочно —
 # если поездка «зависнет» в живом статусе, ссылка перестанет отдавать гео (см. _resolve_share).
 _SHARE_TTL = timedelta(hours=24)
+# Трекинг-ссылка посылки живёт дольше (G1): межгород-доставка «по пути» едет и сутки, и двое.
+# 72ч — щедро для реальной доставки, но не вечно (после — токен «сгорает», гео не отдаётся).
+_PARCEL_SHARE_TTL = timedelta(hours=72)
 
 router = APIRouter(tags=["family"])
 
@@ -159,6 +163,49 @@ def list_instant_shares(order_id: int, user: User = Depends(current_user),
     ).all()
 
 
+# ---- Трекинг-ссылка посылки получателю (G1) ----
+@router.post("/parcels/{parcel_id}/track-link")
+def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
+                      session: Session = Depends(get_session)):
+    """G1: отправитель получает трекинг-ссылку для ПОЛУЧАТЕЛЯ. Получатель (без приложения)
+    открывает /t/{token} в браузере: статус доставки, движущийся курьер на карте, маршрут —
+    как «трекинг-ссылка» Яндекс Доставки, но без телефонов. Работает для любой доставки
+    (по пути / курьер / купи-привези), на любом статусе (можно следить с момента создания).
+
+    Только отправитель (иначе 404 — не раскрываем чужие посылки). Дедуп: одна ссылка на посылку
+    (повтор возвращает тот же токен — ссылка у получателя не протухает). Если у посылки есть
+    телефон получателя — сразу шлём ему SMS со ссылкой (best-effort). Завершённую/отменённую
+    посылку не шарим (следить уже не за чем)."""
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel or parcel.sender_id != user.id:
+        raise HTTPException(404, "Посылка не найдена")
+    if parcel.status in ("delivered", "canceled"):
+        raise HTTPException(409, "Посылка уже завершена")
+    existing = session.exec(
+        select(TripShare).where(TripShare.parcel_id == parcel_id).order_by(TripShare.id.desc())
+    ).first()
+    if existing:
+        token = _ensure_share_token(session, existing)   # дедуп: та же ссылка получателю
+        return {"token": token, "url": _live_link(token), "sms_sent": False}
+    share = TripShare(parcel_id=parcel_id, token=secrets.token_urlsafe(16),
+                      expires_at=utcnow() + _PARCEL_SHARE_TTL)
+    session.add(share)
+    session.commit()
+    session.refresh(share)
+    sms_sent = False
+    phone = (parcel.receiver_phone or "").strip()
+    if phone:   # получателю сразу: где посылка, без установки приложения (телефоны в ссылке не светятся)
+        who = user.name or "Отправитель"
+        route = f"{parcel.from_city or 'точка А'} → {parcel.to_city or 'точка Б'}"
+        try:
+            send_text(phone, f"Юлдаш: {who} отправил тебе посылку ({route}). "
+                             f"Следи за доставкой: {_live_link(share.token)}")
+            sms_sent = True
+        except Exception:   # SMS-шлюз мигнул — ссылку всё равно вернём отправителю (отдаст сам)
+            pass
+    return {"token": share.token, "url": _live_link(share.token), "sms_sent": sms_sent}
+
+
 def _revoke_share(session: Session, share_id: int, user: User, *, booking_id: int = None, order_id: int = None):
     """Отозвать шаринг (B7c): строка удаляется → live-токен «сгорает» (/t/{token} → 404),
     SMS-статусы этому контакту прекращаются. Только пассажир и только свой контакт."""
@@ -292,3 +339,77 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
         from .. import quality
         quality.maybe_low_rating_advice(session, ratee_id, avg)
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
+
+
+# ---- «Сказать рәхмәт» (чаевые водителю) ----
+# Два слоя: бесплатное «рәхмәт» (тёплый жест, БЕЗ денег) — всегда; денежные чаевые «на доверии»
+# (СБП водителя, opt-in) — только при settings.tips_money_enabled. Платформа денег НЕ касается.
+class TipsSbpIn(BaseModel):
+    sbp: str = Field("", max_length=40)   # СБП-телефон водителя; пусто = не принимаю денежные чаевые
+
+
+@router.post("/me/tips-sbp")
+def set_tips_sbp(body: TipsSbpIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель включает/выключает денежные чаевые: указывает свой СБП-телефон (или пусто — отключить).
+    Только для водителя (есть DriverProfile). Реквизит показывается пассажиру ТОЛЬКО после завершённой
+    поездки и при tips_money_enabled — личное отдаём по согласию (opt-in) и минимально."""
+    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    if not prof:
+        raise HTTPException(403, "Только для водителя")
+    sbp = (body.sbp or "").strip()
+    if sbp and not _PHONE_RE.match(sbp.replace(" ", "").replace("-", "")):
+        raise HTTPException(400, "Неверный номер СБП")
+    prof.tips_sbp = sbp
+    session.add(prof)
+    session.commit()
+    return {"tips_sbp": prof.tips_sbp, "accepting": bool(prof.tips_sbp)}
+
+
+def _booking_for_passenger_done(session: Session, booking_id: int, user: User) -> Booking:
+    """Бронь ЭТОГО пассажира по ЗАВЕРШЁННОЙ поездке (для «рәхмәт»). Иначе 404/403/409.
+    Проверка статуса ПОСЛЕ участника: чужой получает 403, участник недозавершённой — 409."""
+    b = session.get(Booking, booking_id)
+    if not b:
+        raise HTTPException(404, "Бронь не найдена")
+    if b.passenger_id != user.id:
+        raise HTTPException(403, "Доступно только пассажиру поездки")
+    if b.status != BookingStatus.done:
+        raise HTTPException(409, "Поблагодарить можно после завершения поездки")
+    return b
+
+
+@router.get("/bookings/{booking_id}/tip")
+def booking_tip_info(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пассажиру после поездки: чем поблагодарить водителя. Бесплатное «рәхмәт» — всегда;
+    денежные чаевые (СБП водителя) — только если водитель их включил (opt-in) И tips_money_enabled.
+    Телефон водителя (СБП) до включения флага наружу НЕ идёт."""
+    b = _booking_for_passenger_done(session, booking_id, user)
+    ride = session.get(Ride, b.ride_id)
+    driver = session.get(User, ride.driver_id) if ride else None
+    driver_name = (driver.name if driver else "") or "Водитель"
+    money = None
+    if settings.tips_money_enabled and ride:
+        prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
+        if prof and (prof.tips_sbp or "").strip():
+            money = {"sbp": prof.tips_sbp, "name": driver_name}
+    return {"driver_name": driver_name, "already_thanked": bool(b.thanked), "money": money}
+
+
+@router.post("/bookings/{booking_id}/thanks")
+def booking_thanks(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пассажир жмёт «Сказать рәхмәт» — тёплый жест водителю (БЕЗ денег). Идемпотентно
+    (дедуп по booking.thanked): повтор второй пуш не шлёт. Пуш водителю best-effort."""
+    b = _booking_for_passenger_done(session, booking_id, user)
+    if b.thanked:
+        return {"ok": True, "already": True}
+    b.thanked = True
+    session.add(b)
+    session.commit()
+    ride = session.get(Ride, b.ride_id)
+    if ride:
+        try:  # без ПДн — просто тёплое спасибо
+            send_push(session, ride.driver_id, "Тебе сказали рәхмәт 💚",
+                      "Пассажир поблагодарил за поездку · Юлаусы сәфәр өсөн рәхмәт әйтте 💚")
+        except Exception:
+            pass
+    return {"ok": True, "already": False}

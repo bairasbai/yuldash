@@ -70,6 +70,7 @@ class RideOut(BaseModel):
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)
     driver_name: str
     driver_rating: float
+    driver_rating_count: int = 0   # число учтённых оценок → клиент: «Новичок» при <5 или «★ X · N оценок» (честно, не фейк)
     driver_verified: bool
     driver_car: str
     driver_avatar: str = ""

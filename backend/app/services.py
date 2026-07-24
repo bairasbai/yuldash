@@ -24,7 +24,7 @@ from .db import engine
 from .logs import log
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, Notification, PickupPoint, Rating, Ride,
-    RideCategory, RouteWatch, UploadEvent, User, UserRole,
+    RideCategory, RideRequest, RouteWatch, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
 from .timeutil import utcnow
@@ -322,6 +322,8 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
         notified = 0
         to_push: list = []   # (user_id, title, body) — FCM отправим в фоне после записи в ленту
         for w in watches:
+            if w.watch_kind not in ("rides", "both"):   # G3: эта подписка караулит заявки, не поездки
+                continue
             w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
             forward = (w_from == r_from and w_to == r_to)
             backward = (w.direction == "both" and w_from == r_to and w_to == r_from)
@@ -353,6 +355,58 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
         return notified
     except Exception as e:  # noqa: BLE001 — оповещение сторожей не должно ронять публикацию поездки
         log.warning(f"[ROUTE_WATCH] notify error: {e}")
+        return 0
+
+
+def notify_request_watchers(session: Session, request: RideRequest) -> int:
+    """G3 — водительская сторона попуток. Матчинг новой ЗАЯВКИ пассажира с подписками
+    watch_kind ∈ {requests, both}: водитель, караулящий направление, узнаёт «есть пассажир
+    на твоём маршруте» (push + запись в ленте). Зеркало notify_route_watchers, те же правила:
+    непротухшие подписки, автору заявки себе не шлём, forward/both, опц. день, анти-спам 1/сутки.
+    Возвращает число оповещённых. Не роняет создание заявки."""
+    try:
+        now = utcnow()
+        r_from, r_to = _norm_city(request.from_city), _norm_city(request.to_city)
+        watches = session.exec(
+            select(RouteWatch).where(
+                RouteWatch.expires_at > now,
+                RouteWatch.user_id != request.passenger_id,   # автору заявки — не себе
+            )
+        ).all()
+        notified = 0
+        to_push: list = []
+        for w in watches:
+            if w.watch_kind not in ("requests", "both"):   # эта подписка караулит поездки, не заявки
+                continue
+            w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
+            forward = (w_from == r_from and w_to == r_to)
+            backward = (w.direction == "both" and w_from == r_to and w_to == r_from)
+            if not (forward or backward):
+                continue
+            # Дата: если у подписки задан день, а у заявки есть желаемое время — матчим по дню.
+            if (w.watch_date is not None and request.desired_at is not None
+                    and w.watch_date.date() != request.desired_at.date()):
+                continue
+            if w.last_notified_at is not None and (now - w.last_notified_at) < timedelta(hours=24):
+                continue
+            route = f"{request.from_city} → {request.to_city}"   # города — как есть
+            push_notification(
+                session, w.user_id, "request_watch",
+                "Пассажир на твоём маршруте", "Юлыңда юлаусы бар",
+                route, route,
+                ref_kind="request", ref_id=request.id, push=False,
+            )
+            to_push.append((w.user_id, "Пассажир на твоём маршруте", route))
+            w.last_notified_at = now
+            session.add(w)
+            notified += 1
+        if notified:
+            session.commit()
+        if to_push:
+            _push_async(to_push)
+        return notified
+    except Exception as e:  # noqa: BLE001 — оповещение водителей не должно ронять создание заявки
+        log.warning(f"[REQUEST_WATCH] notify error: {e}")
         return 0
 
 
@@ -542,34 +596,52 @@ def send_sms(phone: str, code: str) -> None:
 # остальные пишутся в БД (история честная), но на средний балл не влияют.
 RATING_PAIR_CAP = 3
 RATING_PAIR_WINDOW_DAYS = 30
+# G6 — «окно свежести»: среднее считаем по ПОСЛЕДНИМ N учтённым оценкам («право исправиться» —
+# старые промахи выпадают, когда набралось много свежих; у Яндекса окно 150). При ≤N оценок —
+# как раньше (все). Число оценок (count) остаётся ПОЛНЫМ — для «N отзывов» и порогов («Новичок <5»).
+RATING_RECENT_WINDOW = 50
 
 
-def _capped_stars(rows) -> list:
-    """rows: (rater_id, stars, created_at) одного ratee → список УЧИТЫВАЕМЫХ звёзд.
-    Скользящее окно: оценка учитывается, если от этого же rater'а за последние 30 дней
-    учтено меньше RATING_PAIR_CAP. Старые записи без created_at учитываем как раньше."""
+def _capped_entries(rows) -> list:
+    """rows: (rater_id, stars, created_at) одного ratee → список УЧТЁННЫХ (created_at, stars),
+    отсортированный СТАРЫЕ→СВЕЖИЕ (легаси-строки без даты — как самые старые, в начале).
+    Скользящий кап анти-накрутки: от одного rater'а за RATING_PAIR_WINDOW_DAYS учитываем не больше
+    RATING_PAIR_CAP оценок. Ключ сортировки не сравнивает None напрямую (иначе TypeError на 2+ nulls);
+    nulls-first не меняет, КАКИЕ звёзды учтены (nulls учитываются всегда, кап смотрит лишь на даты),
+    только их позицию — чтобы окно свежести (_rating_from_rows) корректно считало их старыми."""
     counted: list = []
     counted_at_by_rater: dict = {}
-    for rater_id, stars, at in sorted(rows, key=lambda x: (x[2] is None, x[2])):
-        if at is None:                       # легаси-строки без даты — не режем (совместимость)
-            counted.append(stars)
+    for rater_id, stars, at in sorted(rows, key=lambda x: (x[2] is not None, x[2] if x[2] is not None else 0)):
+        if at is None:                       # легаси-строки без created_at — не режем (совместимость)
+            counted.append((None, stars))
             continue
         w = counted_at_by_rater.setdefault(rater_id, [])
         recent = [t for t in w if at - t <= timedelta(days=RATING_PAIR_WINDOW_DAYS)]
         if len(recent) < RATING_PAIR_CAP:
-            counted.append(stars)
+            counted.append((at, stars))
             w.append(at)
     return counted
 
 
+def _rating_from_rows(rows) -> tuple[float, int]:
+    """Единый расчёт рейтинга (G6). Среднее — по ПОСЛЕДНИМ RATING_RECENT_WINDOW учтённым оценкам
+    (entries отсортированы старые→свежие → берём хвост); число — ПОЛНОЕ учтённых. ≤ окна → все,
+    поведение как раньше. Один хелпер для одиночного (user_rating) и батч (drivers_bundle) —
+    рейтинг в профиле и на карточке НЕ расходится при >N оценок."""
+    entries = _capped_entries(rows)
+    if not entries:
+        return (0.0, 0)
+    recent = [s for _, s in entries[-RATING_RECENT_WINDOW:]]
+    return (sum(recent) / len(recent), len(entries))
+
+
 def user_rating(session: Session, user_id: int) -> tuple[float, int]:
-    """Средний рейтинг пользователя из реальных оценок (звёзды) + их число.
-    B8-5: повторные оценки одной пары сверх капа в агрегат не входят."""
+    """Средний рейтинг пользователя (G6: по последним RATING_RECENT_WINDOW учтённым оценкам) +
+    ПОЛНОЕ число учтённых. B8-5: повторные оценки одной пары сверх капа в агрегат не входят."""
     rows = list(session.exec(
         select(Rating.rater_id, Rating.stars, Rating.created_at).where(Rating.ratee_id == user_id)
     ).all())
-    stars = _capped_stars(rows)
-    return (sum(stars) / len(stars), len(stars)) if stars else (0.0, 0)
+    return _rating_from_rows(rows)
 
 
 def driver_trips_agg(session: Session, driver_ids: set) -> dict:
@@ -603,9 +675,9 @@ def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict,
         rows_by_driver.setdefault(ratee_id, []).append((rater_id, stars, at))
     rating_agg: dict = {}
     for rid, rows in rows_by_driver.items():
-        s = _capped_stars(rows)   # B8-5: кап оценок одной пары — как в user_rating
-        if s:
-            rating_agg[rid] = (sum(s) / len(s), len(s))
+        avg, cnt = _rating_from_rows(rows)   # G6: то же окно свежести, что и user_rating (консистентно)
+        if cnt:
+            rating_agg[rid] = (avg, cnt)
     trips_agg = driver_trips_agg(session, driver_ids)   # F8: счётчик done-поездок для бейджей
     return users, profiles, rating_agg, trips_agg
 
@@ -624,6 +696,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
         boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),
         driver_name=(drv.name if drv else "Водитель"),
         driver_rating=rating,
+        driver_rating_count=cnt,   # G5: клиент покажет «Новичок» при <5 оценок / «N оценок» (не фейк)
         driver_verified=(drv.verified if drv else False),
         driver_car=car,
         driver_avatar=(drv.avatar_url if drv else ""),
