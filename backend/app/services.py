@@ -696,6 +696,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
         boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),
         driver_name=(drv.name if drv else "Водитель"),
         driver_rating=rating,
+        driver_rating_count=cnt,   # G5: клиент покажет «Новичок» при <5 оценок / «N оценок» (не фейк)
         driver_verified=(drv.verified if drv else False),
         driver_car=car,
         driver_avatar=(drv.avatar_url if drv else ""),

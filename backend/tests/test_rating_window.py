@@ -7,7 +7,7 @@
 from datetime import timedelta
 
 from app.db import engine
-from app.models import Rating, User
+from app.models import Rating, User, UserRole
 from app.services import RATING_RECENT_WINDOW, _capped_entries, drivers_bundle, user_rating
 from app.timeutil import utcnow
 from sqlmodel import Session
@@ -92,6 +92,21 @@ def test_pair_cap_still_limits(client, user_factory):
     avg, cnt = _rating(drv["id"])
     assert cnt == 3
     assert avg == 5.0
+
+
+def test_ride_card_exposes_rating_count(client, user_factory):
+    """Карточка поездки (RideOut) отдаёт driver_rating_count → клиент покажет «Новичок» (<5) / «N оценок»."""
+    drv = user_factory("CardDrv", role=UserRole.driver)
+    ride_id = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "A", "to_city": "B", "depart_at": "2030-05-01T09:00:00",
+        "seats_total": 3, "price": 400,
+    }).json()["id"]
+    r1, r2 = _raters(2, "card")
+    _rate(drv["id"], [r1], 5, utcnow())
+    _rate(drv["id"], [r2], 4, utcnow())
+    card = client.get(f"/rides/{ride_id}", headers=drv["auth"]).json()
+    assert card["driver_rating_count"] == 2
+    assert card["driver_rating"] == 4.5
 
 
 def test_capped_entries_handles_null_date():
