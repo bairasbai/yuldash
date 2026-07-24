@@ -14,13 +14,15 @@
 но без километража (не завышаем цифры).
 """
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import Booking, BookingStatus, Ride, RideStatus, User
+from ..models import Booking, BookingStatus, ParcelDelivery, Ride, RideStatus, User
 from ..security import current_user
 from ..services import geocode_city, haversine_km
+from ..timeutil import utcnow
 
 router = APIRouter(tags=["stats"])
 
@@ -141,4 +143,52 @@ def my_stats(user: User = Depends(current_user), session: Session = Depends(get_
             "taxi_rub_per_km": settings.stats_taxi_rub_per_km,
             "co2_grams_per_km": settings.stats_co2_grams_per_km,
         },
+    }
+
+
+# G8 — Достижения-«пряники»: тёплые бейджи профиля из РЕАЛЬНЫХ данных. Только украшение и
+# удержание в духе «между своими» — на распределение заказов НЕ влияют. Цифры не фейкуем.
+# BA — черновики (docs/tasks.md на проверку). (code, ru, ba, метрика, порог включительно).
+_ACHIEVEMENTS = [
+    ("first_trip",        "Первая поездка",    "Беренсе сәфәр",           "trips",    1),
+    ("trips_10",          "10 поездок",        "10 сәфәр",                "trips",    10),
+    ("trips_50",          "50 поездок",        "50 сәфәр",                "trips",    50),
+    ("trips_100",         "100 поездок",       "100 сәфәр",               "trips",    100),
+    ("parcel_helper",     "Помог 5 посылкам",  "5 ебәрмәгә ярҙам иттең",  "parcels",  5),
+    ("year_with_yuldash", "Год с Юлдаш",       "Юлдаш менән бер йыл",     "days",     365),
+    ("verified",          "Проверенный",       "Тикшерелгән",             "verified", 1),
+]
+
+
+@router.get("/me/achievements")
+def my_achievements(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """G8: тёплые бейджи профиля из реальных данных (поездки + помощь посылкам + стаж + проверка).
+    Только свои. На распределение заказов НЕ влияют — украшение и удержание. Пороги включительно,
+    для не полученных показываем прогресс (value/goal). Двуязычно."""
+    trips_pax = session.exec(
+        select(func.count()).select_from(Booking)
+        .where(Booking.passenger_id == user.id, Booking.status == BookingStatus.done)
+    ).one()
+    trips_drv = session.exec(
+        select(func.count()).select_from(Ride)
+        .where(Ride.driver_id == user.id, Ride.status == RideStatus.done)
+    ).one()
+    trips = int(trips_pax or 0) + int(trips_drv or 0)
+    parcels = int(session.exec(
+        select(func.count()).select_from(ParcelDelivery)
+        .where(ParcelDelivery.courier_id == user.id, ParcelDelivery.status == "delivered")
+    ).one() or 0)
+    days = (utcnow() - user.created_at).days if user.created_at else 0
+    metric = {"trips": trips, "parcels": parcels, "days": days, "verified": 1 if user.verified else 0}
+    badges = [
+        {"code": code, "ru": ru, "ba": ba, "goal": goal,
+         "value": metric[m], "earned": metric[m] >= goal}
+        for (code, ru, ba, m, goal) in _ACHIEVEMENTS
+    ]
+    return {
+        "trips": trips,
+        "parcels_helped": parcels,
+        "days_with_yuldash": days,
+        "earned_count": sum(1 for b in badges if b["earned"]),
+        "achievements": badges,
     }
