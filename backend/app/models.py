@@ -593,8 +593,8 @@ class InstantOrder(SQLModel, table=True):
     # Отмены/ожидание (волна 2, §5, Модель А = страйки, денег не двигаем).
     # waiting_started_at — водитель нажал «Я на месте» (подача завершена, пошло ожидание).
     waiting_started_at: Optional[datetime] = None
-    waiting_fee_kop: int = 0         # платное ожидание сверх бесплатного, копейки (фикс на onboard)
-    cancel_fee_kop: int = 0          # штраф за позднюю отмену / no-show = подача, копейки (Модель А: только фиксируем)
+    waiting_fee_kop: int = Field(default=0, sa_type=BigInteger)         # платное ожидание сверх бесплатного, копейки (фикс на onboard)
+    cancel_fee_kop: int = Field(default=0, sa_type=BigInteger)          # штраф за позднюю отмену / no-show = подача, копейки (Модель А: только фиксируем)
     no_show: bool = False            # «пассажир не вышел» — отмена водителем по таймингу
     # Таймстампы переходов (пишутся машиной состояний). created_at индексируем — растущая таблица:
     # сортировка/дневная сводка/будущая чистка по дате (иначе seq-scan по мере роста заказов).
@@ -711,7 +711,7 @@ class Payment(SQLModel, table=True):
     partner_id: Optional[int] = Field(default=None, foreign_key="partner.id")     # для purpose=partner_sub (подписка бизнеса в «Скидки по пути», M1)
     tier: str = ""                               # quick / day / urgent (boost) | код тарифа PARTNER_PLANS (partner_sub)
     method: str = ""                             # cash | card | sbp | yookassa (способ оплаты поездки)
-    amount_kop: int = 0                          # сумма в копейках
+    amount_kop: int = Field(default=0, sa_type=BigInteger)                          # сумма в копейках
     status: str = "pending"                      # pending | succeeded | canceled
     created_at: datetime = Field(default_factory=utcnow, index=True)  # index — для сверки за период
 
@@ -733,7 +733,7 @@ class LedgerEntry(SQLModel, table=True):
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")  # быстрый заказ
     booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")     # бронь плановой поездки
     kind: LedgerKind = Field(index=True)
-    amount_kop: int = 0
+    amount_kop: int = Field(default=0, sa_type=BigInteger)
     created_at: datetime = Field(default_factory=utcnow, index=True)  # index — для сверки за период
     note: str = ""
     # payout: ключ идемпотентности выплаты / id выплаты у провайдера (для earn/fee/adj пусто).
@@ -762,7 +762,7 @@ class CommissionDebt(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     driver_id: int = Field(index=True, foreign_key="user.id")
     order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
-    amount_kop: int = 0                                    # комиссия по этому заказу, копейки
+    amount_kop: int = Field(default=0, sa_type=BigInteger)                                    # комиссия по этому заказу, копейки
     week: str = Field(default="", index=True)             # ISO-неделя начисления, напр. "2026-W28"
     status: DebtStatus = Field(default=DebtStatus.unpaid, index=True)
     created_at: datetime = Field(default_factory=utcnow, index=True)
@@ -893,7 +893,7 @@ class Ad(SQLModel, table=True):
     status: str = Field(default="draft", index=True)  # draft/pending_review/active/paused/expired/archived/rejected
     reject_reason: str = ""                   # причина отказа модерации (партнёр видит), если status=rejected
     package: str = Field(default="")          # код тарифа: city/route/main (см. AD_PACKAGES); пусто = не выбран
-    budget_kop: int = 0                       # стоимость размещения в копейках (из пакета, фиксируется при сабмите)
+    budget_kop: int = Field(default=0, sa_type=BigInteger)                       # стоимость размещения в копейках (из пакета, фиксируется при сабмите)
     period_days: int = 0                      # срок размещения в днях (из пакета)
     owner_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)  # партнёр-владелец; null = ничьё (видит только админ)
     created_by: Optional[int] = Field(default=None, foreign_key="user.id")  # кто создал запись (партнёр или админ)
@@ -1118,7 +1118,7 @@ class ParcelDelivery(SQLModel, table=True):
     description: str = ""                                                     # что за посылка (без запрещёнки)
     receiver_name: str = ""                                                   # имя получателя (публично курьеру)
     receiver_phone: str = ""                                                  # ПРИВАТНО: отдаём только принявшему курьеру
-    fee_kop: int = 0                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
+    fee_kop: int = Field(default=0, sa_type=BigInteger)                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
     status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled
     confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
     created_at: datetime = Field(default_factory=utcnow, index=True)          # растущая таблица: индекс под сорт/чистку по дате
@@ -1130,12 +1130,12 @@ class ParcelDelivery(SQLModel, table=True):
     # buy_bring = «купи и привези» (курьер тратит свои на товар, получатель возвращает).
     delivery_type: str = Field(default="poputka", max_length=16)
     # Объявленная ценность посылки (коп) — для ответственности при споре. 0 = не объявлено.
-    declared_value_kop: int = 0
+    declared_value_kop: int = Field(default=0, sa_type=BigInteger)
     # «Купи и привези»: стоимость товара (наложка), которую курьер тратит и получатель возвращает.
     # Ограничена потолком COURIER_COD_CAP_KOP (защита курьера от больших авансов). 0 = не применяется.
-    cod_amount_kop: int = 0
+    cod_amount_kop: int = Field(default=0, sa_type=BigInteger)
     # Комиссия платформы с доставки (коп) — фиксируется при создании (прозрачно, «на доверии»).
-    commission_kop: int = 0
+    commission_kop: int = Field(default=0, sa_type=BigInteger)
     # C3: комиссия по этой доставке уже оплачена курьером платформе (биллинг «на доверии»).
     # False + status=delivered → входит в «к оплате сейчас» (/courier/pay-commission).
     commission_paid: bool = Field(default=False, index=True)
@@ -1144,10 +1144,10 @@ class ParcelDelivery(SQLModel, table=True):
     # --- C2: расчёт «купи и привези» с получателем + объявленная ценность ---
     # Цена доставки (коп), зафиксированная при создании (без комиссии платформы) — сколько
     # получатель платит за саму доставку. Для buy_bring: получатель платит товар + доставку.
-    delivery_price_kop: int = 0
+    delivery_price_kop: int = Field(default=0, sa_type=BigInteger)
     # «Купи и привези»: сколько курьер ФАКТИЧЕСКИ потратил на товар в магазине (может отличаться
     # от cod_amount_kop, заявленного при заказе). Получатель возвращает именно эту сумму. 0 = не задано.
-    goods_actual_kop: int = 0
+    goods_actual_kop: int = Field(default=0, sa_type=BigInteger)
     # Получатель рассчитался с курьером (товар + доставка). Ставится при вручении buy_bring.
     settled: bool = False
     settled_at: Optional[datetime] = None

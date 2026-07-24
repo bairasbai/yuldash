@@ -68,6 +68,13 @@ class Storage(ABC):
     def delete(self, key: str) -> None:
         """Удалить (best-effort: отсутствие объекта — не ошибка)."""
 
+    def iter_old(self, prefixes: list[str], older_than_ts: float):
+        """Итерировать (key, size_bytes) ПУБЛИЧНЫХ объектов старше older_than_ts под указанными
+        префиксами (напр. voice/chat) — для ретеншен-чистки. БЕЗ удаления: удаляет вызывающий
+        через delete() (уважая dry-run). Приватные docs не трогаем. Не abstractmethod — чтобы
+        частичные/тестовые реализации Storage не ломались; по умолчанию перечислять нечего."""
+        return iter(())
+
     @abstractmethod
     def url(self, key: str) -> str:
         """URL, по которому клиент реально забирает файл.
@@ -111,6 +118,19 @@ class LocalStorage(Storage):
                 os.remove(path)
         except OSError:
             pass
+
+    def iter_old(self, prefixes: list[str], older_than_ts: float):
+        for prefix in prefixes:
+            d = os.path.join(MEDIA_DIR, prefix)
+            if not os.path.isdir(d):
+                continue
+            for name in os.listdir(d):
+                path = os.path.join(d, name)
+                try:
+                    if os.path.isfile(path) and os.path.getmtime(path) < older_than_ts:
+                        yield (f"{prefix}/{name}", os.path.getsize(path))
+                except OSError:
+                    pass
 
     def url(self, key: str) -> str:
         # Локально файлы отдаёт StaticFiles(/media) и /secure/docs — этот метод для симметрии.
@@ -191,6 +211,21 @@ class S3Storage(Storage):
             self.client.delete_object(Bucket=self.bucket, Key=self._key(key))
         except Exception:
             pass  # best-effort, как и на диске
+
+    def iter_old(self, prefixes: list[str], older_than_ts: float):
+        # Сметаем ретеншеном и облако: без этого при S3 старые фото/голос оставались бы в бакете
+        # навсегда (счёт растёт). Пагинатор — на случай >1000 объектов под префиксом.
+        try:
+            paginator = self.client.get_paginator("list_objects_v2")
+            for prefix in prefixes:
+                for page in paginator.paginate(Bucket=self.bucket, Prefix=f"{prefix}/"):
+                    for obj in page.get("Contents", []):
+                        lm = obj.get("LastModified")
+                        ts = lm.timestamp() if lm is not None else 0.0
+                        if ts < older_than_ts:
+                            yield (obj["Key"], obj.get("Size", 0))
+        except Exception as e:      # S3 недоступен/список упал → чистка медиа пропускается, не крашится
+            raise StorageError(str(e)) from e
 
     def url(self, key: str) -> str:
         return self.client.generate_presigned_url(

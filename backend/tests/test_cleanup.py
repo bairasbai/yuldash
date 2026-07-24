@@ -68,3 +68,38 @@ def test_cleanup_dry_run_deletes_nothing(client, user_factory):
         cleanup.DRY = False
     with Session(engine) as s:
         assert s.get(Message, mid) is not None   # сухой прогон ничего не удалил
+
+
+def test_cleanup_media_sweeps_old_keeps_fresh(client):
+    """Медиа-чистка через storage: старое фото удаляется (диск/S3), свежее — остаётся."""
+    import os
+    import time as _t
+
+    from app.services import CHAT_DIR
+    os.makedirs(CHAT_DIR, exist_ok=True)
+    old_path = os.path.join(CHAT_DIR, "cleanup_old.jpg")
+    fresh_path = os.path.join(CHAT_DIR, "cleanup_fresh.jpg")
+    with open(old_path, "wb") as f:
+        f.write(b"x" * 16)
+    with open(fresh_path, "wb") as f:
+        f.write(b"y" * 16)
+    old_ts = _t.time() - (cleanup.MEDIA_DAYS + 5) * 86400
+    os.utime(old_path, (old_ts, old_ts))                 # состарить mtime
+    cleanup.main()
+    assert not os.path.exists(old_path)                  # старое медиа вычищено
+    assert os.path.exists(fresh_path)                    # свежее осталось
+    os.remove(fresh_path)
+
+
+def test_cleanup_batched_delete_removes_all(client, monkeypatch):
+    """Батчинг: даже при маленьком чанке удаляются ВСЕ подходящие строки (несколько итераций)."""
+    from app.models import OtpCode
+    with Session(engine) as s:
+        for i in range(5):
+            s.add(OtpCode(phone=f"+7000000{i:04d}", code="000000", created_at=_old(5), expires_at=_old(5)))
+        s.commit()
+    monkeypatch.setattr(cleanup, "_BATCH", 2)            # форсируем несколько чанков (5 строк по 2)
+    cleanup.main()
+    with Session(engine) as s:
+        left = s.exec(select(OtpCode).where(OtpCode.phone.like("+7000000%"))).all()
+    assert left == []                                    # все старые OTP удалены, несмотря на чанки

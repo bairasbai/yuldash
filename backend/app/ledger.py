@@ -102,13 +102,20 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
     idempotency_key = (idempotency_key or "").strip()
     if not idempotency_key:
         raise PayoutError("idempotency", "Не получилось начать вывод. Повтори попытку.")
+    # Неймспейсим ключ водителем: разные водители с одинаковым СЫРЫМ ключом (низкоэнтропийный
+    # клиентский ключ / коллизия / повтор чужого) иначе схлопнулись бы в ОДНУ выплату на стороне
+    # провайдера (Idempotence-Key там глобальный) → вторая реальная выплата «проглотилась» бы.
+    scoped_key = f"payout:{driver_id}:{idempotency_key}"
 
     def _existing():
+        # Матчим и НОВЫЙ scoped-ключ, и СЫРОЙ: записи выплат до этого деплоя имели ext_id=сырой
+        # ключ, и ретрай той же выплаты через момент деплоя иначе не нашёл бы старую запись →
+        # зарезервировал бы списание второй раз. Оба — строго в рамках этого водителя (driver_id).
         return session.exec(
             select(LedgerEntry).where(
                 LedgerEntry.driver_id == driver_id,
                 LedgerEntry.kind == LedgerKind.payout,
-                LedgerEntry.ext_id == idempotency_key,
+                LedgerEntry.ext_id.in_([scoped_key, idempotency_key]),
             )
         ).first()
 
@@ -129,7 +136,7 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
         raise PayoutError("insufficient", "Недостаточно средств на балансе")
     entry = LedgerEntry(
         driver_id=driver_id, kind=LedgerKind.payout, amount_kop=-amount_kop,
-        ext_id=idempotency_key,
+        ext_id=scoped_key,
         note=(f"Вывод на карту ····{card_last4}" if card_last4 else "Вывод на карту"),
     )
     session.add(entry)
@@ -141,7 +148,7 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
     declined = False
     try:
         res = create_payout(amount_kop, payout_token, f"Юлдаш · выплата водителю #{driver_id}",
-                            {"driver_id": str(driver_id)}, idempotence_key=idempotency_key)
+                            {"driver_id": str(driver_id)}, idempotence_key=scoped_key)
         if res.get("status") not in ("succeeded", "pending"):
             declined = True                      # банк ЯВНО отказал → деньги не ушли, резерв возвращаем
     except Exception:
@@ -151,7 +158,7 @@ def request_payout(session: Session, driver_id: int, amount_kop: int, *,
     if declined:
         session.add(LedgerEntry(                 # компенсация append-only: +сумма (историю денег не правим)
             driver_id=driver_id, kind=LedgerKind.adj, amount_kop=amount_kop,
-            ext_id=idempotency_key, note="Возврат резерва: банк отклонил выплату",
+            ext_id=scoped_key, note="Возврат резерва: банк отклонил выплату",
         ))
         session.commit()
         raise PayoutError("provider", "Не получилось отправить выплату. Попробуй позже")

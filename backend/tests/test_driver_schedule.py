@@ -107,3 +107,15 @@ def test_same_city_rejected(client, user_factory):
     driver = user_factory("SameCityDriver", role=UserRole.driver)
     resp = client.post("/driver/schedule", headers=driver["auth"], json=_valid_payload(to_city="баймак"))
     assert resp.status_code == 400
+
+
+def test_create_schedule_dedups_identical(client, user_factory):
+    """Двойной сабмит одинакового расписания → тот же объект, не дубль (идемпотентность)."""
+    driver = user_factory("SchedDupDriver", role=UserRole.driver)
+    payload = _valid_payload()
+    r1 = client.post("/driver/schedule", headers=driver["auth"], json=payload)
+    r2 = client.post("/driver/schedule", headers=driver["auth"], json=payload)
+    assert r1.status_code == 200 and r2.status_code == 200, r2.text
+    assert r1.json()["id"] == r2.json()["id"]                       # тот же, не второй
+    mine = client.get("/driver/schedule", headers=driver["auth"]).json()
+    assert len([s for s in mine if s["id"] == r1.json()["id"]]) == 1

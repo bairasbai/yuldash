@@ -18,6 +18,8 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -59,7 +61,19 @@ def join_waitlist(body: WaitlistIn, session: Session = Depends(get_session)):
         entry.city = city
     entry.role = body.role
     session.add(entry)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        # Гонка: два одновременных запроса с ОДНИМ новым номером — оба увидели entry=None и
+        # вставили; unique(phone) отклонит второй. Не 500: перечитываем и обновляем существующую.
+        session.rollback()
+        entry = session.exec(select(WaitlistEntry).where(WaitlistEntry.phone == phone)).first()
+        if entry is not None:
+            if city:
+                entry.city = city
+            entry.role = body.role
+            session.add(entry)
+            session.commit()
     return {"ok": True}
 
 
@@ -107,13 +121,22 @@ def admin_waitlist(city: Optional[str] = None, role: Optional[str] = None, invit
     _require_admin(user)
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
-    all_rows = session.exec(select(WaitlistEntry)).all()
-    by_city = Counter((r.city or "").strip() or "—" for r in all_rows)
-    by_role = Counter(r.role for r in all_rows)
+    # Счётчики — агрегатами в БД (было: вся таблица в память + Counter на каждый запрос).
+    total = session.exec(select(func.count()).select_from(WaitlistEntry)).one()
+    invited_total = session.exec(
+        select(func.count()).select_from(WaitlistEntry)
+        .where(WaitlistEntry.invited_at.is_not(None))  # type: ignore[union-attr]
+    ).one()
+    by_role = dict(session.exec(select(WaitlistEntry.role, func.count()).group_by(WaitlistEntry.role)).all())
+    # Город группируем в БД; нормализацию «пусто/пробелы → —» доводим по УЖЕ сгруппированным
+    # строкам (их число = число городов, а не всех записей — таблицу в память не тянем).
+    by_city: Counter = Counter()
+    for city_val, n in session.exec(select(WaitlistEntry.city, func.count()).group_by(WaitlistEntry.city)).all():
+        by_city[(city_val or "").strip() or "—"] += n
     items = _filtered(session, city, role, invited, limit=limit, offset=offset)
     return {
-        "total": len(all_rows),
-        "invited": sum(1 for r in all_rows if r.invited_at),
+        "total": total,
+        "invited": invited_total,
         "by_city": [{"city": c, "count": n} for c, n in by_city.most_common()],
         "by_role": {"passenger": by_role.get("passenger", 0), "driver": by_role.get("driver", 0)},
         "items": [_entry_payload(e) for e in items],
