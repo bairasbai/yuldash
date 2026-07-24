@@ -312,6 +312,65 @@ def price_hint(
     }
 
 
+# G7 «Диагностика: почему мало откликов» — мягкие ДОБРЫЕ подсказки водителю по его поездке.
+# Не наказание и не «диагноз», а советы уровня доброго соседа. Читаем реальные сигналы
+# (нет фото / нет проверки / цена выше средней по маршруту / нет деталей). Read-only.
+_TIP_PRICE_MIN_SAMPLE = 3      # меньше поездок по маршруту — про цену молчим (данных мало, шумно)
+_TIP_PRICE_OVER_RATIO = 1.15   # цена выше средней в 1.15× → мягко предложить снизить
+
+
+def _route_avg_price(session: Session, from_city: str, to_city: str) -> dict:
+    """Средняя цена поездок по маршруту (price>0) + размер выборки — для совета по цене (G7)."""
+    q = select(Ride.price).where(Ride.price > 0)
+    if from_city:
+        q = q.where(Ride.from_city.contains(from_city))
+    if to_city:
+        q = q.where(Ride.to_city.contains(to_city))
+    prices = [p for p in session.exec(q).all() if p and p > 0]
+    return {"avg": round(sum(prices) / len(prices)) if prices else 0, "count": len(prices)}
+
+
+@router.get("/rides/{ride_id}/tips")
+def ride_tips(ride_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """G7: мягкая диагностика поездки для ВОДИТЕЛЯ — «как получить больше заявок».
+    Только своя поездка (иначе 404 — чужие не раскрываем). Возвращает добрые советы по
+    реальным сигналам; пусто (`all_good`) = «всё выглядит хорошо, заявки скоро появятся».
+    Read-only (ничего не пишем), двуязычно. BA — черновики (docs/tasks.md на проверку)."""
+    ride = session.get(Ride, ride_id)
+    if not ride or ride.driver_id != user.id:
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
+
+    tips: List[dict] = []
+    if not (user.avatar_url or "").strip():
+        tips.append({"code": "add_photo",
+                     "ru": "Добавь фото профиля — попутчики охотнее едут с тем, кого видят",
+                     "ba": "Профиль фотоһын өҫтә — юлдаштар үҙе күргән кеше менән теләберәк китә"})
+    if not user.verified:
+        tips.append({"code": "get_verified",
+                     "ru": "Пройди проверку — бейдж «Проверен» повышает доверие и число заявок",
+                     "ba": "Тикшереүҙе үт — «Тикшерелгән» билдәһе ышанысты һәм заявкаларҙы арттыра"})
+    route = _route_avg_price(session, ride.from_city, ride.to_city)
+    if (route["count"] >= _TIP_PRICE_MIN_SAMPLE and ride.price
+            and route["avg"] and ride.price > route["avg"] * _TIP_PRICE_OVER_RATIO):
+        tips.append({"code": "lower_price",
+                     "ru": f"Твоя цена выше средней по маршруту (~{route['avg']} ₽). "
+                           "Чуть ниже — и заявок станет больше",
+                     "ba": f"Хаҡың был юл буйынса уртасанан юғарыраҡ (~{route['avg']} һ). "
+                           "Бер аҙ түбәнерәк — заявкалар күберәк булыр"})
+    if not (ride.comment or "").strip():
+        tips.append({"code": "add_details",
+                     "ru": "Добавь пару слов о поездке (где встреча, багаж) — так больше откликов",
+                     "ba": "Сәфәр тураһында бер-ике һүҙ өҫтә (ҡайҙа осрашабыҙ, йөк) — шулай отклик күберәк"})
+
+    return {
+        "ride_id": ride.id,
+        "tips": tips,
+        "all_good": not tips,          # пусто → дружелюбная заглушка в UI, не пустой экран
+        "route_avg_price": route["avg"],
+        "route_sample": route["count"],
+    }
+
+
 @router.get("/rides/near")
 def rides_near(
     from_city: Optional[str] = None,
