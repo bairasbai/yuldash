@@ -24,7 +24,7 @@ from .db import engine
 from .logs import log
 from .models import (
     Block, Booking, BookingStatus, DeviceToken, DriverProfile, Notification, PickupPoint, Rating, Ride,
-    RideCategory, RouteWatch, UploadEvent, User, UserRole,
+    RideCategory, RideRequest, RouteWatch, UploadEvent, User, UserRole,
 )
 from .schemas import RideOut
 from .timeutil import utcnow
@@ -322,6 +322,8 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
         notified = 0
         to_push: list = []   # (user_id, title, body) — FCM отправим в фоне после записи в ленту
         for w in watches:
+            if w.watch_kind not in ("rides", "both"):   # G3: эта подписка караулит заявки, не поездки
+                continue
             w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
             forward = (w_from == r_from and w_to == r_to)
             backward = (w.direction == "both" and w_from == r_to and w_to == r_from)
@@ -353,6 +355,58 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
         return notified
     except Exception as e:  # noqa: BLE001 — оповещение сторожей не должно ронять публикацию поездки
         log.warning(f"[ROUTE_WATCH] notify error: {e}")
+        return 0
+
+
+def notify_request_watchers(session: Session, request: RideRequest) -> int:
+    """G3 — водительская сторона попуток. Матчинг новой ЗАЯВКИ пассажира с подписками
+    watch_kind ∈ {requests, both}: водитель, караулящий направление, узнаёт «есть пассажир
+    на твоём маршруте» (push + запись в ленте). Зеркало notify_route_watchers, те же правила:
+    непротухшие подписки, автору заявки себе не шлём, forward/both, опц. день, анти-спам 1/сутки.
+    Возвращает число оповещённых. Не роняет создание заявки."""
+    try:
+        now = utcnow()
+        r_from, r_to = _norm_city(request.from_city), _norm_city(request.to_city)
+        watches = session.exec(
+            select(RouteWatch).where(
+                RouteWatch.expires_at > now,
+                RouteWatch.user_id != request.passenger_id,   # автору заявки — не себе
+            )
+        ).all()
+        notified = 0
+        to_push: list = []
+        for w in watches:
+            if w.watch_kind not in ("requests", "both"):   # эта подписка караулит поездки, не заявки
+                continue
+            w_from, w_to = _norm_city(w.from_city), _norm_city(w.to_city)
+            forward = (w_from == r_from and w_to == r_to)
+            backward = (w.direction == "both" and w_from == r_to and w_to == r_from)
+            if not (forward or backward):
+                continue
+            # Дата: если у подписки задан день, а у заявки есть желаемое время — матчим по дню.
+            if (w.watch_date is not None and request.desired_at is not None
+                    and w.watch_date.date() != request.desired_at.date()):
+                continue
+            if w.last_notified_at is not None and (now - w.last_notified_at) < timedelta(hours=24):
+                continue
+            route = f"{request.from_city} → {request.to_city}"   # города — как есть
+            push_notification(
+                session, w.user_id, "request_watch",
+                "Пассажир на твоём маршруте", "Юлыңда юлаусы бар",
+                route, route,
+                ref_kind="request", ref_id=request.id, push=False,
+            )
+            to_push.append((w.user_id, "Пассажир на твоём маршруте", route))
+            w.last_notified_at = now
+            session.add(w)
+            notified += 1
+        if notified:
+            session.commit()
+        if to_push:
+            _push_async(to_push)
+        return notified
+    except Exception as e:  # noqa: BLE001 — оповещение водителей не должно ронять создание заявки
+        log.warning(f"[REQUEST_WATCH] notify error: {e}")
         return 0
 
 

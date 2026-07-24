@@ -17,7 +17,8 @@ from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
-    notify_map_changed, public_rides_payload, push_notification, record_pickup_choice, rides_out, user_rating,
+    notify_map_changed, notify_request_watchers, public_rides_payload, push_notification,
+    record_pickup_choice, rides_out, user_rating,
 )
 from ..timeutil import utcnow
 from .. import workday as workday_mod
@@ -67,6 +68,7 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
     if body.pickup_point_id:
         record_pickup_choice(session, city=req.from_city, point_id=body.pickup_point_id)
     notify_map_changed()   # новая заявка → оранжевый маркер появится на карте live
+    notify_request_watchers(session, req)   # G3: пуш водителям, караулящим это направление (best-effort)
     # Срочно/помощь — сразу уведомляем админа, чтобы не упустить время (пожилому может быть нужно срочно).
     if body.assisted or req.category == RideCategory.urgent:
         notify_admin_telegram(

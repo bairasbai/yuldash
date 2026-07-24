@@ -629,6 +629,11 @@ class RouteWatch(SQLModel, table=True):
     watch_date: Optional[datetime] = None
     # Направление: "forward" (только from→to) / "both" (ещё и обратно to→from).
     direction: str = "forward"
+    # G3 — что караулим: "rides" (пассажир ждёт поездки водителей — дефолт, прежнее поведение) /
+    # "requests" (водитель ждёт заявки пассажиров по своему направлению) / "both" (и то, и то).
+    # rides матчатся в create_ride (notify_route_watchers), requests — в create_request
+    # (notify_request_watchers). Один механизм — обе стороны попутки.
+    watch_kind: str = "rides"
     # Анти-спам: время последнего отправленного пуша по этой подписке (не чаще 1/сутки).
     last_notified_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow)

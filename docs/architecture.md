@@ -861,8 +861,21 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - Общая страница `/t/{token}` — по `kind` выбирает иконку маркера (📦 vs 🚗), подпись бренда («посылка · бандероль» vs «живая поездка») и заголовок финала (из `phase_text`). Старые ссылки поездок не сломаны (регресс-сюит `test_live_link`/`test_share` зелёный).
 - Приватность (как B7c): токен `secrets.token_urlsafe(16)` (≥16 байт, unique); короткий → 404; телефоны получателя/отправителя наружу НЕ идут; после вручения — координат нет; `/t/***` маскируется в логах.
 - Миграция: `alembic/versions/g1_parcel_track.py` (revision `g1_parcel_track`, down=`p2_promo_unique` — **новый единственный head**). Идемпотентно: колонка `parcel_id` + индекс + снять NOT NULL с `contact_id` на Postgres; SQLite dev пересоздаётся из моделей.
-- Тесты: `tests/test_parcel_track.py` (11). Полный сюит: **880 passed, 1 skipped.**
+- Тесты: `tests/test_parcel_track.py` (11). Полный сюит: **869 passed, 1 skipped.**
 
 **Android (по чеклисту у Александра — облако не собирает APK):** кнопка «Поделиться отслеживанием» в карточке отправителя посылки → `ApiClient.parcelTrackLink(id)` (POST `/parcels/{id}/track-link`) → `LiveLinkCard` (копировать + share-sheet, уже есть в `TripLiveLink.kt`).
 
 **💳 Монетизация — off by default (подтверждено, код не трогал):** просьба «по умолчанию выключен, пока юр.моменты» уже выполнена мастер-флагами релиза (`taxi_enabled=False`, `courier_enabled=False`, `payments_provider="mock"`→503 «Оплата скоро» в проде, `payouts_enabled=False`). Отдельный флаг НЕ добавлял — был бы костыль поверх готового гейта. Дорожная карта совпадает с кодом: OFF → интерим `sbp_manual` («на доверии») → позже `yookassa`.
+
+## 2026-07-21 — 🧭 G3 «Пуш водителю: заявка по твоему направлению» (GAP Яндекс Про, ветка `claude/gap-features`)
+**Зачем:** F13 «Карауль поездку» — только пассажирская сторона (жду поездки водителей). G3 добавляет зеркальную водительскую: водитель караулит направление и узнаёт, когда пассажир создаёт заявку по нему. Суть попуток — сводим спрос и предложение; бесплатно (у Яндекса аналог — платный режим «Домой»).
+
+**Решение — один механизм на обе стороны, без новой сущности:**
+- `models.py` — `RouteWatch.watch_kind`: `rides` (дефолт, F13 — жду поездки) / `requests` (G3 — жду заявки) / `both`.
+- `route_watch.py` — `RouteWatchIn.watch_kind` (валидируется `^(rides|requests|both)$`), в `RouteWatchOut`; дедуп-ключ включает kind (rides/requests на одном маршруте — разные интенты, отдельные строки).
+- `services.py` — `notify_route_watchers` фильтрует по kind ∈ {rides, both}; новый `notify_request_watchers(session, request)` — зеркало (kind ∈ {requests, both}), те же правила: forward/both, опц. день (по `request.desired_at`), анти-спам 1/сутки на подписку (общий счётчик `last_notified_at` для обоих типов), автору заявки себе не шлём. Пуш/лента — через `push_notification(ntype="request_watch", ref_kind="request")`.
+- `requests.py` — `create_request` зовёт `notify_request_watchers` (best-effort, после commit; не роняет создание заявки).
+- Миграция `alembic/versions/g3_request_watch.py` (revision `g3_request_watch`, down=`g1_parcel_track` — **новый единственный head**, цепочка g3 → g1 → p2_promo_unique). Идемпотентна: `routewatch.watch_kind` со `server_default='rides'` (старые подписки = «жду поездки»).
+- Тесты: `tests/test_request_watch.py` (10) + регресс `test_route_watch.py`. Полный сюит: **879 passed, 1 skipped.**
+
+**Android (по чеклисту у Александра):** при подписке на маршрут — переключатель «Я водитель — караулить заявки» (`watch_kind`); обработчик пуша `request_watch` → открыть заявку/ленту заявок.
