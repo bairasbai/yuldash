@@ -6,10 +6,12 @@
 Приватность: телефон второй стороны участникам НЕ отдаём — только админу в
 /admin/incidents. Тяжёлые типы (SEVERE) сразу уведомляют админа в Telegram.
 """
+import os
 from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -22,7 +24,9 @@ from ..safety_logic import (
     refresh_standing, reliability_for, urls_from_csv,
 )
 from ..security import current_user
-from ..services import booking_and_ride_for_user, notify_admin_telegram, send_push, user_rating
+from ..services import (
+    EVIDENCE_DIR, booking_and_ride_for_user, notify_admin_telegram, send_push, user_rating,
+)
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["incidents"])
@@ -285,7 +289,7 @@ def respond_incident(incident_id: int, body: RespondIn,
 
 
 @router.post("/incidents/{incident_id}/appeal", response_model=IncidentOut)
-def appeal_incident(incident_id: int, body: AppealIn,
+def appeal_incident(incident_id: int, body: AppealIn, background: BackgroundTasks,
                     user: User = Depends(current_user), session: Session = Depends(get_session)):
     inc = session.get(Incident, incident_id)
     if not inc:
@@ -299,8 +303,45 @@ def appeal_incident(incident_id: int, body: AppealIn,
     session.add(inc)
     session.commit()
     session.refresh(inc)
-    notify_admin_telegram(f"⚖️ Апелляция по спору #{inc.id} (Юлдаш). Тип: {inc.type}. Нужен разбор человеком.")
+    # Неблокирующе: синхронный Telegram (httpx timeout 8с) иначе морозит ответ клиенту
+    # (event-loop воркера). Паттерн — как в create_incident/_handle_driver_bump.
+    background.add_task(
+        notify_admin_telegram,
+        f"⚖️ Апелляция по спору #{inc.id} (Юлдаш). Тип: {inc.type}. Нужен разбор человеком.",
+    )
     return _incident_out(session, inc, user)
+
+
+# ----------------------------- Приватный эвиденс (фото споров/посылок) -----------------------------
+def _can_view_evidence(session: Session, user_id: int, name: str) -> bool:
+    """Юзер вправе смотреть это приватное фото? — если он сторона инцидента, где имя файла есть в
+    доказательствах любой из сторон, ИЛИ участник брони (пассажир/водитель) с этим фото посылки.
+    Capability по факту участия, а не по угадываемому публичному URL."""
+    inc = session.exec(select(Incident.id).where(
+        ((Incident.reporter_id == user_id) | (Incident.respondent_id == user_id))
+        & (Incident.evidence_urls.contains(name) | Incident.respondent_evidence_urls.contains(name))
+    )).first()
+    if inc is not None:
+        return True
+    my_ride_ids = [r for (r,) in session.exec(select(Ride.id).where(Ride.driver_id == user_id)).all()]
+    bk = session.exec(select(Booking.id).where(
+        ((Booking.passenger_id == user_id) | (Booking.ride_id.in_(my_ride_ids)))
+        & (Booking.parcel_pickup_photo.contains(name) | Booking.parcel_delivery_photo.contains(name))
+    )).first()
+    return bk is not None
+
+
+@router.get("/secure/evidence/{name}")
+def secure_evidence(name: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отдать приватное фото-доказательство. Доступ: админ ИЛИ участник спора/брони, где это фото
+    фигурирует. Файл лежит вне публичной /media (URL не угадать), доступ — по факту участия."""
+    safe = os.path.basename(name)   # защита от path traversal
+    if user.role != UserRole.admin and not _can_view_evidence(session, user.id, safe):
+        raise HTTPException(403, "Нет доступа к этому файлу")
+    path = os.path.join(EVIDENCE_DIR, safe)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Файл не найден")
+    return FileResponse(path)
 
 
 @router.post("/incidents/{incident_id}/withdraw", response_model=IncidentOut)
