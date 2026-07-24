@@ -164,6 +164,41 @@ suspend fun getAchievements(): Result<AchievementsDto> =
 
 ---
 
+## «Сказать рәхмәт» (чаевые водителю)
+
+Два слоя: бесплатное «рәхмәт» (всегда) + денежные чаевые (показываются только если бэк вернул `money != null`).
+
+**API:**
+- `POST /me/tips-sbp` body `{ "sbp": "+7…" }` (пусто = отключить) — водитель вкл/выкл денежные чаевые. Ответ `{ "tips_sbp", "accepting": bool }`. `403` если у юзера нет профиля водителя, `400` неверный номер.
+- `GET /bookings/{id}/tip` (пассажир, после завершённой поездки) → `{ "driver_name": str, "already_thanked": bool, "money": { "sbp": str, "name": str } | null }`. `money == null` → показываем только бесплатное «рәхмәт» (флаг `tips_money_enabled` выключен или водитель не подключил СБП).
+- `POST /bookings/{id}/thanks` (пассажир) → `{ "ok": true, "already": bool }`. Идемпотентно.
+Ошибки tip/thanks: `403` (не пассажир), `409` (поездка не завершена).
+
+**ApiClient (добавить):**
+```kotlin
+data class TipInfoDto(val driverName: String, val alreadyThanked: Boolean, val moneySbp: String?, val moneyName: String?)
+
+suspend fun setTipsSbp(sbp: String): Result<Boolean> =
+    call("POST", "/me/tips-sbp", JSONObject().put("sbp", sbp), auth = true).map { it.optBoolean("accepting") }
+
+suspend fun getBookingTip(id: Int): Result<TipInfoDto> =
+    call("GET", "/bookings/$id/tip", null, auth = true).map { o ->
+        val m = o.optJSONObject("money")
+        TipInfoDto(o.optString("driver_name"), o.optBoolean("already_thanked"),
+                   m?.optString("sbp"), m?.optString("name"))
+    }
+
+suspend fun sayThanks(id: Int): Result<Unit> =
+    call("POST", "/bookings/$id/thanks", null, auth = true).map { }.onSuccess { Analytics.log("say_thanks") }
+```
+
+**UI:**
+- **Пассажир, экран завершённой поездки:** кнопка «Сказать рәхмәт 💚» → `sayThanks(id)` (после — «Спасибо отправлено», кнопка неактивна, свериться с `alreadyThanked`). Если `moneySbp != null` — рядом «Чаевые по СБП» с реквизитом `moneySbp`/`moneyName` (копировать + открыть СБП). Строки — `appText(ru,ba)`.
+- **Водитель, кабинет:** тумблер «Принимать чаевые (СБП)» → при включении поле ввода СБП-телефона → `setTipsSbp(phone)`; выключение → `setTipsSbp("")`. Показывать только если `tips_money_enabled` (можно судить по тому, что бэк принимает; либо просто всегда — реквизит всё равно не покажется пассажиру, пока флаг off).
+- Состояния: загрузка/ошибка; тач-цель ≥48dp; `Canon*`; тёмная тема.
+
+**Готово, когда:** после поездки пассажир может сказать «рәхмәт» (водителю приходит пуш); при включённом флаге и opt-in водителя — видит реквизит для перевода. Телефон водителя не светится, пока флаг off.
+
 ## После реализации (общее)
 1. Собрать `assembleDebug` — зелёно.
 2. Прогнать на телефоне: клиент/водитель/курьер — основные сценарии 4 фич.

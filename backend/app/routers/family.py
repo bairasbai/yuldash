@@ -16,7 +16,7 @@ from ..models import (
     TripShare, TrustedContact, User,
 )
 from ..security import current_user
-from ..services import booking_and_ride_for_user, send_text, user_rating
+from ..services import booking_and_ride_for_user, send_push, send_text, user_rating
 from ..timeutil import utcnow
 
 # Live-ссылка живёт 24ч (приватность): дольше любой реальной поездки, но не бессрочно —
@@ -339,3 +339,77 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
         from .. import quality
         quality.maybe_low_rating_advice(session, ratee_id, avg)
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
+
+
+# ---- «Сказать рәхмәт» (чаевые водителю) ----
+# Два слоя: бесплатное «рәхмәт» (тёплый жест, БЕЗ денег) — всегда; денежные чаевые «на доверии»
+# (СБП водителя, opt-in) — только при settings.tips_money_enabled. Платформа денег НЕ касается.
+class TipsSbpIn(BaseModel):
+    sbp: str = Field("", max_length=40)   # СБП-телефон водителя; пусто = не принимаю денежные чаевые
+
+
+@router.post("/me/tips-sbp")
+def set_tips_sbp(body: TipsSbpIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Водитель включает/выключает денежные чаевые: указывает свой СБП-телефон (или пусто — отключить).
+    Только для водителя (есть DriverProfile). Реквизит показывается пассажиру ТОЛЬКО после завершённой
+    поездки и при tips_money_enabled — личное отдаём по согласию (opt-in) и минимально."""
+    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
+    if not prof:
+        raise HTTPException(403, "Только для водителя")
+    sbp = (body.sbp or "").strip()
+    if sbp and not _PHONE_RE.match(sbp.replace(" ", "").replace("-", "")):
+        raise HTTPException(400, "Неверный номер СБП")
+    prof.tips_sbp = sbp
+    session.add(prof)
+    session.commit()
+    return {"tips_sbp": prof.tips_sbp, "accepting": bool(prof.tips_sbp)}
+
+
+def _booking_for_passenger_done(session: Session, booking_id: int, user: User) -> Booking:
+    """Бронь ЭТОГО пассажира по ЗАВЕРШЁННОЙ поездке (для «рәхмәт»). Иначе 404/403/409.
+    Проверка статуса ПОСЛЕ участника: чужой получает 403, участник недозавершённой — 409."""
+    b = session.get(Booking, booking_id)
+    if not b:
+        raise HTTPException(404, "Бронь не найдена")
+    if b.passenger_id != user.id:
+        raise HTTPException(403, "Доступно только пассажиру поездки")
+    if b.status != BookingStatus.done:
+        raise HTTPException(409, "Поблагодарить можно после завершения поездки")
+    return b
+
+
+@router.get("/bookings/{booking_id}/tip")
+def booking_tip_info(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пассажиру после поездки: чем поблагодарить водителя. Бесплатное «рәхмәт» — всегда;
+    денежные чаевые (СБП водителя) — только если водитель их включил (opt-in) И tips_money_enabled.
+    Телефон водителя (СБП) до включения флага наружу НЕ идёт."""
+    b = _booking_for_passenger_done(session, booking_id, user)
+    ride = session.get(Ride, b.ride_id)
+    driver = session.get(User, ride.driver_id) if ride else None
+    driver_name = (driver.name if driver else "") or "Водитель"
+    money = None
+    if settings.tips_money_enabled and ride:
+        prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
+        if prof and (prof.tips_sbp or "").strip():
+            money = {"sbp": prof.tips_sbp, "name": driver_name}
+    return {"driver_name": driver_name, "already_thanked": bool(b.thanked), "money": money}
+
+
+@router.post("/bookings/{booking_id}/thanks")
+def booking_thanks(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пассажир жмёт «Сказать рәхмәт» — тёплый жест водителю (БЕЗ денег). Идемпотентно
+    (дедуп по booking.thanked): повтор второй пуш не шлёт. Пуш водителю best-effort."""
+    b = _booking_for_passenger_done(session, booking_id, user)
+    if b.thanked:
+        return {"ok": True, "already": True}
+    b.thanked = True
+    session.add(b)
+    session.commit()
+    ride = session.get(Ride, b.ride_id)
+    if ride:
+        try:  # без ПДн — просто тёплое спасибо
+            send_push(session, ride.driver_id, "Тебе сказали рәхмәт 💚",
+                      "Пассажир поблагодарил за поездку · Юлаусы сәфәр өсөн рәхмәт әйтте 💚")
+        except Exception:
+            pass
+    return {"ok": True, "already": False}
