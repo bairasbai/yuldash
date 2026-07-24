@@ -461,6 +461,8 @@ internal fun YuldashApp() {
     var navPopping by vm.navPopping
     var navPrev by vm.navPrev
     LaunchedEffect(screen) {
+        // Intro тоже транзитный (брендовое интро первого запуска) — иначе «Назад» из кабинета водителя
+        // на first-run проваливал обратно на экран Intro (Intro→Onboarding пушил Intro в историю).
         val transient = navPrev == Screen.Splash || navPrev == Screen.Login || navPrev == Screen.Onboarding || navPrev == Screen.Intro
         if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)   // forward → запоминаем, откуда пришли (Intro/Splash/Login/Onboarding — не в трейл)
         navPopping = false
@@ -864,7 +866,13 @@ internal fun YuldashApp() {
                 onToggleLanguage = {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                 },
-                onAccountDeleted = { isAdmin = false; startHomeTab = HomeTab.Map; screen = Screen.Login },
+                onAccountDeleted = {
+                    TripLocationService.stop(context)   // приватность: глушим live-GPS
+                    vm.clearUserData()                  // чистим PII из памяти (сервер уже удалил аккаунт)
+                    isAdmin = false
+                    startHomeTab = HomeTab.Map
+                    screen = Screen.Login
+                },
                 onInstantLogin = { screen = Screen.Login }   // такси требует входа → на экран входа
             )
             Screen.CreateRide -> CreateRideScreen(
@@ -981,7 +989,12 @@ internal fun YuldashApp() {
                 onFilters = { screen = Screen.Filters },
                 isAdmin = isAdmin,
                 onAdminCabinet = { screen = Screen.AdminCabinet },
-                onLogout = { ApiClient.logout(); isAdmin = false; screen = Screen.Login }
+                onLogout = {
+                    ApiClient.logout()
+                    TripLocationService.stop(context)   // приватность: глушим live-GPS вместе с сессией (даже если выход посреди поездки)
+                    vm.clearUserData()                  // стираем контакты/заявки/поездки из памяти — иначе их увидит следующий вошедший
+                    screen = Screen.Login
+                }
             )
             Screen.AdminCabinet -> AdminCabinetScreen(
                 onBack = { goBack() },

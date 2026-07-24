@@ -379,7 +379,11 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         notify_admin_telegram(
             f"🚗 Отклик на заявку #{req.id}\n"
             f"Пассажир: {(p.name if p else '—')} ({p.phone if p else '—'})\n"
-            f"Водитель: {user.name or '—'}\n{req.from_city} → {req.to_city}{price_s}"
+            f"Водитель: {user.name or '—'}\n{req.from_city} → {req.to_city}{price_s}",
+            reply_markup={"inline_keyboard": [[   # админ принимает/отклоняет прямо в Telegram, как модерацию водителей/рекламы
+                {"text": "✅ Принять", "callback_data": f"resp:ok:{resp.id}"},
+                {"text": "❌ Отклонить", "callback_data": f"resp:no:{resp.id}"},
+            ]]},
         )
     return {"ok": True, "id": resp.id}
 
@@ -419,22 +423,17 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
     return out
 
 
-@router.post("/responses/{response_id}/accept")
-def accept_response(response_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Пассажир принимает отклик → создаётся Ride+Booking (поездка с чатом/кодом посадки),
-    заявка закрывается, водителю — push. Возвращает booking_id для перехода в активную поездку."""
-    resp = session.get(RequestResponse, response_id)
-    if not resp:
-        raise HTTPException(404, "Отклик не найден")
-    # with_for_update на заявке: два параллельных accept разных откликов не пройдут оба
-    # проверку status=="active" (иначе — две Ride+Booking на одну заявку, два водителя за одним пассажиром).
+def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
+    """Принять отклик водителя: Ride+Booking одной транзакцией, заявка → matched, водителю push.
+    Общая логика для приложения (пассажир/админ), автоподбора и Telegram-кнопки ✅ у админа —
+    чтобы приём отклика вёл себя одинаково откуда угодно. Заявка должна быть active, иначе 400/404."""
+    # with_for_update на заявке: два параллельных accept (приложение + автоподбор/Telegram) не пройдут
+    # оба проверку status=="active" (иначе — две Ride+Booking на одну заявку, два водителя за пассажиром).
     req = session.exec(
         select(RideRequest).where(RideRequest.id == resp.request_id).with_for_update()
     ).first()
     if not req:
         raise HTTPException(404, "Заявка не найдена")
-    if req.passenger_id != user.id and user.role != UserRole.admin:   # админ принимает ЗА юзера (без интернета)
-        raise HTTPException(403, "Нет доступа")
     if req.status != "active":
         raise HTTPException(400, "Заявка уже закрыта")
     depart = req.desired_at or (utcnow() + timedelta(hours=1))
@@ -465,6 +464,22 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
         f"{pax_name}: {route}", f"{pax_name}: {route}",
         ref_kind="booking", ref_id=booking.id,
     )
+    return booking
+
+
+@router.post("/responses/{response_id}/accept")
+def accept_response(response_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Пассажир (или админ ЗА юзера без интернета) принимает отклик → Ride+Booking.
+    Возвращает booking_id для перехода в активную поездку."""
+    resp = session.get(RequestResponse, response_id)
+    if not resp:
+        raise HTTPException(404, "Отклик не найден")
+    req = session.get(RideRequest, resp.request_id)
+    if not req:
+        raise HTTPException(404, "Заявка не найдена")
+    if req.passenger_id != user.id and user.role != UserRole.admin:   # админ принимает ЗА юзера (без интернета)
+        raise HTTPException(403, "Нет доступа")
+    booking = accept_request_response(session, resp)
     return {"booking_id": booking.id}
 
 
