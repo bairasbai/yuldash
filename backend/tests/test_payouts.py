@@ -171,3 +171,41 @@ def test_admin_payouts_lists_payout(client, user_factory, payouts_on):
     rows = client.get("/admin/payouts", headers=admin["auth"]).json()
     mine = [r for r in rows if r["driver_id"] == drv["id"]]
     assert len(mine) == 1 and mine[0]["amount_kop"] == 30000
+
+
+# ============================ Ключ неймспейснут по водителю (нет коллизии между водителями) ============================
+def test_payout_same_key_different_drivers_no_collision(client, user_factory, payouts_on):
+    """Один и тот же СЫРОЙ ключ у РАЗНЫХ водителей не коллизирует: ключ неймспейснут driver_id,
+    поэтому у провайдера (глобальный Idempotence-Key) вторая выплата не «проглотится»."""
+    d1 = user_factory("PoKeyA", role=UserRole.driver)
+    d2 = user_factory("PoKeyB", role=UserRole.driver)
+    _seed_balance(d1["id"], 50000)
+    _seed_balance(d2["id"], 50000)
+    _save_card(client, d1)
+    _save_card(client, d2)
+    body = {"amount_kop": 30000, "idempotency_key": "same-raw-key"}
+    r1 = client.post("/wallet/payout", headers=d1["auth"], json=body)
+    r2 = client.post("/wallet/payout", headers=d2["auth"], json=body)
+    assert r1.status_code == 200 and r1.json()["status"] == "ok", r1.text
+    assert r2.status_code == 200 and r2.json()["status"] == "ok", r2.text     # НЕ "already"
+    assert _bal(d1["id"]) == 20000 and _bal(d2["id"]) == 20000                # оба реально списаны
+    with Session(engine) as s:
+        e1 = s.exec(select(LedgerEntry).where(
+            LedgerEntry.driver_id == d1["id"], LedgerEntry.kind == LedgerKind.payout)).first()
+        e2 = s.exec(select(LedgerEntry).where(
+            LedgerEntry.driver_id == d2["id"], LedgerEntry.kind == LedgerKind.payout)).first()
+        assert e1.ext_id == f"payout:{d1['id']}:same-raw-key"
+        assert e2.ext_id == f"payout:{d2['id']}:same-raw-key"
+        assert e1.ext_id != e2.ext_id                                         # ключи разошлись
+
+
+# ============================ Суммы шире int32 (BigInteger) ============================
+def test_ledger_holds_amount_over_int32(client, user_factory):
+    """Крупная сумма > потолка int4 (2 147 483 647 коп ≈ 21,47 млн ₽) хранится и читается —
+    денежные *_kop колонки BigInteger (на Postgres; sqlite и так 64-битный)."""
+    drv = user_factory("BigMoneyDrv", role=UserRole.driver)
+    big = 3_000_000_000   # 30 млн ₽ в копейках, заведомо > 2^31
+    with Session(engine) as s:
+        s.add(LedgerEntry(driver_id=drv["id"], kind=LedgerKind.earn, amount_kop=big, note="big"))
+        s.commit()
+    assert _bal(drv["id"]) == big

@@ -10,7 +10,6 @@
 Свойства: идемпотентно (можно гонять хоть каждый день), безопасно по внешним ключам
 (дети раньше родителей + NOT EXISTS-гарды, чтобы не осиротить рейтинги/платежи/SOS),
 кросс-диалектно (даты — параметром, работает и на Postgres, и на sqlite)."""
-import os
 import sys
 import time
 from datetime import timedelta
@@ -18,7 +17,7 @@ from datetime import timedelta
 from sqlalchemy import text
 
 from .db import engine
-from .services import CHAT_DIR, VOICE_DIR
+from .storage import StorageError, get_storage
 from .timeutil import utcnow
 
 DRY = "--dry-run" in sys.argv
@@ -116,26 +115,41 @@ def _rules(now):
     ]
 
 
+_BATCH = 2000   # чанк удаления: короткая транзакция вместо одной длинной блокировки на всю таблицу
+
+
+def _delete_batched(table, where, params):
+    """Удаляем чанками по _BATCH — каждый чанк своя короткая транзакция (не держим долгий лок и
+    не раздуваем WAL на больших таблицах вроде message/notification). `id IN (SELECT ... LIMIT)`
+    кросс-диалектно (Postgres/sqlite); коррелированные NOT EXISTS во WHERE продолжают работать."""
+    sql = text(f"DELETE FROM {table} WHERE id IN (SELECT id FROM {table} WHERE {where} LIMIT :_batch)")
+    total = 0
+    while True:
+        with engine.begin() as conn:
+            n = conn.execute(sql, {**params, "_batch": _BATCH}).rowcount or 0
+        total += n
+        if n < _BATCH:      # неполный чанк → больше подходящих строк нет
+            break
+    return total
+
+
 def _clean_media():
-    """Удаляем файлы фото/голос старше MEDIA_DAYS (по времени модификации). Драйвер-доки НЕ трогаем."""
+    """Удаляем публичные медиа (фото/голос) старше MEDIA_DAYS — на диске И в S3 (через storage).
+    Драйвер-доки (docs, приватные) НЕ трогаем. В S3-режиме без этого объекты копились бы вечно."""
     cutoff = time.time() - MEDIA_DAYS * 86400
     removed, freed = 0, 0
-    for d in (VOICE_DIR, CHAT_DIR):
-        if not os.path.isdir(d):
-            continue
-        for name in os.listdir(d):
-            path = os.path.join(d, name)
-            try:
-                if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
-                    size = os.path.getsize(path)
-                    if not DRY:
-                        os.remove(path)
-                    removed += 1
-                    freed += size
-            except OSError:
-                pass
+    try:
+        storage = get_storage()
+        for key, size in storage.iter_old(["voice", "chat"], cutoff):
+            if not DRY:
+                storage.delete(key)
+            removed += 1
+            freed += size
+    except StorageError as e:      # облако недоступно — чистку медиа пропускаем, БД уже вычищена
+        print(f"  медиа-файлы: хранилище недоступно — пропуск ({e})")
+        return
     verb = "удалилось бы" if DRY else "удалено"
-    print(f"  медиа-файлы (фото/голос >35д): {verb} {removed} шт, {freed // (1024 * 1024)} МБ")
+    print(f"  медиа-файлы (фото/голос >{MEDIA_DAYS}д): {verb} {removed} шт, {freed // (1024 * 1024)} МБ")
 
 
 def main():
@@ -149,14 +163,14 @@ def main():
             print(f"  {label}: ПРОПУЩЕНО — таблица '{table}' не в белом списке")
             continue
         try:
-            with engine.begin() as conn:
-                if DRY:
+            if DRY:
+                with engine.begin() as conn:
                     n = conn.execute(text(f"SELECT count(*) FROM {table} WHERE {where}"), params).scalar() or 0
-                    print(f"  {label}: удалилось бы {n}")
-                else:
-                    n = conn.execute(text(f"DELETE FROM {table} WHERE {where}"), params).rowcount
-                    print(f"  {label}: удалено {n}")
-                total += n
+                print(f"  {label}: удалилось бы {n}")
+            else:
+                n = _delete_batched(table, where, params)   # чанками: короткие транзакции, без долгого лока
+                print(f"  {label}: удалено {n}")
+            total += n
         except Exception as e:  # одна таблица упала — не роняем всю чистку
             print(f"  {label}: ОШИБКА {type(e).__name__}: {e}")
     _clean_media()

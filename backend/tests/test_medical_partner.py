@@ -51,7 +51,7 @@ def test_ride_to_clinic_is_found_under_partner(client, user_factory):
     ride = _publish(client, driver, frm="Баймак", to="Уфа",
                     category="hospital", partner_id=partner_id)
 
-    data = client.get(f"/medical-partners/{partner_id}/rides").json()
+    data = client.get(f"/medical-partners/{partner_id}/rides", headers=driver["auth"]).json()
     assert data["partner"]["id"] == partner_id
     assert data["count"] == 1
     got = data["items"][0]
@@ -67,8 +67,18 @@ def test_rides_to_partner_are_isolated_per_clinic(client, user_factory):
     driver = user_factory("IsoDriver", role=UserRole.driver)
     _publish(client, driver, frm="Баймак", to="Уфа", category="hospital", partner_id=a)
 
-    assert client.get(f"/medical-partners/{a}/rides").json()["count"] == 1
-    assert client.get(f"/medical-partners/{b}/rides").json()["count"] == 0
+    assert client.get(f"/medical-partners/{a}/rides", headers=driver["auth"]).json()["count"] == 1
+    assert client.get(f"/medical-partners/{b}/rides", headers=driver["auth"]).json()["count"] == 0
+
+
+def test_clinic_rides_require_login(client, user_factory):
+    """Приватность: список поездок к клинике (кто едет в больницу) — только для вошедших (152-ФЗ).
+    Справочник клиник (без поездок) остаётся публичным."""
+    partner_id = _make_partner(name="Логин-клиника", city="Уфа")
+    assert client.get(f"/medical-partners/{partner_id}/rides").status_code == 401    # аноним не видит
+    assert client.get(f"/medical-partners/{partner_id}").status_code == 200          # справочник публичен
+    u = user_factory("ClinicViewer")
+    assert client.get(f"/medical-partners/{partner_id}/rides", headers=u["auth"]).status_code == 200
 
 
 def test_create_ride_rejects_unknown_partner(client, user_factory):
@@ -91,8 +101,8 @@ def test_clinic_rides_do_not_leak_private_data(client, user_factory):
         "seats_total": 2, "price": 100, "category": "hospital", "partner_id": partner_id,
         "pickup": "Секретная точка сбора", "pickup_lat": 54.71, "pickup_lng": 55.92,
     })
-    got = client.get(f"/medical-partners/{partner_id}/rides").json()["items"][0]
-    # Публичная витрина: точная точка сбора скрыта.
+    got = client.get(f"/medical-partners/{partner_id}/rides", headers=driver["auth"]).json()["items"][0]
+    # Витрина для вошедших: точная точка сбора всё равно скрыта.
     assert got["pickup"] == ""
     assert got["pickup_lat"] is None
     assert got["pickup_lng"] is None
