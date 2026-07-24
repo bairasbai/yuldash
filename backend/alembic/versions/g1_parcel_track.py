@@ -13,14 +13,14 @@
 Прод: `alembic upgrade head`.
 
 Revision ID: g1_parcel_track
-Revises: p2_promo_unique
+Revises: p3_money_bigint
 """
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect
 
 revision = "g1_parcel_track"
-down_revision = "p2_promo_unique"
+down_revision = "p3_money_bigint"
 branch_labels = None
 depends_on = None
 
