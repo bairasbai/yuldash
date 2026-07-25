@@ -488,6 +488,49 @@ class Report(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class Incident(SQLModel, table=True):
+    """Система «Справедливость»: спор по поездке с ДВУСТОРОННИМ разбором (в отличие от анонимной
+    Report). Обе стороны слышимы (due process): заявитель описывает, обвинённый объясняется, админ
+    решает соразмерно по лестнице и объясняет обеим. Дополняет Report, не заменяет. См. docs/trust-safety.md."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
+    reporter_id: int = Field(index=True, foreign_key="user.id")     # кто заявил
+    respondent_id: int = Field(index=True, foreign_key="user.id")   # на кого (обвиняемый)
+    type: str = Field(index=True)            # код (passenger_no_show, harassment, parcel_damage, …)
+    reporter_role: str = ""                  # passenger/driver/courier/sender/recipient
+    description: str = ""                    # версия заявителя (≤2000)
+    status: str = Field(default="open", index=True)  # open/awaiting_response/under_review/resolved/appealed/closed
+    suspected_bump: bool = False             # авто-детект «бампинга» (заполняется в фазе 4)
+    respondent_statement: str = ""           # объяснение обвинённого (≤2000)
+    responded_at: Optional[datetime] = None
+    resolution: str = ""                     # none/dismissed/warning/strike/suspend/ban/mutual_resolved
+    fault: str = ""                          # none/reporter/respondent/both/unclear
+    resolution_note: str = ""                # объяснение админа обеим сторонам (≤2000)
+    compensation_kop: int = 0                # предложенная компенсация (не списываем автоматически)
+    appeal_text: str = ""                    # текст апелляции (≤2000)
+    appeal_status: str = ""                  # ""/requested/upheld/overturned
+    resolved_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+    resolved_at: Optional[datetime] = None
+
+
+class SafetyProfile(SQLModel, table=True):
+    """Состояние «справедливости» пользователя (1:1 с User, ленивое создание). Лестница §2:
+    страйки/замечания → standing, пауза с сроком, затухание страйков за окно (без «клейма навсегда»)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, unique=True, foreign_key="user.id")
+    strikes: int = 0
+    warnings: int = 0
+    standing: str = "good"                   # good/warned/limited/suspended
+    suspended_until: Optional[datetime] = None
+    suspend_reason: str = ""
+    last_strike_at: Optional[datetime] = None
+    rating_shield: bool = False              # админ защитил оболганного (щит рейтинга)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class Block(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")

@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     # шлёт двуязычный push «оцените поездку» участникам завершённой брони, кто ещё не оценил (один раз).
     rate_reminder_enabled: bool = True
 
+    # --- Система «Справедливость» (инциденты + лестница наказаний), см. safety_logic.py ---
+    safety_incidents_per_hour: int = 10      # анти-спам жалобами: не более N инцидентов на заявителя в час
+    safety_strikes_to_limit: int = 2         # страйков → standing=limited (ограничение)
+    safety_strikes_to_suspend: int = 3       # страйков → авто-пауза по лестнице
+    safety_suspend_1_days: int = 3           # лестница пауз §2: 1-я → 3д
+    safety_suspend_2_days: int = 7           # 2-я → 7д
+    safety_suspend_3_days: int = 30          # 3-я и далее → 30д
+    safety_strike_decay_days: int = 60       # страйки «сгорают» за N дней хорошего поведения (§4)
+
     # --- Telegram-вход (бот) ---
     telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)
     telegram_webhook_secret: str = ""   # секрет: аутентификация Telegram→сервер (заголовок X-Telegram-Bot-Api-Secret-Token)
