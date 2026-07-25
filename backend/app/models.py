@@ -306,7 +306,7 @@ class RideRequest(SQLModel, table=True):
     for_relative_name: Optional[str] = None
     voice_url: Optional[str] = None
     transcript: Optional[str] = None        # расшифровка голосовой заявки
-    status: str = "active"
+    status: str = Field(default="active", index=True)   # горячий фильтр: /requests, авто-подбор (WHERE status='active') каждую минуту
     created_at: datetime = Field(default_factory=utcnow)
 
 
