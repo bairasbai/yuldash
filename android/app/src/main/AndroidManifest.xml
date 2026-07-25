@@ -60,6 +60,10 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="yuldash_default" />
+        <!-- Иконка фоновых (системный трей) пушей — монохромный силуэт, не launcher (иначе белый квадрат). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notification" />
 
         <!-- Foreground-сервис live-позиции в активной поездке. -->
         <service

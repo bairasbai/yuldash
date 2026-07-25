@@ -16,7 +16,8 @@ import com.yuldash.app.TaxiOfferNotifier
 /**
  * Приём push-уведомлений (FCM). Работает после добавления app/google-services.json.
  * onNewToken → регистрируем токен устройства на сервере (если вошли).
- * onMessageReceived → показываем уведомление (новое сообщение / бронь / SOS).
+ * onMessageReceived → показываем уведомление на нужном канале (чат отдельно от поездок),
+ * монохромной иконкой статус-бара, с deep-link extras (type/id) для перехода на нужный экран.
  */
 class FcmService : FirebaseMessagingService() {
 
@@ -44,32 +45,42 @@ class FcmService : FirebaseMessagingService() {
         val n = msg.notification
         val title = n?.title ?: msg.data["title"] ?: "Юлдаш"
         val body = n?.body ?: msg.data["body"] ?: ""
-        // Ход такси-заказа (B9b-2): тап по уведомлению открывает экран заказа пассажира
-        // (extra ловит MainActivity.handleNavIntent → NavSignals.openInstantOrder).
-        showNotification(title, body, openInstantOrder = msg.data["type"] == "instant_status")
+        showNotification(title, body, msg.data["type"], msg.data["id"])
     }
 
-    private fun showNotification(title: String, body: String, openInstantOrder: Boolean = false) {
+    private fun showNotification(title: String, body: String, type: String?, refId: String?) {
         val mgr = getSystemService(NotificationManager::class.java) ?: return
         val silent = !AppPrefs.sounds(this)   // тумблер «Звуки» выключен → беззвучно
+        // Раздельные каналы: чат отдельно от поездок/прочего → пользователь глушит/настраивает раздельно.
+        // Имена двуязычные (BA · RU) — видны в системных настройках уведомлений, сервис не Composable.
+        val channelId = if (type == "chat") CHANNEL_CHAT else CHANNEL_DEFAULT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             mgr.createNotificationChannel(
-                // Имя канала видно в системных настройках — двуязычно (BA · RU), сервис не Composable.
-                NotificationChannel(CHANNEL_ID, "Юлдаш · Хәбәрҙәр · Уведомления", NotificationManager.IMPORTANCE_HIGH)
+                NotificationChannel(CHANNEL_DEFAULT, "Юлдаш · Сәфәрҙәр · Поездки", NotificationManager.IMPORTANCE_HIGH)
+            )
+            mgr.createNotificationChannel(
+                NotificationChannel(CHANNEL_CHAT, "Хәбәрҙәр · Сообщения", NotificationManager.IMPORTANCE_HIGH)
             )
         }
+        // Ход такси-заказа (B9b-2): тап открывает экран заказа пассажира (extra ловит MainActivity).
+        val openInstantOrder = type == "instant_status"
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (openInstantOrder) putExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, true)
+            // Общий deep-link для остальных пушей: тип+id → MainActivity сможет открыть нужный экран
+            // (чат/бронь). Потребитель роутинга в MainActivity — следующий шаг; extras уже несём.
+            if (!type.isNullOrBlank()) putExtra(EXTRA_PUSH_TYPE, type)
+            if (!refId.isNullOrBlank()) putExtra(EXTRA_PUSH_ID, refId)
         }
-        // requestCode различает интенты с нав-экстрой и без — иначе FLAG_UPDATE_CURRENT
-        // дописал бы extra в общий PendingIntent и «заразил» обычные уведомления.
+        // requestCode уникален по назначению → FLAG_UPDATE_CURRENT не «заражает» разные уведомления
+        // общими extra (иначе тап по одному открыл бы чужой экран). Такси = 1 (как было).
+        val reqCode = if (openInstantOrder) 1 else (refId?.hashCode() ?: 0)
         val pi = PendingIntent.getActivity(
-            this, if (openInstantOrder) 1 else 0, intent,
+            this, reqCode, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val notif = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+        val notif = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.drawable.ic_stat_notification)
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
@@ -81,6 +92,9 @@ class FcmService : FirebaseMessagingService() {
     }
 
     companion object {
-        const val CHANNEL_ID = "yuldash_default"
+        const val CHANNEL_DEFAULT = "yuldash_default"   // поездки/брони/прочее (= прежний yuldash_default → канал не осиротеет)
+        const val CHANNEL_CHAT = "yuldash_chat"         // сообщения чата — отдельный канал, мьютится независимо
+        const val EXTRA_PUSH_TYPE = "push_type"
+        const val EXTRA_PUSH_ID = "push_id"
     }
 }
