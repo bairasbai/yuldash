@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     safety_suspend_2_days: int = 7           # 2-я → 7д
     safety_suspend_3_days: int = 30          # 3-я и далее → 30д
     safety_strike_decay_days: int = 60       # страйки «сгорают» за N дней хорошего поведения (§4)
+    safety_reliability_window: int = 30      # «Надёжность» считаем по последним N терминальным броням
+    safety_late_cancel_before_depart_min: int = 60  # отмена в этом окне до выезда (или после) — «поздняя»
 
     # --- Telegram-вход (бот) ---
     telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)

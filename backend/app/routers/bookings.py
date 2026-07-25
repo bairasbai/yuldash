@@ -367,6 +367,7 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
         booking.cancelled_at = utcnow()
         booking.contact_then_cancel = contact_opened
         booking.cancel_reason = ((body.reason or "").strip()[:80] or None) if body else None
+        booking.cancelled_by = user.id   # «Надёжность»: поздняя отмена бьёт по инициатору (safety_logic.reliability_for)
         ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
         session.add(booking)
         session.add(ride)
@@ -404,6 +405,7 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
     booking.cancelled_at = utcnow()
     booking.no_show = True
     booking.cancel_reason = "no_show"
+    booking.cancelled_by = user.id   # кто отметил (неявка бьёт по Надёжности пассажира только после инцидента-подтверждения)
     ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)   # вернуть освобождённые места
     session.add(booking)
     session.add(ride)

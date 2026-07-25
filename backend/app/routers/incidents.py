@@ -17,10 +17,11 @@ from ..db import get_session
 from ..models import Booking, Incident, Ride, User, UserRole
 from ..safety_logic import (
     INCIDENT_TYPES, SEVERE_TYPES, active_incidents_count, apply_incident_resolution,
-    clamp, ensure_active, incidents_last_hour, is_suspended, refresh_standing,
+    clamp, completed_trips_for, ensure_active, incidents_last_hour, is_suspended,
+    refresh_standing, reliability_for,
 )
 from ..security import current_user
-from ..services import booking_and_ride_for_user, notify_admin_telegram, send_push
+from ..services import booking_and_ride_for_user, notify_admin_telegram, send_push, user_rating
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["incidents"])
@@ -363,6 +364,7 @@ class StandingOut(BaseModel):
     standing: str
     strikes: int
     warnings: int
+    reliability: int
     suspended_until: Optional[datetime]
     suspend_reason: str
     rating_shield: bool
@@ -375,10 +377,35 @@ def my_standing(user: User = Depends(current_user), session: Session = Depends(g
     prof = refresh_standing(session, user.id)
     return StandingOut(
         standing=prof.standing, strikes=prof.strikes, warnings=prof.warnings,
+        reliability=reliability_for(session, user.id),
         suspended_until=prof.suspended_until, suspend_reason=prof.suspend_reason,
         rating_shield=prof.rating_shield,
         active_incidents=active_incidents_count(session, user.id),
         can_act=not is_suspended(prof),
+    )
+
+
+class TrustOut(BaseModel):
+    rating: float
+    rating_count: int
+    trips: int
+    verified: bool
+    reliability: int
+    member_since: Optional[datetime]
+
+
+@router.get("/users/{user_id}/trust", response_model=TrustOut)
+def user_trust(user_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Публичный снимок доверия (карточка водителя/пассажира): рейтинг, поездки, Надёжность,
+    «проверен», с нами с… Без телефона и приватного — только витрина."""
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    avg, cnt = user_rating(session, user_id)
+    return TrustOut(
+        rating=round(avg, 1) if cnt > 0 else 0.0, rating_count=cnt,
+        trips=completed_trips_for(session, user_id), verified=bool(target.verified),
+        reliability=reliability_for(session, user_id), member_since=target.created_at,
     )
 
 

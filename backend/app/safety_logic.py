@@ -130,6 +130,73 @@ def completed_trips_for(session: Session, user_id: int) -> int:
     ).all()))
 
 
+# ----------------------------- Надёжность (0..100) -----------------------------
+def _participant_terminal_bookings(session: Session, user_id: int, limit: int) -> list[Booking]:
+    """Терминальные брони (завершённые/отменённые/неявка), где пользователь — пассажир ИЛИ водитель."""
+    my_ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == user_id)).all())
+    conds = [Booking.passenger_id == user_id]
+    if my_ride_ids:
+        conds.append(Booking.ride_id.in_(my_ride_ids))
+    return list(session.exec(
+        select(Booking)
+        .where(
+            or_(*conds),
+            or_(
+                Booking.status.in_([BookingStatus.done, BookingStatus.cancelled]),
+                Booking.no_show == True,  # noqa: E712
+            ),
+        )
+        .order_by(Booking.id.desc())
+        .limit(limit)
+    ).all())
+
+
+def is_late_cancel(booking: Booking, ride: Optional[Ride], when=None) -> bool:
+    """Поздняя отмена: в окне до выезда (или после), либо водитель уже выехал/подъезжает.
+    Ранняя отмена — без последствий (§1)."""
+    if booking.driver_phase in ("departed", "arriving"):
+        return True
+    if not ride or not ride.depart_at:
+        return False
+    when = when or booking.cancelled_at or utcnow()
+    threshold = ride.depart_at - timedelta(minutes=settings.safety_late_cancel_before_depart_min)
+    return when >= threshold
+
+
+def reliability_for(session: Session, user_id: int) -> int:
+    """«Надёжность» 0..100 — добрый аналог «Активности»: completed / (completed + failed) по
+    последним N терминальным броням. Новичок — нейтральные 100%. Неявку засчитываем ТОЛЬКО по
+    ПОДТВЕРЖДЁННОМУ админом инциденту (защита оболганного: сырой донос Надёжность не роняет)."""
+    window = settings.safety_reliability_window
+    bookings = _participant_terminal_bookings(session, user_id, window)
+    if not bookings:
+        return 100
+    booking_ids = [b.id for b in bookings]
+    noshow_ids: set[int] = set()
+    for inc in session.exec(select(Incident).where(
+        Incident.booking_id.in_(booking_ids),
+        Incident.respondent_id == user_id,
+        Incident.type.in_(["passenger_no_show", "driver_no_show"]),
+        Incident.status == "resolved",
+        Incident.fault.in_(["respondent", "both"]),
+    )).all():
+        if inc.booking_id is not None:
+            noshow_ids.add(inc.booking_id)
+    ride_ids = {b.ride_id for b in bookings}
+    rides = {r.id: r for r in session.exec(select(Ride).where(Ride.id.in_(ride_ids))).all()} if ride_ids else {}
+    completed = 0
+    failed_weight = 0
+    for b in bookings:
+        if b.status == BookingStatus.done and not b.no_show:
+            completed += 1
+        elif b.id in noshow_ids:
+            failed_weight += 1                 # подтверждённая неявка (инцидент, вина на этом юзере)
+        elif not b.no_show and b.cancelled_by == user_id and is_late_cancel(b, rides.get(b.ride_id)):
+            failed_weight += 1                 # обычная поздняя отмена этим юзером
+    denom = completed + failed_weight
+    return 100 if denom == 0 else round(100 * completed / denom)
+
+
 # ----------------------------- Применение решения админа -----------------------------
 def _escalation_days(session: Session, respondent_id: int, exclude_incident_id: Optional[int]) -> int:
     """Длина паузы по лестнице §2: 1-я → 3д, 2-я → 7д, 3-я и далее → 30д. Считаем прошлые
