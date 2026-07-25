@@ -3,6 +3,23 @@
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
 > ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
 
+## 🛡 Система «Справедливость» (Trust/Safety/Fairness) + порт из веток (2026-07-25, `release-2026-07`)
+> Переписано НА релиз из закрытых веток (`pr88-safety-p3`, `notification-client-android`) — не мержем, а пишем заново (ветки отстали, мерж = регресс). Весь backend, проверено sqlite+postgres (949 passed). Философия и решения — [decisions.md](decisions.md) 2026-07-25.
+
+**Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
+- **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
+- **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть).
+- **`backend/app/routers/incidents.py`** — `POST /incidents` (подать, гейт `ensure_active`), `/incidents/{id}/respond` (объясниться), `/appeal`, `/withdraw` (мир), `/incidents/mine`, `GET /admin/incidents`, `POST /admin/incidents/{id}/resolve` (лестница), `GET /me/standing`, `GET /users/{id}/trust` (витрина: рейтинг+поездки+Надёжность), `GET /safety/policy`. Приватность: телефон 2-й стороны — только админу; SEVERE → сразу Telegram.
+- **`backend/app/collusion.py` + `routers/sybil.py`** — детект накрутки доверия сговором (взаимный реферал / взаимные 5★ / много броней между собой), `GET /admin/sybil/suspects` (read-only админ-сигнал, без авто-наказаний).
+- **`backend/app/routers/reviews.py`** — `POST /admin/ratings/{id}/exclude` (снять оценку из среднего). Фильтр `excluded=False` — в ОБОИХ путях агрегата (`services.user_rating` + `drivers_bundle`).
+- **Хуки** (`routers/bookings.py`): `cancel_booking`/`mark_no_show` проставляют `cancelled_by`. **Конфиг** — `safety_*` в `config.py`. **Миграции** `j_rating_excluded`→`k_incidents`→`l_booking_cancelled_by` (идемпотентные). **Тесты**: `test_rating_exclude`/`test_sybil`/`test_incidents`(13)/`test_reliability`(7).
+- ⏳ **Не сделано:** Android-экран «Центр справедливости» (фаза 5, нужна сборка) + детект «бампинга» (нужна слежка за republish).
+
+**Прочее из порта:**
+- **`backend/app/rate_reminder.py`** (из `notification-fixes`) — фоновый systemd-таймер (`app/rate_reminder.py`, ~30 мин): двуязычный push «оцените поездку» не оценившим. `Booking.rate_reminded` (дедуп), миграция `h_rate_reminded`, флаг `rate_reminder_enabled`.
+- **Push-каналы Android** (из `notification-client-android`): `FcmService.kt` переписан — раздельные каналы `yuldash_chat`/`yuldash_default` + монохромная иконка `ic_stat_notification` + deep-link extras; таксишные пуши (`instant_offer`/`instant_status`) СОХРАНЕНЫ. Ждёт `android-build` (Kotlin тут не собрать).
+- **Индекс** `riderequest.status` (миграция `i_riderequest_status_ix`) — горячий фильтр авто-подбора/ленты.
+
 ## 💳 Деньги за флагами: вывод на карту + онлайн-оплата поездки (2026-07-17, только `android/`)
 
 Обе фичи «за флагом»: сервер сейчас отвечает `enabled=false`/503 «скоро», UI показывает честную заглушку и **оживёт сам**, когда Александр включит флаги (`PAYOUTS_ENABLED`, `PAYMENTS_PROVIDER=yookassa`) — без правок клиента.
