@@ -1,0 +1,10 @@
+[Unit]
+Description=Yuldash rate-reminder (push "оцените поездку" to unrated parties of finished trips)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=yuldash
+WorkingDirectory=/opt/yuldash
+ExecStart=/opt/yuldash/.venv/bin/python -m app.rate_reminder
+Nice=10

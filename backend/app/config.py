@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # отклик (рейтинг→цена) спустя короткую паузу. Работает через systemd-таймер (app/automatch.py).
     automatch_enabled: bool = True           # включить авто-подбор (заявки с приложением НЕ трогает)
     automatch_grace_sec: int = 120           # пауза после первого отклика — дать откликнуться другим, выбрать лучшего
+    # Напоминание оценить поездку: фоновая задача (app/rate_reminder.py, systemd-таймер ~раз в 30 мин)
+    # шлёт двуязычный push «оцените поездку» участникам завершённой брони, кто ещё не оценил (один раз).
+    rate_reminder_enabled: bool = True
 
     # --- Telegram-вход (бот) ---
     telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)

@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Yuldash rate-reminder every 30 min (remind to rate finished trips)
+
+[Timer]
+OnCalendar=*:0/30
+Persistent=false
+
+[Install]
+WantedBy=timers.target

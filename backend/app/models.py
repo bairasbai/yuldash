@@ -381,6 +381,7 @@ class Booking(SQLModel, table=True):
     unpaid_reported: bool = False
     contact_then_cancel: bool = False
     thanked: bool = False                     # «Сказать рәхмәт»: пассажир поблагодарил за поездку (дедуп)
+    rate_reminded: bool = False               # фоновая задача уже слала «оцените поездку» по этой броне (дедуп, без спама)
     cancelled_at: Optional[datetime] = None   # когда бронь отменили (для счётчиков за день)
     # Причина отмены (код: changed_mind/found_other/plans_changed/driver_no_response/car_problem/no_show/other)
     # и флаг неявки — сигнал доверия «между своими» и аргумент в споре. Пусто = причину не указали.
