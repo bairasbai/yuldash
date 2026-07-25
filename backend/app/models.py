@@ -513,6 +513,9 @@ class Rating(SQLModel, table=True):
     stars: int = 5                           # 1..5
     text: str = ""                           # текстовый отзыв (опц., ≤500) — идёт на модерацию
     text_published: bool = Field(default=False, index=True)  # текст одобрен к показу в публичном профиле
+    # «Щит рейтинга» (Справедливость): админ пометил оценку спорной/накрученной → НЕ входит в средний
+    # рейтинг (агрегат фильтрует excluded=False). Защита оболганного: месть-оценка не рушит рейтинг.
+    excluded: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 
 

@@ -172,3 +172,23 @@ def publish_rating(rating_id: int, body: RatingPublishIn, user: User = Depends(c
         id=r.id, author=((author.name if author else "") or "Аноним"),
         ratee_id=r.ratee_id, stars=r.stars, text=r.text, created_at=r.created_at,
     )
+
+
+class RatingExcludeIn(BaseModel):
+    excluded: bool = True
+
+
+@router.post("/admin/ratings/{rating_id}/exclude")
+def exclude_rating(rating_id: int, body: RatingExcludeIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """«Щит рейтинга» (Справедливость): админ помечает спорную/накрученную оценку снятой — она
+    перестаёт влиять на средний рейтинг и число «N оценок» (или возвращает обратно, excluded=false).
+    Защита оболганного: одна месть-оценка не должна рушить рейтинг честного."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    r = session.get(Rating, rating_id)
+    if not r:
+        raise HTTPException(404, "Оценка не найдена")
+    r.excluded = body.excluded
+    session.add(r)
+    session.commit()
+    return {"id": rating_id, "excluded": r.excluded}

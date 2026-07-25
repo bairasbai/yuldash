@@ -639,7 +639,8 @@ def user_rating(session: Session, user_id: int) -> tuple[float, int]:
     """Средний рейтинг пользователя (G6: по последним RATING_RECENT_WINDOW учтённым оценкам) +
     ПОЛНОЕ число учтённых. B8-5: повторные оценки одной пары сверх капа в агрегат не входят."""
     rows = list(session.exec(
-        select(Rating.rater_id, Rating.stars, Rating.created_at).where(Rating.ratee_id == user_id)
+        select(Rating.rater_id, Rating.stars, Rating.created_at)
+        .where(Rating.ratee_id == user_id, Rating.excluded == False)  # noqa: E712 — «щит рейтинга»: снятые оценки вне среднего
     ).all())
     return _rating_from_rows(rows)
 
@@ -670,7 +671,7 @@ def drivers_bundle(session: Session, driver_ids: set) -> tuple[dict, dict, dict,
     rows_by_driver: dict = {}
     for ratee_id, rater_id, stars, at in session.exec(
         select(Rating.ratee_id, Rating.rater_id, Rating.stars, Rating.created_at)
-        .where(Rating.ratee_id.in_(driver_ids))
+        .where(Rating.ratee_id.in_(driver_ids), Rating.excluded == False)  # noqa: E712 — «щит рейтинга»: как в user_rating
     ).all():
         rows_by_driver.setdefault(ratee_id, []).append((rater_id, stars, at))
     rating_agg: dict = {}
