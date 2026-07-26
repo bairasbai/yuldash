@@ -204,7 +204,7 @@ private fun ReceiptCard(r: TripReceiptDto) {
 }
 
 @Composable
-private fun ReceiptRow(icon: ImageVector, label: String, value: String) {
+internal fun ReceiptRow(icon: ImageVector, label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = CircleShape) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(18.dp))
@@ -217,7 +217,7 @@ private fun ReceiptRow(icon: ImageVector, label: String, value: String) {
 }
 
 @Composable
-private fun ReceiptDriverRow(name: String, verified: Boolean) {
+internal fun ReceiptDriverRow(name: String, verified: Boolean) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = CanonMint, shape = CircleShape) {
             Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(18.dp))
@@ -234,7 +234,7 @@ private fun ReceiptDriverRow(name: String, verified: Boolean) {
 }
 
 @Composable
-private fun ReceiptDivider() {
+internal fun ReceiptDivider() {
     Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(CanonHairlineGreen))
 }
 

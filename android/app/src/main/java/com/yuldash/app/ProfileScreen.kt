@@ -134,6 +134,7 @@ import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Route
@@ -1056,7 +1057,8 @@ internal fun DriverCabinetScreen(
     onInstantTrip: (Int) -> Unit = {},   // «Быстрый заказ»: принял входящий оффер → экран поездки водителя
     onTaxiOnboarding: () -> Unit = {},   // гейт такси (580-ФЗ): нет одобренной заявки → «Стать таксистом»
     onWallet: () -> Unit = {},           // Кошелёк: баланс + история операций (ledger)
-    onEarnings: () -> Unit = {}          // «Мой заработок»: заработок по периодам + по дням
+    onEarnings: () -> Unit = {},         // «Мой заработок»: заработок по периодам + по дням
+    onTaxiRides: () -> Unit = {},        // «Мои поездки такси»: цена → комиссия → чистыми по каждой
 ) {
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
@@ -1333,6 +1335,7 @@ internal fun DriverCabinetScreen(
             } else null,
             onWallet = onWallet,
             onEarnings = onEarnings,
+            onTaxiRides = onTaxiRides,
         )
     }
     // Шторка выбора зоны работы (география, волна 2): открывается с чипа или при выходе на линию без зоны.
@@ -1947,6 +1950,7 @@ internal fun DriverCabinetContent(
     demandSection: (@Composable () -> Unit)? = null,
     onWallet: () -> Unit = {},       // Кошелёк: баланс + история операций
     onEarnings: () -> Unit = {},     // «Мой заработок»: по периодам + по дням
+    onTaxiRides: () -> Unit = {},    // «Мои поездки такси»: расшифровка денег по каждой поездке
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     val ridesDone = archive.count { it.status == "done" }
@@ -2236,6 +2240,8 @@ internal fun DriverCabinetContent(
         item {
             SettingsGroup {
                 SettingsNavRow(Icons.Default.Insights, appText("Мой заработок", "Минең табыш"), appText("Заработок по неделям, месяцам и дням", "Аҙна, ай һәм көн буйынса табыш"), onClick = onEarnings)
+                // Расшифровка по каждой поездке — закрывает «Юлдаш говорит 4200, я насчитал 4600».
+                SettingsNavRow(Icons.Default.ReceiptLong, appText("Мои поездки такси", "Такси сәфәрҙәрем"), appText("Цена, комиссия и сколько осталось тебе", "Хаҡ, комиссия һәм һиңә күпме ҡалды"), onClick = onTaxiRides)
                 SettingsNavRow(Icons.Default.AccountBalanceWallet, appText("Кошелёк", "Янсыҡ"), appText("Баланс и история операций", "Баланс һәм операциялар тарихы"), onClick = onWallet)
             }
         }

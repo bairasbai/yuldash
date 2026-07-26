@@ -428,6 +428,7 @@ private fun CourierCarryingTab() {
     var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var troubleTarget by remember { mutableStateOf<ParcelDto?>(null) }   // отказ / возврат (аудит 2026-07-26)
     var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var ratedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
@@ -494,6 +495,7 @@ private fun CourierCarryingTab() {
                         onDeliver = { deliverTarget = list[i] },
                         onSetGoods = { goodsTarget = list[i] },
                         onDispute = { disputeTarget = list[i] },
+                        onTrouble = { troubleTarget = list[i] },
                         rated = ratedIds.contains(list[i].id),
                         onRate = { rateTarget = list[i] },
                     )
@@ -570,6 +572,15 @@ private fun CourierCarryingTab() {
             parcel = target,
             onDismiss = { disputeTarget = null },
             onOpened = { disputeTarget = null; reload() },
+        )
+    }
+
+    // «Что-то пошло не так»: отказ от заказа и возврат посылки отправителю.
+    troubleTarget?.let { target ->
+        CourierTroubleDialog(
+            parcel = target,
+            onDismiss = { troubleTarget = null },
+            onDone = { troubleTarget = null; reload() },
         )
     }
 
@@ -685,6 +696,7 @@ private fun CourierCarryingCard(
     onDeliver: () -> Unit,
     onSetGoods: () -> Unit,
     onDispute: () -> Unit,
+    onTrouble: () -> Unit,
     rated: Boolean,
     onRate: () -> Unit,
 ) {
@@ -766,6 +778,11 @@ private fun CourierCarryingCard(
                         enabled = !busy && !needGoods,
                     )
                 }
+            }
+            // «Что-то пошло не так»: пока посылка у курьера — отказаться или везти обратно.
+            // Без этого выхода заказ навсегда зависал «в пути», а коробка оставалась дома у курьера.
+            if (!delivered && p.status != "canceled" && p.status != "returned") {
+                CourierTroubleButton(returning = p.status == "returning", onClick = onTrouble)
             }
             // C3: оценить отправителя — после вручения
             if (delivered) {

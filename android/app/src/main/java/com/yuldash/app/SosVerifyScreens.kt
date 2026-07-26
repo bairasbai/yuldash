@@ -252,6 +252,21 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+// Категории сигнала «своим» — ровно те, что принимает сервер (Literal в /sos):
+// medical | breakdown | other. Больше не придумываем: неизвестную строку сервер отвергнет 422.
+internal const val SOS_CATEGORY_MEDICAL = "medical"
+internal const val SOS_CATEGORY_BREAKDOWN = "breakdown"
+internal const val SOS_CATEGORY_OTHER = "other"
+
+/** Один вариант «что случилось» для сигнала поддержке и близким. */
+internal data class SosCategoryUi(val key: String, val icon: ImageVector, val ru: String, val ba: String)
+
+internal val sosCategories = listOf(
+    SosCategoryUi(SOS_CATEGORY_MEDICAL, Icons.Default.LocalHospital, "Плохо человеку", "Кешегә насар"),
+    SosCategoryUi(SOS_CATEGORY_BREAKDOWN, Icons.Default.DirectionsCar, "Машина сломалась", "Машина ватылған"),
+    SosCategoryUi(SOS_CATEGORY_OTHER, Icons.Default.QuestionMark, "Другое", "Башҡа"),
+)
+
 // Описание одной экстренной службы для ползунков.
 internal data class SosService(
     val key: String,
@@ -276,6 +291,9 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId:
         )
     }
     var description by remember { mutableStateOf("") }
+    // Тип сигнала «своим». Раньше клиент ВСЕГДА слал "other" — поле категории на сервере было,
+    // но никогда не заполнялось, и дежурный не понимал, скорую вызывать или эвакуатор.
+    var category by remember { mutableStateOf(SOS_CATEGORY_OTHER) }
 
     // Строки для Toast (вне Composable-контекста лямбд) — считаем заранее.
     val tCopied = appText("Скопировано", "Күсерелде")
@@ -370,7 +388,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId:
         }.trim().ifBlank { "SOS" }
         scope.launch {
             // Ждём сервер, НЕ fire-and-forget (кнопка безопасности). orderId — контекст такси-заказа (B7b-2).
-            val r = ApiClient.sos("other", note, orderId)
+            val r = ApiClient.sos(category, note, orderId)
             sending = false
             if (r.isSuccess) {
                 sent = true
@@ -386,6 +404,8 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId:
         services = services,
         description = description,
         onDescriptionChange = { description = it },
+        category = category,
+        onCategoryChange = { category = it },
         coordsText = coordsText,
         locating = locating,
         loggedIn = loggedIn,
@@ -412,6 +432,10 @@ internal fun SosContent(
     services: List<SosService>,
     description: String,
     onDescriptionChange: (String) -> Unit,
+    // Тип сигнала «своим» (значения — как у сервера: medical | breakdown | other).
+    // Значения по умолчанию — чтобы старые вызовы/тесты собирались без правок.
+    category: String = SOS_CATEGORY_OTHER,
+    onCategoryChange: (String) -> Unit = {},
     coordsText: String?,
     locating: Boolean,
     loggedIn: Boolean,
@@ -485,7 +509,10 @@ internal fun SosContent(
                             label = svc.label.text(),
                             number = svc.number,
                             icon = svc.icon,
-                            onClick = { onDial(svc.number) }
+                            // Позвонил в скорую → сигнал «своим» уже помечен как медицинский.
+                            // Человеку в беде не до выбора категорий — угадываем за него, но видимо
+                            // (чип ниже подсветится, можно переключить).
+                            onClick = { onCategoryChange(svc.sosCategory); onDial(svc.number) }
                         )
                     }
                 }
@@ -557,6 +584,21 @@ internal fun SosContent(
                             appText("Для SMS близким и сигнала поддержке нужно войти. Звонок 112 работает без входа.", "Яҡындарға SMS һәм ярҙамға сигнал өсөн инергә кәрәк. 112 шылтырауы инеүһеҙ эшләй."),
                         color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center
                     )
+                }
+            }
+            // Тип сигнала: дежурный сразу видит, скорую звать или эвакуатор. Тач-цель 48dp (§4.5) —
+            // в панике палец не целится. Горизонтальный скролл: башкирские подписи длиннее русских.
+            item {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    sosCategories.forEach { c ->
+                        NearbyFilterChip(
+                            c.icon, appText(c.ru, c.ba), category == c.key,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { onCategoryChange(c.key) }
+                    }
                 }
             }
             if (sent) {

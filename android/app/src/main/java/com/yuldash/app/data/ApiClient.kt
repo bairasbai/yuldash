@@ -288,23 +288,36 @@ object ApiClient {
         // Серверный выход: помечаем токен недействительным на сервере (logout со всех устройств,
         // ревокация при потере телефона). Токен захватываем в local val — иначе гонка с очисткой ниже.
         val t = token
+        val push = prefs?.getString("push_token", null)
         if (!t.isNullOrBlank()) {
             bg.launch {
-                runCatching {
-                    val conn = (URL("$BASE/auth/logout").openConnection() as HttpURLConnection).apply {
-                        requestMethod = "POST"
-                        connectTimeout = 15000
-                        readTimeout = 15000
-                        deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
-                        setRequestProperty("Authorization", "Bearer $t")
-                    }
-                    conn.responseCode
-                    conn.disconnect()
-                }
+                // Сперва отвязать устройство от пушей, потом гасить токен: после /auth/logout
+                // тот же Bearer уже невалиден и /push/unregister вернёт 401.
+                // Иначе на общем телефоне вышедший продолжал получать чужие пуши (брони/чат/SOS).
+                if (!push.isNullOrBlank()) runCatching { postWithToken("/push/unregister", JSONObject().put("token", push), t) }
+                runCatching { postWithToken("/auth/logout", null, t) }
             }
         }
         // Локальная очистка — синхронно, чтобы UI сразу видел «вышел».
         clearLocalSession()
+    }
+
+    /** POST конкретным токеном, минуя общий [call] (нужен для выхода: сессия уже стирается локально). */
+    private fun postWithToken(path: String, body: JSONObject?, bearer: String) {
+        val conn = (URL("$BASE$path").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15000
+            readTimeout = 15000
+            deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
+            setRequestProperty("Authorization", "Bearer $bearer")
+            if (body != null) {
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                doOutput = true
+                outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            }
+        }
+        conn.responseCode
+        conn.disconnect()
     }
 
     /** Локальная очистка сессии (токены, имя, кеши). Реюз: logout + deleteAccount. */
@@ -316,7 +329,16 @@ object ApiClient {
         cachedUserId = null
         cachedUserIdForToken = null
         respCache.clear()   // сброс кеша ответов (иначе следующий юзер увидит чужой /me/referral/contacts)
-        prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.remove("user_role")?.apply()
+        // Диск тоже чистим, иначе следующий пользователь телефона получает чужое наследство:
+        //  • push_token — чтобы не зарегистрировать устройство прошлого владельца заново;
+        //  • паспорта поездок — там ИМЯ И ТЕЛЕФОН пассажиров (чужие ПДн на диске, 152-ФЗ);
+        //  • очередь исходящих — иначе сообщения прошлого юзера уйдут ОТ НОВОГО аккаунта.
+        prefs?.edit()
+            ?.remove("token")?.remove("refresh_token")?.remove("user_name")?.remove("user_role")
+            ?.remove("push_token")
+            ?.apply()
+        TripPassStore.clearAll()
+        Outbox.clearAll()
     }
 
     /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).
@@ -379,6 +401,19 @@ object ApiClient {
     /** Сохранить родной город (name_ru из справочника; пустая строка сбрасывает). */
     suspend fun updateCity(city: String): Result<Unit> =
         call("POST", "/me/update", JSONObject().put("city", city.trim()), auth = true).onSuccess { invalidate("me") }.map { }
+
+    /**
+     * Язык интерфейса на сервер («ru» | «ba») — чтобы ПУШИ приходили на языке человека.
+     * Сервер это поле давно принимает и умеет выбирать RU/BA, но клиент его никогда не слал:
+     * башкироязычный пользователь получал русские уведомления (аудит 2026-07-26).
+     * Fire-and-forget: переключение языка — мгновенное действие в UI, ждать сеть незачем.
+     */
+    fun fireUpdateLanguage(lang: String) {
+        val code = lang.trim().lowercase().take(2)
+        if (code != "ru" && code != "ba") return
+        if (!isLoggedIn()) return
+        bg.launch { call("POST", "/me/update", JSONObject().put("language", code), auth = true).onSuccess { invalidate("me") } }
+    }
 
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
     // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
@@ -2014,13 +2049,25 @@ object ApiClient {
             )
         }
 
-    /** Создать быстрый заказ → сервер считает цену и ищет водителя (сразу offered | expired). */
+    /** Создать быстрый заказ → сервер считает цену и ищет водителя (сразу offered | expired).
+     *
+     *  comment/entrance — «как меня найти» (в селе «Ленина 12» это пять домов без табличек,
+     *  а чат открывается только ПОСЛЕ принятия заказа). forName/forPhone — заказ ДЛЯ ДРУГОГО
+     *  человека: сын из Уфы вызывает такси маме в Баймаке, водитель должен звонить маме. */
     suspend fun createInstantOrder(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String = "", toText: String = "", category: String = "standard",
-    ): Result<InstantOrderDto> =
-        call("POST", "/instant/orders", instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category), auth = true)
+        comment: String = "", entrance: String = "", forName: String = "", forPhone: String = "",
+    ): Result<InstantOrderDto> {
+        val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category)
+        // Пустые поля не шлём: сервер их и так примет, но лишний шум в теле запроса ни к чему.
+        if (comment.isNotBlank()) body.put("comment", comment.take(300))
+        if (entrance.isNotBlank()) body.put("entrance", entrance.take(60))
+        if (forName.isNotBlank()) body.put("for_name", forName.take(120))
+        if (forPhone.isNotBlank()) body.put("for_phone", forPhone.take(32))
+        return call("POST", "/instant/orders", body, auth = true)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
+    }
 
     /** Мои быстрые заказы (свежие сверху) — восстановить активный заказ при возврате на экран. */
     suspend fun getMyInstantOrders(limit: Int = 5): Result<List<InstantOrderDto>> =
@@ -3261,6 +3308,155 @@ object ApiClient {
                 driverVerified = o.optBoolean("driver_verified"),
             )
         }
+
+    // ═══════════ Закрытие пробелов такси / курьера (аудит 2026-07-26) ═══════════
+    // Сервер уже умеет всё ниже; здесь только доступ. Все ручки идемпотентны или дают понятный
+    // 409 — экраны показывают текст ошибки как есть (он двуязычный, приходит с сервера).
+
+    /** «Подожду машину» после «рядом никого»: заказ встаёт в очередь, воркер продолжит поиск. */
+    suspend fun waitForDriver(orderId: Int): Result<InstantWaitDto> =
+        call("POST", "/instant/orders/$orderId/wait", JSONObject(), auth = true).map { o ->
+            InstantWaitDto(
+                waitUntil = o.optString("wait_until"),
+                waitMinutes = o.optInt("wait_minutes"),
+                order = o.optJSONObject("order")?.toInstantOrderDto(),
+            )
+        }
+
+    /** Квитанция за такси-поездку (обе стороны, только после done). Телефонов в чеке нет. */
+    suspend fun getInstantReceipt(orderId: Int): Result<InstantReceiptDto> =
+        call("GET", "/instant/orders/$orderId/receipt", null, auth = true).map { o ->
+            InstantReceiptDto(
+                orderId = o.optInt("order_id"),
+                role = o.optString("role"),
+                fromText = o.optString("from_text"), toText = o.optString("to_text"),
+                doneAt = o.optString("done_at"),
+                distanceKm = o.optDouble("distance_km", 0.0),
+                amount = o.optInt("amount"),
+                waitingFeeKop = o.optInt("waiting_fee_kop"),
+                paymentMethod = o.optString("payment_method"),
+                paid = o.optBoolean("paid"),
+                driverName = o.optString("driver_name"),
+                driverVerified = o.optBoolean("driver_verified"),
+            )
+        }
+
+    /** Водитель: «наличные получил». Раньше отметить оплату мог только пассажир — и если он
+     *  просто закрывал приложение, заказ навсегда оставался «не оплачен». */
+    suspend fun instantCashReceived(orderId: Int): Result<String> =
+        call("POST", "/instant/orders/$orderId/cash-received", JSONObject(), auth = true)
+            .map { it.optString("status") }
+
+    /** «Я забыл вещь в машине» → чат заказа снова открыт на запись 48 часов (обеим сторонам). */
+    suspend fun instantLostItem(orderId: Int): Result<String> =
+        call("POST", "/instant/orders/$orderId/lost-item", JSONObject(), auth = true)
+            .map { it.optString("chat_open_until") }
+
+    /** Инфо для «Сказать рәхмәт» после такси-поездки (money != null → водитель оставил СБП). */
+    suspend fun getInstantTipInfo(orderId: Int): Result<TipInfoDto> =
+        call("GET", "/instant/orders/$orderId/tip", null, auth = true).map { o ->
+            val m = o.optJSONObject("money")
+            TipInfoDto(
+                driverName = o.optString("driver_name"),
+                alreadyThanked = o.optBoolean("already_thanked"),
+                sbpPhone = m?.optString("sbp")?.takeIf { it.isNotBlank() },
+            )
+        }
+
+    /** «Рәхмәт» водителю такси — тёплый жест без денег. Идемпотентно. */
+    suspend fun sayInstantThanks(orderId: Int): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/thanks", JSONObject(), auth = true).map { }
+
+    /** Мои завершённые такси-заказы с расшифровкой: цена, комиссия, чистыми (закрывает
+     *  «Юлдаш говорит 4200, я насчитал 4600 — где мои 400?»). */
+    suspend fun getDriverTaxiRides(limit: Int = 100): Result<DriverTaxiRidesDto> =
+        call("GET", "/driver/taxi-rides?limit=$limit", null, auth = true).map { o ->
+            val arr = o.optJSONArray("rides") ?: JSONArray()
+            DriverTaxiRidesDto(
+                rides = (0 until arr.length()).map { i ->
+                    val r = arr.getJSONObject(i)
+                    DriverTaxiRideDto(
+                        orderId = r.optInt("order_id"),
+                        doneAt = r.optString("done_at"),
+                        from = r.optString("from"), to = r.optString("to"),
+                        priceRub = r.optInt("price"),
+                        feeKop = r.optInt("fee_kop"),
+                        netKop = r.optInt("net_kop"),
+                        paid = r.optBoolean("paid"),
+                        paymentMethod = r.optString("payment_method"),
+                        feeStatus = r.optString("fee_status"),
+                    )
+                },
+                totalPriceRub = o.optInt("total_price"),
+                totalFeeKop = o.optInt("total_fee_kop"),
+                totalNetKop = o.optInt("total_net_kop"),
+            )
+        }
+
+    // ---------- курьер: «что-то пошло не так» ----------
+
+    /** Курьер снимает себя с заказа («не смогу везти»): посылка возвращается в общий список. */
+    suspend fun parcelRelease(parcelId: Int, reason: String = ""): Result<Unit> =
+        call("POST", "/parcels/$parcelId/release", JSONObject().put("reason", reason.take(200)), auth = true).map { }
+
+    /** Курьер везёт посылку ОБРАТНО (получателя нет / отказался / не выходит на связь). */
+    suspend fun parcelReturnStart(parcelId: Int, reason: String = ""): Result<ParcelDto> =
+        call("POST", "/parcels/$parcelId/return-start", JSONObject().put("reason", reason.take(200)), auth = true)
+            .map { parseParcel(it) }
+
+    /** Курьер вернул посылку отправителю → заказ закрыт. Комиссию за возврат не берём. */
+    suspend fun parcelReturnDone(parcelId: Int): Result<ParcelDto> =
+        call("POST", "/parcels/$parcelId/return-done", JSONObject(), auth = true).map { parseParcel(it) }
+
+    // ---------- админ: SOS, посылки, долги ----------
+
+    /** Лента сигналов SOS (open сверху). Раньше её не существовало: сигнал уходил одним
+     *  сообщением в Telegram, и если его не прочитали ночью — следа не оставалось. */
+    suspend fun adminSosList(status: String = "open", limit: Int = 100): Result<List<AdminSosDto>> =
+        call("GET", "/admin/sos?status=$status&limit=$limit", null, auth = true).map { obj ->
+            // Сервер отдаёт голый массив — call() заворачивает его в {"items": [...]}.
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                AdminSosDto(
+                    id = o.optInt("id"),
+                    status = o.optString("status"),
+                    category = o.optString("category"),
+                    note = o.optString("note"),
+                    createdAt = o.optString("created_at"),
+                    handledAt = nStr(o, "handled_at"),
+                    handledNote = o.optString("handled_note"),
+                    userId = o.optInt("user_id"),
+                    userName = o.optString("user_name"),
+                    userPhone = o.optString("user_phone"),
+                    route = o.optString("route"),
+                    orderId = nInt(o, "order_id"),
+                    bookingId = nInt(o, "booking_id"),
+                )
+            }
+        }
+
+    /** «Принял» — сигнал взят в работу: кто, когда, что сделал. */
+    suspend fun adminSosHandle(eventId: Int, note: String = ""): Result<Unit> =
+        call("POST", "/admin/sos/$eventId/handle", JSONObject().put("note", note.take(500)), auth = true).map { }
+
+    /** Админ: списать долг по-человечески (пассажир не заплатил, поездка сорвалась). */
+    suspend fun adminForgiveDebt(debtId: Int, reason: String = ""): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/forgive", JSONObject().put("reason", reason.take(300)), auth = true).map { }
+
+    /** Админ: отменить посылку (курьер пропал, отправитель просит закрыть). */
+    suspend fun adminParcelCancel(parcelId: Int, reason: String = ""): Result<Unit> =
+        call("POST", "/admin/parcels/$parcelId/cancel", JSONObject().put("reason", reason.take(200)), auth = true).map { }
+
+    /** Админ: снять курьера с посылки (пропал со связи) — заказ вернётся в общий список. */
+    suspend fun adminParcelReleaseCourier(parcelId: Int, reason: String = ""): Result<Unit> =
+        call("POST", "/admin/parcels/$parcelId/release-courier", JSONObject().put("reason", reason.take(200)), auth = true).map { }
+
+    /** Админ: закрыть посылку вручную (разобрали спор офлайн).
+     *  status: delivered | returned | canceled — при returned/canceled сервер обнуляет комиссию. */
+    suspend fun adminParcelClose(parcelId: Int, status: String = "returned", reason: String = ""): Result<Unit> =
+        call("POST", "/admin/parcels/$parcelId/close",
+            JSONObject().put("status", status).put("reason", reason.take(200)), auth = true).map { }
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
@@ -3339,9 +3535,25 @@ data class InstantOrderDto(
     val passengerPhone: String,   // виден водителю после accept
     // Предзаказ «на время» (scheduled): ISO времени подачи. null = обычный (мгновенный) заказ.
     val scheduledAt: String? = null,
+    // --- закрытие пробелов такси (аудит 2026-07-26). Значения по умолчанию = поведение старого
+    // сервера: клиент новее бэкенда не падает, просто не показывает новое.
+    val driverPlate: String = "",      // госномер — по нему узнают машину во дворе, «белая Гранта» не помогает
+    val comment: String = "",          // «за магазином, синие ворота» — как найти пассажира
+    val entrance: String = "",         // подъезд / квартира / этаж
+    val forOther: Boolean = false,     // заказ ДЛЯ ДРУГОГО: имя и телефон в payload — того, кого везём
+    val lostItemUntil: String? = null, // ISO — до когда чат снова открыт под «забыл вещь»
+    val thanked: Boolean = false,      // пассажир уже сказал «рәхмәт»
+    val waitUntil: String? = null,     // ISO — заказ в очереди «подожду машину», воркер продолжит поиск
 ) {
     /** Терминальный статус — заказ окончен (успех/отмена/протух). */
     val isTerminal: Boolean get() = status == "done" || status == "cancelled" || status == "expired"
+    /**
+     * Заказ в очереди «подожду машину»: формально expired, но фоновый воркер продолжает искать.
+     * Экран и поллинг должны считать такой заказ ЖИВЫМ, иначе человек нажал «подожду» — и
+     * приложение тут же перестало следить за заказом, который вот-вот найдёт машину.
+     */
+    val isWaitingQueue: Boolean
+        get() = !waitUntil.isNullOrBlank() && status != "done" && status != "cancelled"
     /** Предзаказ «на время», ещё не отправлен в поиск. */
     val isScheduled: Boolean get() = status == "scheduled"
     /** Идёт подбор водителя (машину ещё ищем). */
@@ -3389,6 +3601,13 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     passengerName = optString("passenger_name"),
     passengerPhone = optString("passenger_phone"),
     scheduledAt = if (isNull("scheduled_at")) null else optString("scheduled_at").ifBlank { null },
+    driverPlate = optString("driver_plate"),
+    comment = optString("comment"),
+    entrance = optString("entrance"),
+    forOther = optBoolean("for_other"),
+    lostItemUntil = if (isNull("lost_item_until")) null else optString("lost_item_until").ifBlank { null },
+    thanked = optBoolean("thanked"),
+    waitUntil = if (isNull("wait_until")) null else optString("wait_until").ifBlank { null },
 )
 
 /** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */
@@ -4141,6 +4360,46 @@ data class TripReceiptDto(
     val fromCity: String, val toCity: String, val departAt: String,
     val seats: Int, val amount: Int, val payMethod: String, val paid: Boolean,
     val driverName: String, val driverVerified: Boolean,
+)
+
+/** Ответ на «Подожду машину»: до какого времени ищем и обновлённый заказ. */
+data class InstantWaitDto(val waitUntil: String, val waitMinutes: Int, val order: InstantOrderDto?)
+
+/** Квитанция за такси-поездку (GET /instant/orders/{id}/receipt). Телефонов в чеке нет.
+ *  amount — ₽ (итог поездки), waitingFeeKop — платное ожидание, копейки. */
+data class InstantReceiptDto(
+    val orderId: Int, val role: String,
+    val fromText: String, val toText: String, val doneAt: String,
+    val distanceKm: Double, val amount: Int, val waitingFeeKop: Int,
+    val paymentMethod: String, val paid: Boolean,
+    val driverName: String, val driverVerified: Boolean,
+)
+
+/** «Сказать рәхмәт»: имя водителя, сказали ли уже, и (если включены денежные чаевые
+ *  и водитель оставил телефон) номер СБП — перевод идёт мимо платформы, «на доверии». */
+data class TipInfoDto(val driverName: String, val alreadyThanked: Boolean, val sbpPhone: String?)
+
+/** Одна завершённая такси-поездка водителя с расшифровкой денег.
+ *  feeStatus: pending | paid | declared | void | none (none = долга по заказу нет). */
+data class DriverTaxiRideDto(
+    val orderId: Int, val doneAt: String, val from: String, val to: String,
+    val priceRub: Int, val feeKop: Int, val netKop: Int,
+    val paid: Boolean, val paymentMethod: String, val feeStatus: String,
+)
+
+/** Список поездок водителя + итоги (GET /driver/taxi-rides). */
+data class DriverTaxiRidesDto(
+    val rides: List<DriverTaxiRideDto>,
+    val totalPriceRub: Int, val totalFeeKop: Int, val totalNetKop: Int,
+)
+
+/** Сигнал SOS в ленте админа. userPhone — чтобы реально позвонить человеку в беде.
+ *  category: medical | breakdown | other. status: open | handled. */
+data class AdminSosDto(
+    val id: Int, val status: String, val category: String, val note: String,
+    val createdAt: String, val handledAt: String?, val handledNote: String,
+    val userId: Int, val userName: String, val userPhone: String,
+    val route: String, val orderId: Int?, val bookingId: Int?,
 )
 /** F18 «Мой Юлдаш» — личная статистика попутчика (GET /me/stats). */
 data class MyStatsDto(

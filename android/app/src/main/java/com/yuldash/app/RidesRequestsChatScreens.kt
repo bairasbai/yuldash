@@ -1163,9 +1163,18 @@ internal fun PrefToggleRow(iconRes: Int, label: String, checked: Boolean, onChec
 
 // Чип-фильтр «Ближайших» — переключаемый (зелёный = активен).
 @Composable
-internal fun NearbyFilterChip(icon: ImageVector, label: String, active: Boolean, onToggle: () -> Unit) {
+internal fun NearbyFilterChip(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    // Внешний модификатор: там, где чип — не фильтр в ленте, а ОСНОВНОЙ выбор (способ оплаты,
+    // категория SOS), вызывающий поднимает высоту до 48dp — минимальная тач-цель (§4.5).
+    // Surface пробрасывает min-constraints внутрь, поэтому содержимое остаётся по центру.
+    modifier: Modifier = Modifier,
+    onToggle: () -> Unit,
+) {
     Surface(
-        modifier = Modifier.bounceClick(onToggle),
+        modifier = modifier.bounceClick(onToggle),
         color = if (active) CanonGreen2 else CanonSurface,
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, if (active) Color.Transparent else CanonBorder)

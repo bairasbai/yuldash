@@ -652,7 +652,11 @@ internal fun PayAgreementBlock(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 payMethodKeys.forEach { key ->
-                    NearbyFilterChip(payMethodIcon(key), payMethodLabel(key), method == key) { onMethod(key) }
+                    // Способ оплаты — решение про деньги, тач-цель ≥ 48dp (§4.5), не мелкий фильтр.
+                    NearbyFilterChip(
+                        payMethodIcon(key), payMethodLabel(key), method == key,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { onMethod(key) }
                 }
             }
             OutlinedTextField(

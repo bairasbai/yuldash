@@ -4,6 +4,7 @@ import android.app.Application
 import com.yandex.mapkit.MapKitFactory
 import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.FcmService
 import com.yuldash.app.data.NetworkMonitor
 import io.sentry.android.core.SentryAndroid
 
@@ -23,6 +24,10 @@ class YuldashApplication : Application() {
         ApiClient.init(this)              // загрузить сохранённый токен сессии
         Analytics.init(this)              // Firebase Analytics: DAU/удержание/воронка событий
         NetworkMonitor.init(this)         // мгновенный реконнект WS-сокетов при возврате сети (дополняет backoff)
+        // Каналы уведомлений — при старте, а не при первом пуше. Иначе человек открывает
+        // «Настройки → Уведомления Юлдаша» до первого заказа и видит пустой экран: настраивать нечего.
+        FcmService.ensureChannels(this)
+        TaxiOfferNotifier.ensureChannel(this, AppPrefs.language(this))
         ApiClient.registerCurrentPushToken()   // если уже вошли — зарегистрировать устройство для push
         if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
             MapKitFactory.setApiKey(BuildConfig.YANDEX_MAPKIT_KEY)

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -154,13 +155,17 @@ internal fun PayOnlineCard(
                         if (amountRub != null && amountRub > 0) {
                             Text("${fmtRub(amountRub)} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 26.sp)
                         }
+                        // Выбор способа оплаты — не мелкий фильтр, а решение про деньги:
+                        // тач-цель ≥ 48dp (§4.5), иначе палец промахивается и платит «не тем».
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            NearbyFilterChip(Icons.Default.CreditCard, appText("Карта", "Карта"), method == "card") {
-                                if (!busy) method = "card"
-                            }
-                            NearbyFilterChip(Icons.Default.Bolt, appText("СБП", "СБП"), method == "sbp") {
-                                if (!busy) method = "sbp"
-                            }
+                            NearbyFilterChip(
+                                Icons.Default.CreditCard, appText("Карта", "Карта"), method == "card",
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            ) { if (!busy) method = "card" }
+                            NearbyFilterChip(
+                                Icons.Default.Bolt, appText("СБП", "СБП"), method == "sbp",
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            ) { if (!busy) method = "sbp" }
                         }
                         AppButton(
                             text = if (amountRub != null && amountRub > 0)

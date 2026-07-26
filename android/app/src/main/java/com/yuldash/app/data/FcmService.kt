@@ -52,16 +52,8 @@ class FcmService : FirebaseMessagingService() {
         val mgr = getSystemService(NotificationManager::class.java) ?: return
         val silent = !AppPrefs.sounds(this)   // тумблер «Звуки» выключен → беззвучно
         // Раздельные каналы: чат отдельно от поездок/прочего → пользователь глушит/настраивает раздельно.
-        // Имена двуязычные (BA · RU) — видны в системных настройках уведомлений, сервис не Composable.
         val channelId = if (type == "chat") CHANNEL_CHAT else CHANNEL_DEFAULT
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mgr.createNotificationChannel(
-                NotificationChannel(CHANNEL_DEFAULT, "Юлдаш · Сәфәрҙәр · Поездки", NotificationManager.IMPORTANCE_HIGH)
-            )
-            mgr.createNotificationChannel(
-                NotificationChannel(CHANNEL_CHAT, "Хәбәрҙәр · Сообщения", NotificationManager.IMPORTANCE_HIGH)
-            )
-        }
+        ensureChannels(this)
         // Ход такси-заказа (B9b-2): тап открывает экран заказа пассажира (extra ловит MainActivity).
         val openInstantOrder = type == "instant_status"
         val intent = Intent(this, MainActivity::class.java).apply {
@@ -72,9 +64,11 @@ class FcmService : FirebaseMessagingService() {
             if (!type.isNullOrBlank()) putExtra(EXTRA_PUSH_TYPE, type)
             if (!refId.isNullOrBlank()) putExtra(EXTRA_PUSH_ID, refId)
         }
-        // requestCode уникален по назначению → FLAG_UPDATE_CURRENT не «заражает» разные уведомления
-        // общими extra (иначе тап по одному открыл бы чужой экран). Такси = 1 (как было).
-        val reqCode = if (openInstantOrder) 1 else (refId?.hashCode() ?: 0)
+        // Ключ назначения = ТИП + id. Раньше брали только id — чат брони №5 и статус поездки №5
+        // получали один requestCode, и FLAG_UPDATE_CURRENT подменял extras: тап по чату открывал
+        // экран поездки. Такси = 1 (как было, чтобы не плодить лишние PendingIntent).
+        val key = "${type.orEmpty()}|${refId.orEmpty()}"
+        val reqCode = if (openInstantOrder) 1 else key.hashCode()
         val pi = PendingIntent.getActivity(
             this, reqCode, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
@@ -83,12 +77,17 @@ class FcmService : FirebaseMessagingService() {
             .setSmallIcon(R.drawable.ic_stat_notification)
             .setContentTitle(title)
             .setContentText(body)
+            // Длинный текст не обрезается до одной строки (башкирский часто длиннее русского).
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setPriority(if (silent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
             .setSilent(silent)
             .setContentIntent(pi)
             .build()
-        mgr.notify(System.currentTimeMillis().toInt(), notif)
+        // id тоже по ключу: новое сообщение того же чата ЗАМЕНЯЕТ прежнее, а не сыплет столбиком
+        // (было System.currentTimeMillis() → 20 сообщений = 20 уведомлений). Без id — по времени.
+        val notifId = if (refId.isNullOrBlank()) (System.currentTimeMillis().toInt() and 0x7FFFFFFF) else key.hashCode()
+        mgr.notify(notifId, notif)
     }
 
     companion object {
@@ -96,5 +95,25 @@ class FcmService : FirebaseMessagingService() {
         const val CHANNEL_CHAT = "yuldash_chat"         // сообщения чата — отдельный канал, мьютится независимо
         const val EXTRA_PUSH_TYPE = "push_type"
         const val EXTRA_PUSH_ID = "push_id"
+
+        /**
+         * Создать каналы уведомлений. Идемпотентно (повторный вызов только обновляет имя).
+         * Зовём из [YuldashApplication.onCreate] — чтобы каналы были видны в системных настройках
+         * СРАЗУ после установки, а не только после первого пуша (иначе человек открывает
+         * «Уведомления» и видит пустой список — нечего настраивать и нечего разрешать).
+         * Имена двуязычные (BA · RU): системный экран — не Composable, appText туда не дотянуть.
+         */
+        fun ensureChannels(ctx: android.content.Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val mgr = ctx.getSystemService(NotificationManager::class.java) ?: return
+            runCatching {
+                mgr.createNotificationChannel(
+                    NotificationChannel(CHANNEL_DEFAULT, "Юлдаш · Сәфәрҙәр · Поездки", NotificationManager.IMPORTANCE_HIGH)
+                )
+                mgr.createNotificationChannel(
+                    NotificationChannel(CHANNEL_CHAT, "Хәбәрҙәр · Сообщения", NotificationManager.IMPORTANCE_HIGH)
+                )
+            }
+        }
     }
 }

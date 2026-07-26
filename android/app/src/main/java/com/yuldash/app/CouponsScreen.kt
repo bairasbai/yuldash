@@ -89,8 +89,20 @@ internal fun couponCategoryLabel(category: String): String = when (category.lowe
     else -> category
 }
 
-/** Копейки → «X ₽». */
-internal fun kopToRub(kop: Int): String = "${kop / 100} ₽"
+/**
+ * Копейки → «X ₽» (или «X,YZ ₽», если копейки есть).
+ *
+ * Было `kop / 100` — целочисленное деление молча съедало копейки: долг 150,50 ₽ показывался
+ * как «150 ₽», и человек считал, что рассчитался полностью. Деньги округлять вниз нельзя.
+ * Тысячи разделяем пробелом, как в [fmtRub]: «1 250 ₽» читается быстрее, чем «1250 ₽».
+ */
+internal fun kopToRub(kop: Int): String {
+    val abs = kotlin.math.abs(kop.toLong())          // toLong: abs(Int.MIN_VALUE) не переполняется
+    val rub = String.format(java.util.Locale.US, "%,d", abs / 100).replace(',', ' ')
+    val cents = (abs % 100).toInt()
+    val tail = if (cents == 0) "" else String.format(java.util.Locale.US, ",%02d", cents)
+    return (if (kop < 0) "−" else "") + rub + tail + " ₽"
+}
 
 /** Обрезать ISO-дату до "дд.мм.гггг" (или как есть, если формат другой). */
 internal fun shortDate(iso: String?): String? {

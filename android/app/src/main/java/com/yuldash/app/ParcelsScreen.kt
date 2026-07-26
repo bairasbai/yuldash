@@ -109,6 +109,10 @@ private fun parcelStatusStyle(status: String): ParcelStatusStyle = when (status.
     "in_transit" -> ParcelStatusStyle(CanonMint, CanonGreen2, "В пути", "Юлда")
     "delivered" -> ParcelStatusStyle(CanonMint, CanonGreen2, "Доставлена", "Тапшырылды")
     "canceled", "cancelled" -> ParcelStatusStyle(CanonDangerBg, CanonRed, "Отменена", "Кире алынған")
+    // Возврат: получателя нет дома / отказался — курьер везёт посылку обратно отправителю.
+    // Без этих двух веток статусы падали в else и врали пользователю «Ждёт курьера».
+    "returning" -> ParcelStatusStyle(CanonWarnBg, CanonWarn, "Везут обратно", "Кире алып киләләр")
+    "returned" -> ParcelStatusStyle(CanonWarnBg, CanonWarn, "Вернулась", "Кире ҡайтты")
     else -> ParcelStatusStyle(CanonWarnBg, CanonWarn, "Ждёт курьера", "Курьерҙы көтә")
 }
 
