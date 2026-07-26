@@ -142,20 +142,39 @@ def delete_user_account(session: Session, user: User) -> None:
         shares.append(TripShare.parcel_id.in_(parcel_ids))
     if shares:
         dele(TripShare, *shares)
-    # 3.4 SOS: мои + по удаляемым броням/заказам.
+    # 3.4 SOS: мои события удаляем (это МОИ данные), но ОБЕЗЛИЧИВАЕМ те, где я фигурант
+    # чужого происшествия по общей поездке — см. пояснение к 3.5.
     sos = [SosEvent.user_id == uid]
-    if booking_ids:
-        sos.append(SosEvent.booking_id.in_(booking_ids))
-    if order_ids:
-        sos.append(SosEvent.order_id.in_(order_ids))
     dele(SosEvent, *sos)
-    # 3.5 Жалобы: мной поданные/на меня + по удаляемым заказам/посылкам.
-    rep = [Report.reporter_id == uid, Report.target_user_id == uid]
+    sos_unlink = []
+    if booking_ids:
+        sos_unlink.append(SosEvent.booking_id.in_(booking_ids))
     if order_ids:
-        rep.append(Report.order_id.in_(order_ids))
+        sos_unlink.append(SosEvent.order_id.in_(order_ids))
+    if sos_unlink:
+        session.execute(update(SosEvent).where(or_(*sos_unlink))
+                        .values(booking_id=None, order_id=None, note=""))
+    # 3.5 Жалобы. МОИ (я автор) — удаляем целиком: это мои персональные данные.
+    # Жалобы НА МЕНЯ — НЕ удаляем, а обезличиваем (обнуляем ссылку на меня и стираем текст).
+    #
+    # Почему так (аудит 2026-07-26): раньше удалялись и те, где человек — обвиняемый, и
+    # нарушитель одним тапом стирал доказательства против себя: три жалобы за поведение →
+    # «удалить аккаунт» → чисто. При этом факт разбора нужен платформе для защиты законного
+    # интереса (ст. 6 152-ФЗ) и на случай запроса полиции/суда. Ровно тот же приём уже
+    # применён к бану устройства (3.22): строка живёт, персональная ссылка снимается.
+    # Обезличенная строка не содержит ни ссылки на пользователя, ни его текста — только факт,
+    # дату и категорию, поэтому generic-инвариант «ноль ссылок на user.id» по-прежнему держится.
+    dele(Report, Report.reporter_id == uid)
+    session.execute(update(Report).where(Report.target_user_id == uid)
+                    .values(target_user_id=None, reason=""))
+    rep_ctx = []
+    if order_ids:
+        rep_ctx.append(Report.order_id.in_(order_ids))
     if parcel_ids:
-        rep.append(Report.parcel_id.in_(parcel_ids))
-    dele(Report, *rep)
+        rep_ctx.append(Report.parcel_id.in_(parcel_ids))
+    if rep_ctx:
+        session.execute(update(Report).where(or_(*rep_ctx))
+                        .values(order_id=None, parcel_id=None))
     # 3.6 Платежи: мои + по моим поездкам/объявлениям/броням/заказам/подпискам бизнеса.
     pay = [Payment.user_id == uid]
     if ride_ids:

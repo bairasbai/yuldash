@@ -87,6 +87,16 @@ def _indexes(bind, table: str) -> set:
         return set()
 
 
+def _report_target_nullable(bind) -> bool:
+    try:
+        for c in inspect(bind).get_columns("report"):
+            if c["name"] == "target_user_id":
+                return bool(c.get("nullable", False))
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     cache: dict = {}
@@ -97,6 +107,11 @@ def upgrade() -> None:
     for ix_name, table, cols in _INDEXES:
         if ix_name not in _indexes(bind, table) and _columns(bind, table):
             op.create_index(ix_name, table, cols)
+    # report.target_user_id → NULLABLE: обвиняемый удалил аккаунт → жалобу на него НЕ стираем,
+    # а обезличиваем (иначе нарушитель одним тапом уничтожал доказательства против себя).
+    if not _report_target_nullable(bind):
+        with op.batch_alter_table("report") as b:
+            b.alter_column("target_user_id", existing_type=sa.Integer(), nullable=True)
 
 
 def downgrade() -> None:

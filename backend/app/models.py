@@ -486,7 +486,10 @@ class Report(SQLModel, table=True):
     ехали вместе. status: new → reviewing → resolved | rejected (разбор у админа, человек в контуре)."""
     id: Optional[int] = Field(default=None, primary_key=True)
     reporter_id: int = Field(index=True, foreign_key="user.id")
-    target_user_id: int = Field(index=True, foreign_key="user.id")
+    # NULL = обвиняемый удалил аккаунт: строку НЕ стираем, а обезличиваем (см. account.py, шаг 3.5).
+    # Иначе нарушитель одним тапом уничтожал доказательства против себя — три жалобы за поведение,
+    # «удалить аккаунт», и разбирать нечего (аудит 2026-07-26).
+    target_user_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")
     reason: str = ""                                       # свободный текст — детали (опционально)
     category: str = Field(default="other", index=True)     # перечень в quality.REPORT_CATEGORIES
     order_id: Optional[int] = Field(default=None, foreign_key="instantorder.id")   # быстрый заказ

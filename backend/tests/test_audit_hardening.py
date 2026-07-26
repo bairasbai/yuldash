@@ -436,3 +436,51 @@ def test_taxi_docs_expiry_blocks_taxi_only(client, user_factory):
         "depart_at": "2030-01-01T10:00:00", "seats_total": 3, "price": 300,
     })
     assert ok.status_code == 200
+
+
+# ============== Безопасность: SOS-лента и сохранность улик (аудит 2026-07-26) ==============
+def test_admin_sos_feed_and_handle(client, user_factory, monkeypatch):
+    """Раньше SOS уходил ОДНИМ сообщением в Telegram: списка не было, статус не менялся никогда —
+    админ уснул, и следа о происшествии не оставалось нигде."""
+    monkeypatch.setattr("app.routers.safety._send_sos_sms", lambda *a, **k: None)
+    monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda *a, **k: None)
+    admin = user_factory("SosAdmin", role=UserRole.admin)
+    pax = user_factory("SosPax")
+    plain = user_factory("SosPlain")
+    r = client.post("/sos", headers=pax["auth"], json={"category": "medical", "note": "плохо стало"})
+    assert r.status_code == 200, r.text
+    sos_id = r.json()["id"]
+    assert client.get("/admin/sos", headers=plain["auth"]).status_code == 403
+    feed = client.get("/admin/sos", headers=admin["auth"]).json()
+    row = next((x for x in feed if x["id"] == sos_id), None)
+    assert row is not None and row["status"] == "open"
+    assert row["user_phone"] and row["category"] == "medical"   # админу нужен телефон, чтобы позвонить
+    h = client.post(f"/admin/sos/{sos_id}/handle", headers=admin["auth"],
+                    json={"note": "дозвонился, помощь выехала"})
+    assert h.status_code == 200 and h.json()["status"] == "handled"
+    assert client.post(f"/admin/sos/{sos_id}/handle", headers=admin["auth"]).json()["already"] is True
+    # После обработки сигнал уходит из ленты «открытых» — видно, что разобрано.
+    assert all(x["id"] != sos_id for x in client.get("/admin/sos", headers=admin["auth"]).json())
+
+
+def test_deleting_account_keeps_reports_against_you(client, user_factory):
+    """Нарушитель удаляет аккаунт → жалобы НА НЕГО остаются (обезличенными), его собственные —
+    стираются. Раньше удалялись обе стороны: три жалобы за поведение → «удалить» → чисто."""
+    from app.account import delete_user_account
+    bad = user_factory("EvidenceBad")
+    victim = user_factory("EvidenceVictim")
+    with Session(engine) as s:
+        against = M.Report(reporter_id=victim["id"], target_user_id=bad["id"],
+                           category="rude", reason="грубил и кричал")
+        own = M.Report(reporter_id=bad["id"], target_user_id=victim["id"],
+                       category="other", reason="моя жалоба")
+        s.add(against); s.add(own); s.commit()
+        s.refresh(against); s.refresh(own)
+        against_id, own_id = against.id, own.id
+        delete_user_account(s, s.get(M.User, bad["id"]))
+    with Session(engine) as s:
+        kept = s.get(M.Report, against_id)
+        assert kept is not None, "жалоба на нарушителя не должна исчезать вместе с аккаунтом"
+        assert kept.target_user_id is None and kept.reason == "", "но должна быть обезличена"
+        assert kept.category == "rude", "категория и факт разбора сохраняются"
+        assert s.get(M.Report, own_id) is None, "свои жалобы — это его данные, их стираем"
