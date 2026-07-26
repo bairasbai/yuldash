@@ -3501,6 +3501,36 @@ object ApiClient {
     suspend fun adminParcelReleaseCourier(parcelId: Int, reason: String = ""): Result<Unit> =
         call("POST", "/admin/parcels/$parcelId/release-courier", JSONObject().put("reason", reason.take(200)), auth = true).map { }
 
+    // ---------- Админ: модерация текстовых отзывов о поездке ----------
+    // Текст оценки публикуется в профиле ТОЛЬКО после одобрения (Rating.text_published).
+    // Очередь на сервере была, экрана не было — поэтому тексты не публиковались НИКОГДА,
+    // и в профилях висели одни звёздочки, а люди писали отзывы в пустоту (аудит 2026-07-26).
+
+    /** Тексты, ждущие модерации (свежие сверху). */
+    suspend fun adminPendingRatings(): Result<List<PendingRatingDto>> =
+        call("GET", "/admin/ratings/pending", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                PendingRatingDto(
+                    id = o.optInt("id"),
+                    author = o.optString("author"),
+                    rateeId = o.optInt("ratee_id"),
+                    stars = o.optInt("stars"),
+                    text = o.optString("text"),
+                    createdAt = o.optString("created_at"),
+                )
+            }
+        }
+
+    /** Одобрить текст к показу в публичном профиле (или снять с публикации). */
+    suspend fun adminPublishRating(ratingId: Int, published: Boolean = true): Result<Unit> =
+        call("POST", "/admin/ratings/$ratingId/publish", JSONObject().put("published", published), auth = true).map { }
+
+    /** «Щит рейтинга»: спорная/мстительная оценка перестаёт влиять на средний балл. */
+    suspend fun adminExcludeRating(ratingId: Int, excluded: Boolean = true): Result<Unit> =
+        call("POST", "/admin/ratings/$ratingId/exclude", JSONObject().put("excluded", excluded), auth = true).map { }
+
     // ═══════════ «Справедливость»: двусторонние споры (due process) ═══════════
     // Обе стороны слышимы: заявитель описывает → обвинённый объясняется → админ решает и
     // объясняет обоим. Фото-доказательства приватны (/secure/evidence, видят только стороны и админ).
@@ -4610,6 +4640,16 @@ data class DriverTaxiRideDto(
 data class DriverTaxiRidesDto(
     val rides: List<DriverTaxiRideDto>,
     val totalPriceRub: Int, val totalFeeKop: Int, val totalNetKop: Int,
+)
+
+/** Текстовый отзыв о поездке, ждущий модерации. Пока не одобрен — в профиле его нет. */
+data class PendingRatingDto(
+    val id: Int,
+    val author: String,       // кто оставил (админу; в публичном профиле — тоже без телефона)
+    val rateeId: Int,         // кому адресован
+    val stars: Int,
+    val text: String,
+    val createdAt: String,
 )
 
 /** Спор «Справедливости» (двусторонний разбор). Поля reporter*/respondent* заполнены ТОЛЬКО

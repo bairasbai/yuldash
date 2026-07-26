@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,10 +24,13 @@ import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +55,9 @@ internal fun AdminParcelsScreen(onBack: () -> Unit) {
     var statement by remember { mutableStateOf<ParcelStatementDto?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Рычаги админа: раньше экран был «только посмотреть» — звонит бабушка «посылка две недели
+    // висит», а отменить, снять курьера или закрыть вручную было НЕЧЕМ (аудит 2026-07-26).
+    var action by remember { mutableStateOf<Pair<ParcelDto, String>?>(null) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
 
     fun reload() {
@@ -100,9 +107,123 @@ internal fun AdminParcelsScreen(onBack: () -> Unit) {
                     )
                 }
                 else -> items(list.size, key = { "adp-" + list[it].id }) { i ->
-                    Box(Modifier.appearIn(i.coerceAtMost(6))) { AdminParcelCard(list[i]) }
+                    Box(Modifier.appearIn(i.coerceAtMost(6))) {
+                        AdminParcelCard(list[i], onAction = { action = it })
+                    }
                 }
             }
+        }
+    }
+
+    action?.let { (parcel, kind) ->
+        AdminParcelActionDialog(
+            parcel = parcel,
+            kind = kind,
+            onDismiss = { action = null },
+            onDone = { action = null; reload() },
+        )
+    }
+}
+
+/** Что админ делает с зависшей доставкой. Три честных выхода, все с причиной для сторон. */
+@Composable
+private fun AdminParcelActionDialog(
+    parcel: ParcelDto,
+    kind: String,                 // cancel | release | close
+    onDismiss: () -> Unit,
+    onDone: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var reason by remember(parcel.id, kind) { mutableStateOf("") }
+    var closeStatus by remember(parcel.id) { mutableStateOf("returned") }
+    var busy by remember(parcel.id, kind) { mutableStateOf(false) }
+    var err by remember(parcel.id, kind) { mutableStateOf<String?>(null) }
+    val errFallback = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
+
+    val title = when (kind) {
+        "cancel" -> appText("Отменить доставку", "Илтеүҙе кире алыу")
+        "release" -> appText("Снять курьера", "Курьерҙы алыу")
+        else -> appText("Закрыть доставку", "Илтеүҙе ябыу")
+    }
+    val hint = when (kind) {
+        "cancel" -> appText(
+            "Обе стороны получат причину. Комиссию за неоказанную услугу не берём.",
+            "Ике яҡ та сәбәбен ала. Күрһәтелмәгән хеҙмәт өсөн комиссия алмайбыҙ.",
+        )
+        "release" -> appText(
+            "Посылка вернётся в общий список — её сможет взять другой курьер.",
+            "Бандероль дөйөм исемлеккә ҡайта — уны башҡа курьер ала ала.",
+        )
+        else -> appText(
+            "Когда разобрались вне приложения. При «вернулась» и «отменена» комиссия обнуляется.",
+            "Ҡулланманан тыш хәл ителгәс. «Ҡайтты» һәм «кире алынды» осрағында комиссия юҡҡа сыға.",
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        containerColor = CanonSurface,
+        title = { Text(title, color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(hint, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                if (kind == "close") {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AdminCloseOption(appText("Вернулась отправителю", "Ебәреүсегә ҡайтты"), closeStatus == "returned") { closeStatus = "returned" }
+                        AdminCloseOption(appText("Всё-таки доставлена", "Барыбер тапшырылған"), closeStatus == "delivered") { closeStatus = "delivered" }
+                        AdminCloseOption(appText("Отменена", "Кире алынған"), closeStatus == "canceled") { closeStatus = "canceled" }
+                    }
+                }
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it.take(200) },
+                    label = { Text(appText("Причина (её увидят стороны)", "Сәбәбе (яҡтар күрәсәк)")) },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                )
+                err?.let { Text(it, color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                busy = true; err = null
+                scope.launch {
+                    val r = when (kind) {
+                        "cancel" -> ApiClient.adminParcelCancel(parcel.id, reason)
+                        "release" -> ApiClient.adminParcelReleaseCourier(parcel.id, reason)
+                        else -> ApiClient.adminParcelClose(parcel.id, closeStatus, reason)
+                    }
+                    r.onSuccess { onDone() }
+                        .onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: errFallback }
+                    busy = false
+                }
+            }) { Text(appText("Подтвердить", "Раҫлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
+        },
+    )
+}
+
+@Composable
+private fun AdminCloseOption(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) CanonMint else CanonBg,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, if (selected) CanonGreen2 else CanonBorder),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (selected) Icons.Default.CheckCircle else Icons.Default.Place,
+                contentDescription = null,
+                tint = if (selected) CanonGreen2 else CanonMuted,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(label, color = CanonText, fontSize = 14.sp)
         }
     }
 }
@@ -125,7 +246,7 @@ private fun ParcelStatementCard(s: ParcelStatementDto) {
 }
 
 @Composable
-private fun AdminParcelCard(p: ParcelDto) {
+private fun AdminParcelCard(p: ParcelDto, onAction: (Pair<ParcelDto, String>) -> Unit) {
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -161,6 +282,32 @@ private fun AdminParcelCard(p: ParcelDto) {
                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(appText("Доставлена $d", "$d тапшырылды"), color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            // Рычаги — только пока доставка живая: закрытую трогать нечего.
+            val finished = p.status == "delivered" || p.status == "canceled" ||
+                p.status == "cancelled" || p.status == "returned"
+            if (!finished) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (p.courier != null) {
+                        AppButton(
+                            text = appText("Снять курьера", "Курьерҙы алыу"),
+                            onClick = { onAction(p to "release") },
+                            style = AppButtonStyle.Secondary,
+                            fillWidth = false,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    AppButton(
+                        text = appText("Отменить", "Кире алыу"),
+                        onClick = { onAction(p to "cancel") },
+                        style = AppButtonStyle.Danger,
+                        fillWidth = false,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                TextButton(onClick = { onAction(p to "close") }, modifier = Modifier.fillMaxWidth()) {
+                    Text(appText("Закрыть вручную", "Ҡулдан ябыу"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

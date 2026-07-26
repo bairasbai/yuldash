@@ -1038,6 +1038,7 @@ internal fun YuldashApp() {
                 onIncomeCalc = { screen = Screen.IncomeCalculator },
                 onSosFeed = { screen = Screen.AdminSos },
                 onIncidents = { screen = Screen.AdminIncidents },
+                onRatings = { screen = Screen.AdminRatings },
             )
             Screen.IncomeCalculator -> IncomeCalculatorScreen(onBack = { goBack() })
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
@@ -1235,6 +1236,7 @@ internal fun YuldashApp() {
             )
             Screen.IncidentDetail -> IncidentDetailScreen(incidentId = incidentId, onBack = { goBack() })
             Screen.AdminIncidents -> AdminIncidentsScreen(onBack = { goBack() })
+            Screen.AdminRatings -> AdminRatingsScreen(onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
