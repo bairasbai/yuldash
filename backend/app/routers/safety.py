@@ -325,6 +325,22 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                                reason=quality.PAUSE_REASON_REPORTS)
         else:
             quality.maybe_release_review_pause(session, r.target_user_id)
+    # 💸 «Пассажир не заплатил» подтверждена → снимаем с водителя комиссию за ЭТУ поездку.
+    # Раньше жалоба ставила только пометку на заказе, а долг оставался: водителя кинули на
+    # 300 ₽, и он ещё должен нам 24 ₽ сверху (аудит 2026-07-26). Одна такая история в
+    # райцентре расходится по всей деревне и ломает доверие «между своими».
+    if r.category == "unpaid" and r.order_id:
+        from .. import debt as debt_mod
+        try:
+            if debt_mod.void_debt_for_order(session, r.order_id):
+                session.commit()
+                order = session.get(InstantOrder, r.order_id)
+                if order and order.driver_id:
+                    send_push(session, order.driver_id, "Комиссия за поездку списана",
+                              "Жалоба «пассажир не заплатил» подтверждена — комиссию за эту "
+                              "поездку с тебя сняли. · Комиссия алынды.")
+        except Exception as e:  # noqa: BLE001 — разбор жалобы важнее, чем побочка со списанием
+            log.warning(f"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {e}")
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
     quality.apply_ladder_after_resolve(session, r.target_user_id)
     return _admin_report_out(session, r)

@@ -52,6 +52,7 @@ _COLUMNS = [
     ("taxiapplication", "docs_expired", sa.Boolean(), {"nullable": False, "server_default": sa.false()}),
     ("taxiapplication", "docs_warned_at", sa.DateTime(), {"nullable": True}),
     ("commissiondebt", "declare_count", sa.Integer(), {"nullable": False, "server_default": "0"}),
+    ("commissiondebt", "note", sa.String(), {"nullable": False, "server_default": ""}),
     ("tariff", "night_k", sa.Float(), {"nullable": False, "server_default": "1.0"}),
     ("tariff", "night_from_hour", sa.Integer(), {"nullable": False, "server_default": "22"}),
     ("tariff", "night_to_hour", sa.Integer(), {"nullable": False, "server_default": "6"}),
