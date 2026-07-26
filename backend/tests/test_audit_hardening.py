@@ -275,3 +275,31 @@ def test_chat_push_carries_chat_type(client, user_factory, monkeypatch):
     r = client.post(f"/bookings/{bid}/messages", headers=pax["auth"], json={"text": "Привет!"})
     assert r.status_code == 200, r.text
     assert captured and captured[-1] == {"type": "chat", "id": bid}
+
+
+# ============== Порт из notification-fixes: язык пользователя + двуязычный пуш ==============
+def test_me_update_language(client, user_factory):
+    u = user_factory("LangUser")
+    r = client.post("/me/update", headers=u["auth"], json={"language": "ba"})
+    assert r.status_code == 200 and r.json()["language"] == "ba"
+    # Мусорный язык молча игнорируется (остаётся прежний).
+    r2 = client.post("/me/update", headers=u["auth"], json={"language": "xx"})
+    assert r2.status_code == 200 and r2.json()["language"] == "ba"
+
+
+def test_push_notification_uses_recipient_language(client, user_factory, monkeypatch):
+    """BA-пользователю пуш уходит на башкирском; RU (и пустой BA) — на русском."""
+    sent = []
+    monkeypatch.setattr("app.services.send_push",
+                        lambda session, uid, title, body, data=None, **kw: sent.append((title, body)))
+    from app.services import push_notification
+    ba_user = user_factory("BaUser")
+    ru_user = user_factory("RuUser")
+    client.post("/me/update", headers=ba_user["auth"], json={"language": "ba"})
+    with Session(engine) as s:
+        push_notification(s, ba_user["id"], "test", "Привет", "Сәләм", "тело", "тәне")
+        push_notification(s, ru_user["id"], "test", "Привет", "Сәләм", "тело", "тәне")
+        push_notification(s, ba_user["id"], "test", "Привет", "", "тело", "")   # пустой BA → фолбэк RU
+    assert sent[0] == ("Сәләм", "тәне")
+    assert sent[1] == ("Привет", "тело")
+    assert sent[2] == ("Привет", "тело")

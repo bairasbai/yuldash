@@ -196,7 +196,11 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         x_telegram_bot_api_secret_token or "", settings.telegram_webhook_secret
     ):
         raise HTTPException(403, "bad secret")
-    update = await request.json()
+    # Битый JSON НЕ роняем в 500: иначе Telegram ретраит «ядовитый» апдейт по расписанию (шум/дубли).
+    try:
+        update = await request.json()
+    except Exception:  # noqa: BLE001
+        return {"ok": True}
     callback = update.get("callback_query") or {}
     if callback:
         return _handle_admin_callback(callback)
@@ -518,12 +522,14 @@ class MeUpdateIn(BaseModel):
     name: Optional[str] = Field(None, max_length=120)
     avatar_url: Optional[str] = Field(None, max_length=500)
     city: Optional[str] = Field(None, max_length=80)
+    language: Optional[str] = Field(None, max_length=2)   # "ru" | "ba" — двуязычные push идут на языке юзера
 
 
 @router.post("/me/update")
 def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Редактирование профиля: имя, аватар и/или родной город. Телефон не меняем. Поля опциональны.
-    city: свободная строка (name_ru из справочника Settlement); пустая строка сбрасывает город."""
+    """Редактирование профиля: имя, аватар, родной город и/или язык. Телефон не меняем. Поля опциональны.
+    city: свободная строка (name_ru из справочника Settlement); пустая строка сбрасывает город.
+    language: клиент шлёт при переключении RU⇄BA — оживляет User.language (порт из notification-fixes)."""
     if body.name is not None:
         n = body.name.strip()
         if n:
@@ -532,10 +538,15 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
         user.avatar_url = body.avatar_url.strip()[:500]
     if body.city is not None:
         user.city = body.city.strip()[:80]
+    if body.language is not None:
+        lang = body.language.strip().lower()
+        if lang in ("ru", "ba"):        # только поддерживаемые языки; мусор молча игнорируем
+            user.language = lang
     session.add(user)
     session.commit()
     session.refresh(user)
-    return {"ok": True, "name": user.name, "avatar_url": user.avatar_url, "city": user.city}
+    return {"ok": True, "name": user.name, "avatar_url": user.avatar_url, "city": user.city,
+            "language": user.language}
 
 
 @router.post("/me/delete")

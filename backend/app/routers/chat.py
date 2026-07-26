@@ -96,6 +96,7 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
 
     other_id = driver_id if user_id == passenger_id else passenger_id
     manager.register(booking_id, websocket)
+    msgs = 0
     try:
         while True:
             data = await websocket.receive_text()
@@ -104,6 +105,16 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
             except (json.JSONDecodeError, ValueError):
                 continue   # битый (не-JSON) кадр — игнорируем, соединение НЕ роняем
             if payload.get("type") == "message":
+                # Периодическая перепроверка токена (паритет с гео-WS, порт из notification-fixes):
+                # logout/ревокация должны рвать и ОТКРЫТЫЙ чат-сокет, иначе он живёт до разрыва сети.
+                msgs += 1
+                if msgs % 15 == 0:
+                    with Session(engine) as s2:
+                        try:
+                            authenticate_ws(token or "", s2)
+                        except Exception:
+                            await websocket.close(code=1008, reason="Token revoked")
+                            break
                 # `with` → коннект возвращается в пул сразу (без утечки сессий на каждое сообщение).
                 with Session(engine) as session:
                     # Блокировка (как в REST send_message): заблокированный не пишет — тихо игнор.
@@ -174,6 +185,7 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
     other_id = driver_id if user_id == passenger_id else passenger_id
     key = _order_chat_key(order_id)
     manager.register(key, websocket)
+    msgs = 0
     try:
         while True:
             data = await websocket.receive_text()
@@ -182,6 +194,14 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
             except (json.JSONDecodeError, ValueError):
                 continue   # битый кадр — игнор, соединение не роняем (как в booking-чате)
             if payload.get("type") == "message":
+                msgs += 1
+                if msgs % 15 == 0:   # ревокация читается и в открытом сокете (как в booking-чате)
+                    with Session(engine) as s2:
+                        try:
+                            authenticate_ws(token or "", s2)
+                        except Exception:
+                            await websocket.close(code=1008, reason="Token revoked")
+                            break
                 with Session(engine) as session:
                     if is_blocked(session, user_id, other_id):
                         continue

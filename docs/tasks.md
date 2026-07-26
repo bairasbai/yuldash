@@ -14,13 +14,22 @@
   на `done_at`; и др. Миграция `m_audit_hardening`. **962 passed, 1 skipped; alembic 1 голова; ruff чист.**
 - **Спасены доки из веток:** `trust-safety.md` (битая ссылка из models.py), `yandex-pro-plan.md`,
   `launch-readiness.md`.
-- ⚠️ **ПОПРАВКА к чистке веток:** `app-bad-scenarios-protection-tdzr7m` (Android фазы 5 + эвиденс +
-  detect_bump + 682 строки тестов), `notification-fixes`+`notification-client-android` (двуязычные
-  пуши по User.language) и `architecture-review-pqx309` (4 тест-файла + 3 харднинга) — **НЕ удалять
-  до переноса**. Остальные 95 + webapp-дубли — можно.
+- **Раунд 2 (та же ветка): перенесено ценное из «хранимых» веток.** Из `architecture-review-pqx309`
+  (теперь поглощена → удалять можно): пул БД из конфига (было 125 соединений > лимита PG 100 → 75),
+  скрытие `/docs` в проде, гейт `SBP_PHONE≠ADMIN_PHONES`, вебхук не 500-ит на битом JSON, max_length
+  городов заявки, кламп цены отклика, 4 тест-файла + 5 аудит-доков. Из `notification-fixes` (бэкенд
+  поглощён → удалять можно): **пуши на языке получателя** (`User.language` ожил: `/me/update` принимает
+  `language`, `push_notification` выбирает RU/BA), ревокация в открытом чат-WS (каждые 15 сообщений).
+  Осознанно НЕ взято: кэш `/rides/near` (релиз решил нагрузку потолком+гидрацией), скрытие имени
+  СБП-получателя (имя из конфига = защита плательщика от подмены). **985 sqlite + 986 postgres, всё зелёное.**
+- ⚠️ **ПОПРАВКА к чистке веток (итог после раунда 2):** НЕ удалять только 2: `app-bad-scenarios-protection-tdzr7m`
+  (Android фазы 5 + эвиденс + detect_bump + 682 строки тестов) и `notification-client-android`
+  (клиентская обвязка: слать language, звать unregister). Остальные 95 + webapp-дубли +
+  `architecture-review-pqx309` + `notification-fixes` — можно.
 - 📱 Android-фиксы ждут машину со сборкой (SDK тут нет): EXIF аватара (регресс b25a6d0), requestCode
   пушей, иконка такси-оффера, каналы в onCreate, Outbox/TripPass при logout + звать `/push/unregister`,
-  тач-цель чипов оплаты, V1 kopToRub. Точные file:line — в отчёте.
+  слать `language` в `/me/update` при переключении RU⇄BA (бэкенд уже ждёт), тач-цель чипов оплаты,
+  V1 kopToRub. Точные file:line — в отчёте.
 
 ### 🔤 Переводы на проверку — аудит 2026-07-26 (черновой башкирский, ошибки бэкенда споров/ссылок; вшить при переводе роутеров на herr)
 - «Обжаловать можно только решённый спор» → «Ялыу тик хәл ителгән бәхәскә генә бирелә»

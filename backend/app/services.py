@@ -264,8 +264,9 @@ def push_notification(
     Ставится в тех же местах, где раньше был голый send_push → лента уведомлений и пуш всегда
     синхронны. Запись идёт в СВОЕЙ сессии: commit в переданной session сбросил бы (expire) ORM-
     объекты вызывающего до сериализации ответа (напр. Booking в response_model → пустой ответ).
-    Уведомление вторично — ошибку БД глотаем и логируем, основную операцию не валим. Push шлём
-    на RU (FCM однострочный); в самой ленте пользователь видит текст на языке приложения.
+    Уведомление вторично — ошибку БД глотаем и логируем, основную операцию не валим. Push идёт
+    на ЯЗЫКЕ ПОЛУЧАТЕЛЯ (User.language, порт из notification-fixes): правило «любая надпись —
+    на двух языках» действует и для уведомлений; в ленте оба текста хранятся всегда.
     """
     try:
         with Session(engine) as s:
@@ -283,13 +284,20 @@ def push_notification(
     except Exception as e:  # noqa: BLE001 — уведомление вторично, основную операцию не валим
         log.warning(f"[NOTIFY] db error: {e}")
     if push:
+        # Язык получателя: BA-пользователю пуш уходит на башкирском (клиент пишет выбор
+        # языка в /me/update). Пустой BA-текст → фолбэк на RU (никогда не шлём пустоту).
+        recipient = session.get(User, user_id)
+        if recipient and recipient.language == "ba" and (title_ba or body_ba):
+            title, body = (title_ba or title_ru), (body_ba or body_ru)
+        else:
+            title, body = title_ru, body_ru
         # data — опциональный payload для клиентского роутинга (канал/deep-link), напр.
         # {"type": "chat", "id": booking_id} у чат-пушей. Без data зовём по-старому
         # (4 позиционных): тест-двойники и старые обёртки send_push не ломаются.
         if data:
-            send_push(session, user_id, title_ru, body_ru, data)
+            send_push(session, user_id, title, body, data)
         else:
-            send_push(session, user_id, title_ru, body_ru)
+            send_push(session, user_id, title, body)
 
 
 # ----------------------------- Подписка на маршрут (RouteWatch) -----------------------------
