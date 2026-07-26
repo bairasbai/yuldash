@@ -443,6 +443,51 @@ def booking_tip_info(booking_id: int, user: User = Depends(current_user), sessio
     return {"driver_name": driver_name, "already_thanked": bool(b.thanked), "money": money}
 
 
+def _order_for_passenger_done(session: Session, order_id: int, user: User) -> InstantOrder:
+    """Такси-заказ ЭТОГО пассажира, завершённый (для «рәхмәт»). Порядок проверок как у брони."""
+    o = session.get(InstantOrder, order_id)
+    if not o:
+        raise HTTPException(404, "Заказ не найден")
+    if o.passenger_id != user.id:
+        raise HTTPException(403, "Доступно только пассажиру заказа")
+    if (o.status.value if hasattr(o.status, "value") else o.status) != "done":
+        raise HTTPException(409, "Поблагодарить можно после завершения поездки")
+    return o
+
+
+@router.get("/instant/orders/{order_id}/tip")
+def order_tip_info(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """То же, что /bookings/{id}/tip, но для ТАКСИ-заказа: благодарность была только у попуток,
+    хотя водителю такси её говорят чаще (помог с сумками, довёз в метель)."""
+    o = _order_for_passenger_done(session, order_id, user)
+    driver = session.get(User, o.driver_id) if o.driver_id else None
+    driver_name = (driver.name if driver else "") or "Водитель"
+    money = None
+    if settings.tips_money_enabled and o.driver_id:
+        prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == o.driver_id)).first()
+        if prof and (prof.tips_sbp or "").strip():
+            money = {"sbp": prof.tips_sbp, "name": driver_name}
+    return {"driver_name": driver_name, "already_thanked": bool(o.thanked), "money": money}
+
+
+@router.post("/instant/orders/{order_id}/thanks")
+def order_thanks(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """«Сказать рәхмәт» водителю такси (БЕЗ денег). Идемпотентно по order.thanked."""
+    o = _order_for_passenger_done(session, order_id, user)
+    if o.thanked:
+        return {"ok": True, "already": True}
+    o.thanked = True
+    session.add(o)
+    session.commit()
+    if o.driver_id:
+        try:  # без ПДн — просто тёплое спасибо
+            send_push(session, o.driver_id, "Тебе сказали рәхмәт 💚",
+                      "Пассажир поблагодарил за поездку · Юлаусы сәфәр өсөн рәхмәт әйтте 💚")
+        except Exception:
+            pass
+    return {"ok": True, "already": False}
+
+
 @router.post("/bookings/{booking_id}/thanks")
 def booking_thanks(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Пассажир жмёт «Сказать рәхмәт» — тёплый жест водителю (БЕЗ денег). Идемпотентно

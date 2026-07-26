@@ -367,3 +367,72 @@ def test_cancel_reason_whitelist(client, user_factory):
     client.post(f"/bookings/{bid2}/cancel", headers=pax2["auth"], json={"reason": "какой-то мусор <script>"})
     with Session(engine) as s:
         assert s.get(M.Booking, bid2).cancel_reason == "other"
+
+
+# ============== Пробелы такси/курьера: чаевые в такси, споры по доставке ==============
+def _done_order(passenger_id, driver_id):
+    with Session(engine) as s:
+        o = M.InstantOrder(passenger_id=passenger_id, driver_id=driver_id,
+                           from_lat=54.0, from_lng=55.0, to_lat=54.1, to_lng=55.1,
+                           status=M.InstantOrderStatus.done, price_estimate=200)
+        s.add(o); s.commit(); s.refresh(o)
+        return o.id
+
+
+def test_taxi_thanks_and_tip_info(client, user_factory, monkeypatch):
+    """«Рәхмәт» после такси: раньше благодарность была только у попуток."""
+    monkeypatch.setattr("app.routers.family.send_push", lambda *a, **k: None)
+    drv = user_factory("TipDrv", role=UserRole.driver)
+    pax = user_factory("TipPax")
+    other = user_factory("TipOther")
+    oid = _done_order(pax["id"], drv["id"])
+    info = client.get(f"/instant/orders/{oid}/tip", headers=pax["auth"])
+    assert info.status_code == 200 and info.json()["already_thanked"] is False
+    # Денежные чаевые за флагом (по умолчанию выключены) — реквизит наружу не идёт.
+    assert info.json()["money"] is None
+    r = client.post(f"/instant/orders/{oid}/thanks", headers=pax["auth"])
+    assert r.status_code == 200 and r.json()["already"] is False
+    assert client.post(f"/instant/orders/{oid}/thanks", headers=pax["auth"]).json()["already"] is True
+    # Чужой поблагодарить не может.
+    assert client.post(f"/instant/orders/{oid}/thanks", headers=other["auth"]).status_code == 403
+
+
+def test_incident_can_be_filed_for_parcel(client, user_factory):
+    """Спор по доставке: типы parcel_damage/parcel_lost были заведены, но недостижимы —
+    код требовал booking_id и отвечал 400. Теперь у спора есть привязка к посылке."""
+    from app.routers.incidents import create_incident
+    sender = user_factory("PdSender")
+    courier = user_factory("PdCourier")
+    with Session(engine) as s:
+        p = M.ParcelDelivery(sender_id=sender["id"], courier_id=courier["id"],
+                             from_city="Акъяр", to_city="Сибай", status="delivered")
+        s.add(p); s.commit(); s.refresh(p)
+        pid = p.id
+        u = s.get(M.User, sender["id"])
+        inc = create_incident(s, reporter=u, respondent_id=courier["id"],
+                              type="parcel_damage", description="банка разбилась",
+                              parcel_id=pid, rate_limit=False)
+        assert inc.parcel_id == pid and inc.booking_id is None
+        inc_id = inc.id
+    out = client.get("/incidents/mine", headers=sender["auth"]).json()
+    mine = [i for i in out if i["id"] == inc_id]
+    assert mine and "📦" in (mine[0]["booking_route"] or ""), "в подписи спора виден маршрут доставки"
+
+
+def test_taxi_docs_expiry_blocks_taxi_only(client, user_factory):
+    """Просроченные документы снимают допуск к ТАКСИ, попутка продолжает работать."""
+    from app.taxi import is_approved_taxi_driver, taxi_docs_expired
+    drv = user_factory("DocDrv", role=UserRole.driver)   # user_factory сам создаёт approved-заявку
+    with Session(engine) as s:
+        assert is_approved_taxi_driver(s, drv["id"]) is True
+        app_row = s.exec(select(M.TaxiApplication).where(M.TaxiApplication.user_id == drv["id"])).first()
+        app_row.docs_expired = True
+        s.add(app_row); s.commit()
+        assert is_approved_taxi_driver(s, drv["id"]) is False
+        assert taxi_docs_expired(s, drv["id"]) is True
+    # Попутка не завязана на разрешение такси — публикация проходит.
+    ok = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай",
+        "depart_at": "2030-01-01T10:00:00", "seats_total": 3, "price": 300,
+    })
+    assert ok.status_code == 200

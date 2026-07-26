@@ -19,6 +19,7 @@ from ..services import (
     booking_and_ride_for_user, is_blocked, manager, notify_chat_message,
     public_media_url, push_notification, send_push, user_bookings,
 )
+from ..timeutil import utcnow
 
 router = APIRouter(tags=["chat"])
 
@@ -49,6 +50,13 @@ def _order_for_chat(session: Session, order_id: int, user_id: int, write: bool) 
     if not (is_passenger or is_driver):
         raise HTTPException(403, "Нет доступа к чату этого заказа")
     allowed = ORDER_CHAT_WRITABLE if write else ORDER_CHAT_READABLE
+    # Забытые вещи: участник завершённого заказа нажал «забыл вещь» → чат снова открыт на запись
+    # до lost_item_until (48ч). Иначе связаться было НЕЧЕМ: телефон виден только пока заказ
+    # активен, а чат после done — только на чтение. Телефон в машине = потерян навсегда.
+    if write and order.status not in allowed:
+        until = getattr(order, "lost_item_until", None)
+        if until is not None and until > utcnow():
+            return order
     if order.status not in allowed:
         # До accept — чата ещё нет; после done/отмены запись закрыта (история читается).
         raise HTTPException(409, "Поездка завершена — чат только для чтения"

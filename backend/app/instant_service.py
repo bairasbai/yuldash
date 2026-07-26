@@ -209,6 +209,52 @@ def surge_note(k: float) -> Optional[dict]:
     }
 
 
+# ============================ Ночной тариф (аудит 2026-07-26) ============================
+# В −30 в 5 утра по дневной цене никто не поедет — водитель просто не выйдет на линию, и
+# заказ умрёт в «рядом никого». Надбавка живёт в БД (Tariff.night_k/from/to), а не в коде:
+# по умолчанию night_k=1.0 → ничего не меняется, пока Александр не настроит окно.
+def local_hour(now=None) -> int:
+    """Час по МЕСТНОМУ времени (Уфа = UTC+5, settings.local_tz_offset_hours).
+    Сервер живёт в UTC: в 5 утра по Уфе на нём ещё полночь — по UTC-часу ночное окно
+    срабатывало бы не тогда, когда людям холодно."""
+    now = now or utcnow()
+    return (now + timedelta(hours=settings.local_tz_offset_hours)).hour
+
+
+def in_night_window(hour: int, frm: int, to: int) -> bool:
+    """Час попадает в окно [frm, to)? Ночное окно почти всегда ПЕРЕХОДИТ ЧЕРЕЗ ПОЛНОЧЬ
+    (22→6), поэтому наивное `frm <= hour < to` тут даёт пустое множество — разбираем оба случая."""
+    if frm == to:
+        return False                    # окно нулевой длины — надбавки нет
+    if frm < to:
+        return frm <= hour < to         # окно внутри суток (напр. «утренний» 5→7)
+    return hour >= frm or hour < to     # через полночь
+
+
+def night_k_for(t: Optional[Tariff], now=None) -> float:
+    """Ночной коэффициент тарифа ПРЯМО СЕЙЧАС (1.0 = не настроен / сейчас день)."""
+    if t is None or not t.night_k or t.night_k <= 1.0:
+        return 1.0
+    return t.night_k if in_night_window(local_hour(now), t.night_from_hour, t.night_to_hour) else 1.0
+
+
+def total_k(t: Optional[Tariff], surge: float, now=None) -> float:
+    """Итоговый множитель цены = сурж × ночь, но НЕ выше surge_max_k. Потолок общий:
+    обещание «дороже не более чем в 1.5 раза» не должно обходиться сложением двух надбавок."""
+    return min(surge * night_k_for(t, now), settings.surge_max_k)
+
+
+def night_note(k: float) -> Optional[dict]:
+    """Честное объяснение ночной цены ДО заказа (RU + черновой BA). k<=1.0 → None."""
+    if k <= 1.0:
+        return None
+    pct = int(round((k - 1.0) * 100))
+    return {
+        "ru": f"Ночной тариф: сейчас дороже на {pct}% — в это время машин на линии мало.",
+        "ba": f"Төнгө тариф: хәҙер {pct}%-ҡа ҡиммәтерәк — был ваҡытта линияла машина аҙ.",
+    }
+
+
 # ============================ Карта спроса (тепловые зоны «где сейчас ищут») ============================
 # Округление координат зоны, знаков после запятой. 2 знака ≈ сетка ~1 км (на широте РБ ~55°N:
 # 0.01° широты ≈ 1.1 км, 0.01° долготы ≈ 0.64 км). ПРИВАТНОСТЬ: точка конкретного пассажира
@@ -300,24 +346,29 @@ def _tariff_price(t: Tariff, dist_km: float, eta_min: float, surge: float) -> in
 
 def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard") -> dict:
     """Оценка цены: сервер считает по своей формуле, ЦЕНЕ ИЗ КЛИЕНТА НЕ ВЕРИТ.
-    price = max(min_price, (base + per_km·dist + per_min·eta) · k · surge_k), до 10 ₽.
-    Сурж прозрачен ДО заказа: surge_k + surge_note{ru,ba}. options — цены обоих классов
-    (Эконом/Комфорт) одним запросом, чтобы пассажир выбирал с открытыми глазами."""
+    price = max(min_price, (base + per_km·dist + per_min·eta) · k · сурж · ночь), до 10 ₽.
+    Надбавки прозрачны ДО заказа: surge_k + surge_note{ru,ba}, night + night_note{ru,ba}.
+    options — цены обоих классов (Эконом/Комфорт) одним запросом, чтобы пассажир выбирал
+    с открытыми глазами (у каждого класса своё ночное окно — считаем по его тарифу)."""
     dist_km = max(haversine_km(frm[0], frm[1], to[0], to[1]) * settings.instant_road_k, 0.5)
     zone = zone_for_km(dist_km)
     t = active_tariff(session, zone, category)
     if not t:
         raise HTTPException(503, "Тарифы не настроены")
     eta_min = dist_km / settings.instant_avg_speed_kmh * 60
+    # now фиксируем ОДИН раз: иначе цена и флаг night могли бы разъехаться на границе часа.
+    now = utcnow()
     surge = surge_k_for(session, frm[0], frm[1])
-    price = _tariff_price(t, dist_km, eta_min, surge)
+    nk = night_k_for(t, now)
+    price = _tariff_price(t, dist_km, eta_min, total_k(t, surge, now))
     options = []
     for cat in ("standard", "comfort"):
         ct = session.exec(
             select(Tariff).where(Tariff.zone == zone, Tariff.category == cat, Tariff.active == True)  # noqa: E712
         ).first()
         if ct:
-            options.append({"category": cat, "price": _tariff_price(ct, dist_km, eta_min, surge)})
+            options.append({"category": cat,
+                            "price": _tariff_price(ct, dist_km, eta_min, total_k(ct, surge, now))})
     return {
         "price": price,
         "distance_km": round(dist_km, 2),
@@ -327,6 +378,11 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
         "tariff_id": t.id,
         "surge_k": surge,
         "surge_note": surge_note(surge),
+        # Ночной тариф: клиент показывает честную плашку «сейчас ночной тариф», а не молча
+        # более дорогую цену (иначе выглядит как обман — цена днём и ночью разная без объяснения).
+        "night": nk > 1.0,
+        "night_k": nk,
+        "night_note": night_note(nk),
         "options": options,
     }
 
@@ -734,8 +790,12 @@ def candidates(r, session: Session, order: InstantOrder, exclude: set) -> list:
     return []
 
 
-def _expire_no_drivers(session: Session, order: InstantOrder) -> InstantOrder:
-    """Никого рядом (или нет Redis) → заказ expired, пассажиру «рядом никого»."""
+def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+    """Никого рядом (или нет Redis) → заказ expired, пассажиру «рядом никого».
+
+    notify=False — тихий прогон фонового воркера (очередь «рядом никого», taxi_worker):
+    пассажир УЖЕ нажал «подождать», он в курсе; повторять ему «рядом никого» каждые
+    две минуты — спам, из-за которого выключают уведомления."""
     session.execute(
         update(InstantOrder)
         .where(InstantOrder.id == order.id)
@@ -744,24 +804,25 @@ def _expire_no_drivers(session: Session, order: InstantOrder) -> InstantOrder:
     session.commit()
     _cleanup_tried(order.id)
     fresh = session.get(InstantOrder, order.id)
-    send_push(session, fresh.passenger_id,
-              "Рядом никого · Яҡында водитель юҡ",
-              "Пока не нашли водителя. Попробуй ещё раз или оставь заявку."
-              " · Водитель табылманы әле. Тағы ҡабатлап ҡара йәки ғариза ҡалдыр.",
-              data=_status_data(fresh, "expired"))
+    if notify:
+        send_push(session, fresh.passenger_id,
+                  "Рядом никого · Яҡында водитель юҡ",
+                  "Пока не нашли водителя. Попробуй ещё раз или оставь заявку."
+                  " · Водитель табылманы әле. Тағы ҡабатлап ҡара йәки ғариза ҡалдыр.",
+                  data=_status_data(fresh, "expired"))
     return fresh
 
 
-def try_offer_next(session: Session, order: InstantOrder) -> InstantOrder:
+def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
     r = _redis()
     if r is None:
-        return _expire_no_drivers(session, order)
+        return _expire_no_drivers(session, order, notify)
     if order.search_round >= settings.instant_max_offers:
-        return _expire_no_drivers(session, order)
+        return _expire_no_drivers(session, order, notify)
     cands = candidates(r, session, order, exclude=_tried_set(r, order.id))
     if not cands:
-        return _expire_no_drivers(session, order)
+        return _expire_no_drivers(session, order, notify)
     did = cands[0]
     try:
         r.sadd(_tried_key(order.id), did)
@@ -805,18 +866,19 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     return start_matching(session, order)
 
 
-def start_matching(session: Session, order: InstantOrder) -> InstantOrder:
-    """created → searching → (offered | expired). Зовётся при создании заказа."""
+def start_matching(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+    """created → searching → (offered | expired). Зовётся при создании заказа и при
+    перезапуске поиска из очереди «рядом никого» (там notify=False — см. _expire_no_drivers)."""
     session.execute(
         update(InstantOrder).where(InstantOrder.id == order.id)
         .values(status=S.searching, searching_at=utcnow())
     )
     session.commit()
     order = session.get(InstantOrder, order.id)
-    return try_offer_next(session, order)
+    return try_offer_next(session, order, notify)
 
 
-def advance_after_no_accept(session: Session, order: InstantOrder) -> InstantOrder:
+def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
     """Оффер отклонён/протух → назад в searching → следующий кандидат."""
     session.execute(
         update(InstantOrder).where(InstantOrder.id == order.id)
@@ -824,7 +886,7 @@ def advance_after_no_accept(session: Session, order: InstantOrder) -> InstantOrd
     )
     session.commit()
     order = session.get(InstantOrder, order.id)
-    return try_offer_next(session, order)
+    return try_offer_next(session, order, notify)
 
 
 def reconcile_offer(session: Session, order: InstantOrder) -> InstantOrder:

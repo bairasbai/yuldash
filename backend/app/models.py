@@ -467,10 +467,16 @@ class SosEvent(SQLModel, table=True):
     user_id: int = Field(index=True, foreign_key="user.id")
     booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")
     order_id: Optional[int] = Field(default=None, foreign_key="instantorder.id")   # SOS из такси-заказа (B7b-2)
-    category: str = "other"                 # medical / breakdown / other
+    category: str = "other"                 # medical / breakdown / accident / threat / other
     note: str = ""
-    status: str = "open"                    # open / handled
-    created_at: datetime = Field(default_factory=utcnow)
+    status: str = Field(default="open", index=True)     # open / handled
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    # Кто и когда принял сигнал (аудит 2026-07-26). Раньше SOS уходил ОДНИМ сообщением в Telegram
+    # и всё: списка сигналов у админа не было, статус не менялся никогда — уснул, и следа нет.
+    handled_at: Optional[datetime] = None
+    handled_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    handled_note: str = ""                  # что сделали (для истории/полиции)
+    escalated_at: Optional[datetime] = None # когда ушёл повторный сигнал (не принят вовремя)
 
 
 class Report(SQLModel, table=True):
@@ -498,6 +504,11 @@ class Incident(SQLModel, table=True):
     решает соразмерно по лестнице и объясняет обеим. Дополняет Report, не заменяет. См. docs/trust-safety.md."""
     id: Optional[int] = Field(default=None, primary_key=True)
     booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
+    # Спор по доставке (аудит 2026-07-26): «груз разбит/потерян» — та же машина разбора, что
+    # и по поездке. Без этого поля типы parcel_damage/parcel_lost были заведены, но недостижимы:
+    # код требовал booking_id и отвечал 400. Ровно один из двух контекстов заполнен.
+    parcel_id: Optional[int] = Field(default=None, index=True, foreign_key="parceldelivery.id")
+    order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
     reporter_id: int = Field(index=True, foreign_key="user.id")     # кто заявил
     respondent_id: int = Field(index=True, foreign_key="user.id")   # на кого (обвиняемый)
     type: str = Field(index=True)            # код (passenger_no_show, harassment, parcel_damage, …)
@@ -615,6 +626,12 @@ class Tariff(SQLModel, table=True):
     per_min: float = 0.0             # ₽ за минуту
     min_price: int = 0               # минимальная цена поездки, ₽
     k: float = 1.0                   # surge-коэффициент (v1 = 1.0, поле на будущее)
+    # Ночной/утренний коэффициент (аудит 2026-07-26): в −30 в 5 утра по дневной цене никто не
+    # поедет. Окно задаётся часами по местному времени (может переходить через полночь: 22→6).
+    # night_k = 1.0 → надбавки нет. Применяется ПОСЛЕ суржа, общий потолок — surge_max_k.
+    night_k: float = 1.0
+    night_from_hour: int = 22        # с какого часа действует ночной коэффициент
+    night_to_hour: int = 6           # до какого часа (не включая)
     active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -632,6 +649,14 @@ class InstantOrder(SQLModel, table=True):
     to_lng: float = 0.0
     from_text: str = ""
     to_text: str = ""
+    # Как найти пассажира: в селе «Ленина 12» — это пять домов без табличек. Комментарий и
+    # подъезд уходят водителю ВМЕСТЕ с оффером (до этого чат недоступен — его нет до accept).
+    comment: str = ""                # «за магазином, синие ворота», «позвони — выйду»
+    entrance: str = ""               # подъезд/квартира/этаж
+    # Заказ ДЛЯ ДРУГОГО человека (сын из Уфы вызывает такси маме в Баймаке). Если заполнено —
+    # водителю в карточке показываем это имя и ЭТОТ телефон (иначе он звонит заказчику в другой город).
+    for_name: str = ""
+    for_phone: str = ""
     category: str = "standard"
     status: InstantOrderStatus = Field(default=InstantOrderStatus.created, index=True)
     # Предзаказ «на время» (MVP): если задан и в будущем — заказ создаётся в статусе `scheduled`
@@ -680,6 +705,16 @@ class InstantOrder(SQLModel, table=True):
     done_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None
     expired_at: Optional[datetime] = None
+    # «Рядом никого»: заказ не нашёл машину, но пассажир согласился подождать — фоновый воркер
+    # (app/taxi_worker.py) перезапустит поиск, пока не истечёт wait_until. Без этого в райцентре
+    # ночью заказ умирает за 2 секунды («Рядом никого») и человек уходит к конкуренту.
+    wait_until: Optional[datetime] = Field(default=None, index=True)
+    retry_count: int = 0             # сколько раз воркер перезапускал поиск (для лога/потолка)
+    # Забытые вещи: пассажир нажал «забыл вещь» → чат заказа снова открыт до этого времени.
+    lost_item_until: Optional[datetime] = None
+    # «Сказать рәхмәт» после такси-заказа (дедуп). Раньше благодарность была только у попуток —
+    # водителю такси, который помог занести коляску, сказать спасибо было нечем.
+    thanked: bool = False
 
 
 class RouteWatch(SQLModel, table=True):
@@ -846,6 +881,10 @@ class CommissionDebt(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow, index=True)
     due_at: Optional[datetime] = None                     # срок оплаты (created_at + debt_due_days)
     paid_declared_at: Optional[datetime] = None           # когда водитель нажал «Я оплатил»
+    # Сколько раз заявляли оплату по этому долгу (аудит 2026-07-26). Раньше кнопку «Я оплатил»
+    # можно было жать бесконечно: pending снимает блок, админ отклонил → нажал снова → работает.
+    # После DEBT_MAX_DECLARES отклонённых заявок «слово» больше не снимает блокировку.
+    declare_count: int = 0
     confirmed_at: Optional[datetime] = None               # когда админ подтвердил
     # Один заказ = максимум одна запись долга. DB-барьер против гонки двойного «done»
     # (двойной тап/ретрай): check-then-insert без него мог создать две записи на один order_id.
@@ -890,7 +929,14 @@ class TaxiApplication(SQLModel, table=True):
     selfie_url: Optional[str] = None               # селфи с правами в руках — сверка лица с документом
     criminal_record_url: Optional[str] = None      # справка о несудимости (Госуслуги/МВД) — опц., рекомендуется
     birth_date: date_type = date_type(1970, 1, 1)  # для проверки «возраст 20+»
-    license_since_year: int = 0                    # год получения прав (стаж от 2 лет)
+    license_since_year: int = 0                    # год получения прав (стаж от 3 лет, 580-ФЗ)
+    # Сроки документов (аудит 2026-07-26). Раньше документы были ТОЛЬКО картинками: одобрили
+    # в июле — человек возит с просроченным ОСАГО в декабре, а мы «проверенная служба».
+    # Фоновая проверка (app/doc_check.py) напоминает за 14/3 дня и снимает допуск к такси.
+    osago_until: Optional[date_type] = Field(default=None, index=True)
+    permit_until: Optional[date_type] = Field(default=None, index=True)
+    docs_expired: bool = Field(default=False, index=True)   # допуск снят до обновления документов
+    docs_warned_at: Optional[datetime] = None               # когда слали последнее напоминание (анти-спам)
     status: TaxiApplicationStatus = Field(default=TaxiApplicationStatus.pending, index=True)
     comment: Optional[str] = None                  # комментарий админа при отклонении
     created_at: datetime = Field(default_factory=utcnow)
@@ -1198,7 +1244,7 @@ class ParcelDelivery(SQLModel, table=True):
     receiver_name: str = ""                                                   # имя получателя (публично курьеру)
     receiver_phone: str = ""                                                  # ПРИВАТНО: отдаём только принявшему курьеру
     fee_kop: int = Field(default=0, sa_type=BigInteger)                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
-    status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled
+    status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled|returning|returned
     confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
     created_at: datetime = Field(default_factory=utcnow, index=True)          # растущая таблица: индекс под сорт/чистку по дате
     accepted_at: Optional[datetime] = None
@@ -1230,6 +1276,18 @@ class ParcelDelivery(SQLModel, table=True):
     # Получатель рассчитался с курьером (товар + доставка). Ставится при вручении buy_bring.
     settled: bool = False
     settled_at: Optional[datetime] = None
+    # --- Ветка «что-то пошло не так» (аудит 2026-07-26) ---
+    # Возврат: получателя нет / отказался / не выходит на связь. Курьер везёт посылку обратно.
+    # Статусы: ... | returning (везу обратно) | returned (вернул отправителю).
+    return_reason: str = Field(default="", max_length=200)   # почему возвращаем (видят обе стороны)
+    returned_at: Optional[datetime] = None
+    delivery_attempts: int = 0                                # сколько раз пытались вручить
+    # Фото-фиксация на границах ответственности: «взял целой» / «отдал целой». Приватные URL
+    # (/secure/evidence) — без них спор «ты разбил» ↔ «оно уже было» нерешаем ни для кого.
+    pickup_photo_url: str = ""                                # фото при заборе у отправителя
+    delivery_photo_url: str = ""                              # фото при вручении получателю
+    # Компенсация курьеру за отмену «на полпути» (Модель А: только фиксируем сумму, деньги мимо нас).
+    cancel_fee_kop: int = Field(default=0, sa_type=BigInteger)
 
 
 class CourierApplication(SQLModel, table=True):

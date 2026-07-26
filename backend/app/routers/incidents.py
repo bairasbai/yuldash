@@ -129,6 +129,21 @@ def _route_for(session: Session, booking_id: Optional[int]) -> Optional[str]:
     return f"{r.from_city}→{r.to_city}" if r else None
 
 
+def _context_route(session: Session, inc: Incident) -> Optional[str]:
+    """Человеческая подпись спора: маршрут поездки, доставки или такси-заказа — что заполнено."""
+    if inc.booking_id:
+        return _route_for(session, inc.booking_id)
+    if inc.parcel_id:
+        from ..models import ParcelDelivery
+        p = session.get(ParcelDelivery, inc.parcel_id)
+        return f"📦 {p.from_city}→{p.to_city}" if p else None
+    if inc.order_id:
+        from ..models import InstantOrder
+        o = session.get(InstantOrder, inc.order_id)
+        return f"🚕 {o.from_text or '?'}→{o.to_text or '?'}" if o else None
+    return None
+
+
 def _name(u: Optional[User]) -> str:
     return (u.name if u and u.name else "Пользователь")
 
@@ -151,7 +166,7 @@ def _incident_out(session: Session, inc: Incident, viewer: User) -> IncidentOut:
         my_role=my_role, other_name=_name(other),
         evidence_urls=urls_from_csv(inc.evidence_urls),
         respondent_evidence_urls=urls_from_csv(inc.respondent_evidence_urls),
-        booking_route=_route_for(session, inc.booking_id),
+        booking_route=_context_route(session, inc),
     )
 
 
@@ -165,8 +180,14 @@ def create_incident(
     description: str = "", booking_id: Optional[int] = None, reporter_role: str = "",
     background: Optional[BackgroundTasks] = None, rate_limit: bool = True,
     evidence_urls: Optional[List[str]] = None,
+    parcel_id: Optional[int] = None, order_id: Optional[int] = None,
 ) -> Incident:
-    """Создать инцидент со всеми проверками/побочками. Общая точка для /incidents и будущих авто-детектов."""
+    """Создать инцидент со всеми проверками/побочками. Общая точка для /incidents, спора по
+    доставке (parcels.py) и будущих авто-детектов.
+
+    Контекст спора — ровно один из трёх: booking_id (попутка), order_id (такси-заказ),
+    parcel_id (доставка). Раньше поддерживалась только попутка, поэтому заведённые типы
+    parcel_damage/parcel_lost были недостижимы: код требовал booking_id и отвечал 400 (аудит 2026-07-26)."""
     if respondent_id == reporter.id:
         raise HTTPException(400, "Нельзя пожаловаться на себя")
     if type not in INCIDENT_TYPES:
@@ -176,10 +197,13 @@ def create_incident(
         raise HTTPException(400, "Не удалось создать обращение — проверь данные")
     if rate_limit and incidents_last_hour(session, reporter.id) >= settings.safety_incidents_per_hour:
         raise HTTPException(429, "Слишком много обращений за час. Попробуй позже.")
-    # Анти-харассмент: обычная жалоба привязывается к ОБЩЕЙ поездке — иначе можно завалить
-    # инцидентами любого, с кем не пересекался. Только SEVERE допускается без брони (важен сигнал).
-    if booking_id is None and type not in SEVERE_TYPES:
-        raise HTTPException(400, "Жалоба привязывается к вашей совместной поездке")
+    # Анти-харассмент: обычная жалоба привязывается к ОБЩЕЙ сущности (поездка/заказ/доставка) —
+    # иначе можно завалить инцидентами любого, с кем не пересекался. Только SEVERE допускается
+    # без привязки (важен сигнал). Участие сторон в заказе/доставке проверяет вызывающий роутер
+    # (там уже есть доступ к объекту и его правилам приватности).
+    has_context = booking_id is not None or parcel_id is not None or order_id is not None
+    if not has_context and type not in SEVERE_TYPES:
+        raise HTTPException(400, "Жалоба привязывается к вашей совместной поездке или доставке")
     if booking_id is not None:
         booking, ride = booking_and_ride_for_user(session, booking_id, reporter)  # 403/404 если не участник
         if not reporter_role:
@@ -189,7 +213,8 @@ def create_incident(
 
     severe = type in SEVERE_TYPES
     inc = Incident(
-        booking_id=booking_id, reporter_id=reporter.id, respondent_id=respondent_id,
+        booking_id=booking_id, parcel_id=parcel_id, order_id=order_id,
+        reporter_id=reporter.id, respondent_id=respondent_id,
         type=type, reporter_role=reporter_role, description=clamp(description, 2000),
         evidence_urls=csv_from_urls(evidence_urls),   # только СВОИ URL, внешние хосты отброшены
         # severe → сразу на разбор человеком; иначе ждём объяснения обвинённого.
@@ -202,9 +227,9 @@ def create_incident(
     # Пуш обвинённому: приглашение объясниться (право на защиту). Исключение — SEVERE без общей
     # поездки: связь сторон не доказана, сначала жалобу видит человек (админ). Иначе это канал
     # харассмента: пуш «открыт спор» любому произвольному user_id, до 240/сутки с одного аккаунта.
-    if not (severe and booking_id is None):
-        send_push(session, respondent_id, "Открыт разбор по поездке",
-                  "По одной из поездок открыт спор. Опишите свою версию — это важно.")
+    if not (severe and not has_context):
+        send_push(session, respondent_id, "Открыт разбор",
+                  "По одной из поездок или доставок открыт спор. Опишите свою версию — это важно.")
     if severe:
         reporter_u = session.get(User, reporter.id)
         respondent_u = session.get(User, respondent_id)
@@ -391,7 +416,7 @@ def admin_incidents(status: Optional[str] = None, user: User = Depends(current_u
             created_at=inc.created_at, updated_at=inc.updated_at, resolved_at=inc.resolved_at,
             evidence_urls=urls_from_csv(inc.evidence_urls),
             respondent_evidence_urls=urls_from_csv(inc.respondent_evidence_urls),
-            booking_route=_route_for(session, inc.booking_id),
+            booking_route=_context_route(session, inc),
         ))
     return out
 
