@@ -80,6 +80,21 @@ def list_contacts(user: User = Depends(current_user), session: Session = Depends
     return session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
 
 
+@router.delete("/trusted-contacts/{contact_id}")
+def delete_contact(contact_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Удалить доверенный контакт (близкий сменился/ошибся номером). Раньше ручки не было вовсе:
+    веб-версия звала её и получала 404, Android удалял только локально (после перезапуска контакт
+    возвращался). Сначала гасим шаринги контакта (FK + прекращение SMS-статусов), затем сам контакт."""
+    contact = session.get(TrustedContact, contact_id)
+    if not contact or contact.user_id != user.id:
+        raise HTTPException(404, "Контакт не найден")
+    for share in session.exec(select(TripShare).where(TripShare.contact_id == contact_id)).all():
+        session.delete(share)
+    session.delete(contact)
+    session.commit()
+    return {"ok": True}
+
+
 class ShareIn(BaseModel):
     contact_id: int
 
@@ -186,7 +201,24 @@ def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
     ).first()
     if existing:
         token = _ensure_share_token(session, existing)   # дедуп: та же ссылка получателю
+        # Доставка затянулась дольше TTL (72ч), а посылка ещё живая → продлеваем срок ТОГО ЖЕ
+        # токена: ссылка из SMS у получателя снова работает. Иначе тупик: старая сгорела,
+        # а новую не выпустить — дедуп вечно возвращает мёртвую.
+        if existing.expires_at and existing.expires_at <= utcnow():
+            existing.expires_at = utcnow() + _PARCEL_SHARE_TTL
+            session.add(existing)
+            session.commit()
         return {"token": token, "url": _live_link(token), "sms_sent": False}
+    # Анти-SMS-бомбинг: receiver_phone не верифицирован, SMS уходит за счёт платформы —
+    # держим суточный потолок ссылок-с-SMS на отправителя (как кеп у SOS/контактов).
+    day_ago = utcnow() - timedelta(days=1)
+    sent_today = len(session.exec(
+        select(TripShare.id).join(ParcelDelivery, TripShare.parcel_id == ParcelDelivery.id).where(
+            ParcelDelivery.sender_id == user.id, TripShare.created_at > day_ago,
+        )
+    ).all())
+    if sent_today >= 20:
+        raise HTTPException(429, "Слишком много трекинг-ссылок за сутки. Попробуй завтра.")
     share = TripShare(parcel_id=parcel_id, token=secrets.token_urlsafe(16),
                       expires_at=utcnow() + _PARCEL_SHARE_TTL)
     session.add(share)
@@ -204,6 +236,22 @@ def parcel_track_link(parcel_id: int, user: User = Depends(current_user),
         except Exception:   # SMS-шлюз мигнул — ссылку всё равно вернём отправителю (отдаст сам)
             pass
     return {"token": share.token, "url": _live_link(share.token), "sms_sent": sms_sent}
+
+
+@router.delete("/parcels/{parcel_id}/track-link")
+def parcel_track_link_revoke(parcel_id: int, user: User = Depends(current_user),
+                             session: Session = Depends(get_session)):
+    """G1: отозвать трекинг-ссылку посылки (опечатка в номере → ссылка ушла чужому человеку,
+    который иначе 72 часа видел бы точки А/Б и живую позицию курьера). Строки удаляются →
+    токен «сгорает» (/t/{token} → 404). Только отправитель. Повторный POST выдаст НОВЫЙ токен."""
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel or parcel.sender_id != user.id:
+        raise HTTPException(404, "Посылка не найдена")
+    rows = session.exec(select(TripShare).where(TripShare.parcel_id == parcel_id)).all()
+    for share in rows:
+        session.delete(share)
+    session.commit()
+    return {"ok": True, "revoked": len(rows)}
 
 
 def _revoke_share(session: Session, share_id: int, user: User, *, booking_id: int = None, order_id: int = None):

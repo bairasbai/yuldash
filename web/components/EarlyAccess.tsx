@@ -39,6 +39,8 @@ export function EarlyAccess() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: normalized, city: city.trim() || undefined, role }),
+        // Зависший запрос иначе держит кнопку в «Отправляем…» бесконечно (catch покажет «Повторить»)
+        signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) throw new Error(String(res.status));
       setSent(role);

@@ -16,8 +16,7 @@ from ..antifraud import guard_device_not_banned, remember_login_device
 from ..config import settings
 from ..db import engine, get_session
 from ..errors import herr
-from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, Ride, TgAuth, User, UserRole
-from ..payments import BOOST_PLANS
+from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
 from ..services import send_push, send_sms, user_rating
 from ..timeutil import utcnow
@@ -108,7 +107,8 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session),
 @router.post("/auth/verify")
 def verify(body: VerifyIn, session: Session = Depends(get_session),
            x_device_id: str = Header(default="", alias="X-Device-Id")):
-    # Анти-фрод (B8-1): забаненное устройство → 403 (обход бана новым номером закрыт).
+    # Анти-фрод (B8-1): забаненное устройство → 403. Барьер от «нового номера на том же
+    # телефоне»; заголовок клиентский, целевой обход сменой X-Device-Id возможен (Play Integrity — бэклог).
     guard_device_not_banned(session, x_device_id)
     # Тестовый аккаунт модерации сторов (B9b-4): для review_phone работает ТОЛЬКО фикс-код
     # из env (даже случайно созданные OTP этого номера игнорируются). Ошибка — тот же текст,
@@ -294,30 +294,6 @@ def _telegram_api(method: str, payload: dict) -> None:
         pass
 
 
-def _activate_manual_payment(session: Session, payment: Payment) -> None:
-    """Apply a manually confirmed SBP payment from Telegram. Same effect as admin confirm."""
-    if payment.status == "succeeded":
-        return
-    payment.status = "succeeded"
-    session.add(payment)
-    if payment.purpose == "boost" and payment.ride_id is not None:
-        ride = session.get(Ride, payment.ride_id)
-        plan = BOOST_PLANS.get(payment.tier)
-        if ride and plan:
-            ride.boosted_until = utcnow() + timedelta(hours=plan[2])
-            ride.boost_tier = payment.tier
-            session.add(ride)
-    elif payment.purpose == "ad" and payment.ad_id is not None:
-        ad = session.get(Ad, payment.ad_id)
-        if ad:
-            ad.status = "active"
-            if ad.period_days > 0:
-                ad.starts_at = utcnow()
-                ad.ends_at = utcnow() + timedelta(days=ad.period_days)
-            session.add(ad)
-    session.commit()
-
-
 def _handle_admin_callback(callback: dict):
     """Inline-кнопки админа в Telegram. Сейчас поддерживает модерацию водителей."""
     cb_id = callback.get("id")
@@ -412,8 +388,16 @@ def _handle_admin_callback(callback: dict):
             elif approve:
                 if payment.status == "succeeded":
                     text = f"Платёж #{payment.id} уже подтверждён"
+                elif payment.provider_id:
+                    # Карточный платёж (создан у провайдера) руками не активируем — его подтвердит
+                    # вебхук после реального списания (иначе тап ✅ = начисление без денег).
+                    text = f"Платёж #{payment.id} у провайдера — подтвердится сам после оплаты"
                 else:
-                    _activate_manual_payment(s, payment)
+                    # ЕДИНЫЙ активатор из payments.py: знает ВСЕ назначения (boost/ad/partner_sub/
+                    # courier_commission/…). Локальная копия здесь знала только boost/ad — Telegram-✅
+                    # «подтверждал» подписку бизнеса и комиссию курьера, не применяя эффект.
+                    from .payments import _activate_payment   # локальный импорт — без цикла на старте
+                    _activate_payment(s, payment)
                     text = f"Подтверждена оплата #{payment.id}: {payment.purpose} {payment.amount_kop // 100} ₽"
             else:
                 if payment.status == "pending":
@@ -600,4 +584,21 @@ def push_register(body: PushTokenIn, user: User = Depends(current_user), session
             row.user_id = user.id
             session.add(row)
             session.commit()
+    return {"ok": True}
+
+
+@router.post("/push/unregister")
+def push_unregister(body: PushTokenIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отвязка FCM-токена устройства при выходе из аккаунта. Приватность на общем телефоне:
+    без этой ручки вышедший пользователь продолжал получать чужие пуши (брони/чат/SOS) —
+    клиент удалял токен только локально. Только СВОЙ токен (чужой не отвяжешь). Идемпотентно."""
+    token = body.token.strip()
+    if not token:
+        raise HTTPException(400, "Пустой токен")
+    row = session.exec(select(DeviceToken).where(
+        DeviceToken.token == token, DeviceToken.user_id == user.id,
+    )).first()
+    if row:
+        session.delete(row)
+        session.commit()
     return {"ok": True}

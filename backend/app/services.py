@@ -257,6 +257,7 @@ def push_notification(
     ref_kind: str = "",
     ref_id: "int | None" = None,
     push: bool = True,
+    data: "dict | None" = None,
 ) -> None:
     """Единая точка события: пишет строку в Центр уведомлений (двуязычно RU+BA) И шлёт FCM-push.
 
@@ -282,7 +283,13 @@ def push_notification(
     except Exception as e:  # noqa: BLE001 — уведомление вторично, основную операцию не валим
         log.warning(f"[NOTIFY] db error: {e}")
     if push:
-        send_push(session, user_id, title_ru, body_ru)
+        # data — опциональный payload для клиентского роутинга (канал/deep-link), напр.
+        # {"type": "chat", "id": booking_id} у чат-пушей. Без data зовём по-старому
+        # (4 позиционных): тест-двойники и старые обёртки send_push не ломаются.
+        if data:
+            send_push(session, user_id, title_ru, body_ru, data)
+        else:
+            send_push(session, user_id, title_ru, body_ru)
 
 
 # ----------------------------- Подписка на маршрут (RouteWatch) -----------------------------

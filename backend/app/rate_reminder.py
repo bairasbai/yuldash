@@ -15,6 +15,7 @@
 Уведомление идёт через единый push_notification → и в Центр уведомлений (двуязычно), и в FCM.
 """
 import sys
+from datetime import timedelta
 
 from sqlmodel import Session, select
 
@@ -23,6 +24,11 @@ from .db import engine
 from .models import Booking, BookingStatus, Rating, Ride
 from .services import push_notification
 from .timeutil import utcnow
+
+# Пол по возрасту брони: у Booking нет done_at, а бронь живёт от создания до поездки считанные
+# дни → 30 дней покрывают любой честный цикл. Без пола скан шёл бы по ВСЕМ done всех времён
+# (рост навсегда), а бронь, закрытую задним числом через месяц, «напоминали» бы невпопад.
+REMIND_MAX_AGE_DAYS = 30
 
 
 def rate_reminder_once(session: Session, dry_run: bool = False) -> list[tuple[int, int]]:
@@ -35,6 +41,7 @@ def rate_reminder_once(session: Session, dry_run: bool = False) -> list[tuple[in
         select(Booking).where(
             Booking.status == BookingStatus.done,
             Booking.rate_reminded == False,   # noqa: E712 — SQL-сравнение, не Python is
+            Booking.created_at > utcnow() - timedelta(days=REMIND_MAX_AGE_DAYS),
         )
     ).all()
     for b in done:

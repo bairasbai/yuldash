@@ -74,14 +74,16 @@ def _rules(now):
          "status <> 'active' AND created_at < :c "
          "AND NOT EXISTS (SELECT 1 FROM requestresponse rr WHERE rr.request_id = riderequest.id)",
          {"c": cut(TRIP_DAYS)}),
-        # Брони: только done/cancelled, старые, и БЕЗ рейтинга/SOS/шеринга/сообщений (репутацию/безопасность бережём).
+        # Брони: только done/cancelled, старые, и БЕЗ рейтинга/SOS/шеринга/сообщений/споров
+        # (репутацию/безопасность бережём; incident.booking_id — жёсткий FK, без гарда чистка падает).
         ("завершённые брони >180д",
          "booking",
          "status IN ('done', 'cancelled') AND created_at < :c "
          "AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.booking_id = booking.id) "
          "AND NOT EXISTS (SELECT 1 FROM sosevent se WHERE se.booking_id = booking.id) "
          "AND NOT EXISTS (SELECT 1 FROM tripshare ts WHERE ts.booking_id = booking.id) "
-         "AND NOT EXISTS (SELECT 1 FROM message m WHERE m.booking_id = booking.id)",
+         "AND NOT EXISTS (SELECT 1 FROM message m WHERE m.booking_id = booking.id) "
+         "AND NOT EXISTS (SELECT 1 FROM incident i WHERE i.booking_id = booking.id)",
          {"c": cut(TRIP_DAYS)}),
         # Поездки: старые cancelled/done БЕЗ броней и платежей (финансы бережём; у done обычно есть брони → пропустятся).
         ("старые поездки без броней/платежей >180д",
@@ -133,14 +135,36 @@ def _delete_batched(table, where, params):
     return total
 
 
+def _referenced_media_keys() -> set:
+    """Ключи файлов, на которые живут ПОСТОЯННЫЕ ссылки из БД (аватар профиля, картинка рекламы).
+    Они загружаются через /upload/chat-photo и лежат в области chat/ — но это НЕ эфемерный чат:
+    без этого исключения ретеншен через 35 дней молча стирал бы фото профиля у всех давних юзеров.
+    URL вида '/media/chat/<файл>' (или абсолютный) → ключ 'chat/<файл>'."""
+    keys = set()
+    with engine.begin() as conn:
+        for sql in ('SELECT avatar_url FROM "user" WHERE avatar_url <> \'\'',
+                    "SELECT image_url FROM ad WHERE image_url <> ''"):
+            for (url,) in conn.execute(text(sql)):
+                if url and "/media/" in url:
+                    keys.add(url.split("/media/", 1)[1])
+    return keys
+
+
 def _clean_media():
     """Удаляем публичные медиа (фото/голос) старше MEDIA_DAYS — на диске И в S3 (через storage).
     Драйвер-доки (docs, приватные) НЕ трогаем. В S3-режиме без этого объекты копились бы вечно."""
     cutoff = time.time() - MEDIA_DAYS * 86400
     removed, freed = 0, 0
     try:
+        keep = _referenced_media_keys()
+    except Exception as e:  # noqa: BLE001 — БД недоступна: без списка ссылок удалять опасно, пропускаем
+        print(f"  медиа-файлы: не смог собрать живые ссылки — пропуск ({type(e).__name__}: {e})")
+        return
+    try:
         storage = get_storage()
         for key, size in storage.iter_old(["voice", "chat"], cutoff):
+            if key in keep:            # аватар/картинка рекламы — живая ссылка, не эфемерный чат
+                continue
             if not DRY:
                 storage.delete(key)
             removed += 1

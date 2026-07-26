@@ -130,7 +130,10 @@ def _activate_payment(session: Session, payment: Payment) -> None:
             base = partner.subscription_until if (partner.subscription_until and partner.subscription_until > now) else now
             partner.subscription_until = base + timedelta(days=plan["period_days"])
             partner.subscription_plan = payment.tier
-            partner.status = "active"     # оплата не понижает статус одобренного бизнеса
+            # Оплата не понижает статус одобренного бизнеса, но и НЕ реанимирует отклонённого:
+            # rejected (фрод/бан модерацией) не должен возвращаться в витрину через старый pending.
+            if partner.status != "rejected":
+                partner.status = "active"
             session.add(partner)
     session.commit()
 
@@ -350,9 +353,15 @@ def _require_admin(user: User) -> None:
 
 @router.get("/admin/payments/pending")
 def admin_pending_payments(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Список ожидающих подтверждения платежей (СБП). Для админа."""
+    """Список ожидающих подтверждения платежей (СБП). Для админа.
+
+    Платежи, созданные у провайдера (provider_id != ''), сюда НЕ попадают: их судьбу знает только
+    вебхук/перепроверка ЮKassa. Иначе после флипа на yookassa в списке висели бы карточные pending,
+    и случайный тап «подтвердить» начислил бы водителю деньги, которых не было."""
     _require_admin(user)
-    rows = session.exec(select(Payment).where(Payment.status == "pending").order_by(Payment.id.desc())).all()
+    rows = session.exec(select(Payment).where(
+        Payment.status == "pending", Payment.provider_id == "",
+    ).order_by(Payment.id.desc())).all()
     out = []
     for p in rows:
         payer = session.get(User, p.user_id)
@@ -383,6 +392,10 @@ def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), s
         raise HTTPException(404, "Платёж не найден")
     if payment.status == "succeeded":
         return {"payment_id": payment.id, "status": "succeeded"}
+    # Карточный платёж (создан у провайдера) вручную не подтверждаем — его подтверждает вебхук
+    # после реального списания. Ручной confirm здесь = начисление без денег (фантом в ledger).
+    if payment.provider_id:
+        raise HTTPException(409, "Платёж у провайдера — подтвердится автоматически после оплаты")
     _activate_payment(session, payment)
     return {"payment_id": payment.id, "status": "succeeded"}
 

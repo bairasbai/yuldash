@@ -46,6 +46,25 @@ def _guard_method(method: str) -> None:
         raise HTTPException(400, "Неизвестный способ оплаты")
 
 
+def _cancel_own_pending_cashless(session: Session, user_id: int, *, order_id=None, booking_id=None) -> None:
+    """Оплата налом закрывает СВОЙ висящий безнал-платёж на тот же заказ/бронь. Иначе живая
+    ссылка ЮKassa переживает нал: пассажир «передумал → нал → позже открыл старую ссылку» платит
+    дважды (нал водителю + карта платформе), а settle_* отбивает вебхук как "already" без денег
+    водителю. Локальный canceled убирает платёж из дедупа/поллинга; сама ссылка у провайдера
+    протухает по его TTL (API отмены неоплаченного pending у ЮKassa нет)."""
+    q = select(Payment).where(
+        Payment.user_id == user_id, Payment.status == "pending",
+        Payment.purpose == ("ride" if order_id is not None else "booking"),
+    )
+    q = q.where(Payment.order_id == order_id) if order_id is not None else q.where(Payment.booking_id == booking_id)
+    rows = session.exec(q).all()
+    if rows:
+        for p in rows:
+            p.status = "canceled"
+            session.add(p)
+        session.commit()
+
+
 def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: int,
                   method: str, description: str, order_id=None, booking_id=None) -> dict:
     """Общий безналичный поток через ЮKassa (карта/СБП). mock/dev → succeeded сразу
@@ -111,6 +130,7 @@ def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_u
     if body.method == "cash":
         from .. import ledger
         ledger.settle_instant_order(session, order.id, "cash", amount_kop)   # paid=True, ledger НЕ трогаем
+        _cancel_own_pending_cashless(session, user.id, order_id=order.id)
         return {"status": "paid", "method": "cash"}
     return _pay_cashless(session, user, purpose="ride", amount_kop=amount_kop, method=body.method,
                          description=f"Юлдаш · поездка #{order.id}", order_id=order.id)
@@ -137,6 +157,7 @@ def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user)
     if body.method == "cash":
         from .. import ledger
         ledger.settle_booking(session, booking.id, "cash", amount_kop)
+        _cancel_own_pending_cashless(session, user.id, booking_id=booking.id)
         return {"status": "paid", "method": "cash"}
     return _pay_cashless(session, user, purpose="booking", amount_kop=amount_kop, method=body.method,
                          description=f"Юлдаш · поездка #{booking.id}", booking_id=booking.id)

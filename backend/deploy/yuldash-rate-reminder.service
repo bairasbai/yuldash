@@ -6,5 +6,8 @@ After=network.target postgresql.service
 Type=oneshot
 User=yuldash
 WorkingDirectory=/opt/yuldash
+# Явный EnvironmentFile (как у api-юнита): без него задача живёт на pydantic-.env из CWD —
+# при переезде layout'а молча ушла бы на дефолтный SQLite вместо прод-БД. «-» = нет файла → не падать.
+EnvironmentFile=-/opt/yuldash/.env
 ExecStart=/opt/yuldash/.venv/bin/python -m app.rate_reminder
 Nice=10

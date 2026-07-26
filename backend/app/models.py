@@ -363,6 +363,9 @@ class RecentPlace(SQLModel, table=True):
 
 
 class Booking(SQLModel, table=True):
+    # Композитный индекс под скан rate-reminder'а (status=done AND rate_reminded=false);
+    # на проде добавляется миграцией m_audit_hardening, здесь — паритет для свежих БД (create_all).
+    __table_args__ = (Index("ix_booking_status_rate_reminded", "status", "rate_reminded"),)
     id: Optional[int] = Field(default=None, primary_key=True)
     ride_id: int = Field(index=True, foreign_key="ride.id")
     passenger_id: int = Field(index=True, foreign_key="user.id")
@@ -510,6 +513,12 @@ class Incident(SQLModel, table=True):
     compensation_kop: int = 0                # предложенная компенсация (не списываем автоматически)
     appeal_text: str = ""                    # текст апелляции (≤2000)
     appeal_status: str = ""                  # ""/requested/upheld/overturned
+    # Что РЕАЛЬНО применено к профилю обвинённого этим спором (для честного отката при пере-
+    # решении после апелляции: «оставить в силе» не должно наказывать второй раз, «отменить» —
+    # снимает именно то, что наложил этот спор, не трогая чужие).
+    applied_warning: bool = False
+    applied_strike: bool = False
+    applied_suspended_until: Optional[datetime] = None
     resolved_by: Optional[int] = Field(default=None, foreign_key="user.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
@@ -982,10 +991,11 @@ class ReferralBonus(SQLModel, table=True):
 
 
 class DeviceBan(SQLModel, table=True):
-    """Бан устройства (анти-фрод B8-1, обход бана новым номером).
+    """Бан устройства (анти-фрод B8-1, барьер от «нового номера на том же телефоне»).
 
     Клиент шлёт стабильный X-Device-Id (ANDROID_ID) со всеми запросами; забаненное
-    устройство не может регистрироваться/входить, каким бы новым номером ни пытались.
+    устройство не входит по своему id. Заголовок контролирует клиент → целевой обход
+    сменой X-Device-Id возможен (усиление — Play Integrity, бэклог); честная оценка, не «закрыто».
     Банит ТОЛЬКО админ (человек в контуре); снять — DELETE /admin/bans/device/{device_id}.
     user_id — кому принадлежало устройство при бане (для админа, опционально)."""
     id: Optional[int] = Field(default=None, primary_key=True)

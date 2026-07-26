@@ -136,12 +136,15 @@ class RedeemIn(BaseModel):
 
 @router.post("/referral/redeem")
 def referral_redeem(body: RedeemIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    # Row-lock себя: параллельные redeem двух кодов иначе оба проходят проверку referred_by is None
+    # → двойной бонус себе + кредит двум реферерам (read-modify-write без лока).
+    user = session.exec(select(User).where(User.id == user.id).with_for_update()).one()
     if user.referred_by is not None:
         raise HTTPException(400, "Код уже введён")
     code = body.code.strip().upper()
     if not code:
         raise HTTPException(400, "Нужен код")
-    referrer = session.exec(select(User).where(User.referral_code == code)).first()
+    referrer = session.exec(select(User).where(User.referral_code == code).with_for_update()).first()
     if not referrer or referrer.id == user.id:
         raise HTTPException(400, "Код не найден")
     # Награда обоим: по 1 бонусу (бесплатное поднятие поездки), но с потолком на пользователя

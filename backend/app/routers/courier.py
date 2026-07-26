@@ -895,7 +895,9 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
         ).order_by(Payment.id.desc())
     ).first()
     if existing:
-        if existing.method == "yookassa" and existing.provider_id:
+        # Перепроверка у провайдера — ТОЛЬКО когда провайдер реально yookassa: при откате на
+        # mock/sbp_manual fetch_payment честно отвечает «succeeded» (мок) → активация без денег.
+        if settings.payments_provider == "yookassa" and existing.method == "yookassa" and existing.provider_id:
             try:
                 info = fetch_payment(existing.provider_id)
             except Exception:

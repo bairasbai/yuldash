@@ -10,9 +10,10 @@ on:
     branches: [main]
 
 # Новый пуш в ту же ветку/PR отменяет предыдущий незавершённый прогон — минуты не горят вхолостую.
+# Но только для PR: на main отмена оставляла бы «дыры» в истории прогонов при частых пушах.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend-tests:

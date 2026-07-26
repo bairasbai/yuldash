@@ -190,5 +190,15 @@ def exclude_rating(rating_id: int, body: RatingExcludeIn, user: User = Depends(c
         raise HTTPException(404, "Оценка не найдена")
     r.excluded = body.excluded
     session.add(r)
+    session.flush()
+    # Пересчёт витринного DriverProfile.rating — как в _exclude_linked_ratings (safety_logic):
+    # без него при cnt=0 карточка падала бы на устаревший prof.rating вместо нейтрального сида.
+    from ..models import DriverProfile
+    from ..services import user_rating
+    avg, cnt = user_rating(session, r.ratee_id)
+    prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == r.ratee_id)).first()
+    if prof:
+        prof.rating = round(avg, 1) if cnt > 0 else 5.0
+        session.add(prof)
     session.commit()
     return {"id": rating_id, "excluded": r.excluded}

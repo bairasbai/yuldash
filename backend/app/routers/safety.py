@@ -524,11 +524,22 @@ def roadside_help(
     session.refresh(event)
     # Телефоны доверенных собираем ПОКА сессия открыта; SMS/Telegram — в фон (не держим коннект,
     # не заставляем человека на морозе ждать sms.ru). Координаты в stdout НЕ пишем (152-ФЗ).
-    contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
-    phones = [c.phone for c in contacts if c.phone]
-    who = user.name or user.phone
-    msg = f"Юлдаш: {who} застрял на трассе, нужна помощь.{where}".strip()
-    background.add_task(_send_sos_sms, phones, msg)
+    # Кеп SMS — тот же, что у /sos (событие пишем всегда, глушим только рассылку): без него
+    # мэш-кнопка «застрял» = безлимитный поток SMS доверенным за счёт платформы.
+    recent = session.exec(
+        select(SosEvent.id).where(
+            SosEvent.user_id == user.id, SosEvent.created_at >= utcnow() - timedelta(hours=1),
+        )
+    ).all()
+    phones = []
+    if len(recent) <= SOS_SMS_PER_HOUR:   # <=: только что записанное событие уже в счёте
+        contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+        phones = [c.phone for c in contacts if c.phone]
+        who = user.name or user.phone
+        msg = f"Юлдаш: {who} застрял на трассе, нужна помощь.{where}".strip()
+        background.add_task(_send_sos_sms, phones, msg)
+    else:
+        log.info(f"[ROADSIDE] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
     background.add_task(
         notify_admin_telegram,
         f"🛟 Помощь на трассе (Юлдаш)\n"

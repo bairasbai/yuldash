@@ -15,6 +15,7 @@ from ..errors import herr
 from ..logs import log
 from ..models import Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory, RideStatus, User, UserRole
 from .. import workday as workday_mod
+from ..safety_logic import ensure_active
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
 from ..timeutil import utcnow
@@ -72,6 +73,7 @@ def _hide_trusted_only(items, user, session):
 
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует публикацию
     # Отдых водителя (волна 2, §8): во время блока такси разрешена ОДНА попутка «домой»
     # (первая публикация проходит и помечает return_ride_used, вторая → мягкий 403).
     # ВНЕ блока попутка не ограничена вообще — guard мгновенно пропускает.
@@ -320,13 +322,19 @@ _TIP_PRICE_OVER_RATIO = 1.15   # цена выше средней в 1.15× → 
 
 
 def _route_avg_price(session: Session, from_city: str, to_city: str) -> dict:
-    """Средняя цена поездок по маршруту (price>0) + размер выборки — для совета по цене (G7)."""
-    q = select(Ride.price).where(Ride.price > 0)
+    """Средняя цена поездок по маршруту (price>0) + размер выборки — для совета по цене (G7).
+    Только живые/состоявшиеся поездки за 90 дней и не больше 500 свежих: отменённые и древние
+    цены не должны тащить «среднюю», а contains-скан всей таблицы всех времён — не расти вечно."""
+    q = select(Ride.price).where(
+        Ride.price > 0,
+        Ride.status.in_([RideStatus.active, RideStatus.done]),
+        Ride.created_at > utcnow() - timedelta(days=90),
+    )
     if from_city:
         q = q.where(Ride.from_city.contains(from_city))
     if to_city:
         q = q.where(Ride.to_city.contains(to_city))
-    prices = [p for p in session.exec(q).all() if p and p > 0]
+    prices = [p for p in session.exec(q.order_by(Ride.id.desc()).limit(500)).all() if p and p > 0]
     return {"avg": round(sum(prices) / len(prices)) if prices else 0, "count": len(prices)}
 
 

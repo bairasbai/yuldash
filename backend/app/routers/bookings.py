@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Ride, RideStatus, User
+from ..safety_logic import ensure_active
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
@@ -89,6 +90,7 @@ class BookingDetailsOut(BaseModel):
 
 @router.post("/bookings", response_model=Booking)
 def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) реально блокирует бронь
     if body.seats < 1:
         raise herr(400, "Количество мест должно быть больше 0", "Урын һаны 0-дан күберәк булырға тейеш")
     # FOR UPDATE: блокируем строку поездки на время транзакции → нет овербукинга при гонке.

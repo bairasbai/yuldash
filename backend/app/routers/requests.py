@@ -20,6 +20,7 @@ from ..services import (
     notify_map_changed, notify_request_watchers, public_rides_payload, push_notification,
     record_pickup_choice, rides_out, user_rating,
 )
+from ..safety_logic import ensure_active
 from ..timeutil import utcnow
 from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
@@ -53,6 +54,7 @@ class RequestIn(BaseModel):
 
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует новую заявку
     # Геокодим концы маршрута (для карты водителя и радиус-поиска заявок) — как у POST /rides.
     frm = geocode_city(body.from_city) or (None, None)
     to = geocode_city(body.to_city) or (None, None)

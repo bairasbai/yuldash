@@ -130,10 +130,13 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                     # Push другой стороне (она может быть офлайн / не в чате). send_push — блокирующий
                     # сетевой вызов к FCM; в async-WS гоним через threadpool, иначе залипший запрос к
                     # Google морозит event-loop и ВСЕ WS-соединения воркера.
+                    # data.type=chat → клиент кладёт пуш в канал «Сообщения» (иначе чат звенел бы
+                    # в «Поездках» даже у заглушивших его) + extras для deep-link в нужный чат.
                     await run_in_threadpool(
                         send_push, session, other_id,
                         (sender.name if sender else None) or "Новое сообщение",
                         (msg.text or "Сообщение")[:120],
+                        {"type": "chat", "id": booking_id},
                     )
     except WebSocketDisconnect:
         pass
@@ -211,6 +214,7 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
                         send_push, session, other_id,
                         (sender.name if sender else None) or "Новое сообщение",
                         (msg.text or "Сообщение")[:120],
+                        {"type": "chat", "id": order_id},   # канал «Сообщения» + deep-link (см. booking-чат)
                     )
     except WebSocketDisconnect:
         pass
@@ -246,7 +250,8 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
         "from_admin": msg.from_admin,
         "timestamp": msg.created_at.isoformat(),
     })
-    send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120])
+    send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120],
+              {"type": "chat", "id": order_id})   # канал «Сообщения» + deep-link
     return msg
 
 
@@ -303,6 +308,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         user.name or "Новое сообщение", user.name or "Яңы хәбәр",
         preview, preview,
         ref_kind="booking", ref_id=booking_id,
+        data={"type": "chat", "id": booking_id},   # канал «Сообщения» + deep-link
     )
     return msg
 

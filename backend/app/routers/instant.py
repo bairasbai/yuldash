@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..errors import herr
 from ..models import DriverProfile, InstantOrder, InstantOrderStatus as S, Rating, Settlement, User
+from ..safety_logic import ensure_active
 from ..security import current_user
 from ..timeutil import utcnow
 from ..services import user_rating
@@ -212,6 +213,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     Нет свободных/нет Redis → заказ сразу expired («рядом никого»), но запрос не падает.
     Сурж фиксируется на заказе (price_estimate уже с ним). Страйки (§5, Модель А):
     ≥3 платные отмены/no-show за 7 дней → такси-заказы на паузе 24 ч (попутка работает)."""
+    ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует новый заказ
     _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
     # Страйки §5 + resolved-жалобы no_show/unpaid/damage §9 — общий счётчик (попутка работает).
     if quality_mod.passenger_pause_until(session, user.id) is not None:

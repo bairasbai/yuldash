@@ -47,9 +47,10 @@ class ResolveIn(BaseModel):
     resolution: str = Field("", max_length=40)   # dismissed/warning/strike/suspend/ban/mutual_resolved
     fault: str = Field("", max_length=20)         # none/reporter/respondent/both/unclear
     note: str = Field("", max_length=2000)
-    compensation_kop: int = 0
+    # Потолок 1 млн ₽ и не-отрицательно: политика денег-в-копейках (int4-границы, опечатки админа).
+    compensation_kop: int = Field(0, ge=0, le=100_000_000)
     strike: bool = False
-    suspend_days: Optional[int] = None
+    suspend_days: Optional[int] = Field(None, ge=1, le=3650)
     exclude_rating: bool = False
     shield: bool = False
 
@@ -156,7 +157,8 @@ def create_incident(
     if type not in INCIDENT_TYPES:
         raise HTTPException(400, "Неизвестный тип инцидента")
     if not session.get(User, respondent_id):
-        raise HTTPException(404, "Пользователь не найден")
+        # Тот же текст, что у прочих 400 ниже: различимая 404 давала бы перебор живых user_id.
+        raise HTTPException(400, "Не удалось создать обращение — проверь данные")
     if rate_limit and incidents_last_hour(session, reporter.id) >= settings.safety_incidents_per_hour:
         raise HTTPException(429, "Слишком много обращений за час. Попробуй позже.")
     # Анти-харассмент: обычная жалоба привязывается к ОБЩЕЙ поездке — иначе можно завалить
@@ -181,9 +183,12 @@ def create_incident(
     session.commit()
     session.refresh(inc)
 
-    # Пуш обвинённому: приглашение объясниться (право на защиту).
-    send_push(session, respondent_id, "Открыт разбор по поездке",
-              "По одной из поездок открыт спор. Опишите свою версию — это важно.")
+    # Пуш обвинённому: приглашение объясниться (право на защиту). Исключение — SEVERE без общей
+    # поездки: связь сторон не доказана, сначала жалобу видит человек (админ). Иначе это канал
+    # харассмента: пуш «открыт спор» любому произвольному user_id, до 240/сутки с одного аккаунта.
+    if not (severe and booking_id is None):
+        send_push(session, respondent_id, "Открыт разбор по поездке",
+                  "По одной из поездок открыт спор. Опишите свою версию — это важно.")
     if severe:
         reporter_u = session.get(User, reporter.id)
         respondent_u = session.get(User, respondent_id)
@@ -262,6 +267,13 @@ def appeal_incident(incident_id: int, body: AppealIn, background: BackgroundTask
         raise HTTPException(404, "Спор не найден")
     if user.id not in (inc.reporter_id, inc.respondent_id):
         raise HTTPException(403, "Обжаловать может только участник спора")
+    # Апелляция — только на ВЫНЕСЕННОЕ решение и только один раз. Без гейтов: «обжаловать» можно
+    # было открытый/закрытый спор (перетирая статус), а повторные апелляции спамили админ-канал
+    # в обход часового лимита подачи и держали спор вечно «активным».
+    if inc.status != "resolved":
+        raise HTTPException(409, "Обжаловать можно только решённый спор")
+    if inc.appeal_status:
+        raise HTTPException(409, "Апелляция по этому спору уже подана")
     inc.appeal_text = clamp(body.text, 2000)
     inc.appeal_status = "requested"
     inc.status = "appealed"
@@ -286,6 +298,11 @@ def withdraw_incident(incident_id: int, user: User = Depends(current_user), sess
         raise HTTPException(403, "Закрыть спор миром может только заявитель")
     if inc.status == "closed":
         return _incident_out(session, inc, user)
+    # Мир — только ДО вердикта. После решения админа withdraw заявителя перетирал бы вердикт
+    # (resolved-неявка выпадала из «Надёжности» и счёта эскалации — давление на заявителя
+    # обнуляло наказание, при этом страйк в профиле оставался — рассинхрон).
+    if inc.status not in ("open", "awaiting_response", "under_review"):
+        raise HTTPException(409, "Спор уже решён — оспорить можно апелляцией")
     inc.resolution = "mutual_resolved"
     inc.fault = "none"
     inc.status = "closed"
@@ -347,6 +364,10 @@ def resolve_incident(incident_id: int, body: ResolveIn,
         raise HTTPException(422, "Неизвестное решение по спору")
     if body.fault and body.fault not in ("none", "respondent", "reporter", "both", "unclear"):
         raise HTTPException(422, "Неизвестная сторона вины")
+    # Футган: карательные побочки ложатся ТОЛЬКО на обвинённого. «Виноват заявитель» + strike
+    # наказал бы невиновного. Наказание лживого заявителя — встречным спором, где он respondent.
+    if body.fault == "reporter" and (body.strike or body.resolution in ("warning", "strike", "suspend", "ban")):
+        raise HTTPException(422, "Вина на заявителе: наказание легло бы на обвинённого — заведи встречный спор")
     inc, _prof = apply_incident_resolution(
         session, inc, resolution=body.resolution, fault=body.fault, note=body.note,
         compensation_kop=body.compensation_kop, strike=body.strike, suspend_days=body.suspend_days,
