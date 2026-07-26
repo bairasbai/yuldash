@@ -1116,13 +1116,30 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         # (телефон/имя — по-прежнему только после accept). None = новичок без оценок.
         "passenger_rating": p_rating,
         "passenger_trips": p_trips,
+        # Забытые вещи: пока не истекло — чат заказа снова открыт на запись (chat.py).
+        "lost_item_until": (order.lost_item_until.isoformat() if order.lost_item_until else None),
+        "thanked": bool(getattr(order, "thanked", False)),
+        # Очередь «рядом никого»: до какого времени ждём машину (null = не ждём).
+        "wait_until": (order.wait_until.isoformat() if order.wait_until else None),
+        # Как найти пассажира — водителю ВМЕСТЕ с оффером: чат до accept недоступен, а
+        # «Ленина 12» в селе это пять домов без табличек (аудит 2026-07-26).
+        "comment": (order.comment if role == "driver" else order.comment),
+        "entrance": (order.entrance if role == "driver" else order.entrance),
         # Раскрывается ТОЛЬКО после accept:
         "driver_name": (driver.name if (unlocked and driver) else ""),
         "driver_car": (car if unlocked else ""),
+        # Госномер: поле было в базе, но в заказ не попадало — у подъезда две белые «Лады»,
+        # и сверить нечем (кода посадки у такси тоже нет). Отдаём вместе с остальной карточкой.
+        "driver_plate": ((prof.car_plate or "") if (unlocked and prof) else ""),
         "driver_verified": (bool(driver.verified) if (unlocked and driver) else False),
         "driver_rating": (prof.rating if (unlocked and prof) else 0.0),
         # Телефон водителя — только пассажиру после accept; телефон пассажира — только водителю.
         "driver_phone": (driver.phone if (unlocked and driver and role == "passenger") else ""),
-        "passenger_name": (passenger.name if (unlocked and passenger and role == "driver") else ""),
-        "passenger_phone": (passenger.phone if (unlocked and passenger and role == "driver") else ""),
+        # Заказ ДЛЯ ДРУГОГО: водителю показываем имя и телефон ТОГО, КОГО ВЕЗЁМ (сын из Уфы
+        # вызывает такси маме в Баймаке — звонить надо маме, а не заказчику в другой город).
+        "passenger_name": ((order.for_name or (passenger.name if passenger else ""))
+                           if (unlocked and role == "driver") else ""),
+        "passenger_phone": ((order.for_phone or (passenger.phone if passenger else ""))
+                            if (unlocked and role == "driver") else ""),
+        "for_other": bool(order.for_phone or order.for_name),
     }

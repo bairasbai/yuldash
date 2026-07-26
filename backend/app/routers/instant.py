@@ -71,7 +71,15 @@ class EstimateIn(BaseModel):
 
 
 class OrderIn(EstimateIn):
-    pass
+    # Как найти пассажира (аудит 2026-07-26): в селе адрес «Ленина 12» — пять домов без
+    # табличек, а чат открывается только ПОСЛЕ принятия заказа. Комментарий и подъезд уходят
+    # водителю вместе с оффером.
+    comment: str = Field("", max_length=300)
+    entrance: str = Field("", max_length=60)
+    # Заказ ДЛЯ ДРУГОГО человека: сын из Уфы вызывает такси маме в Баймаке. Без этих полей
+    # водитель звонил заказчику в другой город, а мама стояла у ворот и не знала, приехала ли машина.
+    for_name: str = Field("", max_length=120)
+    for_phone: str = Field("", max_length=32)
 
 
 class PresenceIn(BaseModel):
@@ -240,6 +248,11 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         price_estimate=est["price"], distance_km=est["distance_km"],
         eta_min=est["eta_min"], tariff_id=est["tariff_id"],
         surge_k=est["surge_k"],
+        # Как найти пассажира + «еду не сам» — водителю в оффер (см. OrderIn).
+        comment=(body.comment or "").strip()[:300],
+        entrance=(body.entrance or "").strip()[:60],
+        for_name=(body.for_name or "").strip()[:120],
+        for_phone=(body.for_phone or "").strip()[:32],
     )
     session.add(order)
     session.commit()
@@ -290,6 +303,11 @@ def create_scheduled(body: ScheduleIn, user: User = Depends(current_user),
         category=body.category,
         price_estimate=est["price"], distance_km=est["distance_km"],
         eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"],
+        # Как найти пассажира + «еду не сам» — водителю в оффер (см. OrderIn).
+        comment=(body.comment or "").strip()[:300],
+        entrance=(body.entrance or "").strip()[:60],
+        for_name=(body.for_name or "").strip()[:120],
+        for_phone=(body.for_phone or "").strip()[:32],
     )
     session.add(order)
     session.commit()
@@ -431,10 +449,45 @@ def decline(order_id: int, user: User = Depends(current_user), session: Session 
     return isv.order_payload(session, order, user)
 
 
+class ArrivedIn(BaseModel):
+    """Координаты водителя в момент «Я на месте» (опц.: старый клиент их не шлёт)."""
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
+
+
+# Насколько далеко от точки подачи ещё считаем «на месте» (GPS в селе гуляет, дом большой).
+_ARRIVED_RADIUS_KM = 0.5
+
+
 @router.post("/instant/orders/{order_id}/arrived")
-def arrived(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def arrived(order_id: int, body: ArrivedIn | None = None,
+            user: User = Depends(current_user), session: Session = Depends(get_session)):
     """«Я на месте»: accepted → arriving. С этого момента идёт ожидание пассажира
-    (wait_free_minutes бесплатно, дальше wait_fee_rub_per_min ₽/мин — фиксируется на onboard)."""
+    (wait_free_minutes бесплатно, дальше wait_fee_rub_per_min ₽/мин — фиксируется на onboard).
+
+    Гео-проверка (аудит 2026-07-26): раньше кнопку можно было нажать откуда угодно — прямо из
+    дома. С неё идёт ПЛАТНОЕ ожидание, а через 8 минут открывается «пассажир не вышел» со
+    штрафом и страйком: невиновный человек получал деньги в минус и блокировку такси на сутки.
+    Координаты берём из тела, иначе из последней позиции водителя (Redis). Нет ни того, ни
+    другого — пропускаем (не ломаем работу там, где GPS недоступен)."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    lat = body.lat if body else None
+    lng = body.lng if body else None
+    if lat is None or lng is None:
+        try:
+            from .. import livepos
+            pos = livepos.livepos_get("instant", order_id)
+            if pos:
+                lat, lng = pos.get("lat"), pos.get("lng")
+        except Exception:  # noqa: BLE001 — Redis недоступен: проверку пропускаем, поездку не рубим
+            lat = lng = None
+    if lat is not None and lng is not None and order.from_lat and order.from_lng:
+        from ..services import haversine_km
+        if haversine_km(lat, lng, order.from_lat, order.from_lng) > _ARRIVED_RADIUS_KM:
+            raise herr(409, "Ты ещё не на месте подачи — ожидание начнётся, когда подъедешь",
+                       "Һин әле килеп етмәнең — көтөү килеп еткәс башлана")
     order = isv.transition(session, order_id, isv.Actor.driver, S.arriving, user.id)
     return isv.order_payload(session, order, user)
 
@@ -555,3 +608,90 @@ def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(cur
     reason = body.reason if body else ""
     order = isv.cancel_order(session, order_id, actor, user.id, reason)
     return isv.order_payload(session, order, user)
+
+
+@router.get("/instant/orders/{order_id}/receipt")
+def order_receipt(order_id: int, user: User = Depends(current_user),
+                  session: Session = Depends(get_session)):
+    """Квитанция за такси-поездку (по образцу /trips/{id}/receipt у попуток).
+
+    Раньше чека за такси не было вообще: «мне на работе нужен документ о поездке» — дать
+    нечего, а в споре «я заплатил / он не заплатил» не было ни одной записи (аудит 2026-07-26).
+    Телефоны в квитанцию не кладём — только факт, маршрут, сумма и способ оплаты."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    if user.id not in (order.passenger_id, order.driver_id):
+        raise HTTPException(403, "Это не твой заказ")
+    if order.status != S.done:
+        raise herr(409, "Квитанция появится после завершения поездки",
+                   "Квитанция сәфәр тамамланғандан һуң күренәсәк")
+    driver = session.get(User, order.driver_id) if order.driver_id else None
+    return {
+        "order_id": order.id,
+        "role": "driver" if order.driver_id == user.id else "passenger",
+        "from_text": order.from_text, "to_text": order.to_text,
+        "done_at": order.done_at.isoformat() if order.done_at else "",
+        "distance_km": order.distance_km,
+        "amount": int(order.price_final if order.price_final is not None else order.price_estimate),
+        "waiting_fee_kop": order.waiting_fee_kop,
+        "payment_method": order.payment_method or "",
+        "paid": bool(order.paid),
+        "driver_name": (driver.name if driver and driver.name else "Водитель"),
+        "driver_verified": bool(driver.verified) if driver else False,
+    }
+
+
+@router.post("/instant/orders/{order_id}/cash-received")
+def cash_received(order_id: int, user: User = Depends(current_user),
+                  session: Session = Depends(get_session)):
+    """Водитель подтверждает, что получил НАЛИЧНЫЕ за поездку.
+
+    Раньше отметить оплату мог ТОЛЬКО пассажир: он вышел из машины и закрыл приложение —
+    и заказ навсегда оставался «не оплачен», а в отчётах зияла дыра (аудит 2026-07-26).
+    Деньги при этом мимо платформы (Модель А) — ledger не двигаем, только фиксируем факт."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    if order.driver_id != user.id:
+        raise HTTPException(403, "Это не твой заказ")
+    if order.status != S.done:
+        raise herr(409, "Отметить оплату можно после завершения поездки",
+                   "Түләүҙе сәфәр тамамланғандан һуң билдәләп була")
+    if order.paid:
+        return {"status": "already_paid", "method": order.payment_method}
+    from .. import ledger
+    amount_kop = int(order.price_final or order.price_estimate) * 100
+    ledger.settle_instant_order(session, order.id, "cash", amount_kop)
+    return {"status": "paid", "method": "cash"}
+
+
+@router.post("/instant/orders/{order_id}/lost-item")
+def lost_item(order_id: int, user: User = Depends(current_user),
+              session: Session = Depends(get_session)):
+    """«Я забыл вещь в машине» — открывает чат заказа на запись ещё на 48 часов.
+
+    Раньше связаться было нечем: телефон второй стороны виден только пока заказ активен,
+    а чат после завершения — только на чтение. Телефон, забытый на заднем сиденье, терялся
+    навсегда (аудит 2026-07-26). Доступно обеим сторонам: водитель тоже находит вещи."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    if user.id not in (order.passenger_id, order.driver_id):
+        raise HTTPException(403, "Это не твой заказ")
+    if order.status != S.done:
+        raise herr(409, "Доступно после завершения поездки", "Сәфәр тамамланғандан һуң мөмкин")
+    order.lost_item_until = utcnow() + timedelta(hours=48)
+    session.add(order)
+    session.commit()
+    other_id = order.driver_id if user.id == order.passenger_id else order.passenger_id
+    if other_id:
+        try:
+            from ..services import send_push
+            send_push(session, other_id, "Забытая вещь · Онотолған әйбер",
+                      "Вторая сторона ищет вещь из этой поездки — чат снова открыт на 48 часов."
+                      " · Сәфәрҙән әйбер эҙләйҙәр — чат 48 сәғәткә асыҡ.",
+                      {"type": "chat", "id": order.id})
+        except Exception:  # noqa: BLE001 — пуш вторичен
+            pass
+    return {"ok": True, "chat_open_until": order.lost_item_until.isoformat()}
