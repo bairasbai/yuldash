@@ -328,6 +328,7 @@ internal fun YuldashApp() {
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
     var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
     var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
+    var incidentId by rememberSaveable { mutableStateOf(0) }           // «Справедливость»: id открытого спора
     var supportTicketId by rememberSaveable { mutableStateOf(0) }      // Поддержка: id открытого обращения (deep-link/список)
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
     var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
@@ -876,6 +877,7 @@ internal fun YuldashApp() {
                 onSettings = { screen = Screen.Settings },
                 onPrivacy = { screen = Screen.Privacy },
                 onTrust = { if (ApiClient.isLoggedIn()) screen = Screen.Trust else screen = Screen.Login },
+                onFairness = { if (ApiClient.isLoggedIn()) screen = Screen.FairnessCenter else screen = Screen.Login },
                 onConsents = { if (ApiClient.isLoggedIn()) screen = Screen.Consents else screen = Screen.Login },
                 onHelp = { screen = Screen.Help },
                 onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
@@ -1035,6 +1037,7 @@ internal fun YuldashApp() {
                 onCourierAdmin = { screen = Screen.AdminCourier },
                 onIncomeCalc = { screen = Screen.IncomeCalculator },
                 onSosFeed = { screen = Screen.AdminSos },
+                onIncidents = { screen = Screen.AdminIncidents },
             )
             Screen.IncomeCalculator -> IncomeCalculatorScreen(onBack = { goBack() })
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
@@ -1226,6 +1229,12 @@ internal fun YuldashApp() {
             Screen.AdminSos -> AdminSosScreen(onBack = { goBack() })
             Screen.TaxiDocuments -> TaxiDocumentsScreen(onBack = { goBack() })
             Screen.PretripCheck -> PretripCheckScreen(onBack = { goBack() })
+            Screen.FairnessCenter -> FairnessCenterScreen(
+                onBack = { goBack() },
+                onOpenIncident = { id -> incidentId = id; screen = Screen.IncidentDetail },
+            )
+            Screen.IncidentDetail -> IncidentDetailScreen(incidentId = incidentId, onBack = { goBack() })
+            Screen.AdminIncidents -> AdminIncidentsScreen(onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
@@ -1934,6 +1943,7 @@ internal fun HomeScreen(
     onTrustedContacts: () -> Unit,
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
+    onFairness: () -> Unit = {},   // «Центр справедливости» — вход из профиля
     onMyStats: () -> Unit = {},
     onCoupons: () -> Unit = {},
     onPartnerCabinet: () -> Unit = {},
@@ -2032,6 +2042,7 @@ internal fun HomeScreen(
                     onTrustedContacts = onTrustedContacts,
                     onCallbackHelp = onCallbackHelp,
                     onAdsCabinet = onAdsCabinet,
+                    onFairness = onFairness,
                     onMyStats = onMyStats,
                     onCoupons = onCoupons,
                     onPromo = onPromo,

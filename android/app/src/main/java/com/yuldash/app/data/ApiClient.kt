@@ -3501,6 +3501,149 @@ object ApiClient {
     suspend fun adminParcelReleaseCourier(parcelId: Int, reason: String = ""): Result<Unit> =
         call("POST", "/admin/parcels/$parcelId/release-courier", JSONObject().put("reason", reason.take(200)), auth = true).map { }
 
+    // ═══════════ «Справедливость»: двусторонние споры (due process) ═══════════
+    // Обе стороны слышимы: заявитель описывает → обвинённый объясняется → админ решает и
+    // объясняет обоим. Фото-доказательства приватны (/secure/evidence, видят только стороны и админ).
+    // Бэкенд был готов давно, но в приложении подсистемы не существовало (аудит 2026-07-26).
+
+    private fun JSONObject.toIncidentDto(): IncidentDto {
+        fun urls(key: String): List<String> =
+            optJSONArray(key)?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
+        return IncidentDto(
+            id = optInt("id"),
+            bookingId = nInt(this, "booking_id"),
+            type = optString("type"),
+            severe = optBoolean("severe"),
+            status = optString("status"),
+            reporterRole = optString("reporter_role"),
+            description = optString("description"),
+            respondentStatement = optString("respondent_statement"),
+            respondedAt = nStr(this, "responded_at"),
+            resolution = optString("resolution"),
+            fault = optString("fault"),
+            resolutionNote = optString("resolution_note"),
+            compensationKop = optInt("compensation_kop"),
+            appealText = optString("appeal_text"),
+            appealStatus = optString("appeal_status"),
+            createdAt = optString("created_at"),
+            updatedAt = optString("updated_at"),
+            resolvedAt = nStr(this, "resolved_at"),
+            myRole = optString("my_role"),
+            otherName = optString("other_name"),
+            evidenceUrls = urls("evidence_urls"),
+            respondentEvidenceUrls = urls("respondent_evidence_urls"),
+            route = nStr(this, "booking_route"),
+            // Только в админ-выдаче (у участников пусто — приватность: телефон второй стороны не отдаём).
+            reporterId = optInt("reporter_id"),
+            reporterName = optString("reporter_name"),
+            reporterPhone = optString("reporter_phone"),
+            respondentId = optInt("respondent_id"),
+            respondentName = optString("respondent_name"),
+            respondentPhone = optString("respondent_phone"),
+        )
+    }
+
+    /** Мои споры (и где я заявитель, и где обвинён) — лента «Центра справедливости». */
+    suspend fun getMyIncidents(): Result<List<IncidentDto>> =
+        call("GET", "/incidents/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toIncidentDto() }
+        }
+
+    /** Один спор (участник или админ). */
+    suspend fun getIncident(id: Int): Result<IncidentDto> =
+        call("GET", "/incidents/$id", null, auth = true).map { it.toIncidentDto() }
+
+    /** Открыть спор. Контекст обязателен: бронь попутки ИЛИ такси-заказ — иначе сервер даёт 400
+     *  (без привязки к общей поездке спор стал бы каналом харассмента). */
+    suspend fun fileIncident(
+        respondentId: Int, type: String, description: String,
+        bookingId: Int? = null, orderId: Int? = null, evidenceUrls: List<String> = emptyList(),
+    ): Result<IncidentDto> {
+        val body = JSONObject()
+            .put("respondent_id", respondentId)
+            .put("type", type)
+            .put("description", description.take(2000))
+        if (bookingId != null) body.put("booking_id", bookingId)
+        if (orderId != null) body.put("order_id", orderId)
+        if (evidenceUrls.isNotEmpty()) body.put("evidence_urls", JSONArray(evidenceUrls))
+        return call("POST", "/incidents", body, auth = true)
+            .map { it.toIncidentDto() }.onSuccess { Analytics.log("incident_file") }
+    }
+
+    /** «Объясниться» — право на защиту второй стороны (с фото). */
+    suspend fun respondIncident(id: Int, statement: String, evidenceUrls: List<String> = emptyList()): Result<IncidentDto> {
+        val body = JSONObject().put("statement", statement.take(2000))
+        if (evidenceUrls.isNotEmpty()) body.put("evidence_urls", JSONArray(evidenceUrls))
+        return call("POST", "/incidents/$id/respond", body, auth = true).map { it.toIncidentDto() }
+    }
+
+    /** Апелляция — только на решённый спор и только один раз (сервер даёт 409 иначе). */
+    suspend fun appealIncident(id: Int, text: String): Result<IncidentDto> =
+        call("POST", "/incidents/$id/appeal", JSONObject().put("text", text.take(2000)), auth = true)
+            .map { it.toIncidentDto() }
+
+    /** «Мы решили миром» — закрывает спор без последствий. Может только заявитель и только до вердикта. */
+    suspend fun withdrawIncident(id: Int): Result<IncidentDto> =
+        call("POST", "/incidents/$id/withdraw", JSONObject(), auth = true).map { it.toIncidentDto() }
+
+    /** Моё положение: Надёжность, страйки, предупреждения, пауза, активные споры. */
+    suspend fun getMyStanding(): Result<StandingDto> =
+        call("GET", "/me/standing", null, auth = true).map { o ->
+            StandingDto(
+                standing = o.optString("standing"),
+                strikes = o.optInt("strikes"),
+                warnings = o.optInt("warnings"),
+                reliability = o.optInt("reliability"),
+                suspendedUntil = nStr(o, "suspended_until"),
+                suspendReason = o.optString("suspend_reason"),
+                ratingShield = o.optBoolean("rating_shield"),
+                activeIncidents = o.optInt("active_incidents"),
+                canAct = o.optBoolean("can_act", true),
+            )
+        }
+
+    /** Пороги лестницы — показываем ИЗ СЕРВЕРА, чтобы приложение не врало о правилах. */
+    suspend fun getSafetyPolicy(): Result<SafetyPolicyDto> =
+        call("GET", "/safety/policy", null, auth = true).map { o ->
+            SafetyPolicyDto(
+                strikesToLimit = o.optInt("strikes_to_limit", 2),
+                strikesToSuspend = o.optInt("strikes_to_suspend", 3),
+                suspend1Days = o.optInt("suspend_1_days", 3),
+                suspend2Days = o.optInt("suspend_2_days", 7),
+                suspend3Days = o.optInt("suspend_3_days", 30),
+                strikeDecayDays = o.optInt("strike_decay_days", 180),
+            )
+        }
+
+    /** Загрузить фото-доказательство → приватный URL (/secure/evidence/...). НЕ публичный /media. */
+    suspend fun uploadEvidence(bytes: ByteArray, ext: String = "jpg"): Result<String> =
+        callMultipart("/upload/evidence", bytes, ext, "evidence.$ext").map { it.optString("url") }
+
+    /** Админ: очередь споров. status: open|awaiting_response|under_review|appealed|resolved|closed. */
+    suspend fun adminIncidents(status: String? = null): Result<List<IncidentDto>> =
+        call("GET", "/admin/incidents" + (if (status.isNullOrBlank()) "" else "?status=$status"), null, auth = true)
+            .map { obj ->
+                val arr = obj.optJSONArray("items") ?: JSONArray()
+                (0 until arr.length()).map { arr.getJSONObject(it).toIncidentDto() }
+            }
+
+    /** Админ: решение по спору. resolution: dismissed|warning|strike|suspend|ban|mutual_resolved;
+     *  fault: none|reporter|respondent|both|unclear. Наказание всегда ложится на обвинённого —
+     *  сервер отвергает «вина заявителя» вместе со страйком (иначе накажем невиновного). */
+    suspend fun adminResolveIncident(
+        id: Int, resolution: String, fault: String, note: String,
+        compensationKop: Int = 0, strike: Boolean = false, suspendDays: Int? = null,
+        excludeRating: Boolean = false, shield: Boolean = false,
+    ): Result<IncidentDto> {
+        val body = JSONObject()
+            .put("resolution", resolution).put("fault", fault).put("note", note.take(2000))
+            .put("compensation_kop", compensationKop).put("strike", strike)
+            .put("exclude_rating", excludeRating).put("shield", shield)
+        if (suspendDays != null) body.put("suspend_days", suspendDays)
+        return call("POST", "/admin/incidents/$id/resolve", body, auth = true).map { it.toIncidentDto() }
+    }
+
     /** Админ: закрыть посылку вручную (разобрали спор офлайн).
      *  status: delivered | returned | canceled — при returned/canceled сервер обнуляет комиссию. */
     suspend fun adminParcelClose(parcelId: Int, status: String = "returned", reason: String = ""): Result<Unit> =
@@ -3557,6 +3700,9 @@ data class InstantOrderDto(
     val distanceKm: Double,
     val etaMin: Double,
     val driverId: Int?,
+    // id пассажира — приходит ТОЛЬКО водителю и только после accept (как имя и телефон).
+    // Нужен, чтобы водитель мог открыть разбор: спор требует указать вторую сторону.
+    val passengerId: Int? = null,
     val offerExpiresAt: String?,  // ISO — когда протухнет текущий оффер (таймер водителя ведём локально)
     val cancelBy: String,         // "" | passenger | driver
     val cancelReason: String,
@@ -3627,6 +3773,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     distanceKm = optDouble("distance_km", 0.0),
     etaMin = optDouble("eta_min", 0.0),
     driverId = if (isNull("driver_id")) null else optInt("driver_id"),
+    passengerId = if (isNull("passenger_id")) null else optInt("passenger_id"),
     offerExpiresAt = if (isNull("offer_expires_at")) null else optString("offer_expires_at").ifBlank { null },
     cancelBy = optString("cancel_by"),
     cancelReason = optString("cancel_reason"),
@@ -4463,6 +4610,80 @@ data class DriverTaxiRideDto(
 data class DriverTaxiRidesDto(
     val rides: List<DriverTaxiRideDto>,
     val totalPriceRub: Int, val totalFeeKop: Int, val totalNetKop: Int,
+)
+
+/** Спор «Справедливости» (двусторонний разбор). Поля reporter*/respondent* заполнены ТОЛЬКО
+ *  в админ-выдаче: участникам телефон второй стороны не отдаём — это приватность, не забывчивость.
+ *
+ *  status: open | awaiting_response | under_review | appealed | resolved | closed
+ *  myRole: reporter (я подал) | respondent (обвинили меня) | admin
+ *  resolution: «» пока не решено; dismissed | warning | strike | suspend | ban | mutual_resolved */
+data class IncidentDto(
+    val id: Int,
+    val bookingId: Int?,
+    val type: String,
+    val severe: Boolean,          // тяжёлый тип — сразу к человеку, без ожидания объяснения
+    val status: String,
+    val reporterRole: String,     // кем был заявитель в поездке: driver | passenger
+    val description: String,
+    val respondentStatement: String,
+    val respondedAt: String?,
+    val resolution: String,
+    val fault: String,            // none | reporter | respondent | both | unclear
+    val resolutionNote: String,   // человеческое объяснение решения — видят ОБЕ стороны
+    val compensationKop: Int,
+    val appealText: String,
+    val appealStatus: String,     // «» | requested | accepted | rejected
+    val createdAt: String,
+    val updatedAt: String,
+    val resolvedAt: String?,
+    val myRole: String,
+    val otherName: String,        // имя второй стороны (без телефона)
+    val evidenceUrls: List<String>,            // фото заявителя (приватные /secure/evidence)
+    val respondentEvidenceUrls: List<String>,  // фото обвинённого
+    val route: String?,           // маршрут поездки/доставки/такси-заказа — контекст спора
+    // Только админ-выдача:
+    val reporterId: Int = 0,
+    val reporterName: String = "",
+    val reporterPhone: String = "",
+    val respondentId: Int = 0,
+    val respondentName: String = "",
+    val respondentPhone: String = "",
+) {
+    /** Спор ещё живой — по нему можно что-то сделать. */
+    val isActive: Boolean get() = status == "open" || status == "awaiting_response" ||
+        status == "under_review" || status == "appealed"
+    /** Ждём МОЕГО объяснения (меня обвинили и я ещё не ответил). */
+    val needsMyStatement: Boolean get() = myRole == "respondent" && respondentStatement.isBlank() &&
+        status != "resolved" && status != "closed"
+    /** Решение вынесено — можно обжаловать (один раз). */
+    val canAppeal: Boolean get() = status == "resolved" && appealStatus.isBlank()
+    /** «Решили миром» — только заявитель и только до вердикта. */
+    val canWithdraw: Boolean get() = myRole == "reporter" &&
+        (status == "open" || status == "awaiting_response" || status == "under_review")
+}
+
+/** Моё положение в «Справедливости»: чем выше Надёжность, тем спокойнее с тобой ехать. */
+data class StandingDto(
+    val standing: String,         // good | limited | suspended
+    val strikes: Int,
+    val warnings: Int,
+    val reliability: Int,         // 0..100 — доля поездок без срывов
+    val suspendedUntil: String?,
+    val suspendReason: String,
+    val ratingShield: Boolean,    // «щит рейтинга»: спорная оценка не входит в средний
+    val activeIncidents: Int,
+    val canAct: Boolean,          // false = пауза: новые заказы/брони временно недоступны
+)
+
+/** Пороги лестницы наказаний — берём с сервера, чтобы приложение не врало о правилах. */
+data class SafetyPolicyDto(
+    val strikesToLimit: Int,
+    val strikesToSuspend: Int,
+    val suspend1Days: Int,
+    val suspend2Days: Int,
+    val suspend3Days: Int,
+    val strikeDecayDays: Int,
 )
 
 /** Сигнал SOS в ленте админа. userPhone — чтобы реально позвонить человеку в беде.

@@ -300,6 +300,9 @@ internal fun ProfileScreen(
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
     onTrust: () -> Unit,
+    // «Центр справедливости» — вход в двусторонний разбор споров. С дефолтом: старые вызовы
+    // (в т.ч. тесты Content) собираются без правок.
+    onFairness: () -> Unit = {},
     onConsents: () -> Unit,
     onHelp: () -> Unit,
     onReview: () -> Unit,
@@ -692,6 +695,9 @@ internal fun ProfileScreen(
             item { Box(Modifier.appearIn(4)) { ProfileActionCard(appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото авто", "Права, машина, авто фотоһы"), Icons.Default.Verified, onVerifyDriver) } }
             item { Box(Modifier.appearIn(5)) { ProfileActionCard(appText("Доверие", "Ышаныс"), appText("Твой уровень и круг «своих»", "Кимәлең һәм «үҙебеҙҙекеләр» түңәрәге"), Icons.Default.Handshake, onTrust) } }
             item { Box(Modifier.appearIn(6)) { ProfileActionCard(appText("Безопасность", "Хәүефһеҙлек"), appText("SOS, скрытый телефон, подтверждённые участники", "SOS, йәшерен телефон, раҫланған ҡатнашыусылар"), R.drawable.yu_safe_trip, onSafety) } }
+            // Разбор споров: обещание «обе стороны слышимы» должно быть достижимо в два тапа,
+            // а не жить только на сервере (аудит 2026-07-26).
+            item { Box(Modifier.appearIn(7)) { ProfileActionCard(appText("Центр справедливости", "Ғәҙеллек үҙәге"), appText("Спорные ситуации: обе стороны слышимы", "Бәхәсле хәлдәр: ике яҡ та ишетелә"), Icons.Default.Shield, onFairness) } }
             item { Box(Modifier.appearIn(7)) { ProfileActionCard(appText("Поддержать Юлдаш", "Юлдашҡа ярҙам итеү"), appText("Серверы, карты, SMS и поддержка", "Серверҙар, карталар, SMS һәм ярҙам"), Icons.Default.VolunteerActivism, onSupport) } }
             item {
                 Text(appText("Для родителей и близких", "Ата-әсә һәм яҡындар өсөн"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
@@ -3519,7 +3525,7 @@ internal fun TripInfoRow(
  * через `ImageDecoder`: он применяет EXIF сам. На старых версиях — читаем тег `ExifInterface`
  * и доворачиваем матрицей вручную (аудит 2026-07-26).
  */
-private fun decodeToJpeg(
+internal fun decodeToJpeg(
     context: Context,
     uri: Uri,
     maxSize: Int = 1024,

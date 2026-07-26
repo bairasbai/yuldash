@@ -1142,4 +1142,8 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         "passenger_phone": ((order.for_phone or (passenger.phone if passenger else ""))
                             if (unlocked and role == "driver") else ""),
         "for_other": bool(order.for_phone or order.for_name),
+        # id пассажира — только водителю и только после accept (как имя и телефон). Нужен, чтобы
+        # водитель мог открыть РАЗБОР по этой поездке: спор требует указать вторую сторону,
+        # а без id ему было бы не на кого пожаловаться (аудит 2026-07-26).
+        "passenger_id": (order.passenger_id if (unlocked and role == "driver") else None),
     }

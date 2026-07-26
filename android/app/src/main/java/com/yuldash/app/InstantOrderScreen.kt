@@ -464,6 +464,7 @@ internal fun InstantOrderScreen(
                             InstantRateAndReport(current, isDriver = false)   // §9: оценить/пожаловаться
                             // Чек за поездку: справка на работу, «рәхмәт» водителю и «забыл вещь».
                             TaxiReceiptLink(current.id)
+                            TaxiDisputeLink(current, isDriver = false)
                         }
                     },
                 )
@@ -1694,6 +1695,49 @@ private fun InstantNoDriversCard(
  * [NavSignals] — карточка живёт глубоко в экране такси (в т.ч. встроенном в главную),
  * тянуть колбэк через все слои ради одной кнопки не стоит.
  */
+/**
+ * «Открыть разбор» по завершённому такси-заказу. Отличается от жалобы: жалоба анонимна и
+ * односторонняя, а разбор двусторонний — вторую сторону позовут объясниться, и решение
+ * объяснят обоим. До этого раунда спор по такси был технически невозможен: публичная ручка
+ * принимала только бронь попутки (аудит 2026-07-26).
+ */
+@Composable
+private fun TaxiDisputeLink(order: InstantOrderDto, isDriver: Boolean) {
+    var open by remember(order.id) { mutableStateOf(false) }
+    var filed by remember(order.id) { mutableStateOf(false) }
+    // Кому предъявляем: пассажир — водителю, водитель — пассажиру. Нет второй стороны → нечего разбирать.
+    val respondentId = if (isDriver) order.passengerId else order.driverId
+    val respondentName = if (isDriver) order.passengerName.ifBlank { appText("пассажира", "юлаусыны") }
+    else order.driverName.ifBlank { appText("водителя", "водителде") }
+    if (respondentId == null || respondentId <= 0) return
+
+    if (filed) {
+        Surface(color = CanonMint, shape = CanonItemShape) {
+            Text(
+                appText(
+                    "Разбор открыт. Мы позовём вторую сторону объясниться и напишем решение вам обоим.",
+                    "Ҡарау асылды. Икенсе яҡты аңлатырға саҡырабыҙ һәм ҡарарҙы икегеҙгә лә яҙабыҙ.",
+                ),
+                color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+            )
+        }
+        return
+    }
+    TextButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+        Text(appText("Открыть разбор", "Ҡарауҙы асыу"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    }
+    if (open) {
+        FileIncidentDialog(
+            respondentId = respondentId,
+            respondentName = respondentName,
+            orderId = order.id,
+            onDismiss = { open = false },
+            onFiled = { open = false; filed = true },
+        )
+    }
+}
+
 @Composable
 private fun TaxiReceiptLink(orderId: Int) {
     OutlinedButton(
@@ -2441,6 +2485,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                             UnpaidReportButton(orderId = current.id)   // B8-7: «пассажир не заплатил» одним тапом
                             // Чек поездки: там же водитель отмечает «наличные получил» и «нашёл вещь».
                             TaxiReceiptLink(current.id)
+                            TaxiDisputeLink(current, isDriver = true)
                         }
                     },
                 )

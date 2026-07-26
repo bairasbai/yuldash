@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import Booking, Incident, Ride, User, UserRole
+from ..models import Booking, Incident, InstantOrder, Ride, User, UserRole
 from ..safety_logic import (
     INCIDENT_TYPES, SEVERE_TYPES, active_incidents_count, apply_incident_resolution,
     clamp, completed_trips_for, csv_from_urls, ensure_active, incidents_last_hour, is_suspended,
@@ -38,6 +38,10 @@ class IncidentIn(BaseModel):
     type: str
     description: str = Field("", max_length=2000)
     booking_id: Optional[int] = None
+    # Такси-заказ как контекст спора. `create_incident` умел это с прошлого раунда, но публичная
+    # ручка поля не принимала — и пожаловаться на поездку в такси было технически НЕЛЬЗЯ
+    # (единственный контекст = бронь попутки). Та же дыра, что была у посылок (аудит 2026-07-26).
+    order_id: Optional[int] = None
     evidence_urls: Optional[List[str]] = Field(None, max_length=10)   # свои /secure/evidence-URL
 
 
@@ -138,7 +142,6 @@ def _context_route(session: Session, inc: Incident) -> Optional[str]:
         p = session.get(ParcelDelivery, inc.parcel_id)
         return f"📦 {p.from_city}→{p.to_city}" if p else None
     if inc.order_id:
-        from ..models import InstantOrder
         o = session.get(InstantOrder, inc.order_id)
         return f"🚕 {o.from_text or '?'}→{o.to_text or '?'}" if o else None
     return None
@@ -252,9 +255,21 @@ def create_incident(
 def file_incident(body: IncidentIn, background: BackgroundTasks,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
     ensure_active(session, user.id)   # приостановленный аккаунт не подаёт новые жалобы (анти-абуз)
+    reporter_role = ""
+    if body.order_id is not None:
+        # Участие сторон в такси-заказе проверяем ЗДЕСЬ: create_incident этого не знает
+        # (у него нет правил приватности заказа), а без проверки спор стал бы каналом
+        # харассмента — можно было бы «привязаться» к чужой поездке.
+        order = session.get(InstantOrder, body.order_id)
+        if not order or user.id not in (order.passenger_id, order.driver_id):
+            raise HTTPException(403, "Это не твоя поездка")
+        if body.respondent_id not in (order.passenger_id, order.driver_id):
+            raise HTTPException(400, "Обвинённый не участвует в этой поездке")
+        reporter_role = "driver" if order.driver_id == user.id else "passenger"
     inc = create_incident(
         session, reporter=user, respondent_id=body.respondent_id, type=body.type,
-        description=body.description, booking_id=body.booking_id, background=background,
+        description=body.description, booking_id=body.booking_id, order_id=body.order_id,
+        reporter_role=reporter_role, background=background,
         evidence_urls=body.evidence_urls,
     )
     return _incident_out(session, inc, user)
