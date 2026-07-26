@@ -207,7 +207,14 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
     val age = birthIso?.let { taxiAgeYears(it) }
     val ageOk = age != null && age >= 20
     val photosOk = permitPhotoUrl != null && osagoUrl != null && selfieUrl != null   // селфи обязательно (сверка лица)
-    val canSubmit = innOk && permitNumber.trim().isNotBlank() && yearOk && ageOk && photosOk && !submitting
+    // Сроки документов (580-ФЗ, аудит 2026-07-26). Раньше документы были ТОЛЬКО картинками:
+    // одобрили в июле — человек возит с просроченным ОСАГО в декабре. Для НОВЫХ заявок даты
+    // обязательны: без них контроль сроков невозможен, а «проверенный водитель» — пустое слово.
+    var osagoUntil by remember { mutableStateOf(prefill?.osagoUntil) }
+    var permitUntil by remember { mutableStateOf(prefill?.permitUntil) }
+    var inspectionUntil by remember { mutableStateOf(prefill?.inspectionUntil) }
+    val datesOk = !osagoUntil.isNullOrBlank() && !permitUntil.isNullOrBlank() && !inspectionUntil.isNullOrBlank()
+    val canSubmit = innOk && permitNumber.trim().isNotBlank() && yearOk && ageOk && photosOk && datesOk && !submitting
 
     val uploadFailMsg = appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләп булманы, тағы ҡабатла")
     val submitFailMsg = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Селтәрҙе тикшереп ҡабатла.")
@@ -432,6 +439,36 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
         item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
         item { UploadTile(appText("Фото разрешения на такси", "Такси рөхсәте фотоһы"), permitPhotoUrl != null, uploadingPermit) { pickPermit.launch("image/*") } }
         item { UploadTile(appText("Фото полиса ОСАГО", "ОСАГО полисы фотоһы"), osagoUrl != null, uploadingOsago) { pickOsago.launch("image/*") } }
+        // Сроки документов: по ним мы напомним заранее и снимем допуск, если срок всё же выйдет.
+        item { Text(appText("Сроки документов", "Документтар ваҡыты"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+        item {
+            Text(
+                appText("Мы напомним за две недели до истечения — чтобы такси не встало для тебя неожиданно.",
+                        "Ваҡыт бөтөүенә ике аҙна ҡалғас иҫкә төшөрәбеҙ — такси көтмәгәндә туҡтамаһын."),
+                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+        item {
+            TaxiDocDateField(
+                appText("ОСАГО до", "ОСАГО ваҡыты"),
+                appText("Выбери дату окончания полиса", "Полис бөтә торған датаны һайла"),
+                osagoUntil,
+            ) { osagoUntil = it }
+        }
+        item {
+            TaxiDocDateField(
+                appText("Разрешение на такси до", "Такси рөхсәте ваҡыты"),
+                appText("Дата окончания разрешения", "Рөхсәт бөтә торған дата"),
+                permitUntil,
+            ) { permitUntil = it }
+        }
+        item {
+            TaxiDocDateField(
+                appText("Диагностическая карта до", "Диагностика картаһы ваҡыты"),
+                appText("Техосмотр машины", "Машинаның техник ҡарауы"),
+                inspectionUntil,
+            ) { inspectionUntil = it }
+        }
         item {
             Text(
                 appText("Селфи с правами в руках — чтобы за рулём был именно ты (как в Яндекс.Такси).",
@@ -468,7 +505,12 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                     val y = year ?: return@AppButton
                     submitting = true; submitError = null
                     scope.launch {
-                        ApiClient.applyTaxi(innDigits, permitNumber.trim(), iso, y, permitPhotoUrl ?: "", osagoUrl ?: "", selfieUrl ?: "", criminalUrl ?: "", carClass)
+                        ApiClient.applyTaxi(
+                            innDigits, permitNumber.trim(), iso, y,
+                            permitPhotoUrl ?: "", osagoUrl ?: "", selfieUrl ?: "", criminalUrl ?: "", carClass,
+                            osagoUntil = osagoUntil ?: "", permitUntil = permitUntil ?: "",
+                            inspectionUntil = inspectionUntil ?: "",
+                        )
                             .onSuccess { onSubmitted(it) }
                             .onFailure { submitError = (it as? ApiException)?.message ?: submitFailMsg }
                         submitting = false

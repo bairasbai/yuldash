@@ -134,6 +134,7 @@ import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
@@ -1059,6 +1060,8 @@ internal fun DriverCabinetScreen(
     onWallet: () -> Unit = {},           // Кошелёк: баланс + история операций (ledger)
     onEarnings: () -> Unit = {},         // «Мой заработок»: заработок по периодам + по дням
     onTaxiRides: () -> Unit = {},        // «Мои поездки такси»: цена → комиссия → чистыми по каждой
+    onTaxiDocs: () -> Unit = {},         // 580-ФЗ: сроки ОСАГО/разрешения/техосмотра + продление
+    onPretrip: () -> Unit = {},          // 580-ФЗ: готовность к работе на сегодня
 ) {
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
@@ -1336,6 +1339,8 @@ internal fun DriverCabinetScreen(
             onWallet = onWallet,
             onEarnings = onEarnings,
             onTaxiRides = onTaxiRides,
+            onTaxiDocs = onTaxiDocs,
+            onPretrip = onPretrip,
         )
     }
     // Шторка выбора зоны работы (география, волна 2): открывается с чипа или при выходе на линию без зоны.
@@ -1951,6 +1956,8 @@ internal fun DriverCabinetContent(
     onWallet: () -> Unit = {},       // Кошелёк: баланс + история операций
     onEarnings: () -> Unit = {},     // «Мой заработок»: по периодам + по дням
     onTaxiRides: () -> Unit = {},    // «Мои поездки такси»: расшифровка денег по каждой поездке
+    onTaxiDocs: () -> Unit = {},     // 580-ФЗ: сроки документов
+    onPretrip: () -> Unit = {},      // 580-ФЗ: готовность к работе на сегодня
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     val ridesDone = archive.count { it.status == "done" }
@@ -2250,6 +2257,9 @@ internal fun DriverCabinetContent(
                 SettingsNavRow(Icons.Default.ListAlt, appText("Заявки пассажиров", "Пассажир заявкалары"), appText("Откликнуться и предложить поездку", "Яуап биреп сәфәр тәҡдим итеү"), onClick = onRequestsFeed)
                 SettingsNavRow(Icons.Default.AddRoad, appText("Создать поездку", "Сәфәр булдырыу"), appText("Маршрут, места, цена и время", "Маршрут, урын, хаҡ һәм ваҡыт"), onClick = onCreateRide)
                 SettingsNavRow(Icons.Default.Verified, appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото и госномер", "Права, машина, фото һәм номер"), onClick = onVerifyDriver)
+                // 580-ФЗ: проверка перестала быть разовой — сроки живут и напоминают о себе сами.
+                SettingsNavRow(Icons.Default.Shield, appText("Документы и сроки", "Документтар һәм ваҡыттар"), appText("ОСАГО, разрешение, техосмотр — продлить без новой заявки", "ОСАГО, рөхсәт, техник ҡарау — яңы заявкаһыҙ оҙайтыу"), onClick = onTaxiDocs)
+                SettingsNavRow(Icons.Default.MonitorHeart, appText("Готовность к работе", "Эшкә әҙерлек"), appText("Отметить перед выходом на линию: самочувствие, машина", "Линияға сығыр алдынан билдәләү: һаулыҡ, машина"), onClick = onPretrip)
                 SettingsNavRow(Icons.Default.TrendingUp, appText("Поднять маршрут", "Маршрутты күтәреү"), appText("Показать выше в списке поездок", "Сәфәрҙәр исемлегендә өҫтәрәк күрһәтеү"), onClick = onBoost)
             }
         }

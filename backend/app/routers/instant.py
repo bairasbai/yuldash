@@ -21,6 +21,7 @@ from .referral import reward_driver_referral
 from .. import debt as debt_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
+from .. import pretrip as pretrip_mod
 from .. import quality as quality_mod
 from .. import taxi as taxi_mod
 from .. import workday as workday_mod
@@ -51,8 +52,13 @@ def _guard_taxi_driver(session: Session, driver_id: int, lat: float | None = Non
     arrived/onboard/done через этот гейт не ходят."""
     _guard_taxi_available(session, lat, lng)
     if not taxi_mod.is_approved_taxi_driver(session, driver_id):
+        # Документы просрочены — это не «ты не прошёл проверку», а «продли и возвращайся».
+        # Разный текст важен: первый обвиняет человека, второй объясняет, что делать.
+        if taxi_mod.taxi_docs_expired(session, driver_id):
+            raise herr(403, taxi_mod.MSG_DOCS_EXPIRED["ru"], taxi_mod.MSG_DOCS_EXPIRED["ba"])
         raise HTTPException(403, taxi_mod.TAXI_NOT_APPROVED_MSG)
     _guard_taxi_not_blocked(session, driver_id)
+    pretrip_mod.guard_pretrip(session, driver_id)   # 580-ФЗ: подтверждение готовности на сегодня
     workday_mod.guard_taxi_rested(session, driver_id)
     quality_mod.guard_taxi_quality(session, driver_id)
 

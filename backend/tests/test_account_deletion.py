@@ -52,6 +52,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(M.CourierProfile(user_id=uid))
         s.add(M.DriverSchedule(driver_id=uid, from_city="A", to_city="B"))
         s.add(M.TaxiWorkDay(driver_id=uid, day=date(2026, 7, 13)))
+        # Предрейсовые подтверждения (580-ФЗ): заявления человека о самом себе — уходят с аккаунтом.
+        s.add(M.PreTripCheck(driver_id=uid, day=date(2026, 7, 13),
+                             health_ok=True, car_ok=True, no_alcohol=True))
         # --- уведомления, подписки, рефералы, бан устройства ---
         s.add(M.Notification(user_id=uid, ntype="test", title="t", body="b"))
         s.add(M.RouteWatch(user_id=uid, from_city="A", to_city="B", expires_at=utcnow() + timedelta(days=7)))

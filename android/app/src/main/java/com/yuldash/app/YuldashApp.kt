@@ -1082,6 +1082,8 @@ internal fun YuldashApp() {
                 onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
                 onEarnings = { if (ApiClient.isLoggedIn()) screen = Screen.DriverEarnings else screen = Screen.Login },
                 onTaxiRides = { if (ApiClient.isLoggedIn()) screen = Screen.DriverTaxiRides else screen = Screen.Login },
+                onTaxiDocs = { if (ApiClient.isLoggedIn()) screen = Screen.TaxiDocuments else screen = Screen.Login },
+                onPretrip = { if (ApiClient.isLoggedIn()) screen = Screen.PretripCheck else screen = Screen.Login },
             )
             Screen.InstantOrder -> InstantOrderScreen(
                 onBack = { goBack() },
@@ -1222,6 +1224,8 @@ internal fun YuldashApp() {
                 onOpenReceipt = { id -> taxiReceiptOrderId = id; screen = Screen.TaxiReceipt },
             )
             Screen.AdminSos -> AdminSosScreen(onBack = { goBack() })
+            Screen.TaxiDocuments -> TaxiDocumentsScreen(onBack = { goBack() })
+            Screen.PretripCheck -> PretripCheckScreen(onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })

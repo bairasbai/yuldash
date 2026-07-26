@@ -2160,22 +2160,71 @@ object ApiClient {
         }
 
     /** Подать заявку «Стать таксистом» (580-ФЗ). Повторная подача после reject — тот же метод (заявка снова pending).
-     *  Сервер валидирует возраст 20+/стаж 2+/ИНН 10–12 цифр → 400 с русским detail (покажем как есть). */
+     *  Сервер валидирует возраст 20+/стаж 3+/ИНН 10–12 цифр и сроки документов → 400 с текстом (покажем как есть).
+     *  Даты (YYYY-MM-DD, пустая строка = не указана) нужны, чтобы допуск истекал вместе с документом,
+     *  а не жил вечно: одобрили в июле — возит с просроченным ОСАГО в декабре (аудит 2026-07-26). */
     suspend fun applyTaxi(
         inn: String, permitNumber: String, birthDate: String, licenseSinceYear: Int,
         permitPhotoUrl: String, osagoUrl: String,
         selfieUrl: String, criminalRecordUrl: String, carClass: String = "economy",
-    ): Result<TaxiApplicationDto> =
+        osagoUntil: String = "", permitUntil: String = "", inspectionUntil: String = "",
+    ): Result<TaxiApplicationDto> {
+        val body = JSONObject()
+            .put("inn", inn).put("permit_number", permitNumber)
+            .put("birth_date", birthDate).put("license_since_year", licenseSinceYear)
+            .put("permit_photo_url", permitPhotoUrl).put("osago_url", osagoUrl)
+            .put("selfie_url", selfieUrl).put("criminal_record_url", criminalRecordUrl)
+            .put("car_class", carClass)   // §6: заявленный класс, админ подтверждает при approve
+        if (osagoUntil.isNotBlank()) body.put("osago_until", osagoUntil)
+        if (permitUntil.isNotBlank()) body.put("permit_until", permitUntil)
+        if (inspectionUntil.isNotBlank()) body.put("inspection_until", inspectionUntil)
+        return call("POST", "/taxi/apply", body, auth = true)
+            .map { it.toTaxiApplicationDto() }.onSuccess { Analytics.log("taxi_apply") }
+    }
+
+    /** Обновить сроки документов БЕЗ пере-подачи заявки (продлил ОСАГО — не теряй допуск).
+     *  Пустая строка = поле не трогаем. Все даты снова в будущем → допуск возвращается сразу. */
+    suspend fun updateTaxiDocuments(
+        osagoUntil: String = "", permitUntil: String = "", inspectionUntil: String = "",
+        osagoUrl: String = "", permitPhotoUrl: String = "",
+    ): Result<TaxiApplicationDto> {
+        val body = JSONObject()
+        if (osagoUntil.isNotBlank()) body.put("osago_until", osagoUntil)
+        if (permitUntil.isNotBlank()) body.put("permit_until", permitUntil)
+        if (inspectionUntil.isNotBlank()) body.put("inspection_until", inspectionUntil)
+        if (osagoUrl.isNotBlank()) body.put("osago_url", osagoUrl)
+        if (permitPhotoUrl.isNotBlank()) body.put("permit_photo_url", permitPhotoUrl)
+        return call("POST", "/taxi/documents", body, auth = true).map { it.toTaxiApplicationDto() }
+    }
+
+    /** Предрейсовое подтверждение на сегодня (580-ФЗ, честный минимум): подтверждал ли уже. */
+    suspend fun getPretrip(): Result<PretripDto> =
+        call("GET", "/taxi/pretrip", null, auth = true).map { o ->
+            PretripDto(
+                required = o.optBoolean("required"),
+                confirmed = o.optBoolean("confirmed"),
+                day = o.optString("day"),
+                confirmedAt = if (o.isNull("confirmed_at")) null else o.optString("confirmed_at").ifBlank { null },
+                note = o.optString("note"),
+            )
+        }
+
+    /** Подтвердить готовность на сегодня. Все три пункта обязательны — сервер иначе даёт 400. */
+    suspend fun confirmPretrip(note: String = ""): Result<PretripDto> =
         call(
-            "POST", "/taxi/apply",
-            JSONObject()
-                .put("inn", inn).put("permit_number", permitNumber)
-                .put("birth_date", birthDate).put("license_since_year", licenseSinceYear)
-                .put("permit_photo_url", permitPhotoUrl).put("osago_url", osagoUrl)
-                .put("selfie_url", selfieUrl).put("criminal_record_url", criminalRecordUrl)
-                .put("car_class", carClass),   // §6: заявленный класс, админ подтверждает при approve
+            "POST", "/taxi/pretrip",
+            JSONObject().put("health_ok", true).put("car_ok", true).put("no_alcohol", true)
+                .put("note", note.take(300)),
             auth = true,
-        ).map { it.toTaxiApplicationDto() }.onSuccess { Analytics.log("taxi_apply") }
+        ).map { o ->
+            PretripDto(
+                required = o.optBoolean("required"),
+                confirmed = o.optBoolean("confirmed"),
+                day = o.optString("day"),
+                confirmedAt = if (o.isNull("confirmed_at")) null else o.optString("confirmed_at").ifBlank { null },
+                note = o.optString("note"),
+            )
+        }
 
     /** Моя заявка таксиста. Не подавал → failure с ApiException(404) — экран трактует как «нет заявки». */
     suspend fun getMyTaxiApplication(): Result<TaxiApplicationDto> =
@@ -3658,6 +3707,13 @@ data class TaxiApplicationDto(
     val criminalRecordUrl: String,   // справка о несудимости (опц.)
     val birthDate: String,       // YYYY-MM-DD
     val licenseSinceYear: Int,
+    // Сроки документов (580-ФЗ). null = не указан. Значения по умолчанию — на случай старого сервера.
+    val osagoUntil: String? = null,
+    val permitUntil: String? = null,
+    val inspectionUntil: String? = null,   // диагностическая карта (техосмотр)
+    val docsExpired: Boolean = false,      // допуск к такси снят до обновления документа
+    val docsMissing: List<String> = emptyList(),   // какие сроки не заполнены (модератору и водителю)
+    val docsDaysLeft: Int? = null,         // дней до ближайшего истечения (отрицательное = просрочен)
     val comment: String,         // комментарий админа при отклонении
     val createdAt: String,
     val reviewedAt: String?,
@@ -3679,6 +3735,12 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
     criminalRecordUrl = optString("criminal_record_url"),
     birthDate = optString("birth_date"),
     licenseSinceYear = optInt("license_since_year"),
+    osagoUntil = if (isNull("osago_until")) null else optString("osago_until").ifBlank { null },
+    permitUntil = if (isNull("permit_until")) null else optString("permit_until").ifBlank { null },
+    inspectionUntil = if (isNull("inspection_until")) null else optString("inspection_until").ifBlank { null },
+    docsExpired = optBoolean("docs_expired"),
+    docsMissing = optJSONArray("docs_missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+    docsDaysLeft = if (isNull("docs_days_left")) null else optInt("docs_days_left"),
     comment = optString("comment"),
     createdAt = optString("created_at"),
     reviewedAt = if (isNull("reviewed_at")) null else optString("reviewed_at").ifBlank { null },
@@ -3686,6 +3748,16 @@ private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
     name = optString("name"),
     phone = optString("phone"),
     invitedBy = if (isNull("invited_by")) null else optString("invited_by").ifBlank { null },
+)
+
+/** Предрейсовое подтверждение на сегодня (580-ФЗ, честный минимум — самодекларация, не медосмотр).
+ *  required=false → гейт выключен на сервере (пока не выкачено приложение с экраном). */
+data class PretripDto(
+    val required: Boolean,
+    val confirmed: Boolean,
+    val day: String,
+    val confirmedAt: String?,
+    val note: String,
 )
 
 /** Город, где включено такси (управляет админ). */

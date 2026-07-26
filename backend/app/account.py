@@ -35,7 +35,8 @@ from .models import (
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
     Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
     RouteWatch, SafetyProfile, SavedPlace, SosEvent, SupportMessage, SupportTicket,
-    TaxiApplication, TaxiWorkDay, TgAuth, Trust, TripShare, TrustedContact, UploadEvent, User,
+    PreTripCheck, TaxiApplication, TaxiWorkDay, TgAuth, Trust, TripShare, TrustedContact,
+    UploadEvent, User,
     WaitlistEntry,
 )
 from .storage import get_storage
@@ -252,6 +253,10 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(delete(TaxiApplication).where(TaxiApplication.user_id == uid))
     session.execute(delete(DriverSchedule).where(DriverSchedule.driver_id == uid))
     session.execute(delete(TaxiWorkDay).where(TaxiWorkDay.driver_id == uid))
+    # Предрейсовые подтверждения — заявления человека О САМОМ СЕБЕ. Третьей стороне они вреда
+    # не наносят и уликами против кого-то не являются, поэтому стираем вместе с аккаунтом
+    # (в отличие от жалоб, где мы обезличиваем, но сохраняем — там есть пострадавший).
+    session.execute(delete(PreTripCheck).where(PreTripCheck.driver_id == uid))
     # 3.17 Уведомления, подписки на маршрут, сохранённые/недавние адреса (личные данные).
     session.execute(delete(Notification).where(Notification.user_id == uid))
     # Поддержка: сначала сообщения тредов (FK на тикет), затем сами тикеты (152-ФЗ — стираем всё).

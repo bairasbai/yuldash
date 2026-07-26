@@ -939,12 +939,42 @@ class TaxiApplication(SQLModel, table=True):
     # Фоновая проверка (app/doc_check.py) напоминает за 14/3 дня и снимает допуск к такси.
     osago_until: Optional[date_type] = Field(default=None, index=True)
     permit_until: Optional[date_type] = Field(default=None, index=True)
+    # Диагностическая карта (техосмотр) — 580-ФЗ требует исправную машину, а в коде техосмотра
+    # не было вообще. Дата хранится рядом с остальными сроками, контроль — тот же doc_check.
+    inspection_until: Optional[date_type] = Field(default=None, index=True)
     docs_expired: bool = Field(default=False, index=True)   # допуск снят до обновления документов
     docs_warned_at: Optional[datetime] = None               # когда слали последнее напоминание (анти-спам)
     status: TaxiApplicationStatus = Field(default=TaxiApplicationStatus.pending, index=True)
     comment: Optional[str] = None                  # комментарий админа при отклонении
     created_at: datetime = Field(default_factory=utcnow)
     reviewed_at: Optional[datetime] = None         # когда админ одобрил/отклонил
+
+
+class PreTripCheck(SQLModel, table=True):
+    """Предрейсовое подтверждение таксиста за ОДИН местный день (580-ФЗ, честный минимум).
+
+    Закон требует предрейсовый медосмотр и контроль исправности машины. Медцентра у нас нет
+    и не будет — но «ничего» тоже неправильный ответ: раньше в коде не было ни одного
+    упоминания осмотра (аудит 2026-07-26). Поэтому перед первым выходом на линию водитель
+    один раз в день подтверждает три вещи ЯВНО, своим действием, и это остаётся записью:
+    самочувствие, исправность машины, отсутствие алкоголя.
+
+    Это самодекларация, а не медосмотр — так и написано водителю в интерфейсе, и так же
+    честно должно звучать в любом отчёте. Ценность в двух вещах: человек осознанно ставит
+    галочку (а не «как-нибудь доеду»), и при разборе ДТП видно, что он в этот день заявил.
+
+    Один день = одна строка (UniqueConstraint). Отозвать нельзя: запись — след, а не тумблер.
+    Попутки это не касается — она не такси и предрейсового контроля не требует.
+    """
+    __table_args__ = (UniqueConstraint("driver_id", "day", name="uq_pretripcheck_driver_day"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    day: date_type = Field(index=True)      # МЕСТНЫЙ день (UTC + local_tz_offset_hours), как TaxiWorkDay
+    health_ok: bool = False                 # «чувствую себя хорошо, могу вести»
+    car_ok: bool = False                    # «машина исправна: тормоза, свет, резина»
+    no_alcohol: bool = False                # «алкоголь и лекарства, влияющие на реакцию, не принимал»
+    note: str = Field(default="", max_length=300)   # что-то заметил, но всё же выехал (для разбора)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class TaxiWorkDay(SQLModel, table=True):
