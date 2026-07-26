@@ -1237,6 +1237,7 @@ internal fun YuldashApp() {
             Screen.IncidentDetail -> IncidentDetailScreen(incidentId = incidentId, onBack = { goBack() })
             Screen.AdminIncidents -> AdminIncidentsScreen(onBack = { goBack() })
             Screen.AdminRatings -> AdminRatingsScreen(onBack = { goBack() })
+            Screen.CourierEarnings -> CourierEarningsScreen(onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
@@ -1273,6 +1274,7 @@ internal fun YuldashApp() {
             Screen.Courier -> CourierScreen(
                 onBack = { goBack() },
                 onBecomeCourier = { screen = Screen.CourierOnboarding },
+                onEarnings = { screen = Screen.CourierEarnings },
             )
             Screen.AdminCourier -> AdminCourierScreen(onBack = { goBack() })
         }

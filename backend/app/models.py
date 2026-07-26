@@ -1336,6 +1336,13 @@ class CourierApplication(SQLModel, table=True):
     transport: str = Field(default="car", max_length=16)     # car (легковой) | cargo (грузовой/каблук)
     status: str = Field(default="pending", index=True, max_length=16)  # pending | approved | rejected
     selfie_url: str = ""                                     # селфи с документом — сверка лица (L1)
+    # Кто и на чём везёт (аудит 2026-07-26). Раньше «стать курьером» = селфи + выбор «легковой/
+    # грузовой»: ни ФИО, ни номера машины, ни согласия с правилами. Человеку доверяли чужую
+    # посылку, зная о нём меньше, чем о попутчике.
+    full_name: str = Field(default="", max_length=120)        # ФИО как в документе (сверка с селфи)
+    car_plate: str = Field(default="", max_length=16)         # госномер — по нему узнают машину
+    rules_accepted: bool = False                              # согласие с правилами доставки
+    rules_accepted_at: Optional[datetime] = None
     invited_by: Optional[int] = Field(default=None, foreign_key="user.id")  # кто пригласил (доверие «между своими»)
     reject_reason: str = ""                                  # причина отклонения (курьер увидит, подаст снова)
     created_at: datetime = Field(default_factory=utcnow)

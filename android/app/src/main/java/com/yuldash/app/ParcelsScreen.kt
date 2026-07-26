@@ -399,6 +399,9 @@ private fun SendParcelTab(onSent: () -> Unit) {
     var rulesAccepted by remember { mutableStateOf(false) }
     var urgency by remember { mutableStateOf("bypath") }          // bypath | now
     var shoppingList by remember { mutableStateOf("") }
+    // Объявленная ценность: поля в форме не было вообще, поэтому спор о повреждении ВСЕГДА падал
+    // в ветку «ценность не объявлена» — доказывать было нечем (аудит 2026-07-26).
+    var declaredRub by remember { mutableStateOf("") }
     var productRub by remember { mutableStateOf("") }
     var estimate by remember { mutableStateOf<CourierEstimateDto?>(null) }
     var fromLat by remember { mutableStateOf<Double?>(null) }
@@ -513,6 +516,24 @@ private fun SendParcelTab(onSent: () -> Unit) {
         item {
             ParcelField(description, { description = it }, appText("Что за посылка", "Нимә бул"), appText("Например: документы, книга, гостинец", "Мәҫәлән: документтар, китап, күстәнәс"), minLines = 2)
         }
+        // Объявленная ценность. Поля не было вообще — и любой спор о повреждении падал в ветку
+        // «ценность не объявлена»: доказывать было нечем, ориентира для компенсации не существовало.
+        item {
+            ParcelField(
+                declaredRub, { declaredRub = it.filter(Char::isDigit).take(6) },
+                appText("Ценность посылки, ₽ (необязательно)", "Бандероль хаҡы, ₽ (мотлаҡ түгел)"),
+                "0", phone = true,
+            )
+        }
+        item {
+            Text(
+                appText(
+                    "Если что-то случится, это будет ориентиром при разборе. Не страховка — но без цифры спорить не о чем.",
+                    "Берәй хәл булһа, был ҡарағанда ориентир булыр. Страховка түгел — әммә һанһыҙ бәхәсләшер нәмә юҡ.",
+                ),
+                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+        }
         // Получатель
         item {
             Text(appText("Получатель", "Алыусы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
@@ -620,6 +641,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 rulesAccepted = rulesAccepted, deliveryType = deliveryType, urgency = urgency,
                                 codAmountKop = if (deliveryType == "buy_bring") (productRubInt ?: 0) * 100 else null,
                                 shoppingList = if (deliveryType == "buy_bring") shoppingList.trim() else null,
+                                declaredValueKop = declaredRub.toIntOrNull()?.takeIf { it > 0 }?.times(100),
                             )
                                 .onSuccess { created = it }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,9 +37,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -153,7 +157,15 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
     var submitting by remember { mutableStateOf(false) }
     var submitError by remember { mutableStateOf<String?>(null) }
 
-    val canSubmit = selfieUrl != null && !submitting
+    // Кто и на чём везёт (аудит 2026-07-26): раньше «стать курьером» = селфи + тип транспорта.
+    // Человеку доверяли чужую посылку, зная о нём меньше, чем о попутчике.
+    var fullName by remember { mutableStateOf(prefill?.fullName ?: "") }
+    var carPlate by remember { mutableStateOf(prefill?.carPlate ?: "") }
+    var rulesAccepted by remember { mutableStateOf(prefill?.rulesAccepted ?: false) }
+    val identityOk = fullName.trim().split(" ").filter { it.isNotBlank() }.size >= 2 &&
+        carPlate.isNotBlank() && rulesAccepted
+
+    val canSubmit = selfieUrl != null && identityOk && !submitting
     val uploadFailMsg = appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләп булманы, тағы ҡабатла")
     val submitFailMsg = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Селтәрҙе тикшереп ҡабатла.")
 
@@ -293,6 +305,58 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
             )
         }
         item { UploadTile(appText("Селфи с документом в руках", "Ҡулыңда документ менән селфи"), selfieUrl != null, uploadingSelfie) { pickSelfie.launch("image/*") } }
+        item { Text(appText("О себе", "Үҙең тураһында"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+        item {
+            OutlinedTextField(
+                value = fullName,
+                onValueChange = { fullName = it.take(120) },
+                label = { Text(appText("Фамилия и имя как в документе", "Документтағыса фамилия һәм исем")) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = carPlate,
+                onValueChange = { carPlate = it.take(16).uppercase() },
+                label = { Text(appText("Госномер машины", "Машинаның дәүләт номеры")) },
+                placeholder = { Text("Х123УХ102") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+            )
+        }
+        item {
+            Surface(
+                onClick = { rulesAccepted = !rulesAccepted },
+                color = if (rulesAccepted) CanonMint else CanonSurface,
+                shape = CanonItemShape,
+                border = BorderStroke(1.dp, if (rulesAccepted) CanonGreen2 else CanonBorder),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+            ) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (rulesAccepted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = null,
+                        tint = if (rulesAccepted) CanonGreen2 else CanonMuted,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(appText("Согласен с правилами доставки", "Илтеү ҡағиҙәләре менән килешәм"),
+                            color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(
+                            appText(
+                                "Везу бережно, не вскрываю, запрещённое не беру. Если что-то пошло не так — говорю сразу, а не молчу.",
+                                "Һаҡ илтәм, асмайым, тыйылғанды алмайым. Берәй хәл булһа — шунда уҡ әйтәм, өндәшмәй ҡалмайым.",
+                            ),
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                        )
+                    }
+                }
+            }
+        }
         // Ошибка отправки (текст сервера — например «Заявка уже на рассмотрении» или «Курьер скоро»).
         item {
             AnimatedVisibility(visible = submitError != null) {
@@ -313,7 +377,11 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
                     val t = transport
                     submitting = true; submitError = null
                     scope.launch {
-                        ApiClient.applyCourier(t, url)
+                        ApiClient.applyCourier(
+                            t, url,
+                            fullName = fullName.trim(), carPlate = carPlate.trim(),
+                            rulesAccepted = rulesAccepted,
+                        )
                             .onSuccess { onSubmitted(it) }
                             .onFailure { submitError = (it as? ApiException)?.message ?: submitFailMsg }
                         submitting = false

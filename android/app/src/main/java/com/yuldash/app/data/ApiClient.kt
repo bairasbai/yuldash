@@ -3000,6 +3000,9 @@ object ApiClient {
         transport = o.optString("transport"),
         status = o.optString("status", "pending"),
         selfieUrl = o.optString("selfie_url"),
+        fullName = o.optString("full_name"),
+        carPlate = o.optString("car_plate"),
+        rulesAccepted = o.optBoolean("rules_accepted"),
         invitedBy = nStr(o, "invited_by"),
         rejectReason = o.optString("reject_reason"),
         createdAt = o.optString("created_at"),
@@ -3010,9 +3013,40 @@ object ApiClient {
     )
 
     /** Подать заявку «Стать курьером». transport: car|cargo. 422 — транспорт/селфи, 409 — заявка уже на рассмотрении. */
-    suspend fun applyCourier(transport: String, selfieUrl: String): Result<CourierApplicationDto> =
-        call("POST", "/courier/apply", JSONObject().put("transport", transport).put("selfie_url", selfieUrl), auth = true)
+    suspend fun applyCourier(
+        transport: String, selfieUrl: String,
+        fullName: String = "", carPlate: String = "", rulesAccepted: Boolean = false,
+    ): Result<CourierApplicationDto> {
+        // ФИО, госномер и согласие: мы доверяем курьеру чужую посылку — знать о нём хотя бы
+        // столько же, сколько о попутчике, это минимум (аудит 2026-07-26).
+        val body = JSONObject().put("transport", transport).put("selfie_url", selfieUrl)
+        if (fullName.isNotBlank()) body.put("full_name", fullName.take(120))
+        if (carPlate.isNotBlank()) body.put("car_plate", carPlate.take(16))
+        if (rulesAccepted) body.put("rules_accepted", true)
+        return call("POST", "/courier/apply", body, auth = true)
             .map { parseCourierApp(it) }.onSuccess { Analytics.log("courier_apply") }
+    }
+
+    /** Заработок курьера за период (week|month|all): чистыми, комиссия, доставок, по дням.
+     *  Раньше курьер видел только «должен Юлдашу столько-то» — работа выглядела сплошным долгом. */
+    suspend fun getCourierEarnings(period: String = "week"): Result<CourierEarningsDto> =
+        call("GET", "/courier/earnings?period=$period", null, auth = true).map { o ->
+            val arr = o.optJSONArray("by_day") ?: JSONArray()
+            CourierEarningsDto(
+                period = o.optString("period"),
+                netKop = o.optInt("net_kop"),
+                commissionKop = o.optInt("commission_kop"),
+                deliveries = o.optInt("deliveries"),
+                byDay = (0 until arr.length()).map { i ->
+                    val d = arr.getJSONObject(i)
+                    CourierEarningsDayDto(
+                        date = d.optString("date"),
+                        netKop = d.optInt("net_kop"),
+                        deliveries = d.optInt("deliveries"),
+                    )
+                },
+            )
+        }
 
     /** Моя заявка курьера. Ответ: {application: {...}|null}. null — ещё не подавал. */
     suspend fun getCourierApplication(): Result<CourierApplicationDto?> =
@@ -4937,11 +4971,26 @@ data class ParcelSettlementDto(
 // ═══════════ C1: Курьер Юлдаша ═══════════
 
 /** Заявка «Стать курьером». status: pending | approved | rejected. */
+/** День заработка курьера (чистыми = цена доставки минус комиссия платформы). */
+data class CourierEarningsDayDto(val date: String, val netKop: Int, val deliveries: Int)
+
+/** Заработок курьера за период. Всё в КОПЕЙКАХ (у водителя аналогичный экран — в рублях). */
+data class CourierEarningsDto(
+    val period: String,
+    val netKop: Int,
+    val commissionKop: Int,
+    val deliveries: Int,
+    val byDay: List<CourierEarningsDayDto>,
+)
+
 data class CourierApplicationDto(
     val id: Int,
     val transport: String,        // car | cargo
     val status: String,           // pending | approved | rejected
     val selfieUrl: String,
+    val fullName: String = "",    // ФИО как в документе (сверка с селфи)
+    val carPlate: String = "",    // госномер — по нему узнают машину
+    val rulesAccepted: Boolean = false,
     val invitedBy: String?,       // «кто пригласил» (реферал, доверие между своими)
     val rejectReason: String,     // причина отклонения (видит курьер)
     val createdAt: String,

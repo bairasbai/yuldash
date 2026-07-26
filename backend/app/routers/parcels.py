@@ -470,8 +470,11 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
     # C1: courier/buy_bring-заказы берут только одобренные курьеры на линии (гейт).
     # «По пути» (poputka) — как раньше, без гейта (любой попутчик помогает).
     if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "poputka":
-        from .courier import _guard_courier   # локальный импорт — избегаем циклической зависимости
+        from .courier import _guard_courier, _guard_courier_debt   # локальный импорт — избегаем цикла
         _guard_courier(user, session)
+        # Комиссия платформы копится долгом (Модель А). У такси блокировка была с начала,
+        # у курьера — не было вообще: можно было возить месяцами и не платить (аудит 2026-07-26).
+        _guard_courier_debt(session, user.id)
     parcel.courier_id = user.id
     parcel.status = "accepted"
     parcel.accepted_at = utcnow()

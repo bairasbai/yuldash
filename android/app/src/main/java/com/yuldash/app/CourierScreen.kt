@@ -86,7 +86,12 @@ import com.yuldash.app.data.PayCommissionDto
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun CourierScreen(onBack: () -> Unit, onBecomeCourier: () -> Unit) {
+internal fun CourierScreen(
+    onBack: () -> Unit,
+    onBecomeCourier: () -> Unit,
+    // «Мой заработок» курьера: раньше он видел только «должен Юлдашу столько-то».
+    onEarnings: () -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
     var me by remember { mutableStateOf<CourierMeDto?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -117,7 +122,7 @@ internal fun CourierScreen(onBack: () -> Unit, onBecomeCourier: () -> Unit) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
                 m == null || m.application?.status != "approved" -> CourierNotApprovedView(m, onBecomeCourier)
-                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ })
+                else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings)
             }
         }
     }
@@ -179,7 +184,7 @@ private fun CourierNotApprovedView(me: CourierMeDto?, onBecomeCourier: () -> Uni
 
 // ─────────────────────────── Одобрен → работа ───────────────────────────
 @Composable
-private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit) {
+private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarnings: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
 
@@ -274,7 +279,7 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit) {
             when (s) {
                 0 -> CourierAvailableTab(zone = zone, workCity = if (zone == "city") workCity else "")
                 1 -> CourierCarryingTab()
-                else -> CourierCabinetTab(me, onReloadMe)
+                else -> CourierCabinetTab(me, onReloadMe, onEarnings)
             }
         }
     }
@@ -798,7 +803,7 @@ private fun CourierCarryingCard(
 
 // ─────────────────────────── Кабинет курьера ───────────────────────────
 @Composable
-private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit) {
+private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnings: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var paying by remember { mutableStateOf(false) }
@@ -814,6 +819,16 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
+        // «Мой заработок» — первым делом: курьер должен видеть, СКОЛЬКО он получил, а не только
+        // сколько должен. До этого раунда экрана не было вовсе (аудит 2026-07-26).
+        item {
+            AppButton(
+                text = appText("Мой заработок", "Минең табыш"),
+                onClick = onEarnings,
+                style = AppButtonStyle.Secondary,
+                icon = Icons.Default.Payments,
+            )
+        }
         // Пауза по качеству (если задана) — тёплая плашка, не ругательно.
         me.pausedUntil?.takeIf { it.isNotBlank() }?.let { until ->
             item {
