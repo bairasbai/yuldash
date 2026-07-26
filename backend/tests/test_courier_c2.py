@@ -103,32 +103,54 @@ def test_buy_bring_settlement_full_flow(client, user_factory):
     assert body["settlement"]["total_due_kop"] == 230000 + delivery_kop
 
 
-def test_dispute_creates_report_visible_to_admin(client, user_factory):
+def test_dispute_goes_to_fairness_system(client, user_factory):
+    """Спор по доставке теперь идёт в «Справедливость» (двусторонний разбор), а не в урезанную
+    жалобу. Раньше это был Report с одним текстовым полем: без фото, без ответа второй стороны
+    и без компенсации — курьер даже не узнавал, что на него пожаловались (аудит 2026-07-26)."""
     admin = user_factory(name="АдминСпор", role=UserRole.admin)
     courier = _make_courier(client, user_factory)
     sender = user_factory(name="Спорщик")
     pid = _order(client, sender).json()["id"]
     assert _accept(client, courier, pid).status_code == 200
 
-    # отправитель открывает спор
+    # отправитель открывает спор с типом и фото-доказательствами
     rd = client.post(f"/parcels/{pid}/dispute", headers=sender["auth"],
-                     json={"reason": "Товар повреждён"})
+                     json={"reason": "Товар повреждён", "type": "parcel_damage"})
     assert rd.status_code == 200, rd.text
     dj = rd.json()
-    assert dj["category"] == "parcel_dispute"
+    assert dj["type"] == "parcel_damage"
     assert dj["parcel_id"] == pid
     assert dj["declared_value_kop"] == 250000
+    assert dj["status"] in ("awaiting_response", "under_review")
 
-    # курьер тоже участник — тоже может
+    # курьер тоже участник — тоже может открыть свой спор
     rd2 = client.post(f"/parcels/{pid}/dispute", headers=courier["auth"],
-                      json={"reason": "Получатель не рассчитался"})
+                      json={"reason": "Получатель не рассчитался", "type": "recipient_absent"})
     assert rd2.status_code == 200, rd2.text
 
-    # админ видит спор в общей ленте жалоб
-    ra = client.get("/admin/reports", headers=admin["auth"], params={"category": "parcel_dispute"})
+    # обвинённый видит спор у себя и может объясниться — это и есть смысл двустороннего разбора
+    mine = client.get("/incidents/mine", headers=courier["auth"]).json()
+    assert any(i["id"] == dj["id"] for i in mine)
+    resp = client.post(f"/incidents/{dj['id']}/respond", headers=courier["auth"],
+                       json={"statement": "Посылка была такой при получении"})
+    assert resp.status_code == 200, resp.text
+
+    # админ видит спор в ленте инцидентов с маршрутом доставки в подписи
+    ra = client.get("/admin/incidents", headers=admin["auth"])
     assert ra.status_code == 200, ra.text
-    rows = ra.json()
-    assert any(x["parcel_id"] == pid for x in rows)
+    row = next((x for x in ra.json() if x["id"] == dj["id"]), None)
+    assert row is not None and "📦" in (row["booking_route"] or "")
+
+
+def test_dispute_rejects_unknown_type(client, user_factory):
+    """Неизвестный тип спора не проходит — иначе в разбор попадали бы мусорные категории."""
+    courier = _make_courier(client, user_factory)
+    sender = user_factory(name="СпорТип")
+    pid = _order(client, sender).json()["id"]
+    _accept(client, courier, pid)
+    r = client.post(f"/parcels/{pid}/dispute", headers=sender["auth"],
+                    json={"reason": "что-то", "type": "нет_такого"})
+    assert r.status_code == 422
 
 
 # ----------------------------- НЕГАТИВ -----------------------------

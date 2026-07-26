@@ -29,6 +29,7 @@ from ..db import get_session
 from ..errors import herr
 from ..models import (CourierApplication, CourierProfile, ParcelDelivery, Payment, Rating,
                       Settlement, User, UserRole)
+from ..safety_logic import ensure_active
 from ..security import current_user
 from ..services import haversine_km, notify_admin_telegram, send_push, user_rating
 from ..timeutil import utcnow
@@ -624,6 +625,9 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
     Для buy_bring cod_amount_kop обязателен и ≤ COURIER_COD_CAP_KOP (защита курьера).
     Возвращает заявку + confirm_code (как M3): отправитель передаёт код получателю."""
     _guard_courier_enabled()   # заказать курьера можно только когда режим включён (заказчик — не курьер)
+    # Пауза «Справедливости» (§2) распространяется и на доставку: отстранённый за нарушения
+    # не заводит новые заказы. Раньше проверки не было — пауза была декорацией (аудит 2026-07-26).
+    ensure_active(session, user.id)
     dtype = (body.delivery_type or "").strip()
     if dtype not in _COURIER_TYPES:
         raise herr(422, "Выбери тип доставки", "Доставка төрөн һайла")
@@ -700,6 +704,9 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         )
     except Exception:
         pass
+    # Пуш курьерам на линии: раньше заявка висела в пустоте, пока кто-то сам не откроет список
+    # и не обновит его — три курьера ехали мимо и не знали о ней (аудит 2026-07-26).
+    parcels_mod._notify_couriers_new_parcel(session, parcel)
     out = parcels_mod._parcel_for_sender(parcel, session)
     out["price_kop"] = priced["price_kop"]       # полная цена доставки (курьеру платят напрямую)
     out["breakdown"] = priced["breakdown"]
