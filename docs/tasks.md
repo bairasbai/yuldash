@@ -22,10 +22,18 @@
   `language`, `push_notification` выбирает RU/BA), ревокация в открытом чат-WS (каждые 15 сообщений).
   Осознанно НЕ взято: кэш `/rides/near` (релиз решил нагрузку потолком+гидрацией), скрытие имени
   СБП-получателя (имя из конфига = защита плательщика от подмены). **985 sqlite + 986 postgres, всё зелёное.**
-- ⚠️ **ПОПРАВКА к чистке веток (итог после раунда 2):** НЕ удалять только 2: `app-bad-scenarios-protection-tdzr7m`
-  (Android фазы 5 + эвиденс + detect_bump + 682 строки тестов) и `notification-client-android`
-  (клиентская обвязка: слать language, звать unregister). Остальные 95 + webapp-дубли +
-  `architecture-review-pqx309` + `notification-fixes` — можно.
+- **Раунд 3: фото-доказательства споров (порт из pr88).** `/upload/evidence` (приватная область,
+  не /media), `Incident.evidence_urls`+`respondent_evidence_urls` (подача/объяснение), выдача
+  `/secure/evidence/{name}` только сторонам+админу, внешние URL отбрасываются (анти-деанон IP),
+  удаление аккаунта стирает свои файлы. Миграция `n_incident_evidence`. + Белый список причин
+  отмены (мусор → `other`). Бэкенд-контракт фазы 5 Android теперь ПОЛНЫЙ. **987 sqlite + 988 pg.**
+  В pr88 осталось только: detect_bump + emergency-щит (релиз отложил их ЯВНЫМ решением 25.07 —
+  включать решением Александра; обоснование «нужна слежка» неточно, детектор чисто по БД) и
+  теги оценок (портировать вместе с экраном фазы 5).
+- ⚠️ **ПОПРАВКА к чистке веток (итог после раунда 3):** НЕ удалять только 2: `app-bad-scenarios-protection-tdzr7m`
+  (Android фазы 5 «Центр справедливости» + detect_bump/emergency/теги + 682 строки тестов) и
+  `notification-client-android` (клиентская обвязка: слать language, звать unregister). Остальные
+  95 + webapp-дубли + `architecture-review-pqx309` + `notification-fixes` — можно.
 - 📱 Android-фиксы ждут машину со сборкой (SDK тут нет): EXIF аватара (регресс b25a6d0), requestCode
   пушей, иконка такси-оффера, каналы в onCreate, Outbox/TripPass при logout + звать `/push/unregister`,
   слать `language` в `/me/update` при переключении RU⇄BA (бэкенд уже ждёт), тач-цель чипов оплаты,

@@ -38,9 +38,12 @@ VOICE_DIR = os.path.join(MEDIA_DIR, "voice")
 CHAT_DIR = os.path.join(MEDIA_DIR, "chat")   # фото в чате — публично (как голосовые)
 PRIVATE_DIR = os.path.join(_BASE, "private")
 DOC_DIR = os.path.join(PRIVATE_DIR, "docs")
+# Фото-доказательства споров (порт из pr88): лица/номера/травмы — ПРИВАТНО, ретеншен не трогает.
+EVIDENCE_DIR = os.path.join(PRIVATE_DIR, "evidence")
 os.makedirs(VOICE_DIR, exist_ok=True)
 os.makedirs(CHAT_DIR, exist_ok=True)
 os.makedirs(DOC_DIR, exist_ok=True)
+os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
 
 def public_media_url(path: str) -> str:
@@ -49,6 +52,10 @@ def public_media_url(path: str) -> str:
 
 def secure_docs_url(name: str) -> str:
     return f"{settings.media_base_url.rstrip('/')}/secure/docs/{name}"
+
+
+def secure_evidence_url(name: str) -> str:
+    return f"{settings.media_base_url.rstrip('/')}/secure/evidence/{name}"
 
 
 def _detect_image_ext(data: bytes) -> "str | None":

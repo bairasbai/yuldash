@@ -303,3 +303,67 @@ def test_push_notification_uses_recipient_language(client, user_factory, monkeyp
     assert sent[0] == ("Сәләм", "тәне")
     assert sent[1] == ("Привет", "тело")
     assert sent[2] == ("Привет", "тело")
+
+
+# ============== Порт из pr88: фото-доказательства споров ==============
+_JPG = bytes.fromhex("ffd8ffe000104a464946000101") + b"\x00" * 24
+
+
+def _upload_evidence(client, auth):
+    r = client.post("/upload/evidence", headers=auth,
+                    files={"file": ("proof.jpg", _JPG, "image/jpeg")}, data={"ext": "jpg"})
+    assert r.status_code == 200, r.text
+    return r.json()["url"]
+
+
+def test_evidence_flow_private_to_parties(client, user_factory):
+    """Фото прикладывается к спору, видно сторонам и админу, чужому — 403;
+    внешние URL молча отбрасываются (анти-деанон по IP)."""
+    drv = user_factory("EvDrv", role=UserRole.driver)
+    pax = user_factory("EvPax")
+    admin = user_factory("EvAdmin", role=UserRole.admin)
+    stranger = user_factory("EvStranger")
+    bid = _booking(pax["id"], drv["id"])
+    url = _upload_evidence(client, pax["auth"])
+    assert "/secure/evidence/" in url
+    r = client.post("/incidents", headers=pax["auth"], json={
+        "respondent_id": drv["id"], "type": "rude", "booking_id": bid,
+        "evidence_urls": [url, "http://evil.example/x.png"],   # внешний должен отпасть
+    })
+    assert r.status_code == 200, r.text
+    inc = r.json()
+    assert inc["evidence_urls"] == [url]
+    # Обвинённый объясняется со своим фото (право на защиту).
+    url2 = _upload_evidence(client, drv["auth"])
+    r2 = client.post(f"/incidents/{inc['id']}/respond", headers=drv["auth"],
+                     json={"statement": "вот моя версия", "evidence_urls": [url2]})
+    assert r2.status_code == 200 and r2.json()["respondent_evidence_urls"] == [url2]
+    # Выдача файла: стороны и админ — 200, чужой — 403.
+    name = url.rsplit("/", 1)[-1]
+    assert client.get(f"/secure/evidence/{name}", headers=pax["auth"]).status_code == 200
+    assert client.get(f"/secure/evidence/{name}", headers=drv["auth"]).status_code == 200
+    assert client.get(f"/secure/evidence/{name}", headers=admin["auth"]).status_code == 200
+    assert client.get(f"/secure/evidence/{name}", headers=stranger["auth"]).status_code == 403
+    # Файл, не приложенный ни к одному спору, не виден даже загрузившему (нет спора — нет доступа).
+    orphan = _upload_evidence(client, stranger["auth"]).rsplit("/", 1)[-1]
+    assert client.get(f"/secure/evidence/{orphan}", headers=stranger["auth"]).status_code == 403
+
+
+# ============== Порт из pr88: белый список причин отмены ==============
+def test_cancel_reason_whitelist(client, user_factory):
+    """Известный код хранится как есть; произвольная строка → 'other' (гигиена БД)."""
+    drv = user_factory("CrDrv", role=UserRole.driver)
+    rid = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Баймак", "to_city": "Сибай",
+        "depart_at": "2030-01-01T10:00:00", "seats_total": 3, "price": 300,
+    }).json()["id"]
+    pax = user_factory("CrPax")
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
+    client.post(f"/bookings/{bid}/cancel", headers=pax["auth"], json={"reason": "plans_changed"})
+    with Session(engine) as s:
+        assert s.get(M.Booking, bid).cancel_reason == "plans_changed"
+    pax2 = user_factory("CrPax2")
+    bid2 = client.post("/bookings", headers=pax2["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
+    client.post(f"/bookings/{bid2}/cancel", headers=pax2["auth"], json={"reason": "какой-то мусор <script>"})
+    with Session(engine) as s:
+        assert s.get(M.Booking, bid2).cancel_reason == "other"

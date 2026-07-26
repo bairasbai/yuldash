@@ -14,7 +14,7 @@ from ..models import AppReview, Booking, Payment, Ride, User
 from ..security import current_user
 from ..services import (
     cache_get_json, cache_set_json,
-    enforce_upload_quota, public_media_url, read_upload,
+    enforce_upload_quota, public_media_url, read_upload, secure_evidence_url,
 )
 from ..storage import get_storage
 from ..timeutil import utcnow
@@ -192,3 +192,15 @@ async def upload_chat_photo(request: Request, user: User = Depends(current_user)
     name = f"{uuid.uuid4().hex}.{ext}"
     await run_in_threadpool(get_storage().save, f"chat/{name}", data)   # см. upload_voice
     return {"url": public_media_url(f"chat/{name}")}
+
+
+@router.post("/upload/evidence")
+async def upload_evidence(request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Фото-доказательство спора (порт из pr88) → ПРИВАТНАЯ область evidence/ (не в /media!).
+    На фото лица/номера/травмы — отдаёт только /secure/evidence/{name} участникам спора и админу.
+    URL из ответа прикладывается к POST /incidents (evidence_urls) или /respond."""
+    enforce_upload_quota(session, user.id)
+    data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
+    name = f"{uuid.uuid4().hex}.{ext}"
+    await run_in_threadpool(get_storage().save, f"evidence/{name}", data)
+    return {"url": secure_evidence_url(name)}

@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Ride, RideStatus, User
-from ..safety_logic import ensure_active
+from ..safety_logic import CANCEL_REASONS, ensure_active
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
@@ -368,7 +368,10 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
         booking.status = BookingStatus.cancelled
         booking.cancelled_at = utcnow()
         booking.contact_then_cancel = contact_opened
-        booking.cancel_reason = ((body.reason or "").strip()[:80] or None) if body else None
+        # Белый список кодов (порт из pr88): произвольная строка в БД не попадает, неизвестный
+        # код (старый/будущий клиент) не теряем — сводим к "other".
+        _raw_reason = ((body.reason or "").strip()[:80] or None) if body else None
+        booking.cancel_reason = _raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None)
         booking.cancelled_by = user.id   # «Надёжность»: поздняя отмена бьёт по инициатору (safety_logic.reliability_for)
         ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
         session.add(booking)

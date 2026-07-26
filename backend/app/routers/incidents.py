@@ -3,13 +3,17 @@
 Обе стороны слышимы (due process): заявитель описывает → обвинённый объясняется → админ решает
 соразмерно по лестнице и объясняет обеим. Дополняет анонимные жалобы (Report), не заменяет.
 Приватность: телефон второй стороны участникам НЕ отдаём — только админу в /admin/incidents.
-Фото-доказательства и reliability — отдельная фаза (нужны хуки в поездки).
+Фото-доказательства: /upload/evidence → URL в evidence_urls (заявитель) / respondent_evidence_urls
+(обвинённый); файлы приватны, выдача — /secure/evidence/{name} только сторонам спора и админу.
 """
+import os
 from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -17,11 +21,12 @@ from ..db import get_session
 from ..models import Booking, Incident, Ride, User, UserRole
 from ..safety_logic import (
     INCIDENT_TYPES, SEVERE_TYPES, active_incidents_count, apply_incident_resolution,
-    clamp, completed_trips_for, ensure_active, incidents_last_hour, is_suspended,
-    refresh_standing, reliability_for,
+    clamp, completed_trips_for, csv_from_urls, ensure_active, incidents_last_hour, is_suspended,
+    refresh_standing, reliability_for, urls_from_csv,
 )
 from ..security import current_user
-from ..services import booking_and_ride_for_user, notify_admin_telegram, send_push, user_rating
+from ..services import EVIDENCE_DIR, booking_and_ride_for_user, notify_admin_telegram, send_push, user_rating
+from ..storage import get_storage
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["incidents"])
@@ -33,10 +38,12 @@ class IncidentIn(BaseModel):
     type: str
     description: str = Field("", max_length=2000)
     booking_id: Optional[int] = None
+    evidence_urls: Optional[List[str]] = Field(None, max_length=10)   # свои /secure/evidence-URL
 
 
 class RespondIn(BaseModel):
     statement: str = Field("", max_length=2000)
+    evidence_urls: Optional[List[str]] = Field(None, max_length=10)   # право на защиту — тоже с фото
 
 
 class AppealIn(BaseModel):
@@ -76,6 +83,8 @@ class IncidentOut(BaseModel):
     resolved_at: Optional[datetime]
     my_role: str                 # reporter / respondent / admin
     other_name: str              # имя второй стороны (без телефона — приватность)
+    evidence_urls: List[str] = []                # фото заявителя (/secure/evidence, видят стороны+админ)
+    respondent_evidence_urls: List[str] = []     # фото обвинённого
     booking_route: Optional[str] = None
 
 
@@ -104,6 +113,8 @@ class AdminIncidentOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved_at: Optional[datetime]
+    evidence_urls: List[str] = []
+    respondent_evidence_urls: List[str] = []
     booking_route: Optional[str] = None
 
 
@@ -137,7 +148,10 @@ def _incident_out(session: Session, inc: Incident, viewer: User) -> IncidentOut:
         resolution=inc.resolution, fault=inc.fault, resolution_note=inc.resolution_note,
         compensation_kop=inc.compensation_kop, appeal_text=inc.appeal_text, appeal_status=inc.appeal_status,
         created_at=inc.created_at, updated_at=inc.updated_at, resolved_at=inc.resolved_at,
-        my_role=my_role, other_name=_name(other), booking_route=_route_for(session, inc.booking_id),
+        my_role=my_role, other_name=_name(other),
+        evidence_urls=urls_from_csv(inc.evidence_urls),
+        respondent_evidence_urls=urls_from_csv(inc.respondent_evidence_urls),
+        booking_route=_route_for(session, inc.booking_id),
     )
 
 
@@ -150,6 +164,7 @@ def create_incident(
     session: Session, *, reporter: User, respondent_id: int, type: str,
     description: str = "", booking_id: Optional[int] = None, reporter_role: str = "",
     background: Optional[BackgroundTasks] = None, rate_limit: bool = True,
+    evidence_urls: Optional[List[str]] = None,
 ) -> Incident:
     """Создать инцидент со всеми проверками/побочками. Общая точка для /incidents и будущих авто-детектов."""
     if respondent_id == reporter.id:
@@ -176,6 +191,7 @@ def create_incident(
     inc = Incident(
         booking_id=booking_id, reporter_id=reporter.id, respondent_id=respondent_id,
         type=type, reporter_role=reporter_role, description=clamp(description, 2000),
+        evidence_urls=csv_from_urls(evidence_urls),   # только СВОИ URL, внешние хосты отброшены
         # severe → сразу на разбор человеком; иначе ждём объяснения обвинённого.
         status="under_review" if severe else "awaiting_response",
     )
@@ -214,6 +230,7 @@ def file_incident(body: IncidentIn, background: BackgroundTasks,
     inc = create_incident(
         session, reporter=user, respondent_id=body.respondent_id, type=body.type,
         description=body.description, booking_id=body.booking_id, background=background,
+        evidence_urls=body.evidence_urls,
     )
     return _incident_out(session, inc, user)
 
@@ -249,6 +266,8 @@ def respond_incident(incident_id: int, body: RespondIn,
     if inc.status in ("resolved", "closed"):
         raise HTTPException(409, "Спор уже закрыт")
     inc.respondent_statement = clamp(body.statement, 2000)
+    if body.evidence_urls is not None:   # право на защиту — с фото (только свои URL)
+        inc.respondent_evidence_urls = csv_from_urls(body.evidence_urls)
     inc.responded_at = utcnow()
     inc.status = "under_review"
     inc.updated_at = utcnow()
@@ -316,6 +335,33 @@ def withdraw_incident(incident_id: int, user: User = Depends(current_user), sess
     return _incident_out(session, inc, user)
 
 
+# ----------------------------- Фото-доказательства: приватная выдача -----------------------------
+def _can_view_evidence(session: Session, user_id: int, name: str) -> bool:
+    """Файл виден только СТОРОНАМ спора, к которому он приложен (или админу — проверка снаружи).
+    Ищем инцидент, где юзер — участник И имя файла встречается в одном из CSV доказательств."""
+    row = session.exec(select(Incident.id).where(
+        or_(Incident.reporter_id == user_id, Incident.respondent_id == user_id),
+        or_(Incident.evidence_urls.contains(name), Incident.respondent_evidence_urls.contains(name)),
+    )).first()
+    return row is not None
+
+
+@router.get("/secure/evidence/{name}")
+def secure_evidence(name: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Отдать фото-доказательство спора. Доступ: админ ИЛИ участник спора с этим файлом.
+    На фото лица/номера/травмы — публичной раздачи нет по построению (область private/evidence).
+    Локально отдаём файл; в S3-режиме после проверки доступа редиректим на подписанный URL."""
+    safe = os.path.basename(name)   # защита от path traversal
+    if user.role != UserRole.admin and not _can_view_evidence(session, user.id, safe):
+        raise HTTPException(403, "Нет доступа к файлу")
+    storage = get_storage()
+    if not storage.exists(f"evidence/{safe}"):
+        raise HTTPException(404, "Файл не найден")
+    if storage.is_remote:
+        return RedirectResponse(storage.url(f"evidence/{safe}"))
+    return FileResponse(os.path.join(EVIDENCE_DIR, safe))
+
+
 # ----------------------------- Инциденты: админ -----------------------------
 @router.get("/admin/incidents", response_model=List[AdminIncidentOut])
 def admin_incidents(status: Optional[str] = None, user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -343,6 +389,8 @@ def admin_incidents(status: Optional[str] = None, user: User = Depends(current_u
             resolution_note=inc.resolution_note, compensation_kop=inc.compensation_kop,
             appeal_text=inc.appeal_text, appeal_status=inc.appeal_status,
             created_at=inc.created_at, updated_at=inc.updated_at, resolved_at=inc.resolved_at,
+            evidence_urls=urls_from_csv(inc.evidence_urls),
+            respondent_evidence_urls=urls_from_csv(inc.respondent_evidence_urls),
             booking_route=_route_for(session, inc.booking_id),
         ))
     return out

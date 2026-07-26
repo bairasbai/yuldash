@@ -504,7 +504,11 @@ class Incident(SQLModel, table=True):
     reporter_role: str = ""                  # passenger/driver/courier/sender/recipient
     description: str = ""                    # версия заявителя (≤2000)
     status: str = Field(default="open", index=True)  # open/awaiting_response/under_review/resolved/appealed/closed
-    suspected_bump: bool = False             # авто-детект «бампинга» (заполняется в фазе 4)
+    suspected_bump: bool = False             # авто-детект «бампинга» (детект отложен — см. decisions 2026-07-25)
+    # Фото-доказательства (порт из pr88): CSV своих URL (/secure/evidence/...), ≤10 шт.
+    # Спор «слово против слова» без фото нерешаем; файлы приватны (лица/номера/травмы).
+    evidence_urls: str = ""                  # доказательства заявителя
+    respondent_evidence_urls: str = ""       # доказательства обвинённого (право на защиту)
     respondent_statement: str = ""           # объяснение обвинённого (≤2000)
     responded_at: Optional[datetime] = None
     resolution: str = ""                     # none/dismissed/warning/strike/suspend/ban/mutual_resolved

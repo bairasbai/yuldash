@@ -52,7 +52,7 @@ def _safe_unlink_media(url: str) -> None:
         return
     storage = get_storage()
     # Не знаем область по URL — чистим во всех (лишние вызовы безвредны, delete идемпотентен).
-    for area in ("docs", "chat", "voice"):
+    for area in ("docs", "chat", "voice", "evidence"):
         storage.delete(f"{area}/{name}")
     storage.delete(name)   # legacy: файлы прямо в корне MEDIA_DIR
 
@@ -80,6 +80,12 @@ def delete_user_account(session: Session, user: User) -> None:
         media_urls += [ta.selfie_url, ta.permit_photo_url, ta.osago_url, ta.criminal_record_url]
     media_urls += list(session.exec(select(Message.voice_url).where(Message.sender_id == uid)).all())
     media_urls += list(session.exec(select(RideRequest.voice_url).where(RideRequest.passenger_id == uid)).all())
+    # Фото-доказательства МОИХ споров (лица/номера/травмы — чувствительное): мои как заявителя
+    # и мои как обвинённого. Чужие фото в тех же спорах не трогаем (не наши данные).
+    for csv_ in session.exec(select(Incident.evidence_urls).where(Incident.reporter_id == uid)).all():
+        media_urls += [u for u in (csv_ or "").split(",") if u]
+    for csv_ in session.exec(select(Incident.respondent_evidence_urls).where(Incident.respondent_id == uid)).all():
+        media_urls += [u for u in (csv_ or "").split(",") if u]
 
     # 2) id связанных сущностей — для FK-безопасного каскада.
     ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == uid)).all())

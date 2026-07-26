@@ -23,10 +23,10 @@ import os
 from abc import ABC, abstractmethod
 
 from .config import settings
-from .services import MEDIA_DIR, PRIVATE_DIR, public_media_url, secure_docs_url
+from .services import MEDIA_DIR, PRIVATE_DIR, public_media_url, secure_docs_url, secure_evidence_url
 
 # Первый сегмент ключа, который считается приватным (лежит вне публичного /media).
-PRIVATE_AREAS = {"docs"}
+PRIVATE_AREAS = {"docs", "evidence"}
 
 
 class StorageError(Exception):
@@ -133,9 +133,12 @@ class LocalStorage(Storage):
                     pass
 
     def url(self, key: str) -> str:
-        # Локально файлы отдаёт StaticFiles(/media) и /secure/docs — этот метод для симметрии.
+        # Локально файлы отдаёт StaticFiles(/media) и /secure/{docs,evidence} — метод для симметрии.
         if _is_private(key):
-            return secure_docs_url(_sanitize(key)[-1])
+            parts = _sanitize(key)
+            if parts[0] == "evidence":
+                return secure_evidence_url(parts[-1])
+            return secure_docs_url(parts[-1])
         return public_media_url("/".join(_sanitize(key)))
 
 

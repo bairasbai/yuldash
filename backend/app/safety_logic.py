@@ -33,8 +33,47 @@ SEVERE_TYPES: set[str] = {"harassment", "unsafe", "non_payment", "parcel_lost", 
 ACTIVE_INCIDENT_STATUSES = ("open", "awaiting_response", "under_review", "appealed")
 
 
+# Известные коды причин отмены (клиент #86 + набор pr88). Неизвестное → "other":
+# в БД не попадают произвольные 80-символьные строки, а факт «была причина» не теряется.
+CANCEL_REASONS: set = {
+    "plans_changed", "found_other", "driver_no_response", "price",
+    "driver_late", "passenger_late", "emergency", "safety", "not_going", "no_show", "other",
+}
+
+
 def clamp(text: Optional[str], limit: int) -> str:
     return (text or "").strip()[:limit]
+
+
+def is_own_media_url(s: str) -> bool:
+    """URL указывает на НАШ файл (публичное /media или приватный эвиденс /secure/evidence),
+    а не на чужой хост? Чужой `http://evil/x.png` при загрузке у оппонента/админа слил бы его IP
+    (деанон «между своими»). Приватный эвиденс — предпочтителен для доказательств (лица/номера)."""
+    s = (s or "").strip()
+    if not s:
+        return False
+    base = (settings.media_base_url or "").rstrip("/")
+    prefixes = ["/media/", "/secure/evidence/"]
+    if base:
+        prefixes += [base + "/media/", base + "/secure/evidence/"]
+    return any(s.startswith(p) for p in prefixes)
+
+
+def csv_from_urls(urls, max_items: int = 10, max_len: int = 500) -> str:
+    """Список URL доказательств → безопасный CSV: клампим количество/длину, без запятых.
+    Принимаем ТОЛЬКО свои URL (см. is_own_media_url) — внешние/чужие молча отбрасываем."""
+    if not urls:
+        return ""
+    clean = []
+    for u in urls[:max_items]:
+        s = str(u or "").replace(",", "").strip()[:max_len]
+        if is_own_media_url(s):
+            clean.append(s)
+    return ",".join(clean)
+
+
+def urls_from_csv(csv: str) -> list[str]:
+    return [u for u in (csv or "").split(",") if u]
 
 
 # ----------------------------- SafetyProfile -----------------------------
