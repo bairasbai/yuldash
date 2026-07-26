@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Yuldash taxi worker every minute (pre-orders, stuck orders, waiting queue)
+
+[Timer]
+# Раз в минуту: предзаказ «на 6:00» должен запускаться вовремя, а очередь «рядом никого»
+# перезапрашивает поиск не чаще order_retry_every_min — частота таймера ей не вредит.
+OnCalendar=*:0/1
+Persistent=false
+
+[Install]
+WantedBy=timers.target

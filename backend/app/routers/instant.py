@@ -508,6 +508,34 @@ def rate_order(order_id: int, body: RateIn, user: User = Depends(current_user),
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 
 
+# --------- очередь «рядом никого» ---------
+@router.post("/instant/orders/{order_id}/wait")
+def wait_for_driver(order_id: int, user: User = Depends(current_user),
+                    session: Session = Depends(get_session)):
+    """«Подожду машину» после «рядом никого».
+
+    Раньше отказ был мгновенным и окончательным: свободных водителей нет → заказ сразу expired,
+    повтора поиска не было вообще. В райцентре ночью на линии 2-3 водителя и оба заняты — это
+    не исключение, а норма: человек получал отказ за 2 секунды и уходил к конкуренту.
+    Теперь пассажир ставит заказ в очередь, а фоновый воркер (app/taxi_worker.py) спокойно
+    перезапускает поиск до order_wait_max_min минут и пушит, как только машина найдётся."""
+    order = session.get(InstantOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Заказ не найден")
+    if order.passenger_id != user.id:                     # анти-IDOR: ждать можно только свой заказ
+        raise HTTPException(403, "Это не твой заказ")
+    if order.status not in (isv.S.expired, isv.S.searching):
+        raise herr(409, "Ожидание доступно, пока машина не найдена",
+                   "Машина табылғанға тиклем генә көтөп була")
+    order.wait_until = utcnow() + timedelta(minutes=isv.settings.order_wait_max_min)
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return {"ok": True, "wait_until": order.wait_until,
+            "wait_minutes": isv.settings.order_wait_max_min,
+            "order": isv.order_payload(session, order, user)}
+
+
 # --------- отмена (обе стороны) ---------
 @router.post("/instant/orders/{order_id}/cancel")
 def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(current_user),
