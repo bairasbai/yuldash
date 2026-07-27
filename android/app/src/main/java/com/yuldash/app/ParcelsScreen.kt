@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Person
@@ -1033,6 +1034,9 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                     ParcelTrackMap(p, asCourier = false)
                 }
             }
+            // Трекинг-ссылка получателю: он без приложения смотрит доставку в браузере.
+            // Ручка была готова с G1, кнопки не существовало — фича жила только на сервере.
+            if (active) ParcelTrackLinkBlock(p.id)
             // C2: расчёт «купи и привези» — что получатель заплатит (товар + доставка)
             if (p.deliveryType == "buy_bring") {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }
@@ -1504,6 +1508,91 @@ private fun CarryingParcelCard(
             if (p.status == "in_transit" || delivered) {
                 ParcelDisputeButton(onClick = onDispute)
             }
+        }
+    }
+}
+
+
+/**
+ * «Отправить ссылку получателю» — он следит за доставкой в браузере, без установки приложения.
+ * Телефоны в ссылке не светятся. Отозвать можно тут же: опечатка в номере → ссылка ушла чужому
+ * человеку, который иначе 72 часа видел бы точки А/Б и живую позицию курьера.
+ */
+@Composable
+private fun ParcelTrackLinkBlock(parcelId: Int) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var link by remember(parcelId) { mutableStateOf<String?>(null) }
+    var smsSent by remember(parcelId) { mutableStateOf(false) }
+    var busy by remember(parcelId) { mutableStateOf(false) }
+    var err by remember(parcelId) { mutableStateOf<String?>(null) }
+    val failMsg = appText("Не получилось. Проверь сеть.", "Булманы. Селтәрҙе тикшер.")
+    val chooser = appText("Отправить ссылку", "Һылтанманы ебәреү")
+
+    val url = link
+    if (url == null) {
+        TextButton(
+            onClick = {
+                if (busy) return@TextButton
+                busy = true; err = null
+                scope.launch {
+                    ApiClient.createParcelTrackLink(parcelId)
+                        .onSuccess { link = it.url; smsSent = it.smsSent }
+                        .onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg }
+                    busy = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.IosShare, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(appText("Дать получателю ссылку для слежения", "Алыусыға күҙәтеү һылтанмаһы биреү"),
+                color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        err?.let { Text(it, color = CanonRed, fontSize = 12.sp) }
+        return
+    }
+
+    Surface(color = CanonMint, shape = CanonItemShape) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                if (smsSent) appText("Ссылка отправлена получателю по SMS", "Һылтанма алыусыға SMS менән ебәрелде")
+                else appText("Ссылка готова — отправь её получателю", "Һылтанма әҙер — алыусыға ебәр"),
+                color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+            )
+            Text(url, color = CanonText, fontSize = 12.sp, lineHeight = 17.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppButton(
+                    text = appText("Отправить", "Ебәреү"),
+                    onClick = { shareRide(ctx, url, chooser) },
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.IosShare,
+                    fillWidth = false,
+                    modifier = Modifier.weight(1f),
+                )
+                AppButton(
+                    text = appText("Отозвать", "Кире алыу"),
+                    onClick = {
+                        if (busy) return@AppButton
+                        busy = true
+                        scope.launch {
+                            ApiClient.revokeParcelTrackLink(parcelId).onSuccess { link = null; smsSent = false }
+                            busy = false
+                        }
+                    },
+                    style = AppButtonStyle.Secondary,
+                    loading = busy,
+                    fillWidth = false,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text(
+                appText(
+                    "Ошиблись номером? Отзови ссылку — она сразу перестанет работать.",
+                    "Номерҙа хата булдымы? Һылтанманы кире ал — ул шунда уҡ эшләмәй башлай.",
+                ),
+                color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp,
+            )
         }
     }
 }

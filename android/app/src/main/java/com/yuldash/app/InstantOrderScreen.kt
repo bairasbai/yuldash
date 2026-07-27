@@ -806,6 +806,10 @@ private fun InstantDestinationPicker(
                             val meta = buildList {
                                 if (est.distanceKm > 0) add(appText("≈ ${est.distanceKm.toInt()} км", "≈ ${est.distanceKm.toInt()} км"))
                                 if (est.etaMin > 0) add(appText("≈ ${est.etaMin.toInt()} мин в пути", "≈ ${est.etaMin.toInt()} мин юлда"))
+                                // Время ПОДАЧИ — то, что человек на самом деле хочет знать перед
+                                // заказом. Раньше его не показывали вообще: была только длительность
+                                // поездки, и «когда приедет?» оставалось без ответа.
+                                est.pickupEtaMin?.let { add(appText("машина через ≈$it мин", "машина ≈$it минуттан")) }
                             }.joinToString("  ·  ")
                             if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
                         }
@@ -1492,6 +1496,70 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
                 Text(appText("Поделиться поездкой", "Сәфәр менән бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
+    }
+    // Зимний протокол для такси: мягче SOS, но реальный. Раньше работал только для попуток,
+    // хотя четыре часа трассы Сибай–Уфа зимой — это как раз такси (аудит 2026-07-26).
+    InstantRoadsideButton(orderId)
+}
+
+/**
+ * «Застряли на трассе» — координаты уходят доверенным контактам и в ленту админа.
+ * Не паника, а честная просьба о помощи: между SOS и «всё нормально» была пустота.
+ */
+@Composable
+private fun InstantRoadsideButton(orderId: Int) {
+    val scope = rememberCoroutineScope()
+    var confirm by remember(orderId) { mutableStateOf(false) }
+    var busy by remember(orderId) { mutableStateOf(false) }
+    var sent by remember(orderId) { mutableStateOf(false) }
+
+    if (sent) {
+        Surface(color = CanonWarnBg, shape = CanonItemShape) {
+            Text(
+                appText(
+                    "Помощь вызвана: близкие и поддержка получили твои координаты.",
+                    "Ярҙам саҡырылды: яҡындар һәм ярҙам хеҙмәте координаталарыңды алды.",
+                ),
+                color = CanonWarn, fontSize = 13.sp, lineHeight = 18.sp,
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+            )
+        }
+        return
+    }
+    TextButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth()) {
+        Text(appText("Застряли на трассе — нужна помощь", "Юлда ҡалдыҡ — ярҙам кәрәк"),
+            color = CanonWarn, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) confirm = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Позвать помощь?", "Ярҙам саҡырырғамы?"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Text(
+                    appText(
+                        "Твоим доверенным контактам уйдёт SMS с координатами, а поддержка Юлдаша увидит сигнал. Если угрожает опасность — звони 112.",
+                        "Ышаныслы контакттарыңа координаталар менән SMS китә, Юлдаш ярҙамы сигналды күрә. Хәүеф янаһа — 112-гә шылтырат.",
+                    ),
+                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = !busy, onClick = {
+                    busy = true
+                    scope.launch {
+                        ApiClient.instantRoadsideHelp(orderId, LocationPrefs.lastLat, LocationPrefs.lastLng)
+                            .onSuccess { sent = true; confirm = false }
+                        busy = false
+                    }
+                }) { Text(appText("Позвать помощь", "Ярҙам саҡырыу"), color = CanonWarn, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(enabled = !busy, onClick = { confirm = false }) {
+                    Text(appText("Отмена", "Кире алыу"), color = CanonMuted)
+                }
+            },
+        )
     }
 }
 

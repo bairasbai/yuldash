@@ -369,10 +369,17 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
         if ct:
             options.append({"category": cat,
                             "price": _tariff_price(ct, dist_km, eta_min, total_k(ct, surge, now))})
+    # ВРЕМЯ ПОДАЧИ — не то же самое, что длительность поездки. Раньше клиент показывал только
+    # eta_min («N мин в пути»), и на вопрос «когда машина приедет?» ответа не было вообще
+    # (аудит 2026-07-26). Берём ближайшую живую машину из presence; нет Redis или рядом никого →
+    # None, то есть честное «не знаю», а не выдуманное число.
+    nearest = nearby_drivers(frm[0], frm[1], limit=1)
+    pickup_eta = int(nearest[0]["eta_min"]) if nearest else None
     return {
         "price": price,
         "distance_km": round(dist_km, 2),
         "eta_min": round(eta_min, 1),
+        "pickup_eta_min": pickup_eta,
         "zone": zone,
         "category": category,
         "tariff_id": t.id,

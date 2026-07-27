@@ -8,6 +8,8 @@ package com.yuldash.app
 //         приём/доставка — существующие /parcels/{id}/accept, /parcels/{id}/status, /parcels/carrying.
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
@@ -83,7 +85,9 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.CourierMeDto
 import com.yuldash.app.data.ParcelDto
 import com.yuldash.app.data.PayCommissionDto
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun CourierScreen(
@@ -593,6 +597,23 @@ private fun CourierCarryingTab() {
         var code by remember(target.id) { mutableStateOf("") }
         var codeError by remember(target.id) { mutableStateOf<String?>(null) }
         var submitting by remember(target.id) { mutableStateOf(false) }
+        // Фото «отдал целой» — граница ответственности. Поле сервер принимал давно, клиент его
+        // не слал, и в споре о повреждении у курьера не было НИЧЕГО, кроме своего слова.
+        var deliveryPhoto by remember(target.id) { mutableStateOf<String?>(null) }
+        var photoBusy by remember(target.id) { mutableStateOf(false) }
+        val photoFail = appText("Фото не загрузилось, попробуй ещё раз", "Фото йөкләнмәне, тағы ҡабатла")
+        val pickDeliveryPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            photoBusy = true
+            scope.launch {
+                val bytes = withContext(Dispatchers.IO) { decodeToJpeg(ctx, uri) }
+                if (bytes == null) { photoBusy = false; codeError = photoFail; return@launch }
+                ApiClient.uploadEvidence(bytes)
+                    .onSuccess { url -> if (url.isNotBlank()) deliveryPhoto = url }
+                    .onFailure { codeError = photoFail }
+                photoBusy = false
+            }
+        }
         AlertDialog(
             onDismissRequest = { if (!submitting) deliverTarget = null },
             containerColor = CanonSurface,
@@ -610,6 +631,19 @@ private fun CourierCarryingTab() {
                         isError = codeError != null,
                     )
                     if (codeError != null) Text(codeError ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    // Фото «отдал целой» — необязательно, но это единственное, что отличает
+                    // слово от доказательства, если получатель потом скажет «пришло битое».
+                    AppButton(
+                        text = when {
+                            deliveryPhoto != null -> appText("Фото приложено ✓", "Фото тағылды ✓")
+                            photoBusy -> appText("Загружаем фото…", "Фото йөкләнә…")
+                            else -> appText("Сфотографировать при вручении", "Тапшырғанда фотоға төшөрөү")
+                        },
+                        onClick = { if (!photoBusy && deliveryPhoto == null) pickDeliveryPhoto.launch("image/*") },
+                        style = AppButtonStyle.Secondary,
+                        loading = photoBusy,
+                        enabled = !photoBusy && deliveryPhoto == null,
+                    )
                 }
             },
             confirmButton = {
@@ -618,7 +652,7 @@ private fun CourierCarryingTab() {
                     onClick = {
                         submitting = true; codeError = null
                         scope.launch {
-                            ApiClient.setParcelStatus(target.id, "delivered", code.trim())
+                            ApiClient.setParcelStatus(target.id, "delivered", code.trim(), deliveryPhoto)
                                 .onSuccess {
                                     Toast.makeText(ctx, deliveredMsg, Toast.LENGTH_SHORT).show()
                                     deliverTarget = null; reload()

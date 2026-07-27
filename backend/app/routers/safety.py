@@ -606,11 +606,34 @@ def roadside_help(
     """«Я застрял / нужна помощь на трассе» — уровень мягче паники SOS, но реальный: координаты
     уходят доверенным контактам, событие пишется в SOS-ленту админа. Доступно только участнику поездки."""
     booking_and_ride_for_user(session, booking_id, user)   # 403/404 если чужой/нет брони
+    return _roadside(session, background, user, body, booking_id=booking_id)
+
+
+@router.post("/instant/orders/{order_id}/stuck", response_model=SosEvent)
+def roadside_help_order(
+    order_id: int,
+    body: StuckIn,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """То же для ТАКСИ-заказа. Зимний протокол работал только для попуток, хотя именно в такси
+    зимой четыре часа трассы Сибай–Уфа: застрявшему в такси идти было некуда, кроме красной
+    кнопки SOS (аудит 2026-07-26). Доступно обеим сторонам заказа."""
+    _order_for_participant(session, order_id, user)   # общий гейт участия (404/403), не дублируем
+    return _roadside(session, background, user, body, order_id=order_id)
+
+
+def _roadside(session: Session, background: BackgroundTasks, user: User, body: "StuckIn",
+              booking_id: Optional[int] = None, order_id: Optional[int] = None) -> SosEvent:
+    """Общая механика «застрял»: событие в ленту админа + SMS доверенным + Telegram.
+    Одна реализация на попутку и такси — иначе они разойдутся при первой же правке."""
     link = _maps_link(body.lat, body.lng)
     where = f" Место: {link}" if link else ""
     # Событие в SOS-ленту админа фиксируем СИНХРОННО (не теряем сигнал о помощи).
     note = (f"Застрял на трассе (зимний протокол). {body.note}".strip() + where).strip()
-    event = SosEvent(user_id=user.id, booking_id=booking_id, category="breakdown", note=note)
+    event = SosEvent(user_id=user.id, booking_id=booking_id, order_id=order_id,
+                     category="breakdown", note=note)
     session.add(event)
     session.commit()
     session.refresh(event)
@@ -640,7 +663,8 @@ def roadside_help(
         f"Контактов уведомлено: {len(phones)}\n"
         f"Детали: {body.note or '—'}{where}"
     )
-    log.info(f"[ROADSIDE] user={user.id} booking={booking_id} contacts_notified={len(phones)}")
+    log.info(f"[ROADSIDE] user={user.id} booking={booking_id} order={order_id} "
+             f"contacts_notified={len(phones)}")
     return event
 
 

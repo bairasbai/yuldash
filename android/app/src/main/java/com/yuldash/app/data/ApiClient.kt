@@ -2036,6 +2036,7 @@ object ApiClient {
                 price = o.optInt("price"),
                 distanceKm = o.optDouble("distance_km", 0.0),
                 etaMin = o.optDouble("eta_min", 0.0),
+                pickupEtaMin = if (o.isNull("pickup_eta_min")) null else o.optInt("pickup_eta_min"),
                 zone = o.optString("zone"),
                 category = o.optString("category", category),
                 tariffId = o.optInt("tariff_id"),
@@ -2962,9 +2963,14 @@ object ApiClient {
             .onSuccess { Analytics.log("parcel_accept") }
 
     /** Курьер: сменить статус. status="in_transit" или "delivered"+code. 422 — неверный код. */
-    suspend fun setParcelStatus(id: Int, status: String, code: String? = null): Result<ParcelDto> {
+    /** deliveryPhotoUrl — фото «отдал целой» на границе ответственности: в споре о повреждении
+     *  это единственное, что отличает слово от доказательства (поле сервер принимал, клиент не слал). */
+    suspend fun setParcelStatus(
+        id: Int, status: String, code: String? = null, deliveryPhotoUrl: String? = null,
+    ): Result<ParcelDto> {
         val body = JSONObject().put("status", status)
         code?.takeIf { it.isNotBlank() }?.let { body.put("code", it.trim()) }
+        deliveryPhotoUrl?.takeIf { it.isNotBlank() }?.let { body.put("delivery_photo_url", it) }
         return call("POST", "/parcels/$id/status", body, auth = true).map { parseParcel(it) }
             .onSuccess { Analytics.log("parcel_status_$status") }
     }
@@ -3396,6 +3402,15 @@ object ApiClient {
     // Сервер уже умеет всё ниже; здесь только доступ. Все ручки идемпотентны или дают понятный
     // 409 — экраны показывают текст ошибки как есть (он двуязычный, приходит с сервера).
 
+    /** «Застрял на трассе» в ТАКСИ-заказе: координаты доверенным + сигнал админу.
+     *  Зимний протокол работал только для попуток, хотя четыре часа трассы зимой — это такси. */
+    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Unit> {
+        val body = JSONObject().put("note", note.take(500))
+        if (lat != null) body.put("lat", lat)
+        if (lng != null) body.put("lng", lng)
+        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { }
+    }
+
     /** «Подожду машину» после «рядом никого»: заказ встаёт в очередь, воркер продолжит поиск. */
     suspend fun waitForDriver(orderId: Int): Result<InstantWaitDto> =
         call("POST", "/instant/orders/$orderId/wait", JSONObject(), auth = true).map { o ->
@@ -3534,6 +3549,41 @@ object ApiClient {
     /** Админ: снять курьера с посылки (пропал со связи) — заказ вернётся в общий список. */
     suspend fun adminParcelReleaseCourier(parcelId: Int, reason: String = ""): Result<Unit> =
         call("POST", "/admin/parcels/$parcelId/release-courier", JSONObject().put("reason", reason.take(200)), auth = true).map { }
+
+    /** Мои бейджи профиля (G8): поездки, помощь посылкам, стаж, «проверен».
+     *  Бэкенд был готов давно, приложение его не звало — награда существовала только в БД. */
+    suspend fun getMyAchievements(): Result<AchievementsDto> =
+        call("GET", "/me/achievements", null, auth = true).map { o ->
+            val arr = o.optJSONArray("achievements") ?: JSONArray()
+            AchievementsDto(
+                trips = o.optInt("trips"),
+                parcelsHelped = o.optInt("parcels_helped"),
+                daysWithYuldash = o.optInt("days_with_yuldash"),
+                earnedCount = o.optInt("earned_count"),
+                items = (0 until arr.length()).map { i ->
+                    val b = arr.getJSONObject(i)
+                    AchievementDto(
+                        code = b.optString("code"),
+                        ru = b.optString("ru"),
+                        ba = b.optString("ba"),
+                        goal = b.optInt("goal"),
+                        value = b.optInt("value"),
+                        earned = b.optBoolean("earned"),
+                    )
+                },
+            )
+        }
+
+    /** Трекинг-ссылка посылки для ПОЛУЧАТЕЛЯ (он без приложения смотрит доставку в браузере).
+     *  Дедуп на сервере: повтор возвращает тот же токен — ссылка у получателя не протухает. */
+    suspend fun createParcelTrackLink(parcelId: Int): Result<ParcelTrackLinkDto> =
+        call("POST", "/parcels/$parcelId/track-link", JSONObject(), auth = true).map { o ->
+            ParcelTrackLinkDto(url = o.optString("url"), smsSent = o.optBoolean("sms_sent"))
+        }
+
+    /** Отозвать трекинг-ссылку (опечатка в номере → ссылка ушла чужому человеку). */
+    suspend fun revokeParcelTrackLink(parcelId: Int): Result<Unit> =
+        call("DELETE", "/parcels/$parcelId/track-link", null, auth = true).map { }
 
     // ---------- Админ: модерация текстовых отзывов о поездке ----------
     // Текст оценки публикуется в профиле ТОЛЬКО после одобрения (Rating.text_published).
@@ -3727,6 +3777,9 @@ data class InstantEstimateDto(
     val price: Int,
     val distanceKm: Double,
     val etaMin: Double,
+    // Через сколько подъедет машина. null = рядом никого / не знаем — честно молчим, а не
+    // выдумываем число. Это НЕ etaMin: тот про длительность самой поездки А→Б.
+    val pickupEtaMin: Int? = null,
     val zone: String,
     val category: String,
     val tariffId: Int,
@@ -4675,6 +4728,24 @@ data class DriverTaxiRidesDto(
     val rides: List<DriverTaxiRideDto>,
     val totalPriceRub: Int, val totalFeeKop: Int, val totalNetKop: Int,
 )
+
+/** Один бейдж профиля: earned=false → показываем прогресс value/goal, а не прячем. */
+data class AchievementDto(
+    val code: String, val ru: String, val ba: String,
+    val goal: Int, val value: Int, val earned: Boolean,
+)
+
+/** Бейджи профиля (G8). На распределение заказов не влияют — это про тепло, а не про рейтинг. */
+data class AchievementsDto(
+    val trips: Int,
+    val parcelsHelped: Int,
+    val daysWithYuldash: Int,
+    val earnedCount: Int,
+    val items: List<AchievementDto>,
+)
+
+/** Трекинг-ссылка посылки: url для получателя + ушла ли ему SMS. */
+data class ParcelTrackLinkDto(val url: String, val smsSent: Boolean)
 
 /** Текстовый отзыв о поездке, ждущий модерации. Пока не одобрен — в профиле его нет. */
 data class PendingRatingDto(
