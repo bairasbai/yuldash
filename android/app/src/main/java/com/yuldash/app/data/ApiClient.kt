@@ -2921,6 +2921,7 @@ object ApiClient {
         fromCity: String, toCity: String, size: String, description: String,
         receiverName: String, receiverPhone: String, rulesAccepted: Boolean,
         fromLat: Double? = null, fromLng: Double? = null, toLat: Double? = null, toLng: Double? = null,
+        priceKop: Int = 0, declaredValueKop: Int = 0,
     ): Result<ParcelDto> = call(
         "POST", "/parcels",
         JSONObject()
@@ -2928,6 +2929,10 @@ object ApiClient {
             .put("size", size).put("description", description)
             .put("receiver_name", receiverName).put("receiver_phone", receiverPhone)
             .put("rules_accepted", rulesAccepted)
+            // Сколько отправитель платит курьеру: раньше цены у «по пути» не было вообще,
+            // и курьер брал посылку вслепую. 0 = «по-соседски», это тоже честный вариант.
+            .put("price_kop", priceKop)
+            .put("declared_value_kop", declaredValueKop)
             .put("from_lat", fromLat ?: JSONObject.NULL).put("from_lng", fromLng ?: JSONObject.NULL)
             .put("to_lat", toLat ?: JSONObject.NULL).put("to_lng", toLng ?: JSONObject.NULL),
         auth = true,
@@ -2982,7 +2987,7 @@ object ApiClient {
             (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
         }
 
-    /** Админ: все посылки + выписка (сколько доставлено, собранный сбор). */
+    /** Админ: все посылки + честная выписка по деньгам (дошло / должны / не выставлено). */
     suspend fun adminListParcels(): Result<ParcelAdminListDto> =
         call("GET", "/admin/parcels", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("parcels") ?: JSONArray()
@@ -2992,6 +2997,8 @@ object ApiClient {
                 statement = ParcelStatementDto(
                     deliveredCount = s?.optInt("delivered_count") ?: 0,
                     collectedFeeKop = s?.optInt("collected_fee_kop") ?: 0,
+                    owedCommissionKop = s?.optInt("owed_commission_kop") ?: 0,
+                    unbilledFeeKop = s?.optInt("unbilled_fee_kop") ?: 0,
                 ),
             )
         }
@@ -5133,8 +5140,14 @@ data class CourierMeDto(
     val pausedUntil: String? = null,
 )
 
-/** Выписка по посылкам (админ): сколько доставлено и собранный сбор. */
-data class ParcelStatementDto(val deliveredCount: Int, val collectedFeeKop: Int)
+/** Выписка по посылкам (админ). Три разных числа вместо одного «собрано», которое врало:
+ *  сбор «по пути» никому не выставляется, а показывался как выручка (аудит 2026-07-26). */
+data class ParcelStatementDto(
+    val deliveredCount: Int,
+    val collectedFeeKop: Int,          // деньги дошли: курьеры оплатили комиссию
+    val owedCommissionKop: Int = 0,    // начислено курьерам, ещё не оплачено (долг)
+    val unbilledFeeKop: Int = 0,       // сбор «по пути»: выставить некому — это не выручка
+)
 
 /** Ответ /admin/parcels: все посылки + выписка. */
 data class ParcelAdminListDto(val parcels: List<ParcelDto>, val statement: ParcelStatementDto)

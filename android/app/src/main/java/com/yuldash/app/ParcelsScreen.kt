@@ -403,6 +403,9 @@ private fun SendParcelTab(onSent: () -> Unit) {
     // Объявленная ценность: поля в форме не было вообще, поэтому спор о повреждении ВСЕГДА падал
     // в ветку «ценность не объявлена» — доказывать было нечем (аудит 2026-07-26).
     var declaredRub by remember { mutableStateOf("") }
+    // Сколько отправитель платит попутчику. У «по пути» цены не было ВООБЩЕ: курьер видел
+    // маршрут и размер, а за сколько везти — нигде (аудит 2026-07-26). Пусто = «по-соседски».
+    var priceRub by remember { mutableStateOf("") }
     var productRub by remember { mutableStateOf("") }
     var estimate by remember { mutableStateOf<CourierEstimateDto?>(null) }
     var fromLat by remember { mutableStateOf<Double?>(null) }
@@ -517,6 +520,31 @@ private fun SendParcelTab(onSent: () -> Unit) {
         item {
             ParcelField(description, { description = it }, appText("Что за посылка", "Нимә бул"), appText("Например: документы, книга, гостинец", "Мәҫәлән: документтар, китап, күстәнәс"), minLines = 2)
         }
+        // Сколько заплатишь попутчику. Только для «по пути»: у курьерских типов цену считает
+        // сервер (EstimateCard ниже). Раньше поля не было, и человек соглашался везти вслепую.
+        if (!isCourier) {
+            item {
+                ParcelField(
+                    priceRub, { priceRub = it.filter(Char::isDigit).take(6) },
+                    appText("Сколько заплатишь попутчику, ₽", "Юлдашҡа күпме түләйһең, ₽"),
+                    "0", phone = true,
+                )
+            }
+            item {
+                Text(
+                    if ((priceRub.toIntOrNull() ?: 0) > 0)
+                        appText(
+                            "Отдашь эти деньги попутчику лично — Юлдаш к ним не прикасается.",
+                            "Был аҡсаны юлдашҡа үҙең бирәһең — Юлдаш уға ҡағылмай.",
+                        )
+                    else appText(
+                        "Оставь пусто — значит по-соседски, бесплатно. Так и увидит попутчик.",
+                        "Буш ҡалдыр — тимәк күрше хаҡы, бушлай. Юлдаш шулай күрер.",
+                    ),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
+        }
         // Объявленная ценность. Поля не было вообще — и любой спор о повреждении падал в ветку
         // «ценность не объявлена»: доказывать было нечем, ориентира для компенсации не существовало.
         item {
@@ -586,6 +614,13 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 fromCity = fromCity.trim(), toCity = toCity.trim(), size = size,
                                 description = description.trim(), receiverName = receiverName.trim(),
                                 receiverPhone = receiverPhone.trim(), rulesAccepted = rulesAccepted,
+                                // Цена попутчику и объявленная ценность: раньше «по пути»
+                                // не слал ни того, ни другого — курьер вёз вслепую, а спор
+                                // всегда падал в ветку «ценность не объявлена».
+                                // Потолок тот же, что на сервере (100 000 ₽): без него шесть
+                                // цифр в поле давали 422 вместо понятного ответа.
+                                priceKop = ((priceRub.toIntOrNull() ?: 0) * 100).coerceIn(0, 100_000_00),
+                                declaredValueKop = ((declaredRub.toIntOrNull() ?: 0) * 100).coerceIn(0, 100_000_00),
                             )
                                 .onSuccess { created = it }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -642,7 +677,9 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 rulesAccepted = rulesAccepted, deliveryType = deliveryType, urgency = urgency,
                                 codAmountKop = if (deliveryType == "buy_bring") (productRubInt ?: 0) * 100 else null,
                                 shoppingList = if (deliveryType == "buy_bring") shoppingList.trim() else null,
-                                declaredValueKop = declaredRub.toIntOrNull()?.takeIf { it > 0 }?.times(100),
+                                // Потолок как на сервере — шесть цифр в поле иначе дают 422.
+                                declaredValueKop = declaredRub.toIntOrNull()?.takeIf { it > 0 }
+                                    ?.let { (it * 100).coerceAtMost(100_000_00) },
                             )
                                 .onSuccess { created = it }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -997,7 +1034,9 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                 Spacer(Modifier.width(6.dp))
                 Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonText, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
-                if (p.feeKop > 0) Text(kopToRub(p.feeKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                // Цифра здесь — сколько отправитель платит курьеру. Раньше показывался наш
+                // сервисный сбор, и человек читал его как цену доставки (аудит 2026-07-26).
+                if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
             }
             // Курьер (когда принята)
             p.courier?.let { cr ->
@@ -1209,7 +1248,13 @@ private fun AvailableParcelCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit)
                     ParcelRouteRow(p.fromCity, p.toCity)
                     Text(parcelSizeLabel(p.size), color = CanonMuted, fontSize = 13.sp)
                 }
-                if (p.feeKop > 0) Text(kopToRub(p.feeKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                // Что получит попутчик. Раньше здесь стоял НАШ сбор — курьер видел «30 ₽» и
+                // думал, что это его деньги, а про свою оплату не знал ничего (аудит 2026-07-26).
+                if (p.priceKop > 0) {
+                    Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                } else {
+                    Text(appText("По-соседски", "Күрше хаҡы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
             }
             if (p.description.isNotBlank()) {
                 Text(p.description, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
@@ -1460,8 +1505,12 @@ private fun CarryingParcelCard(
             if (buyBring) {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = true) }
             }
-            if (p.feeKop > 0) {
-                Text(appText("Твой сбор: ", "Һинең сбор: ") + kopToRub(p.feeKop), color = CanonMuted, fontSize = 13.sp)
+            // Деньги курьера — это то, что платит отправитель. Наш сервисный сбор сюда не
+            // подписываем: раньше он стоял под словом «Твой сбор», хотя это не его деньги.
+            if (p.priceKop > 0) {
+                Text(appText("Тебе заплатят: ", "Һиңә түләйәсәктәр: ") + kopToRub(p.priceKop), color = CanonMuted, fontSize = 13.sp)
+            } else {
+                Text(appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"), color = CanonMuted, fontSize = 13.sp)
             }
             if (!delivered) {
                 if (needGoods) {

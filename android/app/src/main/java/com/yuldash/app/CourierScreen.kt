@@ -404,8 +404,13 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit
                         CourierDeliveryTag(p.deliveryType, p.urgency)
                     }
                 }
-                val amount = if (p.priceKop > 0) p.priceKop else p.feeKop
-                if (amount > 0) Text(kopToRub(amount), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                // Только цена доставки — то, что достанется курьеру. Наш сервисный сбор
+                // (feeKop) сюда не подставляем: это чужие деньги (аудит 2026-07-26).
+                if (p.priceKop > 0) {
+                    Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                } else {
+                    Text(appText("По-соседски", "Күрше хаҡы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
             }
             if (p.description.isNotBlank()) {
                 Text(p.description, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
@@ -778,8 +783,13 @@ private fun CourierCarryingCard(
             val myIncome = p.priceKop - p.commissionKop
             if (myIncome > 0) {
                 Text(appText("Твой доход: ", "Һинең килем: ") + kopToRub(myIncome) + appText(" (наш сбор ${kopToRub(p.commissionKop)}$feeEst)", " (беҙҙең сбор ${kopToRub(p.commissionKop)}$feeEst)"), color = CanonMuted, fontSize = 13.sp)
-            } else if (p.feeKop > 0) {
-                Text(appText("Твой сбор: ", "Һинең сбор: ") + kopToRub(p.feeKop), color = CanonMuted, fontSize = 13.sp)
+            } else {
+                // «По пути»: комиссии платформы нет, вся оплата — напрямую от отправителя.
+                Text(
+                    if (p.priceKop > 0) appText("Тебе заплатят: ", "Һиңә түләйәсәктәр: ") + kopToRub(p.priceKop)
+                    else appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"),
+                    color = CanonMuted, fontSize = 13.sp,
+                )
             }
             if (!delivered) {
                 if (needGoods) {

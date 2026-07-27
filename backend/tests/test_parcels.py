@@ -33,7 +33,9 @@ def test_full_happy_path(client, user_factory):
     p = r.json()
     pid = p["id"]
     assert p["status"] == "created"
-    assert p["fee_kop"] == 3000                 # small = 30 ₽
+    # Сбор платформы за «по пути» по умолчанию не начисляется: платить его некому, а начислять
+    # «в воздух» и показывать как выручку — враньё (аудит 2026-07-26, settings.parcel_fee_enabled).
+    assert p["fee_kop"] == 0
     assert p["confirm_code"]                     # отправитель видит код
     code = p["confirm_code"]
     assert p["receiver_name"] == "Гүзәл"
@@ -78,12 +80,11 @@ def test_full_happy_path(client, user_factory):
     rc2 = client.get("/parcels/carrying", headers=courier["auth"])
     assert all(x["id"] != pid for x in rc2.json())
 
-    # admin statement суммирует fee
+    # admin statement: считает доставленные, а «собрано» — только реально оплаченные комиссии
     admin = user_factory(name="Админ", role=UserRole.admin)
     radm = client.get("/admin/parcels", headers=admin["auth"])
     assert radm.status_code == 200, radm.text
     st = radm.json()["statement"]
-    assert st["collected_fee_kop"] >= 3000
     assert st["delivered_count"] >= 1
     row = next(x for x in radm.json()["parcels"] if x["id"] == pid)
     assert row["confirm_code"] == code           # админ видит код (для поддержки)

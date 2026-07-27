@@ -1,10 +1,12 @@
 package com.yuldash.app
 
 // ═══════════════════ M3: Админ — доставки посылок ═══════════════════
-// Список всех посылок + плашка дохода (сколько доставлено, собранный сбор Юлдаша).
+// Список всех посылок + честная выписка по деньгам: сколько курьеры реально оплатили,
+// сколько должны, и отдельно — сбор «по пути», который выставить некому (это не выручка).
 // По паттерну AdminPartnersScreen: умная обёртка держит стейт+сеть, LazyColumn рисует все состояния.
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,6 +43,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -228,20 +232,56 @@ private fun AdminCloseOption(label: String, selected: Boolean, onClick: () -> Un
     }
 }
 
+/** Выписка по деньгам доставки. Раньше здесь была одна строка «Собранный сбор» — и она врала:
+ *  сбор «по пути» никому не выставляется, платить его некому, а цифра выглядела как выручка
+ *  (аудит 2026-07-26). Теперь три разных числа и каждое означает ровно то, что написано. */
 @Composable
 private fun ParcelStatementCard(s: ParcelStatementDto) {
     Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
-        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp)) {
-                Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(26.dp))
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp)) {
+                    Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(26.dp))
+                }
+                Spacer(Modifier.width(16.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(appText("Курьеры оплатили", "Курьерҙар түләне"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(kopToRub(s.collectedFeeKop), color = CanonText, fontWeight = FontWeight.Black, fontSize = 26.sp)
+                    Text(appText("Доставлено посылок: ${s.deliveredCount}", "Тапшырылған бандеролдәр: ${s.deliveredCount}"), color = CanonMuted, fontSize = 13.sp)
+                }
             }
-            Spacer(Modifier.width(16.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(appText("Собранный сбор", "Йыйылған сбор"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Text(kopToRub(s.collectedFeeKop), color = CanonText, fontWeight = FontWeight.Black, fontSize = 26.sp)
-                Text(appText("Доставлено посылок: ${s.deliveredCount}", "Тапшырылған бандеролдәр: ${s.deliveredCount}"), color = CanonMuted, fontSize = 13.sp)
+            if (s.owedCommissionKop > 0 || s.unbilledFeeKop > 0) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(CanonHairlineGreen))
+                if (s.owedCommissionKop > 0) {
+                    StatementRow(
+                        label = appText("Ждём от курьеров", "Курьерҙарҙан көтәбеҙ"),
+                        value = kopToRub(s.owedCommissionKop),
+                        hint = appText("начислено, ещё не оплачено", "иҫәпләнгән, әле түләнмәгән"),
+                        accent = CanonWarn,
+                    )
+                }
+                if (s.unbilledFeeKop > 0) {
+                    StatementRow(
+                        label = appText("Сбор «по пути»", "«Юл ыңғайы» йыйымы"),
+                        value = kopToRub(s.unbilledFeeKop),
+                        hint = appText("выставить некому — это не выручка", "талап итер кеше юҡ — был килем түгел"),
+                        accent = CanonMuted,
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun StatementRow(label: String, value: String, hint: String, accent: Color) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(hint, color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(value, color = accent, fontWeight = FontWeight.Black, fontSize = 17.sp)
     }
 }
 
@@ -268,7 +308,9 @@ private fun AdminParcelCard(p: ParcelDto, onAction: (Pair<ParcelDto, String>) ->
                 Spacer(Modifier.width(6.dp))
                 Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonText, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
-                if (p.feeKop > 0) Text(kopToRub(p.feeKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                // Сумма сделки — то, что отправитель платит курьеру. Наш сбор здесь не показываем:
+                // это разные деньги, и раньше их путали (аудит 2026-07-26).
+                if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
             }
             p.courier?.let { cr ->
                 Row(verticalAlignment = Alignment.CenterVertically) {

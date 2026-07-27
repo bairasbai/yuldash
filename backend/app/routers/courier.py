@@ -666,8 +666,8 @@ class CourierOrderIn(BaseModel):
     rules_accepted: bool = False
     delivery_type: str = Field("courier", max_length=16)   # courier | buy_bring
     urgency: str = Field("bypath", max_length=16)
-    declared_value_kop: int = Field(0, ge=0, le=100_000_00)   # объявленная ценность ≤ 1 млн ₽
-    cod_amount_kop: int = Field(0, ge=0, le=100_000_00)       # buy_bring: наложка ≤ 1 млн ₽
+    declared_value_kop: int = Field(0, ge=0, le=100_000_00)   # объявленная ценность ≤ 100 000 ₽
+    cod_amount_kop: int = Field(0, ge=0, le=100_000_00)       # buy_bring: наложка ≤ 100 000 ₽
     shopping_list: str = Field("", max_length=2000)        # buy_bring: что купить (уходит в description)
 
 

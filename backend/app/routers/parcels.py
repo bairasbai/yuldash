@@ -62,6 +62,11 @@ _COURIER_HOLDS = ("accepted", "in_transit")
 _FINAL_STATUSES = ("delivered", "canceled", "returned")
 # Статусы, в которых отмена отправителем даёт курьеру компенсацию (он уже выехал за посылкой).
 _CANCEL_FEE_STATUSES = ("accepted", "in_transit")
+# Типы доставки, где у комиссии платформы есть РЕАЛЬНЫЙ путь оплаты: одобренный курьер видит
+# долг в кабинете и гасит его через /courier/pay-commission. У «по пути» такого пути нет —
+# поэтому в отчёте админа эти деньги считаются отдельно и не называются «собрано»
+# (дубль _COURIER_TYPES из courier.py: импортировать оттуда нельзя — цикл, courier импортирует нас).
+_BILLABLE_TYPES = ("courier", "buy_bring")
 
 # Анти-абуз отказов курьера: снялся с заказа больше стольких раз за окно → сигнал админу
 # (не блокируем автоматически — «между своими» разбирается человеком).
@@ -94,8 +99,13 @@ class ParcelIn(BaseModel):
     to_lat: Optional[float] = None
     to_lng: Optional[float] = None
     # Объявленная ценность (коп) — ориентир при споре. Раньше форма «по пути» её не слала, и в
-    # разборе всегда была ветка «ценность не объявлена» (аудит 2026-07-26). Потолок 1 млн ₽.
+    # разборе всегда была ветка «ценность не объявлена» (аудит 2026-07-26). Потолок 100 000 ₽.
     declared_value_kop: int = Field(0, ge=0, le=100_000_00)
+    # Сколько отправитель платит курьеру за доставку (коп). У «по пути» цены не было ВООБЩЕ:
+    # курьер видел маршрут и размер, а за сколько везти — нигде (аудит 2026-07-26). Теперь
+    # отправитель называет сумму сам, и она видна ДО принятия. 0 — тоже честный ответ:
+    # «по-соседски, бесплатно», и так и подписано. Деньги идут напрямую (Модель А). Потолок 100 000 ₽.
+    price_kop: int = Field(0, ge=0, le=100_000_00)
 
 
 class ParcelAcceptIn(BaseModel):
@@ -258,7 +268,14 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     (он передаёт код получателю вне приложения; получатель назовёт его курьеру при вручении).
 
     Валидация: from_city/to_city/receiver_name обязательны (422); size ∈ PARCEL_FEES (422);
-    rules_accepted обязателен True (422). fee_kop = PARCEL_FEES[size], фиксируется в заявке."""
+    rules_accepted обязателен True (422).
+
+    Деньги (аудит 2026-07-26):
+    - `price_kop` — сколько отправитель платит курьеру. Фиксируем в заявке и показываем курьеру
+      ДО принятия: раньше он брал посылку, не зная, заплатят ли вообще.
+    - `fee_kop` — сервисный сбор платформы. Начисляем ТОЛЬКО если settings.parcel_fee_enabled:
+      пока платить его некому и нечем (см. комментарий у флага), а «начислили и показали как
+      собранное» — это выдуманная выручка."""
     # Гейт «Справедливости»: приостановленный за нарушения (напр. кража груза) не заводит новые
     # доставки. Раньше проверки не было ни здесь, ни в accept — отстранённый в тот же день брал
     # следующую посылку, и пауза была декорацией (аудит 2026-07-26).
@@ -290,7 +307,9 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
         description=body.description.strip(),
         receiver_name=receiver_name,
         receiver_phone=body.receiver_phone.strip(),
-        fee_kop=PARCEL_FEES[size],
+        fee_kop=(PARCEL_FEES[size] if settings.parcel_fee_enabled else 0),
+        # Сколько отправитель платит курьеру (0 = «по-соседски», это честный вариант).
+        delivery_price_kop=int(body.price_kop or 0),
         # Объявленная ценность — ориентир при разборе спора (0 = не объявлена).
         declared_value_kop=int(body.declared_value_kop or 0),
         status="created",
@@ -304,7 +323,8 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
             f"📦 Новая посылка на доставку\n"
             f"ID: {parcel.id}\n"
             f"Маршрут: {parcel.from_city} → {parcel.to_city}\n"
-            f"Размер: {parcel.size} · сбор {parcel.fee_kop // 100} ₽\n"
+            f"Размер: {parcel.size} · курьеру {parcel.delivery_price_kop // 100} ₽"
+            + (f" · сбор {parcel.fee_kop // 100} ₽" if parcel.fee_kop else "") + "\n"
             f"От: {user.name or 'отправитель'}"
         )
     except Exception:
@@ -769,15 +789,36 @@ def _parcel_admin(p: ParcelDelivery) -> dict:
 @router.get("/admin/parcels")
 def admin_parcels(limit: int = 200, offset: int = 0,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Все заявки (контроль/поддержка) + statement дохода платформы: сумма fee по delivered."""
+    """Все заявки (контроль/поддержка) + ЧЕСТНЫЙ statement по деньгам доставки.
+
+    Раньше здесь была одна строка «собрано» = сумма fee_kop по доставленным. Она врала: сбор
+    «по пути» не выставляется никому (платить его некому — попутчик не курьер), то есть цифра
+    показывала деньги, которых нет (аудит 2026-07-26). Теперь три разных числа, и каждое
+    означает ровно то, что написано:
+
+    - collected_fee_kop — РЕАЛЬНО оплаченные курьерами комиссии (деньги дошли);
+    - owed_commission_kop — начислено курьерам и ещё не оплачено (долг, путь оплаты есть);
+    - unbilled_fee_kop — сбор по «по пути»: начислен тарифом, но никому не выставлен (не выручка).
+    """
     _require_admin(user)
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     rows = session.exec(
         select(ParcelDelivery).order_by(ParcelDelivery.id.desc()).offset(offset).limit(limit)
     ).all()
+    _delivered_billable = (ParcelDelivery.status == "delivered",
+                           ParcelDelivery.delivery_type.in_(_BILLABLE_TYPES))
     collected = session.exec(
-        select(func.coalesce(func.sum(ParcelDelivery.fee_kop), 0)).where(ParcelDelivery.status == "delivered")
+        select(func.coalesce(func.sum(ParcelDelivery.commission_kop), 0))
+        .where(*_delivered_billable, ParcelDelivery.commission_paid == True)   # noqa: E712
+    ).one()
+    owed = session.exec(
+        select(func.coalesce(func.sum(ParcelDelivery.commission_kop), 0))
+        .where(*_delivered_billable, ParcelDelivery.commission_paid == False)  # noqa: E712
+    ).one()
+    unbilled = session.exec(
+        select(func.coalesce(func.sum(ParcelDelivery.fee_kop), 0))
+        .where(ParcelDelivery.status == "delivered")
     ).one()
     delivered_count = session.exec(
         select(func.count()).select_from(ParcelDelivery).where(ParcelDelivery.status == "delivered")
@@ -786,7 +827,9 @@ def admin_parcels(limit: int = 200, offset: int = 0,
         "parcels": [_parcel_admin(p) for p in rows],
         "statement": {
             "delivered_count": int(delivered_count or 0),
-            "collected_fee_kop": int(collected or 0),   # доход платформы по доставленным
+            "collected_fee_kop": int(collected or 0),      # деньги дошли (курьеры оплатили комиссию)
+            "owed_commission_kop": int(owed or 0),         # начислено, ещё не оплачено
+            "unbilled_fee_kop": int(unbilled or 0),        # сбор «по пути» — выставить некому
         },
     }
 
