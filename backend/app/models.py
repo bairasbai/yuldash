@@ -596,10 +596,20 @@ class RequestResponse(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     request_id: int = Field(index=True, foreign_key="riderequest.id")
     driver_id: int = Field(index=True, foreign_key="user.id")
-    price: int = 0
+    price: int = 0                           # ПЕРВАЯ цена водителя (не меняется — история торга)
     comment: str = ""
     status: str = "offered"                  # offered / accepted / declined
     created_at: datetime = Field(default_factory=utcnow)
+    # --- Торг о цене, второй круг (2026-07-27) ---
+    # Раньше отклик был «бери или уходи»: водитель назвал цену, пассажир мог только принять или
+    # молча уйти. В деревне торговаться — привычка, а не неудобство, и половина сделок гибла
+    # на разнице в 50 ₽, которую обе стороны были готовы пройти навстречу.
+    current_price: int = 0                   # цена, которая сейчас НА СТОЛЕ (0 у старых строк → берём price)
+    last_offer_by: str = Field(default="driver", max_length=16)   # чей ход был последним: driver | passenger
+    bargain_rounds: int = 0                  # сколько встречных сделано всего (лимит — см. requests.py)
+    # Компактная история «d:500,p:400,d:450» — видят ОБЕ стороны. Отдельная таблица под 2-3 хода
+    # не нужна, а без истории торг превращается в «я же говорил другую цену» (CSV — как evidence_urls).
+    bargain_history: str = Field(default="", max_length=200)
 
 
 # ---- Фаза 2: «Быстрый заказ» (такси-режим) — presence/тариф/заказ/matcher ----

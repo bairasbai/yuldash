@@ -8,6 +8,7 @@ from sqlalchemy import or_, text
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..errors import herr
 from ..logs import log
 from ..models import (
     Block, Booking, BookingStatus, DeviceToken, RequestResponse, Ride, RideCategory,
@@ -364,7 +365,9 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         RequestResponse.request_id == request_id, RequestResponse.driver_id == user.id)).first()
     if dup:
         return {"ok": True, "id": dup.id}     # идемпотентно — повторный отклик не плодим
-    resp = RequestResponse(request_id=request_id, driver_id=user.id, price=body.price, comment=body.comment)
+    # current_price = цена НА СТОЛЕ: пока торга не было, это первое предложение водителя.
+    resp = RequestResponse(request_id=request_id, driver_id=user.id, price=body.price,
+                           comment=body.comment, current_price=body.price, last_offer_by="driver")
     session.add(resp)
     session.commit()
     session.refresh(resp)
@@ -392,15 +395,65 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     return {"ok": True, "id": resp.id}
 
 
+# ───────────────────────── Торг о цене (второй круг) ─────────────────────────
+# Отклик был «бери или уходи»: водитель назвал 500, пассажир хотел 400 — и сделка просто не
+# случалась, хотя оба согласились бы на 450. В селе торг — привычка, а не неудобство.
+#
+# Правила (осознанно жёсткие, чтобы торг не превратился в изматывание):
+# - ходят ПО ОЧЕРЕДИ, дважды подряд одна сторона не ходит;
+# - принять можно только ЧУЖУЮ цену — свою собственную «принять» нельзя;
+# - не больше BARGAIN_MAX_ROUNDS встречных с каждой стороны, дальше только принять или отказаться;
+# - каждый ход = пуш другой стороне, иначе торг физически не работает.
+BARGAIN_MAX_ROUNDS = 3                       # по три встречных на сторону
+_BARGAIN_MAX_TOTAL = BARGAIN_MAX_ROUNDS * 2  # ходы чередуются → всего не больше шести
+_PRICE_CAP = 100_000                         # тот же потолок, что кламп при создании поездки
+
+
+def price_on_table(resp: RequestResponse) -> int:
+    """Цена, которая сейчас на столе. У старых откликов (до торга) поля нет → берём исходную."""
+    return int(getattr(resp, "current_price", 0) or resp.price or 0)
+
+
+def _bargain_role(resp: RequestResponse, req: RideRequest, user: User) -> Optional[str]:
+    """Кто этот человек в торге: driver | passenger | None (посторонний)."""
+    if resp.driver_id == user.id:
+        return "driver"
+    if req.passenger_id == user.id:
+        return "passenger"
+    return None
+
+
+def _append_history(resp: RequestResponse, role: str, price: int) -> str:
+    """История «d:500,p:400,d:450». Обрезаем слева, чтобы влезть в колонку (200)."""
+    prev = (getattr(resp, "bargain_history", "") or "").strip()
+    if not prev:
+        prev = f"d:{resp.price}"
+    item = f"{'d' if role == 'driver' else 'p'}:{price}"
+    out = f"{prev},{item}"
+    return out[-200:].lstrip(",")
+
+
+class CounterIn(BaseModel):
+    price: int = Field(..., ge=0, le=_PRICE_CAP)
+    comment: str = Field("", max_length=500)
+
+
 class ResponseOut(BaseModel):
     id: int
     driver_id: int
     driver_name: str
     driver_avatar: str = ""
     driver_rating: Optional[float]
-    price: int
+    price: int                       # первая цена водителя (историческая)
     comment: str
     status: str
+    # --- торг (аддитивно: старый клиент читает только price/status) ---
+    current_price: int = 0           # что сейчас на столе
+    last_offer_by: str = "driver"    # чей ход был последним
+    bargain_rounds: int = 0          # сколько встречных сделано
+    can_counter: bool = False        # смотрящий может сделать встречное предложение
+    can_accept: bool = False         # смотрящий может принять текущую цену
+    bargain_history: str = ""        # «d:500,p:400,d:450» — для строки «как шёл торг»
 
 
 @router.get("/requests/{request_id}/responses", response_model=List[ResponseOut])
@@ -419,12 +472,141 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
     for r in resps:
         d = drivers.get(r.driver_id)
         avg, cnt = user_rating(session, r.driver_id)
-        out.append(ResponseOut(
-            id=r.id, driver_id=r.driver_id, driver_name=(d.name if d and d.name else "Водитель"),
-            driver_avatar=(d.avatar_url if d else ""),
-            driver_rating=(round(avg, 1) if cnt > 0 else None), price=r.price, comment=r.comment, status=r.status,
-        ))
+        out.append(_response_out(session, r, req, user, d, avg, cnt))
     return out
+
+
+def _response_out(session: Session, r: RequestResponse, req: RideRequest, viewer: User,
+                  d: Optional[User] = None, avg: float = 0.0, cnt: int = 0) -> ResponseOut:
+    """Карточка отклика глазами КОНКРЕТНОГО смотрящего: can_counter/can_accept зависят от того,
+    чей сейчас ход. Без этого обе стороны видели бы активные кнопки одновременно и жали их
+    вслепую — «принять» свою же цену для торга бессмысленно."""
+    if d is None:
+        d = session.get(User, r.driver_id)
+    if cnt == 0 and avg == 0.0:
+        avg, cnt = user_rating(session, r.driver_id)
+    role = _bargain_role(r, req, viewer)
+    last = (getattr(r, "last_offer_by", "") or "driver")
+    live = r.status == "offered" and req.status == "active"
+    my_turn = bool(role) and live and last != role
+    return ResponseOut(
+        id=r.id, driver_id=r.driver_id, driver_name=(d.name if d and d.name else "Водитель"),
+        driver_avatar=(d.avatar_url if d else ""),
+        driver_rating=(round(avg, 1) if cnt > 0 else None), price=r.price, comment=r.comment, status=r.status,
+        current_price=price_on_table(r), last_offer_by=last,
+        bargain_rounds=int(getattr(r, "bargain_rounds", 0) or 0),
+        can_counter=my_turn and int(getattr(r, "bargain_rounds", 0) or 0) < _BARGAIN_MAX_TOTAL,
+        can_accept=my_turn,
+        bargain_history=(getattr(r, "bargain_history", "") or ""),
+    )
+
+
+@router.get("/responses/mine", response_model=List[ResponseOut])
+def my_responses(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мои отклики (водитель): где я предложил цену и где мне ответили встречной.
+
+    Без этого списка второй круг торга физически не работал бы: пассажир мог сделать встречное
+    предложение, а водитель увидел бы его только в пуше — и, пропустив пуш, потерял бы сделку."""
+    resps = session.exec(
+        select(RequestResponse).where(RequestResponse.driver_id == user.id)
+        .order_by(RequestResponse.id.desc()).limit(100)
+    ).all()
+    if not resps:
+        return []
+    reqs = {r.id: r for r in session.exec(
+        select(RideRequest).where(RideRequest.id.in_({x.request_id for x in resps}))).all()}
+    out: list = []
+    for r in resps:
+        req = reqs.get(r.request_id)
+        if req:
+            out.append(_response_out(session, r, req, user))
+    return out
+
+
+@router.post("/responses/{response_id}/counter")
+def counter_offer(response_id: int, body: CounterIn,
+                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Встречная цена: «а за 400 поедешь?». Ходят по очереди, обе стороны, лимит — три хода на брата.
+
+    Раньше этого не было вообще: отклик был «бери или уходи». Цена на столе (`current_price`)
+    ровно та, по которой создастся поездка при accept — торговаться о числе, которое потом
+    не применится, было бы враньём."""
+    resp = session.exec(
+        select(RequestResponse).where(RequestResponse.id == response_id).with_for_update()
+    ).one_or_none()
+    if not resp:
+        raise herr(404, "Отклик не найден", "Яуап табылманы")
+    req = session.get(RideRequest, resp.request_id)
+    if not req:
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
+    role = _bargain_role(resp, req, user)
+    if not role:
+        raise herr(403, "Это не твой торг", "Был һинең һатыулашыуың түгел")
+    if resp.status != "offered":
+        raise herr(409, "Торг уже закрыт", "Һатыулашыу инде ябылған")
+    if req.status != "active":
+        raise herr(409, "Заявка уже закрыта", "Заявка инде ябылған")
+    if (getattr(resp, "last_offer_by", "") or "driver") == role:
+        raise herr(409, "Сейчас ход другой стороны — дождись ответа",
+                   "Хәҙер икенсе яҡтың сираты — яуабын көт")
+    rounds = int(getattr(resp, "bargain_rounds", 0) or 0)
+    if rounds >= _BARGAIN_MAX_TOTAL:
+        raise herr(409, f"Торг окончен: не больше {BARGAIN_MAX_ROUNDS} встречных с каждой стороны. "
+                        f"Прими цену или откажись.",
+                   f"Һатыулашыу тамам: һәр яҡтан {BARGAIN_MAX_ROUNDS} тәҡдимдән артыҡ түгел. "
+                   f"Хаҡты ҡабул ит йәки баш тарт.")
+    price = max(0, min(int(body.price), _PRICE_CAP))
+    resp.bargain_history = _append_history(resp, role, price)
+    resp.current_price = price
+    resp.last_offer_by = role
+    resp.bargain_rounds = rounds + 1
+    if body.comment.strip():
+        resp.comment = body.comment.strip()[:500]
+    session.add(resp)
+    session.commit()
+    session.refresh(resp)
+    other_id = req.passenger_id if role == "driver" else resp.driver_id
+    route = f"{req.from_city} → {req.to_city}"
+    push_notification(
+        session, other_id, "ride",
+        "Встречная цена", "Ҡаршы хаҡ",
+        f"{route} · {price} ₽ — ответь или прими", f"{route} · {price} һ — яуап бир йәки ҡабул ит",
+        ref_kind="request", ref_id=req.id,
+    )
+    return {"ok": True, "current_price": price, "last_offer_by": role,
+            "bargain_rounds": resp.bargain_rounds,
+            "rounds_left": _BARGAIN_MAX_TOTAL - resp.bargain_rounds}
+
+
+@router.post("/responses/{response_id}/decline")
+def decline_response(response_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Закончить торг без сделки. Может любая из сторон; заявка остаётся активной — другие
+    водители продолжают откликаться (в этом смысл заявки, а не одного отклика)."""
+    resp = session.get(RequestResponse, response_id)
+    if not resp:
+        raise herr(404, "Отклик не найден", "Яуап табылманы")
+    req = session.get(RideRequest, resp.request_id)
+    if not req:
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
+    role = _bargain_role(resp, req, user)
+    if not role and user.role != UserRole.admin:
+        raise herr(403, "Это не твой торг", "Был һинең һатыулашыуың түгел")
+    if resp.status == "accepted":
+        raise herr(409, "Отклик уже принят", "Яуап инде ҡабул ителгән")
+    if resp.status == "declined":
+        return {"ok": True, "already": True}
+    resp.status = "declined"
+    session.add(resp)
+    session.commit()
+    other_id = req.passenger_id if role == "driver" else resp.driver_id
+    if other_id and other_id != user.id:
+        route = f"{req.from_city} → {req.to_city}"
+        push_notification(
+            session, other_id, "ride",
+            "Не договорились по цене", "Хаҡ буйынса килешмәнек",
+            route, route, ref_kind="request", ref_id=req.id,
+        )
+    return {"ok": True}
 
 
 def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
@@ -442,7 +624,9 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
         raise HTTPException(400, "Заявка уже закрыта")
     # Цена отклика идёт прямо в Ride/Booking мимо клампа create_ride (0..100000) → кламп здесь же,
     # иначе водитель отдаёт цену до 1_000_000 (потолок RespondIn) в обход общего лимита.
-    price = max(0, min(resp.price, 100_000))
+    # Берём цену НА СТОЛЕ (после торга), а не первое предложение водителя: иначе поездка
+    # создавалась бы по цене, от которой обе стороны уже отошли.
+    price = max(0, min(price_on_table(resp), _PRICE_CAP))
     depart = req.desired_at or (utcnow() + timedelta(hours=1))
     ride = Ride(
         driver_id=resp.driver_id, from_city=req.from_city, to_city=req.to_city, depart_at=depart,
@@ -476,16 +660,30 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
 
 @router.post("/responses/{response_id}/accept")
 def accept_response(response_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Пассажир (или админ ЗА юзера без интернета) принимает отклик → Ride+Booking.
-    Возвращает booking_id для перехода в активную поездку."""
+    """Принять цену, которая сейчас на столе → Ride+Booking. Возвращает booking_id.
+
+    Принимает ТОТ, ЧЕЙ ХОД: пассажир — цену водителя, водитель — встречную цену пассажира.
+    Принять собственное предложение нельзя: это не сделка, а просто повтор своих слов.
+    Админ по-прежнему принимает ЗА пассажира (заявка по звонку, человек без интернета) —
+    но только когда ход действительно пассажирский."""
     resp = session.get(RequestResponse, response_id)
     if not resp:
         raise HTTPException(404, "Отклик не найден")
     req = session.get(RideRequest, resp.request_id)
     if not req:
         raise HTTPException(404, "Заявка не найдена")
-    if req.passenger_id != user.id and user.role != UserRole.admin:   # админ принимает ЗА юзера (без интернета)
-        raise HTTPException(403, "Нет доступа")
+    role = _bargain_role(resp, req, user)
+    last = (getattr(resp, "last_offer_by", "") or "driver")
+    if role is None:
+        if user.role != UserRole.admin:
+            raise HTTPException(403, "Нет доступа")
+        role = "passenger"        # админ действует от имени пассажира
+    if resp.status == "declined":
+        raise herr(409, "Торг закрыт — по этому отклику не договорились",
+                   "Һатыулашыу ябылған — был яуап буйынса килешмәгәндәр")
+    if last == role:
+        raise herr(409, "Сейчас ход другой стороны — свою же цену принять нельзя",
+                   "Хәҙер икенсе яҡтың сираты — үҙ хаҡыңды ҡабул итеп булмай")
     booking = accept_request_response(session, resp)
     return {"booking_id": booking.id}
 

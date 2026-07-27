@@ -1088,6 +1088,7 @@ internal fun YuldashApp() {
                 onTaxiRides = { if (ApiClient.isLoggedIn()) screen = Screen.DriverTaxiRides else screen = Screen.Login },
                 onTaxiDocs = { if (ApiClient.isLoggedIn()) screen = Screen.TaxiDocuments else screen = Screen.Login },
                 onPretrip = { if (ApiClient.isLoggedIn()) screen = Screen.PretripCheck else screen = Screen.Login },
+                onMyResponses = { if (ApiClient.isLoggedIn()) screen = Screen.DriverResponses else screen = Screen.Login },
             )
             Screen.InstantOrder -> InstantOrderScreen(
                 onBack = { goBack() },
@@ -1125,6 +1126,11 @@ internal fun YuldashApp() {
             Screen.AdminWaitlist -> AdminWaitlistScreen(onBack = { goBack() })
             Screen.AdminTaxiPulse -> AdminTaxiPulseScreen(onBack = { goBack() })
             Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
+            Screen.DriverResponses -> DriverResponsesScreen(
+                onBack = { goBack() },
+                // Согласился на встречную цену → сразу в поездку, как при обычном accept у пассажира.
+                onOpenTrip = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip },
+            )
             Screen.RequestResponses -> ResponsesScreen(
                 requestId = responsesRequestId,
                 onBack = { goBack() },

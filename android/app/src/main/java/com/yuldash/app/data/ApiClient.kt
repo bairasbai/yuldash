@@ -1021,15 +1021,45 @@ object ApiClient {
     suspend fun getRequestResponses(requestId: Int): Result<List<ResponseDto>> =
         call("GET", "/requests/$requestId/responses", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                ResponseDto(o.optInt("id"), o.optInt("driver_id"), o.optString("driver_name"), if (o.isNull("driver_rating")) null else o.optDouble("driver_rating"), o.optInt("price"), o.optString("comment"), o.optString("status"), o.optString("driver_avatar"))
-            }
+            (0 until arr.length()).map { arr.getJSONObject(it).toResponseDto() }
         }
 
-    /** Пассажир принимает отклик → возвращает booking_id (переход в активную поездку). */
+    /** Водитель: мои отклики — где я предложил цену и где мне ответили встречной.
+     *  Без этого списка второй круг торга не работал бы: встречную цену водитель видел бы
+     *  только в пуше и, пропустив его, терял бы сделку. */
+    suspend fun getMyResponses(): Result<List<ResponseDto>> =
+        call("GET", "/responses/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toResponseDto() }
+        }
+
+    /** Встречная цена: «а за 400 поедешь?». Ходят по очереди, обе стороны, лимит — 3 хода на брата.
+     *  409 — сейчас ход другой стороны или торг исчерпан (текст ошибки двуязычный, показываем как есть). */
+    suspend fun counterOffer(responseId: Int, price: Int, comment: String = ""): Result<Unit> =
+        call("POST", "/responses/$responseId/counter",
+            JSONObject().put("price", price).put("comment", comment), auth = true)
+            .map { }.onSuccess { Analytics.log("bargain_counter") }
+
+    /** Закончить торг без сделки. Заявка остаётся активной — другие водители продолжают откликаться. */
+    suspend fun declineResponse(responseId: Int): Result<Unit> =
+        call("POST", "/responses/$responseId/decline", JSONObject(), auth = true)
+            .map { }.onSuccess { Analytics.log("bargain_decline") }
+
+    /** Принять цену, которая сейчас на столе → booking_id. Принимает тот, чей ход. */
     suspend fun acceptResponse(responseId: Int): Result<Int> =
         call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }.onSuccess { Analytics.log("accept_response") }
+
+    private fun JSONObject.toResponseDto() = ResponseDto(
+        id = optInt("id"), driverId = optInt("driver_id"), driverName = optString("driver_name"),
+        driverRating = if (isNull("driver_rating")) null else optDouble("driver_rating"),
+        price = optInt("price"), comment = optString("comment"), status = optString("status"),
+        driverAvatar = optString("driver_avatar"),
+        currentPrice = optInt("current_price"),
+        lastOfferBy = optString("last_offer_by").ifBlank { "driver" },
+        bargainRounds = optInt("bargain_rounds"),
+        canCounter = optBoolean("can_counter"), canAccept = optBoolean("can_accept"),
+        bargainHistory = optString("bargain_history"),
+    )
 
     /** Водитель отзывает свой отклик — пока пассажир его не принял (после accept сервер вернёт 409). */
     suspend fun deleteResponse(responseId: Int): Result<Unit> =
@@ -4468,7 +4498,22 @@ data class RestrictionsDto(
     val supportRu: String = "", val supportBa: String = "",
 )
 data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList(), val myResponseId: Int? = null)
-data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String, val driverAvatar: String = "")
+data class ResponseDto(
+    val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?,
+    val price: Int,                    // первая цена водителя (историческая)
+    val comment: String, val status: String, val driverAvatar: String = "",
+    // --- Торг о цене (второй круг). Раньше отклик был «бери или уходи». ---
+    val currentPrice: Int = 0,         // цена, которая сейчас НА СТОЛЕ
+    val lastOfferBy: String = "driver",// чей ход был последним: driver | passenger
+    val bargainRounds: Int = 0,        // сколько встречных сделано
+    val canCounter: Boolean = false,   // я могу предложить свою цену
+    val canAccept: Boolean = false,    // я могу принять то, что на столе
+    val bargainHistory: String = "",   // «d:500,p:400,d:450»
+) {
+    /** Что показывать как цену: пока торга не было — первое предложение водителя. */
+    val onTable: Int get() = if (currentPrice > 0) currentPrice else price
+    val haggled: Boolean get() = bargainRounds > 0
+}
 
 data class ContactDto(
     val id: Int,

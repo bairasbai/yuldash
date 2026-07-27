@@ -1068,6 +1068,7 @@ internal fun DriverCabinetScreen(
     onTaxiRides: () -> Unit = {},        // «Мои поездки такси»: цена → комиссия → чистыми по каждой
     onTaxiDocs: () -> Unit = {},         // 580-ФЗ: сроки ОСАГО/разрешения/техосмотра + продление
     onPretrip: () -> Unit = {},          // 580-ФЗ: готовность к работе на сегодня
+    onMyResponses: () -> Unit = {},      // «Мои отклики»: торг о цене по заявкам пассажиров
 ) {
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
@@ -1276,6 +1277,7 @@ internal fun DriverCabinetScreen(
             onVerifyDriver = onVerifyDriver,
             onBoost = onBoost,
             onRequestsFeed = onRequestsFeed,
+            onMyResponses = onMyResponses,
             archive = archive,
             archiveLoading = archiveLoading,
             archiveError = archiveError,
@@ -1932,6 +1934,7 @@ internal fun DriverCabinetContent(
     onVerifyDriver: () -> Unit,
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit,
+    onMyResponses: () -> Unit = {},
     archive: List<com.yuldash.app.data.RideDto> = emptyList(),
     archiveLoading: Boolean = false,
     archiveError: Boolean = false,
@@ -2261,6 +2264,9 @@ internal fun DriverCabinetContent(
         item {
             SettingsGroup {
                 SettingsNavRow(Icons.Default.ListAlt, appText("Заявки пассажиров", "Пассажир заявкалары"), appText("Откликнуться и предложить поездку", "Яуап биреп сәфәр тәҡдим итеү"), onClick = onRequestsFeed)
+                // Торг о цене: раньше водитель после отклика не видел ничего — встречную цену пассажира
+                // он мог узнать только из пуша, и, пропустив его, терял поездку.
+                SettingsNavRow(Icons.Default.Handshake, appText("Мои отклики", "Минең яуаптарым"), appText("Торг о цене: принять встречную или предложить свою", "Хаҡ буйынса һатыулашыу: ҡаршы хаҡты ҡабул итеү йәки үҙеңдекен тәҡдим итеү"), onClick = onMyResponses)
                 SettingsNavRow(Icons.Default.AddRoad, appText("Создать поездку", "Сәфәр булдырыу"), appText("Маршрут, места, цена и время", "Маршрут, урын, хаҡ һәм ваҡыт"), onClick = onCreateRide)
                 SettingsNavRow(Icons.Default.Verified, appText("Проверка водителя", "Водителде тикшереү"), appText("Права, машина, фото и госномер", "Права, машина, фото һәм номер"), onClick = onVerifyDriver)
                 // 580-ФЗ: проверка перестала быть разовой — сроки живут и напоминают о себе сами.
