@@ -2934,6 +2934,10 @@ object ApiClient {
         commissionKop = o.optInt("commission_kop"),
         priceKop = o.optInt("price_kop"),
         settlement = parseParcelSettlement(o.optJSONObject("settlement")),
+        returnReason = o.optString("return_reason"),
+        returnedAt = nStr(o, "returned_at"),
+        deliveryAttempts = o.optInt("delivery_attempts"),
+        cancelFeeKop = o.optInt("cancel_fee_kop"),
     )
 
     /** Разбор блока settlement (buy_bring): null, если сервер не прислал. */
@@ -5054,7 +5058,8 @@ data class AdminPromoDto(
 data class ParcelCourierDto(val id: Int, val name: String, val rating: Double?, val ratingCount: Int, val phone: String)
 
 /** Посылка. Форма зависит от роли: у отправителя есть confirmCode/receiverPhone/courier;
- *  в списке «доступные» (курьер) телефон и код скрыты (пустые). status: created/accepted/in_transit/delivered/canceled. */
+ *  в списке «доступные» (курьер) телефон и код скрыты (пустые).
+ *  status: created/accepted/in_transit/delivered/canceled/returning/returned. */
 data class ParcelDto(
     val id: Int,
     val senderId: Int,
@@ -5080,6 +5085,11 @@ data class ParcelDto(
     val commissionKop: Int = 0,              // наш сбор (уже входит в priceKop)
     val priceKop: Int = 0,                   // итоговая цена доставки (courier/buy_bring)
     val settlement: ParcelSettlementDto? = null,   // C2: расчёт «купи и привези» (null для остальных типов)
+    // Возврат: сервер отдавал эти поля, но старый клиент их терял и не мог объяснить состояние.
+    val returnReason: String = "",
+    val returnedAt: String? = null,
+    val deliveryAttempts: Int = 0,
+    val cancelFeeKop: Int = 0,
 )
 
 /** C2: расчёт «купи и привези» — сколько получатель вернёт курьеру (товар + доставка).
