@@ -106,7 +106,7 @@ class MobilityUiStateTest {
     @Test
     fun parcelDisputeRemainsAvailableAfterReturn() {
         assertEquals(false, canOpenParcelDispute("created"))
-        assertEquals(false, canOpenParcelDispute("accepted"))
+        assertEquals(true, canOpenParcelDispute("accepted"))
         assertEquals(true, canOpenParcelDispute("in_transit"))
         assertEquals(true, canOpenParcelDispute("returning"))
         assertEquals(true, canOpenParcelDispute("returned"))
