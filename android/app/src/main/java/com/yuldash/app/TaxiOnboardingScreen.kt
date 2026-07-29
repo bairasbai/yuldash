@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -114,7 +115,7 @@ internal fun TaxiOnboardingScreen(onBack: () -> Unit, onOpenDriverCabinet: () ->
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf(false) }
     var application by remember { mutableStateOf<TaxiApplicationDto?>(null) }
-    var editing by remember { mutableStateOf(false) }   // rejected → «Подать снова» открывает форму с предзаполнением
+    var editing by rememberSaveable { mutableStateOf(false) }   // rejected → «Подать снова» открывает форму с предзаполнением
     var reloadKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(reloadKey) {
@@ -180,22 +181,22 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var inn by remember { mutableStateOf(prefill?.inn ?: "") }
-    var permitNumber by remember { mutableStateOf(prefill?.permitNumber ?: "") }
-    var licenseYear by remember { mutableStateOf(prefill?.licenseSinceYear?.takeIf { it > 0 }?.toString() ?: "") }
-    var birthText by remember { mutableStateOf(prefill?.birthDate?.takeIf { it.isNotBlank() }?.let { isoToRuDate(it) } ?: "") }
-    var permitPhotoUrl by remember { mutableStateOf(prefill?.permitPhotoUrl?.takeIf { it.isNotBlank() }) }
-    var osagoUrl by remember { mutableStateOf(prefill?.osagoUrl?.takeIf { it.isNotBlank() }) }
+    var inn by rememberSaveable { mutableStateOf(prefill?.inn ?: "") }
+    var permitNumber by rememberSaveable { mutableStateOf(prefill?.permitNumber ?: "") }
+    var licenseYear by rememberSaveable { mutableStateOf(prefill?.licenseSinceYear?.takeIf { it > 0 }?.toString() ?: "") }
+    var birthText by rememberSaveable { mutableStateOf(prefill?.birthDate?.takeIf { it.isNotBlank() }?.let { isoToRuDate(it) } ?: "") }
+    var permitPhotoUrl by rememberSaveable { mutableStateOf(prefill?.permitPhotoUrl?.takeIf { it.isNotBlank() }) }
+    var osagoUrl by rememberSaveable { mutableStateOf(prefill?.osagoUrl?.takeIf { it.isNotBlank() }) }
     // Проверки водителя, Уровень 1: селфи с правами (обязательно, сверка лица) + справка о несудимости (опц.).
-    var selfieUrl by remember { mutableStateOf(prefill?.selfieUrl?.takeIf { it.isNotBlank() }) }
-    var criminalUrl by remember { mutableStateOf(prefill?.criminalRecordUrl?.takeIf { it.isNotBlank() }) }
+    var selfieUrl by rememberSaveable { mutableStateOf(prefill?.selfieUrl?.takeIf { it.isNotBlank() }) }
+    var criminalUrl by rememberSaveable { mutableStateOf(prefill?.criminalRecordUrl?.takeIf { it.isNotBlank() }) }
     var uploadingPermit by remember { mutableStateOf(false) }
     var uploadingOsago by remember { mutableStateOf(false) }
     var uploadingSelfie by remember { mutableStateOf(false) }
     var uploadingCriminal by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
     var submitError by remember { mutableStateOf<String?>(null) }
-    var carClass by remember { mutableStateOf("economy") }   // §6: заявляет водитель, подтверждает админ
+    var carClass by rememberSaveable { mutableStateOf("economy") }   // §6: заявляет водитель, подтверждает админ
 
     // Локальная валидация — до похода на сервер (сервер продублирует).
     val currentYear = remember { java.time.LocalDate.now().year }
@@ -210,9 +211,9 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
     // Сроки документов (580-ФЗ, аудит 2026-07-26). Раньше документы были ТОЛЬКО картинками:
     // одобрили в июле — человек возит с просроченным ОСАГО в декабре. Для НОВЫХ заявок даты
     // обязательны: без них контроль сроков невозможен, а «проверенный водитель» — пустое слово.
-    var osagoUntil by remember { mutableStateOf(prefill?.osagoUntil) }
-    var permitUntil by remember { mutableStateOf(prefill?.permitUntil) }
-    var inspectionUntil by remember { mutableStateOf(prefill?.inspectionUntil) }
+    var osagoUntil by rememberSaveable { mutableStateOf(prefill?.osagoUntil) }
+    var permitUntil by rememberSaveable { mutableStateOf(prefill?.permitUntil) }
+    var inspectionUntil by rememberSaveable { mutableStateOf(prefill?.inspectionUntil) }
     val datesOk = !osagoUntil.isNullOrBlank() && !permitUntil.isNullOrBlank() && !inspectionUntil.isNullOrBlank()
     val canSubmit = innOk && permitNumber.trim().isNotBlank() && yearOk && ageOk && photosOk && datesOk && !submitting
 
