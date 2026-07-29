@@ -720,6 +720,10 @@ internal fun isParcelTerminal(status: String): Boolean =
     status == "delivered" || status == "returned" ||
         status == "canceled" || status == "cancelled"
 
+/** Цена доставки включает комиссию; курьеру остаётся разница, но никогда не отрицательная. */
+internal fun courierNetKop(priceKop: Int, commissionKop: Int): Int =
+    (priceKop - commissionKop).coerceAtLeast(0)
+
 internal fun canSenderCancelParcel(
     status: String,
     deliveryType: String,
