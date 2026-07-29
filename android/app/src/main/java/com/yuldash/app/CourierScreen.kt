@@ -815,16 +815,18 @@ private fun CourierCarryingCard(
                 )
                 else -> {
                     val feeEst = if (!delivered) appText(" ≈ ориентировочно", " ≈ самаға") else ""
-                    val myIncome = p.priceKop - p.commissionKop
-                    if (myIncome > 0) {
-                        Text(appText("Твой доход: ", "Һинең килем: ") + kopToRub(myIncome) + appText(" (наш сбор ${kopToRub(p.commissionKop)}$feeEst)", " (беҙҙең сбор ${kopToRub(p.commissionKop)}$feeEst)"), color = CanonMuted, fontSize = 13.sp)
-                    } else {
-                        Text(
-                            if (p.priceKop > 0) appText("Тебе заплатят: ", "Һиңә түләйәсәктәр: ") + kopToRub(p.priceKop)
-                            else appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"),
-                            color = CanonMuted, fontSize = 13.sp,
-                        )
-                    }
+                    val myIncome = courierNetKop(p.priceKop, p.commissionKop)
+                    Text(
+                        if (p.priceKop > 0) {
+                            appText("Твой доход: ", "Һинең килем: ") + kopToRub(myIncome) +
+                                appText(
+                                    " (наш сбор ${kopToRub(p.commissionKop)}$feeEst)",
+                                    " (беҙҙең сбор ${kopToRub(p.commissionKop)}$feeEst)",
+                                )
+                        } else appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"),
+                        color = CanonMuted,
+                        fontSize = 13.sp,
+                    )
                 }
             }
             if (canDeliver) {
