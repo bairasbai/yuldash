@@ -2485,7 +2485,12 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var confirmNoShow by remember { mutableStateOf(false) }
+    var confirmCancel by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
+    val actionFailMsg = appText(
+        "Не получилось обновить поездку. Проверь сеть и повтори.",
+        "Сәфәрҙе яңыртып булманы. Селтәрҙе тикшереп ҡабатла.",
+    )
     // Первая загрузка упала по СЕТИ (не 404) → показываем «Повторить», а не «Заказ не найден».
     var loadError by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableStateOf(0) }
@@ -2697,7 +2702,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                                             else -> ApiClient.instantDone(current.id)
                                         }
                                         res.onSuccess { order = it; actionError = null }
-                                        res.onFailure { actionError = (it as? ApiException)?.message }
+                                        res.onFailure { actionError = (it as? ApiException)?.message ?: actionFailMsg }
                                         busy = false
                                     }
                                 },
@@ -2729,7 +2734,8 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                             // SOS (B7b-2): безопасность водителя — тоже продукт (обе стороны заказа).
                             InstantSafetyRow(orderId = current.id)
                             TextButton(
-                                onClick = { scope.launch { ApiClient.instantCancel(current.id).onSuccess { order = it } } },
+                                onClick = { if (!busy) confirmCancel = true },
+                                enabled = !busy,
                                 modifier = Modifier.fillMaxWidth(),
                             ) { Text(appText("Отменить заказ", "Заказды кире алыу"), color = CanonRed) }
                         }
@@ -2739,6 +2745,51 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
         }
     }
     val activeOrder = order
+    if (confirmCancel && activeOrder != null) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) confirmCancel = false },
+            containerColor = CanonSurface,
+            title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире алаһыңмы?"), color = CanonText, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    if (activeOrder.status == "onboard") {
+                        appText(
+                            "Пассажир уже в машине. Отменяй только если продолжать небезопасно; после этого открой спор или поддержку.",
+                            "Пассажир машинала инде. Дауам итеү хәүефле булһа ғына кире ал; һуңынан бәхәс йәки ярҙам ас.",
+                        )
+                    } else {
+                        appText(
+                            "Пассажир получит уведомление, заказ закроется. Это действие нельзя отменить.",
+                            "Пассажирға хәбәр бара, заказ ябыла. Был эште кире ҡайтарып булмай.",
+                        )
+                    },
+                    color = CanonMuted,
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        actionError = null
+                        scope.launch {
+                            ApiClient.instantCancel(activeOrder.id, reason = "driver_cancel")
+                                .onSuccess { order = it; confirmCancel = false }
+                                .onFailure { actionError = (it as? ApiException)?.message ?: actionFailMsg }
+                            busy = false
+                        }
+                    },
+                ) { Text(appText("Отменить поездку", "Сәфәрҙе кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(enabled = !busy, onClick = { confirmCancel = false }) {
+                    Text(appText("Продолжить поездку", "Сәфәрҙе дауам итеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                }
+            },
+        )
+    }
     if (confirmNoShow && activeOrder != null) {
         AlertDialog(
             onDismissRequest = { confirmNoShow = false },
@@ -2759,7 +2810,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                     scope.launch {
                         ApiClient.instantCancel(activeOrder.id, reason = "no_show")
                             .onSuccess { order = it; actionError = null }
-                            .onFailure { actionError = (it as? ApiException)?.message }
+                            .onFailure { actionError = (it as? ApiException)?.message ?: actionFailMsg }
                     }
                 }) { Text(appText("Да, не вышел", "Эйе, сыҡманы"), color = CanonRed, fontWeight = FontWeight.Bold) }
             },
