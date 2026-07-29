@@ -45,9 +45,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.mergeDescendants
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -247,7 +251,13 @@ internal fun TaxiServiceClassTile(
         shape = CanonItemShape,
         color = bg,
         border = BorderStroke(if (selected) 2.dp else 1.dp, border),
-        modifier = modifier.heightIn(min = 94.dp),
+        modifier = modifier
+            .heightIn(min = 94.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                this.selected = selected
+                stateDescription = if (selected) "selected" else "not selected"
+            },
     ) {
         Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -353,11 +363,16 @@ internal fun MobilityProgressRail(
     accent: Color = CanonGreen2,
 ) {
     if (labels.isEmpty()) return
+    val safeIndex = currentIndex.coerceIn(0, labels.lastIndex)
+    val progressDescription = appText(
+        "Этап ${safeIndex + 1} из ${labels.size}: ${labels[safeIndex]}",
+        "${safeIndex + 1}/${labels.size} этап: ${labels[safeIndex]}",
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
             .semantics(mergeDescendants = true) {
-                contentDescription = labels.getOrNull(currentIndex) ?: labels.first()
+                contentDescription = progressDescription
             },
         verticalAlignment = Alignment.Top,
     ) {
@@ -476,10 +491,17 @@ internal fun CourierLineHero(
                         Text(title, color = if (online) Color.White else CanonText, fontSize = 18.sp, fontWeight = FontWeight.Black)
                         Text(subtitle, color = if (online) Color.White.copy(alpha = 0.76f) else CanonMutedStrong, fontSize = 12.sp, lineHeight = 16.sp)
                     }
+                    val switchLabel = appText("Работа курьера", "Курьер эше")
+                    val switchState = if (online) appText("На линии", "Линияла")
+                    else appText("Не на линии", "Линияла түгел")
                     Switch(
                         checked = online,
                         onCheckedChange = onToggle,
                         enabled = !toggling,
+                        modifier = Modifier.semantics {
+                            contentDescription = switchLabel
+                            stateDescription = switchState
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = CanonGreen2,
@@ -508,7 +530,12 @@ internal fun MobilitySegmentTab(
         onClick = onClick,
         color = bg,
         shape = RoundedCornerShape(15.dp),
-        modifier = modifier.height(46.dp),
+        modifier = modifier
+            .height(48.dp)
+            .semantics {
+                role = Role.Tab
+                selected = active
+            },
     ) {
         Row(
             Modifier.fillMaxSize().padding(horizontal = 9.dp),
@@ -586,7 +613,14 @@ internal fun CourierServiceTypeTile(
         color = bg,
         shape = CanonItemShape,
         border = BorderStroke(if (selected) 2.dp else 1.dp, border),
-        modifier = modifier.fillMaxWidth().heightIn(min = 78.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 78.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                this.selected = selected
+                stateDescription = if (selected) "selected" else "not selected"
+            },
     ) {
         Row(
             Modifier.fillMaxWidth().padding(13.dp),
