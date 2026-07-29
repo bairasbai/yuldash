@@ -155,7 +155,7 @@ def route_metrics(
         "waypoints": f"{frm[0]:.6f},{frm[1]:.6f}|{to[0]:.6f},{to[1]:.6f}",
         "mode": "driving",
         "traffic": "enabled",
-        "avoid_tolls": "false",
+        "avoid_tolls": "true" if settings.taxi_avoid_tolls else "false",
     }
     try:
         getter = client.get if client is not None else httpx.get
