@@ -1109,7 +1109,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ParcelRouteRow(fromCity, toCity)
+                    ParcelRouteRow(p.fromCity, p.toCity)
                     Text(parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""), color = CanonMuted, fontSize = 13.sp)
                 }
                 ParcelStatusChip(p.status)
@@ -1118,7 +1118,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(appText("Получатель: ", "Алыусы: ") + receiverName, color = CanonText, fontSize = 13.sp)
+                Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonText, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
                 if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
             }
@@ -1160,13 +1160,13 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             if (p.deliveryType == "buy_bring") {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }
             }
-            if (confirmCode.isNotBlank() && canCourierDeliverParcel(p.status)) {
+            if (p.confirmCode.isNotBlank() && canCourierDeliverParcel(p.status)) {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(appText("Код вручения (передай получателю)", "Тапшырыу коды (алыусыға бир)"), color = CanonMuted, fontSize = 12.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 26.sp, modifier = Modifier.weight(1f))
-                            Surface(onClick = { clipboard.setText(AnnotatedString(confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                            Text(p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 26.sp, modifier = Modifier.weight(1f))
+                            Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
                             }
                         }
@@ -1327,7 +1327,7 @@ private fun AvailableParcelCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ParcelRouteRow(fromCity, toCity)
+                    ParcelRouteRow(p.fromCity, p.toCity)
                     Text(parcelSizeLabel(p.size), color = CanonMuted, fontSize = 13.sp)
                 }
                 // Что получит попутчик. Раньше здесь стоял НАШ сбор — курьер видел «30 ₽» и
@@ -1573,7 +1573,7 @@ private fun CarryingParcelCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ParcelRouteRow(fromCity, toCity)
+                    ParcelRouteRow(p.fromCity, p.toCity)
                     Text(parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""), color = CanonMuted, fontSize = 13.sp)
                 }
                 ParcelStatusChip(p.status)
@@ -1585,7 +1585,7 @@ private fun CarryingParcelCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(receiverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(p.receiverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                     if (p.receiverPhone.isNotBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
