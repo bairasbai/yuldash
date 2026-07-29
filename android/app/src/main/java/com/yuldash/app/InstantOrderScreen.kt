@@ -364,6 +364,24 @@ internal fun InstantOrderScreen(
     // Связь с сервером при поллинге активного заказа потеряна → мягкий баннер «пробуем ещё», не молчим.
     var pollOffline by remember { mutableStateOf(false) }
     var restoreTick by remember { mutableStateOf(0) }
+    val ctx = LocalContext.current
+    val cancelFailMsg = appText(
+        "Не получилось отменить заказ. Проверь сеть и повтори.",
+        "Заказды кире алып булманы. Селтәрҙе тикшереп ҡабатла.",
+    )
+    fun cancelOrder(id: Int) {
+        scope.launch {
+            ApiClient.instantCancel(id)
+                .onSuccess { order = it }
+                .onFailure {
+                    Toast.makeText(
+                        ctx,
+                        (it as? ApiException)?.message ?: cancelFailMsg,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+        }
+    }
 
     // Восстановление активного заказа при входе на экран + проверка доступности такси в точке.
     LaunchedEffect(restoreTick) {
@@ -451,11 +469,11 @@ internal fun InstantOrderScreen(
                 )
                 current.isSearching -> InstantSearchingCard(
                     order = current,
-                    onCancel = { scope.launch { ApiClient.instantCancel(current.id).onSuccess { order = it } } },
+                    onCancel = { cancelOrder(current.id) },
                 )
                 current.isActive -> InstantDriverEnRouteCard(
                     order = current,
-                    onCancel = { scope.launch { ApiClient.instantCancel(current.id).onSuccess { order = it } } },
+                    onCancel = { cancelOrder(current.id) },
                 )
                 current.status == "expired" -> InstantNoDriversCard(
                     order = current,
