@@ -192,16 +192,23 @@ private fun TaxiRideRow(r: DriverTaxiRideDto, onClick: () -> Unit) {
                     color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                TaxiRideTag(
-                    if (r.paid) appText("Оплачено", "Түләнгән") else appText("Не отмечено", "Билдәләнмәгән"),
-                    if (r.paid) CanonMint else CanonWarnBg,
-                    if (r.paid) CanonGreen2 else CanonWarn,
-                )
-                if (r.paymentMethod.isNotBlank()) {
-                    TaxiRideTag(payMethodLabel(r.paymentMethod), CanonMint, CanonGreen2)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TaxiRideTag(
+                        if (r.paid) appText("Оплачено", "Түләнгән") else appText("Не отмечено", "Билдәләнмәгән"),
+                        if (r.paid) CanonMint else CanonWarnBg,
+                        if (r.paid) CanonGreen2 else CanonWarn,
+                    )
+                    if (r.paymentMethod.isNotBlank()) {
+                        TaxiRideTag(payMethodLabel(r.paymentMethod), CanonMint, CanonGreen2)
+                    }
                 }
-                feeStatusTag(r.feeStatus)?.let { (label, bg, tint) -> TaxiRideTag(label, bg, tint) }
+                feeStatusTag(r.feeStatus)?.let { (label, bg, tint) ->
+                    TaxiRideTag(label, bg, tint)
+                }
             }
         }
     }
