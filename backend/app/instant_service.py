@@ -24,6 +24,7 @@ from sqlmodel import Session, select
 from sqlalchemy import func
 
 from .config import settings
+from . import pricing
 from .models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, Tariff,
     TripShare, TrustedContact, User,
@@ -238,10 +239,18 @@ def night_k_for(t: Optional[Tariff], now=None) -> float:
     return t.night_k if in_night_window(local_hour(now), t.night_from_hour, t.night_to_hour) else 1.0
 
 
-def total_k(t: Optional[Tariff], surge: float, now=None) -> float:
-    """Итоговый множитель цены = сурж × ночь, но НЕ выше surge_max_k. Потолок общий:
-    обещание «дороже не более чем в 1.5 раза» не должно обходиться сложением двух надбавок."""
-    return min(surge * night_k_for(t, now), settings.surge_max_k)
+def total_k(t: Optional[Tariff], surge: float, now=None,
+            pickup: float = 1.0, weather: float = 1.0) -> float:
+    """Итоговый множитель = спрос × ночь × погода × дальняя подача, с единым потолком.
+
+    Дополнительные параметры имеют нейтральные значения по умолчанию: старые вызовы и тесты
+    сохраняют прежнее поведение. Пробки сюда не входят второй раз — они уже учтены в eta_min
+    дорожного маршрута и компоненте Tariff.per_min.
+    """
+    return pricing.combine_market_factors(
+        surge, night_k_for(t, now), pickup, weather,
+        max_k=settings.surge_max_k,
+    )
 
 
 def night_note(k: float) -> Optional[dict]:
@@ -344,52 +353,145 @@ def _tariff_price(t: Tariff, dist_km: float, eta_min: float, surge: float) -> in
     return max(t.min_price, round_to_10(raw * t.k * surge))
 
 
+def _price_factors(route: pricing.RouteMetrics, surge: float, pickup: float,
+                   weather: pricing.WeatherMetrics, night: float, dynamic: float) -> list[dict]:
+    """Serializable, bilingual explanation of every signal used for the upfront fare."""
+    factors: list[dict] = []
+    if route.source == "yandex":
+        factors.append({
+            "code": "route", "kind": "base", "k": 1.0, "active": True,
+            "title_ru": "Маршрут по дорогам", "title_ba": "Юлдар буйлап маршрут",
+            "description_ru": "Дистанция и время рассчитаны по реальному дорожному маршруту.",
+            "description_ba": "Аралыҡ һәм ваҡыт ысын юл маршруты буйынса иҫәпләнде.",
+        })
+        if route.traffic_type in ("realtime", "forecast"):
+            factors.append({
+                "code": "traffic", "kind": "duration", "k": route.traffic_k, "active": True,
+                "title_ru": "Пробки учтены", "title_ba": "Тығындар иҫәпкә алынды",
+                "description_ru": "Текущее или прогнозное движение уже включено во время поездки.",
+                "description_ba": "Хәҙерге йәки фаразланған хәрәкәт сәфәр ваҡытына инде.",
+            })
+    else:
+        factors.append({
+            "code": "route", "kind": "base", "k": 1.0, "active": True,
+            "title_ru": "Маршрут оценочный", "title_ba": "Маршрут яҡынса",
+            "description_ru": "Сервис маршрутов недоступен: использована безопасная оценка по расстоянию.",
+            "description_ba": "Маршрут сервисы асыҡ түгел: аралыҡ буйынса яҡынса иҫәп ҡулланылды.",
+        })
+    if surge > 1.0:
+        factors.append({
+            "code": "demand", "kind": "multiplier", "k": surge, "active": True,
+            "title_ru": "Высокий спрос", "title_ba": "Ихтыяж юғары",
+            "description_ru": "Активных заказов сейчас больше, чем свободных машин рядом.",
+            "description_ba": "Хәҙер әүҙем заказдар яҡындағы буш машиналарҙан күберәк.",
+        })
+    if pickup > 1.0:
+        factors.append({
+            "code": "pickup", "kind": "multiplier", "k": pickup, "active": True,
+            "title_ru": "Дальняя подача", "title_ba": "Алыҫтан килеү",
+            "description_ru": "Ближайшей свободной машине нужно дольше ехать до точки подачи.",
+            "description_ba": "Иң яҡын буш машинаға килеп алыу нөктәһенә оҙағыраҡ барырға.",
+        })
+    if weather.available and weather.k > 1.0:
+        factors.append({
+            "code": "weather", "kind": "multiplier", "k": weather.k, "active": True,
+            "title_ru": "Сложная погода", "title_ba": "Ҡатмарлы һауа торошо",
+            "description_ru": "Осадки, сильный ветер или мороз учтены с небольшим ограниченным коэффициентом.",
+            "description_ba": "Яуым-төшөм, көслө ел йәки һыуыҡ бәләкәй сикләнгән коэффициент менән иҫәпләнде.",
+        })
+    if night > 1.0:
+        factors.append({
+            "code": "night", "kind": "multiplier", "k": night, "active": True,
+            "title_ru": "Ночной тариф", "title_ba": "Төнгө тариф",
+            "description_ru": "Ночью машин на линии меньше; окно и коэффициент заданы в тарифе.",
+            "description_ba": "Төндә линияла машина аҙыраҡ; ваҡыт һәм коэффициент тариф менән билдәләнә.",
+        })
+    raw = surge * pickup * weather.k * night
+    if raw > settings.surge_max_k:
+        factors.append({
+            "code": "cap", "kind": "cap", "k": dynamic, "active": True,
+            "title_ru": "Наценка ограничена", "title_ba": "Өҫтәмә хаҡ сикләнгән",
+            "description_ru": f"Все коэффициенты вместе ограничены ×{settings.surge_max_k:g}.",
+            "description_ba": f"Бөтә коэффициенттар бергә ×{settings.surge_max_k:g} менән сикләнгән.",
+        })
+    if route.has_tolls:
+        factors.append({
+            "code": "tolls", "kind": "notice", "k": 1.0, "active": True,
+            "title_ru": "На маршруте платная дорога", "title_ba": "Маршрутта түләүле юл бар",
+            "description_ru": "Стоимость проезда по платной дороге в тариф не включена.",
+            "description_ba": "Түләүле юл хаҡы тарифҡа инмәгән.",
+        })
+    return factors
+
+
 def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard") -> dict:
-    """Оценка цены: сервер считает по своей формуле, ЦЕНЕ ИЗ КЛИЕНТА НЕ ВЕРИТ.
-    price = max(min_price, (base + per_km·dist + per_min·eta) · k · сурж · ночь), до 10 ₽.
-    Надбавки прозрачны ДО заказа: surge_k + surge_note{ru,ba}, night + night_note{ru,ba}.
-    options — цены обоих классов (Эконом/Комфорт) одним запросом, чтобы пассажир выбирал
-    с открытыми глазами (у каждого класса своё ночное окно — считаем по его тарифу)."""
-    dist_km = max(haversine_km(frm[0], frm[1], to[0], to[1]) * settings.instant_road_k, 0.5)
+    """Server-owned upfront fare v2.
+
+    base = max(min_price, (base + per_km·road_distance + per_min·traffic_eta) · Tariff.k)
+    final = base · min(demand × night × weather × pickup, surge_max_k), rounded to 10 ₽.
+
+    Route/weather providers are optional and failure-safe. The response includes a bilingual
+    factor breakdown; no price or coefficient is accepted from the client.
+    """
+    route = pricing.route_metrics(frm, to)
+    dist_km = max(route.distance_km, 0.5)
+    eta_min = max(route.duration_min, 0.1)
     zone = zone_for_km(dist_km)
     t = active_tariff(session, zone, category)
     if not t:
         raise HTTPException(503, "Тарифы не настроены")
-    eta_min = dist_km / settings.instant_avg_speed_kmh * 60
-    # now фиксируем ОДИН раз: иначе цена и флаг night могли бы разъехаться на границе часа.
+
     now = utcnow()
     surge = surge_k_for(session, frm[0], frm[1])
+    nearest = nearby_drivers(frm[0], frm[1], limit=1)
+    pickup_eta = int(nearest[0]["eta_min"]) if nearest else None
+    pickup = pricing.pickup_k_for(pickup_eta)
+    weather = pricing.weather_metrics(frm[0], frm[1])
     nk = night_k_for(t, now)
-    price = _tariff_price(t, dist_km, eta_min, total_k(t, surge, now))
+    dynamic = total_k(t, surge, now, pickup=pickup, weather=weather.k)
+    base_price = _tariff_price(t, dist_km, eta_min, 1.0)
+    price = _tariff_price(t, dist_km, eta_min, dynamic)
+
     options = []
     for cat in ("standard", "comfort"):
         ct = session.exec(
             select(Tariff).where(Tariff.zone == zone, Tariff.category == cat, Tariff.active == True)  # noqa: E712
         ).first()
         if ct:
-            options.append({"category": cat,
-                            "price": _tariff_price(ct, dist_km, eta_min, total_k(ct, surge, now))})
-    # ВРЕМЯ ПОДАЧИ — не то же самое, что длительность поездки. Раньше клиент показывал только
-    # eta_min («N мин в пути»), и на вопрос «когда машина приедет?» ответа не было вообще
-    # (аудит 2026-07-26). Берём ближайшую живую машину из presence; нет Redis или рядом никого →
-    # None, то есть честное «не знаю», а не выдуманное число.
-    nearest = nearby_drivers(frm[0], frm[1], limit=1)
-    pickup_eta = int(nearest[0]["eta_min"]) if nearest else None
+            ct_dynamic = total_k(ct, surge, now, pickup=pickup, weather=weather.k)
+            options.append({
+                "category": cat,
+                "price": _tariff_price(ct, dist_km, eta_min, ct_dynamic),
+                "base_price": _tariff_price(ct, dist_km, eta_min, 1.0),
+                "dynamic_k": ct_dynamic,
+            })
+
     return {
         "price": price,
+        "base_price": base_price,
         "distance_km": round(dist_km, 2),
         "eta_min": round(eta_min, 1),
         "pickup_eta_min": pickup_eta,
         "zone": zone,
         "category": category,
         "tariff_id": t.id,
+        # Backward-compatible field: demand/supply only. The full product is dynamic_k.
         "surge_k": surge,
         "surge_note": surge_note(surge),
-        # Ночной тариф: клиент показывает честную плашку «сейчас ночной тариф», а не молча
-        # более дорогую цену (иначе выглядит как обман — цена днём и ночью разная без объяснения).
         "night": nk > 1.0,
         "night_k": nk,
         "night_note": night_note(nk),
+        "pickup_k": pickup,
+        "weather_k": weather.k,
+        "weather_code": weather.code,
+        "dynamic_k": dynamic,
+        "pricing_cap_k": settings.surge_max_k,
+        "pricing_version": "v2",
+        "route_source": route.source,
+        "traffic_type": route.traffic_type,
+        "traffic_k": route.traffic_k,
+        "has_tolls": route.has_tolls,
+        "price_factors": _price_factors(route, surge, pickup, weather, nk, dynamic),
         "options": options,
     }
 
@@ -1085,6 +1187,22 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
     blur_from = role == "driver" and not unlocked
     from_lat = round(order.from_lat, 2) if (blur_from and order.from_lat is not None) else order.from_lat
     from_lng = round(order.from_lng, 2) if (blur_from and order.from_lng is not None) else order.from_lng
+
+    # Водителю — серверный upfront net, тем же Decimal-расчётом, что фактический долг.
+    # Пассажиру комиссию водителя не раскрываем: его источник правды — итоговая цена поездки.
+    driver_gross_kop = driver_fee_kop = driver_net_kop = 0
+    driver_fee_percent = 0.0
+    if role == "driver":
+        from . import debt as debt_mod
+        price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
+        driver_gross_kop = max(price_rub, 0) * 100
+        # Фиксируем смысл upfront: ступень комиссии берём на момент создания заказа.
+        driver_fee_percent = debt_mod.driver_fee_percent(
+            session, viewer.id, order.created_at or utcnow()
+        )
+        driver_fee_kop = debt_mod.order_commission_kop(order, driver_fee_percent)
+        driver_net_kop = max(driver_gross_kop - driver_fee_kop, 0)
+
     return {
         "id": order.id,
         "status": order.status.value,
@@ -1098,6 +1216,12 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         "surge_k": order.surge_k,
         "distance_km": order.distance_km,
         "eta_min": order.eta_min,
+        # Серверный доход водителя: цена пассажиру → комиссия его ступени → чистыми.
+        # Нули в пассажирской витрине; вычислений денег на клиенте нет.
+        "driver_gross_kop": driver_gross_kop,
+        "driver_fee_kop": driver_fee_kop,
+        "driver_net_kop": driver_net_kop,
+        "driver_fee_percent": driver_fee_percent,
         # Предзаказ «на время»: null у обычного заказа; iso-время подачи у scheduled.
         "scheduled_at": order.scheduled_at.isoformat() if order.scheduled_at else None,
         "driver_id": order.driver_id,
