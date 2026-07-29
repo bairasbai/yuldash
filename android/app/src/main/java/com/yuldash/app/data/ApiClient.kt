@@ -3128,9 +3128,16 @@ object ApiClient {
 
     /** Оценка стоимости доставки курьером. urgency: bypath|now. */
     suspend fun courierEstimate(
-        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double, size: String, urgency: String,
+        fromLat: Double,
+        fromLng: Double,
+        toLat: Double,
+        toLng: Double,
+        size: String,
+        urgency: String,
+        deliveryType: String = "courier",
     ): Result<CourierEstimateDto> {
-        val q = "from_lat=$fromLat&from_lng=$fromLng&to_lat=$toLat&to_lng=$toLng&size=${enc(size)}&urgency=${enc(urgency)}"
+        val q = "from_lat=$fromLat&from_lng=$fromLng&to_lat=$toLat&to_lng=$toLng" +
+            "&size=${enc(size)}&urgency=${enc(urgency)}&delivery_type=${enc(deliveryType)}"
         return call("GET", "/courier/estimate?$q", null, auth = true).map { o ->
             val b = o.optJSONObject("breakdown") ?: JSONObject()
             CourierEstimateDto(
