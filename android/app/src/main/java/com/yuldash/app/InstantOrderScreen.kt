@@ -349,8 +349,12 @@ internal fun InstantOrderScreen(
     val scope = rememberCoroutineScope()
     val loggedIn = ApiClient.isLoggedIn()
     var order by remember { mutableStateOf<InstantOrderDto?>(null) }
-    // Предзаказ «на время» создан → карточка подтверждения (не активный заказ, живёт в «Моих предзаказах»).
-    var scheduledConfirm by remember { mutableStateOf<InstantOrderDto?>(null) }
+    // Предзаказ «на время» создан → сохраняем только поля подтверждения. DTO в Bundle
+    // не кладём, а минимальный receipt переживает recreation и не допускает повторный заказ.
+    var scheduledConfirmId by rememberSaveable { mutableStateOf(0) }
+    var scheduledConfirmAt by rememberSaveable { mutableStateOf<String?>(null) }
+    var scheduledConfirmFrom by rememberSaveable { mutableStateOf("") }
+    var scheduledConfirmTo by rememberSaveable { mutableStateOf("") }
     var checking by remember { mutableStateOf(loggedIn) }   // первичная загрузка: есть ли активный заказ
     // Гейт такси (волна 2): доступно ли такси в моей точке (глобальный флаг + города на сервере).
     // Сеть упала → фолбэк «доступно» (обычный пикер): сервер всё равно гейтит оценку и заказ.
@@ -407,10 +411,21 @@ internal fun InstantOrderScreen(
                 !loggedIn -> InstantLoginNeeded(onLoginRequired)
                 checking -> InstantCenterLoader(appText("Проверяем заказ…", "Заказды тикшерәбеҙ…"))
                 // Предзаказ «на время» создан → спокойное подтверждение + путь в «Мои предзаказы».
-                scheduledConfirm != null -> InstantScheduledCreatedCard(
-                    order = scheduledConfirm!!,
-                    onOpenScheduled = onOpenScheduled,
-                    onNewOrder = { scheduledConfirm = null },
+                scheduledConfirmId != 0 -> InstantScheduledCreatedCard(
+                    scheduledAt = scheduledConfirmAt,
+                    fromText = scheduledConfirmFrom,
+                    toText = scheduledConfirmTo,
+                    onOpenScheduled = {
+                        scheduledConfirmId = 0
+                        scheduledConfirmAt = null
+                        scheduledConfirmFrom = ""; scheduledConfirmTo = ""
+                        onOpenScheduled()
+                    },
+                    onNewOrder = {
+                        scheduledConfirmId = 0
+                        scheduledConfirmAt = null
+                        scheduledConfirmFrom = ""; scheduledConfirmTo = ""
+                    },
                     onBack = onBack,
                 )
                 // Вход не загрузился по сети → не роняем в пикер молча (мог быть живой заказ), даём «Повторить».
@@ -427,7 +442,12 @@ internal fun InstantOrderScreen(
                 )
                 current == null -> InstantDestinationPicker(
                     onOrderCreated = { order = it },
-                    onScheduled = { scheduledConfirm = it },
+                    onScheduled = { scheduled ->
+                        scheduledConfirmId = scheduled.id
+                        scheduledConfirmAt = scheduled.scheduledAt
+                        scheduledConfirmFrom = scheduled.fromText
+                        scheduledConfirmTo = scheduled.toText
+                    },
                 )
                 current.isSearching -> InstantSearchingCard(
                     order = current,
@@ -1125,7 +1145,9 @@ private fun TimingChoiceChip(title: String, selected: Boolean, onClick: () -> Un
 // Предзаказ создан → спокойное подтверждение + путь в «Мои предзаказы».
 @Composable
 private fun InstantScheduledCreatedCard(
-    order: InstantOrderDto,
+    scheduledAt: String?,
+    fromText: String,
+    toText: String,
     onOpenScheduled: () -> Unit,
     onNewOrder: () -> Unit,
     onBack: () -> Unit,
@@ -1140,16 +1162,16 @@ private fun InstantScheduledCreatedCard(
         }
         Spacer(Modifier.height(16.dp))
         Text(
-            order.scheduledAt?.let { appText("Предзаказ на ${formatDepart(it)} создан", "${formatDepart(it)}-ға алдан заказ булдырылды") }
+            scheduledAt?.let { appText("Предзаказ на ${formatDepart(it)} создан", "${formatDepart(it)}-ға алдан заказ булдырылды") }
                 ?: appText("Предзаказ создан", "Алдан заказ булдырылды"),
             fontWeight = FontWeight.Black, fontSize = 20.sp, textAlign = TextAlign.Center, color = CanonText,
         )
         Spacer(Modifier.height(8.dp))
-        Text("${order.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
+        Text("${fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
             color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))
-        Text(appText("Открой Юлдаш ко времени подачи, чтобы начать поиск машины. Мы напомним.",
-            "Машина эҙләй башлар өсөн Юлдашты килеү ваҡытына ас. Беҙ иҫкә төшөрөрбөҙ."),
+        Text(appText("Поиск машины запустится автоматически ко времени подачи. Мы напомним.",
+            "Машина эҙләү килеү ваҡытына автоматик башланыр. Беҙ иҫкә төшөрөрбөҙ."),
             color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(22.dp))
         AppButton(text = appText("Мои предзаказы", "Минең алдан заказдар"), onClick = onOpenScheduled, style = AppButtonStyle.Primary)
