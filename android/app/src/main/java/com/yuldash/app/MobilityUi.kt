@@ -571,6 +571,101 @@ internal fun CourierOfferCard(
 }
 
 @Composable
+internal fun CourierServiceTypeTile(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(180), label = "courierServiceBg")
+    val border by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(180), label = "courierServiceBorder")
+    Surface(
+        onClick = onClick,
+        color = bg,
+        shape = CanonItemShape,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
+        modifier = modifier.fillMaxWidth().heightIn(min = 78.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(15.dp),
+                color = if (selected) CanonGreen2 else CanonBg,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = if (selected) Color.White else CanonGreen2,
+                    modifier = Modifier.padding(11.dp).size(22.dp),
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black)
+                Text(subtitle, color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            if (selected) {
+                Surface(shape = CircleShape, color = CanonGreen2) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.padding(4.dp).size(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun CourierFareSummary(
+    total: String,
+    courierGets: String,
+    fee: String,
+    distance: String,
+    modifier: Modifier = Modifier,
+    breakdown: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.5f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(appText("Стоимость доставки", "Доставка хаҡы"), color = CanonMutedStrong, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(total, color = CanonText, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                }
+                Surface(shape = RoundedCornerShape(18.dp), color = CanonMint) {
+                    Icon(Icons.Default.LocalShipping, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(13.dp).size(25.dp))
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MobilityValueTile(appText("Курьеру", "Курьерға"), courierGets, CanonGreen2, Modifier.weight(1f))
+                MobilityValueTile(appText("Сервис", "Сервис"), fee, CanonMutedStrong, Modifier.weight(1f))
+                MobilityValueTile(appText("Маршрут", "Маршрут"), distance, CanonMutedStrong, Modifier.weight(1f))
+            }
+            Surface(shape = CanonItemShape, color = CanonMint) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp), content = breakdown)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobilityValueTile(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Surface(shape = RoundedCornerShape(14.dp), color = CanonBg, border = BorderStroke(1.dp, CanonBorder), modifier = modifier) {
+        Column(Modifier.padding(horizontal = 9.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, color = CanonMuted, fontSize = 10.sp, maxLines = 1)
+            Text(value, color = color, fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
 private fun MobilitySmallTag(text: String) {
     Surface(shape = CircleShape, color = CanonBg, border = BorderStroke(1.dp, CanonBorder)) {
         Text(text, color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
@@ -657,4 +752,3 @@ internal fun TaxiSearchingExperience(order: InstantOrderDto, onCancel: () -> Uni
         )
     }
 }
-
