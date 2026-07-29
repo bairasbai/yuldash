@@ -61,6 +61,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -379,7 +380,7 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
 
 @Composable
 internal fun ParcelsScreen(onBack: () -> Unit) {
-    var tab by remember { mutableStateOf(0) }   // 0 = отправить, 1 = мои, 2 = возить
+    var tab by rememberSaveable { mutableStateOf(0) }   // 0 = отправить, 1 = мои, 2 = возить
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Посылки", "Бандеролдәр"), onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxWidth()) {
@@ -431,28 +432,28 @@ private fun SendParcelTab(onSent: () -> Unit) {
         return
     }
 
-    var deliveryType by remember { mutableStateOf("poputka") }   // poputka | courier | buy_bring
-    var fromCity by remember { mutableStateOf("") }
-    var toCity by remember { mutableStateOf("") }
-    var size by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var receiverName by remember { mutableStateOf("") }
-    var receiverPhone by remember { mutableStateOf("") }
-    var rulesAccepted by remember { mutableStateOf(false) }
-    var urgency by remember { mutableStateOf("bypath") }          // bypath | now
-    var shoppingList by remember { mutableStateOf("") }
+    var deliveryType by rememberSaveable { mutableStateOf("poputka") }   // poputka | courier | buy_bring
+    var fromCity by rememberSaveable { mutableStateOf("") }
+    var toCity by rememberSaveable { mutableStateOf("") }
+    var size by rememberSaveable { mutableStateOf("") }
+    var description by rememberSaveable { mutableStateOf("") }
+    var receiverName by rememberSaveable { mutableStateOf("") }
+    var receiverPhone by rememberSaveable { mutableStateOf("") }
+    var rulesAccepted by rememberSaveable { mutableStateOf(false) }
+    var urgency by rememberSaveable { mutableStateOf("bypath") }          // bypath | now
+    var shoppingList by rememberSaveable { mutableStateOf("") }
     // Объявленная ценность: поля в форме не было вообще, поэтому спор о повреждении ВСЕГДА падал
     // в ветку «ценность не объявлена» — доказывать было нечем (аудит 2026-07-26).
-    var declaredRub by remember { mutableStateOf("") }
+    var declaredRub by rememberSaveable { mutableStateOf("") }
     // Сколько отправитель платит попутчику. У «по пути» цены не было ВООБЩЕ: курьер видел
     // маршрут и размер, а за сколько везти — нигде (аудит 2026-07-26). Пусто = «по-соседски».
-    var priceRub by remember { mutableStateOf("") }
-    var productRub by remember { mutableStateOf("") }
+    var priceRub by rememberSaveable { mutableStateOf("") }
+    var productRub by rememberSaveable { mutableStateOf("") }
     var estimate by remember { mutableStateOf<CourierEstimateDto?>(null) }
-    var fromLat by remember { mutableStateOf<Double?>(null) }
-    var fromLng by remember { mutableStateOf<Double?>(null) }
-    var toLat by remember { mutableStateOf<Double?>(null) }
-    var toLng by remember { mutableStateOf<Double?>(null) }
+    var fromLat by rememberSaveable { mutableStateOf<Double?>(null) }
+    var fromLng by rememberSaveable { mutableStateOf<Double?>(null) }
+    var toLat by rememberSaveable { mutableStateOf<Double?>(null) }
+    var toLng by rememberSaveable { mutableStateOf<Double?>(null) }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -1157,7 +1158,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
 
 @Composable
 private fun CarryTab() {
-    var sub by remember { mutableStateOf(0) }   // 0 = доступные, 1 = везу
+    var sub by rememberSaveable { mutableStateOf(0) }   // 0 = доступные, 1 = везу
 
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1180,7 +1181,7 @@ private fun AvailableParcelsTab() {
     var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var cityFilter by remember { mutableStateOf("") }
+    var cityFilter by rememberSaveable { mutableStateOf("") }
     var busyId by remember { mutableStateOf(0) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось взять. Проверь сеть.", "Алып булманы. Селтәрҙе тикшер.")
