@@ -82,12 +82,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -123,6 +126,22 @@ import kotlinx.coroutines.launch
 
 // Города-опоры РБ для дефолтной камеры, если позиция ещё не определилась.
 private val InstantDefaultPoint = Point(52.5980, 58.4419) // Баймак
+
+/**
+ * Yandex Point is not Bundle-saveable. Persist only latitude/longitude so an unfinished
+ * taxi route survives Activity recreation without retaining any SDK object.
+ */
+private val InstantPointStateSaver = Saver<MutableState<Point?>, DoubleArray>(
+    save = { state ->
+        state.value?.let { point -> doubleArrayOf(point.latitude, point.longitude) }
+            ?: doubleArrayOf()
+    },
+    restore = { saved ->
+        mutableStateOf(
+            saved.takeIf { it.size == 2 }?.let { Point(it[0], it[1]) },
+        )
+    },
+)
 
 // ------------------------------ Время сервера (наивный UTC ISO) ------------------------------
 /** Сервер шлёт наивные UTC-даты ISO («2026-07-10T12:34:56.123456») — переводим в epoch ms. */
@@ -529,36 +548,36 @@ private fun InstantDestinationPicker(
     val myPoint by rememberMyPoint(active = true)
 
     // Подача: сейчас (null) или «на время» (epoch ms выбранного времени). ≤7 суток, не в прошлом.
-    var scheduledAtMs by remember { mutableStateOf<Long?>(null) }
+    var scheduledAtMs by rememberSaveable { mutableStateOf<Long?>(null) }
 
-    var fromPoint by remember { mutableStateOf<Point?>(null) }
-    var fromText by remember { mutableStateOf("") }
+    var fromPoint by rememberSaveable(saver = InstantPointStateSaver) { mutableStateOf<Point?>(null) }
+    var fromText by rememberSaveable { mutableStateOf("") }
     // A по умолчанию = моя позиция (пока пользователь не выбрал вручную).
-    var fromManual by remember { mutableStateOf(false) }
+    var fromManual by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(myPoint) { if (!fromManual && myPoint != null) fromPoint = myPoint }
     val effFrom = fromPoint ?: myPoint
 
-    var toPoint by remember { mutableStateOf<Point?>(null) }
-    var toText by remember { mutableStateOf("") }
-    var query by remember { mutableStateOf("") }
+    var toPoint by rememberSaveable(saver = InstantPointStateSaver) { mutableStateOf<Point?>(null) }
+    var toText by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
 
     var estimate by remember { mutableStateOf<InstantEstimateDto?>(null) }
     var estimating by remember { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
-    var category by remember { mutableStateOf("standard") }   // §6: standard = Эконом, comfort = Комфорт
-    var pickOnMap by remember { mutableStateOf(false) }   // оверлей выбора точки Б на карте
-    var pickFromOnMap by remember { mutableStateOf(false) }
+    var category by rememberSaveable { mutableStateOf("standard") }   // §6: standard = Эконом, comfort = Комфорт
+    var pickOnMap by rememberSaveable { mutableStateOf(false) }   // оверлей выбора точки Б на карте
+    var pickFromOnMap by rememberSaveable { mutableStateOf(false) }
 
     // Детали заказа (аудит 2026-07-26). Свёрнуты по умолчанию: 9 заказов из 10 — обычные,
     // лишние поля на главном пути только мешают.
-    var detailsOpen by remember { mutableStateOf(false) }
-    var comment by remember { mutableStateOf("") }     // «за магазином, синие ворота»
-    var entrance by remember { mutableStateOf("") }    // подъезд / квартира / этаж
-    var forOther by remember { mutableStateOf(false) } // заказ ДЛЯ ДРУГОГО человека
-    var forName by remember { mutableStateOf("") }
-    var forPhone by remember { mutableStateOf("") }
+    var detailsOpen by rememberSaveable { mutableStateOf(false) }
+    var comment by rememberSaveable { mutableStateOf("") }     // «за магазином, синие ворота»
+    var entrance by rememberSaveable { mutableStateOf("") }    // подъезд / квартира / этаж
+    var forOther by rememberSaveable { mutableStateOf(false) } // заказ ДЛЯ ДРУГОГО человека
+    var forName by rememberSaveable { mutableStateOf("") }
+    var forPhone by rememberSaveable { mutableStateOf("") }
 
     // Сохранённые (Дом/Работа) + недавние: быстрый выбор адреса Б без повторного геокодинга.
     var savedPlaces by remember { mutableStateOf<List<com.yuldash.app.data.SavedPlaceDto>>(emptyList()) }
@@ -2025,9 +2044,9 @@ private fun TaxiComingSoonCard(
     )
 
     // Форма листа ожидания: телефон (предзаполнен у залогиненного), город (из availability), роль.
-    var phone by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf(availability.city) }
-    var role by remember { mutableStateOf("passenger") }
+    var phone by rememberSaveable { mutableStateOf("") }
+    var city by rememberSaveable { mutableStateOf(availability.city) }
+    var role by rememberSaveable { mutableStateOf("passenger") }
     var sending by remember { mutableStateOf(false) }
     var sent by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
