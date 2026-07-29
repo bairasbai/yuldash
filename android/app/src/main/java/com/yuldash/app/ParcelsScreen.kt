@@ -67,6 +67,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.mergeDescendants
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -723,7 +730,12 @@ private fun UrgencyChip(title: String, subtitle: String, selected: Boolean, modi
         color = if (selected) CanonMint else CanonSurface,
         shape = CanonItemShape,
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
-        modifier = modifier.height(64.dp),
+        modifier = modifier
+            .height(64.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                this.selected = selected
+            },
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalArrangement = Arrangement.Center) {
             Text(title, color = if (selected) CanonGreen2 else CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
@@ -785,7 +797,12 @@ private fun ParcelSizeCard(size: String, selected: Boolean, onClick: () -> Unit)
     Surface(
         onClick = onClick, color = bg, shape = CanonItemShape,
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                this.selected = selected
+            },
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = if (selected) CanonGreen2 else CanonMint, shape = RoundedCornerShape(12.dp)) {
@@ -808,7 +825,12 @@ private fun RulesCheckbox(checked: Boolean, onToggle: () -> Unit) {
         color = if (checked) CanonMint else CanonSurface,
         shape = CanonItemShape,
         border = BorderStroke(if (checked) 2.dp else 1.dp, if (checked) CanonGreen2 else CanonBorder),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                role = Role.Checkbox
+                toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
+            },
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(
@@ -1210,7 +1232,12 @@ private fun ParcelFilterChip(label: String, active: Boolean, onClick: () -> Unit
         color = if (active) CanonMint else CanonSurface,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = Modifier.height(48.dp),
+        modifier = Modifier
+            .height(48.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                selected = active
+            },
     ) {
         Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
             Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
