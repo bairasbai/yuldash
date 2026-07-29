@@ -424,13 +424,13 @@ private fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modif
 @Composable
 private fun SendParcelTab(onSent: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var created by remember { mutableStateOf<ParcelDto?>(null) }
-
-    val c = created
-    if (c != null) {
-        ParcelCreatedView(c, onDone = { created = null; onSent() })
-        return
-    }
+    // Keep the post-create receipt across Activity recreation. Saving the whole DTO is unsafe
+    // and unnecessary; these are exactly the fields rendered on the success screen.
+    var createdId by rememberSaveable { mutableStateOf(0) }
+    var createdCode by rememberSaveable { mutableStateOf("") }
+    var createdFrom by rememberSaveable { mutableStateOf("") }
+    var createdTo by rememberSaveable { mutableStateOf("") }
+    var createdReceiver by rememberSaveable { mutableStateOf("") }
 
     var deliveryType by rememberSaveable { mutableStateOf("poputka") }   // poputka | courier | buy_bring
     var fromCity by rememberSaveable { mutableStateOf("") }
@@ -467,6 +467,38 @@ private fun SendParcelTab(onSent: () -> Unit) {
         (shoppingList.isNotBlank() && productRubInt != null && productRubInt in 1..5000)
     val baseFilled = fromCity.isNotBlank() && toCity.isNotBlank() && size.isNotBlank()
     val receiverOk = receiverName.isNotBlank() && receiverPhone.isNotBlank()
+
+    fun showCreatedReceipt(parcel: ParcelDto) {
+        createdId = parcel.id
+        createdCode = parcel.confirmCode
+        createdFrom = parcel.fromCity
+        createdTo = parcel.toCity
+        createdReceiver = parcel.receiverName
+
+        // A successful submit starts a fresh draft, preventing accidental duplicate orders.
+        deliveryType = "poputka"
+        fromCity = ""; toCity = ""; size = ""; description = ""
+        receiverName = ""; receiverPhone = ""; rulesAccepted = false
+        urgency = "bypath"; shoppingList = ""; declaredRub = ""
+        priceRub = ""; productRub = ""; estimate = null
+        fromLat = null; fromLng = null; toLat = null; toLng = null
+        error = null
+    }
+
+    if (createdId != 0) {
+        ParcelCreatedView(
+            confirmCode = createdCode,
+            fromCity = createdFrom,
+            toCity = createdTo,
+            receiverName = createdReceiver,
+            onDone = {
+                createdId = 0
+                createdCode = ""; createdFrom = ""; createdTo = ""; createdReceiver = ""
+                onSent()
+            },
+        )
+        return
+    }
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -666,7 +698,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 priceKop = ((priceRub.toIntOrNull() ?: 0) * 100).coerceIn(0, 100_000_00),
                                 declaredValueKop = ((declaredRub.toIntOrNull() ?: 0) * 100).coerceIn(0, 100_000_00),
                             )
-                                .onSuccess { created = it }
+                                .onSuccess { showCreatedReceipt(it) }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
                             working = false
                         }
@@ -725,7 +757,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 declaredValueKop = declaredRub.toIntOrNull()?.takeIf { it > 0 }
                                     ?.let { (it * 100).coerceAtMost(100_000_00) },
                             )
-                                .onSuccess { created = it }
+                                .onSuccess { showCreatedReceipt(it) }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
                             working = false
                         }
@@ -898,7 +930,13 @@ private fun RulesCheckbox(checked: Boolean, onToggle: () -> Unit) {
 // ─────────────────────────── Успех: код вручения ───────────────────────────
 
 @Composable
-private fun ParcelCreatedView(p: ParcelDto, onDone: () -> Unit) {
+private fun ParcelCreatedView(
+    confirmCode: String,
+    fromCity: String,
+    toCity: String,
+    receiverName: String,
+    onDone: () -> Unit,
+) {
     val clipboard = LocalClipboardManager.current
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -922,9 +960,9 @@ private fun ParcelCreatedView(p: ParcelDto, onDone: () -> Unit) {
             Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(2.dp, CanonGreen2)) {
                 Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(appText("Код вручения", "Тапшырыу коды"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 44.sp, textAlign = TextAlign.Center)
-                    if (p.confirmCode.isNotBlank()) {
-                        Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                    Text(confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 44.sp, textAlign = TextAlign.Center)
+                    if (confirmCode.isNotBlank()) {
+                        Surface(onClick = { clipboard.setText(AnnotatedString(confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
                             Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
@@ -948,8 +986,8 @@ private fun ParcelCreatedView(p: ParcelDto, onDone: () -> Unit) {
         }
         item {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                ParcelRouteRow(p.fromCity, p.toCity)
-                Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonMuted, fontSize = 13.sp)
+                ParcelRouteRow(fromCity, toCity)
+                Text(appText("Получатель: ", "Алыусы: ") + receiverName, color = CanonMuted, fontSize = 13.sp)
             }
         }
         item { AppButton(appText("Готово", "Әҙер"), onDone, style = AppButtonStyle.Primary) }
@@ -1071,7 +1109,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ParcelRouteRow(p.fromCity, p.toCity)
+                    ParcelRouteRow(fromCity, toCity)
                     Text(parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""), color = CanonMuted, fontSize = 13.sp)
                 }
                 ParcelStatusChip(p.status)
@@ -1080,7 +1118,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonText, fontSize = 13.sp)
+                Text(appText("Получатель: ", "Алыусы: ") + receiverName, color = CanonText, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
                 if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
             }
@@ -1122,13 +1160,13 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             if (p.deliveryType == "buy_bring") {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }
             }
-            if (p.confirmCode.isNotBlank() && canCourierDeliverParcel(p.status)) {
+            if (confirmCode.isNotBlank() && canCourierDeliverParcel(p.status)) {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(appText("Код вручения (передай получателю)", "Тапшырыу коды (алыусыға бир)"), color = CanonMuted, fontSize = 12.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 26.sp, modifier = Modifier.weight(1f))
-                            Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
+                            Text(confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 26.sp, modifier = Modifier.weight(1f))
+                            Surface(onClick = { clipboard.setText(AnnotatedString(confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
                             }
                         }
@@ -1289,7 +1327,7 @@ private fun AvailableParcelCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ParcelRouteRow(p.fromCity, p.toCity)
+                    ParcelRouteRow(fromCity, toCity)
                     Text(parcelSizeLabel(p.size), color = CanonMuted, fontSize = 13.sp)
                 }
                 // Что получит попутчик. Раньше здесь стоял НАШ сбор — курьер видел «30 ₽» и
@@ -1535,7 +1573,7 @@ private fun CarryingParcelCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ParcelRouteRow(p.fromCity, p.toCity)
+                    ParcelRouteRow(fromCity, toCity)
                     Text(parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""), color = CanonMuted, fontSize = 13.sp)
                 }
                 ParcelStatusChip(p.status)
@@ -1547,7 +1585,7 @@ private fun CarryingParcelCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(p.receiverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(receiverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                     if (p.receiverPhone.isNotBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
