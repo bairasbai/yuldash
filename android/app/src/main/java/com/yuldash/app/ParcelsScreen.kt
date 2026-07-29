@@ -821,7 +821,7 @@ private fun EstimateCard(est: CourierEstimateDto) {
     val commEst = if (est.breakdown.commissionEstimated) appText(" ≈", " ≈") else ""
     CourierFareSummary(
         total = "≈ " + kopToRub(est.priceKop),
-        courierGets = kopToRub((est.priceKop - est.commissionKop).coerceAtLeast(0)),
+        courierGets = kopToRub(courierNetKop(est.priceKop, est.commissionKop)),
         fee = kopToRub(est.commissionKop) + commEst,
         distance = String.format("%.0f км", est.distanceKm),
     ) {
