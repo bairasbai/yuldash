@@ -738,7 +738,7 @@ internal fun canCourierResolveParcelTrouble(status: String): Boolean =
     status == "accepted" || status == "in_transit" || status == "returning"
 
 internal fun canOpenParcelDispute(status: String): Boolean =
-    status == "in_transit" || status == "returning" ||
+    status == "accepted" || status == "in_transit" || status == "returning" ||
         status == "delivered" || status == "returned"
 
 
