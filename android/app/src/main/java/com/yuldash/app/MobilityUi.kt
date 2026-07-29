@@ -579,7 +579,7 @@ internal fun CourierOfferCard(
                     Icon(Icons.Default.Inventory2, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(appText("Новая доставка", "Яңы доставка"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(appText("Твой доход", "Һинең килем"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     Text(priceLabel, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
                 }
                 Surface(shape = RoundedCornerShape(12.dp), color = CanonGreen2.copy(alpha = 0.12f)) {
