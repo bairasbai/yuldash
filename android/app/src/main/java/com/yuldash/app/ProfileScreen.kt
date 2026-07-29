@@ -1574,7 +1574,7 @@ private fun feePct(p: Double): String =
  */
 @Composable
 private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
-    val earn by animateIntAsState(wd.earningsToday, tween(600), label = "earn")
+    val netEarnKop by animateIntAsState(wd.netTodayKop, tween(600), label = "netEarnKop")
     val tiers = wd.feeTiers.ifEmpty { listOf(3.0, 5.0, 8.0) }
     // Индекс текущей ступени по стажу (границы feeTierDays = [30,60]).
     val activeIdx = when {
@@ -1597,11 +1597,18 @@ private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(appText("Сегодня", "Бөгөн"), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("$earn ₽", color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)
+                        Text(appText("Чистыми сегодня", "Бөгөн таҙа килем"), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(formatTaxiKop(netEarnKop), color = Color.White, fontWeight = FontWeight.Black, fontSize = 34.sp)
                         Text(
                             appText("${wd.ordersToday} ${pluralOrdersRu(wd.ordersToday)}", "${wd.ordersToday} заказ"),
                             color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp,
+                        )
+                        Text(
+                            appText(
+                                "Пассажиры: ${formatTaxiKop(wd.grossTodayKop)} · комиссия: ${formatTaxiKop(wd.feeTodayKop)}",
+                                "Пассажирҙар: ${formatTaxiKop(wd.grossTodayKop)} · комиссия: ${formatTaxiKop(wd.feeTodayKop)}",
+                            ),
+                            color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, lineHeight = 15.sp,
                         )
                     }
                     Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(30.dp))
