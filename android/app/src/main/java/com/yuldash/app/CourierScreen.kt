@@ -745,6 +745,7 @@ private fun CourierCarryingCard(
     onRate: () -> Unit,
 ) {
     val delivered = p.status == "delivered"
+    val canDeliver = canCourierDeliverParcel(p.status)
     val buyBring = p.deliveryType == "buy_bring"
     val needGoods = buyBring && (p.settlement?.goodsActualKop ?: 0) == 0
     AppCard {
@@ -757,6 +758,7 @@ private fun CourierCarryingCard(
                 ParcelStatusChip(p.status)
             }
             CourierDeliveryProgress(status = p.status)
+            ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = true)
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -773,26 +775,42 @@ private fun CourierCarryingCard(
                     }
                 }
             }
-            // C2: «купи и привези» — блок расчёта (за товар · доставка · получатель платит)
             if (buyBring) {
                 val st = p.settlement
                 if (st != null) ParcelSettlementBlock(st, forCourier = true)
                 else if (p.codAmountKop > 0) Text(appText("Выкуп товара: ", "Тауар выкупы: ") + kopToRub(p.codAmountKop), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
-            // Комиссия до вручения — оценка (финал считается после вручения).
-            val feeEst = if (!delivered) appText(" ≈ ориентировочно", " ≈ самаға") else ""
-            val myIncome = p.priceKop - p.commissionKop
-            if (myIncome > 0) {
-                Text(appText("Твой доход: ", "Һинең килем: ") + kopToRub(myIncome) + appText(" (наш сбор ${kopToRub(p.commissionKop)}$feeEst)", " (беҙҙең сбор ${kopToRub(p.commissionKop)}$feeEst)"), color = CanonMuted, fontSize = 13.sp)
-            } else {
-                // «По пути»: комиссии платформы нет, вся оплата — напрямую от отправителя.
-                Text(
-                    if (p.priceKop > 0) appText("Тебе заплатят: ", "Һиңә түләйәсәктәр: ") + kopToRub(p.priceKop)
-                    else appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"),
-                    color = CanonMuted, fontSize = 13.sp,
+            when {
+                p.status == "returning" || p.status == "returned" -> Text(
+                    appText(
+                        "При возврате комиссию Юлдаша не берём. Расчёт по расходам — напрямую с отправителем.",
+                        "Ҡайтарғанда Юлдаш комиссия алмай. Сығымдар буйынса ебәреүсе менән туранан-тура иҫәпләш.",
+                    ),
+                    color = CanonWarn,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
                 )
+                p.cancelFeeKop > 0 -> Text(
+                    appText("Компенсация от отправителя: ", "Ебәреүсенән компенсация: ") + kopToRub(p.cancelFeeKop),
+                    color = CanonWarn,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                )
+                else -> {
+                    val feeEst = if (!delivered) appText(" ≈ ориентировочно", " ≈ самаға") else ""
+                    val myIncome = p.priceKop - p.commissionKop
+                    if (myIncome > 0) {
+                        Text(appText("Твой доход: ", "Һинең килем: ") + kopToRub(myIncome) + appText(" (наш сбор ${kopToRub(p.commissionKop)}$feeEst)", " (беҙҙең сбор ${kopToRub(p.commissionKop)}$feeEst)"), color = CanonMuted, fontSize = 13.sp)
+                    } else {
+                        Text(
+                            if (p.priceKop > 0) appText("Тебе заплатят: ", "Һиңә түләйәсәктәр: ") + kopToRub(p.priceKop)
+                            else appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"),
+                            color = CanonMuted, fontSize = 13.sp,
+                        )
+                    }
+                }
             }
-            if (!delivered) {
+            if (canDeliver) {
                 if (needGoods) {
                     AppButton(
                         text = appText("Указать стоимость покупки", "Һатып алыу хаҡын күрһәтеү"),
@@ -829,17 +847,13 @@ private fun CourierCarryingCard(
                     )
                 }
             }
-            // «Что-то пошло не так»: пока посылка у курьера — отказаться или везти обратно.
-            // Без этого выхода заказ навсегда зависал «в пути», а коробка оставалась дома у курьера.
-            if (!delivered && p.status != "canceled" && p.status != "returned") {
+            if (canCourierResolveParcelTrouble(p.status)) {
                 CourierTroubleButton(returning = p.status == "returning", onClick = onTrouble)
             }
-            // C3: оценить отправителя — после вручения
             if (delivered) {
                 if (rated) ParcelRatedRow() else ParcelRateButton(onClick = onRate)
             }
-            // C2: спор доступен, когда заказ в пути или доставлен
-            if (p.status == "in_transit" || delivered) {
+            if (canOpenParcelDispute(p.status)) {
                 ParcelDisputeButton(onClick = onDispute)
             }
         }
