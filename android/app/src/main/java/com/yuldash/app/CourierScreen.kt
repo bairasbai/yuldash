@@ -874,6 +874,7 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
 
     val st = me.statement
     val owed = st.commissionOwedKop
+    val currentFeePercent = courierFeePercentText(st.currentFeePercent)
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -949,7 +950,6 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
         // Текущая ступень комиссии — курьер видит, сколько платит и почему.
         if (st.feeTier.isNotBlank()) {
             item {
-                val pct = courierFeePercentText(st.currentFeePercent)
                 val tierLine = when (st.feeTier) {
                     "promo" -> appText("🎁 Промо для первых: 0% — пользуйся!", "🎁 Тәүгеләр өсөн промо: 0% — файҙалан!")
                     "tier1" -> appText("Новичок: 3% — самая низкая ставка", "Яңы башлаусы: 3% — иң түбән ставка")
@@ -969,7 +969,7 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
                                 Icon(Icons.Default.Percent, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
                             }
                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(appText("Сейчас ты платишь $pct% комиссии", "Хәҙер һин $pct% комиссия түләйһең"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                Text(appText("Сейчас ты платишь $currentFeePercent% комиссии", "Хәҙер һин $currentFeePercent% комиссия түләйһең"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
                                 Text(tierLine, color = if (promo) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
@@ -995,7 +995,7 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
                         Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
                     }
                     Text(
-                        appText("Это сбор Юлдаша (8%) за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.", "Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы (8%). Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш."),
+                        appText("Это сбор Юлдаша ($currentFeePercent%) за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.", "Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы ($currentFeePercent%). Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш."),
                         color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                     )
                     StatementRow(appText("Всего заработали мы", "Барлығы беҙ эшләнек"), kopToRub(st.commissionEarnedKop), CanonMuted)
