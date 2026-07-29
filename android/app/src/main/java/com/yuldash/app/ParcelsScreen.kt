@@ -727,7 +727,15 @@ private fun SendParcelTab(onSent: () -> Unit) {
                             fromCity = fromHit.title; toCity = toHit.title
                             fromLat = fromHit.lat; fromLng = fromHit.lon
                             toLat = toHit.lat; toLng = toHit.lon
-                            ApiClient.courierEstimate(fromHit.lat, fromHit.lon, toHit.lat, toHit.lon, size, urgency)
+                            ApiClient.courierEstimate(
+                                fromHit.lat,
+                                fromHit.lon,
+                                toHit.lat,
+                                toHit.lon,
+                                size,
+                                urgency,
+                                deliveryType,
+                            )
                                 .onSuccess { estimate = it }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: estErr }
                             working = false
