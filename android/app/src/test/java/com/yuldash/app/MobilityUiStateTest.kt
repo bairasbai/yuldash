@@ -38,4 +38,34 @@ class MobilityUiStateTest {
         assertEquals(0, courierProgressIndex("cancelled"))
         assertEquals(0, courierProgressIndex("unexpected"))
     }
+
+
+    @Test
+    fun activatedScheduledOrderRemainsReachableAfterBackgroundWorkerRuns() {
+        assertEquals(true, shouldShowActivatedScheduled("searching", "2026-07-30T06:00:00Z", null))
+        assertEquals(true, shouldShowActivatedScheduled("offered", "2026-07-30T06:00:00Z", null))
+        assertEquals(true, shouldShowActivatedScheduled("accepted", "2026-07-30T06:00:00Z", null))
+        assertEquals(true, shouldShowActivatedScheduled("arriving", "2026-07-30T06:00:00Z", null))
+        assertEquals(true, shouldShowActivatedScheduled("onboard", "2026-07-30T06:00:00Z", null))
+    }
+
+    @Test
+    fun scheduledAndFinishedOrdersAreNotShownAsActive() {
+        assertEquals(false, shouldShowActivatedScheduled("scheduled", "2026-07-30T06:00:00Z", null))
+        assertEquals(false, shouldShowActivatedScheduled("done", "2026-07-30T06:00:00Z", null))
+        assertEquals(false, shouldShowActivatedScheduled("cancelled", "2026-07-30T06:00:00Z", null))
+        assertEquals(false, shouldShowActivatedScheduled("searching", null, null))
+    }
+
+    @Test
+    fun waitingQueueFromScheduledOrderStaysReachable() {
+        assertEquals(
+            true,
+            shouldShowActivatedScheduled(
+                status = "expired",
+                scheduledAt = "2026-07-30T06:00:00Z",
+                waitUntil = "2026-07-30T06:20:00Z",
+            ),
+        )
+    }
 }
