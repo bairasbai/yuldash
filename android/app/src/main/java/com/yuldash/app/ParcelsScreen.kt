@@ -1721,7 +1721,9 @@ private fun ParcelTrackLinkBlock(parcelId: Int) {
                         if (busy) return@AppButton
                         busy = true
                         scope.launch {
-                            ApiClient.revokeParcelTrackLink(parcelId).onSuccess { link = null; smsSent = false }
+                            ApiClient.revokeParcelTrackLink(parcelId)
+                                .onSuccess { link = null; smsSent = false; err = null }
+                                .onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg }
                             busy = false
                         }
                     },
@@ -1738,6 +1740,7 @@ private fun ParcelTrackLinkBlock(parcelId: Int) {
                 ),
                 color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp,
             )
+            err?.let { Text(it, color = CanonRed, fontSize = 12.sp, lineHeight = 16.sp) }
         }
     }
 }
