@@ -77,6 +77,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.mergeDescendants
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -288,7 +293,12 @@ private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, o
     Surface(
         onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = Modifier.height(48.dp),
+        modifier = Modifier
+            .height(48.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                selected = active
+            },
     ) {
         Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(icon, contentDescription = null, tint = if (active) Color.White else CanonMuted, modifier = Modifier.size(18.dp))
