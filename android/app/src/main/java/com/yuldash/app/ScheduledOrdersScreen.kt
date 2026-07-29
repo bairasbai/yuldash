@@ -3,10 +3,11 @@ package com.yuldash.app
 // «Мои предзаказы» — такси «на время» (scheduled). Список моих будущих заказов:
 //   • route + время подачи + обратный отсчёт («через 2 ч 10 мин» / «пора ехать»);
 //   • «Начать поиск сейчас» (activate → обычный экран поиска) и «Отменить».
-// Автодиспетчинг ленивый: на входе дёргаем список — бэкенд сам активирует наступившие ко времени
-// и возвращает их в блоке «activated» (показываем как «Пора ехать»). Фонового шедулера нет —
-// мягко подсказываем открыть приложение ко времени. Все состояния (загрузка/пусто/ошибка+повтор).
+// Автодиспетчинг работает на сервере: taxi_worker активирует заказ ко времени, даже если приложение
+// закрыто. Экран дополнительно подхватывает уже активированный заказ из истории и ведёт в живой поиск.
+// Все состояния: загрузка, пусто, ошибка+повтор, busy-guard и подтверждение отмены.
 
+import android.widget.Toast
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -34,12 +35,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,17 +69,34 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var data by remember { mutableStateOf(ScheduledOrdersDto(emptyList(), emptyList())) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     var busyId by remember { mutableStateOf(0) }   // id, по которому идёт activate/cancel (гард двойного тапа)
+    var cancelTarget by remember { mutableStateOf<InstantOrderDto?>(null) }
+    val actionError = appText(
+        "Не получилось. Проверь интернет и повтори.",
+        "Булманы. Интернетты тикшереп ҡабатла.",
+    )
 
     LaunchedEffect(reload) {
         loading = true
-        ApiClient.getScheduledOrders()
-            .onSuccess { data = it; error = false }
-            .onFailure { e -> error = (e as? ApiException)?.status != 401 }
+        val scheduledResult = ApiClient.getScheduledOrders()
+        val loaded = scheduledResult.getOrNull()
+        if (loaded != null) {
+            // Воркер мог активировать заказ до открытия этого экрана. GET /scheduled уже не вернёт
+            // его как scheduled, поэтому дочитываем последние заказы и не оставляем человека без входа
+            // в живой статус поездки.
+            val alreadyActive = ApiClient.getMyInstantOrders(limit = 5).getOrNull().orEmpty()
+                .filter { shouldShowActivatedScheduled(it.status, it.scheduledAt, it.waitUntil) }
+            data = loaded.copy(activated = (loaded.activated + alreadyActive).distinctBy { it.id })
+            error = false
+        } else {
+            val e = scheduledResult.exceptionOrNull()
+            error = (e as? ApiException)?.status != 401
+        }
         loading = false
     }
 
@@ -83,7 +104,11 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
     LaunchedEffect(Unit) {
         while (isActive) {
             delay(30_000)
-            ApiClient.getScheduledOrders().onSuccess { data = it }
+            ApiClient.getScheduledOrders().onSuccess { loaded ->
+                val alreadyActive = ApiClient.getMyInstantOrders(limit = 5).getOrNull().orEmpty()
+                    .filter { shouldShowActivatedScheduled(it.status, it.scheduledAt, it.waitUntil) }
+                data = loaded.copy(activated = (loaded.activated + alreadyActive).distinctBy { it.id })
+            }
         }
     }
 
@@ -99,7 +124,10 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
         scope.launch {
             ApiClient.activateScheduledOrder(id)
                 .onSuccess { onActivated() }
-                .onFailure { reload++ }   // гонка (уже активирован/отменён) → просто обновим список
+                .onFailure {
+                    Toast.makeText(ctx, actionError, Toast.LENGTH_SHORT).show()
+                    reload++   // гонка (уже активирован/отменён) → обновим список
+                }
             busyId = 0
         }
     }
@@ -107,9 +135,14 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
         if (busyId != 0) return
         busyId = id
         scope.launch {
-            ApiClient.cancelScheduledOrder(id).onSuccess {
-                data = data.copy(scheduled = data.scheduled.filterNot { it.id == id })
-            }
+            ApiClient.cancelScheduledOrder(id)
+                .onSuccess {
+                    data = data.copy(scheduled = data.scheduled.filterNot { it.id == id })
+                }
+                .onFailure {
+                    Toast.makeText(ctx, actionError, Toast.LENGTH_SHORT).show()
+                    reload++
+                }
             busyId = 0
         }
     }
@@ -124,11 +157,15 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
             item {
-                Text(appText("Такси к нужному времени", "Кәрәкле ваҡытҡа такси"),
-                    color = CanonGreen, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black)
-                Text(appText("Мы напомним и начнём искать машину ко времени подачи.",
-                    "Беҙ иҫкә төшөрөрбөҙ һәм килеү ваҡытына машина эҙләй башларбыҙ."),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 4.dp))
+                MobilityScreenIntro(
+                    mode = MobilityMode.Taxi,
+                    title = appText("Такси к нужному времени", "Кәрәкле ваҡытҡа такси"),
+                    subtitle = appText(
+                        "Поиск запустится автоматически ко времени подачи.",
+                        "Эҙләү килеү ваҡытына автоматик башланыр.",
+                    ),
+                    badge = appText("Предзаказ", "Алдан заказ"),
+                )
             }
 
             when {
@@ -174,16 +211,17 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                                 busy = busyId == order.id,
                                 anyBusy = busyId != 0,
                                 onActivate = { activate(order.id) },
-                                onCancel = { cancel(order.id) },
+                                onCancel = { cancelTarget = order },
                             )
                         }
                     }
-                    // Честная подсказка: фонового шедулера нет.
                     item {
                         InfoCard(
-                            appText("Открой приложение ко времени", "Ваҡытына ҡушымтаны ас"),
-                            appText("Чтобы начать поиск, открой Юлдаш к времени подачи или нажми «Начать поиск сейчас».",
-                                "Эҙләүҙе башлар өсөн Юлдашты килеү ваҡытына ас йәки «Хәҙер эҙләй башларға» баҫ."),
+                            appText("Можно закрыть приложение", "Ҡушымтаны ябырға мөмкин"),
+                            appText(
+                                "Сервер сам начнёт поиск ко времени подачи. Открой Юлдаш ближе к поездке, чтобы следить за статусом.",
+                                "Сервер килеү ваҡытына эҙләүҙе үҙе башлар. Статусты ҡарау өсөн Юлдашты сәфәргә яҡыныраҡ ас.",
+                            ),
                             Icons.Default.Info,
                         )
                     }
@@ -191,6 +229,54 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
             }
         }
     }
+
+    cancelTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { if (busyId == 0) cancelTarget = null },
+            containerColor = CanonSurface,
+            title = {
+                Text(
+                    appText("Отменить предзаказ?", "Алдан заказды кире алырғамы?"),
+                    color = CanonText,
+                    fontWeight = FontWeight.Black,
+                )
+            },
+            text = {
+                Text(
+                    appText(
+                        "Поиск машины в назначенное время не начнётся.",
+                        "Билдәләнгән ваҡытта машина эҙләү башланмаясаҡ.",
+                    ),
+                    color = CanonMuted,
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = busyId == 0,
+                    onClick = {
+                        cancelTarget = null
+                        cancel(target.id)
+                    },
+                ) {
+                    Text(appText("Отменить заказ", "Заказды кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = busyId == 0, onClick = { cancelTarget = null }) {
+                    Text(appText("Оставить", "Ҡалдырыу"), color = CanonMuted)
+                }
+            },
+        )
+    }
+}
+
+internal fun shouldShowActivatedScheduled(status: String, scheduledAt: String?, waitUntil: String?): Boolean {
+    if (scheduledAt.isNullOrBlank() || status == "scheduled") return false
+    val terminal = status == "done" || status == "cancelled" || status == "expired"
+    val waitingQueue = !waitUntil.isNullOrBlank() && status != "done" && status != "cancelled"
+    return !terminal || waitingQueue
 }
 
 // ---------- Карточка предзаказа (ждёт своего времени) ----------
@@ -266,7 +352,7 @@ private fun ActivatedOrderCard(order: InstantOrderDto, onOpen: () -> Unit) {
             Box(Modifier.size(10.dp).alpha(a).background(CanonBg, CircleShape))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(appText("Пора ехать — ищем машину", "Барыр ваҡыт — машина эҙләйбеҙ"),
+                Text(activatedScheduledTitle(order.status),
                     color = CanonBg, fontSize = 16.sp, fontWeight = FontWeight.Black)
                 Text("${order.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
                     color = CanonBg.copy(alpha = 0.9f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -282,18 +368,18 @@ private fun ActivatedOrderCard(order: InstantOrderDto, onOpen: () -> Unit) {
 
 @Composable
 private fun RouteLine(order: InstantOrderDto) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(8.dp).background(CanonGreen2, CircleShape))
-            Box(Modifier.size(width = 2.dp, height = 16.dp).background(CanonBorder))
-            Box(Modifier.size(8.dp).background(CanonTaxi, CircleShape))
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(order.fromText.ifBlank { appText("Точка А", "А нөктәһе") }, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
+    MobilityRouteTimeline(
+        from = order.fromText.ifBlank { appText("Точка А", "А нөктәһе") },
+        to = order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") },
+        compact = true,
+    )
+}
+
+@Composable
+private fun activatedScheduledTitle(status: String): String = when (status) {
+    "accepted", "arriving" -> appText("Водитель едет к тебе", "Водитель һиңә килә")
+    "onboard" -> appText("Поездка началась", "Сәфәр башланды")
+    else -> appText("Пора ехать — ищем машину", "Барыр ваҡыт — машина эҙләйбеҙ")
 }
 
 @Composable
