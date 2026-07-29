@@ -274,6 +274,59 @@ private fun CourierCarryingBashkirDarkPreview() {
     }
 }
 
+@Preview(
+    name = "Доставка · возврат · 320dp · шрифт 1.5",
+    widthDp = 320,
+    heightDp = 900,
+    showBackground = true,
+    fontScale = 1.5f,
+)
+@Composable
+private fun CourierReturningAccessibilityPreview() {
+    MobilityPreviewTheme {
+        Column(
+            Modifier.fillMaxSize().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            MobilityScreenIntro(
+                mode = MobilityMode.Courier,
+                title = appText("Возврат отправителю", "Ебәреүсегә кире илтеү"),
+                subtitle = appText(
+                    "Причина и следующий шаг остаются видимыми.",
+                    "Сәбәп һәм киләһе аҙым күренеп тора.",
+                ),
+                badge = appText("возврат", "кире илтеү"),
+            )
+            CourierOfferCard(
+                from = appText("Улица Ленина, 32", "Ленин урамы, 32"),
+                to = appText("ТЦ «Яшма» · Баймак", "«Яшма» сауҙа үҙәге · Баймаҡ"),
+                sizeLabel = appText("Малая", "Бәләкәй"),
+                deliveryLabel = appText("Возврат", "Кире илтеү"),
+                priceLabel = "480 ₽",
+                description = appText(
+                    "Получатель не смог принять заказ.",
+                    "Алыусы заказды ҡабул итә алманы.",
+                ),
+            ) {
+                CourierDeliveryProgress(status = "returning")
+                ParcelReturnNotice(
+                    status = "returning",
+                    reason = appText(
+                        "Получатель не вышел на связь",
+                        "Алыусы бәйләнешкә сыҡманы",
+                    ),
+                    forCourier = true,
+                )
+                AppButton(
+                    text = appText("Подтвердить возврат", "Кире ҡайтарыуҙы раҫлау"),
+                    onClick = {},
+                    style = AppButtonStyle.Primary,
+                )
+            }
+        }
+    }
+}
+
 @Preview(name = "Доставка · отправить", widthDp = 390, heightDp = 844, showBackground = true)
 @Composable
 private fun DeliveryOrderPreview() {
