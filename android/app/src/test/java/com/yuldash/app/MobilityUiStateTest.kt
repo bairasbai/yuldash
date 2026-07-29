@@ -111,6 +111,14 @@ class MobilityUiStateTest {
     }
 
     @Test
+    fun taxiMoneyKeepsKopecksAndNeverDisplaysNegativeIncome() {
+        assertEquals("0 ₽", formatTaxiKop(0))
+        assertEquals("123 ₽", formatTaxiKop(12_300))
+        assertEquals("123,45 ₽", formatTaxiKop(12_345))
+        assertEquals("0 ₽", formatTaxiKop(-1))
+    }
+
+    @Test
     fun parcelDisputeRemainsAvailableAfterReturn() {
         assertEquals(false, canOpenParcelDispute("created"))
         assertEquals(true, canOpenParcelDispute("accepted"))
