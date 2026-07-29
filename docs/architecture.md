@@ -967,12 +967,60 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - `CourierScreen.kt` сохраняет онлайн/зоны/API, но рабочий hero, вкладки, офферы и прогресс
   активной доставки используют Mobility-компоненты.
 - `ParcelsScreen.kt` — отправитель: новый выбор вида доставки и прозрачная разбивка цены.
-- `android/app/src/debug/java/com/yuldash/app/MobilityUiPreview.kt` — семь Android Studio Preview:
+- `android/app/src/debug/java/com/yuldash/app/MobilityUiPreview.kt` — восемь Android Studio Preview:
   заказ, поиск и активная поездка такси; «Заказы» и «Везу» курьера; оформление доставки;
-  loading/error. Есть BA + dark + fontScale 1.3 варианты; debug-only, в релиз не попадает.
+  loading/error и возврат на 320 dp при fontScale 1.5. Есть BA + dark варианты; debug-only,
+  в релиз не попадает.
 - `taxiProgressIndex` и `courierProgressIndex` — чистые преобразования серверного статуса
   в визуальный этап. Composable рисует результат, JVM-тесты стережёт полный и возвратный пути.
 - Язык на холодном старте: `AppPrefs.language` → `YuldashViewModel.restorePersistedLanguage`
   только при отсутствии валидного `SavedStateHandle`. До гидратации запрещены обратная запись
   дефолтного RU, `persistNav` и синхронизация языка на сервер.
 - Полная спецификация и ручной чеклист: [taxi-courier-ui-redesign-2026-07.md](taxi-courier-ui-redesign-2026-07.md).
+
+## Taxi + Courier UI — состояние, деньги и возвраты (2026-07-29)
+
+### Непрерывность после пересоздания Activity
+
+- В `rememberSaveable` лежат только пользовательские черновики и навигационный выбор:
+  строки, числа, Boolean, id и координаты как `DoubleArray`.
+- Объекты Yandex MapKit не попадают в Bundle. `InstantPointStateSaver` сохраняет
+  `latitude/longitude` и восстанавливает новый `Point`.
+- Сетевые DTO, loading/error и live-сокеты не сохраняются: после пересоздания они заново
+  читаются с сервера. Так Bundle не становится вторым источником истины.
+- После успешного создания предзаказа/посылки сохраняются только поля квитанции
+  (id, код, маршрут, получатель, время). Черновик очищается сразу, поэтому поворот экрана
+  не создаёт дубликат заказа.
+
+### Серверная state machine остаётся источником истины
+
+- Предзаказ, который воркер перевёл из `scheduled` в активный статус, объединяется с
+  активными instant-заказами и остаётся открываемым из вкладки предзаказов.
+- Клиентская матрица посылки соответствует серверным переходам:
+  `created → accepted → in_transit → delivered` и
+  `accepted|in_transit → returning → returned`.
+- `ParcelDto` теперь сохраняет уже существующие поля ответа
+  `return_reason`, `returned_at`, `delivery_attempts`, `cancel_fee_kop`.
+  Серверный API и миграции в этой UI-ветке не менялись.
+- Спор доступен после назначения курьера (`accepted`) и остаётся доступен после
+  `returning/returned/delivered`; обычная отмена `buy_bring` скрывается после покупки товара.
+
+### Денежный контракт UI
+
+- Для профессиональной доставки `price_kop` — цена доставки до вычета комиссии,
+  `commission_kop` — сбор платформы, `courierNetKop = max(0, price − commission)`.
+- Оффер курьеру крупно показывает ориентировочный net-доход, а рядом — цену и комиссию.
+  Выбранный `delivery_type` передаётся в `/courier/estimate`, поэтому
+  `buy_bring` оценивается со своей надбавкой.
+- Кабинет показывает фактическую ступень комиссии из `current_fee_percent`, а не
+  захардкоженные 8%.
+- Instant-такси пока не возвращает `fee_kop/net_kop` в оффере. Клиент поэтому честно
+  подписывает число как «Цена поездки»; чистый upfront-доход требует аддитивного API-поля.
+
+### Privacy boundary возврата
+
+Точный GPS и публичная tracking-ссылка остаются в прежнем scope `accepted/in_transit`.
+Статус и причина возврата показываются в приложении, но `returning` не расширяет раскрытие
+геопозиции автоматически. Изменение требует отдельного решения владельца о получателях,
+TTL, отзыве ссылки и удалении координат.
+
