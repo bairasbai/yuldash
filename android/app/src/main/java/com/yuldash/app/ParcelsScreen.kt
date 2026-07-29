@@ -1059,11 +1059,25 @@ private fun MyParcelsTab() {
     }
 
     cancelTarget?.let { target ->
+        val courierAlreadyAssigned = target.status == "accepted" || target.status == "in_transit"
         AlertDialog(
             onDismissRequest = { cancelTarget = null },
             containerColor = CanonSurface,
             title = { Text(appText("Отменить посылку?", "Бандеролде кире алаһыңмы?"), color = CanonText, fontWeight = FontWeight.Black) },
-            text = { Text(appText("Посылка исчезнет из ленты курьеров. Отменить можно, пока её не доставили.", "Бандероль курьерҙар лентаһынан юғала. Тапшырылғансы кире алып була."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) },
+            text = {
+                Text(
+                    if (courierAlreadyAssigned) appText(
+                        "Курьер уже принял заказ. После отмены сервис зафиксирует компенсацию за потраченное время и дорогу; сумма появится в карточке, расчёт — напрямую.",
+                        "Курьер заказды алған инде. Кире алғандан һуң сервис ваҡыт һәм юл өсөн компенсацияны теркәр; сумма карточкала күренер, иҫәпләшеү — туранан-тура.",
+                    ) else appText(
+                        "Посылка исчезнет из ленты курьеров. Это действие нельзя отменить.",
+                        "Бандероль курьерҙар таҫмаһынан юғалыр. Был ғәмәлде кире ҡайтарып булмай.",
+                    ),
+                    color = CanonMuted,
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp,
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     busyId = target.id
@@ -1102,6 +1116,8 @@ private fun MyParcelsTab() {
 private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: () -> Unit, onDispute: () -> Unit, onRate: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val terminal = isParcelTerminal(p.status)
+    val goodsAlreadyBought =
+        p.deliveryType == "buy_bring" && (p.settlement?.goodsActualKop ?: 0) > 0
     val canCancel = canSenderCancelParcel(
         status = p.status,
         deliveryType = p.deliveryType,
@@ -1117,6 +1133,23 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                 ParcelStatusChip(p.status)
             }
             ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = false)
+            if (p.cancelFeeKop > 0) {
+                Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                    Text(
+                        appText(
+                            "Компенсация курьеру после отмены: ",
+                            "Кире алғандан һуң курьерға компенсация: ",
+                        ) + kopToRub(p.cancelFeeKop) + appText(
+                            ". Рассчитайтесь напрямую.",
+                            ". Туранан-тура иҫәпләшегеҙ.",
+                        ),
+                        color = CanonWarn,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    )
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
@@ -1161,6 +1194,20 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             if (!terminal) ParcelTrackLinkBlock(p.id)
             if (p.deliveryType == "buy_bring") {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }
+            }
+            if (goodsAlreadyBought && !terminal) {
+                Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                    Text(
+                        appText(
+                            "Курьер уже купил товар. Обычная отмена недоступна — если что-то пошло не так, открой спор.",
+                            "Курьер тауарҙы һатып алған инде. Ғәҙәти кире алыу мөмкин түгел — проблема булһа, бәхәс ас.",
+                        ),
+                        color = CanonWarn,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    )
+                }
             }
             if (p.confirmCode.isNotBlank() && canCourierDeliverParcel(p.status)) {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
