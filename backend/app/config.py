@@ -252,6 +252,7 @@ class Settings(BaseSettings):
     # Спрос, ночь, погода и дальняя подача перемножаются ОДИН раз и вместе ограничены surge_max_k.
     taxi_external_pricing_enabled: bool = True
     taxi_external_timeout_sec: float = 1.5
+    taxi_avoid_tolls: bool = True          # заранее выбираем маршрут без платных дорог, если он существует
     taxi_route_cache_sec: int = 90          # короткий кэш маршрута, координаты округлены до ~100 м
     taxi_weather_cache_sec: int = 600       # погода меняется медленнее; ключ кэша округлён до ~1 км
     taxi_pickup_free_min: int = 5           # до этого ETA подача не повышает коэффициент
