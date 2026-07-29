@@ -54,6 +54,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,7 +89,7 @@ internal fun CourierOnboardingScreen(onBack: () -> Unit, onOpenCourier: () -> Un
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf(false) }
     var application by remember { mutableStateOf<CourierApplicationDto?>(null) }
-    var editing by remember { mutableStateOf(false) }   // rejected → «Подать снова» открывает форму
+    var editing by rememberSaveable { mutableStateOf(false) }   // rejected → «Подать снова» открывает форму
     var reloadKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(reloadKey) {
@@ -151,17 +152,17 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var transport by remember { mutableStateOf(prefill?.transport?.takeIf { it.isNotBlank() } ?: "car") }
-    var selfieUrl by remember { mutableStateOf(prefill?.selfieUrl?.takeIf { it.isNotBlank() }) }
+    var transport by rememberSaveable { mutableStateOf(prefill?.transport?.takeIf { it.isNotBlank() } ?: "car") }
+    var selfieUrl by rememberSaveable { mutableStateOf(prefill?.selfieUrl?.takeIf { it.isNotBlank() }) }
     var uploadingSelfie by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
     var submitError by remember { mutableStateOf<String?>(null) }
 
     // Кто и на чём везёт (аудит 2026-07-26): раньше «стать курьером» = селфи + тип транспорта.
     // Человеку доверяли чужую посылку, зная о нём меньше, чем о попутчике.
-    var fullName by remember { mutableStateOf(prefill?.fullName ?: "") }
-    var carPlate by remember { mutableStateOf(prefill?.carPlate ?: "") }
-    var rulesAccepted by remember { mutableStateOf(prefill?.rulesAccepted ?: false) }
+    var fullName by rememberSaveable { mutableStateOf(prefill?.fullName ?: "") }
+    var carPlate by rememberSaveable { mutableStateOf(prefill?.carPlate ?: "") }
+    var rulesAccepted by rememberSaveable { mutableStateOf(prefill?.rulesAccepted ?: false) }
     val identityOk = fullName.trim().split(" ").filter { it.isNotBlank() }.size >= 2 &&
         carPlate.isNotBlank() && rulesAccepted
 
