@@ -68,4 +68,49 @@ class MobilityUiStateTest {
             ),
         )
     }
+
+    @Test
+    fun parcelTerminalStatesStopSenderActions() {
+        assertEquals(true, isParcelTerminal("delivered"))
+        assertEquals(true, isParcelTerminal("returned"))
+        assertEquals(true, isParcelTerminal("canceled"))
+        assertEquals(true, isParcelTerminal("cancelled"))
+        assertEquals(false, isParcelTerminal("returning"))
+        assertEquals(false, isParcelTerminal("in_transit"))
+    }
+
+    @Test
+    fun senderCancellationMatchesBackendRules() {
+        assertEquals(true, canSenderCancelParcel("created", "courier", 0))
+        assertEquals(true, canSenderCancelParcel("accepted", "courier", 0))
+        assertEquals(true, canSenderCancelParcel("in_transit", "courier", 0))
+        assertEquals(false, canSenderCancelParcel("returning", "courier", 0))
+        assertEquals(false, canSenderCancelParcel("returned", "courier", 0))
+        assertEquals(false, canSenderCancelParcel("in_transit", "buy_bring", 1))
+    }
+
+    @Test
+    fun courierDeliveryAndReturnActionsNeverOverlap() {
+        assertEquals(true, canCourierDeliverParcel("accepted"))
+        assertEquals(true, canCourierDeliverParcel("in_transit"))
+        assertEquals(false, canCourierDeliverParcel("returning"))
+        assertEquals(false, canCourierDeliverParcel("returned"))
+
+        assertEquals(true, canCourierResolveParcelTrouble("accepted"))
+        assertEquals(true, canCourierResolveParcelTrouble("in_transit"))
+        assertEquals(true, canCourierResolveParcelTrouble("returning"))
+        assertEquals(false, canCourierResolveParcelTrouble("returned"))
+        assertEquals(false, canCourierResolveParcelTrouble("delivered"))
+    }
+
+    @Test
+    fun parcelDisputeRemainsAvailableAfterReturn() {
+        assertEquals(false, canOpenParcelDispute("created"))
+        assertEquals(false, canOpenParcelDispute("accepted"))
+        assertEquals(true, canOpenParcelDispute("in_transit"))
+        assertEquals(true, canOpenParcelDispute("returning"))
+        assertEquals(true, canOpenParcelDispute("returned"))
+        assertEquals(true, canOpenParcelDispute("delivered"))
+    }
+
 }
