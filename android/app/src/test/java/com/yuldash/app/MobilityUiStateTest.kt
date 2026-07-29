@@ -104,6 +104,13 @@ class MobilityUiStateTest {
     }
 
     @Test
+    fun courierIncomeSubtractsCommissionWithoutGoingNegative() {
+        assertEquals(50_000, courierNetKop(priceKop = 54_000, commissionKop = 4_000))
+        assertEquals(54_000, courierNetKop(priceKop = 54_000, commissionKop = 0))
+        assertEquals(0, courierNetKop(priceKop = 3_000, commissionKop = 4_000))
+    }
+
+    @Test
     fun parcelDisputeRemainsAvailableAfterReturn() {
         assertEquals(false, canOpenParcelDispute("created"))
         assertEquals(true, canOpenParcelDispute("accepted"))
