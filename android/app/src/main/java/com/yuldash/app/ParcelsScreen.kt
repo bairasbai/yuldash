@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -383,7 +384,7 @@ internal fun ParcelsScreen(onBack: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(0) }   // 0 = отправить, 1 = мои, 2 = возить
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Посылки", "Бандеролдәр"), onBack) }) { padding ->
-        Column(Modifier.padding(padding).fillMaxWidth()) {
+        Column(Modifier.padding(padding).fillMaxSize()) {
             Surface(
                 color = CanonSurface,
                 shape = RoundedCornerShape(18.dp),
@@ -401,6 +402,7 @@ internal fun ParcelsScreen(onBack: () -> Unit) {
             }
             AnimatedContent(
                 targetState = tab,
+                modifier = Modifier.fillMaxWidth().weight(1f),
                 transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
                 label = "parcel-tab",
             ) { t ->
@@ -1198,7 +1200,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
 private fun CarryTab() {
     var sub by rememberSaveable { mutableStateOf(0) }   // 0 = доступные, 1 = везу
 
-    Column(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ParcelTab(appText("Доступные", "Буш"), sub == 0, Modifier.weight(1f)) { sub = 0 }
             ParcelTab(appText("Везу", "Илтәм"), sub == 1, Modifier.weight(1f)) { sub = 1 }
@@ -1206,6 +1208,7 @@ private fun CarryTab() {
         Spacer(Modifier.height(12.dp))
         AnimatedContent(
             targetState = sub,
+            modifier = Modifier.fillMaxWidth().weight(1f),
             transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
             label = "carry-sub",
         ) { s -> if (s == 0) AvailableParcelsTab() else CarryingParcelsTab() }
