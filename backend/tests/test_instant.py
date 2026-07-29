@@ -64,6 +64,11 @@ def test_estimate_server_computes(client, user_factory):
     assert body["price"] >= 100               # не ниже min_price города (новый тариф)
     assert body["distance_km"] > 0 and body["eta_min"] > 0
     assert body["zone"] == "city"
+    assert body["pricing_version"] == "v2"
+    assert body["base_price"] <= body["price"]
+    assert 1.0 <= body["dynamic_k"] <= body["pricing_cap_k"]
+    assert body["price_factors"][0]["code"] == "route"
+    assert body["route_source"] in {"fallback", "yandex"}
 
 
 def test_estimate_ignores_client_price(client, user_factory):
@@ -367,6 +372,13 @@ def test_phone_hidden_until_accept(client, user_factory, fake_redis):
     with Session(engine) as s:
         pax_phone = s.get(User, pax["id"]).phone
     assert drv_view["passenger_phone"] == pax_phone
+    # Комиссию и net считает сервер; пассажир их не видит.
+    assert drv_view["driver_gross_kop"] == drv_view["price_estimate"] * 100
+    assert drv_view["driver_fee_kop"] + drv_view["driver_net_kop"] == drv_view["driver_gross_kop"]
+    assert drv_view["driver_fee_percent"] >= 0
+    assert after["driver_gross_kop"] == 0
+    assert after["driver_fee_kop"] == 0
+    assert after["driver_net_kop"] == 0
 
 
 def test_order_access_forbidden_for_outsider(client, user_factory, fake_redis):
