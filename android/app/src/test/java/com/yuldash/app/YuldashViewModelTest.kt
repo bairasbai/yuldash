@@ -36,6 +36,39 @@ class YuldashViewModelTest {
     }
 
     @Test
+    fun restoresPersistedLanguageOnColdStart() {
+        val saved = SavedStateHandle()
+        val vm = YuldashViewModel(saved)
+
+        vm.restorePersistedLanguage(AppLanguage.Ba)
+
+        assertEquals(AppLanguage.Ba, vm.language.value)
+        assertEquals(AppLanguage.Ba.name, saved.get<String>("yuldash_lang"))
+    }
+
+    @Test
+    fun validSavedStateLanguageWinsOverPersistentPreference() {
+        val saved = SavedStateHandle(mapOf("yuldash_lang" to AppLanguage.Ru.name))
+        val vm = YuldashViewModel(saved)
+
+        vm.restorePersistedLanguage(AppLanguage.Ba)
+
+        assertEquals(AppLanguage.Ru, vm.language.value)
+        assertEquals(AppLanguage.Ru.name, saved.get<String>("yuldash_lang"))
+    }
+
+    @Test
+    fun corruptSavedLanguageFallsBackToPersistentPreference() {
+        val saved = SavedStateHandle(mapOf("yuldash_lang" to "BAD_LANG"))
+        val vm = YuldashViewModel(saved)
+
+        vm.restorePersistedLanguage(AppLanguage.Ba)
+
+        assertEquals(AppLanguage.Ba, vm.language.value)
+        assertEquals(AppLanguage.Ba.name, saved.get<String>("yuldash_lang"))
+    }
+
+    @Test
     fun persistNavWritesAllSurvivalState() {
         val saved = SavedStateHandle()
         val vm = YuldashViewModel(saved)
