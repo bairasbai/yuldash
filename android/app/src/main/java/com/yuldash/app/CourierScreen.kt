@@ -276,6 +276,7 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarni
         Spacer(Modifier.height(12.dp))
         AnimatedContent(
             targetState = sub,
+            modifier = Modifier.fillMaxWidth().weight(1f),
             transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
             label = "courier-sub",
         ) { s ->
