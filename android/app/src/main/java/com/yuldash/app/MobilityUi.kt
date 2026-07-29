@@ -246,6 +246,8 @@ internal fun TaxiServiceClassTile(
         tween(180),
         label = "taxiClassBorder",
     )
+    val selectionState = if (selected) appText("Выбрано", "Һайланған")
+    else appText("Не выбрано", "Һайланмаған")
     Surface(
         onClick = onClick,
         shape = CanonItemShape,
@@ -256,7 +258,7 @@ internal fun TaxiServiceClassTile(
             .semantics(mergeDescendants = true) {
                 role = Role.RadioButton
                 this.selected = selected
-                stateDescription = if (selected) "selected" else "not selected"
+                stateDescription = selectionState
             },
     ) {
         Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -608,6 +610,8 @@ internal fun CourierServiceTypeTile(
 ) {
     val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(180), label = "courierServiceBg")
     val border by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(180), label = "courierServiceBorder")
+    val selectionState = if (selected) appText("Выбрано", "Һайланған")
+    else appText("Не выбрано", "Һайланмаған")
     Surface(
         onClick = onClick,
         color = bg,
@@ -619,7 +623,7 @@ internal fun CourierServiceTypeTile(
             .semantics(mergeDescendants = true) {
                 role = Role.RadioButton
                 this.selected = selected
-                stateDescription = if (selected) "selected" else "not selected"
+                stateDescription = selectionState
             },
     ) {
         Row(
