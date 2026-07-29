@@ -967,6 +967,12 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 - `CourierScreen.kt` сохраняет онлайн/зоны/API, но рабочий hero, вкладки, офферы и прогресс
   активной доставки используют Mobility-компоненты.
 - `ParcelsScreen.kt` — отправитель: новый выбор вида доставки и прозрачная разбивка цены.
-- `android/app/src/debug/java/com/yuldash/app/MobilityUiPreview.kt` — три Android Studio Preview
-  (такси, работа курьера, оформление доставки); debug-only, в релиз не попадает.
+- `android/app/src/debug/java/com/yuldash/app/MobilityUiPreview.kt` — семь Android Studio Preview:
+  заказ, поиск и активная поездка такси; «Заказы» и «Везу» курьера; оформление доставки;
+  loading/error. Есть BA + dark + fontScale 1.3 варианты; debug-only, в релиз не попадает.
+- `taxiProgressIndex` и `courierProgressIndex` — чистые преобразования серверного статуса
+  в визуальный этап. Composable рисует результат, JVM-тесты стережёт полный и возвратный пути.
+- Язык на холодном старте: `AppPrefs.language` → `YuldashViewModel.restorePersistedLanguage`
+  только при отсутствии валидного `SavedStateHandle`. До гидратации запрещены обратная запись
+  дефолтного RU, `persistNav` и синхронизация языка на сервер.
 - Полная спецификация и ручной чеклист: [taxi-courier-ui-redesign-2026-07.md](taxi-courier-ui-redesign-2026-07.md).
