@@ -2062,6 +2062,7 @@ object ApiClient {
         call("POST", "/instant/estimate", instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category), auth = true).map { o ->
             val note = o.optJSONObject("surge_note")
             val optArr = o.optJSONArray("options") ?: JSONArray()
+            val factorArr = o.optJSONArray("price_factors") ?: JSONArray()
             InstantEstimateDto(
                 price = o.optInt("price"),
                 distanceKm = o.optDouble("distance_km", 0.0),
@@ -2076,6 +2077,31 @@ object ApiClient {
                 options = (0 until optArr.length()).map { i ->
                     val c = optArr.getJSONObject(i)
                     InstantClassOption(category = c.optString("category"), price = c.optInt("price"))
+                },
+                basePrice = o.optInt("base_price"),
+                dynamicK = o.optDouble("dynamic_k", 1.0),
+                pricingCapK = o.optDouble("pricing_cap_k", 1.5),
+                pricingVersion = o.optString("pricing_version", "v1"),
+                routeSource = o.optString("route_source", "fallback"),
+                trafficType = o.optString("traffic_type", "unknown"),
+                trafficK = o.optDouble("traffic_k", 1.0),
+                pickupK = o.optDouble("pickup_k", 1.0),
+                weatherK = o.optDouble("weather_k", 1.0),
+                weatherCode = o.optString("weather_code"),
+                hasTolls = o.optBoolean("has_tolls"),
+                priceFactors = (0 until factorArr.length()).mapNotNull { i ->
+                    factorArr.optJSONObject(i)?.let { p ->
+                        InstantPriceFactorDto(
+                            code = p.optString("code"),
+                            kind = p.optString("kind"),
+                            k = p.optDouble("k", 1.0),
+                            active = p.optBoolean("active"),
+                            titleRu = p.optString("title_ru"),
+                            titleBa = p.optString("title_ba"),
+                            descriptionRu = p.optString("description_ru"),
+                            descriptionBa = p.optString("description_ba"),
+                        )
+                    }
                 },
             )
         }
@@ -2414,6 +2440,9 @@ object ApiClient {
                 unlockAt = o.optString("unlock_at").ifBlank { null },
                 returnRideUsed = o.optBoolean("return_ride_used"),
                 earningsToday = o.optInt("earnings_today"),
+                grossTodayKop = o.optInt("gross_today_kop", o.optInt("earnings_today") * 100),
+                feeTodayKop = o.optInt("fee_today_kop"),
+                netTodayKop = o.optInt("net_today_kop", o.optInt("earnings_today") * 100),
                 ordersToday = o.optInt("orders_today"),
                 feePercent = o.optDouble("fee_percent", 0.0),
                 tenureDays = o.optInt("tenure_days"),
@@ -3819,6 +3848,18 @@ class ApiException(val status: Int, message: String) : Exception(message)
 /** Цена одного класса машины (Эконом/Комфорт) в options оценки — обе цены одним запросом. */
 data class InstantClassOption(val category: String, val price: Int)
 
+/** Один серверный фактор автоматической цены. kind: base | duration | multiplier | cap | notice. */
+data class InstantPriceFactorDto(
+    val code: String,
+    val kind: String,
+    val k: Double,
+    val active: Boolean,
+    val titleRu: String,
+    val titleBa: String,
+    val descriptionRu: String,
+    val descriptionBa: String,
+)
+
 /** Оценка цены быстрого заказа (сервер считает сам по своей формуле).
  *  surgeK > 1.0 → час пик: плашка surgeNote (RU/BA) показывается ДО заказа, цена уже с k. */
 data class InstantEstimateDto(
@@ -3835,6 +3876,19 @@ data class InstantEstimateDto(
     val surgeNoteRu: String = "",
     val surgeNoteBa: String = "",
     val options: List<InstantClassOption> = emptyList(),
+    // Динамический тариф v2. Defaults сохраняют совместимость со старым сервером.
+    val basePrice: Int = 0,
+    val dynamicK: Double = 1.0,
+    val pricingCapK: Double = 1.5,
+    val pricingVersion: String = "v1",
+    val routeSource: String = "fallback",
+    val trafficType: String = "unknown",
+    val trafficK: Double = 1.0,
+    val pickupK: Double = 1.0,
+    val weatherK: Double = 1.0,
+    val weatherCode: String = "",
+    val hasTolls: Boolean = false,
+    val priceFactors: List<InstantPriceFactorDto> = emptyList(),
 )
 
 /** Быстрый заказ (такси-режим) с сервера. Имя/телефон стороны приходят пустыми до accept (приватность). */
@@ -3904,6 +3958,11 @@ data class InstantOrderDto(
     val lostItemUntil: String? = null, // ISO — до когда чат снова открыт под «забыл вещь»
     val thanked: Boolean = false,      // пассажир уже сказал «рәхмәт»
     val waitUntil: String? = null,     // ISO — заказ в очереди «подожду машину», воркер продолжит поиск
+    // Серверная расшифровка денег водителя. В пассажирской витрине все поля = 0.
+    val driverGrossKop: Int = 0,
+    val driverFeeKop: Int = 0,
+    val driverNetKop: Int = 0,
+    val driverFeePercent: Double = 0.0,
 ) {
     /** Терминальный статус — заказ окончен (успех/отмена/протух). */
     val isTerminal: Boolean get() = status == "done" || status == "cancelled" || status == "expired"
@@ -3969,6 +4028,10 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     lostItemUntil = if (isNull("lost_item_until")) null else optString("lost_item_until").ifBlank { null },
     thanked = optBoolean("thanked"),
     waitUntil = if (isNull("wait_until")) null else optString("wait_until").ifBlank { null },
+    driverGrossKop = optInt("driver_gross_kop"),
+    driverFeeKop = optInt("driver_fee_kop"),
+    driverNetKop = optInt("driver_net_kop"),
+    driverFeePercent = optDouble("driver_fee_percent", 0.0),
 )
 
 /** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */
@@ -4109,7 +4172,10 @@ data class TaxiWorkdayDto(
     val unlockAt: String?,           // когда снова на линию (ISO, UTC-наивное), null если не заблокирован
     val returnRideUsed: Boolean,     // «один попутчик домой» уже опубликован
     // Дашборд кабинета (заработок/заказы за сегодня + ступень комиссии по стажу).
-    val earningsToday: Int = 0,      // заработок за сегодня, ₽ (сумма price_final done-заказов)
+    val earningsToday: Int = 0,      // legacy: валовая сумма за сегодня, ₽
+    val grossTodayKop: Int = 0,       // пассажиры заплатили, копейки
+    val feeTodayKop: Int = 0,         // комиссия платформы, копейки
+    val netTodayKop: Int = 0,         // чистый доход водителя, копейки
     val ordersToday: Int = 0,        // завершённых заказов сегодня
     val feePercent: Double = 0.0,    // текущая комиссия платформы, % (с учётом промо запуска)
     val tenureDays: Int = 0,         // стаж таксиста, дней (с первого done-заказа) — позиция на лесенке
