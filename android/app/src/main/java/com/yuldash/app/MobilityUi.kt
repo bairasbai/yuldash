@@ -716,6 +716,18 @@ internal fun courierProgressIndex(status: String): Int = when (status) {
     else -> 0
 }
 
+/**
+ * Live delivery location stays on for the whole possession window, including the
+ * return trip. Terminal states must stop both the WebSocket and courier GPS.
+ */
+internal fun isParcelTrackingActive(status: String): Boolean =
+    status == "accepted" || status == "in_transit" || status == "returning"
+
+internal fun isParcelTerminal(status: String): Boolean =
+    status == "delivered" || status == "returned" ||
+        status == "canceled" || status == "cancelled"
+
+
 @Composable
 internal fun CourierDeliveryProgress(status: String, modifier: Modifier = Modifier) {
     MobilityProgressRail(
