@@ -37,6 +37,20 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved.get<Int>(KEY_ACTIVE_BID)?.takeIf { it > 0 }
     )
 
+    /**
+     * Восстанавливает язык из постоянных настроек только когда SavedState не содержит
+     * валидного значения. Так поворот экрана сохраняет самое свежее состояние, а настоящий
+     * холодный запуск не сбрасывает выбранный башкирский язык на русский по умолчанию.
+     */
+    fun restorePersistedLanguage(persisted: AppLanguage) {
+        val restored = saved.get<String>(KEY_LANG)
+            ?.let { runCatching { AppLanguage.valueOf(it) }.getOrNull() }
+        if (restored == null) {
+            language.value = persisted
+            saved[KEY_LANG] = persisted.name
+        }
+    }
+
     /** Сохранить survival-состояние в SavedStateHandle. Зовётся из эффекта при каждом изменении —
      *  так при смерти процесса значения уже лежат в handle и VM восстановит их из них. */
     fun persistNav() {
