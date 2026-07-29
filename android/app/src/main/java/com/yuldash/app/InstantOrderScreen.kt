@@ -625,32 +625,26 @@ private fun InstantDestinationPicker(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(appText("Куда едем?", "Ҡайҙа барабыҙ?"), color = CanonText, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black)
-        Text(appText("Машина приедет за тобой. Цену считаем заранее — без сюрпризов.", "Машина һине алырға килә. Хаҡты алдан иҫәпләйбеҙ — сюрприздарһыҙ."),
-            color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+        MobilityScreenIntro(
+            mode = MobilityMode.Taxi,
+            title = appText("Куда едем?", "Ҡайҙа барабыҙ?"),
+            subtitle = appText(
+                "Маршрут, время подачи и цена — до вызова машины.",
+                "Маршрут, килеү ваҡыты һәм хаҡ — машинаны саҡырғансы.",
+            ),
+            badge = appText("Такси", "Такси"),
+        )
 
         // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что помощь близко.
         // Показываем, только когда знаем позицию. Машинки — из presence, ≈ETA до подачи.
         if (effFrom != null) {
-            Card(shape = CanonItemShape, colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                Box {
-                    InstantRouteMap(
-                        from = effFrom, to = null, nearbyDrivers = nearbyDrivers,
-                        modifier = Modifier.fillMaxWidth().height(190.dp),
-                    )
-                    if (nearbyDrivers.isNotEmpty()) {
-                        Surface(color = CanonSurface, shape = RoundedCornerShape(999.dp),
-                            shadowElevation = 2.dp, modifier = Modifier.align(Alignment.TopStart).padding(10.dp)) {
-                            Row(Modifier.padding(horizontal = 11.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.LocalTaxi, contentDescription = null, tint = CanonTaxi, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(5.dp))
-                                Text(appText("${nearbyDrivers.size} машин рядом", "${nearbyDrivers.size} машина яҡында"),
-                                    color = CanonText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
+            TaxiMapFrame(nearbyCount = nearbyDrivers.size) {
+                InstantRouteMap(
+                    from = effFrom,
+                    to = null,
+                    nearbyDrivers = nearbyDrivers,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
 
@@ -785,37 +779,23 @@ private fun InstantDestinationPicker(
             }
         }
 
-        // Оценка цены
+        // Оценка цены: одна крупная сумма + три ответа, которые нужны до заказа.
         if (toPoint != null) {
-            Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    when {
-                        estimating -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
-                            Spacer(Modifier.width(10.dp))
-                            Text(appText("Считаем цену…", "Хаҡты иҫәпләйбеҙ…"), color = CanonMuted, fontSize = 14.sp)
-                        }
-                        errorText != null -> Text(errorText!!, color = CanonRed, fontSize = 14.sp)
-                        estimate != null -> {
-                            val est = estimate!!
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${est.price} ₽", color = CanonText, fontSize = 30.sp, fontWeight = FontWeight.Black)
-                                Spacer(Modifier.width(10.dp))
-                                Text(appText("примерно", "яҡынса"), color = CanonMuted, fontSize = 13.sp)
-                            }
-                            val meta = buildList {
-                                if (est.distanceKm > 0) add(appText("≈ ${est.distanceKm.toInt()} км", "≈ ${est.distanceKm.toInt()} км"))
-                                if (est.etaMin > 0) add(appText("≈ ${est.etaMin.toInt()} мин в пути", "≈ ${est.etaMin.toInt()} мин юлда"))
-                                // Время ПОДАЧИ — то, что человек на самом деле хочет знать перед
-                                // заказом. Раньше его не показывали вообще: была только длительность
-                                // поездки, и «когда приедет?» оставалось без ответа.
-                                est.pickupEtaMin?.let { add(appText("машина через ≈$it мин", "машина ≈$it минуттан")) }
-                            }.joinToString("  ·  ")
-                            if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
-                        }
-                    }
-                }
-            }
+            val est = estimate
+            TaxiFareSummary(
+                price = est?.price,
+                distance = est?.distanceKm?.takeIf { it > 0 }?.let {
+                    appText("≈ ${it.toInt()} км", "≈ ${it.toInt()} км")
+                },
+                duration = est?.etaMin?.takeIf { it > 0 }?.let {
+                    appText("≈ ${it.toInt()} мин", "≈ ${it.toInt()} мин")
+                },
+                pickup = est?.pickupEtaMin?.let {
+                    appText("Машина будет через ≈$it мин", "Машина ≈$it минуттан була")
+                },
+                loading = estimating,
+                error = errorText,
+            )
         }
 
         // Детали: как найти пассажира и «заказ для другого». Появляются вместе с маршрутом.
@@ -1225,26 +1205,14 @@ private fun InstantClassCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val border by animateColorAsState(if (selected) CanonGreen2 else CanonSurface, tween(200), label = "clsBorder")
-    val bg by animateColorAsState(if (selected) CanonGreen2.copy(alpha = 0.08f) else CanonSurface, tween(200), label = "clsBg")
-    Surface(
+    TaxiServiceClassTile(
+        title = title,
+        subtitle = subtitle,
+        price = price,
+        selected = selected,
         onClick = onClick,
-        shape = CanonItemShape,
-        color = bg,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
-        modifier = modifier.height(76.dp),
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.Center) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                if (price != null) {
-                    Text("$price ₽", color = if (selected) CanonGreen2 else CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black)
-                }
-            }
-            Spacer(Modifier.height(2.dp))
-            Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
-        }
-    }
+        modifier = modifier,
+    )
 }
 
 // ------------------------------ Таймер ожидания (обе стороны) ------------------------------
@@ -1284,35 +1252,7 @@ private fun InstantWaitingRow(order: InstantOrderDto) {
 // ------------------------------ «Ищем машину» ------------------------------
 @Composable
 private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
-    val infinite = rememberInfiniteTransition(label = "search")
-    val pulse by infinite.animateFloat(
-        initialValue = 0.4f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse), label = "pulse",
-    )
-    Column(
-        Modifier.fillMaxSize().padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
-            Box(Modifier.size((60 + pulse * 56).dp).background(CanonGreen2.copy(alpha = 0.12f * pulse), CircleShape))
-            Surface(shape = CircleShape, color = CanonGreen2) {
-                Icon(painterResource(R.drawable.yu_map_car), contentDescription = null, tint = CanonBg, modifier = Modifier.padding(20.dp).size(34.dp))
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-        Text(appText("Ищем машину рядом…", "Яҡында машина эҙләйбеҙ…"), color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(8.dp))
-        Text("${order.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
-            color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 2)
-        Spacer(Modifier.height(4.dp))
-        Text(appText("≈ ${order.priceEstimate} ₽ · подбираем ближайшего водителя", "≈ ${order.priceEstimate} ₽ · яҡын водителде табабыҙ"),
-            color = CanonMuted, fontSize = 13.sp, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(32.dp))
-        OutlinedButton(onClick = onCancel, modifier = Modifier.height(48.dp), shape = RoundedCornerShape(14.dp)) {
-            Text(appText("Отменить заказ", "Заказды кире алыу"), color = CanonRed)
-        }
-    }
+    TaxiSearchingExperience(order = order, onCancel = onCancel)
 }
 
 // ------------------------------ «Водитель едет» ------------------------------
@@ -1366,6 +1306,7 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                         Text(appText("≈ ${order.etaMin.toInt()} мин", "≈ ${order.etaMin.toInt()} мин"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+                TaxiTripProgress(status = order.status)
                 // Карточка водителя
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = CircleShape, color = CanonBg, modifier = Modifier.size(46.dp)) {
@@ -2410,8 +2351,13 @@ private fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = fal
                             }
                         }
                     }
-                    InstantPointRow(Icons.Default.MyLocation, appText("Подача", "Килеп алыу"), order.fromText.ifBlank { appText("Точка А", "А нөктәһе") })
-                    InstantPointRow(Icons.Default.LocationOn, appText("Назначение", "Барыр урын"), order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") })
+                    MobilityRouteTimeline(
+                        from = order.fromText,
+                        to = order.toText,
+                        fromLabel = appText("Подача", "Килеп алыу"),
+                        toLabel = appText("Назначение", "Барыр урын"),
+                        compact = true,
+                    )
                     // Пассажир (B7a-4): рейтинг + опыт — водитель решает по данным; новичок — честно.
                     // Агрегат анонимен; имя/телефон откроются только после «Взять заказ».
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2586,6 +2532,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(Modifier.padding(18.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            TaxiTripProgress(status = current.status)
                             // Пассажир + телефон (после accept)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
