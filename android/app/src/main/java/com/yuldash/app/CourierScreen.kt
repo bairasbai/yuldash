@@ -400,7 +400,8 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit
         "courier" -> appText("Курьер", "Курьер")
         else -> appText("По пути", "Юл ыңғайы")
     }
-    val priceLabel = if (p.priceKop > 0) kopToRub(p.priceKop)
+    val estimatedNetKop = (p.priceKop - p.commissionKop).coerceAtLeast(0)
+    val priceLabel = if (p.priceKop > 0) "≈ " + kopToRub(estimatedNetKop)
     else appText("По-соседски", "Күрше хаҡы")
     CourierOfferCard(
         from = p.fromCity,
@@ -410,6 +411,20 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit
         priceLabel = priceLabel,
         description = p.description,
     ) {
+        if (p.priceKop > 0) {
+            Surface(shape = RoundedCornerShape(14.dp), color = CanonMint) {
+                Text(
+                    appText("Цена доставки: ", "Илтеү хаҡы: ") + kopToRub(p.priceKop) +
+                        appText(" · комиссия ориентировочно ", " · яҡынса комиссия ") +
+                        kopToRub(p.commissionKop),
+                    color = CanonGreen2,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    modifier = Modifier.fillMaxWidth().padding(11.dp),
+                )
+            }
+        }
         if (p.deliveryType == "buy_bring" && p.codAmountKop > 0) {
             Surface(shape = RoundedCornerShape(14.dp), color = CanonWarnBg) {
                 Text(
