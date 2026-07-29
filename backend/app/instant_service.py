@@ -1037,17 +1037,35 @@ def passenger_stats(session: Session, passenger_id: int) -> tuple:
 
 
 def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
-    """Оффер водителю — data-ONLY payload (B7a-2): свёрнутое приложение получает
-    onMessageReceived и рисует полноэкранную карточку «Новый заказ» само; блок notification
-    убрала бы её (система показала бы обычную плашку в трее)."""
+    """Оффер водителю — data-only payload с серверным gross/fee/net.
+
+    Клиент не вычисляет комиссию сам: push и GET /instant/driver/offer используют один
+    Decimal-расчёт и одну ступень комиссии, зафиксированную на created_at заказа.
+    """
+    from . import debt as debt_mod
+
     p_rating, p_trips = passenger_stats(session, order.passenger_id)
+    gross_kop = max(int(order.price_estimate), 0) * 100
+    fee_percent = debt_mod.driver_fee_percent(
+        session, driver_id, order.created_at or utcnow()
+    )
+    fee_kop = debt_mod.order_commission_kop(order, fee_percent)
+    net_kop = max(gross_kop - fee_kop, 0)
+    net_rub, net_coins = divmod(net_kop, 100)
+    net_text = f"{net_rub} ₽" if net_coins == 0 else f"{net_rub},{net_coins:02d} ₽"
+
     send_push(
         session, driver_id, "Новый заказ",
-        f"{order.from_text or 'Точка А'} → {order.to_text or 'Точка Б'} · {order.price_estimate} ₽",
+        f"{order.from_text or 'Точка А'} → {order.to_text or 'Точка Б'} · чистыми {net_text}",
         data={
             "type": "instant_offer",
             "order_id": str(order.id),
+            # Legacy price remains for older Android builds.
             "price": str(order.price_estimate),
+            "gross_kop": str(gross_kop),
+            "fee_kop": str(fee_kop),
+            "net_kop": str(net_kop),
+            "fee_percent": str(fee_percent),
             "from": order.from_text or "",
             "to": order.to_text or "",
             "ttl_sec": str(settings.instant_offer_ttl_sec),
