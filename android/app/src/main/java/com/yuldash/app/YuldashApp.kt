@@ -301,6 +301,14 @@ internal fun YuldashApp() {
     // screen/language/startHomeTab переживают и смерть процесса (persistNav в SavedStateHandle, ниже).
     var screen by vm.screen
     var language by vm.language
+    // SharedPreferences — источник языка для настоящего холодного старта, когда SavedStateHandle пуст.
+    // Пока гидратация не закончилась, не пишем дефолтный RU обратно на диск и сервер.
+    val persistedLanguage = remember(context) { AppPrefs.language(context) }
+    var languagePersistenceReady by remember { mutableStateOf(false) }
+    LaunchedEffect(persistedLanguage) {
+        vm.restorePersistedLanguage(persistedLanguage)
+        languagePersistenceReady = true
+    }
     // Сессия протухла на сервере (refresh мёртв) → не оставляем пустые экраны: говорим и уводим на вход.
     val sessionExpiredMsg = appText("Сессия истекла. Войди снова.", "Сессия тамамланды. Ҡабат кер.")
     LaunchedEffect(Unit) {
@@ -343,13 +351,16 @@ internal fun YuldashApp() {
         ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" }
         // Язык на сервер и после входа: LaunchedEffect(language) отработал ещё до логина,
         // когда слать было некому — иначе пуши остались бы русскими до смены языка вручную.
-        ApiClient.fireUpdateLanguage(if (language == AppLanguage.Ba) "ba" else "ru")
+        if (languagePersistenceReady) {
+            ApiClient.fireUpdateLanguage(if (language == AppLanguage.Ba) "ba" else "ru")
+        }
     }
     // Android 13+ требует РАНТАЙМ-разрешение на уведомления — без него пуши тихо не показываются
     // (FCM настроен end-to-end, но без этого запроса доставка на новых телефонах = no-op).
     // Просим один раз, когда пользователь уже в приложении (не на онбординге/входе).
     // Язык дублируем на диск (AppPrefs): FCM и фоновые сервисы живут вне Compose и берут его оттуда.
-    LaunchedEffect(language) {
+    LaunchedEffect(language, languagePersistenceReady) {
+        if (!languagePersistenceReady) return@LaunchedEffect
         AppPrefs.setLanguage(context, language)
         // И на сервер: пуши приходят на языке пользователя. Поле сервер принимал давно,
         // но клиент его не слал — башкироязычный получал русские уведомления.
@@ -477,7 +488,9 @@ internal fun YuldashApp() {
     val adStats = vm.adStats   // SnapshotStateMap: мутируем одну запись вместо копии всей карты на событие
     // Сохраняем survival-состояние в SavedStateHandle при изменении → переживает смерть процесса.
     // activeBookingId в ключах: смена активной брони тоже должна попасть в handle (H1).
-    LaunchedEffect(screen, language, startHomeTab, activeBookingId) { vm.persistNav() }
+    LaunchedEffect(screen, language, startHomeTab, activeBookingId, languagePersistenceReady) {
+        if (languagePersistenceReady) vm.persistNav()
+    }
 
     // Лёгкий back-stack: трейл экранов, чтобы аппаратная «Назад» возвращалась по нему, а не прыгала на Home.
     val navHistory = vm.navHistory
