@@ -113,6 +113,17 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
         )
     ).all()
     earnings = sum(int(o.price_final if o.price_final is not None else o.price_estimate) for o in done_today)
+    gross_today_kop = earnings * 100
+    if done_today:
+        debts_today = session.exec(
+            select(CommissionDebt).where(
+                CommissionDebt.order_id.in_([o.id for o in done_today if o.id is not None])
+            )
+        ).all()
+        fee_today_kop = sum(max(int(d.amount_kop or 0), 0) for d in debts_today)
+    else:
+        fee_today_kop = 0
+    net_today_kop = max(gross_today_kop - fee_today_kop, 0)
 
     percent = driver_fee_percent(session, driver_id, now)
     first_done = session.exec(
@@ -130,7 +141,12 @@ def driver_dashboard(session: Session, driver_id: int, now: Optional[datetime] =
     else:
         next_percent, days_to_next = None, None       # верхняя ступень — дальше не растёт
     return {
+        # Backward compatibility: earnings_today остаётся валовой суммой в ₽.
+        # Новые поля — точная денежная расшифровка в целых копейках.
         "earnings_today": earnings,
+        "gross_today_kop": gross_today_kop,
+        "fee_today_kop": fee_today_kop,
+        "net_today_kop": net_today_kop,
         "orders_today": len(done_today),
         "fee_percent": percent,
         "tenure_days": tenure_days,
@@ -262,7 +278,9 @@ def accrue_for_order(session: Session, order: InstantOrder) -> Optional[Commissi
     if existing:
         return existing                       # уже начислено — не задваиваем
     now = utcnow()
-    percent = driver_fee_percent(session, order.driver_id, now)   # лесенка 3/5/8 + промо запуска
+    # Ступень фиксируем на момент создания: upfront net в оффере и фактический долг совпадут,
+    # даже если короткая поездка пересекла календарную границу тарифной ступени.
+    percent = driver_fee_percent(session, order.driver_id, order.created_at or now)
     amount = order_commission_kop(order, percent)
     if amount <= 0:
         return None                           # нулевая комиссия (промо 0% / грошовый заказ) — долг не заводим
