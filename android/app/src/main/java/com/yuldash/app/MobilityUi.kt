@@ -720,6 +720,27 @@ internal fun isParcelTerminal(status: String): Boolean =
     status == "delivered" || status == "returned" ||
         status == "canceled" || status == "cancelled"
 
+internal fun canSenderCancelParcel(
+    status: String,
+    deliveryType: String,
+    goodsActualKop: Int,
+): Boolean {
+    val cancellableStatus =
+        status == "created" || status == "accepted" || status == "in_transit"
+    val goodsAlreadyBought = deliveryType == "buy_bring" && goodsActualKop > 0
+    return cancellableStatus && !goodsAlreadyBought
+}
+
+internal fun canCourierDeliverParcel(status: String): Boolean =
+    status == "accepted" || status == "in_transit"
+
+internal fun canCourierResolveParcelTrouble(status: String): Boolean =
+    status == "accepted" || status == "in_transit" || status == "returning"
+
+internal fun canOpenParcelDispute(status: String): Boolean =
+    status == "in_transit" || status == "returning" ||
+        status == "delivered" || status == "returned"
+
 
 @Composable
 internal fun CourierDeliveryProgress(status: String, modifier: Modifier = Modifier) {
