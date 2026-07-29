@@ -1509,9 +1509,14 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
 @Composable
 private fun InstantRoadsideButton(orderId: Int) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var confirm by remember(orderId) { mutableStateOf(false) }
     var busy by remember(orderId) { mutableStateOf(false) }
     var sent by remember(orderId) { mutableStateOf(false) }
+    val failMsg = appText(
+        "Сигнал не отправлен. Проверь связь и повтори.",
+        "Сигнал ебәрелмәне. Бәйләнеште тикшереп ҡабатла.",
+    )
 
     if (sent) {
         Surface(color = CanonWarnBg, shape = CanonItemShape) {
@@ -1550,6 +1555,13 @@ private fun InstantRoadsideButton(orderId: Int) {
                     scope.launch {
                         ApiClient.instantRoadsideHelp(orderId, LocationPrefs.lastLat, LocationPrefs.lastLng)
                             .onSuccess { sent = true; confirm = false }
+                            .onFailure {
+                                Toast.makeText(
+                                    ctx,
+                                    (it as? ApiException)?.message ?: failMsg,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
                         busy = false
                     }
                 }) { Text(appText("Позвать помощь", "Ярҙам саҡырыу"), color = CanonWarn, fontWeight = FontWeight.Bold) }
