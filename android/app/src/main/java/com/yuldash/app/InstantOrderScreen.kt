@@ -150,6 +150,102 @@ private fun isoUtcToEpochMs(iso: String): Long? = runCatching {
         .toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
 }.getOrNull()
 
+/** Денежный формат такси хранит и показывает копейки без потери точности. */
+internal fun formatTaxiKop(kop: Int): String {
+    val safe = kop.coerceAtLeast(0)
+    val rubles = safe / 100
+    val coins = safe % 100
+    return if (coins == 0) "$rubles ₽" else "$rubles,${coins.toString().padStart(2, '0')} ₽"
+}
+
+private fun formatTaxiMultiplier(value: Double): String =
+    String.format(java.util.Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
+
+/** Прозрачная расшифровка серверной цены: клиент только показывает факторы и не считает цену. */
+@Composable
+private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
+    if (estimate == null || estimate.pricingVersion != "v2") return
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonCardShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        appText("Цена рассчитана программой", "Хаҡ программа менән иҫәпләнде"),
+                        color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        appText(
+                            "База ${estimate.basePrice.takeIf { it > 0 } ?: estimate.price} ₽",
+                            "Нигеҙ ${estimate.basePrice.takeIf { it > 0 } ?: estimate.price} ₽",
+                        ),
+                        color = CanonMuted, fontSize = 12.sp,
+                    )
+                }
+                Text("${estimate.price} ₽", color = CanonGreen2, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            }
+
+            estimate.priceFactors.forEach { factor ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Surface(shape = CircleShape, color = CanonTaxiBg, modifier = Modifier.size(9.dp)) {}
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            appText(
+                                factor.titleRu.ifBlank { factor.code },
+                                factor.titleBa.ifBlank { factor.titleRu.ifBlank { factor.code } },
+                            ),
+                            color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            appText(
+                                factor.descriptionRu,
+                                factor.descriptionBa.ifBlank { factor.descriptionRu },
+                            ),
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                        )
+                    }
+                    val badge = when (factor.kind) {
+                        "multiplier" -> "×${formatTaxiMultiplier(factor.k)}"
+                        "cap" -> appText("лимит", "сик")
+                        "notice" -> "!"
+                        else -> appText("учтено", "иҫәптә")
+                    }
+                    Surface(shape = RoundedCornerShape(9.dp), color = CanonTaxiBg) {
+                        Text(
+                            badge, color = CanonTaxiInk, fontSize = 11.sp, fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+
+            Surface(shape = CanonItemShape, color = CanonTaxiBg) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        if (estimate.dynamicK > 1.0) appText(
+                            "Общий коэффициент ×${formatTaxiMultiplier(estimate.dynamicK)} · максимум ×${formatTaxiMultiplier(estimate.pricingCapK)}",
+                            "Дөйөм коэффициент ×${formatTaxiMultiplier(estimate.dynamicK)} · максимум ×${formatTaxiMultiplier(estimate.pricingCapK)}",
+                        ) else appText("Без динамической наценки", "Динамик өҫтәмә хаҡ юҡ"),
+                        color = CanonTaxiInk, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        appText(
+                            "Сумму назначает сервер. Пассажир не вводит и не меняет цену.",
+                            "Хаҡты сервер билдәләй. Пассажир хаҡты индермәй һәм үҙгәртмәй.",
+                        ),
+                        color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** Тикающее «сейчас» (раз в секунду) для живых таймеров ожидания. */
 @Composable
 private fun rememberNowMs(): State<Long> {
@@ -853,6 +949,7 @@ private fun InstantDestinationPicker(
                 loading = estimating,
                 error = errorText,
             )
+            TaxiPricingBreakdown(est)
         }
 
         // Детали: как найти пассажира и «заказ для другого». Появляются вместе с маршрутом.
@@ -2415,18 +2512,29 @@ private fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = fal
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            val hasServerNet = order.driverGrossKop > 0
                             Text(
-                                appText("Цена поездки", "Сәфәр хаҡы"),
+                                if (hasServerNet) appText("Тебе чистыми", "Һиңә таҙа килем")
+                                else appText("Цена поездки", "Сәфәр хаҡы"),
                                 color = CanonMuted,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                "${order.priceEstimate} ₽",
+                                if (hasServerNet) formatTaxiKop(order.driverNetKop) else "${order.priceEstimate} ₽",
                                 color = CanonText,
                                 fontSize = 34.sp,
                                 fontWeight = FontWeight.Black,
                             )
+                            if (hasServerNet) {
+                                Text(
+                                    appText(
+                                        "Пассажир: ${formatTaxiKop(order.driverGrossKop)} · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
+                                        "Пассажир: ${formatTaxiKop(order.driverGrossKop)} · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
+                                    ),
+                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                                )
+                            }
                         }
                         if (order.category == "comfort") {
                             Surface(shape = RoundedCornerShape(10.dp), color = CanonMint) {
@@ -2579,7 +2687,13 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                 current.status == "done" -> InstantFinalCard(
                     icon = Icons.Default.CheckCircle,
                     title = appText("Поездка завершена", "Сәфәр тамамланды"),
-                    subtitle = appText("Получено ${current.priceFinal ?: current.priceEstimate} ₽. Спасибо!", "${current.priceFinal ?: current.priceEstimate} ₽ алынды. Рәхмәт!"),
+                    subtitle = if (current.driverGrossKop > 0) appText(
+                        "Пассажир заплатил ${formatTaxiKop(current.driverGrossKop)} · чистыми ${formatTaxiKop(current.driverNetKop)}",
+                        "Пассажир ${formatTaxiKop(current.driverGrossKop)} түләне · таҙа килем ${formatTaxiKop(current.driverNetKop)}",
+                    ) else appText(
+                        "Получено ${current.priceFinal ?: current.priceEstimate} ₽. Спасибо!",
+                        "${current.priceFinal ?: current.priceEstimate} ₽ алынды. Рәхмәт!",
+                    ),
                     action = appText("Готово", "Әҙер"), onAction = onFinished, onSecondary = onFinished,
                     extra = {
                         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -2678,11 +2792,20 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                             val waitRub = current.waitingFeeKop / 100
                             Text(
                                 appText(
-                                    "Оплата: ${current.priceEstimate} ₽" + (if (waitRub > 0) " + $waitRub ₽ ожидание" else "") + " наличными/переводом",
-                                    "Түләү: ${current.priceEstimate} ₽" + (if (waitRub > 0) " + $waitRub ₽ көтөү" else "") + " аҡсалата/күсереп",
+                                    "Пассажир платит: ${current.priceEstimate} ₽" + (if (waitRub > 0) " + $waitRub ₽ ожидание" else "") + " · наличными/переводом",
+                                    "Пассажир түләй: ${current.priceEstimate} ₽" + (if (waitRub > 0) " + $waitRub ₽ көтөү" else "") + " · аҡсалата/күсереп",
                                 ),
                                 color = CanonMuted, fontSize = 13.sp,
                             )
+                            if (current.driverGrossKop > 0) {
+                                Text(
+                                    appText(
+                                        "Ориентир чистыми: ${formatTaxiKop(current.driverNetKop)} до платного ожидания",
+                                        "Таҙа килем самаһы: ${formatTaxiKop(current.driverNetKop)} түләүле көтөүгә тиклем",
+                                    ),
+                                    color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                )
+                            }
                             // «Навигатор» (B7a-3): до посадки ведём к подаче (А), после — к назначению (Б).
                             // Яндекс Навигатор → Яндекс Карты → любое geo:-приложение.
                             OutlinedButton(
