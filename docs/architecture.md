@@ -955,3 +955,18 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 **Деньги vs «монетизация выключена»:** чаевые — P2P «на доверии» (пассажир → водитель по СБП напрямую), платформа денег не касается и комиссию не берёт → это НЕ эквайринг и НЕ конфликтует с off-by-default монетизацией. Всё равно за флагом (осторожность). См. `decisions.md`.
 
 **Android:** кнопка «Сказать рәхмәт 💚» на экране завершённой поездки (+ показ реквизита, если `money != null`); тумблер «Принимать чаевые (СБП)» в кабинете водителя. Спека — в `docs/android-gap-checklist.md`.
+## Taxi + Courier Mobility UI (2026-07-29)
+
+- `android/app/src/main/java/com/yuldash/app/MobilityUi.kt` — общий визуальный слой такси/курьера:
+  `MobilityScreenIntro`, `TaxiMapFrame`, `MobilityRouteTimeline`, `TaxiServiceClassTile`,
+  `TaxiFareSummary`, `MobilityProgressRail`/`TaxiTripProgress`, `CourierLineHero`,
+  `MobilitySegmentTab`, `CourierOfferCard`, `CourierServiceTypeTile`,
+  `CourierFareSummary`, `CourierDeliveryProgress`.
+- `InstantOrderScreen.kt` сохраняет существующую state machine/API, но пассажирский пикер,
+  поиск, активная поездка и оффер водителю собраны на общих Mobility-компонентах.
+- `CourierScreen.kt` сохраняет онлайн/зоны/API, но рабочий hero, вкладки, офферы и прогресс
+  активной доставки используют Mobility-компоненты.
+- `ParcelsScreen.kt` — отправитель: новый выбор вида доставки и прозрачная разбивка цены.
+- `android/app/src/debug/java/com/yuldash/app/MobilityUiPreview.kt` — три Android Studio Preview
+  (такси, работа курьера, оформление доставки); debug-only, в релиз не попадает.
+- Полная спецификация и ручной чеклист: [taxi-courier-ui-redesign-2026-07.md](taxi-courier-ui-redesign-2026-07.md).
