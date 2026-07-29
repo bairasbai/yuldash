@@ -340,13 +340,20 @@ internal fun ParcelsScreen(onBack: () -> Unit) {
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Посылки", "Бандеролдәр"), onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxWidth()) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Surface(
+                color = CanonSurface,
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, CanonBorder),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
-                ParcelTab(appText("Отправить", "Ебәреү"), tab == 0, Modifier.weight(1f)) { tab = 0 }
-                ParcelTab(appText("Мои", "Минеке"), tab == 1, Modifier.weight(1f)) { tab = 1 }
-                ParcelTab(appText("Возить", "Илтеү"), tab == 2, Modifier.weight(1f)) { tab = 2 }
+                Row(
+                    Modifier.fillMaxWidth().padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    ParcelTab(appText("Отправить", "Ебәреү"), tab == 0, Modifier.weight(1f)) { tab = 0 }
+                    ParcelTab(appText("Мои", "Минеке"), tab == 1, Modifier.weight(1f)) { tab = 1 }
+                    ParcelTab(appText("Возить", "Илтеү"), tab == 2, Modifier.weight(1f)) { tab = 2 }
+                }
             }
             AnimatedContent(
                 targetState = tab,
@@ -365,16 +372,7 @@ internal fun ParcelsScreen(onBack: () -> Unit) {
 
 @Composable
 private fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(220), label = "ptab")
-    Surface(
-        onClick = onClick, color = bg, shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = modifier.height(48.dp),
-    ) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = 14.sp)
-        }
-    }
+    MobilitySegmentTab(label = label, active = active, onClick = onClick, modifier = modifier)
 }
 
 // ─────────────────────────── Вкладка «Отправить» ───────────────────────────
@@ -432,12 +430,14 @@ private fun SendParcelTab(onSent: () -> Unit) {
         contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
     ) {
         item {
-            Text(
-                appText(
-                    "Отправь посылку своим: по пути с попутчиком дёшево, или закажи курьера — быстро и надёжно.",
-                    "Үҙебеҙҙекеләргә бандероль ебәр: юлдаш менән юл ыңғайы арзан, йәки курьер заказла — тиҙ һәм ышаныслы.",
+            MobilityScreenIntro(
+                mode = MobilityMode.Courier,
+                title = appText("Что доставим?", "Нимә илтәбеҙ?"),
+                subtitle = appText(
+                    "Выбери способ — маршрут, цена и условия будут видны до заказа.",
+                    "Ысулды һайла — маршрут, хаҡ һәм шарттар заказға тиклем күренә.",
                 ),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                badge = appText("Доставка", "Доставка"),
             )
         }
         // Тип доставки
@@ -706,24 +706,13 @@ private fun DeliveryTypeCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
 ) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "dtype")
-    Surface(
-        onClick = onClick, color = bg, shape = CanonItemShape,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = if (selected) CanonGreen2 else CanonMint, shape = RoundedCornerShape(12.dp)) {
-                Icon(icon, contentDescription = null, tint = if (selected) Color.White else CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
-            }
-            if (selected) Icon(Icons.Default.CheckCircle, contentDescription = appText("Выбрано", "Һайланды"), tint = CanonGreen2, modifier = Modifier.size(22.dp))
-        }
-    }
+    CourierServiceTypeTile(
+        title = title,
+        subtitle = subtitle,
+        icon = icon,
+        selected = selected,
+        onClick = onClick,
+    )
 }
 
 /** Чип срочности доставки. */
@@ -746,24 +735,18 @@ private fun UrgencyChip(title: String, subtitle: String, selected: Boolean, modi
 /** Карточка оценки цены — честно показываем итог и наш сбор + разбивку. */
 @Composable
 private fun EstimateCard(est: CourierEstimateDto) {
-    Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(2.dp, CanonGreen2)) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(appText("Доставка", "Илтеү"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Text("≈ " + kopToRub(est.priceKop), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 32.sp)
-            val commEst = if (est.breakdown.commissionEstimated) appText(" ≈ ориентировочно", " ≈ самаға") else ""
-            Text(
-                appText("Из них наша комиссия ", "Шуларҙан беҙҙең комиссия ") + kopToRub(est.commissionKop) + commEst +
-                    appText(" — остальное получит курьер.", " — ҡалғанын курьер алыр."),
-                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
-            )
-            Surface(color = CanonMint, shape = CanonItemShape) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    EstimateRow(appText("Подача", "Килеү"), kopToRub(est.breakdown.baseKop))
-                    EstimateRow(appText("Расстояние", "Ара") + " (${String.format("%.0f", est.distanceKm)} км)", kopToRub(est.breakdown.distanceKop))
-                    EstimateRow(appText("Размер", "Ҙурлыҡ"), kopToRub(est.breakdown.sizeKop))
-                    if (est.breakdown.urgencyKop > 0) EstimateRow(appText("Срочность", "Ашығыслыҡ"), kopToRub(est.breakdown.urgencyKop))
-                }
-            }
+    val commEst = if (est.breakdown.commissionEstimated) appText(" ≈", " ≈") else ""
+    CourierFareSummary(
+        total = "≈ " + kopToRub(est.priceKop),
+        courierGets = kopToRub((est.priceKop - est.commissionKop).coerceAtLeast(0)),
+        fee = kopToRub(est.commissionKop) + commEst,
+        distance = String.format("%.0f км", est.distanceKm),
+    ) {
+        EstimateRow(appText("Подача", "Килеү"), kopToRub(est.breakdown.baseKop))
+        EstimateRow(appText("Расстояние", "Ара") + " (${String.format("%.0f", est.distanceKm)} км)", kopToRub(est.breakdown.distanceKop))
+        EstimateRow(appText("Размер", "Ҙурлыҡ"), kopToRub(est.breakdown.sizeKop))
+        if (est.breakdown.urgencyKop > 0) {
+            EstimateRow(appText("Срочность", "Ашығыслыҡ"), kopToRub(est.breakdown.urgencyKop))
         }
     }
 }
