@@ -400,7 +400,7 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit
         "courier" -> appText("Курьер", "Курьер")
         else -> appText("По пути", "Юл ыңғайы")
     }
-    val estimatedNetKop = (p.priceKop - p.commissionKop).coerceAtLeast(0)
+    val estimatedNetKop = courierNetKop(p.priceKop, p.commissionKop)
     val priceLabel = if (p.priceKop > 0) "≈ " + kopToRub(estimatedNetKop)
     else appText("По-соседски", "Күрше хаҡы")
     CourierOfferCard(
