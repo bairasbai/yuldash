@@ -70,6 +70,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -198,10 +199,10 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarni
     val ctx = LocalContext.current
 
     var online by remember { mutableStateOf(me.profile?.online ?: false) }
-    var zone by remember { mutableStateOf(me.profile?.zone?.takeIf { it.isNotBlank() } ?: "city") }
-    var workCity by remember { mutableStateOf(me.profile?.workCity ?: "") }
+    var zone by rememberSaveable { mutableStateOf(me.profile?.zone?.takeIf { it.isNotBlank() } ?: "city") }
+    var workCity by rememberSaveable { mutableStateOf(me.profile?.workCity ?: "") }
     var toggling by remember { mutableStateOf(false) }
-    var sub by remember { mutableIntStateOf(0) }   // 0 = доступные, 1 = везу, 2 = кабинет
+    var sub by rememberSaveable { mutableIntStateOf(0) }   // 0 = доступные, 1 = везу, 2 = кабинет
 
     val toggleErr = appText("Не получилось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшер.")
     val needCityMsg = appText("Укажи город работы", "Эш ҡалаһын күрһәт")
