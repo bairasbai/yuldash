@@ -230,49 +230,42 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarni
     }
 
     Column(Modifier.fillMaxSize()) {
-        // Тумблер «На линии» + зона.
-        Surface(color = if (online) CanonMint else CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, if (online) CanonGreen2 else CanonBorder), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = if (online) CanonGreen2 else CanonBg, shape = CircleShape) {
-                        Icon(painterResource(R.drawable.yu_mode_courier), contentDescription = null, tint = if (online) Color.White else CanonMuted, modifier = Modifier.padding(9.dp).size(22.dp))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(if (online) appText("Ты на линии", "Һин линияла") else appText("Не на линии", "Линияла түгел"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                        Text(if (online) appText("Заказы приходят тебе", "Заказдар һиңә килә") else appText("Включи, чтобы брать заказы", "Заказ алыр өсөн ҡабыҙ"), color = CanonMuted, fontSize = 13.sp)
-                    }
-                    Switch(
-                        checked = online,
-                        onCheckedChange = { setOnline(it) },
-                        enabled = !toggling,
-                        colors = SwitchDefaults.colors(checkedTrackColor = CanonGreen2),
-                    )
-                }
-                // Выбор зоны.
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CourierZoneChip(Icons.Default.LocationCity, appText("Город", "Ҡала"), zone == "city") { changeZone("city") }
-                    CourierZoneChip(Icons.Default.AltRoute, appText("Межгород", "Ҡалалар араһы"), zone == "intercity") { changeZone("intercity") }
-                    CourierZoneChip(Icons.Default.Public, appText("Регион", "Төбәк"), zone == "region") { changeZone("region") }
-                }
-                if (zone == "city") {
-                    OutlinedTextField(
-                        value = workCity,
-                        onValueChange = { workCity = it.take(40) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(appText("Город работы", "Эш ҡалаһы")) },
-                        placeholder = { Text(appText("Например: Баймак", "Мәҫәлән: Баймаҡ"), color = CanonMuted) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                    )
-                }
+        // Главный рабочий статус — один взгляд: онлайн/оффлайн, зона и город.
+        CourierLineHero(
+            online = online,
+            toggling = toggling,
+            onToggle = { setOnline(it) },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CourierZoneChip(Icons.Default.LocationCity, appText("Город", "Ҡала"), zone == "city") { changeZone("city") }
+                CourierZoneChip(Icons.Default.AltRoute, appText("Межгород", "Ҡалалар араһы"), zone == "intercity") { changeZone("intercity") }
+                CourierZoneChip(Icons.Default.Public, appText("Регион", "Төбәк"), zone == "region") { changeZone("region") }
+            }
+            if (zone == "city") {
+                OutlinedTextField(
+                    value = workCity,
+                    onValueChange = { workCity = it.take(40) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(appText("Город работы", "Эш ҡалаһы")) },
+                    placeholder = { Text(appText("Например: Баймак", "Мәҫәлән: Баймаҡ"), color = CanonMuted) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                )
             }
         }
         // Под-вкладки.
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CourierSubTab(appText("Заказы", "Заказдар"), sub == 0, Modifier.weight(1f)) { sub = 0 }
-            CourierSubTab(appText("Везу", "Илтәм"), sub == 1, Modifier.weight(1f)) { sub = 1 }
-            CourierSubTab(appText("Кабинет", "Кабинет"), sub == 2, Modifier.weight(1f)) { sub = 2 }
+        Surface(
+            color = CanonSurface,
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, CanonBorder),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        ) {
+            Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                CourierSubTab(appText("Заказы", "Заказдар"), sub == 0, Modifier.weight(1f)) { sub = 0 }
+                CourierSubTab(appText("Везу", "Илтәм"), sub == 1, Modifier.weight(1f)) { sub = 1 }
+                CourierSubTab(appText("Кабинет", "Кабинет"), sub == 2, Modifier.weight(1f)) { sub = 2 }
+            }
         }
         Spacer(Modifier.height(12.dp))
         AnimatedContent(
@@ -306,16 +299,12 @@ private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, o
 
 @Composable
 private fun CourierSubTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(220), label = "csub")
-    Surface(
-        onClick = onClick, color = bg, shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = modifier.height(48.dp),
-    ) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = 14.sp)
-        }
-    }
+    MobilitySegmentTab(
+        label = label,
+        active = active,
+        onClick = onClick,
+        modifier = modifier,
+    )
 }
 
 // ─────────────────────────── Доступные заказы ───────────────────────────
@@ -348,9 +337,13 @@ private fun CourierAvailableTab(zone: String, workCity: String) {
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
         item {
-            Text(
-                appText("Возьми заказ по своей зоне. Телефон получателя откроется, когда возьмёшь.", "Үҙ зонаң буйынса заказ ал. Алыусы телефоны заказ алғас асыла."),
-                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+            MobilityScreenIntro(
+                mode = MobilityMode.Courier,
+                title = appText("Заказы рядом", "Яҡындағы заказдар"),
+                subtitle = appText(
+                    "Маршрут и твой доход видны до принятия. Контакты откроются после.",
+                    "Маршрут һәм килем заказды алғансы күренә. Контакттар һуңынан асыла.",
+                ),
             )
         }
         when {
@@ -390,43 +383,40 @@ private fun CourierAvailableTab(zone: String, workCity: String) {
 
 @Composable
 private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit) {
-    AppCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-                    Icon(Icons.Default.Inventory2, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    CourierRouteRow(p.fromCity, p.toCity)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(parcelSizeLabel(p.size), color = CanonMuted, fontSize = 13.sp)
-                        CourierDeliveryTag(p.deliveryType, p.urgency)
-                    }
-                }
-                // Только цена доставки — то, что достанется курьеру. Наш сервисный сбор
-                // (feeKop) сюда не подставляем: это чужие деньги (аудит 2026-07-26).
-                if (p.priceKop > 0) {
-                    Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
-                } else {
-                    Text(appText("По-соседски", "Күрше хаҡы"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
+    val deliveryLabel = when (p.deliveryType) {
+        "buy_bring" -> appText("Купи и привези", "Һатып ал да килтер")
+        "courier" -> appText("Курьер", "Курьер")
+        else -> appText("По пути", "Юл ыңғайы")
+    }
+    val priceLabel = if (p.priceKop > 0) kopToRub(p.priceKop)
+    else appText("По-соседски", "Күрше хаҡы")
+    CourierOfferCard(
+        from = p.fromCity,
+        to = p.toCity,
+        sizeLabel = parcelSizeLabel(p.size),
+        deliveryLabel = deliveryLabel,
+        priceLabel = priceLabel,
+        description = p.description,
+    ) {
+        if (p.deliveryType == "buy_bring" && p.codAmountKop > 0) {
+            Surface(shape = RoundedCornerShape(14.dp), color = CanonWarnBg) {
+                Text(
+                    appText("На покупку: ", "Һатып алыуға: ") + kopToRub(p.codAmountKop),
+                    color = CanonWarn,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    modifier = Modifier.fillMaxWidth().padding(11.dp),
+                )
             }
-            if (p.description.isNotBlank()) {
-                Text(p.description, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
-            }
-            if (p.deliveryType == "buy_bring" && p.codAmountKop > 0) {
-                Text(appText("Выкуп товара: ", "Тауар выкупы: ") + kopToRub(p.codAmountKop), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            }
-            AppButton(
-                text = appText("Взять заказ", "Заказ алыу"),
-                onClick = onTake,
-                style = AppButtonStyle.Primary,
-                icon = Icons.Default.LocalShipping,
-                enabled = !busy,
-                loading = busy,
-            )
         }
+        AppButton(
+            text = appText("Взять заказ", "Заказ алыу"),
+            onClick = onTake,
+            style = AppButtonStyle.Primary,
+            icon = Icons.Default.LocalShipping,
+            enabled = !busy,
+            loading = busy,
+        )
     }
 }
 
@@ -756,6 +746,7 @@ private fun CourierCarryingCard(
                 }
                 ParcelStatusChip(p.status)
             }
+            CourierDeliveryProgress(status = p.status)
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
