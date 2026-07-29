@@ -411,15 +411,15 @@ internal fun MobilityProgressRail(
     }
 }
 
+internal fun taxiProgressIndex(status: String): Int = when (status) {
+    "arriving" -> 1
+    "onboard" -> 2
+    "done" -> 3
+    else -> 0
+}
+
 @Composable
 internal fun TaxiTripProgress(status: String, modifier: Modifier = Modifier) {
-    val index = when (status) {
-        "accepted" -> 0
-        "arriving" -> 1
-        "onboard" -> 2
-        "done" -> 3
-        else -> 0
-    }
     MobilityProgressRail(
         labels = listOf(
             appText("Едет", "Килә"),
@@ -427,7 +427,7 @@ internal fun TaxiTripProgress(status: String, modifier: Modifier = Modifier) {
             appText("В пути", "Юлда"),
             appText("Готово", "Әҙер"),
         ),
-        currentIndex = index,
+        currentIndex = taxiProgressIndex(status),
         modifier = modifier,
         accent = CanonTaxi,
     )
@@ -672,21 +672,21 @@ private fun MobilitySmallTag(text: String) {
     }
 }
 
+internal fun courierProgressIndex(status: String): Int = when (status) {
+    "in_transit", "returning" -> 1
+    "delivered", "returned" -> 2
+    else -> 0
+}
+
 @Composable
 internal fun CourierDeliveryProgress(status: String, modifier: Modifier = Modifier) {
-    val index = when (status) {
-        "accepted" -> 0
-        "in_transit", "returning" -> 1
-        "delivered", "returned" -> 2
-        else -> 0
-    }
     MobilityProgressRail(
         labels = listOf(
             appText("Забрать", "Алыу"),
             if (status == "returning") appText("Возврат", "Кире илтеү") else appText("В пути", "Юлда"),
             if (status == "returned") appText("Возвращено", "Кире бирелде") else appText("Вручить", "Тапшырыу"),
         ),
-        currentIndex = index,
+        currentIndex = courierProgressIndex(status),
         modifier = modifier,
         accent = CanonGreen2,
     )
