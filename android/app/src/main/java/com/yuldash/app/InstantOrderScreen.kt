@@ -2414,7 +2414,20 @@ private fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = fal
             Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${order.priceEstimate} ₽", color = CanonText, fontSize = 34.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                appText("Цена поездки", "Сәфәр хаҡы"),
+                                color = CanonMuted,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "${order.priceEstimate} ₽",
+                                color = CanonText,
+                                fontSize = 34.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                        }
                         if (order.category == "comfort") {
                             Surface(shape = RoundedCornerShape(10.dp), color = CanonMint) {
                                 Text(appText("Комфорт", "Комфорт"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold,
