@@ -132,6 +132,42 @@ internal fun ParcelStatusChip(status: String) {
     }
 }
 
+@Composable
+internal fun ParcelReturnNotice(
+    status: String,
+    reason: String,
+    forCourier: Boolean,
+) {
+    if (status != "returning" && status != "returned") return
+    val title = when {
+        status == "returned" -> appText(
+            "Возврат завершён — посылка у отправителя",
+            "Ҡайтарыу тамам — бандероль ебәреүселә",
+        )
+        forCourier -> appText(
+            "Ты везёшь посылку обратно отправителю",
+            "Һин бандеролде ебәреүсегә кире илтәһең",
+        )
+        else -> appText(
+            "Курьер везёт посылку обратно",
+            "Курьер бандеролде кире алып килә",
+        )
+    }
+    Surface(color = CanonWarnBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonWarn)) {
+        Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = CanonWarn, fontSize = 13.sp, fontWeight = FontWeight.Black)
+            if (reason.isNotBlank()) {
+                Text(
+                    appText("Причина: ", "Сәбәбе: ") + reason,
+                    color = CanonText,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+            }
+        }
+    }
+}
+
 /** Строка «маршрут»: Откуда → Куда. */
 @Composable
 private fun ParcelRouteRow(from: String, to: String) {
@@ -1024,7 +1060,12 @@ private fun MyParcelsTab() {
 @Composable
 private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: () -> Unit, onDispute: () -> Unit, onRate: () -> Unit) {
     val clipboard = LocalClipboardManager.current
-    val active = p.status != "delivered" && p.status != "canceled" && p.status != "cancelled"
+    val terminal = isParcelTerminal(p.status)
+    val canCancel = canSenderCancelParcel(
+        status = p.status,
+        deliveryType = p.deliveryType,
+        goodsActualKop = p.settlement?.goodsActualKop ?: 0,
+    )
     AppCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1034,16 +1075,14 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                 }
                 ParcelStatusChip(p.status)
             }
+            ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = false)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonText, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
-                // Цифра здесь — сколько отправитель платит курьеру. Раньше показывался наш
-                // сервисный сбор, и человек читал его как цену доставки (аудит 2026-07-26).
                 if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
             }
-            // Курьер (когда принята)
             p.courier?.let { cr ->
                 val courierFallback = appText("Курьер", "Курьер")
                 Surface(color = CanonMint, shape = CanonItemShape) {
@@ -1065,28 +1104,24 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                                     Text(appText("новый курьер", "яңы курьер"), color = CanonMuted, fontSize = 12.sp)
                                     Spacer(Modifier.width(8.dp))
                                 }
-                                if (cr.phone.isNotBlank()) Text(cr.phone, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                if (cr.phone.isNotBlank()) Text(cr.phone, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 13.sp)
                             }
                         }
                     }
                 }
             }
-            // Онлайн-трекинг: пока курьер везёт — видим его на карте (тот же движок, что у такси).
+            // Existing privacy scope: live map is available only during the forward delivery.
             if (p.courier != null && (p.status == "accepted" || p.status == "in_transit")) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(appText("Курьер в пути — следи на карте", "Курьер юлда — картала күҙәт"), color = CanonMuted, fontSize = 12.sp)
                     ParcelTrackMap(p, asCourier = false)
                 }
             }
-            // Трекинг-ссылка получателю: он без приложения смотрит доставку в браузере.
-            // Ручка была готова с G1, кнопки не существовало — фича жила только на сервере.
-            if (active) ParcelTrackLinkBlock(p.id)
-            // C2: расчёт «купи и привези» — что получатель заплатит (товар + доставка)
+            if (!terminal) ParcelTrackLinkBlock(p.id)
             if (p.deliveryType == "buy_bring") {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }
             }
-            // Код вручения — вижу как отправитель, пока не доставлено
-            if (p.confirmCode.isNotBlank() && active) {
+            if (p.confirmCode.isNotBlank() && canCourierDeliverParcel(p.status)) {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(appText("Код вручения (передай получателю)", "Тапшырыу коды (алыусыға бир)"), color = CanonMuted, fontSize = 12.sp)
@@ -1099,7 +1134,7 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                     }
                 }
             }
-            if (active) {
+            if (canCancel) {
                 AppButton(
                     text = appText("Отменить", "Кире алыу"),
                     onClick = onCancel,
@@ -1108,12 +1143,10 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                     loading = busy,
                 )
             }
-            // C3: оценить курьера — после вручения
             if (p.status == "delivered" && p.courier != null) {
                 if (rated) ParcelRatedRow() else ParcelRateButton(onClick = onRate)
             }
-            // C2: спор доступен, когда посылка уже в пути или доставлена
-            if (p.courier != null && (p.status == "in_transit" || p.status == "delivered")) {
+            if (p.courier != null && canOpenParcelDispute(p.status)) {
                 ParcelDisputeButton(onClick = onDispute)
             }
         }
@@ -1293,6 +1326,7 @@ private fun CarryingParcelsTab() {
     var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var disputeTarget by remember { mutableStateOf<ParcelDto?>(null) }
+    var troubleTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var rateTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var ratedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
@@ -1348,6 +1382,7 @@ private fun CarryingParcelsTab() {
                         onDeliver = { deliverTarget = list[i] },
                         onSetGoods = { goodsTarget = list[i] },
                         onDispute = { disputeTarget = list[i] },
+                        onTrouble = { troubleTarget = list[i] },
                         rated = ratedIds.contains(list[i].id),
                         onRate = { rateTarget = list[i] },
                     )
@@ -1416,6 +1451,14 @@ private fun CarryingParcelsTab() {
         )
     }
 
+    troubleTarget?.let { target ->
+        CourierTroubleDialog(
+            parcel = target,
+            onDismiss = { troubleTarget = null },
+            onDone = { troubleTarget = null; reload() },
+        )
+    }
+
     // C3: курьер оценивает отправителя после вручения.
     rateTarget?.let { target ->
         ParcelRateDialog(
@@ -1479,10 +1522,12 @@ private fun CarryingParcelCard(
     onDeliver: () -> Unit,
     onSetGoods: () -> Unit,
     onDispute: () -> Unit,
+    onTrouble: () -> Unit,
     rated: Boolean,
     onRate: () -> Unit,
 ) {
     val delivered = p.status == "delivered"
+    val canDeliver = canCourierDeliverParcel(p.status)
     val buyBring = p.deliveryType == "buy_bring"
     val needGoods = buyBring && (p.settlement?.goodsActualKop ?: 0) == 0
     AppCard {
@@ -1494,7 +1539,8 @@ private fun CarryingParcelCard(
                 }
                 ParcelStatusChip(p.status)
             }
-            // Получатель + телефон (виден курьеру)
+            CourierDeliveryProgress(status = p.status)
+            ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = true)
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1511,18 +1557,15 @@ private fun CarryingParcelCard(
                     }
                 }
             }
-            // C2: «купи и привези» — блок расчёта (за товар · доставка · получатель платит)
             if (buyBring) {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = true) }
             }
-            // Деньги курьера — это то, что платит отправитель. Наш сервисный сбор сюда не
-            // подписываем: раньше он стоял под словом «Твой сбор», хотя это не его деньги.
             if (p.priceKop > 0) {
                 Text(appText("Тебе заплатят: ", "Һиңә түләйәсәктәр: ") + kopToRub(p.priceKop), color = CanonMuted, fontSize = 13.sp)
             } else {
                 Text(appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"), color = CanonMuted, fontSize = 13.sp)
             }
-            if (!delivered) {
+            if (canDeliver) {
                 if (needGoods) {
                     AppButton(
                         text = appText("Указать стоимость покупки", "Һатып алыу хаҡын күрһәтеү"),
@@ -1559,12 +1602,13 @@ private fun CarryingParcelCard(
                     )
                 }
             }
-            // C3: оценить отправителя — после вручения
+            if (canCourierResolveParcelTrouble(p.status)) {
+                CourierTroubleButton(returning = p.status == "returning", onClick = onTrouble)
+            }
             if (delivered) {
                 if (rated) ParcelRatedRow() else ParcelRateButton(onClick = onRate)
             }
-            // C2: спор доступен, когда посылка в пути или доставлена
-            if (p.status == "in_transit" || delivered) {
+            if (canOpenParcelDispute(p.status)) {
                 ParcelDisputeButton(onClick = onDispute)
             }
         }
