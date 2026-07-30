@@ -4903,7 +4903,7 @@ data class PendingRatingDto(
     val createdAt: String,
 )
 
-/** Спор «Справедливости» (двусторонний разбор). Поля reporter*/respondent* заполнены ТОЛЬКО
+/** Спор «Справедливости» (двусторонний разбор). Поля reporter… и respondent… заполнены ТОЛЬКО
  *  в админ-выдаче: участникам телефон второй стороны не отдаём — это приватность, не забывчивость.
  *
  *  status: open | awaiting_response | under_review | appealed | resolved | closed
