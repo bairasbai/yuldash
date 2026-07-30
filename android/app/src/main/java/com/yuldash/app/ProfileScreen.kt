@@ -205,6 +205,9 @@ import android.Manifest
 import android.app.Activity
 import android.speech.RecognizerIntent
 import android.content.pm.PackageManager
+// Платформенный ExifInterface, а не androidx: конструктор от InputStream есть с API 24,
+// minSdk у нас 26 — значит новая зависимость не нужна (CLAUDE.md §10).
+import android.media.ExifInterface
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
@@ -230,6 +233,10 @@ import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.graphics.Canvas
+// decodeToJpeg: ImageDecoder сам применяет EXIF-поворот (API 28+), Matrix доворачивает вручную
+// на более старых. Без этих двух импортов файл не компилировался — сборка CI, 2026-07-30.
+import android.graphics.ImageDecoder
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
