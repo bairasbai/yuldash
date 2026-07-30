@@ -28,6 +28,13 @@
 | `Cannot access 'weight': it is internal` (debug-превью) | `weight` — член `RowScope`/`ColumnScope`, работает через получателя. Импорт резолвился во внутренний символ | импорт удалён |
 | `Unresolved reference 'ImageDecoder' / 'ExifInterface' / 'Matrix'` (25 шт, `ProfileScreen.kt`) | импортов просто не было | добавлены `android.graphics.ImageDecoder`, `android.graphics.Matrix`, `android.media.ExifInterface` (платформенный, API 24+ при minSdk 26 — новую зависимость не тянем, §10) |
 
+### ✅ Результат: сборка зелёная
+
+После правок CI-прогон на `1ad4329` — **success**, 13 минут, полный цикл:
+`:app:assembleDebug` **и** `:app:assembleRelease` (R8 minify+shrink) прошли.
+Это **первая успешная сборка** ветки такси/курьера. Гейт CLAUDE.md §5 закрыт —
+не локально (здесь нет SDK), а на раннере, что даже строже: проверен и релизный R8.
+
 **Урок (в `lessons.md`):** зелёный CI ≠ проверенный код. Джоба, упавшая за 2 секунды без логов, —
 это отказ инфраструктуры, а не результат проверки. Отличать по длительности и наличию лога.
 
