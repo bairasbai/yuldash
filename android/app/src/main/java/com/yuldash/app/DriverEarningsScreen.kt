@@ -186,8 +186,13 @@ private fun EarnTile(modifier: Modifier, icon: ImageVector, accent: Color, value
 /** Строка дня: дата, мини-бар шириной ∝ сумме, сумма ₽ и число поездок. */
 @Composable
 private fun EarnDayRow(day: DriverEarningsDayDto, maxSum: Int) {
-    val fraction = (day.sum.toFloat() / maxSum.toFloat()).coerceIn(0f, 1f)
-    val animated by animateFloatAsState(fraction, animationSpec = tween(600), label = "earnBar")
+    // Полоска должна ВЫРАСТАТЬ. animateFloatAsState на первом кадре берёт цель как есть —
+    // столбик появлялся сразу на полную длину и не анимировался никогда. Стартуем с нуля
+    // и включаем настоящую цель после первой композиции (тот же приём, что у курьера).
+    var grown by remember(day.date) { mutableStateOf(false) }
+    LaunchedEffect(day.date) { grown = true }
+    val target = if (grown) (day.sum.toFloat() / maxSum.toFloat()).coerceIn(0f, 1f) else 0f
+    val animated by animateFloatAsState(target, animationSpec = tween(600), label = "earnBar")
     Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

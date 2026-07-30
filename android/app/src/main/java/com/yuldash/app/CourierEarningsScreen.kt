@@ -242,13 +242,17 @@ private fun MoneyPeriodSegment(
     modifier: Modifier = Modifier,
     onSelect: () -> Unit,
 ) {
-    // Color.White на CanonGreen2 — тот же «чернильный» цвет, что у основной кнопки
-    // (AppButton.Primary) и активного чипа: отдельного токена под «текст на зелёном» нет.
-    val bg by animateColorAsState(if (active) CanonGreen2 else Color.Transparent, tween(220), label = "segBg")
-    val fg by animateColorAsState(if (active) Color.White else CanonMutedStrong, tween(220), label = "segFg")
+    // Выбранный сегмент — мягкая мятная заливка с тёмно-зелёной надписью, а не заливка
+    // брендовым зелёным с белым текстом: белое на CanonGreen2 даёт в тёмной теме 3.19:1
+    // (tools/contrast.py), и для подписи 14sp этого мало. Пара CanonGreen/CanonMint —
+    // 10.7 в светлой и 10.5 в тёмной. Тонкая рамка держит границу пилюли на белой карточке.
+    val bg by animateColorAsState(if (active) CanonMint else Color.Transparent, tween(220), label = "segBg")
+    val fg by animateColorAsState(if (active) CanonGreen else CanonMutedStrong, tween(220), label = "segFg")
+    val edge by animateColorAsState(if (active) CanonHairlineGreen else Color.Transparent, tween(220), label = "segEdge")
     Surface(
         color = bg,
         shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, edge),
         modifier = modifier.bounceClick(onSelect),
     ) {
         Box(
@@ -259,7 +263,7 @@ private fun MoneyPeriodSegment(
                 label,
                 color = fg,
                 fontSize = MoneyType.Body,
-                fontWeight = FontWeight.Bold,
+                fontWeight = if (active) FontWeight.Black else FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,

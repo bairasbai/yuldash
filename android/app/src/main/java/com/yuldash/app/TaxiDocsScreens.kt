@@ -3,7 +3,6 @@ package com.yuldash.app
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -25,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -182,18 +182,22 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
             val a = app
             when {
                 loading && a == null -> item(key = "skeleton") { TaxiDocsSkeleton() }
-                error && a == null -> item(key = "error") { AppErrorState(onRetry = { reload++ }) }
+                error && a == null -> item(key = "error") {
+                    Box(Modifier.appearIn(0)) { AppErrorState(onRetry = { reload++ }) }
+                }
                 a == null -> item(key = "empty") {
-                    AppEmptyState(
-                        title = appText("Заявка не подана", "Заявка бирелмәгән"),
-                        text = appText(
-                            "Сроки документов появятся здесь, когда ты подашь заявку таксиста.",
-                            "Документ ваҡыттары такси заявкаһын биргәс бында күренәсәк.",
-                        ),
-                        icon = Icons.Default.Description,
-                        actionLabel = appText("Вернуться назад", "Кире ҡайтыу"),
-                        onAction = onBack,
-                    )
+                    Box(Modifier.appearIn(0)) {
+                        AppEmptyState(
+                            title = appText("Заявка не подана", "Заявка бирелмәгән"),
+                            text = appText(
+                                "Сроки документов появятся здесь, когда ты подашь заявку таксиста.",
+                                "Документ ваҡыттары такси заявкаһын биргәс бында күренәсәк.",
+                            ),
+                            icon = Icons.Default.Description,
+                            actionLabel = appText("Вернуться назад", "Кире ҡайтыу"),
+                            onAction = onBack,
+                        )
+                    }
                 }
                 else -> {
                     // Шапка и ответ на действие — одним блоком: плашка «сохранено/не вышло»
@@ -615,14 +619,20 @@ internal fun PretripCheckScreen(onBack: () -> Unit, onConfirmed: () -> Unit = {}
         topBar = { ScreenTopBar(appText("Готовность к работе", "Эшкә әҙерлек"), onBack) },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = ScreenPad),
+            // imePadding: на этом экране есть поле заметки — кнопка «Подтвердить» не должна
+            // прятаться за клавиатурой (тот же приём, что в чате активной поездки).
+            modifier = Modifier.padding(padding).padding(horizontal = ScreenPad).imePadding(),
             verticalArrangement = Arrangement.spacedBy(GapM),
             contentPadding = PaddingValues(top = GapS, bottom = BottomPad),
         ) {
             when {
                 loading && state == null -> item(key = "skeleton") { PretripSkeleton() }
-                error && state == null -> item(key = "error") { AppErrorState(onRetry = { reload++ }) }
-                confirmed -> item(key = "done") { PretripDoneCard(state?.confirmedAt) }
+                error && state == null -> item(key = "error") {
+                    Box(Modifier.appearIn(0)) { AppErrorState(onRetry = { reload++ }) }
+                }
+                confirmed -> item(key = "done") {
+                    Box(Modifier.appearIn(0)) { PretripDoneCard(state?.confirmedAt) }
+                }
                 else -> {
                     item(key = "intro") { Box(Modifier.appearIn(0)) { PretripIntroCard() } }
                     item(key = "progress") {
@@ -667,8 +677,14 @@ internal fun PretripCheckScreen(onBack: () -> Unit, onConfirmed: () -> Unit = {}
                             onValueChange = { note = it.take(300) },
                             label = { Text(appText("Заметка (необязательно)", "Билдә (мотлаҡ түгел)")) },
                             placeholder = { Text(appText("«Заменил лампу ближнего света»", "«Яҡын ут лампаһын алмаштырҙым»")) },
+                            // Пустое поле — подсказка, начал писать — счётчик. Высота одинаковая,
+                            // поле не «прыгает» на первом же символе.
                             supportingText = {
-                                Text("${note.length} / 300", color = CanonMuted, fontSize = CapSize, lineHeight = CapLead)
+                                Text(
+                                    if (note.isEmpty()) appText("Коротко, до 300 знаков", "Ҡыҫҡа, 300 билдәгә тиклем")
+                                    else "${note.length} / 300",
+                                    color = CanonMuted, fontSize = CapSize, lineHeight = CapLead,
+                                )
                             },
                             minLines = 2,
                             maxLines = 4,
@@ -840,7 +856,8 @@ private fun PretripCheckItem(icon: ImageVector, title: String, subtitle: String,
 @Composable
 private fun PretripDoneCard(confirmedAt: String?) {
     // Галочка «вырастает» один раз при открытии — маленькая награда за скучное обязательное действие.
-    val appear = remember { MutableTransitionState(false).apply { targetState = true } }
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
     AppCard {
         Column(
             Modifier.padding(CardPadLg),
@@ -848,7 +865,7 @@ private fun PretripDoneCard(confirmedAt: String?) {
             verticalArrangement = Arrangement.spacedBy(GapM),
         ) {
             AnimatedVisibility(
-                visibleState = appear,
+                visible = shown,
                 enter = fadeIn(tween(360)) + scaleIn(tween(360), initialScale = 0.6f),
                 exit = fadeOut(tween(160)),
             ) {

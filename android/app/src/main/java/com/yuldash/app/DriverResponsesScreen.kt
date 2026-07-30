@@ -5,14 +5,25 @@ package com.yuldash.app
 // а узнать об этом было можно только из пуша — пропустил уведомление, потерял поездку.
 // Здесь он видит все свои отклики, чью сейчас очередь ходить, как шёл торг, и может принять
 // встречную цену или предложить свою.
+//
+// ── Как читается экран (правки 2026-07-30) ─────────────────────────────────
+// Водитель открывает его между заказами, на ходу, одной рукой — значит ответ «где мой ход»
+// должен приходить раньше, чем он успеет вчитаться:
+//  • в шапке — счётчик «Твой ход: N», он же единственный повод сюда зайти;
+//  • в карточке порядок жёсткий: пилюля состояния → цена на столе → твой комментарий →
+//    плашка с ходом торга → действия (золото — согласие, контур — своя цена, тихо — отказ);
+//  • типографика и сетка — общие для обеих сторон торга (Bargain*, см. BargainUi.kt),
+//    чтобы пассажирский экран и водительский не разъехались по виду.
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -147,7 +158,7 @@ internal fun DriverResponsesContent(
     // на список, а не на каждую перерисовку.
     val myTurn = remember(responses) { responses.count { it.canAccept } }
     // Пока уходит запрос, список приглушаем: видно, что ответ ещё в пути, и второй раз не жмут.
-    val liveness by animateFloatAsState(if (busy) 0.55f else 1f, tween(220), label = "responsesBusy")
+    val liveness by animateFloatAsState(if (busy) 0.6f else 1f, tween(220), label = "responsesBusy")
 
     LazyColumn(
         modifier
@@ -210,11 +221,12 @@ private fun ResponsesLede(myTurn: Int) {
             fontSize = BargainBody,
             lineHeight = BargainBodyLine,
         )
-        // Пилюля появляется и исчезает плавно — иначе шапка «дёргается» после каждого обновления.
+        // Пилюля появляется и исчезает плавно, вместе с высотой шапки — иначе после каждого
+        // обновления список дёргался бы вниз-вверх ровно на её высоту.
         AnimatedVisibility(
             visible = myTurn > 0,
-            enter = fadeIn(tween(240)),
-            exit = fadeOut(tween(140)),
+            enter = fadeIn(tween(240)) + expandVertically(tween(240)),
+            exit = fadeOut(tween(140)) + shrinkVertically(tween(140)),
         ) {
             Surface(color = CanonMint, shape = CircleShape) {
                 Row(
@@ -270,8 +282,8 @@ private fun ResponseSkeletonCard() {
                 SkeletonBox(modifier = Modifier.width(72.dp), height = 24.dp)
             }
             SkeletonBox(widthFraction = 0.8f, height = 12.dp)
-            SkeletonBox(height = 56.dp, shape = CanonItemShape)
-            SkeletonBox(height = 54.dp, shape = RoundedCornerShape(16.dp))
+            SkeletonBox(height = 72.dp, shape = CanonItemShape)          // плашка торга
+            SkeletonBox(height = 56.dp, shape = RoundedCornerShape(16.dp))   // кнопка действия
         }
     }
 }
