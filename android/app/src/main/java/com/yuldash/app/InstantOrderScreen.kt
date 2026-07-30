@@ -1392,7 +1392,7 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                             Surface(color = CanonTaxiBg, shape = RoundedCornerShape(8.dp)) {
                                 Text(
                                     order.driverPlate,
-                                    color = CanonTaxiInk, fontSize = 15.sp, fontWeight = FontWeight.Black,
+                                    color = CanonTaxiText, fontSize = 15.sp, fontWeight = FontWeight.Black,
                                     modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
                                 )
                             }
@@ -1900,7 +1900,7 @@ private fun InstantRateAndReport(order: InstantOrderDto, isDriver: Boolean) {
                         Icon(
                             Icons.Default.Star,
                             contentDescription = starCd,
-                            tint = if (filled) CanonStar else CanonBorder,
+                            tint = if (filled) CanonStar else CanonMuted,
                             modifier = Modifier.size(40.dp).graphicsLayer { scaleX = scale; scaleY = scale },
                         )
                     }

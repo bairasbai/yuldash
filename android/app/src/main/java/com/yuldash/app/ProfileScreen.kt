@@ -2212,7 +2212,7 @@ internal fun DriverCabinetContent(
                                     Icon(
                                         Icons.Default.Star,
                                         contentDescription = starCd,
-                                        tint = if (n <= stars) CanonStar else CanonBorder,
+                                        tint = if (n <= stars) CanonStar else CanonMuted,
                                         modifier = Modifier.size(34.dp),
                                     )
                                 }

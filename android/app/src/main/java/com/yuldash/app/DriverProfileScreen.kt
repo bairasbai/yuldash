@@ -232,7 +232,7 @@ private fun DriverReviewCard(author: String, stars: Int, text: String, createdAt
                         Icon(
                             Icons.Default.Star,
                             contentDescription = null,
-                            tint = if (n <= stars) CanonStar else CanonBorder,
+                            tint = if (n <= stars) CanonStar else CanonMuted,
                             modifier = Modifier.size(14.dp),
                         )
                     }
