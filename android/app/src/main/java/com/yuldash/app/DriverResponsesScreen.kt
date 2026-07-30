@@ -330,8 +330,14 @@ private fun DriverResponseCard(
                         horizontalAlignment = Alignment.End,
                         verticalArrangement = Arrangement.spacedBy(BargainGapHair),
                     ) {
+                        // Подпись честная в каждом состоянии: «на столе» только пока торг живой,
+                        // иначе это цена поездки или последняя названная — врать над цифрой нельзя.
                         Text(
-                            appText("Сейчас на столе", "Хәҙер өҫтәлдә"),
+                            when (r.status) {
+                                "accepted" -> appText("Цена поездки", "Сәфәр хаҡы")
+                                "declined" -> appText("Последняя цена", "Һуңғы хаҡ")
+                                else -> appText("Сейчас на столе", "Хәҙер өҫтәлдә")
+                            },
                             color = CanonMuted,
                             fontSize = BargainMeta,
                             lineHeight = BargainMetaLine,

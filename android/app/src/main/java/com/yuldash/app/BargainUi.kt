@@ -58,6 +58,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -171,6 +172,10 @@ private fun BargainChainRow(history: String) {
     if (steps.isEmpty()) return
     // TalkBack читает цепочку одной фразой — иначе это просто «500, 400, 450» без связи.
     val spoken = appText("Ход торга: ", "Һатыулашыу барышы: ") + bargainChain(history)
+    // Последний ход виден всегда: после шести встречных цепочка длиннее экрана, и подсвеченная
+    // цена уезжала бы вправо за край. Лента сама доезжает до конца, историю листаем рукой.
+    val scroll = rememberScrollState()
+    LaunchedEffect(steps, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
     AnimatedContent(
         targetState = steps,
         transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(140)) },
@@ -179,7 +184,7 @@ private fun BargainChainRow(history: String) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
+                .horizontalScroll(scroll)
                 // mergeDescendants: TalkBack читает ОДНУ фразу целиком, а не прыгает по числам.
                 .semantics(mergeDescendants = true) { contentDescription = spoken },
             verticalAlignment = Alignment.CenterVertically,
