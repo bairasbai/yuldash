@@ -170,7 +170,7 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
                             )
                         }
                         val maxNet = d.byDay.maxOfOrNull { it.netKop }?.coerceAtLeast(1) ?: 1
-                        itemsIndexed(d.byDay, key = { _, day -> day.date }) { i, day ->
+                        itemsIndexed(d.byDay, key = { _, day: CourierEarningsDayDto -> day.date }) { i, day ->
                             CourierDayRow(day, maxNet, i, dim)
                         }
                     }

@@ -235,7 +235,7 @@ private fun RatingStars(stars: Int) {
             Icon(
                 if (i < stars) Icons.Default.Star else Icons.Default.StarBorder,
                 contentDescription = null,
-                tint = if (i < stars) CanonStar else CanonBorder,
+                tint = if (i < stars) CanonStar else CanonMuted,   // пустая звезда — CanonMuted (контраст ≥3:1)
                 modifier = Modifier.size(18.dp),
             )
         }

@@ -212,7 +212,7 @@ private fun SosAlarmBanner(count: Int) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    appText("Ждут ответа: $count", "Яуап көтә: $count"),
+                    appText("Ждут помощи: $count", "Ярҙам көтә: $count"),
                     color = CanonRed, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 20.sp,
                 )
                 Text(
@@ -306,10 +306,12 @@ private fun AdminSosCard(
                     }
                 }
 
-                // ── Что человек написал сам. У открытого сигнала — на красной подложке.
+                // ── Что человек написал сам. Красной заливки тут нет намеренно: полоса сверху
+                // уже кричит, а слова человека должны читаться, а не тонуть в красном. Красная
+                // волосяная рамка держит связь с тревогой.
                 if (e.note.isNotBlank()) {
                     Surface(
-                        color = if (open) CanonDangerBg else CanonBg,
+                        color = CanonBg,
                         shape = CanonItemShape,
                         border = BorderStroke(1.dp, if (open) CanonDangerBorder else CanonBorder),
                     ) {
@@ -320,18 +322,24 @@ private fun AdminSosCard(
                     }
                 }
 
-                if (!open && e.handledNote.isNotBlank()) {
-                    Surface(color = CanonMint, shape = CanonItemShape) {
-                        Column(
-                            Modifier.fillMaxWidth().padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                appText("Что сделали", "Нимә эшләнде") +
-                                    (e.handledAt?.let { " · " + formatDepart(it) } ?: ""),
-                                color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Black,
-                            )
-                            Text(e.handledNote, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp)
+                // ── След разбора. Показываем и когда заметки нет: важен сам факт «принято» и когда.
+                if (!open) {
+                    val stamp = e.handledAt?.let { formatDepart(it) }
+                    if (e.handledNote.isNotBlank() || stamp != null) {
+                        Surface(color = CanonMint, shape = CanonItemShape) {
+                            Column(
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    (if (e.handledNote.isNotBlank()) appText("Что сделали", "Нимә эшләнде")
+                                    else appText("Принято", "Ҡабул ителгән")) + (stamp?.let { " · $it" } ?: ""),
+                                    color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Black,
+                                )
+                                if (e.handledNote.isNotBlank()) {
+                                    Text(e.handledNote, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp)
+                                }
+                            }
                         }
                     }
                 }

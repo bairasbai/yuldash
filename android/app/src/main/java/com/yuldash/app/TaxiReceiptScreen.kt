@@ -2,8 +2,11 @@ package com.yuldash.app
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,10 +28,11 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Payments
-import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -44,11 +49,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.InstantReceiptDto
@@ -66,6 +72,9 @@ import kotlinx.coroutines.launch
  *   • «Я забыл вещь в машине» → чат заказа снова открыт на запись 48 часов (обе стороны);
  *   • «Сказать рәхмәт» водителю (пассажир, без денег);
  *   • «Наличные получил» (водитель) — если пассажир вышел и не отметил оплату сам.
+ *
+ *  Вид: документ. Шапка — факт и номер заказа, таблица — детали, карточка суммы — одна
+ *  крупная цифра. Типографика — четыре ступени [MoneyType], как на всех денежных экранах.
  */
 
 @Composable
@@ -90,7 +99,7 @@ internal fun TaxiReceiptScreen(orderId: Int, onBack: () -> Unit, onOpenChat: (In
     ) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val r = receipt
             when {
@@ -112,6 +121,8 @@ internal fun TaxiReceiptScreen(orderId: Int, onBack: () -> Unit, onOpenChat: (In
 private fun TaxiReceiptCard(r: InstantReceiptDto) {
     val ctx = LocalContext.current
     val payLabel = payMethodLabel(r.paymentMethod)
+    val route = "${r.fromText.ifBlank { "—" }} → ${r.toText.ifBlank { "—" }}"
+    val orderLabel = appText("Заказ № ${r.orderId}", "Заказ № ${r.orderId}")
     val shareChooser = appText("Поделиться чеком", "Чек менән бүлешеү")
     // Строки для шеринга считаем ЗАРАНЕЕ: appText — @Composable, внутри buildString его не позвать.
     val shTitle = appText("Юлдаш · Чек за поездку", "Юлдаш · Сәфәр чегы")
@@ -119,94 +130,84 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
     val shDriver = appText("Водитель", "Йөрөтөүсе")
     val shareText = buildString {
         appendLine(shTitle)
-        appendLine("${r.fromText.ifBlank { "—" }} → ${r.toText.ifBlank { "—" }}")
+        appendLine(orderLabel)
+        appendLine(route)
         appendLine(formatDepart(r.doneAt))
-        appendLine("$shAmount: ${r.amount} ₽ · $payLabel")
+        appendLine("$shAmount: ${fmtRub(r.amount)} ₽ · $payLabel")
         if (r.driverName.isNotBlank()) appendLine("$shDriver: ${r.driverName}")
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        // Шапка — фиксированный ink-зелёный (белый текст читаем в обеих темах).
-        Surface(shape = CanonCardShape, color = Color.Transparent) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark)), CanonCardShape)
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AnimatedVisibility(visible = true, enter = scaleIn(tween(300)) + fadeIn()) {
-                    Box(Modifier.size(56.dp).background(Color.White.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
-                    }
-                }
-                Text(appText("Поездка завершена", "Сәфәр тамамланды"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                Text(
-                    "${r.fromText.ifBlank { "—" }} → ${r.toText.ifBlank { "—" }}",
-                    color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, textAlign = TextAlign.Center,
-                )
-            }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        TaxiReceiptHeader(route = route, orderLabel = orderLabel)
 
-        AppCard {
-            Column(Modifier.padding(4.dp)) {
-                ReceiptRow(Icons.Default.Place, appText("Маршрут", "Маршрут"),
-                    "${r.fromText.ifBlank { "—" }} → ${r.toText.ifBlank { "—" }}")
-                ReceiptDivider()
-                ReceiptRow(Icons.Default.Schedule, appText("Дата и время", "Көн һәм ваҡыт"), formatDepart(r.doneAt))
+        // Таблица деталей. Маршрут не повторяем — он уже крупно стоит в шапке.
+        AppCard(modifier = Modifier.appearIn(1)) {
+            Column(Modifier.padding(vertical = 4.dp)) {
+                TaxiReceiptLine(Icons.Default.Schedule, appText("Дата и время", "Көн һәм ваҡыт"), formatDepart(r.doneAt))
                 if (r.distanceKm > 0) {
-                    ReceiptDivider()
-                    ReceiptRow(Icons.Default.Route, appText("Расстояние", "Ара"),
-                        String.format(java.util.Locale.US, "%.1f км", r.distanceKm))
+                    TaxiReceiptHairline()
+                    TaxiReceiptLine(
+                        Icons.Default.Route,
+                        appText("Расстояние", "Ара"),
+                        String.format(java.util.Locale.US, "%.1f", r.distanceKm) + " " + appText("км", "км"),
+                    )
                 }
                 if (r.driverName.isNotBlank()) {
-                    ReceiptDivider()
-                    ReceiptDriverRow(r.driverName, r.driverVerified)
+                    TaxiReceiptHairline()
+                    TaxiReceiptDriverLine(r.driverName, r.driverVerified)
                 }
             }
         }
 
-        // Сумма + способ оплаты
-        AppCard {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Сумма + способ оплаты. Одна крупная цифра на экран — она и есть ответ на вопрос
+        // «сколько с меня взяли».
+        AppCard(modifier = Modifier.appearIn(2)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(appText("Сумма поездки", "Сәфәр суммаһы"), color = CanonMuted, fontSize = 13.sp)
-                        Text("${r.amount} ₽", color = CanonText, fontSize = 34.sp, fontWeight = FontWeight.Black)
-                    }
+                    Text(
+                        appText("Сумма поездки", "Сәфәр суммаһы"),
+                        color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+                        modifier = Modifier.weight(1f),
+                    )
                     if (r.paid) {
+                        Spacer(Modifier.width(12.dp))
                         Surface(shape = RoundedCornerShape(999.dp), color = CanonMint) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(5.dp))
-                                Text(appText("Оплачено", "Түләнгән"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    appText("Оплачено", "Түләнгән"),
+                                    color = CanonGreen2, fontSize = MoneyType.Caption, fontWeight = FontWeight.Black, maxLines = 1,
+                                )
                             }
                         }
                     }
                 }
+                Text(
+                    "${fmtRub(r.amount)} ₽",
+                    color = CanonText,
+                    fontSize = MoneyType.Hero,
+                    lineHeight = MoneyType.HeroLine,
+                    letterSpacing = MoneyType.HeroTracking,
+                    fontWeight = FontWeight.Black,
+                )
                 // Платное ожидание показываем отдельной строкой — иначе «почему больше, чем в оценке?».
                 if (r.waitingFeeKop > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            appText("В том числе ожидание: ", "Шул иҫәптән көтөү: ") + kopToRub(r.waitingFeeKop),
-                            color = CanonMutedStrong, fontSize = 14.sp,
-                        )
-                    }
+                    TaxiReceiptNote(
+                        Icons.Default.Schedule, CanonWarn,
+                        appText("В том числе ожидание: ", "Шул иҫәптән көтөү: ") + kopToRub(r.waitingFeeKop),
+                    )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Payments, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(payLabel, color = CanonMutedStrong, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                }
+                TaxiReceiptNote(Icons.Default.Payments, CanonMuted, payLabel)
                 Text(
                     appText(
                         "Это запись о поездке. Деньги идут напрямую водителю — Юлдаш их не держит.",
                         "Был — сәфәр яҙмаһы. Аҡса туранан-тура водителгә бара — Юлдаш уны тотмай.",
                     ),
-                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                    color = CanonMuted, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
                 )
             }
         }
@@ -214,8 +215,130 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
         AppButton(
             text = appText("Поделиться", "Бүлешеү"),
             onClick = { shareRide(ctx, shareText, shareChooser) },
+            modifier = Modifier.appearIn(3),
             style = AppButtonStyle.Secondary,
             icon = Icons.Default.IosShare,
+        )
+    }
+}
+
+/** Шапка-«печать»: тёмно-зелёный ink фиксированный, поэтому белый текст читаем в обеих темах. */
+@Composable
+private fun TaxiReceiptHeader(route: String, orderLabel: String) {
+    // AnimatedVisibility(visible = true) не анимирует ничего: на первом кадре состояние уже
+    // конечное. Поэтому включаем видимость ПОСЛЕ первой композиции — тогда галочка правда
+    // проявляется, а не появляется рывком.
+    var stampShown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { stampShown = true }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .appearIn(0)
+            .background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark)), CanonCardShape)
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        AnimatedVisibility(visible = stampShown, enter = scaleIn(tween(360)) + fadeIn(tween(360))) {
+            Box(
+                Modifier.size(56.dp).background(Color.White.copy(alpha = 0.16f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+            }
+        }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                appText("Поездка завершена", "Сәфәр тамамланды"),
+                color = Color.White, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
+                fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+            )
+            Text(
+                route,
+                color = Color.White.copy(alpha = 0.92f), fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                orderLabel,
+                color = Color.White.copy(alpha = 0.7f), fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+// ─────────────────── Строки документа ───────────────────
+// Свои, а не общие с квитанцией попутки: там значение 15sp, а на денежных экранах
+// размеров ровно четыре (MoneyType) и пятому взяться неоткуда.
+
+@Composable
+private fun TaxiReceiptLine(icon: ImageVector, label: String, value: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(color = CanonMint, shape = CircleShape) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(16.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine)
+        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.width(12.dp))
+        Text(
+            value, color = CanonText, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+            fontWeight = FontWeight.Bold, textAlign = TextAlign.End,
+        )
+    }
+}
+
+@Composable
+private fun TaxiReceiptDriverLine(name: String, verified: Boolean) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(color = CanonMint, shape = CircleShape) {
+            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(16.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(appText("Водитель", "Йөрөтөүсе"), color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine)
+        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.width(12.dp))
+        if (verified) {
+            Icon(
+                Icons.Default.Verified,
+                contentDescription = appText("Проверен", "Тикшерелгән"),
+                tint = CanonGreen2,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+        }
+        Text(
+            name, color = CanonText, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+            fontWeight = FontWeight.Bold, textAlign = TextAlign.End,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun TaxiReceiptHairline() {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp).background(CanonHairlineGreen))
+}
+
+/** Тихая строка под суммой: иконка + пояснение (ожидание, способ оплаты). */
+@Composable
+private fun TaxiReceiptNote(icon: ImageVector, tint: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text, color = CanonMutedStrong, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+            fontWeight = FontWeight.Medium,
         )
     }
 }
@@ -253,25 +376,16 @@ private fun TaxiAfterRideActions(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Пассажир: тёплое спасибо. Денег не двигаем — это жест, а не чаевые.
         if (!isDriver) {
-            AppCard {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = CanonMint, shape = CircleShape) {
-                            Icon(Icons.Default.Favorite, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(20.dp))
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                if (thanked) appText("Рәхмәт сказан 💚", "Рәхмәт әйтелде 💚")
-                                else appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
-                                color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp,
-                            )
-                            Text(
-                                appText("Тёплое спасибо водителю — без денег.", "Водителгә йылы рәхмәт — аҡсаһыҙ."),
-                                color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
-                            )
-                        }
-                    }
+            AppCard(modifier = Modifier.appearIn(4)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TaxiActionHead(
+                        icon = Icons.Default.Favorite,
+                        iconBg = CanonMint,
+                        iconTint = CanonGreen2,
+                        title = if (thanked) appText("Рәхмәт сказан 💚", "Рәхмәт әйтелде 💚")
+                        else appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
+                        text = appText("Тёплое спасибо водителю — без денег.", "Водителгә йылы рәхмәт — аҡсаһыҙ."),
+                    )
                     if (!thanked) {
                         AppButton(
                             text = appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
@@ -297,15 +411,17 @@ private fun TaxiAfterRideActions(
         // Водитель: отметить наличные. Без этой кнопки заказ навсегда «не оплачен», если
         // пассажир вышел и закрыл приложение (аудит 2026-07-26).
         if (isDriver && !r.paid) {
-            AppCard {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(appText("Оплата не отмечена", "Түләү билдәләнмәгән"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                    Text(
-                        appText(
+            AppCard(modifier = Modifier.appearIn(4)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TaxiActionHead(
+                        icon = Icons.Default.Payments,
+                        iconBg = CanonWarnBg,
+                        iconTint = CanonWarn,
+                        title = appText("Оплата не отмечена", "Түләү билдәләнмәгән"),
+                        text = appText(
                             "Если деньги на руках — отметь. Так поездка закроется честно, а в отчёте не будет дыры.",
                             "Аҡса ҡулда булһа — билдәлә. Шунда сәфәр намыҫлы ябыла, отчётта тишек ҡалмай.",
                         ),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
                     )
                     AppButton(
                         text = appText("Наличные получил", "Аҡсаны алдым"),
@@ -328,24 +444,18 @@ private fun TaxiAfterRideActions(
 
         // Забытая вещь — обеим сторонам. Телефон второй стороны после поездки скрыт,
         // а чат был только на чтение: телефон с заднего сиденья терялся навсегда.
-        AppCard {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = CanonWarnBg, shape = CircleShape) {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = CanonWarn, modifier = Modifier.padding(10.dp).size(20.dp))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(appText("Забыли вещь?", "Әйбер онотолдомо?"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
-                        Text(
-                            if (lostOpened)
-                                appText("Чат снова открыт на 48 часов — напиши, что искать.", "Чат 48 сәғәткә кире асыҡ — нимә эҙләргә, яҙ.")
-                            else
-                                appText("Откроем чат этой поездки на 48 часов, чтобы вы связались.", "Бәйләнешер өсөн был сәфәр чатын 48 сәғәткә асабыҙ."),
-                            color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
-                        )
-                    }
-                }
+        AppCard(modifier = Modifier.appearIn(5)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TaxiActionHead(
+                    icon = Icons.Default.Search,
+                    iconBg = CanonWarnBg,
+                    iconTint = CanonWarn,
+                    title = appText("Забыли вещь?", "Әйбер онотолдомо?"),
+                    text = if (lostOpened)
+                        appText("Чат снова открыт на 48 часов — напиши, что искать.", "Чат 48 сәғәткә кире асыҡ — нимә эҙләргә, яҙ.")
+                    else
+                        appText("Откроем чат этой поездки на 48 часов, чтобы вы связались.", "Бәйләнешер өсөн был сәфәр чатын 48 сәғәткә асабыҙ."),
+                )
                 if (lostOpened) {
                     AppButton(
                         text = appText("Открыть чат поездки", "Сәфәр чатын асыу"),
@@ -373,13 +483,41 @@ private fun TaxiAfterRideActions(
             }
         }
 
-        errText?.let { msg ->
+        AnimatedVisibility(
+            visible = errText != null,
+            enter = fadeIn(tween(200)) + expandVertically(tween(200)),
+            exit = fadeOut(tween(160)) + shrinkVertically(tween(160)),
+        ) {
             Surface(color = CanonDangerBg, shape = CanonItemShape) {
                 Text(
-                    msg, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp,
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    errText.orEmpty(), color = CanonRed, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                 )
             }
+        }
+    }
+}
+
+/** Шапка карточки-действия: кружок с иконкой + заголовок и пояснение. */
+@Composable
+private fun TaxiActionHead(
+    icon: ImageVector,
+    iconBg: Color,
+    iconTint: Color,
+    title: String,
+    text: String,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = iconBg, shape = CircleShape) {
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.padding(12.dp).size(20.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                title, color = CanonText, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
+                fontWeight = FontWeight.Black,
+            )
+            Text(text, color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine)
         }
     }
 }
@@ -388,9 +526,9 @@ private fun TaxiAfterRideActions(
 
 @Composable
 private fun TaxiReceiptSkeleton() {
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        SkeletonBox(widthFraction = 1f, height = 120.dp, shape = CanonCardShape)
-        SkeletonCard(lines = 4)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SkeletonBox(widthFraction = 1f, height = 148.dp, shape = CanonCardShape)
+        SkeletonCard(lines = 3)
         SkeletonCard(lines = 3)
     }
 }
@@ -398,19 +536,23 @@ private fun TaxiReceiptSkeleton() {
 /** 409: поездка ещё не завершена — спокойный текст без тревоги. */
 @Composable
 private fun TaxiReceiptPendingCard() {
-    AppCard {
+    AppCard(modifier = Modifier.appearIn(0)) {
         Column(
-            Modifier.padding(22.dp),
+            Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(color = CanonMint, shape = CircleShape) {
-                Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp).size(30.dp))
+                Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp).size(28.dp))
             }
-            Text(appText("Чек ещё не готов", "Чек әҙер түгел"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, textAlign = TextAlign.Center)
+            Text(
+                appText("Чек ещё не готов", "Чек әҙер түгел"),
+                color = CanonText, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
+                fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+            )
             Text(
                 appText("Он появится после завершения поездки. Хорошей дороги!", "Ул сәфәр тамамланғас барлыҡҡа килер. Юлың уң булһын!"),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center,
+                color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine, textAlign = TextAlign.Center,
             )
         }
     }

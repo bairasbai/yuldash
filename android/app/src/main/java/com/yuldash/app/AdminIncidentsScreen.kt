@@ -2,28 +2,41 @@ package com.yuldash.app
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Handshake
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -40,6 +53,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +77,10 @@ import kotlinx.coroutines.launch
  *  Правило сервера, которое здесь отражено кнопками: наказание всегда ложится на обвинённого.
  *  «Виноват заявитель» + страйк сервер отвергает (иначе накажем невиновного) — для лживого
  *  заявителя заводится ВСТРЕЧНЫЙ спор, где он вторая сторона.
+ *
+ *  Дизайн: тяжёлый спор и апелляция — красная полоса, обычный — жёлтая (ждёт разбора),
+ *  решённый — мятная. «Пока без объяснения» — жёлтый значок ожидания, а не пустая строка.
+ *  Типографика: 20 / 16 / 13 / 11. Сетка 4dp: поля 16, шаг 12, микро-шаг 4.
  */
 
 private val adminIncidentTabs = listOf("under_review", "awaiting_response", "appealed", "resolved")
@@ -72,6 +91,23 @@ private fun adminTabLabel(key: String): String = when (key) {
     "awaiting_response" -> appText("Ждут ответа", "Яуап көтә")
     "appealed" -> appText("Апелляции", "Ялыуҙар")
     else -> appText("Решённые", "Хәл ителгән")
+}
+
+/** Иконка вкладки по смыслу: щит — разбор, часы — ожидание, сигнал — апелляция, галочка — архив. */
+private fun adminTabIcon(key: String): ImageVector = when (key) {
+    "under_review" -> Icons.Default.Shield
+    "awaiting_response" -> Icons.Default.Schedule
+    "appealed" -> Icons.Default.Report
+    else -> Icons.Default.CheckCircle
+}
+
+/** Одна строка про то, что вообще лежит в этой вкладке — чтобы не гадать спросонья. */
+@Composable
+private fun adminTabHint(key: String): String = when (key) {
+    "under_review" -> appText("Обе версии есть — решение за тобой.", "Ике версия ла бар — ҡарар һиндә.")
+    "awaiting_response" -> appText("Ждём объяснения второй стороны.", "Икенсе яҡтың аңлатмаһын көтәбеҙ.")
+    "appealed" -> appText("Человек не согласен с решением — перечитай.", "Кеше ҡарар менән килешмәй — ҡабат уҡы.")
+    else -> appText("Архив: решения, которые уже приняты.", "Архив: ҡабул ителгән ҡарарҙар.")
 }
 
 @Composable
@@ -107,21 +143,31 @@ internal fun AdminIncidentsScreen(onBack: () -> Unit) {
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
         ) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        adminIncidentTabs.take(2).forEach { k ->
-                            NearbyFilterChip(Icons.Default.Shield, adminTabLabel(k), tab == k,
-                                modifier = Modifier.heightIn(min = 48.dp)) { tab = k }
-                        }
+            // Четыре состояния спора — одной строкой, а не сеткой 2×2: взгляд идёт слева направо.
+            item(key = "inc-tabs") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    adminIncidentTabs.forEach { k ->
+                        NearbyFilterChip(
+                            adminTabIcon(k), adminTabLabel(k), tab == k,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { tab = k }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        adminIncidentTabs.drop(2).forEach { k ->
-                            NearbyFilterChip(Icons.Default.Report, adminTabLabel(k), tab == k,
-                                modifier = Modifier.heightIn(min = 48.dp)) { tab = k }
-                        }
+                }
+            }
+            item(key = "inc-hint") {
+                AnimatedContent(targetState = tab, label = "incTabHint") { k ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(adminTabIcon(k), contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(adminTabHint(k), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
                     }
                 }
             }
@@ -136,13 +182,16 @@ internal fun AdminIncidentsScreen(onBack: () -> Unit) {
                         icon = Icons.Default.Handshake,
                     )
                 }
-                else -> items(list, key = { it.id }) { inc ->
-                    AdminIncidentCard(
-                        inc = inc,
-                        onCallReporter = { dial(inc.reporterPhone) },
-                        onCallRespondent = { dial(inc.respondentPhone) },
-                        onResolve = { resolveTarget = inc },
-                    )
+                else -> itemsIndexed(list, key = { _, inc -> inc.id }) { i, inc ->
+                    // Решённый спор уходит из вкладки не рывком, а плавно — соседние карточки подъезжают.
+                    Box(Modifier.animateItem().appearIn(i.coerceAtMost(6))) {
+                        AdminIncidentCard(
+                            inc = inc,
+                            onCallReporter = { dial(inc.reporterPhone) },
+                            onCallRespondent = { dial(inc.respondentPhone) },
+                            onResolve = { resolveTarget = inc },
+                        )
+                    }
                 }
             }
         }
@@ -157,6 +206,22 @@ internal fun AdminIncidentsScreen(onBack: () -> Unit) {
     }
 }
 
+/** Тон карточки: цвет полосы, акцент и иконка. Тревожное (тяжёлое, апелляция) — красное,
+ *  ждущее разбора — жёлтое, закрытое — мятное. */
+private data class IncidentTone(val bg: Color, val fg: Color, val icon: ImageVector, val word: String)
+
+@Composable
+private fun incidentTone(inc: IncidentDto): IncidentTone = when {
+    inc.status == "resolved" || inc.status == "closed" ->
+        IncidentTone(CanonMint, CanonGreen2, Icons.Default.CheckCircle, "")
+    inc.status == "appealed" || inc.appealText.isNotBlank() ->
+        IncidentTone(CanonDangerBg, CanonRed, Icons.Default.Report, appText("Апелляция", "Ялыу"))
+    inc.severe ->
+        IncidentTone(CanonDangerBg, CanonRed, Icons.Default.Report, appText("Срочно", "Ашығыс"))
+    else ->
+        IncidentTone(CanonWarnBg, CanonWarn, Icons.Default.Shield, "")
+}
+
 @Composable
 private fun AdminIncidentCard(
     inc: IncidentDto,
@@ -164,98 +229,150 @@ private fun AdminIncidentCard(
     onCallRespondent: () -> Unit,
     onResolve: () -> Unit,
 ) {
+    val tone = incidentTone(inc)
     AppCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = if (inc.severe) CanonDangerBg else CanonWarnBg, shape = CircleShape) {
-                    Icon(
-                        if (inc.severe) Icons.Default.Report else Icons.Default.Shield,
-                        contentDescription = null,
-                        tint = if (inc.severe) CanonRed else CanonWarn,
-                        modifier = Modifier.padding(10.dp).size(20.dp),
-                    )
-                }
+        Column {
+            // ── Полоса состояния: суть спора и его вес видно раньше, чем прочитал текст.
+            Row(
+                modifier = Modifier.fillMaxWidth().background(tone.bg).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(tone.icon, contentDescription = null, tint = tone.fg, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "#${inc.id} · " + incidentTypeLabel(inc.type),
-                        color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        (inc.route ?: appText("Без маршрута", "Маршрутһыҙ")) + " · " + formatDepart(inc.createdAt),
-                        color = CanonMuted, fontSize = 12.sp,
-                    )
-                }
-                if (inc.severe) {
-                    Surface(color = CanonDangerBg, shape = RoundedCornerShape(999.dp)) {
-                        Text(appText("Срочно", "Ашығыс"), color = CanonRed, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
-                    }
-                }
-            }
-
-            AdminSideBlock(
-                who = appText("Заявитель: ", "Ялыусы: ") + inc.reporterName,
-                phone = inc.reporterPhone,
-                text = inc.description,
-                photos = inc.evidenceUrls.size,
-                onCall = onCallReporter,
-            )
-            AdminSideBlock(
-                who = appText("Вторая сторона: ", "Икенсе яҡ: ") + inc.respondentName,
-                phone = inc.respondentPhone,
-                text = inc.respondentStatement.ifBlank {
-                    appText("Ещё не объяснился", "Әле аңлатма бирмәгән")
-                },
-                photos = inc.respondentEvidenceUrls.size,
-                onCall = onCallRespondent,
-            )
-
-            if (inc.appealText.isNotBlank()) {
-                Surface(color = CanonDangerBg, shape = CanonItemShape) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Апелляция", "Ялыу"), color = CanonRed, fontWeight = FontWeight.Black, fontSize = 13.sp)
-                        Text(inc.appealText, color = CanonText, fontSize = 13.sp, lineHeight = 18.sp)
-                    }
-                }
-            }
-            if (inc.resolution.isNotBlank()) {
                 Text(
-                    appText("Решение: ", "Ҡарар: ") + inc.resolution +
-                        (if (inc.resolutionNote.isNotBlank()) " — ${inc.resolutionNote}" else ""),
-                    color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp,
+                    incidentTypeLabel(inc.type),
+                    color = tone.fg, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 20.sp,
+                    modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
+                if (tone.word.isNotEmpty()) {
+                    Spacer(Modifier.width(12.dp))
+                    Text(tone.word, color = tone.fg, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                }
             }
-            if (inc.status != "closed") {
-                AppButton(
-                    text = if (inc.status == "resolved") appText("Пересмотреть решение", "Ҡарарҙы ҡабат ҡарау")
-                    else appText("Принять решение", "Ҡарар ҡабул итеү"),
-                    onClick = onResolve,
-                    style = if (inc.status == "resolved") AppButtonStyle.Secondary else AppButtonStyle.Primary,
-                    icon = Icons.Default.CheckCircle,
+
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "#${inc.id} · " + (inc.route ?: appText("Без маршрута", "Маршрутһыҙ")) +
+                        " · " + formatDepart(inc.createdAt),
+                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
+
+                // ── Две версии рядом. Пустое объяснение — это ожидание, а не «ничего не было».
+                AdminSideBlock(
+                    who = appText("Заявитель: ", "Ялыусы: ") + inc.reporterName,
+                    phone = inc.reporterPhone,
+                    text = inc.description,
+                    photos = inc.evidenceUrls.size,
+                    onCall = onCallReporter,
+                )
+                AdminSideBlock(
+                    who = appText("Вторая сторона: ", "Икенсе яҡ: ") + inc.respondentName,
+                    phone = inc.respondentPhone,
+                    text = inc.respondentStatement,
+                    photos = inc.respondentEvidenceUrls.size,
+                    onCall = onCallRespondent,
+                )
+
+                if (inc.appealText.isNotBlank()) {
+                    Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Апелляция", "Ялыу"), color = CanonRed, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                            Text(inc.appealText, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp)
+                        }
+                    }
+                }
+
+                if (inc.resolution.isNotBlank()) {
+                    Surface(color = CanonMint, shape = CanonItemShape) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.CheckCircle, contentDescription = null,
+                                    tint = CanonGreen2, modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    incidentResolutionLabel(inc.resolution),
+                                    color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Black,
+                                )
+                            }
+                            if (inc.resolutionNote.isNotBlank()) {
+                                Text(inc.resolutionNote, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp)
+                            }
+                        }
+                    }
+                }
+
+                if (inc.status != "closed") {
+                    AppButton(
+                        text = if (inc.status == "resolved") appText("Пересмотреть решение", "Ҡарарҙы ҡабат ҡарау")
+                        else appText("Принять решение", "Ҡарар ҡабул итеү"),
+                        onClick = onResolve,
+                        style = if (inc.status == "resolved") AppButtonStyle.Secondary else AppButtonStyle.Primary,
+                        icon = Icons.Default.CheckCircle,
+                    )
+                }
             }
         }
     }
 }
 
+/** Версия одной стороны: кто, кнопка звонка (48dp — по-соседски проще позвонить), текст, фото. */
 @Composable
 private fun AdminSideBlock(who: String, phone: String, text: String, photos: Int, onCall: () -> Unit) {
     Surface(color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(who, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Text(
+                    who, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp, lineHeight = 20.sp,
+                    modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
                 if (phone.isNotBlank()) {
-                    Surface(onClick = onCall, color = CanonMint, shape = CircleShape) {
-                        Icon(Icons.Default.Call, contentDescription = appText("Позвонить", "Шылтыратыу"),
-                            tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(18.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Surface(
+                        onClick = onCall,
+                        color = CanonMint,
+                        shape = CircleShape,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Call,
+                                contentDescription = appText("Позвонить — ", "Шылтыратыу — ") + who,
+                                tint = CanonGreen2, modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                 }
             }
-            Text(text, color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp)
+            if (text.isBlank()) {
+                // Ожидание — жёлтым. Пустая строка молчит, а это важная часть картины.
+                Surface(color = CanonWarnBg, shape = CircleShape) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            appText("Пока без объяснения", "Әлегә аңлатмаһыҙ"),
+                            color = CanonWarn, fontSize = 13.sp, fontWeight = FontWeight.Bold, lineHeight = 18.sp,
+                        )
+                    }
+                }
+            } else {
+                Text(text, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp)
+            }
             if (photos > 0) {
-                Text(appText("Фото: $photos", "Фото: $photos"), color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Image, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        appText("Фото: $photos", "Фотолар: $photos"),
+                        color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    )
+                }
             }
         }
     }
@@ -283,6 +400,19 @@ private val faultOptions = listOf(
     FaultUi("unclear", "Не ясно", "Асыҡ түгел"),
 )
 
+/** Человеческое название вынесенного решения. Только для показа: в карточке раньше светился
+ *  сырой ключ сервера («strike»), а админ читает не по-английски. */
+@Composable
+private fun incidentResolutionLabel(key: String): String = when (key) {
+    "dismissed" -> appText("Не подтвердилось", "Раҫланманы")
+    "mutual_resolved" -> appText("Договорились", "Килештеләр")
+    "warning" -> appText("Предупреждение", "Иҫкәртеү")
+    "strike" -> appText("Страйк", "Страйк")
+    "suspend" -> appText("Пауза аккаунта", "Аккаунт паузаһы")
+    "ban" -> appText("Блокировка", "Блоклау")
+    else -> appText("Решение принято", "Ҡарар ҡабул ителде")
+}
+
 @Composable
 private fun ResolveIncidentDialog(inc: IncidentDto, onDismiss: () -> Unit, onResolved: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -299,65 +429,108 @@ private fun ResolveIncidentDialog(inc: IncidentDto, onDismiss: () -> Unit, onRes
     // чтобы админ не ловил 422 вслепую.
     val conflict = fault == "reporter" && chosen != null &&
         chosen.key in listOf("warning", "strike", "suspend")
+    val canSave = !busy && resolution.isNotBlank() && note.isNotBlank() && !conflict
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         containerColor = CanonSurface,
-        title = { Text(appText("Решение по спору #${inc.id}", "#${inc.id} бәхәс буйынса ҡарар"), color = CanonText, fontWeight = FontWeight.Black) },
+        title = {
+            Text(
+                appText("Решение по спору #${inc.id}", "#${inc.id} бәхәс буйынса ҡарар"),
+                color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp, lineHeight = 24.sp,
+            )
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(appText("Что решаем", "Нимә хәл итәбеҙ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Вариантов много — без прокрутки на маленьком экране кнопка «Сохранить» уезжает за край.
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(appText("Что решаем", "Нимә хәл итәбеҙ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     resolutionOptions.forEach { r ->
                         ChoiceRow(appText(r.ru, r.ba), resolution == r.key) { resolution = r.key }
                     }
                 }
-                Text(appText("Кто виноват", "Кем ғәйепле"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Наказание — не рядовой выбор: говорим вслух, что оно останется в истории человека.
+                AnimatedVisibility(visible = chosen?.strike == true) {
+                    Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                appText(
+                                    "Это наказание: останется в истории и повлияет на доступ к заказам.",
+                                    "Был яза: тарихта ҡала һәм заказдарға инеүгә тәьҫир итә.",
+                                ),
+                                color = CanonWarn, fontSize = 13.sp, lineHeight = 18.sp,
+                            )
+                        }
+                    }
+                }
+
+                Text(appText("Кто виноват", "Кем ғәйепле"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     faultOptions.forEach { f ->
                         ChoiceRow(appText(f.ru, f.ba), fault == f.key) { fault = f.key }
                     }
                 }
-                if (resolution == "suspend") {
+
+                AnimatedVisibility(visible = resolution == "suspend") {
                     OutlinedTextField(
                         value = suspendDays,
                         onValueChange = { v -> suspendDays = v.filter { it.isDigit() }.take(3) },
-                        label = { Text(appText("Пауза, дней", "Пауза, көн")) },
+                        label = { Text(appText("Пауза, дней", "Пауза, көн"), fontSize = 13.sp) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = CanonItemShape,
                     )
                 }
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it.take(2000) },
-                    label = { Text(appText("Объяснение для обеих сторон", "Ике яҡҡа ла аңлатма")) },
+                    label = { Text(appText("Объяснение для обеих сторон", "Ике яҡҡа ла аңлатма"), fontSize = 13.sp) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = CanonItemShape,
                 )
                 Text(
                     appText(
                         "Этот текст увидят оба участника — напиши так, чтобы решение было понятно и тому, кто с ним не согласен.",
                         "Был текстты ике ҡатнашыусы ла күрә — килешмәгән кешегә лә аңлайышлы итеп яҙ.",
                     ),
-                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
                 )
-                if (conflict) {
-                    Text(
-                        appText(
-                            "Вина на заявителе — наказание легло бы на обвинённого. Заведи встречный спор, где заявитель будет второй стороной.",
-                            "Ғәйеп ялыусыла — яза ғәйепләнеүсегә төшөр ине. Ялыусы икенсе яҡ булған ҡаршы бәхәс ас.",
-                        ),
-                        color = CanonRed, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold,
-                    )
+                AnimatedVisibility(visible = conflict) {
+                    Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = CanonRed, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                appText(
+                                    "Вина на заявителе — наказание легло бы на обвинённого. Заведи встречный спор, где заявитель будет второй стороной.",
+                                    "Ғәйеп ялыусыла — яза ғәйепләнеүсегә төшөр ине. Ялыусы икенсе яҡ булған ҡаршы бәхәс ас.",
+                                ),
+                                color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                 }
-                err?.let { Text(it, color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                err?.let {
+                    Text(it, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
+                }
             }
         },
         confirmButton = {
             TextButton(
-                enabled = !busy && resolution.isNotBlank() && note.isNotBlank() && !conflict,
+                enabled = canSave,
+                modifier = Modifier.heightIn(min = 48.dp),
                 onClick = {
                     busy = true; err = null
                     scope.launch {
@@ -374,10 +547,25 @@ private fun ResolveIncidentDialog(inc: IncidentDto, onDismiss: () -> Unit, onRes
                         busy = false
                     }
                 },
-            ) { Text(appText("Сохранить решение", "Ҡарарҙы һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            ) {
+                // Пока сохраняем — крутится спиннер, а не «мёртвая» кнопка.
+                AnimatedContent(targetState = busy, label = "resolveBusy") { saving ->
+                    if (saving) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = CanonGreen2, strokeWidth = 2.dp)
+                    } else {
+                        Text(
+                            appText("Сохранить решение", "Ҡарарҙы һаҡлау"),
+                            color = if (canSave) CanonGreen2 else CanonMuted,
+                            fontSize = 16.sp, fontWeight = FontWeight.Black,
+                        )
+                    }
+                }
+            }
         },
         dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
+            TextButton(enabled = !busy, onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(appText("Отмена", "Кире алыу"), color = CanonMuted, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
         },
     )
 }
@@ -391,15 +579,21 @@ private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
         border = BorderStroke(1.dp, if (selected) CanonGreen2 else CanonBorder),
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
     ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Icon(
-                if (selected) Icons.Default.CheckCircle else Icons.Default.Shield,
+                if (selected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
                 contentDescription = null,
                 tint = if (selected) CanonGreen2 else CanonMuted,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
-            Spacer(Modifier.width(10.dp))
-            Text(label, color = CanonText, fontSize = 14.sp)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                label, color = CanonText, fontSize = 16.sp, lineHeight = 20.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            )
         }
     }
 }

@@ -15,14 +15,11 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -106,11 +103,13 @@ import kotlinx.coroutines.withContext
 
 // ─────────────────────────── Типографика раздела ───────────────────────────
 // Четыре размера, у каждого ОДНА роль. Больше — каша, меньше — пропадает иерархия.
-//   Metric — единственное крупное число (Надёжность). Title — заголовок карточки/секции.
+//   Metric — единственное крупное число экрана (Надёжность), больше нигде.
+//   Title  — смысловой акцент блока: заголовок карточки/секции и значение счётчика.
 //   Body   — читаемый текст, который человек действительно читает.
 //   Meta   — подпись, дата, статус-пилюля, сноска.
-// Вес тоже закреплён за ролью: Black — заголовки и число, Bold — акцентная мета (пилюля,
-// «твоя очередь»), Normal — всё остальное. Двух весов на одну роль в файле нет.
+// Вес тоже закреплён за ролью: Black — Title и числа, Bold — акцентная мета (пилюля,
+// «твоя очередь», подпись стороны), Normal — весь Body и спокойная мета.
+// Двух весов, делающих одно и то же, в файле нет.
 private val FairMetric = 26.sp
 private val FairTitle = 17.sp
 private val FairBody = 14.sp
@@ -130,6 +129,7 @@ private val FairBadge = 44.dp      // диаметр значка статуса
 private val FairTouch = 48.dp      // минимальная тач-цель
 private val FairIcon = 20.dp       // иконка в строке/значке
 private val FairIconSmall = 16.dp  // иконка внутри мелкой плашки
+private val FairHeroMin = 104.dp   // = 48 + 8 + 48: главное число вровень с двумя счётчиками
 
 // Типы споров — ровно те, что принимает сервер (safety_logic.INCIDENT_TYPES).
 // Неизвестный тип он отвергнет, поэтому список здесь и там должен совпадать.
@@ -415,26 +415,37 @@ private fun StandingCard(st: StandingDto) {
                 }
             }
 
-            // IntrinsicSize.Max: длинное башкирское «Ышаныслылыҡ» переносится на две строки,
-            // но все три плитки остаются одной высоты — низ ряда не «рвётся».
+            // Одно крупное число слева, два счётчика справа. Раньше здесь стояли три равные
+            // плитки — на узком экране с крупным системным шрифтом «100%» в треть ширины
+            // просто обрезалось, а длинное «Ышаныслылыҡ» рвало низ ряда. Здесь у главного
+            // числа половина ширины, а у счётчиков подпись и значение разведены по краям
+            // строки — башкирский любой длины укладывается сам.
+            // Высоты сведены минимумом (104dp = 48+8+48 справа), а не жёсткой подгонкой:
+            // при системном «крупном шрифте» блок просто вырастет, а не обрежет текст.
             Row(
-                Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(FairGapTight),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                StandingTile(
-                    appText("Надёжность", "Ышаныслылыҡ"), "$reliability%", reliabilityTint,
-                    Modifier.weight(1f).fillMaxHeight(),
+                StandingHero(
+                    label = appText("Надёжность", "Ышаныслылыҡ"),
+                    value = "$reliability%",
+                    tint = reliabilityTint,
+                    modifier = Modifier.weight(1f),
                 )
-                StandingTile(
-                    appText("Предупреждений", "Иҫкәртеү"), st.warnings.toString(),
-                    if (st.warnings > 0) CanonWarn else CanonMutedStrong,
-                    Modifier.weight(1f).fillMaxHeight(),
-                )
-                StandingTile(
-                    appText("Страйков", "Страйк"), st.strikes.toString(),
-                    if (st.strikes > 0) CanonRed else CanonMutedStrong,
-                    Modifier.weight(1f).fillMaxHeight(),
-                )
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(FairGapTight),
+                ) {
+                    StandingCounter(
+                        appText("Предупреждений", "Иҫкәртеү"), st.warnings.toString(),
+                        if (st.warnings > 0) CanonWarn else CanonMutedStrong,
+                    )
+                    StandingCounter(
+                        appText("Страйков", "Страйк"), st.strikes.toString(),
+                        if (st.strikes > 0) CanonRed else CanonMutedStrong,
+                    )
+                }
             }
 
             if (paused && st.suspendReason.isNotBlank()) {
@@ -497,12 +508,12 @@ private fun StandingCard(st: StandingDto) {
     }
 }
 
+/** Главное число карточки — единственное место, где живёт размер Metric. */
 @Composable
-private fun StandingTile(label: String, value: String, tint: Color, modifier: Modifier = Modifier) {
+private fun StandingHero(label: String, value: String, tint: Color, modifier: Modifier = Modifier) {
     Surface(color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder), modifier = modifier) {
         Column(
-            Modifier.fillMaxWidth().heightIn(min = 96.dp).padding(vertical = FairRowPad, horizontal = FairGapTight),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            Modifier.fillMaxWidth().heightIn(min = FairHeroMin).padding(FairRowPad),
             verticalArrangement = Arrangement.spacedBy(FairGapHair, Alignment.CenterVertically),
         ) {
             Text(
@@ -518,9 +529,38 @@ private fun StandingTile(label: String, value: String, tint: Color, modifier: Mo
                 color = CanonMuted,
                 fontSize = FairMeta,
                 lineHeight = FairMetaLine,
-                textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Второстепенный счётчик: подпись слева, значение справа — длина подписи роли не играет. */
+@Composable
+private fun StandingCounter(label: String, value: String, tint: Color) {
+    Surface(color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = FairTouch).padding(horizontal = FairGap, vertical = FairGapTight),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                color = CanonMuted,
+                fontSize = FairMeta,
+                lineHeight = FairMetaLine,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(FairGapTight))
+            Text(
+                value,
+                color = tint,
+                fontWeight = FontWeight.Black,
+                fontSize = FairTitle,
+                lineHeight = FairTitleLine,
+                maxLines = 1,
             )
         }
     }
@@ -566,8 +606,11 @@ private fun IncidentRow(inc: IncidentDto, onClick: () -> Unit) {
                 StatusPill(statusText, pillBg, pillFg)
                 Spacer(Modifier.width(FairGapTight))
                 Text(
-                    if (inc.myRole == "reporter") appText("Ты открыл · ", "Һин астың · ") + inc.otherName
-                    else appText("Открыл ", "Асҡан: ") + inc.otherName,
+                    // Порядок слов строим отдельно для каждого языка: в башкирском сказуемое
+                    // идёт в конец, «Асҡан: Айгөл» звучит как машинный перевод.
+                    if (inc.myRole == "reporter")
+                        appText("Ты открыл · " + inc.otherName, "Һин астың · " + inc.otherName)
+                    else appText("Открыл " + inc.otherName, inc.otherName + " асҡан"),
                     color = CanonMutedStrong,
                     fontSize = FairMeta,
                     lineHeight = FairMetaLine,
@@ -773,11 +816,16 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                                             fontSize = FairMeta,
                                             lineHeight = FairMetaLine,
                                         )
+                                        // loading: диалог подтверждения закрывается сразу, и без
+                                        // спиннера здесь секунда ожидания выглядела бы как «ничего
+                                        // не произошло». Действия карточек взаимоисключающие,
+                                        // поэтому общий busy крутит ровно ту кнопку, что нажали.
                                         AppButton(
                                             text = appText("Мы решили миром", "Тыныслыҡ менән хәл иттек"),
                                             onClick = { confirmPeace = true },
                                             style = AppButtonStyle.Secondary,
                                             icon = Icons.Default.Handshake,
+                                            loading = busy,
                                             enabled = !busy,
                                         )
                                     }
@@ -816,6 +864,7 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                                             onClick = { appealOpen = true },
                                             style = AppButtonStyle.Secondary,
                                             icon = Icons.Default.Report,
+                                            loading = busy,
                                             enabled = !busy,
                                         )
                                     }
@@ -869,15 +918,19 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                 )
             },
             text = {
-                Text(
-                    appText(
-                        "Спор закроется без последствий для второй стороны. Открыть его заново по этой же поездке будет нельзя.",
-                        "Бәхәс икенсе яҡ өсөн эҙемтәһеҙ ябыла. Ошо сәфәр буйынса уны ҡабат асып булмаясаҡ.",
-                    ),
-                    color = CanonMuted,
-                    fontSize = FairBody,
-                    lineHeight = FairBodyLine,
-                )
+                // Скролл на случай крупного системного шрифта: Material-диалог сам не прокручивает
+                // и просто обрезал бы текст предупреждения.
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        appText(
+                            "Спор закроется без последствий для второй стороны. Открыть его заново по этой же поездке будет нельзя.",
+                            "Бәхәс икенсе яҡ өсөн эҙемтәһеҙ ябыла. Ошо сәфәр буйынса уны ҡабат асып булмаясаҡ.",
+                        ),
+                        color = CanonMuted,
+                        fontSize = FairBody,
+                        lineHeight = FairBodyLine,
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -1132,9 +1185,13 @@ private fun EvidencePicker(photos: List<String>, uploading: Boolean, onPick: () 
                 }
             }
         }
+        // Кнопка на пределе в 10 фото раньше просто гасла молча — теперь честно объясняет, почему.
         AppButton(
-            text = if (uploading) appText("Загружаем фото…", "Фото йөкләнә…")
-            else appText("Приложить фото", "Фото тағыу"),
+            text = when {
+                uploading -> appText("Загружаем фото…", "Фото йөкләнә…")
+                photos.size >= 10 -> appText("Больше 10 фото не нужно", "10 фотонан артыҡ кәрәкмәй")
+                else -> appText("Приложить фото", "Фото тағыу")
+            },
             onClick = onPick,
             style = AppButtonStyle.Secondary,
             icon = Icons.Default.PhotoCamera,
