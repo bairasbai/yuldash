@@ -43,7 +43,6 @@ DropdownMenuItem
 EaseInCubic
 EaseInOutSine
 EaseOutExpo
-ExifInterface
 ExperimentalFoundationApi
 ExperimentalLayoutApi
 ExperimentalMaterial3Api
@@ -63,7 +62,6 @@ IconButton
 IconStyle
 Icons
 Image
-ImageDecoder
 ImageProvider
 ImageVector
 ImeAction
@@ -90,7 +88,6 @@ MapKitFactory
 MapObjectTapListener
 MapView
 MaterialTheme
-Matrix
 ModalBottomSheet
 Modifier
 MutableInteractionSource
@@ -289,7 +286,6 @@ io
 isActive
 isEmpty
 isInsider
-isMutableRequired
 isNightModeEnabled
 isNotBlank
 isSearching
@@ -385,7 +381,6 @@ pickupEtaMin
 pickupLat
 pickupLng
 play
-postRotate
 prefs
 premium
 price
@@ -428,6 +423,7 @@ routesCount
 saveable
 savedRub
 scaleIn
+scaleOut
 scaleX
 scaleY
 scheduled
@@ -444,7 +440,6 @@ setIconStyle
 setIntent
 setOnTouchListener
 setStrokeColor
-setTargetSize
 setText
 settlement
 show

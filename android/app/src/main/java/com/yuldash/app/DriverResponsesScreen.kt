@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Handshake
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
@@ -170,8 +171,10 @@ internal fun DriverResponsesContent(
         item(key = "lede") { ResponsesLede(myTurn) }
         when {
             // Скелетон той же формы, что карточка: список не «прыгает», когда данные придут.
-            loading -> items(3) { i -> Box(Modifier.appearIn(i)) { ResponseSkeletonCard() } }
-            error -> item(key = "error") {
+            // Показываем его ТОЛЬКО когда показывать больше нечего — уже загруженные отклики
+            // не прячем за скелетоном при каждом обновлении (правило UiKit).
+            loading && responses.isEmpty() -> items(3) { i -> Box(Modifier.appearIn(i)) { ResponseSkeletonCard() } }
+            error && responses.isEmpty() -> item(key = "error") {
                 Box(Modifier.appearIn(0)) {
                     AppErrorState(
                         onRetry = onRetry,
@@ -197,9 +200,14 @@ internal fun DriverResponsesContent(
                     )
                 }
             }
-            // Каскад появления ограничен: на длинном списке ждать полсекунды нижнюю карточку незачем.
-            else -> itemsIndexed(responses, key = { _, r -> r.id }) { i, r ->
-                DriverResponseCard(r, i.coerceAtMost(6), busy, onAccept, onCounter, onDecline)
+            else -> {
+                // Обновление не прошло, но отклики на экране есть — говорим об этом строкой,
+                // а не подменой всего списка карточкой ошибки.
+                if (error) item(key = "stale") { ResponsesStaleNotice(onRetry) }
+                // Каскад появления ограничен: на длинном списке ждать полсекунды нижнюю карточку незачем.
+                itemsIndexed(responses, key = { _, r -> r.id }) { i, r ->
+                    DriverResponseCard(r, i.coerceAtMost(6), busy, onAccept, onCounter, onDecline)
+                }
             }
         }
     }
@@ -255,6 +263,45 @@ private fun ResponsesLede(myTurn: Int) {
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Обновление не прошло, но старые отклики на экране. Прятать их за карточкой ошибки нельзя:
+ * человек потеряет и то, что уже видел. Список остаётся, сверху — честная строка с повтором.
+ * Вся строка и есть кнопка: тач-цель 48dp, промахнуться нечем.
+ */
+@Composable
+private fun ResponsesStaleNotice(onRetry: () -> Unit) {
+    Surface(
+        onClick = onRetry,
+        color = CanonWarnBg,
+        shape = CanonItemShape,
+        modifier = Modifier.fillMaxWidth().heightIn(min = BargainTouch).appearIn(0),
+    ) {
+        Row(
+            Modifier.padding(horizontal = BargainRowPad, vertical = BargainGapTight),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Refresh,
+                // Значок сам несёт действие, подписи рядом у него нет — озвучиваем на двух языках.
+                contentDescription = appText("Повторить", "Ҡабатлау"),
+                tint = CanonWarn,
+                modifier = Modifier.size(BargainIconSmall),
+            )
+            Spacer(Modifier.width(BargainGapTight))
+            Text(
+                appText(
+                    "Не удалось обновить. Показываем последнее, что пришло. Нажми, чтобы повторить.",
+                    "Яңыртып булманы. Һуңғы килгәнде күрһәтәбеҙ. Ҡабатлау өсөн баҫ.",
+                ),
+                color = CanonWarn,
+                fontSize = BargainMeta,
+                lineHeight = BargainMetaLine,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
