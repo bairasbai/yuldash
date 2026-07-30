@@ -86,6 +86,11 @@ object ApiClient {
 
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
+    /** true → Android Keystore недоступен и токены лежат в НЕзашифрованных prefs.
+     *  Диагностика: устанавливается в [init], дублируется предупреждением в Sentry. */
+    @Volatile internal var secureStorageUnavailable: Boolean = false
+        private set
+
     // Долгоживущий scope для POST'ов «отправил и забыл». НЕ привязан к экрану —
     // переживает навигацию (scope экрана отменяется при уходе и обрывает запрос).
     private val bg = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -167,6 +172,18 @@ object ApiClient {
                 .putString("user_name", plain.getString("user_name", null))
                 .apply()
             plain.edit().remove("token").remove("refresh_token").remove("user_name").apply()
+        }
+        // Keystore недоступен (бывает на «кривых» прошивках) → токены легли бы в ОТКРЫТЫЙ xml,
+        // и раньше это происходило совершенно молча. Вход не ломаем (иначе человек не войдёт
+        // вообще), но факт делаем видимым: флаг + сигнал в Sentry без единого байта PII.
+        secureStorageUnavailable = secure == null
+        if (secure == null) {
+            runCatching {
+                io.sentry.Sentry.captureMessage(
+                    "Secure token storage unavailable — falling back to plaintext prefs",
+                    io.sentry.SentryLevel.WARNING,
+                )
+            }
         }
         val p = secure ?: plain
         prefs = p

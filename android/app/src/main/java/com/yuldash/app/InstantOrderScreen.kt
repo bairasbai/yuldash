@@ -96,6 +96,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -308,6 +309,9 @@ internal fun InstantRouteMap(
     nearbyDrivers: List<com.yuldash.app.data.NearbyDriverDto> = emptyList(),
 ) {
     val ctx = LocalContext.current
+    // Цвет маршрута берём из токена темы, а не из константы: в тёмной теме CanonGreen2 светлее,
+    // иначе линия сливается с тёмной картой. Альфа 0.8 = прежняя 0xCC.
+    val routeArgb = CanonGreen2.copy(alpha = 0.8f).toArgb()
     val mapView = remember {
         runCatching { MapKitFactory.initialize(ctx) }
         MapView(ctx).also { v ->
@@ -320,7 +324,7 @@ internal fun InstantRouteMap(
         onDispose { mapView.onStop(); MapKitFactory.getInstance().onStop() }
     }
     // Перерисовываем маршрут при смене точек. Все объекты снимаем при следующей смене/уходе.
-    DisposableEffect(from, to) {
+    DisposableEffect(from, to, routeArgb) {
         val map = mapView.mapWindow.map
         val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
         var session: com.yandex.mapkit.directions.driving.DrivingSession? = null
@@ -332,7 +336,7 @@ internal fun InstantRouteMap(
         }
         if (from != null && to != null) {
             val straight = map.mapObjects.addPolyline(com.yandex.mapkit.geometry.Polyline(listOf(from, to))).apply {
-                setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 4f
+                setStrokeColor(routeArgb); strokeWidth = 4f
             }
             added += straight
             session = runCatching {
@@ -352,7 +356,7 @@ internal fun InstantRouteMap(
                             runCatching {
                                 map.mapObjects.remove(straight)
                                 added.remove(straight)
-                                added += map.mapObjects.addPolyline(r.geometry).apply { setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f }
+                                added += map.mapObjects.addPolyline(r.geometry).apply { setStrokeColor(routeArgb); strokeWidth = 5f }
                             }
                         }
                         override fun onDrivingRoutesError(error: com.yandex.runtime.Error) {}

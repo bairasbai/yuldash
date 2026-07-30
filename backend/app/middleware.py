@@ -186,6 +186,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     capture(exc)
     # Реальный краш (проброшенное исключение) до AccessLogMiddleware не доходит —
     # считаем его здесь, у источника 500.
+    # ВАЖНО: передаём уже замаскированный `path`, а не `request.url.path` — иначе
+    # секретный токен live-ссылки /t/{token} уезжает в Telegram админа (алерт о всплеске
+    # 5xx подставляет путь в текст). Маскировка выше была бы бессмысленной.
     from .services import record_server_error
-    record_server_error(request.url.path)
+    record_server_error(path)
     return JSONResponse({"detail": "Внутренняя ошибка сервера"}, status_code=500)

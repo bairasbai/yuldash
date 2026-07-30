@@ -68,6 +68,12 @@ internal enum class RideMode { Pooling, Taxi }
 
 private const val MODE_HINT_PREF = "mode_hint_shown"
 
+/** Последний выбранный режим (попутка/такси). Постоянный таксист не должен каждый холодный
+ *  старт тратить лишний тап — так же запоминают выбор Яндекс Go и inDrive. */
+private const val MODE_LAST_PREF = "mode_last"
+private const val MODE_VALUE_TAXI = "taxi"
+private const val MODE_VALUE_POOLING = "pooling"
+
 /**
  * Обёртка главного экрана пассажира: переключатель режимов сверху + плавная смена содержимого.
  * Все параметры MapScreen прокидываются как есть (поток попутки не меняем — только оборачиваем).
@@ -95,17 +101,31 @@ internal fun PassengerModeHome(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE) }
-    var mode by rememberSaveable { mutableStateOf(RideMode.Pooling) }   // Попутка первой/по умолчанию
+    // Стартуем с последнего выбранного режима (по умолчанию — попутка). Экономит тап тем,
+    // кто пользуется одним режимом постоянно.
+    var mode by rememberSaveable {
+        mutableStateOf(
+            if (prefs.getString(MODE_LAST_PREF, null) == MODE_VALUE_TAXI) RideMode.Taxi else RideMode.Pooling,
+        )
+    }
     // Подсказка при ПЕРВОМ входе — один раз (флаг в prefs). Ссылка «Чем отличается?» открывает её повторно.
     var showHint by remember { mutableStateOf(!prefs.getBoolean(MODE_HINT_PREF, false)) }
 
+    // Запоминаем выбор режима одним швом — и для кнопки, и для аппаратной «Назад».
+    val selectMode: (RideMode) -> Unit = { picked ->
+        mode = picked
+        prefs.edit()
+            .putString(MODE_LAST_PREF, if (picked == RideMode.Taxi) MODE_VALUE_TAXI else MODE_VALUE_POOLING)
+            .apply()
+    }
+
     // Аппаратная «Назад» в режиме такси → возвращаемся к попутке (а не выходим из приложения).
-    BackHandler(enabled = mode == RideMode.Taxi) { mode = RideMode.Pooling }
+    BackHandler(enabled = mode == RideMode.Taxi) { selectMode(RideMode.Pooling) }
 
     Column(Modifier.fillMaxSize()) {
         ModeSwitchBar(
             mode = mode,
-            onSelect = { mode = it },
+            onSelect = selectMode,
             onExplain = { showHint = true },
         )
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -137,7 +157,7 @@ internal fun PassengerModeHome(
                         onSeasonalPublish = onSeasonalPublish,
                     )
                     RideMode.Taxi -> InstantOrderScreen(
-                        onBack = { mode = RideMode.Pooling },        // «назад» из встроенного такси → к попутке
+                        onBack = { selectMode(RideMode.Pooling) },   // «назад» из встроенного такси → к попутке
                         onLoginRequired = onInstantLogin,
                         embedded = true,
                         onTaxiOnboarding = onTaxiOnboarding,

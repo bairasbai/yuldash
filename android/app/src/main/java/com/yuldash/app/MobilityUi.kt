@@ -1,6 +1,10 @@
 package com.yuldash.app
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -38,7 +42,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +66,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.InstantOrderDto
+import kotlinx.coroutines.delay
+import java.util.Locale
 
 /**
  * Общий визуальный язык режимов «Такси» и «Курьер».
@@ -760,8 +770,36 @@ internal fun CourierDeliveryProgress(status: String, modifier: Modifier = Modifi
     )
 }
 
+/** «Живая» точка эфира: мягкий пульс (яркость + размер). Показывает, что поиск идёт прямо сейчас,
+ *  а не завис — тот же сигнал, что у Uber/Яндекс Такси на экране подбора машины. */
+@Composable
+private fun LivePulseDot(color: Color, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "livePulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "livePulseValue",
+    )
+    Box(
+        modifier
+            .size((9 + 3 * pulse).dp)
+            .background(color.copy(alpha = 0.55f + 0.45f * pulse), CircleShape),
+    )
+}
+
 @Composable
 internal fun TaxiSearchingExperience(order: InstantOrderDto, onCancel: () -> Unit) {
+    // Счётчик ожидания: человеку важно видеть, что время идёт и поиск живой. Без него минута
+    // на экране «Ищем машину» ощущается как зависание (типовая жалоба в такси-приложениях).
+    var waitedSec by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            waitedSec++
+        }
+    }
+    val waited = String.format(Locale.US, "%d:%02d", waitedSec / 60, waitedSec % 60)
+    // Строка для скринридера считается здесь: внутри Modifier.semantics {} вызывать @Composable нельзя.
+    val waitedLabel = appText("Идёт поиск, $waited", "Эҙләү бара, $waited")
     Column(
         Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 18.dp).navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -788,7 +826,17 @@ internal fun TaxiSearchingExperience(order: InstantOrderDto, onCancel: () -> Uni
                         Text(appText("Цена для водителя", "Водитель өсөн хаҡ"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Text("≈ ${order.priceEstimate} ₽", color = CanonText, fontSize = 26.sp, fontWeight = FontWeight.Black)
                     }
-                    Box(Modifier.size(10.dp).background(CanonGreen2, CircleShape))
+                    Column(horizontalAlignment = Alignment.End) {
+                        LivePulseDot(CanonGreen2)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            waited,
+                            color = CanonMutedStrong,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.semantics { contentDescription = waitedLabel },
+                        )
+                    }
                 }
                 MobilityRouteTimeline(from = order.fromText, to = order.toText)
                 MobilityProgressRail(
