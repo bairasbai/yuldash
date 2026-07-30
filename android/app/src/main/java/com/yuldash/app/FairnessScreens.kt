@@ -1219,9 +1219,11 @@ private fun EvidencePicker(photos: List<String>, uploading: Boolean, onPick: () 
  * Почему это отдельно от жалобы (`Report`): жалоба анонимна и односторонняя, а разбор —
  * двусторонний: вторую сторону пригласят объясниться, и решение объяснят обоим.
  *
- * Содержимое ОБЯЗАТЕЛЬНО прокручивается: девять типов спора + поле + фото не помещаются
- * в диалог даже на большом телефоне, а Material-диалог сам не скроллит — без этого нижние
- * типы и кнопка «Открыть разбор» просто обрезались бы.
+ * Две вещи, без которых диалог был нерабочим:
+ *  • содержимое прокручивается — Material-диалог сам не скроллит, и нижние типы вместе с
+ *    кнопкой «Открыть разбор» просто обрезались бы;
+ *  • список типов сворачивается после выбора — иначе девять пунктов + поле + фото дают
+ *    простыню на два экрана, и до кнопки надо доскроллить.
  */
 @Composable
 internal fun FileIncidentDialog(
@@ -1240,6 +1242,10 @@ internal fun FileIncidentDialog(
     var uploading by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
+    // Девять типов подряд превращали диалог в двухэкранную простыню: поле рассказа и кнопка
+    // «Открыть разбор» уезжали далеко вниз. Выбрал тип — список сворачивается в одну строку,
+    // и всё нужное снова помещается на один экран. Передумал — нажал строку, список вернулся.
+    var typesOpen by remember { mutableStateOf(true) }
 
     val errFallback = appText("Не получилось открыть разбор. Проверь сеть.", "Ҡарауҙы асып булманы. Селтәрҙе тикшер.")
     val uploadFail = appText("Фото не загрузилось, попробуй ещё раз", "Фото йөкләнмәне, тағы ҡабатла")
@@ -1283,13 +1289,35 @@ internal fun FileIncidentDialog(
                     fontSize = FairTitle,
                     lineHeight = FairTitleLine,
                 )
-                Column(verticalArrangement = Arrangement.spacedBy(FairGapTight)) {
-                    incidentTypesRide.forEach { t ->
-                        IncidentTypeOption(
-                            label = appText(t.ru, t.ba),
-                            selected = type == t.key,
-                            onClick = { type = t.key },
-                        )
+                AnimatedContent(
+                    targetState = typesOpen,
+                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
+                    label = "fair-types",
+                ) { open ->
+                    if (open) {
+                        Column(verticalArrangement = Arrangement.spacedBy(FairGapTight)) {
+                            incidentTypesRide.forEach { t ->
+                                IncidentTypeOption(
+                                    label = appText(t.ru, t.ba),
+                                    selected = type == t.key,
+                                    onClick = { type = t.key; typesOpen = false },
+                                )
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(FairGapTight)) {
+                            IncidentTypeOption(
+                                label = incidentTypeLabel(type),
+                                selected = true,
+                                onClick = { typesOpen = true },
+                            )
+                            Text(
+                                appText("Нажми, чтобы выбрать другое", "Башҡаһын һайлар өсөн баҫ"),
+                                color = CanonMuted,
+                                fontSize = FairMeta,
+                                lineHeight = FairMetaLine,
+                            )
+                        }
                     }
                 }
                 OutlinedTextField(
@@ -1370,7 +1398,7 @@ private fun IncidentTypeOption(label: String, selected: Boolean, onClick: () -> 
         modifier = Modifier.fillMaxWidth().heightIn(min = FairTouch),
     ) {
         Row(
-            Modifier.padding(horizontal = FairGap, vertical = FairGap),
+            Modifier.padding(FairGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(

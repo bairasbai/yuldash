@@ -1,5 +1,7 @@
 package com.yuldash.app
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -38,9 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
@@ -78,12 +78,24 @@ internal fun DriverTaxiRidesScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> U
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Мои поездки такси", "Такси сәфәрҙәрем"), onBack) },
     ) { padding ->
+        val d = data
+        // Список появляется разом и один раз: состояние живёт на уровне экрана, поэтому
+        // прокрутка назад ничего не переигрывает (строки в LazyColumn пересоздаются).
+        val reveal by animateFloatAsState(
+            targetValue = if (d != null) 1f else 0f,
+            animationSpec = tween(360),
+            label = "taxiRidesReveal",
+        )
+        val enter = Modifier.graphicsLayer {
+            alpha = reveal
+            translationY = (1f - reveal) * 16.dp.toPx()
+        }
+
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
         ) {
-            val d = data
             when {
                 loading && d == null -> {
                     item(key = "skeleton-total") { SkeletonCard(lines = 3) }
@@ -106,7 +118,7 @@ internal fun DriverTaxiRidesScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> U
                 }
                 else -> {
                     if (error) item(key = "stale") { MoneyStaleStrip(onRetry = { reload++ }) }
-                    item(key = "totals") { TaxiRidesTotalsCard(d) }
+                    item(key = "totals") { TaxiRidesTotalsCard(d, enter) }
                     item(key = "rides-header") {
                         MoneySectionHeader(
                             title = appText("Каждая поездка", "Һәр сәфәр"),
@@ -114,10 +126,11 @@ internal fun DriverTaxiRidesScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> U
                                 "Цена пассажиру, наша комиссия и сколько осталось тебе.",
                                 "Юлаусыға хаҡ, беҙҙең комиссия һәм һиңә күпме ҡалғаны.",
                             ),
+                            modifier = enter,
                         )
                     }
                     items(d.rides, key = { it.orderId }) { ride ->
-                        TaxiRideRow(ride, onClick = { onOpenReceipt(ride.orderId) })
+                        TaxiRideRow(ride, enter, onClick = { onOpenReceipt(ride.orderId) })
                     }
                     item(key = "note") {
                         Text(
@@ -128,7 +141,7 @@ internal fun DriverTaxiRidesScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> U
                             color = CanonMuted,
                             fontSize = MoneyType.Caption,
                             lineHeight = MoneyType.CaptionLine,
-                            modifier = Modifier.padding(top = 4.dp),
+                            modifier = enter.padding(top = 4.dp),
                         )
                     }
                 }
@@ -144,8 +157,8 @@ internal fun DriverTaxiRidesScreen(onBack: () -> Unit, onOpenReceipt: (Int) -> U
  * Именно эту цепочку водитель и хочет проверить, когда сомневается в сумме.
  */
 @Composable
-private fun TaxiRidesTotalsCard(d: DriverTaxiRidesDto) {
-    AppCard(modifier = Modifier.appearIn(0)) {
+private fun TaxiRidesTotalsCard(d: DriverTaxiRidesDto, modifier: Modifier = Modifier) {
+    AppCard(modifier = modifier) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
@@ -164,20 +177,20 @@ private fun TaxiRidesTotalsCard(d: DriverTaxiRidesDto) {
                 )
             }
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                TaxiMoneyLine(
+                MoneyLine(
                     Icons.Default.Payments, CanonMint, CanonGreen2,
                     appText("Пассажиры заплатили", "Юлаусылар түләне"),
                     "${fmtRub(d.totalPriceRub)} ₽",
                     CanonText,
                 )
-                TaxiMoneyLine(
+                MoneyLine(
                     Icons.Default.Percent, CanonWarnBg, CanonWarn,
                     appText("Комиссия Юлдаша", "Юлдаш комиссияһы"),
                     "− " + kopToRub(d.totalFeeKop),
                     CanonWarn,
                 )
                 Box(Modifier.fillMaxWidth().height(1.dp).background(CanonHairlineGreen))
-                TaxiMoneyLine(
+                MoneyLine(
                     Icons.Default.Savings, CanonMint, CanonGreen2,
                     appText("Осталось тебе", "Һиңә ҡалды"),
                     kopToRub(d.totalNetKop),
@@ -185,32 +198,6 @@ private fun TaxiRidesTotalsCard(d: DriverTaxiRidesDto) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun TaxiMoneyLine(
-    icon: ImageVector,
-    bg: Color,
-    tint: Color,
-    label: String,
-    value: String,
-    valueColor: Color,
-) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Surface(color = bg, shape = CircleShape) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.padding(8.dp).size(16.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Text(
-            label, color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            value, color = valueColor, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
-            fontWeight = FontWeight.Black, textAlign = TextAlign.End,
-        )
     }
 }
 
@@ -223,8 +210,8 @@ private fun TaxiMoneyLine(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TaxiRideRow(r: DriverTaxiRideDto, onClick: () -> Unit) {
-    AppCard(onClick = onClick, shape = CanonItemShape) {
+private fun TaxiRideRow(r: DriverTaxiRideDto, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    AppCard(modifier = modifier, onClick = onClick, shape = CanonItemShape) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -301,9 +288,11 @@ private fun TaxiRideRow(r: DriverTaxiRideDto, onClick: () -> Unit) {
 private fun TaxiLedgerCell(label: String, value: String, valueColor: Color, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = CanonMuted, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine)
+        // Без maxLines: сумму переносим, но не обрезаем. Обрезанные деньги — худшее, что
+        // может показать экран, который человек открыл, чтобы себя перепроверить.
         Text(
             value, color = valueColor, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
-            fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            fontWeight = FontWeight.Bold,
         )
     }
 }

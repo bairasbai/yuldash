@@ -285,8 +285,12 @@ private fun TaxiReceiptLine(icon: ImageVector, label: String, value: String) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(16.dp))
         }
         Spacer(Modifier.width(12.dp))
-        Text(label, color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine)
-        Spacer(Modifier.weight(1f))
+        // Ширину уступает подпись, а не значение: длинный башкирский перенесётся,
+        // но дата или расстояние не «уедут» за край.
+        Text(
+            label, color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+            modifier = Modifier.weight(1f),
+        )
         Spacer(Modifier.width(12.dp))
         Text(
             value, color = CanonText, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,

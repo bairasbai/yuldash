@@ -212,14 +212,23 @@ private data class IncidentTone(val bg: Color, val fg: Color, val icon: ImageVec
 
 @Composable
 private fun incidentTone(inc: IncidentDto): IncidentTone = when {
+    // Живая апелляция важнее пометки «решено»: человек ждёт, что его перечитают.
+    inc.status == "appealed" || inc.appealStatus == "requested" ->
+        IncidentTone(CanonDangerBg, CanonRed, Icons.Default.Report, appText("Апелляция", "Ялыу"))
     inc.status == "resolved" || inc.status == "closed" ->
         IncidentTone(CanonMint, CanonGreen2, Icons.Default.CheckCircle, "")
-    inc.status == "appealed" || inc.appealText.isNotBlank() ->
-        IncidentTone(CanonDangerBg, CanonRed, Icons.Default.Report, appText("Апелляция", "Ялыу"))
     inc.severe ->
         IncidentTone(CanonDangerBg, CanonRed, Icons.Default.Report, appText("Срочно", "Ашығыс"))
     else ->
         IncidentTone(CanonWarnBg, CanonWarn, Icons.Default.Shield, "")
+}
+
+/** Чем кончилась апелляция — иначе «Апелляция» висит красным и после того, как её разобрали. */
+@Composable
+private fun appealStatusSuffix(status: String): String = when (status) {
+    "accepted" -> appText(" · принята", " · ҡабул ителгән")
+    "rejected" -> appText(" · отклонена", " · кире ҡағылған")
+    else -> ""
 }
 
 @Composable
@@ -275,26 +284,42 @@ private fun AdminIncidentCard(
                 )
 
                 if (inc.appealText.isNotBlank()) {
-                    Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
+                    // Красная только ЖИВАЯ апелляция. Разобранная — обычный блок истории.
+                    val liveAppeal = inc.status == "appealed" || inc.appealStatus == "requested"
+                    Surface(
+                        color = if (liveAppeal) CanonDangerBg else CanonBg,
+                        shape = CanonItemShape,
+                        border = BorderStroke(1.dp, if (liveAppeal) CanonDangerBorder else CanonBorder),
+                    ) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(appText("Апелляция", "Ялыу"), color = CanonRed, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                            Text(
+                                appText("Апелляция", "Ялыу") + appealStatusSuffix(inc.appealStatus),
+                                color = if (liveAppeal) CanonRed else CanonMuted,
+                                fontWeight = FontWeight.Black, fontSize = 11.sp,
+                            )
                             Text(inc.appealText, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp)
                         }
                     }
                 }
 
                 if (inc.resolution.isNotBlank()) {
-                    Surface(color = CanonMint, shape = CanonItemShape) {
+                    // Спор закрыт — карточка спокойная, но само НАКАЗАНИЕ не должно выглядеть
+                    // как «всё хорошо»: у него жёлтый тон и знак внимания.
+                    val punished = inc.resolution in listOf("warning", "strike", "suspend", "ban")
+                    Surface(color = if (punished) CanonWarnBg else CanonMint, shape = CanonItemShape) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Default.CheckCircle, contentDescription = null,
-                                    tint = CanonGreen2, modifier = Modifier.size(16.dp),
+                                    if (punished) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = if (punished) CanonWarn else CanonGreen2,
+                                    modifier = Modifier.size(16.dp),
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     incidentResolutionLabel(inc.resolution),
-                                    color = CanonGreen2, fontSize = 11.sp, fontWeight = FontWeight.Black,
+                                    color = if (punished) CanonWarn else CanonGreen2,
+                                    fontSize = 11.sp, fontWeight = FontWeight.Black,
                                 )
                             }
                             if (inc.resolutionNote.isNotBlank()) {
@@ -446,6 +471,19 @@ private fun ResolveIncidentDialog(inc: IncidentDto, onDismiss: () -> Unit, onRes
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // Кто есть кто — иначе «Вторая сторона» ниже это просто слово без лица.
+                Surface(color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            appText("Заявитель: ", "Ялыусы: ") + inc.reporterName,
+                            color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp,
+                        )
+                        Text(
+                            appText("Вторая сторона: ", "Икенсе яҡ: ") + inc.respondentName,
+                            color = CanonMutedStrong, fontSize = 13.sp, lineHeight = 18.sp,
+                        )
+                    }
+                }
                 Text(appText("Что решаем", "Нимә хәл итәбеҙ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     resolutionOptions.forEach { r ->

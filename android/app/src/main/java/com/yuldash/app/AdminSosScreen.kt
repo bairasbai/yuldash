@@ -306,6 +306,27 @@ private fun AdminSosCard(
                     }
                 }
 
+                // ── Главное действие стоит ВЫШЕ текста сигнала намеренно: длинное сообщение
+                // не должно утаскивать кнопку «Позвонить» за нижний край экрана. Что случилось —
+                // уже написано на полосе сверху, а человеку в беде нужен голос, а не переписка.
+                if (e.userPhone.isNotBlank()) {
+                    AppButton(
+                        text = appText("Позвонить", "Шылтыратыу") + " " + e.userPhone,
+                        onClick = onCall,
+                        style = if (open) AppButtonStyle.Danger else AppButtonStyle.Secondary,
+                        icon = Icons.Default.Call,
+                        height = if (open) 60.dp else 54.dp,
+                    )
+                } else {
+                    Text(
+                        appText(
+                            "Телефон не передан — свяжись через чат поездки.",
+                            "Телефон бирелмәгән — сәфәр чаты аша бәйләнеш ҡор.",
+                        ),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    )
+                }
+
                 // ── Что человек написал сам. Красной заливки тут нет намеренно: полоса сверху
                 // уже кричит, а слова человека должны читаться, а не тонуть в красном. Красная
                 // волосяная рамка держит связь с тревогой.
@@ -342,25 +363,6 @@ private fun AdminSosCard(
                             }
                         }
                     }
-                }
-
-                // ── Главное действие. Человеку в беде нужен голос, а не переписка.
-                if (e.userPhone.isNotBlank()) {
-                    AppButton(
-                        text = appText("Позвонить", "Шылтыратыу") + " " + e.userPhone,
-                        onClick = onCall,
-                        style = if (open) AppButtonStyle.Danger else AppButtonStyle.Secondary,
-                        icon = Icons.Default.Call,
-                        height = if (open) 60.dp else 54.dp,
-                    )
-                } else {
-                    Text(
-                        appText(
-                            "Телефон не передан — свяжись через чат поездки.",
-                            "Телефон бирелмәгән — сәфәр чаты аша бәйләнеш ҡор.",
-                        ),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
-                    )
                 }
 
                 // ── Второстепенное: тихо, но под пальцем (48dp).
@@ -406,7 +408,7 @@ private fun AdminSosCard(
                             ) {
                                 Icon(
                                     Icons.Default.Done, contentDescription = null,
-                                    tint = CanonMutedStrong, modifier = Modifier.size(18.dp),
+                                    tint = CanonMutedStrong, modifier = Modifier.size(20.dp),
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(

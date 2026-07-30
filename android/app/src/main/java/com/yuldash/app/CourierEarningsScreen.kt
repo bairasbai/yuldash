@@ -125,7 +125,18 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
             animationSpec = tween(220),
             label = "courierFreshness",
         )
-        val dim = Modifier.graphicsLayer { alpha = freshness }
+        // Появление всего блока разом, а не карточка за карточкой: состояние живёт на уровне
+        // экрана, поэтому при прокрутке назад ничего заново не мигает (в LazyColumn строки
+        // пересоздаются, и покадровая анимация «на элемент» дёргалась бы каждый раз).
+        val reveal by animateFloatAsState(
+            targetValue = if (d != null) 1f else 0f,
+            animationSpec = tween(360),
+            label = "courierReveal",
+        )
+        val enter = Modifier.graphicsLayer {
+            alpha = reveal * freshness
+            translationY = (1f - reveal) * 16.dp.toPx()
+        }
 
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -146,8 +157,14 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
                 }
                 error && d == null -> item(key = "error") { AppErrorState(onRetry = { reload++ }) }
                 d == null || d.deliveries == 0 -> item(key = "empty") {
+                    // Пусто бывает двух видов: новичок вообще без доставок и опытный курьер
+                    // с тихой неделей. Говорить второму «пока нет доставок» — врать ему в глаза.
                     AppEmptyState(
-                        title = appText("Пока нет доставок", "Әлегә илтеү юҡ"),
+                        title = when (period) {
+                            "week" -> appText("За эту неделю доставок нет", "Был аҙнала илтеү юҡ")
+                            "month" -> appText("За этот месяц доставок нет", "Был айҙа илтеү юҡ")
+                            else -> appText("Пока нет доставок", "Әлегә илтеү юҡ")
+                        },
                         text = appText(
                             "Возьми заказ во вкладке «Заказы» — здесь появится, сколько ты заработал.",
                             "«Заказдар» бүлегендә заказ ал — бында күпме эшләгәнең күренәсәк.",
@@ -158,7 +175,7 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
                 else -> {
                     // Данные есть, но последнее обновление не прошло — говорим прямо.
                     if (error) item(key = "stale") { MoneyStaleStrip(onRetry = { reload++ }) }
-                    item(key = "totals") { CourierTotalsCard(d, dim) }
+                    item(key = "totals") { CourierTotalsCard(d, enter) }
                     if (d.byDay.isNotEmpty()) {
                         item(key = "days-header") {
                             MoneySectionHeader(
@@ -167,11 +184,12 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
                                     "Сколько осталось на руках за каждый день.",
                                     "Һәр көн өсөн ҡулда күпме ҡалғаны.",
                                 ),
+                                modifier = enter,
                             )
                         }
                         val maxNet = d.byDay.maxOfOrNull { it.netKop }?.coerceAtLeast(1) ?: 1
                         itemsIndexed(d.byDay, key = { _, day: CourierEarningsDayDto -> day.date }) { i, day ->
-                            CourierDayRow(day, maxNet, i, dim)
+                            CourierDayRow(day, maxNet, i, enter)
                         }
                     }
                     item(key = "note") {
@@ -183,7 +201,7 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
                             color = CanonMuted,
                             fontSize = MoneyType.Caption,
                             lineHeight = MoneyType.CaptionLine,
-                            modifier = Modifier.padding(top = 4.dp),
+                            modifier = enter.padding(top = 4.dp),
                         )
                     }
                 }
@@ -254,8 +272,8 @@ private fun MoneyPeriodSegment(
 
 @Composable
 private fun CourierTotalsCard(d: CourierEarningsDto, modifier: Modifier = Modifier) {
-    AppCard(modifier = modifier.appearIn(0)) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    AppCard(modifier = modifier) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Заработано чистыми", "Таҙа эшләнде"),
@@ -277,54 +295,23 @@ private fun CourierTotalsCard(d: CourierEarningsDto, modifier: Modifier = Modifi
                     )
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MoneyTile(
-                    icon = Icons.Default.DeliveryDining,
-                    iconBg = CanonMint,
-                    iconTint = CanonGreen2,
-                    value = d.deliveries.toString(),
-                    label = appText("Доставок", "Илтеү"),
-                    modifier = Modifier.weight(1f),
+            // Строки во всю ширину, а не половинные плитки: сумму никогда не обрежет,
+            // сколько бы ни было разрядов. Тот же вид, что у расшифровки таксиста.
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MoneyLine(
+                    Icons.Default.DeliveryDining, CanonMint, CanonGreen2,
+                    appText("Доставок", "Илтеү"),
+                    d.deliveries.toString(),
+                    CanonText,
                 )
                 // Комиссия — деньги, которые ушли: цвет предупреждения, а не бренда.
-                MoneyTile(
-                    icon = Icons.Default.Percent,
-                    iconBg = CanonWarnBg,
-                    iconTint = CanonWarn,
-                    value = kopToRub(d.commissionKop),
-                    label = appText("Комиссия", "Комиссия"),
-                    modifier = Modifier.weight(1f),
+                MoneyLine(
+                    Icons.Default.Percent, CanonWarnBg, CanonWarn,
+                    appText("Комиссия", "Комиссия"),
+                    kopToRub(d.commissionKop),
+                    CanonWarn,
                 )
             }
-        }
-    }
-}
-
-/** Плитка «цифра + подпись». Иконка сверху — тогда всей ширины хватает длинной сумме. */
-@Composable
-private fun MoneyTile(
-    icon: ImageVector,
-    iconBg: Color,
-    iconTint: Color,
-    value: String,
-    label: String,
-    modifier: Modifier = Modifier,
-) {
-    Surface(color = CanonBg, shape = CanonItemShape, modifier = modifier) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Surface(color = iconBg, shape = CircleShape) {
-                Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.padding(8.dp).size(16.dp))
-            }
-            Text(
-                value,
-                color = CanonText,
-                fontSize = MoneyType.Value,
-                lineHeight = MoneyType.ValueLine,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(label, color = CanonMuted, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine)
         }
     }
 }
@@ -355,7 +342,7 @@ private fun CourierDayRow(
         color = CanonSurface,
         shape = CanonItemShape,
         border = BorderStroke(1.dp, CanonBorder),
-        modifier = modifier.appearIn(index.coerceAtMost(6)),
+        modifier = modifier,
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -390,6 +377,37 @@ private fun CourierDayRow(
 }
 
 // ─────────────────── Общие блоки денежных экранов ───────────────────
+
+/**
+ * Строка расшифровки: кружок с иконкой, подпись и сумма справа.
+ * Одна и та же на заработке курьера и на расшифровке таксиста — деньги должны выглядеть
+ * одинаково, где бы человек их ни считал. Сумма не обрезается: ширину уступает подпись.
+ */
+@Composable
+internal fun MoneyLine(
+    icon: ImageVector,
+    iconBg: Color,
+    iconTint: Color,
+    label: String,
+    value: String,
+    valueColor: Color,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = iconBg, shape = CircleShape) {
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.padding(8.dp).size(16.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            label, color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            value, color = valueColor, fontSize = MoneyType.Value, lineHeight = MoneyType.ValueLine,
+            fontWeight = FontWeight.Black, textAlign = TextAlign.End,
+        )
+    }
+}
 
 /** Заголовок раздела: Value + тихая подпись. Свой, чтобы не тащить пятый размер шрифта. */
 @Composable

@@ -196,7 +196,8 @@ private fun PendingRatingCard(r: PendingRatingDto, busy: Boolean, onPublish: () 
             // Сам отзыв — то единственное, ради чего открыли карточку.
             Surface(color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                 Text(
-                    r.text, color = CanonText, fontSize = 16.sp, lineHeight = 22.sp,
+                    r.text.ifBlank { appText("Текста нет — только звёзды.", "Текст юҡ — тик йондоҙҙар.") },
+                    color = CanonText, fontSize = 16.sp, lineHeight = 22.sp,
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                 )
             }
@@ -236,7 +237,7 @@ private fun RatingStars(stars: Int) {
                 if (i < stars) Icons.Default.Star else Icons.Default.StarBorder,
                 contentDescription = null,
                 tint = if (i < stars) CanonStar else CanonMuted,   // пустая звезда — CanonMuted (контраст ≥3:1)
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }
