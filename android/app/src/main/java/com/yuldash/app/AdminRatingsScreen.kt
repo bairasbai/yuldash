@@ -28,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,6 +71,11 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun AdminRatingsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    val actErr = appText(
+        "Не получилось. Проверь сеть и повтори — отзыв остался на модерации.",
+        "Булманы. Селтәрҙе тикшереп ҡабатла — фекер модерацияла ҡалды.",
+    )
     var list by remember { mutableStateOf<List<PendingRatingDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
@@ -87,7 +94,10 @@ internal fun AdminRatingsScreen(onBack: () -> Unit) {
         if (busyId != 0) return
         busyId = id
         scope.launch {
+            // Раньше onFailure не было вообще: сбой сети гасил спиннер, и модератор
+            // думал, что отзыв опубликован. Молчаливый провал хуже честной ошибки.
             block().onSuccess { reload++ }
+                .onFailure { Toast.makeText(ctx, actErr, Toast.LENGTH_LONG).show() }
             busyId = 0
         }
     }

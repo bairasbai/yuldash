@@ -1,11 +1,13 @@
 package com.yuldash.app
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -225,11 +228,18 @@ private fun TaxiReceiptCard(r: InstantReceiptDto) {
 /** Шапка-«печать»: тёмно-зелёный ink фиксированный, поэтому белый текст читаем в обеих темах. */
 @Composable
 private fun TaxiReceiptHeader(route: String, orderLabel: String) {
-    // AnimatedVisibility(visible = true) не анимирует ничего: на первом кадре состояние уже
-    // конечное. Поэтому включаем видимость ПОСЛЕ первой композиции — тогда галочка правда
-    // проявляется, а не появляется рывком.
+    // Печать «поездка завершена» проявляется с лёгким отскоком. Два подвоха, оба поймал глазами:
+    //  • AnimatedVisibility(visible = true) не анимирует НИЧЕГО — на первом кадре состояние уже
+    //    конечное, поэтому включаем анимацию после первой композиции;
+    //  • появление через AnimatedVisibility добавляло бы 56dp к высоте шапки на втором кадре —
+    //    место под кружок держим всегда, меняется только масштаб и прозрачность.
     var stampShown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { stampShown = true }
+    val stamp by animateFloatAsState(
+        targetValue = if (stampShown) 1f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "receiptStamp",
+    )
 
     Column(
         Modifier
@@ -240,13 +250,19 @@ private fun TaxiReceiptHeader(route: String, orderLabel: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AnimatedVisibility(visible = stampShown, enter = scaleIn(tween(360)) + fadeIn(tween(360))) {
-            Box(
-                Modifier.size(56.dp).background(Color.White.copy(alpha = 0.16f), CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
-            }
+        Box(
+            Modifier
+                .size(56.dp)
+                .graphicsLayer {
+                    val s = 0.6f + 0.4f * stamp
+                    scaleX = s
+                    scaleY = s
+                    alpha = stamp.coerceIn(0f, 1f)
+                }
+                .background(Color.White.copy(alpha = 0.16f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
         }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -309,8 +325,11 @@ private fun TaxiReceiptDriverLine(name: String, verified: Boolean) {
             Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(16.dp))
         }
         Spacer(Modifier.width(12.dp))
-        Text(appText("Водитель", "Йөрөтөүсе"), color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine)
-        Spacer(Modifier.weight(1f))
+        Text(
+            appText("Водитель", "Йөрөтөүсе"),
+            color = CanonMuted, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+            modifier = Modifier.weight(1f),
+        )
         Spacer(Modifier.width(12.dp))
         if (verified) {
             Icon(

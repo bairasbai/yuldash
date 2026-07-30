@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +81,10 @@ import kotlinx.coroutines.launch
 internal fun AdminSosScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+    val sosHandleErr = appText(
+        "Не удалось отметить сигнал. Проверь сеть и повтори — он остался открытым.",
+        "Сигналды билдәләп булманы. Селтәрҙе тикшереп ҡабатла — ул асыҡ ҡалды.",
+    )
 
     var tab by remember { mutableStateOf("open") }          // open | handled
     var list by remember { mutableStateOf<List<AdminSosDto>>(emptyList()) }
@@ -179,6 +184,10 @@ internal fun AdminSosScreen(onBack: () -> Unit) {
                                 scope.launch {
                                     ApiClient.adminSosHandle(e.id, text)
                                         .onSuccess { openNoteFor = 0; note = ""; reload++ }
+                                        // Без этой ветки сбой сети выглядел как успех: спиннер
+                                        // гас, и админ считал сигнал принятым. Для SOS это худший
+                                        // из возможных тихих провалов.
+                                        .onFailure { Toast.makeText(ctx, sosHandleErr, Toast.LENGTH_LONG).show() }
                                     busyId = 0
                                 }
                             },

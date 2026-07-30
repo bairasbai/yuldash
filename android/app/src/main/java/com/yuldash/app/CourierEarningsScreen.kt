@@ -436,7 +436,7 @@ internal fun MoneyStaleStrip(onRetry: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Text(
                 appText("Не удалось обновить — цифры могут быть старыми", "Яңырта алманыҡ — һандар иҫке булыуы мөмкин"),
-                color = CanonWarn, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
+                color = CanonWarn, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
@@ -453,7 +453,8 @@ internal fun MoneyStaleStrip(onRetry: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text(
                         appText("Повторить", "Ҡабатлау"),
-                        color = CanonWarn, fontSize = MoneyType.Caption, fontWeight = FontWeight.Black, maxLines = 1,
+                        color = CanonWarn, fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine,
+                        fontWeight = FontWeight.Black, maxLines = 1,
                     )
                 }
             }

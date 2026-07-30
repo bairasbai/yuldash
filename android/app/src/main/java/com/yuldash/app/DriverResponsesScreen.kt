@@ -6,17 +6,39 @@ package com.yuldash.app
 // Здесь он видит все свои отклики, чью сейчас очередь ходить, как шёл торг, и может принять
 // встречную цену или предложить свою.
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Handshake
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,8 +52,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
@@ -118,82 +143,342 @@ internal fun DriverResponsesContent(
     onDecline: (ResponseDto) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Сколько откликов ждут именно тебя — ради этого числа сюда и заходят. Считаем один раз
+    // на список, а не на каждую перерисовку.
+    val myTurn = remember(responses) { responses.count { it.canAccept } }
+    // Пока уходит запрос, список приглушаем: видно, что ответ ещё в пути, и второй раз не жмут.
+    val liveness by animateFloatAsState(if (busy) 0.55f else 1f, tween(220), label = "responsesBusy")
+
     LazyColumn(
-        modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
+        modifier
+            .graphicsLayer { alpha = liveness }
+            .padding(horizontal = BargainRowPad),
+        verticalArrangement = Arrangement.spacedBy(BargainGap),
+        contentPadding = PaddingValues(top = BargainGapTight, bottom = 24.dp),
     ) {
-        item {
-            Text(
-                appText(
-                    "Здесь видно, где пассажир ответил на твою цену. Торгуемся по очереди — можно принять или предложить своё.",
-                    "Бында пассажир хаҡыңа яуап биргән урындар күренә. Сиратлап һатыулашабыҙ — ҡабул итергә йәки үҙеңдекен тәҡдим итергә була.",
-                ),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
-            )
-        }
-        if (loading) {
-            item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
-        } else if (error) {
-            item { ListedError(appText("Не удалось загрузить отклики. Проверь сеть.", "Яуаптарҙы йөкләп булманы. Сетте тикшер."), onRetry = onRetry) }
-        } else if (responses.isEmpty()) {
-            item {
-                ListedEmpty(
-                    appText("Ты пока никому не откликнулся", "Һин әле бер кемгә лә яуап бирмәнең"),
-                    appText("Открой «Заявки пассажиров» и предложи свою цену.", "«Пассажир заявкалары»н асып, үҙ хаҡыңды тәҡдим ит."),
-                )
+        item(key = "lede") { ResponsesLede(myTurn) }
+        when {
+            // Скелетон той же формы, что карточка: список не «прыгает», когда данные придут.
+            loading -> items(3) { i -> Box(Modifier.appearIn(i)) { ResponseSkeletonCard() } }
+            error -> item(key = "error") {
+                Box(Modifier.appearIn(0)) {
+                    AppErrorState(
+                        onRetry = onRetry,
+                        title = appText("Отклики не загрузились", "Яуаптар йөкләнмәне"),
+                        text = appText(
+                            "Проверь интернет и повтори — торг никуда не денется.",
+                            "Интернетты тикшереп ҡабатла — һатыулашыу юғалмай.",
+                        ),
+                    )
+                }
             }
-        } else {
-            items(responses, key = { it.id }) { r -> DriverResponseCard(r, busy, onAccept, onCounter, onDecline) }
+            responses.isEmpty() -> item(key = "empty") {
+                Box(Modifier.appearIn(0)) {
+                    AppEmptyState(
+                        title = appText("Ты пока никому не откликнулся", "Һин әле бер кемгә лә яуап бирмәнең"),
+                        text = appText(
+                            "Открой «Заявки пассажиров» и предложи свою цену — торг начинается с первого хода.",
+                            "«Пассажир заявкалары»н асып, үҙ хаҡыңды тәҡдим ит — һатыулашыу беренсе сираттан башлана.",
+                        ),
+                        icon = Icons.Default.Handshake,
+                        actionLabel = appText("Обновить", "Яңыртыу"),
+                        onAction = onRetry,
+                    )
+                }
+            }
+            // Каскад появления ограничен: на длинном списке ждать полсекунды нижнюю карточку незачем.
+            else -> itemsIndexed(responses, key = { _, r -> r.id }) { i, r ->
+                DriverResponseCard(r, i.coerceAtMost(6), busy, onAccept, onCounter, onDecline)
+            }
         }
     }
 }
 
+/** Шапка экрана: зачем он нужен + сколько откликов ждут твоего хода прямо сейчас. */
+@Composable
+private fun ResponsesLede(myTurn: Int) {
+    Column(
+        Modifier.appearIn(0),
+        verticalArrangement = Arrangement.spacedBy(BargainGapTight),
+    ) {
+        Text(
+            appText(
+                "Здесь видно, где пассажир ответил на твою цену. Торгуемся по очереди — можно принять или предложить своё.",
+                "Бында пассажир хаҡыңа яуап биргән урындар күренә. Сиратлап һатыулашабыҙ — ҡабул итергә йәки үҙеңдекен тәҡдим итергә була.",
+            ),
+            color = CanonMutedStrong,
+            fontSize = BargainBody,
+            lineHeight = BargainBodyLine,
+        )
+        // Пилюля появляется и исчезает плавно — иначе шапка «дёргается» после каждого обновления.
+        AnimatedVisibility(
+            visible = myTurn > 0,
+            enter = fadeIn(tween(240)),
+            exit = fadeOut(tween(140)),
+        ) {
+            Surface(color = CanonMint, shape = CircleShape) {
+                Row(
+                    Modifier.padding(horizontal = BargainGap, vertical = BargainGapTight),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.Bolt,
+                        contentDescription = null,   // текст рядом называет то же самое
+                        tint = CanonGreen2,
+                        modifier = Modifier.size(BargainIconSmall),
+                    )
+                    Spacer(Modifier.width(BargainGapHair))
+                    AnimatedContent(
+                        targetState = myTurn,
+                        transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                        label = "myTurnCount",
+                    ) { count ->
+                        Text(
+                            appText("Твой ход: $count", "Һинең сират: $count"),
+                            color = CanonGreen2,
+                            fontSize = BargainMeta,
+                            lineHeight = BargainMetaLine,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Скелетон повторяет карточку отклика блок в блок: пилюля статуса, цена справа, плашка торга,
+ * кнопка. Тогда в момент прихода данных ничего не перескакивает — просто проявляется содержимое.
+ */
+@Composable
+private fun ResponseSkeletonCard() {
+    AppCard {
+        Column(
+            Modifier.padding(BargainCardPad),
+            verticalArrangement = Arrangement.spacedBy(BargainGap),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(BargainGapTight),
+                ) {
+                    SkeletonBox(widthFraction = 0.55f, height = 20.dp, shape = CircleShape)
+                    SkeletonBox(widthFraction = 0.35f, height = 12.dp)
+                }
+                Spacer(Modifier.width(BargainGap))
+                SkeletonBox(modifier = Modifier.width(72.dp), height = 24.dp)
+            }
+            SkeletonBox(widthFraction = 0.8f, height = 12.dp)
+            SkeletonBox(height = 56.dp, shape = CanonItemShape)
+            SkeletonBox(height = 54.dp, shape = RoundedCornerShape(16.dp))
+        }
+    }
+}
+
+/**
+ * Карточка отклика глазами водителя. Порядок чтения задан жёстко, сверху вниз:
+ * что за отклик → по какой цене поедешь → что просил пассажир → как шёл торг → что можно сделать.
+ *
+ * @param index номер в списке, только для каскада появления
+ */
 @Composable
 private fun DriverResponseCard(
+    r: ResponseDto,
+    index: Int,
+    busy: Boolean,
+    onAccept: (ResponseDto) -> Unit,
+    onCounter: (ResponseDto) -> Unit,
+    onDecline: (ResponseDto) -> Unit,
+) {
+    AppCard(modifier = Modifier.appearIn(index)) {
+        Column(
+            Modifier.padding(BargainCardPad),
+            verticalArrangement = Arrangement.spacedBy(BargainGap),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(BargainGapTight),
+                ) {
+                    DealPill(r)
+                    // Своё первое предложение водитель забывает первым — напоминаем тихой строкой.
+                    if (r.haggled && r.price > 0) {
+                        Text(
+                            appText("Ты предлагал ${r.price} ₽", "Һин ${r.price} һ тәҡдим иткәйнең"),
+                            color = CanonMuted,
+                            fontSize = BargainMeta,
+                            lineHeight = BargainMetaLine,
+                        )
+                    }
+                }
+                if (r.onTable > 0) {
+                    Spacer(Modifier.width(BargainGap))
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(BargainGapHair),
+                    ) {
+                        Text(
+                            appText("Сейчас на столе", "Хәҙер өҫтәлдә"),
+                            color = CanonMuted,
+                            fontSize = BargainMeta,
+                            lineHeight = BargainMetaLine,
+                            textAlign = TextAlign.End,
+                        )
+                        // Цена — главное число карточки, и меняется она НЕ подстановкой: старая
+                        // уходит вверх, новая приходит снизу. Иначе человек не замечает, что
+                        // пассажир сходил, и жмёт «согласиться» на цену, которой уже нет.
+                        AnimatedContent(
+                            targetState = r.onTable,
+                            transitionSpec = {
+                                (fadeIn(tween(280)) + slideInVertically(tween(280)) { it / 2 }) togetherWith
+                                    (fadeOut(tween(140)) + slideOutVertically(tween(140)) { -it / 2 })
+                            },
+                            label = "onTablePrice",
+                        ) { price ->
+                            Text(
+                                "$price ₽",
+                                color = CanonGreen2,
+                                fontWeight = FontWeight.Black,
+                                fontSize = BargainPrice,
+                                lineHeight = BargainPriceLine,
+                                letterSpacing = (-0.2f).sp,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+            if (r.comment.isNotBlank()) {
+                Text(r.comment, color = CanonText, fontSize = BargainBody, lineHeight = BargainBodyLine)
+            }
+            // Ход торга — на утопленной подложке: это «квитанция» разговора, а не сам разговор.
+            Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                Box(Modifier.padding(BargainRowPad)) { BargainSummary(r) }
+            }
+            BargainActions(r, busy, onAccept, onCounter, onDecline)
+        }
+    }
+}
+
+/**
+ * Состояние сделки одной пилюлей — чтобы карточка читалась за полсекунды.
+ * Цвета меняются плавно: «идёт торг» → «договорились» не должно быть перескоком.
+ */
+@Composable
+private fun DealPill(r: ResponseDto) {
+    val agreed = r.status == "accepted"
+    val failed = r.status == "declined"
+    val bg by animateColorAsState(
+        when {
+            agreed -> CanonMint
+            failed -> CanonDangerBg
+            r.haggled -> CanonWarnBg
+            else -> CanonBg
+        },
+        tween(320),
+        label = "dealPillBg",
+    )
+    val fg by animateColorAsState(
+        when {
+            agreed -> CanonGreen2
+            failed -> CanonRed
+            r.haggled -> CanonWarn
+            else -> CanonMutedStrong
+        },
+        tween(320),
+        label = "dealPillFg",
+    )
+    val icon: ImageVector = when {
+        agreed -> Icons.Default.CheckCircle
+        failed -> Icons.Default.Cancel
+        r.haggled -> Icons.Default.SwapHoriz
+        else -> Icons.Default.Handshake
+    }
+    val label = when {
+        agreed -> appText("Договорились", "Килештек")
+        failed -> appText("Не договорились", "Килешмәнек")
+        r.haggled -> appText("Идёт торг", "Һатыулашыу бара")
+        else -> appText("Твой отклик", "Һинең яуабың")
+    }
+    Surface(
+        color = bg,
+        shape = CircleShape,
+        // Спокойное состояние почти сливается с карточкой — держим его волоском рамки.
+        border = if (agreed || failed || r.haggled) null else BorderStroke(1.dp, CanonBorder),
+    ) {
+        Row(
+            Modifier.padding(horizontal = BargainGap, vertical = BargainGapTight),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,   // подпись пилюли говорит ровно то же
+                tint = fg,
+                modifier = Modifier.size(BargainIconSmall),
+            )
+            Spacer(Modifier.width(BargainGapHair))
+            AnimatedContent(
+                targetState = label,
+                transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                label = "dealPillLabel",
+            ) { text ->
+                Text(
+                    text,
+                    color = fg,
+                    fontSize = BargainMeta,
+                    lineHeight = BargainMetaLine,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Что можно сделать с откликом. Иерархия видна с одного взгляда: согласие — золотая кнопка,
+ * встречная цена — контурная, «не договорились» — тихая строка, но с честной тач-целью 48dp.
+ */
+@Composable
+private fun BargainActions(
     r: ResponseDto,
     busy: Boolean,
     onAccept: (ResponseDto) -> Unit,
     onCounter: (ResponseDto) -> Unit,
     onDecline: (ResponseDto) -> Unit,
 ) {
-    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        if (r.haggled) appText("Идёт торг", "Һатыулашыу бара") else appText("Твой отклик", "Һинең яуабың"),
-                        color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp,
-                    )
-                    if (r.haggled && r.price > 0) {
-                        Text(
-                            appText("Ты предлагал ${r.price} ₽", "Һин ${r.price} һ тәҡдим иткәйнең"),
-                            color = CanonMuted, fontSize = 12.sp,
-                        )
-                    }
-                }
-                Spacer(Modifier.width(10.dp))
-                if (r.onTable > 0) Text("${r.onTable} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
-            }
-            if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
-            BargainSummary(r)
-            if (r.canAccept) {
-                AppButton(
-                    text = appText("Согласиться на ${r.onTable} ₽", "${r.onTable} һ менән килешеү"),
-                    onClick = { onAccept(r) },
-                    style = AppButtonStyle.Accent,
-                    enabled = !busy,
+    val canDecline = r.status == "offered" && (r.canAccept || r.canCounter)
+    if (!r.canAccept && !r.canCounter && !canDecline) return
+    Column(verticalArrangement = Arrangement.spacedBy(BargainGapTight)) {
+        if (r.canAccept) {
+            AppButton(
+                text = appText("Согласиться на ${r.onTable} ₽", "${r.onTable} һ менән килешеү"),
+                onClick = { onAccept(r) },
+                style = AppButtonStyle.Accent,
+                icon = Icons.Default.Handshake,
+                enabled = !busy,
+            )
+        }
+        if (r.canCounter) {
+            AppButton(
+                text = appText("Предложить свою цену", "Үҙ хаҡыңды тәҡдим итеү"),
+                onClick = { onCounter(r) },
+                style = AppButtonStyle.Secondary,
+                enabled = !busy,
+            )
+        }
+        if (canDecline) {
+            TextButton(
+                onClick = { onDecline(r) },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = BargainTouch),
+            ) {
+                Text(
+                    appText("Не договорились", "Килешмәнек"),
+                    color = CanonMutedStrong,
+                    fontSize = BargainBody,
+                    lineHeight = BargainBodyLine,
                 )
-            }
-            if (r.canCounter) {
-                TextButton(onClick = { onCounter(r) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Text(appText("Предложить свою цену", "Үҙ хаҡыңды тәҡдим итеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                }
-            }
-            if (r.status == "offered" && (r.canAccept || r.canCounter)) {
-                TextButton(onClick = { onDecline(r) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Text(appText("Не договорились", "Килешмәнек"), color = CanonMuted, fontSize = 13.sp)
-                }
             }
         }
     }
