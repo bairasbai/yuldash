@@ -101,7 +101,7 @@ jobs:
   #     build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые).
   android-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30          # первая сборка тянет зависимости — с запасом
+    timeout-minutes: 45          # две сборки + ~1100 юнит-тестов; первая сборка ещё и тянет зависимости
     defaults:
       run:
         working-directory: android
@@ -123,3 +123,20 @@ jobs:
       - name: Build release (R8 minify check)
         working-directory: android
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      # Юнит-тесты приложения (~1100 @Test). Раньше в CI НЕ гонялись вообще — собирался только
+      # APK, а тесты запускал вручную Александр. То есть регрессию в логике экранов CI не ловил.
+      # Идут после сборок: если упал компилятор, причина видна раньше и понятнее.
+      - name: Android unit tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      # Отчёт по упавшим тестам — иначе в логе только «FAILED», а какой именно assert не сошёлся,
+      # приходится угадывать. Заливаем только при провале, чтобы не копить артефакты на зелёных прогонах.
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-report
+          path: android/app/build/reports/tests/testDebugUnitTest/
+          retention-days: 7
