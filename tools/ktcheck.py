@@ -88,7 +88,9 @@ def check(path: Path) -> list:
     if stack:
         problems.append(f"{path.name}: не закрыт '{stack[-1][0]}' со строки {stack[-1][1]}")
 
-    imported = set(re.findall(r"import androidx\.compose\.material\.icons\.\w+\.(\w+)", src))
+    # Путь бывает и из трёх сегментов: automirrored.filled.Send — регулярка на два сегмента
+    # давала ложную тревогу на каждой зеркалящейся иконке.
+    imported = set(re.findall(r"import androidx\.compose\.material\.icons\.(?:\w+\.)+(\w+)", src))
     for m in re.finditer(r"Icons\.(?:Default|Filled|Outlined|Rounded|AutoMirrored\.Filled)\.(\w+)", src):
         if m.group(1) not in imported:
             problems.append(f"{path.name}: иконка {m.group(1)} без импорта (строка {src.count(chr(10), 0, m.start()) + 1})")

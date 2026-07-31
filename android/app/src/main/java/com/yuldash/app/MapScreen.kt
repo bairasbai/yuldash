@@ -735,40 +735,11 @@ private fun MapHero(
             }
             // Плашка активного маршрута до партнёра + крестик «сбросить» (как в навигаторах).
             // Появляется/уходит мягко — карта не «моргает» плашкой при выборе маршрута из рекламы.
-            AnimatedVisibility(
-                visible = adRoute != null,
-                enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { -it },
-                exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { -it },
-                modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
-            ) {
-                Surface(
-                    color = CanonSurface,
-                    shape = RoundedCornerShape(16.dp),
-                    shadowElevation = 4.dp,
-                    border = BorderStroke(1.dp, CanonHairlineGreen)
-                ) {
-                    Row(
-                        modifier = Modifier.heightIn(min = 48.dp).padding(start = 12.dp, end = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.Directions, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                        Text(
-                            appText("Маршрут · ${adRoute?.title ?: ""}", "Маршрут · ${adRoute?.titleBa ?: adRoute?.title ?: ""}"),
-                            color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp)
-                        )
-                        Surface(
-                            onClick = onClearRoute,
-                            shape = CircleShape,
-                            color = CanonMint,
-                            modifier = Modifier.minimumInteractiveComponentSize().size(32.dp)
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = appText("Сбросить маршрут", "Маршрутты бетереү"), tint = CanonGreen2, modifier = Modifier.padding(8.dp))
-                        }
-                    }
-                }
-            }
+            MapAdRouteBanner(
+                adRoute = adRoute,
+                onClearRoute = onClearRoute,
+                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+            )
             // Подсказка-маршрут плавает в нижней части карты: свайп вправо → язычок, тап → назад.
             Box(
                 modifier = Modifier
@@ -2100,4 +2071,53 @@ internal fun MapZoomControls(modifier: Modifier = Modifier, onZoomIn: () -> Unit
     }
 }
 
-
+/**
+ * Плашка активного маршрута до партнёра.
+ *
+ * Вынесена в отдельную функцию НЕ ради красоты: на месте вызова `AnimatedVisibility` стоит
+ * внутри `Box`, но лексически выше есть `Column`, и компилятор выбирал `ColumnScope`-версию,
+ * для которой получателя в этой точке нет — сборка падала с «cannot be called in this context
+ * with an implicit receiver». Здесь ни `Column`, ни `Row` в области видимости нет, поэтому
+ * резолвится обычная версия. Позиционирование приходит извне через [modifier].
+ */
+@Composable
+private fun MapAdRouteBanner(
+    adRoute: PartnerAd?,
+    onClearRoute: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = adRoute != null,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { -it },
+        exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { -it },
+        modifier = modifier,
+    ) {
+        Surface(
+            color = CanonSurface,
+            shape = RoundedCornerShape(16.dp),
+            shadowElevation = 4.dp,
+            border = BorderStroke(1.dp, CanonHairlineGreen),
+        ) {
+            Row(
+                modifier = Modifier.heightIn(min = 48.dp).padding(start = 12.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Default.Directions, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                Text(
+                    appText("Маршрут · ${adRoute?.title ?: ""}", "Маршрут · ${adRoute?.titleBa ?: adRoute?.title ?: ""}"),
+                    color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp),
+                )
+                Surface(
+                    onClick = onClearRoute,
+                    shape = CircleShape,
+                    color = CanonMint,
+                    modifier = Modifier.minimumInteractiveComponentSize().size(32.dp),
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = appText("Сбросить маршрут", "Маршрутты бетереү"), tint = CanonGreen2, modifier = Modifier.padding(8.dp))
+                }
+            }
+        }
+    }
+}
