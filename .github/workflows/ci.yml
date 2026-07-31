@@ -110,7 +110,15 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"     # проект собирается на JDK 17 (jvmTarget/sourceCompatibility = 17)
+          # JDK, на котором ЗАПУСКАЕТСЯ Gradle и юнит-тесты, — это НЕ то же самое, что целевой
+          # байткод: jvmTarget/sourceCompatibility остаются 17, их не трогаем.
+          # Почему 21: MapKit (com.yandex.android:maps.mobile:4.39.0-full) поставляется с
+          # байткодом новее 17, и на JDK 17 его классы не грузятся. Сборка APK это переживала
+          # (там классы не загружаются, только компилируются), а юнит-тесты — нет: 43 падения
+          # UnsupportedClassVersionError/NoClassDefFoundError, включая тесты чистой геометрии,
+          # которым MapKit нужен лишь ради типа Point. Локально Александр гоняет тесты под JBR
+          # из Android Studio (это JDK 21) — поэтому у него они шли, а в CI падали.
+          java-version: "21"
           cache: gradle          # кеш ~/.gradle → быстрее повторные сборки
       - uses: android-actions/setup-android@v3
       - name: Собрать debug APK
