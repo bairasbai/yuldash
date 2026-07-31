@@ -145,6 +145,50 @@ private val LhCaption = 18.sp
 // Отдельная от CanonCardShape(28)/CanonItemShape(22) — это «мелкая» ступень той же лестницы.
 private val InstantControlShape = RoundedCornerShape(16.dp)
 
+/**
+ * Тон финальной карточки. До этого раунда крестик отмены был ЗЕЛЁНЫМ: цвет говорил «всё
+ * хорошо», а надпись под ним — «заказ отменён». Человек читает цвет раньше текста, поэтому
+ * они обязаны говорить одно и то же.
+ */
+private enum class InstantTone { Good, Bad }
+
+/**
+ * Полоска фаз заказа: «Ищем → Едет → На месте → В пути». Человек на морозе не читает —
+ * он смотрит. Полоска отвечает «где я сейчас» за долю секунды и заполняется с анимацией,
+ * поэтому смена фазы видна как движение вперёд, а не как подмена надписи.
+ *
+ * @param step 0 = ищем, 1 = водитель едет, 2 = машина на месте, 3 = в пути.
+ */
+@Composable
+private fun InstantTripPhaseBar(step: Int, modifier: Modifier = Modifier) {
+    val labels = listOf(
+        appText("Ищем", "Эҙләйбеҙ"),
+        appText("Едет", "Килә"),
+        appText("На месте", "Урынында"),
+        appText("В пути", "Юлда"),
+    )
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        labels.forEachIndexed { i, label ->
+            val passed = i <= step
+            val segment by animateColorAsState(
+                if (passed) CanonGreen2 else CanonBorder, tween(340), label = "phaseSeg$i",
+            )
+            val ink by animateColorAsState(
+                if (i == step) CanonText else CanonMuted, tween(340), label = "phaseInk$i",
+            )
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(segment))
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    label, color = ink, fontSize = TxCaption, lineHeight = LhCaption,
+                    fontWeight = if (i == step) FontWeight.Black else FontWeight.Normal,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
 // ------------------------------ Время сервера (наивный UTC ISO) ------------------------------
 /** Сервер шлёт наивные UTC-даты ISO («2026-07-10T12:34:56.123456») — переводим в epoch ms. */
 private fun isoUtcToEpochMs(iso: String): Long? = runCatching {
@@ -361,7 +405,7 @@ internal fun InstantOrderScreen(
     var restoreError by remember { mutableStateOf(false) }
     // Связь с сервером при поллинге активного заказа потеряна → мягкий баннер «пробуем ещё», не молчим.
     var pollOffline by remember { mutableStateOf(false) }
-    var restoreTick by remember { mutableStateOf(0) }
+    var restoreTick by remember { mutableIntStateOf(0) }   // Int-состояние без автобокса
 
     // Восстановление активного заказа при входе на экран + проверка доступности такси в точке.
     LaunchedEffect(restoreTick) {
@@ -502,6 +546,7 @@ internal fun InstantOrderScreen(
                             action = appText("Новый заказ", "Яңы заказ"),
                             onAction = { order = null },
                             onSecondary = onBack,
+                            tone = InstantTone.Bad,   // отмена — красный кружок, не зелёный
                             // B8-8: телефон/чат уже открывались → мягко напоминаем завершать поездку в приложении.
                             extra = if (o.contactThenCancel) ({ ContactCancelSoftBanner() }) else null,
                         )
@@ -628,6 +673,132 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
 }
 
 // ------------------------------ «Куда едем?» (пикер + оценка) ------------------------------
+
+/** Русское склонение: «1 машина», «2 машины», «5 машин». Раньше всегда было «N машин рядом»,
+ *  и при одной свободной машине бейдж читался как опечатка. В башкирском счётное слово
+ *  остаётся в единственном числе — там менять нечего. */
+private fun carsWordRu(n: Int): String {
+    val h = n % 100
+    val t = n % 10
+    return when {
+        h in 11..14 -> "машин"
+        t == 1 -> "машина"
+        t in 2..4 -> "машины"
+        else -> "машин"
+    }
+}
+
+/**
+ * Бейдж поверх карты: сколько РЕАЛЬНЫХ машин на линии рядом. Вынесен в отдельную функцию не
+ * ради красоты — `AnimatedVisibility` внутри `Box`, когда выше по коду есть `Column`, не
+ * компилируется (компилятор берёт ColumnScope-версию, а получателя нет).
+ *
+ * @param loaded пришёл ли успешный ответ. Пока нет — молчим: «рядом никого» без ответа сервера
+ *               было бы выдумкой.
+ */
+@Composable
+private fun InstantNearbyBadge(count: Int, loaded: Boolean, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = loaded,
+        enter = fadeIn(tween(280)) + expandVertically(),
+        exit = fadeOut(tween(160)) + shrinkVertically(),
+        modifier = modifier,
+    ) {
+        Surface(color = CanonSurface, shape = CircleShape, shadowElevation = 2.dp) {
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 6.dp).heightIn(min = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.LocalTaxi,
+                    contentDescription = appText("Машины рядом", "Яҡындағы машиналар"),
+                    tint = if (count > 0) CanonTaxi else CanonMuted, modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                AnimatedContent(targetState = count, label = "nearbyCount") { n ->
+                    Text(
+                        if (n > 0) appText("$n ${carsWordRu(n)} рядом", "$n машина яҡында")
+                        else appText("Рядом машин нет — поищем дальше", "Яҡында машина юҡ — арыраҡ ҡарайбыҙ"),
+                        color = if (n > 0) CanonText else CanonMuted,
+                        fontSize = TxCaption, lineHeight = LhCaption, fontWeight = FontWeight.Bold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Подсказки адреса — со ВСЕМИ состояниями, а не только с успехом. Раньше здесь был голый
+ * `forEach`: пока геокодер думал, список был пуст, и «ещё ищем» ничем не отличалось от
+ * «ничего не нашли» — человек в обоих случаях видел пустоту и не понимал, ждать ему или
+ * переписывать адрес.
+ */
+@Composable
+private fun InstantAddressResults(
+    query: String,
+    searching: Boolean,
+    hits: List<com.yuldash.app.data.GeoHit>,
+    onPick: (com.yuldash.app.data.GeoHit) -> Unit,
+) {
+    // Короче двух букв не ищем вообще (дебаунс в пикере) — значит и «не нашли» показывать не за что.
+    val asked = query.trim().length >= 2
+    val state = when {
+        searching -> "loading"
+        asked && hits.isEmpty() -> "empty"
+        hits.isEmpty() -> "idle"
+        else -> "hits"
+    }
+    AnimatedContent(
+        targetState = state,
+        transitionSpec = { fadeIn(tween(220)).togetherWith(fadeOut(tween(120))) },
+        label = "addrResults",
+    ) { s ->
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            when (s) {
+                // Форма будущего списка вместо пустоты: видно, что поиск идёт.
+                "loading" -> repeat(3) { i ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                        SkeletonBox(widthFraction = if (i == 2) 0.52f else 0.86f, height = 14.dp, shape = CircleShape)
+                    }
+                }
+                "empty" -> Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        appText("Такого адреса не нашли. Попробуй короче — «Ленина 12» — или выбери точку на карте.",
+                            "Бындай адрес табылманы. Ҡыҫҡараҡ яҙып ҡара — «Ленина 12» — йәки картанан нөктә һайла."),
+                        color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                    )
+                }
+                "hits" -> hits.forEach { hit ->
+                    Row(
+                        Modifier.fillMaxWidth()
+                            // heightIn до clickable: тач-цель = 48dp, а длинный адрес в две строки
+                            // растягивает строку, а не обрезается.
+                            .heightIn(min = 48.dp)
+                            .clip(InstantControlShape)
+                            .clickable { onPick(hit) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            hit.title, color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun InstantDestinationPicker(
     onOrderCreated: (InstantOrderDto) -> Unit,
@@ -678,7 +849,7 @@ private fun InstantDestinationPicker(
     // Сохранённые (Дом/Работа) + недавние: быстрый выбор адреса Б без повторного геокодинга.
     var savedPlaces by remember { mutableStateOf<List<com.yuldash.app.data.SavedPlaceDto>>(emptyList()) }
     var recentPlaces by remember { mutableStateOf<List<com.yuldash.app.data.RecentPlaceDto>>(emptyList()) }
-    var placesReload by remember { mutableStateOf(0) }
+    var placesReload by remember { mutableIntStateOf(0) }
     LaunchedEffect(placesReload) {
         if (ApiClient.isLoggedIn()) {
             ApiClient.getSavedPlaces().onSuccess { savedPlaces = it }
@@ -729,11 +900,14 @@ private fun InstantDestinationPicker(
     // «Честные машины рядом»: пока адрес Б не выбран — реальные машины на линии рядом (presence).
     // Обновляем раз в 15с. Выбрал адрес → прячем (на карте появится маршрут). Нет — просто пусто.
     var nearbyDrivers by remember { mutableStateOf<List<com.yuldash.app.data.NearbyDriverDto>>(emptyList()) }
+    // Пришёл ли хоть один УСПЕШНЫЙ ответ. Без этого «машин рядом нет» и «ещё не спросили»
+    // выглядят одинаково — пустым местом, и мы молча врём человеку, что рядом пусто.
+    var nearbyLoaded by remember { mutableStateOf(false) }
     LaunchedEffect(effFrom, toPoint) {
         if (toPoint != null) { nearbyDrivers = emptyList(); return@LaunchedEffect }
         val f = effFrom ?: return@LaunchedEffect
         while (true) {
-            ApiClient.getNearbyDrivers(f.latitude, f.longitude).onSuccess { nearbyDrivers = it }
+            ApiClient.getNearbyDrivers(f.latitude, f.longitude).onSuccess { nearbyDrivers = it; nearbyLoaded = true }
             delay(15_000)
         }
     }
@@ -742,9 +916,15 @@ private fun InstantDestinationPicker(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(appText("Куда едем?", "Ҡайҙа барабыҙ?"), color = CanonText, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black)
-        Text(appText("Машина приедет за тобой. Цену считаем заранее — без сюрпризов.", "Машина һине алырға килә. Хаҡты алдан иҫәпләйбеҙ — сюрприздарһыҙ."),
-            color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+        Text(
+            appText("Куда едем?", "Ҡайҙа барабыҙ?"),
+            color = CanonText, fontSize = TxTitle, lineHeight = LhTitle, fontWeight = FontWeight.Black,
+        )
+        Text(
+            appText("Машина приедет за тобой. Цену считаем заранее — без сюрпризов.",
+                "Машина һине алырға килә. Хаҡты алдан иҫәпләйбеҙ — сюрприздарһыҙ."),
+            color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+        )
 
         // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что помощь близко.
         // Показываем, только когда знаем позицию. Машинки — из presence, ≈ETA до подачи.
@@ -756,17 +936,11 @@ private fun InstantDestinationPicker(
                         from = effFrom, to = null, nearbyDrivers = nearbyDrivers,
                         modifier = Modifier.fillMaxWidth().height(190.dp),
                     )
-                    if (nearbyDrivers.isNotEmpty()) {
-                        Surface(color = CanonSurface, shape = RoundedCornerShape(999.dp),
-                            shadowElevation = 2.dp, modifier = Modifier.align(Alignment.TopStart).padding(10.dp)) {
-                            Row(Modifier.padding(horizontal = 11.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.LocalTaxi, contentDescription = null, tint = CanonTaxi, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(5.dp))
-                                Text(appText("${nearbyDrivers.size} машин рядом", "${nearbyDrivers.size} машина яҡында"),
-                                    color = CanonText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
+                    InstantNearbyBadge(
+                        count = nearbyDrivers.size,
+                        loaded = nearbyLoaded,
+                        modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
+                    )
                 }
             }
         }
@@ -777,21 +951,43 @@ private fun InstantDestinationPicker(
                 Icon(Icons.Default.MyLocation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(appText("Откуда", "Ҡайҙан"), color = CanonMuted, fontSize = 12.sp)
+                    Text(
+                        appText("Откуда", "Ҡайҙан"),
+                        color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                    )
                     val label = when {
                         fromManual && fromText.isNotBlank() -> fromText
                         effFrom != null -> appText("Моя позиция", "Минең урын")
                         hasLocPerm -> appText("Определяем…", "Билдәләйбеҙ…")
                         else -> appText("Включи геолокацию", "Геолокацияны ҡабыҙ")
                     }
-                    Text(label, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    // «Определяем…» → «Моя позиция» приходило рывком, будто экран моргнул.
+                    AnimatedContent(targetState = label, label = "fromLabel") { text ->
+                        Text(
+                            text, color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                            fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
+                // Тач-цель: у TextButton своя высота 40dp — ниже нормы 48dp, а мимо этой кнопки
+                // человек промахивается в перчатках, стоя на остановке.
                 if (!hasLocPerm && !fromManual) {
-                    TextButton(onClick = { locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }) {
-                        Text(appText("Включить", "Ҡабыҙ"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                    TextButton(
+                        onClick = { locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(
+                            appText("Включить", "Ҡабыҙ"), color = CanonGreen2,
+                            fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                        )
                     }
                 } else {
-                    TextButton(onClick = { pickFromOnMap = true }) { Text(appText("На карте", "Картала"), color = CanonGreen2) }
+                    TextButton(onClick = { pickFromOnMap = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(
+                            appText("На карте", "Картала"), color = CanonGreen2,
+                            fontSize = TxBody, lineHeight = LhBody,
+                        )
+                    }
                 }
             }
         }
@@ -816,27 +1012,26 @@ private fun InstantDestinationPicker(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                suggestions.forEach { hit ->
-                    Row(
-                        Modifier.fillMaxWidth().height(48.dp)
-                            .clickable {
-                                toPoint = Point(hit.lat, hit.lon); toText = hit.title; query = ""; suggestions = emptyList()
-                            },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Text(hit.title, color = CanonText, fontSize = 14.sp, maxLines = 1)
-                    }
-                }
+                InstantAddressResults(
+                    query = query,
+                    searching = searchingAddr,
+                    hits = suggestions,
+                    onPick = { hit ->
+                        toPoint = Point(hit.lat, hit.lon); toText = hit.title; query = ""; suggestions = emptyList()
+                    },
+                )
                 OutlinedButton(
                     onClick = { pickOnMap = true },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = InstantControlShape,
                 ) {
                     Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(appText("Выбрать точку на карте", "Картала нөктә һайлау"))
+                    Text(
+                        appText("Выбрать точку на карте", "Картала нөктә һайлау"),
+                        fontSize = TxBody, lineHeight = LhBody,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                    )
                 }
             }
         }
@@ -886,7 +1081,7 @@ private fun InstantDestinationPicker(
             val pct = (((est?.surgeK ?: 1.0) - 1.0) * 100).toInt()
             Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("⚡", fontSize = 22.sp)
+                    Text("⚡", fontSize = TxTitle, lineHeight = LhTitle)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -895,7 +1090,7 @@ private fun InstantDestinationPicker(
                                 est?.surgeNoteRu?.ifBlank { null } ?: "Сейчас заказов больше обычного — цена выше на $pct%. Вызвать или подождать?",
                                 est?.surgeNoteBa?.ifBlank { null } ?: "Хәҙер заказдар күберәк — хаҡ $pct%-ҡа юғарыраҡ. Саҡырырғамы, әллә көтөргәме?",
                             ),
-                            color = CanonText, fontSize = 13.sp, lineHeight = 18.sp,
+                            color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
                         )
                     }
                 }
@@ -905,30 +1100,78 @@ private fun InstantDestinationPicker(
         // Оценка цены
         if (toPoint != null) {
             Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    when {
-                        estimating -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
-                            Spacer(Modifier.width(10.dp))
-                            Text(appText("Считаем цену…", "Хаҡты иҫәпләйбеҙ…"), color = CanonMuted, fontSize = 14.sp)
-                        }
-                        errorText != null -> Text(errorText!!, color = CanonRed, fontSize = 14.sp)
-                        estimate != null -> {
-                            val est = estimate!!
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${est.price} ₽", color = CanonText, fontSize = 30.sp, fontWeight = FontWeight.Black)
-                                Spacer(Modifier.width(10.dp))
-                                Text(appText("примерно", "яҡынса"), color = CanonMuted, fontSize = 13.sp)
+                // Три состояния цены сменяются кросс-фейдом и в ОДНОЙ высоте: раньше карточка
+                // на каждом пересчёте схлопывалась и раздувалась, и кнопка «Вызвать» прыгала
+                // под пальцем. Скелетон вместо спиннера держит форму будущего числа.
+                val estPhase = when {
+                    estimating -> "calc"
+                    errorText != null -> "err"
+                    estimate != null -> "ok"
+                    else -> "none"
+                }
+                AnimatedContent(
+                    targetState = estPhase,
+                    transitionSpec = { fadeIn(tween(240)).togetherWith(fadeOut(tween(140))) },
+                    label = "estimatePhase",
+                ) { phase ->
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        when (phase) {
+                            "calc" -> {
+                                SkeletonBox(widthFraction = 0.42f, height = 30.dp, shape = InstantControlShape)
+                                SkeletonBox(widthFraction = 0.72f, height = 14.dp, shape = CircleShape)
+                                Text(
+                                    appText("Считаем цену…", "Хаҡты иҫәпләйбеҙ…"),
+                                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                )
                             }
-                            val meta = buildList {
-                                if (est.distanceKm > 0) add(appText("≈ ${est.distanceKm.toInt()} км", "≈ ${est.distanceKm.toInt()} км"))
-                                if (est.etaMin > 0) add(appText("≈ ${est.etaMin.toInt()} мин в пути", "≈ ${est.etaMin.toInt()} мин юлда"))
-                                // Время ПОДАЧИ — то, что человек на самом деле хочет знать перед
-                                // заказом. Раньше его не показывали вообще: была только длительность
-                                // поездки, и «когда приедет?» оставалось без ответа.
-                                est.pickupEtaMin?.let { add(appText("машина через ≈$it мин", "машина ≈$it минуттан")) }
-                            }.joinToString("  ·  ")
-                            if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
+                            // Ошибка больше не тупик: раньше это была красная строка без единой
+                            // кнопки — заказать нельзя, повторить нечем, выход только «назад».
+                            "err" -> {
+                                Text(
+                                    errorText ?: appText("Не удалось оценить цену", "Хаҡты баһалап булманы"),
+                                    color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
+                                )
+                                Text(
+                                    appText("Проверь интернет — без цены заказывать нельзя.",
+                                        "Интернетты тикшер — хаҡһыҙ заказ итеп булмай."),
+                                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                AppButton(
+                                    text = appText("Повторить", "Ҡабатларға"),
+                                    onClick = { estimateTick++ },
+                                    style = AppButtonStyle.Secondary,
+                                    icon = Icons.Default.Search,
+                                    height = 48.dp,
+                                )
+                            }
+                            "ok" -> estimate?.let { est ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // Доминанта экрана: сюда человек и смотрит.
+                                    AnimatedContent(targetState = est.price, label = "estPrice") { p ->
+                                        Text(
+                                            "$p ₽", color = CanonText, fontSize = TxHero, lineHeight = LhHero,
+                                            fontWeight = FontWeight.Black,
+                                        )
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        appText("примерно", "яҡынса"),
+                                        color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                    )
+                                }
+                                val meta = buildList {
+                                    if (est.distanceKm > 0) add(appText("≈ ${est.distanceKm.toInt()} км", "≈ ${est.distanceKm.toInt()} км"))
+                                    if (est.etaMin > 0) add(appText("≈ ${est.etaMin.toInt()} мин в пути", "≈ ${est.etaMin.toInt()} мин юлда"))
+                                    // Время ПОДАЧИ — то, что человек на самом деле хочет знать перед
+                                    // заказом. Раньше его не показывали вообще: была только длительность
+                                    // поездки, и «когда приедет?» оставалось без ответа.
+                                    est.pickupEtaMin?.let { add(appText("машина через ≈$it мин", "машина ≈$it минуттан")) }
+                                }.joinToString("  ·  ")
+                                if (meta.isNotBlank()) Text(
+                                    meta, color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                                )
+                            }
                         }
                     }
                 }
@@ -997,8 +1240,9 @@ private fun InstantDestinationPicker(
                 }
             },
             enabled = effFrom != null && toPoint != null && estimate != null && !creating,
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-            shape = RoundedCornerShape(16.dp),
+            // heightIn: на крупном системном шрифте фиксированные 54dp срезали надпись с ценой.
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
+            shape = InstantControlShape,
             colors = ButtonDefaults.buttonColors(containerColor = CanonTaxi, contentColor = CanonTaxiInk),   // жёлтый — режим такси
         ) {
             if (creating) {
@@ -1006,16 +1250,21 @@ private fun InstantDestinationPicker(
             } else {
                 Icon(if (scheduled) Icons.Default.AccessTime else Icons.Default.DirectionsCar, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    when {
-                        // Предзаказ «на время»: показываем время подачи.
-                        scheduled -> appText("Заказать на ${clockHm(scheduledAtMs!!)}", "${clockHm(scheduledAtMs!!)}-ға заказ итеү")
-                        // Глагол-действие: «Вызвать машину» понятнее, чем «Заказать» (эталон Яндекс/inDrive).
-                        estimate != null -> appText("Вызвать за ${estimate!!.price} ₽", "${estimate!!.price} ₽-ға саҡырыу")
-                        else -> appText("Вызвать машину", "Машина саҡырыу")
-                    },
-                    fontSize = 16.sp, fontWeight = FontWeight.Bold,
-                )
+                val label = when {
+                    // Предзаказ «на время»: показываем время подачи.
+                    scheduled -> appText("Заказать на ${clockHm(scheduledAtMs!!)}", "${clockHm(scheduledAtMs!!)}-ға заказ итеү")
+                    // Глагол-действие: «Вызвать машину» понятнее, чем «Заказать» (эталон Яндекс/inDrive).
+                    estimate != null -> appText("Вызвать за ${estimate!!.price} ₽", "${estimate!!.price} ₽-ға саҡырыу")
+                    else -> appText("Вызвать машину", "Машина саҡырыу")
+                }
+                // Цена в кнопке меняется вместе с классом машины — без анимации это выглядело
+                // как подмена суммы в последний момент перед нажатием.
+                AnimatedContent(targetState = label, label = "orderCta") { text ->
+                    Text(
+                        text, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Black,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                    )
+                }
             }
         }
         Text(
@@ -1023,7 +1272,7 @@ private fun InstantDestinationPicker(
                 "Алдан заказ үҙ ваҡытын көтә. Эҙләүҙе башлар өсөн Юлдашты килеү ваҡытына ас. Хаҡты килгәндә асыҡлайбыҙ.")
             else appText("Оплата водителю напрямую. Телефон водителя откроется после того, как он примет заказ.",
                 "Түләү водителгә тура. Водитель заказды алғас, уның телефоны асыла."),
-            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+            color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption)
     }
 
     if (pickOnMap) {
@@ -1342,24 +1591,45 @@ private fun InstantClassCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val border by animateColorAsState(if (selected) CanonGreen2 else CanonSurface, tween(200), label = "clsBorder")
+    // Невыбранная карточка раньше имела рамку цветом CanonSurface — то есть НЕВИДИМУЮ:
+    // на белом фоне вторая цена буквально висела в воздухе. Теперь это обычный бордер.
+    val border by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "clsBorder")
     val bg by animateColorAsState(if (selected) CanonGreen2.copy(alpha = 0.08f) else CanonSurface, tween(200), label = "clsBg")
+    // Еле заметный «подъём» выбранной карточки: выбор чувствуется пальцем, а не только глазом.
+    val scale by animateFloatAsState(if (selected) 1f else 0.98f, tween(200), label = "clsScale")
     Surface(
         onClick = onClick,
         shape = CanonItemShape,
         color = bg,
         border = BorderStroke(if (selected) 2.dp else 1.dp, border),
-        modifier = modifier.height(76.dp),
+        // heightIn: при системном крупном шрифте фиксированные 76dp срезали подпись класса.
+        modifier = modifier.heightIn(min = 76.dp).graphicsLayer { scaleX = scale; scaleY = scale },
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.Center) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(
+                    title, color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                    fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(6.dp))
                 if (price != null) {
-                    Text("$price ₽", color = if (selected) CanonGreen2 else CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black)
+                    AnimatedContent(targetState = price, label = "clsPrice") { p ->
+                        Text(
+                            "$p ₽", color = if (selected) CanonGreen2 else CanonText,
+                            fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Black,
+                        )
+                    }
+                } else {
+                    // Цена ещё считается: держим её место, иначе карточка прыгает в момент ответа.
+                    Box(Modifier.width(46.dp)) { SkeletonBox(height = 14.dp, shape = CircleShape) }
                 }
             }
             Spacer(Modifier.height(2.dp))
-            Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+            Text(
+                subtitle, color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -1375,23 +1645,41 @@ private fun InstantWaitingRow(order: InstantOrderDto) {
     val freeSec = order.waitFreeMin * 60L
     val isFree = elapsedSec < freeSec
     val accent by animateColorAsState(if (isFree) CanonGreen2 else CanonRed, tween(300), label = "waitAccent")
+    // Доля бесплатного окна, что ещё осталась. Тикает раз в секунду — тянем плавно, чтобы
+    // полоска ползла, а не дёргалась. Стартовое значение = реальный остаток (это обратный
+    // отсчёт, а не «рост»: анимировать его с нуля было бы враньём).
+    val freeLeftFraction = if (freeSec > 0) ((freeSec - elapsedSec).toFloat() / freeSec).coerceIn(0f, 1f) else 0f
+    val freeProgress by animateFloatAsState(freeLeftFraction, tween(1000, easing = LinearEasing), label = "waitFree")
     Surface(shape = CanonItemShape, color = accent.copy(alpha = 0.08f), border = BorderStroke(1.dp, accent.copy(alpha = 0.4f))) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.AccessTime, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AccessTime, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                if (isFree) {
+                    val left = freeSec - elapsedSec
+                    Text(
+                        appText("Бесплатное ожидание %d:%02d".format(left / 60, left % 60),
+                            "Бушлай көтөү %d:%02d".format(left / 60, left % 60)),
+                        color = CanonText, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                    )
+                } else {
+                    val paidRub = ((elapsedSec / 60 - order.waitFreeMin).coerceAtLeast(0)) * order.waitFeeRubPerMin
+                    Text(
+                        appText("Платное ожидание · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (уже +$paidRub ₽)" else ""),
+                            "Түләүле көтөү · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (инде +$paidRub ₽)" else "")),
+                        color = CanonText, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            // Пока окно бесплатное — видно, СКОЛЬКО его осталось, без чтения цифр.
             if (isFree) {
-                val left = freeSec - elapsedSec
-                Text(
-                    appText("Бесплатное ожидание %d:%02d".format(left / 60, left % 60),
-                        "Бушлай көтөү %d:%02d".format(left / 60, left % 60)),
-                    color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                )
-            } else {
-                val paidRub = ((elapsedSec / 60 - order.waitFreeMin).coerceAtLeast(0)) * order.waitFeeRubPerMin
-                Text(
-                    appText("Платное ожидание · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (уже +$paidRub ₽)" else ""),
-                        "Түләүле көтөү · +${order.waitFeeRubPerMin} ₽/мин" + (if (paidRub > 0) " (инде +$paidRub ₽)" else "")),
-                    color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                LinearProgressIndicator(
+                    progress = { freeProgress },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                    color = accent, trackColor = CanonBorder,
                 )
             }
         }
@@ -1406,28 +1694,81 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
         initialValue = 0.4f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse), label = "pulse",
     )
+    // Сколько человек уже смотрит на этот экран. Считаем ЛОКАЛЬНО: времени создания заказа
+    // сервер не отдаёт, а «ищем уже 3 минуты» после возврата на экран было бы враньём. Поэтому
+    // время меняет только ФОРМУЛИРОВКУ ожидания — без точных цифр, которые нечем подтвердить.
+    val startMs = remember(order.id) { System.currentTimeMillis() }
+    val now by rememberNowMs()
+    val watchedSec = ((now - startMs) / 1000).coerceAtLeast(0)
+    val waitStage = when {
+        watchedSec < 25L -> 0
+        watchedSec < 70L -> 1
+        else -> 2
+    }
     Column(
-        Modifier.fillMaxSize().padding(20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
             Box(Modifier.size((60 + pulse * 56).dp).background(CanonGreen2.copy(alpha = 0.12f * pulse), CircleShape))
             Surface(shape = CircleShape, color = CanonGreen2) {
-                Icon(painterResource(R.drawable.yu_map_car), contentDescription = null, tint = CanonBg, modifier = Modifier.padding(20.dp).size(34.dp))
+                Icon(
+                    painterResource(R.drawable.yu_map_car),
+                    contentDescription = appText("Ищем машину", "Машина эҙләйбеҙ"),
+                    tint = CanonBg, modifier = Modifier.padding(20.dp).size(34.dp),
+                )
             }
         }
         Spacer(Modifier.height(24.dp))
-        Text(appText("Ищем машину рядом…", "Яҡында машина эҙләйбеҙ…"), color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        Text(
+            appText("Ищем машину рядом…", "Яҡында машина эҙләйбеҙ…"),
+            color = CanonText, fontSize = TxTitle, lineHeight = LhTitle,
+            fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+        )
         Spacer(Modifier.height(8.dp))
-        Text("${order.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
-            color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 2)
+        Text(
+            "${order.fromText.ifBlank { appText("Точка А", "А нөктәһе") }} → ${order.toText.ifBlank { appText("Точка Б", "Б нөктәһе") }}",
+            color = CanonMuted, fontSize = TxBody, lineHeight = LhBody, textAlign = TextAlign.Center,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
         Spacer(Modifier.height(4.dp))
-        Text(appText("≈ ${order.priceEstimate} ₽ · подбираем ближайшего водителя", "≈ ${order.priceEstimate} ₽ · яҡын водителде табабыҙ"),
-            color = CanonMuted, fontSize = 13.sp, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(32.dp))
-        OutlinedButton(onClick = onCancel, modifier = Modifier.height(48.dp), shape = RoundedCornerShape(14.dp)) {
-            Text(appText("Отменить заказ", "Заказды кире алыу"), color = CanonRed)
+        Text(
+            appText("≈ ${order.priceEstimate} ₽ · подбираем ближайшего водителя", "≈ ${order.priceEstimate} ₽ · яҡын водителде табабыҙ"),
+            color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption, textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(20.dp))
+        // Ответ на «сколько ещё ждать». Пустого обещания не даём — по мере ожидания текст
+        // честно меняется, и человек видит, что приложение про него не забыло.
+        AnimatedContent(
+            targetState = waitStage,
+            transitionSpec = { fadeIn(tween(260)).togetherWith(fadeOut(tween(160))) },
+            label = "searchStage",
+        ) { stage ->
+            Text(
+                when (stage) {
+                    0 -> appText("Обычно машина находится за 1–3 минуты",
+                        "Ғәҙәттә машина 1–3 минутта табыла")
+                    1 -> appText("Ещё ищем — свободных машин рядом сейчас мало",
+                        "Әле лә эҙләйбеҙ — яҡында буш машина аҙ")
+                    else -> appText("Ищем дольше обычного. Можно подождать — как найдём, сразу сообщим",
+                        "Ғәҙәттәгенән оҙағыраҡ эҙләйбеҙ. Көтөргә була — тапҡас, шунда уҡ хәбәр итәбеҙ")
+                },
+                color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption, textAlign = TextAlign.Center,
+            )
+        }
+        Spacer(Modifier.height(24.dp))
+        InstantTripPhaseBar(step = 0, modifier = Modifier.padding(horizontal = 8.dp))
+        Spacer(Modifier.height(24.dp))
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.heightIn(min = 48.dp),
+            shape = InstantControlShape,
+        ) {
+            Text(
+                appText("Отменить заказ", "Заказды кире алыу"),
+                color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
+            )
         }
     }
 }
@@ -1443,6 +1784,12 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
         "arriving" -> appText("Машина на месте", "Машина урынында")
         "onboard" -> appText("В пути", "Юлда")
         else -> appText("Водитель едет", "Водитель килә")
+    }
+    // Шаг для полоски фаз: тот же смысл, что и заголовок, но читается без чтения.
+    val phaseStep = when (order.status) {
+        "arriving" -> 2
+        "onboard" -> 3
+        else -> 1
     }
     var confirmPaidCancel by remember { mutableStateOf(false) }
     var showShare by remember(order.id) { mutableStateOf(false) }   // «Поделиться поездкой» (B7b-2)
@@ -1475,12 +1822,37 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(Modifier.padding(18.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // «Где я сейчас» одним взглядом — до того, как человек начнёт читать надписи.
+                InstantTripPhaseBar(step = phaseStep)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Navigation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(phaseTitle, color = CanonText, fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                    // Смена фазы — главное событие этого экрана. Мгновенная подмена надписи
+                    // («едет» → «на месте») читалась как сбой; теперь это движение вверх.
+                    AnimatedContent(
+                        targetState = phaseTitle,
+                        transitionSpec = {
+                            (fadeIn(tween(280)) + slideInVertically(tween(320)) { it / 3 })
+                                .togetherWith(fadeOut(tween(150)))
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = "enroutePhaseTitle",
+                    ) { title ->
+                        Text(
+                            title, color = CanonText, fontSize = TxTitle, lineHeight = LhTitle,
+                            fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     if (order.etaMin > 0 && order.status != "onboard") {
-                        Text(appText("≈ ${order.etaMin.toInt()} мин", "≈ ${order.etaMin.toInt()} мин"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(8.dp))
+                        // «Сколько ещё ждать» — второе по важности число после статуса.
+                        // Меняется плавно: скачущие минуты выглядят как ошибка связи.
+                        AnimatedContent(targetState = order.etaMin.toInt(), label = "enrouteEta") { m ->
+                            Text(
+                                appText("≈ $m мин", "≈ $m мин"), color = CanonGreen2,
+                                fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Black,
+                            )
+                        }
                     }
                 }
                 // Карточка водителя
@@ -1491,7 +1863,12 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(order.driverName.ifBlank { appText("Водитель", "Водитель") }, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text(
+                                order.driverName.ifBlank { appText("Водитель", "Водитель") },
+                                color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
                             if (order.driverVerified) {
                                 Spacer(Modifier.width(5.dp))
                                 Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
@@ -1501,7 +1878,10 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                             if (order.driverRating > 0) add("★ ${String.format(java.util.Locale.US, "%.1f", order.driverRating)}")
                             if (order.driverCar.isNotBlank()) add(order.driverCar)
                         }.joinToString("  ·  ")
-                        if (sub.isNotBlank()) Text(sub, color = CanonMuted, fontSize = 13.sp, maxLines = 1)
+                        if (sub.isNotBlank()) Text(
+                            sub, color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
                         // ГОСНОМЕР — по нему во дворе узнают машину. «Белая Гранта» не помогает,
                         // когда во дворе три белых Гранты; номер отдаётся только после accept.
                         if (order.driverPlate.isNotBlank()) {
@@ -1509,8 +1889,9 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                             Surface(color = CanonTaxiBg, shape = RoundedCornerShape(8.dp)) {
                                 Text(
                                     order.driverPlate,
-                                    color = CanonTaxiText, fontSize = 15.sp, fontWeight = FontWeight.Black,
-                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+                                    color = CanonTaxiText, fontSize = TxBody, lineHeight = LhBody,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 )
                             }
                         }
@@ -1543,13 +1924,13 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                     OutlinedButton(
                         // Поздняя отмена платная (подача) — честно предупреждаем ДО тапа.
                         onClick = { if (order.cancelFeeNowKop > 0) confirmPaidCancel = true else onCancel() },
-                        modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = InstantControlShape,
                     ) {
                         Text(
                             if (order.cancelFeeNowKop > 0)
                                 appText("Отменить · $cancelFeeRub ₽", "Кире алыу · $cancelFeeRub ₽")
                             else appText("Отменить заказ", "Заказды кире алыу"),
-                            color = CanonRed,
+                            color = CanonRed, fontSize = TxBody, lineHeight = LhBody,
                         )
                     }
                 }
@@ -1594,23 +1975,38 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedButton(
             onClick = { NavSignals.openSosForOrder.value = orderId },
-            modifier = Modifier.weight(1f).height(48.dp),
-            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+            shape = InstantControlShape,
             border = BorderStroke(1.dp, CanonRed.copy(alpha = 0.5f)),
         ) {
-            Icon(Icons.Default.Sos, contentDescription = null, tint = CanonRed, modifier = Modifier.size(18.dp))
+            Icon(
+                Icons.Default.Sos,
+                contentDescription = appText("Экстренная помощь", "Ашығыс ярҙам"),
+                tint = CanonRed, modifier = Modifier.size(18.dp),
+            )
             Spacer(Modifier.width(6.dp))
-            Text(appText("SOS", "SOS"), color = CanonRed, fontWeight = FontWeight.Bold)
+            Text(
+                appText("SOS", "SOS"), color = CanonRed,
+                fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Black,
+            )
         }
         if (onShare != null) {
             OutlinedButton(
                 onClick = onShare,
-                modifier = Modifier.weight(1.6f).height(48.dp),
-                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.weight(1.6f).heightIn(min = 48.dp),
+                shape = InstantControlShape,
             ) {
-                Icon(Icons.Default.IosShare, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                Icon(
+                    Icons.Default.IosShare,
+                    contentDescription = appText("Поделиться поездкой с близким", "Сәфәр менән яҡыныңа бүлешеү"),
+                    tint = CanonGreen2, modifier = Modifier.size(18.dp),
+                )
                 Spacer(Modifier.width(6.dp))
-                Text(appText("Поделиться поездкой", "Сәфәр менән бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(
+                    appText("Поделиться поездкой", "Сәфәр менән бүлешеү"), color = CanonGreen2,
+                    fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -1817,13 +2213,17 @@ private fun InstantNoDriversCard(
     val scope = rememberCoroutineScope()
     var busy by remember(order.id) { mutableStateOf(false) }
     // Сервер уже мог поставить заказ в очередь (вернулись на экран) — тогда сразу «ждём».
-    var waitMinutes by remember(order.id) { mutableStateOf(if (order.waitUntil.isNullOrBlank()) 0 else -1) }
+    var waitMinutes by remember(order.id) { mutableIntStateOf(if (order.waitUntil.isNullOrBlank()) 0 else -1) }
     var err by remember(order.id) { mutableStateOf<String?>(null) }
     val waiting = waitMinutes != 0
     val errFallback = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
 
     InstantFinalCard(
-        icon = Icons.Default.AccessTime,
+        // Два РАЗНЫХ состояния, и выглядеть они обязаны по-разному. «Рядом никого» — тупик,
+        // из которого нужен выход (красное такси). «Ищем дальше» — работа идёт, человек может
+        // убрать телефон в карман (зелёные часы + живая полоска ниже).
+        icon = if (waiting) Icons.Default.AccessTime else Icons.Default.LocalTaxi,
+        tone = if (waiting) InstantTone.Good else InstantTone.Bad,
         title = if (waiting) appText("Ищем машину дальше", "Машинаны эҙләүҙе дауам итәбеҙ")
         else appText("Рядом пока никого", "Яҡында әлегә бер кем дә юҡ"),
         subtitle = when {
@@ -1847,6 +2247,9 @@ private fun InstantNoDriversCard(
         onSecondary = onDone,
         extra = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Очередь ожидания: живая полоска — единственное доказательство, что поиск идёт,
+                // когда экран статичен, а телефон лежит в кармане.
+                if (waiting) InstantQueuePulse()
                 if (!waiting) {
                     AppButton(
                         text = appText("Подожду машину", "Машинаны көтәм"),
@@ -1868,11 +2271,36 @@ private fun InstantNoDriversCard(
                     )
                 }
                 err?.let {
-                    Text(it, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                    Text(
+                        it, color = CanonRed, fontSize = TxCaption, lineHeight = LhCaption,
+                        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         },
     )
+}
+
+/**
+ * «Мы всё ещё ищем» для очереди ожидания. Неопределённая полоска — честный сигнал: срок
+ * неизвестен, но работа идёт. Показываем ТОЛЬКО в очереди: в состоянии «рядом никого» такая
+ * же полоска врала бы, что поиск продолжается.
+ */
+@Composable
+private fun InstantQueuePulse() {
+    Surface(shape = CanonItemShape, color = CanonMint, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                appText("Поиск идёт прямо сейчас", "Эҙләү нәҡ хәҙер бара"),
+                color = CanonGreen2, fontSize = TxCaption, lineHeight = LhCaption,
+                fontWeight = FontWeight.Black,
+            )
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                color = CanonGreen2, trackColor = CanonBorder,
+            )
+        }
+    }
 }
 
 /**
@@ -1927,12 +2355,20 @@ private fun TaxiDisputeLink(order: InstantOrderDto, isDriver: Boolean) {
 private fun TaxiReceiptLink(orderId: Int) {
     OutlinedButton(
         onClick = { NavSignals.openTaxiReceipt.value = orderId },
-        modifier = Modifier.fillMaxWidth().height(48.dp),
-        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        shape = InstantControlShape,
     ) {
-        Icon(Icons.Default.IosShare, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+        Icon(
+            Icons.Default.IosShare,
+            contentDescription = appText("Открыть чек за поездку", "Сәфәр чеген асыу"),
+            tint = CanonGreen2, modifier = Modifier.size(18.dp),
+        )
         Spacer(Modifier.width(8.dp))
-        Text(appText("Чек за поездку", "Сәфәр чегы"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+        Text(
+            appText("Чек за поездку", "Сәфәр чегы"), color = CanonGreen2,
+            fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -1949,35 +2385,57 @@ private fun InstantFinalCard(
     action: String,
     onAction: () -> Unit,
     onSecondary: () -> Unit,
+    // Цвет кружка с иконкой. Good — зелёный (успех, ожидание), Bad — красный (отмена, «не найден»).
+    tone: InstantTone = InstantTone.Good,
     extra: (@Composable () -> Unit)? = null,   // §9: блок оценки/жалобы после done
 ) {
+    val accent = if (tone == InstantTone.Bad) CanonRed else CanonGreen2
+    val accentBg = if (tone == InstantTone.Bad) CanonDangerBg else CanonMint
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Surface(shape = CircleShape, color = CanonSurface) {
-            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(22.dp).size(40.dp))
+        Surface(shape = CircleShape, color = accentBg, modifier = Modifier.appearIn(0)) {
+            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.padding(22.dp).size(40.dp))
         }
         Spacer(Modifier.height(20.dp))
-        Text(title, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        Text(
+            title, color = CanonText, fontSize = TxTitle, lineHeight = LhTitle,
+            fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+            modifier = Modifier.appearIn(1),
+        )
         if (hero != null) {
             Spacer(Modifier.height(12.dp))
-            Text(hero, color = CanonGreen2, fontSize = 34.sp, lineHeight = 40.sp,
-                 fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            Text(
+                hero, color = accent, fontSize = TxHero, lineHeight = LhHero,
+                fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+                modifier = Modifier.appearIn(2),
+            )
         }
         Spacer(Modifier.height(8.dp))
-        Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
+        Text(
+            subtitle, color = CanonMuted, fontSize = TxBody, lineHeight = LhBody,
+            textAlign = TextAlign.Center, modifier = Modifier.appearIn(3),
+        )
         if (extra != null) {
             Spacer(Modifier.height(18.dp))
-            extra()
+            Column(Modifier.fillMaxWidth().appearIn(4)) { extra() }
         }
         Spacer(Modifier.height(28.dp))
-        Button(onClick = onAction, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
-            Text(action, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Button(
+            onClick = onAction,
+            // heightIn, а не height: при системном крупном шрифте фиксированная высота срезает надпись.
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).appearIn(5),
+            shape = InstantControlShape,
+            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+        ) {
+            Text(action, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Black)
         }
         Spacer(Modifier.height(8.dp))
-        TextButton(onClick = onSecondary) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
+        TextButton(onClick = onSecondary, modifier = Modifier.heightIn(min = 48.dp).appearIn(6)) {
+            Text(appText("Закрыть", "Ябыу"), color = CanonMuted, fontSize = TxBody, lineHeight = LhBody)
+        }
     }
 }
 
@@ -2609,7 +3067,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
     var actionError by remember { mutableStateOf<String?>(null) }
     // Первая загрузка упала по СЕТИ (не 404) → показываем «Повторить», а не «Заказ не найден».
     var loadError by remember { mutableStateOf(false) }
-    var reloadTick by remember { mutableStateOf(0) }
+    var reloadTick by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(orderId, reloadTick) {
         loading = true; loadError = false
@@ -2666,6 +3124,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                     title = appText("Заказ не найден", "Заказ табылманы"),
                     subtitle = appText("Возможно, он уже завершён или отменён.", "Бәлки, ул тамамланған йәки кире алынған."),
                     action = appText("К заказам", "Заказдарға"), onAction = onBack, onSecondary = onBack,
+                    tone = InstantTone.Bad,
                 )
                 current.status == "done" -> InstantFinalCard(
                     icon = Icons.Default.CheckCircle,
@@ -2698,6 +3157,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                         else -> appText("Заказ отменён.", "Заказ кире алынды.")
                     },
                     action = appText("К заказам", "Заказдарға"), onAction = onFinished, onSecondary = onFinished,
+                    tone = InstantTone.Bad,
                 )
                 else -> Column(Modifier.fillMaxSize()) {
                     InstantRouteMap(
