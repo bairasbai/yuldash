@@ -488,6 +488,24 @@ private fun SendParcelTab(onSent: () -> Unit) {
     val baseFilled = fromCity.isNotBlank() && toCity.isNotBlank() && size.isNotBlank()
     val receiverOk = receiverName.isNotBlank() && receiverPhone.isNotBlank()
 
+    // Мастер по шагам. Раньше это была ОДНА простыня из ~15 блоков: человек видел сразу все поля
+    // (включая необязательные) и не понимал, сколько ещё осталось. Три коротких шага — как в
+    // Самокате и Яндекс Доставке: на каждом видно, что спрашивают и сколько до конца.
+    var step by rememberSaveable { mutableStateOf(0) }
+    val stepRoute = 0      // способ доставки + откуда/куда
+    val stepParcel = 1     // что за посылка: размер, срочность, описание, цена, ценность
+    val stepReceiver = 2   // получатель, правила, отправка
+    val stepTotal = 3
+    // Валидация ПОШАГОВАЯ: дальше не пускаем, пока шаг не заполнен. Это и есть смысл мастера —
+    // ошибку видно сразу, а не в конце длинной формы.
+    val routeOk = fromCity.isNotBlank() && toCity.isNotBlank()
+    val parcelOk = size.isNotBlank() && buyBringOk
+    val stepTitle = when (step) {
+        stepRoute -> appText("Куда и как", "Ҡайҙа һәм нисек")
+        stepParcel -> appText("Что за посылка", "Ниндәй бандероль")
+        else -> appText("Получатель", "Алыусы")
+    }
+
     fun showCreatedReceipt(parcel: ParcelDto) {
         createdId = parcel.id
         createdCode = parcel.confirmCode
@@ -503,6 +521,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
         priceRub = ""; productRub = ""; estimate = null
         fromLat = null; fromLng = null; toLat = null; toLng = null
         error = null
+        step = stepRoute   // новый черновик начинается с первого шага, а не с последнего
     }
 
     if (createdId != 0) {
@@ -536,8 +555,17 @@ private fun SendParcelTab(onSent: () -> Unit) {
                 badge = appText("Доставка", "Доставка"),
             )
         }
+        item { ParcelStepProgress(step = step, total = stepTotal, title = stepTitle) }
+        // Сводка маршрута на последующих шагах. Не украшение: геокодер ЗАМЕНЯЕТ введённый город
+        // на распознанный (чтобы опечатка не ушла тихо в другой НП), а поля ввода остались на
+        // шаге 1 — без этой строки человек не увидел бы подмену. Плюс всегда виден и правится
+        // уже сделанный выбор.
+        if (step != stepRoute) item {
+            ParcelRouteSummary(fromCity = fromCity, toCity = toCity, onEdit = { if (!working) step = stepRoute })
+        }
+        // ── Шаг 1: способ доставки + маршрут ───────────────────────────────────────
         // Тип доставки
-        item {
+        if (step == stepRoute) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 DeliveryTypeCard(
                     "poputka", deliveryType == "poputka",
@@ -560,17 +588,18 @@ private fun SendParcelTab(onSent: () -> Unit) {
             }
         }
         // Маршрут
-        item {
+        if (step == stepRoute) item {
             ParcelField(fromCity, { fromCity = it; estimate = null }, appText("Откуда", "Ҡайҙан"), appText("Город отправления", "Ебәреү ҡалаһы"), cap = true)
         }
-        item {
+        if (step == stepRoute) item {
             ParcelField(toCity, { toCity = it; estimate = null }, appText("Куда", "Ҡайҙа"), appText("Город получения", "Алыу ҡалаһы"), cap = true)
         }
+        // ── Шаг 2: сама посылка ────────────────────────────────────────────────────
         // Размер
-        item {
+        if (step == stepParcel) item {
             Text(appText("Размер посылки", "Бандероль ҙурлығы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
         }
-        item {
+        if (step == stepParcel) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("small", "medium", "large").forEach { s ->
                     ParcelSizeCard(s, selected = size == s) { size = s; estimate = null }
@@ -578,7 +607,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
             }
         }
         // Срочность (курьер / купи-привези)
-        if (isCourier) {
+        if (isCourier && step == stepParcel) {
             item {
                 Text(appText("Когда доставить", "Ҡасан илтергә"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
             }
@@ -596,7 +625,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
             }
         }
         // Купи и привези: список покупок + сумма товара
-        if (deliveryType == "buy_bring") {
+        if (deliveryType == "buy_bring" && step == stepParcel) {
             item {
                 ParcelField(shoppingList, { shoppingList = it }, appText("Что купить", "Нимә алырға"), appText("Например: хлеб, молоко, лекарство из аптеки", "Мәҫәлән: икмәк, һөт, дарыуханан дарыу"), minLines = 2)
             }
@@ -613,12 +642,12 @@ private fun SendParcelTab(onSent: () -> Unit) {
             }
         }
         // Что за посылка / комментарий
-        item {
+        if (step == stepParcel) item {
             ParcelField(description, { description = it }, appText("Что за посылка", "Нимә бул"), appText("Например: документы, книга, гостинец", "Мәҫәлән: документтар, китап, күстәнәс"), minLines = 2)
         }
         // Сколько заплатишь попутчику. Только для «по пути»: у курьерских типов цену считает
         // сервер (EstimateCard ниже). Раньше поля не было, и человек соглашался везти вслепую.
-        if (!isCourier) {
+        if (!isCourier && step == stepParcel) {
             item {
                 ParcelField(
                     priceRub, { priceRub = it.filter(Char::isDigit).take(6) },
@@ -643,14 +672,14 @@ private fun SendParcelTab(onSent: () -> Unit) {
         }
         // Объявленная ценность. Поля не было вообще — и любой спор о повреждении падал в ветку
         // «ценность не объявлена»: доказывать было нечем, ориентира для компенсации не существовало.
-        item {
+        if (step == stepParcel) item {
             ParcelField(
                 declaredRub, { declaredRub = it.filter(Char::isDigit).take(6) },
                 appText("Ценность посылки, ₽ (необязательно)", "Бандероль хаҡы, ₽ (мотлаҡ түгел)"),
                 "0", phone = true,
             )
         }
-        item {
+        if (step == stepParcel) item {
             Text(
                 appText(
                     "Если что-то случится, это будет ориентиром при разборе. Не страховка — но без цифры спорить не о чем.",
@@ -659,25 +688,25 @@ private fun SendParcelTab(onSent: () -> Unit) {
                 color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
             )
         }
-        // Получатель
-        item {
+        // ── Шаг 3: получатель, правила, отправка ───────────────────────────────────
+        if (step == stepReceiver) item {
             Text(appText("Получатель", "Алыусы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
         }
-        item {
+        if (step == stepReceiver) item {
             ParcelField(receiverName, { receiverName = it }, appText("Имя получателя", "Алыусы исеме"), appText("Кто встретит курьера", "Курьерҙы кем ҡаршылай"), cap = true)
         }
-        item {
+        if (step == stepReceiver) item {
             ParcelField(receiverPhone, { receiverPhone = it }, appText("Телефон получателя", "Алыусы телефоны"), "+7 …", phone = true)
         }
         // Оценка стоимости (курьер / купи-привези) — показываем ЧЕСТНО, из чего сложилась цена
         estimate?.let { est ->
-            if (isCourier) item { EstimateCard(est) }
+            if (isCourier && step == stepReceiver) item { EstimateCard(est) }
         }
         // Обязательный чекбокс правил
-        item {
+        if (step == stepReceiver) item {
             RulesCheckbox(rulesAccepted) { rulesAccepted = !rulesAccepted }
         }
-        item {
+        if (step == stepReceiver) item {
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Text(
                     if (isCourier)
@@ -696,7 +725,17 @@ private fun SendParcelTab(onSent: () -> Unit) {
         if (error != null) {
             item { Text(error ?: "", color = CanonRed, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
         }
-        item {
+        // Шаги 1-2: «Далее». Кнопка неактивна, пока шаг не заполнен — человек сразу видит,
+        // что от него ждут, и не доходит до конца формы с пустым обязательным полем.
+        if (step != stepReceiver) item {
+            AppButton(
+                text = appText("Далее", "Артабан"),
+                onClick = { if (step == stepRoute && routeOk) step = stepParcel else if (step == stepParcel && parcelOk) step = stepReceiver },
+                style = AppButtonStyle.Accent,
+                enabled = if (step == stepRoute) routeOk else parcelOk,
+            )
+        }
+        if (step == stepReceiver) item {
             when {
                 // Попутка — как в M3: сразу создаём посылку.
                 !isCourier -> AppButton(
@@ -797,6 +836,81 @@ private fun SendParcelTab(onSent: () -> Unit) {
                 )
             }
         }
+        // «Назад» — на любом шаге кроме первого. Черновик при этом не теряется: все поля
+        // живут в rememberSaveable, ходить между шагами можно свободно.
+        if (step != stepRoute) item {
+            AppButton(
+                text = appText("Назад", "Кире"),
+                onClick = { if (!working) step -= 1 },
+                style = AppButtonStyle.Secondary,
+                enabled = !working,
+            )
+        }
+    }
+}
+
+/** Сводка «Откуда → Куда» на шагах 2-3 с кнопкой «изменить».
+ *  Показывает РАСПОЗНАННЫЕ названия городов (геокодер канонизирует ввод), поэтому опечатка,
+ *  уехавшая в соседний населённый пункт, остаётся заметной и после ухода с первого шага. */
+@Composable
+private fun ParcelRouteSummary(fromCity: String, toCity: String, onEdit: () -> Unit) {
+    Surface(
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.Default.LocalShipping, contentDescription = null, tint = CanonCourier, modifier = Modifier.size(20.dp))
+            Text(
+                "$fromCity → $toCity",
+                color = CanonText,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                modifier = Modifier.weight(1f),
+            )
+            // TextButton, а не Text с clickable: даёт ripple и тач-цель ≥48dp (§4.5).
+            TextButton(onClick = onEdit) {
+                Text(
+                    appText("изменить", "үҙгәртергә"),
+                    color = CanonCourier,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+        }
+    }
+}
+
+/** Полоска прогресса мастера: сколько шагов пройдено и как называется текущий.
+ *  Без неё длинная форма ощущается бесконечной — человек не знает, сколько ещё осталось. */
+@Composable
+private fun ParcelStepProgress(step: Int, total: Int, title: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            repeat(total) { i ->
+                val passed = i <= step
+                val barColor by animateColorAsState(
+                    if (passed) CanonCourier else CanonBorder, tween(240), label = "parcelStep$i",
+                )
+                Surface(
+                    color = barColor,
+                    shape = CircleShape,
+                    modifier = Modifier.weight(1f).height(5.dp),
+                ) {}
+            }
+        }
+        Text(
+            appText("Шаг ${step + 1} из $total · $title", "${step + 1}-се аҙым, барыһы $total · $title"),
+            color = CanonMuted,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
