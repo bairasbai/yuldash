@@ -380,3 +380,26 @@ state machine. Один и тот же route timeline и progress rail убир�
 всех затронутых ссылок. Если массовая замена уже попала в commit, следующий commit обязан
 полностью восстановить исходный файл и применить только локальный diff.
 
+
+## Не импортируй то, что является членом или параметром (2026-07-31)
+
+**Симптом:** `Unresolved reference 'X'` на строке `import ...X` — при том, что сам вызов `X` верный.
+
+**Три случая за одну сессию, все мои:**
+| Что импортировал | Чем оно на самом деле является |
+|---|---|
+| `androidx.compose.ui.semantics.mergeDescendants` | **именованный параметр**: `Modifier.semantics(mergeDescendants = true)` |
+| `androidx.compose.foundation.layout.weight` | **член** `RowScope`/`ColumnScope` (работает через получателя) |
+| `androidx.compose.ui.test.onAllNodes` | **член** правила: `composeRule.onAllNodes(...)` |
+
+**Правило перед добавлением импорта Compose-символа:** сначала грепнуть проект — используется ли
+он уже где-то БЕЗ импорта. Если да, это член или параметр, и импорт сломает компиляцию.
+
+```bash
+grep -rln "onAllNodes" android/app/src/test --include=*.kt   # 5 файлов используют
+grep -rc "^import .*\.onAllNodes$" <те файлы>                 # 0 импортов → это член
+```
+
+**Почему проверки это не поймали:** `tools/ktbaseline.sh` и `compile-data-layer.sh` разбирают
+только `android/app/src/main/`. Тестовые исходники (`src/test/`) не проверяются ничем локально —
+ошибка в них видна только из CI, а это круг в 11 минут. Учитывать при правках тестов.
