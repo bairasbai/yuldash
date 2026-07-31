@@ -8,7 +8,17 @@ package com.yuldash.app
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Typeface
+
+// Мягкая тень маркера. Раньше тень рисовалась «вторым телом» со сдвигом на 3px — получалась резкая
+// вторая фигура, из-за неё метки выглядели плоско-дёшево. Теперь настоящая размытая тень (shadowLayer)
+// на самой заливке: маркер как будто лежит НАД картой. Радиус держим маленьким — он должен помещаться
+// в запас `pad` по краям битмапа, иначе тень обрежется краем картинки.
+private fun Paint.softShadow(radius: Float = 3f, dy: Float = 2f) = apply {
+    setShadowLayer(radius, 0f, dy, 0x40000000)
+}
 
 // Маркер-«ценник» (стиль Яндекс/Airbnb): белая пилюля с ценой, цветная рамка, остриё вниз.
 // Boosted-поездка — золотой акцент, обычная — фирменный зелёный.
@@ -23,8 +33,8 @@ internal fun userPuckBitmap(): Bitmap {
     val c = Canvas(bmp)
     val cx = size / 2f
     val cy = size / 2f
-    c.drawCircle(cx, cy, 19f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#22000000") })
-    c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+    // белое кольцо с мягкой тенью (радиус тени 5 ≤ запас 16px до края) + зелёное ядро
+    c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }.softShadow(radius = 5f, dy = 2f))
     c.drawCircle(cx, cy, 11f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
     return bmp.also { userPuckCache = it }
 }
@@ -39,13 +49,16 @@ internal fun destFlagBitmap(): Bitmap {
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
     val green = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") }
+    // Флагшток и полотнище отбрасывают мягкую тень (радиус 3 помещается в поля битмапа) —
+    // флажок «стоит» на карте, а не наклеен на неё.
+    val greenLifted = Paint(green).softShadow(radius = 3f, dy = 2f)
     val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
-    val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22000000 }
-    c.drawOval(android.graphics.RectF(4f, h - 12f, 22f, h - 2f), shadow)   // тень у земли
-    c.drawRect(11f, 8f, 14.5f, h - 6f, green)                              // флагшток
-    // полотнище: белая кайма + зелёный вымпел
-    c.drawPath(android.graphics.Path().apply { moveTo(14.5f, 6f); lineTo(46f, 16f); lineTo(14.5f, 28f); close() }, white)
-    c.drawPath(android.graphics.Path().apply { moveTo(16f, 9.5f); lineTo(41f, 16f); lineTo(16f, 24.5f); close() }, green)
+    val ground = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1A000000 }
+    c.drawOval(RectF(4f, h - 12f, 22f, h - 2f), ground)                    // мягкое пятно у земли
+    c.drawRect(11f, 8f, 14.5f, h - 6f, greenLifted)                        // флагшток
+    // полотнище: белая кайма (она же отбрасывает тень флага) + зелёный вымпел
+    c.drawPath(Path().apply { moveTo(14.5f, 6f); lineTo(46f, 16f); lineTo(14.5f, 28f); close() }, Paint(white).softShadow(radius = 3f, dy = 2f))
+    c.drawPath(Path().apply { moveTo(16f, 9.5f); lineTo(41f, 16f); lineTo(16f, 24.5f); close() }, green)
     c.drawCircle(12.7f, h - 6f, 5f, white)                                 // точка у основания
     c.drawCircle(12.7f, h - 6f, 3f, green)
     return bmp.also { destFlagCache = it }
@@ -61,13 +74,12 @@ internal fun requestPinBitmap(): Bitmap {
     val accent = android.graphics.Color.parseColor("#E07B00")   // оранжевый = заявка (не поездка)
     val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
     val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
-    val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22000000 }
     val cx = s / 2f; val cy = s / 2f
-    c.drawCircle(cx, cy + 2f, 18f, shadow)
-    c.drawCircle(cx, cy, 18f, white)        // белая кайма
+    // белая кайма с мягкой тенью (17 + dy 2 + радиус 3 = 22 ≤ 23 — в границы битмапа помещается)
+    c.drawCircle(cx, cy, 17f, Paint(white).softShadow(radius = 3f, dy = 2f))
     c.drawCircle(cx, cy, 14f, fill)         // оранжевый круг
     c.drawCircle(cx, cy - 3f, 4.5f, white)  // голова человечка
-    c.drawRoundRect(android.graphics.RectF(cx - 6f, cy + 1f, cx + 6f, cy + 10f), 4f, 4f, white)  // тело
+    c.drawRoundRect(RectF(cx - 6f, cy + 1f, cx + 6f, cy + 10f), 4f, 4f, white)  // тело
     return bmp.also { requestPinCache = it }
 }
 
@@ -129,19 +141,21 @@ internal fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
     val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = 3f; color = accent
     }
-    val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22000000 }
-    // остриё СВЕРХУ (смотрит на город), пилюля под ним → цена ниже названия города
-    val tip = android.graphics.Path().apply {
-        moveTo(cx - pointer / 2, pillTop + 2f)
-        lineTo(cx + pointer / 2, pillTop + 2f)
-        lineTo(cx, pad)
-        close()
+    // Остриё СВЕРХУ (смотрит на город), пилюля под ним → цена ниже названия города.
+    // Остриё и пилюля объединяются в ОДИН силуэт (Path.op UNION): раньше их рисовали по отдельности,
+    // и обводка пилюли прочерчивала лишнюю линию поперёк основания острия. Теперь контур один сплошной,
+    // а тень — мягкая, под всей фигурой сразу.
+    val silhouette = Path().apply {
+        addRoundRect(RectF(left, pillTop, right, pillBottom), radius, radius, Path.Direction.CW)
+        op(Path().apply {
+            moveTo(cx - pointer / 2, pillTop + 2f)
+            lineTo(cx + pointer / 2, pillTop + 2f)
+            lineTo(cx, pad)
+            close()
+        }, Path.Op.UNION)
     }
-    c.drawRoundRect(left, pillTop + 3f, right, pillBottom + 3f, radius, radius, shadow)
-    c.drawPath(tip, white)
-    c.drawPath(tip, border)
-    c.drawRoundRect(left, pillTop, right, pillBottom, radius, radius, white)
-    c.drawRoundRect(left, pillTop, right, pillBottom, radius, radius, border)
+    c.drawPath(silhouette, Paint(white).softShadow(radius = 3f, dy = 2f))
+    c.drawPath(silhouette, border)
     val fm = textPaint.fontMetrics
     val ty = pillTop + pillH / 2 - (fm.ascent + fm.descent) / 2
     c.drawText(price, left + padX, ty, textPaint)
@@ -176,17 +190,17 @@ internal fun carEtaBitmap(eta: String): Bitmap {
     val radius = pillH / 2
     val cx = (left + right) / 2
     val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = taxi }
-    val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x22000000 }
-    // остриё СНИЗУ (смотрит на точку машины на карте)
-    val tip = android.graphics.Path().apply {
-        moveTo(cx - pointer / 2, pillBottom - 2f)
-        lineTo(cx + pointer / 2, pillBottom - 2f)
-        lineTo(cx, pillBottom + pointer)
-        close()
+    // Остриё СНИЗУ (смотрит на точку машины) + пилюля = один силуэт, одна мягкая тень под ним.
+    val silhouette = Path().apply {
+        addRoundRect(RectF(left, pillTop, right, pillBottom), radius, radius, Path.Direction.CW)
+        op(Path().apply {
+            moveTo(cx - pointer / 2, pillBottom - 2f)
+            lineTo(cx + pointer / 2, pillBottom - 2f)
+            lineTo(cx, pillBottom + pointer)
+            close()
+        }, Path.Op.UNION)
     }
-    c.drawRoundRect(left, pillTop + 3f, right, pillBottom + 3f, radius, radius, shadow)
-    c.drawPath(tip, fill)
-    c.drawRoundRect(left, pillTop, right, pillBottom, radius, radius, fill)
+    c.drawPath(silhouette, Paint(fill).softShadow(radius = 3f, dy = 2f))
     val fm = textPaint.fontMetrics
     val ty = pillTop + pillH / 2 - (fm.ascent + fm.descent) / 2
     c.drawText(label, left + padX, ty, textPaint)
