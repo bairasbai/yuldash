@@ -1493,7 +1493,10 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                             Surface(color = CanonTaxiBg, shape = RoundedCornerShape(8.dp)) {
                                 Text(
                                     order.driverPlate,
-                                    color = CanonTaxiInk, fontSize = 15.sp, fontWeight = FontWeight.Black,
+                                    // CanonTaxiText, а НЕ CanonTaxiInk: ink рассчитан на жёлтый CanonTaxi,
+                                    // а здесь подложка CanonTaxiBg — в тёмной теме тёмно-коричневая, и
+                                    // номер на ней давал контраст 1.05, то есть был не виден совсем.
+                                    color = CanonTaxiText, fontSize = 15.sp, fontWeight = FontWeight.Black,
                                     modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
                                 )
                             }
