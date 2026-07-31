@@ -1941,6 +1941,10 @@ private fun TaxiReceiptLink(orderId: Int) {
 private fun InstantFinalCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
+    // Крупное число итога — цена завершённой поездки. Человек открывает этот экран, чтобы
+    // проверить «сколько», а не перечитать адреса, поэтому сумма стоит выше маршрута и
+    // доминирует над ним. null — карточка без суммы (отмена, «заказ не найден»).
+    hero: String? = null,
     subtitle: String,
     action: String,
     onAction: () -> Unit,
@@ -1957,6 +1961,11 @@ private fun InstantFinalCard(
         }
         Spacer(Modifier.height(20.dp))
         Text(title, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        if (hero != null) {
+            Spacer(Modifier.height(12.dp))
+            Text(hero, color = CanonGreen2, fontSize = 34.sp, lineHeight = 40.sp,
+                 fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        }
         Spacer(Modifier.height(8.dp))
         Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
         if (extra != null) {
