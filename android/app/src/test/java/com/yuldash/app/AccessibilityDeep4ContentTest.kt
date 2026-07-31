@@ -233,10 +233,12 @@ class AccessibilityDeep4ContentTest {
                 womenOnly = womenOnly, childSeat = childSeat, pets = pets, wheelchair = wheelchair,
                 baggage = baggage, nonSmoking = nonSmoking, airConditioner = airConditioner,
                 loading = loading,
+                onlyTrusted = false,
                 onCategoryChange = onCategoryChange, onSeatsChange = onSeatsChange, onPriceChange = onPriceChange,
                 onCommentChange = onCommentChange, onTimeChange = {},
                 onWomenOnlyChange = onWomenOnlyChange, onChildSeatChange = onChildSeatChange, onPetsChange = onPetsChange,
                 onWheelchairChange = {}, onBaggageChange = {}, onNonSmokingChange = {},
+                onOnlyTrustedChange = {},
                 onAirConditionerChange = {},
                 onSubmit = onSubmit,
                 // Слоты полей адреса не передаём → Content рисует простые OutlinedTextField (без гео-сети).

@@ -51,6 +51,7 @@ class CreateRideFormContentTest {
                 pickup = "", pinned = false,
                 womenOnly = false, childSeat = false, petsAllowed = false,
                 baggage = false, airConditioner = false, smoking = false,
+                quiet = false, waypoints = emptyList(), onlyTrusted = false,
                 priceHint = 0, loading = loading, error = error,
                 onFromChange = {}, onToChange = {}, onSeatsChange = {}, onPriceChange = {},
                 onCommentChange = {}, onSelectType = onSelectType, onSelectRecurrence = {},
@@ -58,6 +59,7 @@ class CreateRideFormContentTest {
                 onOpenPicker = {}, onOpenDatePicker = {}, onUsePriceHint = {},
                 onWomenOnly = {}, onChildSeat = {}, onPetsAllowed = {}, onBaggage = {},
                 onAirConditioner = {}, onSmoking = {},
+                onQuiet = {}, onWaypointsChange = {}, onOnlyTrusted = {},
                 onPublish = onPublish, onCancel = {},
             )
         }

@@ -75,6 +75,7 @@ class CreateRideDeepContentTest {
                 pickup = "", pinned = false,
                 womenOnly = false, childSeat = false, petsAllowed = false,
                 baggage = false, airConditioner = false, smoking = false,
+                quiet = false, waypoints = emptyList(), onlyTrusted = false,
                 priceHint = priceHint, loading = loading, error = error,
                 onFromChange = {}, onToChange = {}, onSeatsChange = {}, onPriceChange = {},
                 onCommentChange = {}, onSelectType = {}, onSelectRecurrence = onSelectRecurrence,
@@ -82,6 +83,7 @@ class CreateRideDeepContentTest {
                 onOpenPicker = {}, onOpenDatePicker = {}, onUsePriceHint = onUsePriceHint,
                 onWomenOnly = {}, onChildSeat = {}, onPetsAllowed = {}, onBaggage = {},
                 onAirConditioner = {}, onSmoking = {},
+                onQuiet = {}, onWaypointsChange = {}, onOnlyTrusted = {},
                 onPublish = {}, onCancel = {},
             )
         }
