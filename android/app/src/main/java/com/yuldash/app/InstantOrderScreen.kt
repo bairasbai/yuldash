@@ -24,6 +24,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -97,6 +99,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -123,6 +126,24 @@ import kotlinx.coroutines.launch
 
 // Города-опоры РБ для дефолтной камеры, если позиция ещё не определилась.
 private val InstantDefaultPoint = Point(52.5980, 58.4419) // Баймак
+
+// ───────────────────────── Типографика экрана: РОВНО четыре размера ─────────────────────────
+// До этого раунда в файле их было двенадцать (11·12·13·14·15·16·18·19·22·26·30·34) — от этого
+// экран читался как таблица, а не как ответ на вопрос «что сейчас происходит». Теперь у каждого
+// размера одна роль, и доминанта на экране всегда одна: цена или статус.
+private val TxHero = 28.sp        // ДОМИНАНТА: цена и статус. Ровно одна такая надпись на экран.
+private val TxTitle = 20.sp       // заголовок экрана или карточки
+private val TxBody = 15.sp        // тело: адреса, имена, значения, надписи кнопок
+private val TxCaption = 13.sp     // подпись: мета, пояснения, лейблы полей
+// Межстрочные — кратны 4dp, чтобы вертикальный ритм не плыл на длинном башкирском.
+private val LhHero = 32.sp
+private val LhTitle = 26.sp
+private val LhBody = 20.sp
+private val LhCaption = 18.sp
+
+// Единая форма интерактивных элементов внутри карточек (поля, кнопки-строки, чипы).
+// Отдельная от CanonCardShape(28)/CanonItemShape(22) — это «мелкая» ступень той же лестницы.
+private val InstantControlShape = RoundedCornerShape(16.dp)
 
 // ------------------------------ Время сервера (наивный UTC ISO) ------------------------------
 /** Сервер шлёт наивные UTC-даты ISO («2026-07-10T12:34:56.123456») — переводим в epoch ms. */
@@ -384,90 +405,137 @@ internal fun InstantOrderScreen(
         Box(Modifier.padding(padding).fillMaxSize()) {
             val current = order
             val av = availability
-            when {
-                !loggedIn -> InstantLoginNeeded(onLoginRequired)
-                checking -> InstantCenterLoader(appText("Проверяем заказ…", "Заказды тикшерәбеҙ…"))
-                // Предзаказ «на время» создан → спокойное подтверждение + путь в «Мои предзаказы».
-                scheduledConfirm != null -> InstantScheduledCreatedCard(
-                    order = scheduledConfirm!!,
-                    onOpenScheduled = onOpenScheduled,
-                    onNewOrder = { scheduledConfirm = null },
-                    onBack = onBack,
-                )
-                // Вход не загрузился по сети → не роняем в пикер молча (мог быть живой заказ), даём «Повторить».
-                current == null && restoreError -> InstantRetryCard(
-                    onRetry = { restoreTick++ },
-                    onBack = onBack,
-                )
-                // Гейт (a): такси выключено глобально или в этом городе → тёплая заглушка «Скоро».
-                // Активный заказ (если вдруг успел создаться до выключения) показываем как обычно.
-                current == null && av?.enabled == false -> TaxiComingSoonCard(
-                    availability = av,
-                    onBackToPooling = onBack,
-                    onTaxiOnboarding = onTaxiOnboarding,
-                )
-                current == null -> InstantDestinationPicker(
-                    onOrderCreated = { order = it },
-                    onScheduled = { scheduledConfirm = it },
-                )
-                current.isSearching -> InstantSearchingCard(
-                    order = current,
-                    onCancel = { scope.launch { ApiClient.instantCancel(current.id).onSuccess { order = it } } },
-                )
-                current.isActive -> InstantDriverEnRouteCard(
-                    order = current,
-                    onCancel = { scope.launch { ApiClient.instantCancel(current.id).onSuccess { order = it } } },
-                )
-                current.status == "expired" -> InstantNoDriversCard(
-                    order = current,
-                    onRetry = { order = null },
-                    onDone = onBack,
-                    onOrderUpdated = { order = it },
-                )
-                current.status == "cancelled" -> InstantFinalCard(
-                    icon = Icons.Default.Close,
-                    title = if (current.noShow) appText("Поездка не состоялась", "Сәфәр булманы")
-                    else appText("Заказ отменён", "Заказ ҡабул ителмәне"),
-                    // Честные тексты про штраф/страйки (Модель А: фиксируем, деньги не списываем).
-                    subtitle = when {
-                        current.noShow -> appText(
-                            "Водитель ждал ${current.waitFreeMin}+ минут, но не дождался. Подача — ${current.cancelFeeKop / 100} ₽, переведи водителю. Частые такие отмены ставят такси на паузу.",
-                            "Водитель ${current.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${current.cancelFeeKop / 100} ₽, водителгә күсер. Йыш улай булһа — такси паузаға китә.")
-                        current.cancelFeeKop > 0 && current.cancelBy == "passenger" -> appText(
-                            "Отмена была платной: ${current.cancelFeeKop / 100} ₽ (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.",
-                            "Кире алыу түләүле булды: ${current.cancelFeeKop / 100} ₽ (килеү хаҡы) — водителгә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
-                        current.cancelBy == "driver" -> appText("Водитель отменил. Попробуй заказать снова.", "Водитель баш тартты. Ҡабат заказ ит.")
-                        else -> appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.")
-                    },
-                    action = appText("Новый заказ", "Яңы заказ"),
-                    onAction = { order = null },
-                    onSecondary = onBack,
-                    // B8-8: телефон/чат уже открывались → мягко напоминаем завершать поездку в приложении.
-                    extra = if (current.contactThenCancel) ({ ContactCancelSoftBanner() }) else null,
-                )
-                else -> InstantFinalCard(   // done
-                    icon = Icons.Default.CheckCircle,
-                    title = appText("Поездка завершена", "Сәфәр тамамланды"),
-                    subtitle = appText("${current.fromText.ifBlank { "Точка А" }} → ${current.toText.ifBlank { "Точка Б" }} · ${current.priceFinal ?: current.priceEstimate} ₽",
-                        "${current.fromText.ifBlank { "А нөктәһе" }} → ${current.toText.ifBlank { "Б нөктәһе" }} · ${current.priceFinal ?: current.priceEstimate} ₽"),
-                    action = appText("Новый заказ", "Яңы заказ"),
-                    onAction = { order = null },
-                    onSecondary = onBack,
-                    extra = {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            // Онлайн-оплата завершённого такси-заказа (карта/СБП через ЮKassa, за флагом).
-                            // 503 (провайдер выключен) → карточка тихо исчезает на сессию (OnlinePayGate).
-                            PayOnlineCard(
-                                amountRub = (current.priceFinal ?: current.priceEstimate).takeIf { it > 0 },
-                                pay = { m -> ApiClient.payInstantOrder(current.id, m) },
-                            )
-                            InstantRateAndReport(current, isDriver = false)   // §9: оценить/пожаловаться
-                            // Чек за поездку: справка на работу, «рәхмәт» водителю и «забыл вещь».
-                            TaxiReceiptLink(current.id)
-                            TaxiDisputeLink(current, isDriver = false)
-                        }
-                    },
-                )
+            // Фаза заказа как ОДНО значение: и порядок веток тот же, что был, и есть чем кормить
+            // AnimatedContent. Раньше `when` менял полэкрана мгновенно — человек, который стоит
+            // на морозе, видел рывок вместо перехода «ищем → нашли».
+            val phase = when {
+                !loggedIn -> "login"
+                checking -> "checking"
+                scheduledConfirm != null -> "scheduled"
+                current == null && restoreError -> "restoreError"
+                current == null && av?.enabled == false -> "comingSoon"
+                current == null -> "picker"
+                current.isSearching -> "searching"
+                current.isActive -> "enroute"
+                current.status == "expired" -> "expired"
+                current.status == "cancelled" -> "cancelled"
+                else -> "done"
+            }
+            AnimatedContent(
+                targetState = phase,
+                // Спокойный кросс-фейд с еле заметным подъёмом: смена фазы читается как движение,
+                // а не как подмена экрана. Уход быстрее прихода — так переход кажется отзывчивее.
+                transitionSpec = {
+                    (fadeIn(tween(280)) + slideInVertically(tween(320)) { it / 20 })
+                        .togetherWith(fadeOut(tween(160)))
+                },
+                label = "instantPhase",
+            ) { p ->
+                // Во время перехода недолго живут обе фазы, а данные уже новые — поэтому везде
+                // безопасный `?.let`, без `!!`: уходящая карточка просто не рисуется.
+                when (p) {
+                    "login" -> InstantLoginNeeded(onLoginRequired)
+                    "checking" -> InstantCheckingSkeleton()
+                    // Предзаказ «на время» создан → спокойное подтверждение + путь в «Мои предзаказы».
+                    "scheduled" -> scheduledConfirm?.let { sc ->
+                        InstantScheduledCreatedCard(
+                            order = sc,
+                            onOpenScheduled = onOpenScheduled,
+                            onNewOrder = { scheduledConfirm = null },
+                            onBack = onBack,
+                        )
+                    }
+                    // Вход не загрузился по сети → не роняем в пикер молча (мог быть живой заказ), даём «Повторить».
+                    "restoreError" -> InstantRetryCard(
+                        onRetry = { restoreTick++ },
+                        onBack = onBack,
+                    )
+                    // Гейт (a): такси выключено глобально или в этом городе → тёплая заглушка «Скоро».
+                    // Активный заказ (если вдруг успел создаться до выключения) показываем как обычно.
+                    "comingSoon" -> av?.let {
+                        TaxiComingSoonCard(
+                            availability = it,
+                            onBackToPooling = onBack,
+                            onTaxiOnboarding = onTaxiOnboarding,
+                        )
+                    }
+                    "picker" -> InstantDestinationPicker(
+                        onOrderCreated = { order = it },
+                        onScheduled = { scheduledConfirm = it },
+                    )
+                    "searching" -> current?.let { o ->
+                        InstantSearchingCard(
+                            order = o,
+                            onCancel = { scope.launch { ApiClient.instantCancel(o.id).onSuccess { order = it } } },
+                        )
+                    }
+                    "enroute" -> current?.let { o ->
+                        InstantDriverEnRouteCard(
+                            order = o,
+                            onCancel = { scope.launch { ApiClient.instantCancel(o.id).onSuccess { order = it } } },
+                        )
+                    }
+                    "expired" -> current?.let { o ->
+                        InstantNoDriversCard(
+                            order = o,
+                            onRetry = { order = null },
+                            onDone = onBack,
+                            onOrderUpdated = { order = it },
+                        )
+                    }
+                    "cancelled" -> current?.let { o ->
+                        InstantFinalCard(
+                            icon = Icons.Default.Close,
+                            title = if (o.noShow) appText("Поездка не состоялась", "Сәфәр булманы")
+                            else appText("Заказ отменён", "Заказ ҡабул ителмәне"),
+                            // Честные тексты про штраф/страйки (Модель А: фиксируем, деньги не списываем).
+                            subtitle = when {
+                                o.noShow -> appText(
+                                    "Водитель ждал ${o.waitFreeMin}+ минут, но не дождался. Подача — ${o.cancelFeeKop / 100} ₽, переведи водителю. Частые такие отмены ставят такси на паузу.",
+                                    "Водитель ${o.waitFreeMin}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${o.cancelFeeKop / 100} ₽, водителгә күсер. Йыш улай булһа — такси паузаға китә.")
+                                o.cancelFeeKop > 0 && o.cancelBy == "passenger" -> appText(
+                                    "Отмена была платной: ${o.cancelFeeKop / 100} ₽ (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.",
+                                    "Кире алыу түләүле булды: ${o.cancelFeeKop / 100} ₽ (килеү хаҡы) — водителгә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.")
+                                o.cancelBy == "driver" -> appText("Водитель отменил. Попробуй заказать снова.", "Водитель баш тартты. Ҡабат заказ ит.")
+                                else -> appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.")
+                            },
+                            action = appText("Новый заказ", "Яңы заказ"),
+                            onAction = { order = null },
+                            onSecondary = onBack,
+                            // B8-8: телефон/чат уже открывались → мягко напоминаем завершать поездку в приложении.
+                            extra = if (o.contactThenCancel) ({ ContactCancelSoftBanner() }) else null,
+                        )
+                    }
+                    else -> current?.let { o ->   // done
+                        InstantFinalCard(
+                            icon = Icons.Default.CheckCircle,
+                            title = appText("Поездка завершена", "Сәфәр тамамланды"),
+                            // Цена — доминанта итога, маршрут под ней подписью: человек проверяет
+                            // «сколько», а не перечитывает адреса.
+                            hero = "${o.priceFinal ?: o.priceEstimate} ₽",
+                            subtitle = appText(
+                                "${o.fromText.ifBlank { "Точка А" }} → ${o.toText.ifBlank { "Точка Б" }}",
+                                "${o.fromText.ifBlank { "А нөктәһе" }} → ${o.toText.ifBlank { "Б нөктәһе" }}"),
+                            action = appText("Новый заказ", "Яңы заказ"),
+                            onAction = { order = null },
+                            onSecondary = onBack,
+                            extra = {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    // Онлайн-оплата завершённого такси-заказа (карта/СБП через ЮKassa, за флагом).
+                                    // 503 (провайдер выключен) → карточка тихо исчезает на сессию (OnlinePayGate).
+                                    PayOnlineCard(
+                                        amountRub = (o.priceFinal ?: o.priceEstimate).takeIf { it > 0 },
+                                        pay = { m -> ApiClient.payInstantOrder(o.id, m) },
+                                    )
+                                    InstantRateAndReport(o, isDriver = false)   // §9: оценить/пожаловаться
+                                    // Чек за поездку: справка на работу, «рәхмәт» водителю и «забыл вещь».
+                                    TaxiReceiptLink(o.id)
+                                    TaxiDisputeLink(o, isDriver = false)
+                                }
+                            },
+                        )
+                    }
+                }
             }
             // Связь потеряна во время живого заказа: мягкий баннер сверху, поллинг сам возобновится.
             androidx.compose.animation.AnimatedVisibility(
@@ -482,17 +550,49 @@ internal fun InstantOrderScreen(
 @Composable
 private fun InstantOfflineBanner() {
     Surface(
-        color = CanonWarn.copy(alpha = 0.14f),
+        color = CanonWarnBg,
         contentColor = CanonText,
         shape = CanonItemShape,
-        modifier = Modifier.statusBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+        shadowElevation = 4.dp,
+        modifier = Modifier.statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             CircularProgressIndicator(strokeWidth = 2.dp, color = CanonWarn, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(10.dp))
-            Text(appText("Связь потеряна — пробуем ещё…", "Бәйләнеш өҙөлдө — тағы тырышабыҙ…"),
-                fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                appText("Связь потеряна — пробуем ещё…", "Бәйләнеш өҙөлдө — тағы тырышабыҙ…"),
+                color = CanonWarn, fontSize = TxCaption, lineHeight = LhCaption, fontWeight = FontWeight.Bold,
+            )
         }
+    }
+}
+
+/**
+ * Первая загрузка экрана: проверяем, нет ли живого заказа. Голый спиннер по центру не говорил
+ * ничего — теперь показываем форму будущего контента (скелетон карты и карточек маршрута), и
+ * появление реального экрана не выглядит скачком.
+ */
+@Composable
+private fun InstantCheckingSkeleton() {
+    Column(
+        Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SkeletonBox(widthFraction = 0.56f, height = 28.dp, shape = InstantControlShape)
+        SkeletonBox(widthFraction = 0.84f, height = 16.dp, shape = InstantControlShape)
+        Spacer(Modifier.height(4.dp))
+        SkeletonBox(height = 192.dp, shape = CanonItemShape)
+        SkeletonBox(height = 76.dp, shape = CanonItemShape)
+        SkeletonBox(height = 120.dp, shape = CanonItemShape)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            appText("Проверяем, нет ли активного заказа…", "Әүҙем заказ бармы — тикшерәбеҙ…"),
+            color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -504,17 +604,26 @@ private fun InstantRetryCard(onRetry: () -> Unit, onBack: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(48.dp))
-        Spacer(Modifier.height(14.dp))
-        Text(appText("Не удалось проверить заказ", "Заказды тикшереп булманы"),
-            fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(6.dp))
-        Text(appText("Проверь интернет и попробуй ещё раз.", "Интернетты тикшереп, ҡабат ҡара."),
-            color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center)
+        Surface(shape = CircleShape, color = CanonWarnBg, modifier = Modifier.appearIn(0)) {
+            Icon(Icons.Default.CloudOff, contentDescription = null, tint = CanonWarn, modifier = Modifier.padding(20.dp).size(40.dp))
+        }
         Spacer(Modifier.height(20.dp))
-        AppButton(text = appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Primary)
+        Text(
+            appText("Не удалось проверить заказ", "Заказды тикшереп булманы"),
+            color = CanonText, fontWeight = FontWeight.Black, fontSize = TxTitle, lineHeight = LhTitle,
+            textAlign = TextAlign.Center, modifier = Modifier.appearIn(1),
+        )
         Spacer(Modifier.height(8.dp))
-        AppButton(text = appText("Назад", "Артҡа"), onClick = onBack, style = AppButtonStyle.Secondary)
+        Text(
+            appText("Проверь интернет и попробуй ещё раз.", "Интернетты тикшереп, ҡабат ҡара."),
+            color = CanonMuted, fontSize = TxBody, lineHeight = LhBody,
+            textAlign = TextAlign.Center, modifier = Modifier.appearIn(2),
+        )
+        Spacer(Modifier.height(24.dp))
+        Column(Modifier.appearIn(3), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppButton(text = appText("Повторить", "Ҡабатларға"), onClick = onRetry, style = AppButtonStyle.Primary)
+            AppButton(text = appText("Назад", "Артҡа"), onClick = onBack, style = AppButtonStyle.Secondary)
+        }
     }
 }
 
@@ -542,9 +651,15 @@ private fun InstantDestinationPicker(
     var toText by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
+    // Идёт ли сейчас поиск адреса. Без этого флага «ничего не нашли» мигало бы во время
+    // дебаунса на каждой букве — а «пусто» обязано отличаться от «ещё ищем».
+    var searchingAddr by remember { mutableStateOf(false) }
 
     var estimate by remember { mutableStateOf<InstantEstimateDto?>(null) }
     var estimating by remember { mutableStateOf(false) }
+    // Ручной повтор оценки цены после сетевой ошибки: раньше ошибка была тупиком —
+    // красная строка без единой кнопки, и заказать было нельзя вообще.
+    var estimateTick by remember { mutableIntStateOf(0) }
     var creating by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var category by remember { mutableStateOf("standard") }   // §6: standard = Эконом, comfort = Комфорт
@@ -589,13 +704,15 @@ private fun InstantDestinationPicker(
 
     // Поиск адреса Б (дебаунс 350мс).
     LaunchedEffect(query) {
-        if (query.trim().length < 2) { suggestions = emptyList(); return@LaunchedEffect }
+        if (query.trim().length < 2) { suggestions = emptyList(); searchingAddr = false; return@LaunchedEffect }
+        searchingAddr = true
         delay(350)
         suggestions = GeocoderClient.suggest(query).take(6)
+        searchingAddr = false
     }
 
     // Оценка цены, когда есть обе точки (и при смене класса — тариф другой).
-    LaunchedEffect(effFrom, toPoint, category) {
+    LaunchedEffect(effFrom, toPoint, category, estimateTick) {
         val f = effFrom; val t = toPoint
         if (f == null || t == null) { estimate = null; return@LaunchedEffect }
         delay(350)   // дебаунс: позиция уточняется GPS-фиксами — не дёргаем /estimate на каждый
