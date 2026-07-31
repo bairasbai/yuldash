@@ -142,6 +142,20 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            // Печатать ПРИЧИНУ падения прямо в консоль. Без этого Gradle пишет только
+            // «AssertionError at Файл.kt:73», а текст (что ожидали и что нашли) остаётся
+            // в HTML-отчёте — то есть в CI его не видно вообще, и чинить приходится вслепую.
+            all {
+                it.testLogging {
+                    events("failed")
+                    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                    showStackTraces = true
+                    showCauses = true
+                }
+                // Один упавший тест не должен обрывать прогон: нужен ПОЛНЫЙ список проблем
+                // за один заход, иначе каждый круг CI (11 минут) вскрывает по одной ошибке.
+                it.ignoreFailures = false
+            }
         }
     }
 
