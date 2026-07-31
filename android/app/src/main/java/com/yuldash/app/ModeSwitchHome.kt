@@ -63,16 +63,31 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Режим поиска пассажира. Попутка — по умолчанию (сердце Юлдаша). */
-internal enum class RideMode { Pooling, Taxi }
+/** Режим поиска пассажира. Попутка — по умолчанию (сердце Юлдаша).
+ *  Порядок объявления = порядок сегментов слева направо (важен для направления анимации). */
+internal enum class RideMode { Pooling, Taxi, Courier }
 
 private const val MODE_HINT_PREF = "mode_hint_shown"
 
-/** Последний выбранный режим (попутка/такси). Постоянный таксист не должен каждый холодный
+/** Последний выбранный режим. Постоянный таксист/отправитель не должен каждый холодный
  *  старт тратить лишний тап — так же запоминают выбор Яндекс Go и inDrive. */
 private const val MODE_LAST_PREF = "mode_last"
 private const val MODE_VALUE_TAXI = "taxi"
 private const val MODE_VALUE_POOLING = "pooling"
+private const val MODE_VALUE_COURIER = "courier"
+
+/** Строка для prefs ↔ режим. Держим в одном месте, чтобы запись и чтение не разъехались. */
+private fun RideMode.prefValue(): String = when (this) {
+    RideMode.Pooling -> MODE_VALUE_POOLING
+    RideMode.Taxi -> MODE_VALUE_TAXI
+    RideMode.Courier -> MODE_VALUE_COURIER
+}
+
+private fun rideModeFromPref(value: String?): RideMode = when (value) {
+    MODE_VALUE_TAXI -> RideMode.Taxi
+    MODE_VALUE_COURIER -> RideMode.Courier
+    else -> RideMode.Pooling
+}
 
 /**
  * Обёртка главного экрана пассажира: переключатель режимов сверху + плавная смена содержимого.
@@ -104,9 +119,7 @@ internal fun PassengerModeHome(
     // Стартуем с последнего выбранного режима (по умолчанию — попутка). Экономит тап тем,
     // кто пользуется одним режимом постоянно.
     var mode by rememberSaveable {
-        mutableStateOf(
-            if (prefs.getString(MODE_LAST_PREF, null) == MODE_VALUE_TAXI) RideMode.Taxi else RideMode.Pooling,
-        )
+        mutableStateOf(rideModeFromPref(prefs.getString(MODE_LAST_PREF, null)))
     }
     // Подсказка при ПЕРВОМ входе — один раз (флаг в prefs). Ссылка «Чем отличается?» открывает её повторно.
     var showHint by remember { mutableStateOf(!prefs.getBoolean(MODE_HINT_PREF, false)) }
@@ -114,13 +127,11 @@ internal fun PassengerModeHome(
     // Запоминаем выбор режима одним швом — и для кнопки, и для аппаратной «Назад».
     val selectMode: (RideMode) -> Unit = { picked ->
         mode = picked
-        prefs.edit()
-            .putString(MODE_LAST_PREF, if (picked == RideMode.Taxi) MODE_VALUE_TAXI else MODE_VALUE_POOLING)
-            .apply()
+        prefs.edit().putString(MODE_LAST_PREF, picked.prefValue()).apply()
     }
 
-    // Аппаратная «Назад» в режиме такси → возвращаемся к попутке (а не выходим из приложения).
-    BackHandler(enabled = mode == RideMode.Taxi) { selectMode(RideMode.Pooling) }
+    // Аппаратная «Назад» из любого не-основного режима → возвращаемся к попутке (а не выходим из приложения).
+    BackHandler(enabled = mode != RideMode.Pooling) { selectMode(RideMode.Pooling) }
 
     Column(Modifier.fillMaxSize()) {
         ModeSwitchBar(
@@ -132,7 +143,8 @@ internal fun PassengerModeHome(
             AnimatedContent(
                 targetState = mode,
                 transitionSpec = {
-                    val forward = targetState == RideMode.Taxi   // Попутка(лево) → Такси(право)
+                    // Едем в ту сторону, где сегмент стоит на панели: слева направо Попутка → Такси → Курьер.
+                    val forward = targetState.ordinal > initialState.ordinal
                     (fadeIn(tween(240)) + slideInHorizontally(tween(280)) { if (forward) it / 6 else -it / 6 })
                         .togetherWith(fadeOut(tween(160)) + slideOutHorizontally(tween(280)) { if (forward) -it / 6 else it / 6 })
                 },
@@ -163,6 +175,12 @@ internal fun PassengerModeHome(
                         onTaxiOnboarding = onTaxiOnboarding,
                         onOpenScheduled = onOpenScheduled,
                     )
+                    // Курьер: раньше «Посылки» лежали 9-м пунктом профиля — до отправки было 9–11 касаний.
+                    // Теперь это равноправный режим хаба: два касания от старта приложения.
+                    RideMode.Courier -> ParcelsScreen(
+                        onBack = { selectMode(RideMode.Pooling) },
+                        embedded = true,
+                    )
                 }
             }
         }
@@ -184,12 +202,13 @@ private fun ModeSwitchBar(
     onExplain: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 2.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        // Три режима в ряд — подписи короткие: в треть ширины длинная фраза не читается.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             ModeSegment(
                 modifier = Modifier.weight(1f),
                 iconRes = R.drawable.yu_mode_rideshare,
                 title = appText("Попутка", "Юлдаш"),
-                subtitle = appText("дешевле, кто-то едет по пути", "арзаныраҡ, кемдер юл уҙа"),
+                subtitle = appText("по пути, дешевле", "юл уҙа, арзаныраҡ"),
                 active = mode == RideMode.Pooling,
                 accent = CanonPooling,
                 activeBg = CanonPoolingBg,
@@ -199,11 +218,21 @@ private fun ModeSwitchBar(
                 modifier = Modifier.weight(1f),
                 iconRes = R.drawable.yu_mode_taxi,
                 title = appText("Такси", "Такси"),
-                subtitle = appText("машина за тобой сейчас", "машина хәҙер һинең артыңдан"),
+                subtitle = appText("машина сейчас", "машина хәҙер"),
                 active = mode == RideMode.Taxi,
                 accent = CanonTaxi,
                 activeBg = CanonTaxiBg,
                 onClick = { onSelect(RideMode.Taxi) },
+            )
+            ModeSegment(
+                modifier = Modifier.weight(1f),
+                iconRes = R.drawable.yu_mode_courier,
+                title = appText("Курьер", "Курьер"),
+                subtitle = appText("отправить посылку", "бандероль ебәреү"),
+                active = mode == RideMode.Courier,
+                accent = CanonCourier,
+                activeBg = CanonCourierBg,
+                onClick = { onSelect(RideMode.Courier) },
             )
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -241,20 +270,21 @@ private fun ModeSegment(
         border = BorderStroke(borderW, borderColor),
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Icon(painterResource(iconRes), contentDescription = null,
-                    tint = if (active) accent else CanonMuted, modifier = Modifier.size(24.dp))
-                Text(title, color = CanonText, fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            }
+            // Иконка НАД заголовком, а не рядом: сегментов стало три, и в треть ширины экрана
+            // строка «иконка + текст» не помещается — заголовок обрезался бы многоточием.
+            Icon(painterResource(iconRes), contentDescription = null,
+                tint = if (active) accent else CanonMuted, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.height(4.dp))
+            Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Spacer(Modifier.height(2.dp))
             Text(
                 subtitle,
                 color = if (active) accent else CanonMuted,
-                fontSize = 12.sp,
-                lineHeight = 15.sp,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
             )
@@ -279,7 +309,7 @@ private fun ModeHintSheet(onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text(
-                appText("Два способа доехать", "Барыуҙың ике юлы"),
+                appText("Три режима", "Өс режим"),
                 color = CanonText, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black,
             )
             HintRow(
@@ -298,6 +328,15 @@ private fun ModeHintSheet(onDismiss: () -> Unit) {
                 body = appText(
                     "Дешевле. Подсаживаешься к тому, кто и так едет туда.",
                     "Арзаныраҡ. Барыбер шунда барған кешегә ултыраһың.",
+                ),
+            )
+            HintRow(
+                iconRes = R.drawable.yu_mode_courier,
+                accent = CanonCourier,
+                title = appText("Курьер", "Курьер"),
+                body = appText(
+                    "Едешь не ты, а посылка. Отвезёт тот, кто и так в пути.",
+                    "Һин түгел, бандеролең бара. Юлда булған кеше илтә.",
                 ),
             )
             Spacer(Modifier.height(2.dp))

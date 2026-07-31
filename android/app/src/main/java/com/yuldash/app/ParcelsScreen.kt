@@ -396,10 +396,12 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
 // ─────────────────────────── Экран ───────────────────────────
 
 @Composable
-internal fun ParcelsScreen(onBack: () -> Unit) {
+internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
     var tab by rememberSaveable { mutableStateOf(0) }   // 0 = отправить, 1 = мои, 2 = возить
 
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Посылки", "Бандеролдәр"), onBack) }) { padding ->
+    // embedded = экран открыт внутри хаба режимов (над ним уже есть переключатель Попутка/Такси/Курьер),
+    // поэтому своя шапка с «назад» была бы вторым заголовком подряд. Тот же приём, что в InstantOrderScreen.
+    Scaffold(containerColor = CanonBg, topBar = { if (!embedded) ScreenTopBar(appText("Посылки", "Бандеролдәр"), onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             Surface(
                 color = CanonSurface,
