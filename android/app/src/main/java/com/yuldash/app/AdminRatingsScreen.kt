@@ -195,10 +195,18 @@ private fun PendingRatingCard(r: PendingRatingDto, busy: Boolean, onPublish: () 
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     RatingStars(stars)
+                    // Кто → о ком. Раньше было видно только автора, и решение «публиковать»
+                    // принималось вслепую: чей это профиль и кому прилетит текст — неизвестно.
                     Text(
-                        r.author + " · " + formatDepart(r.createdAt),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                        if (r.ratee.isNotBlank()) appText("${r.author} → о ${r.ratee}", "${r.author} → ${r.ratee} тураһында")
+                        else r.author,
+                        color = CanonText, fontSize = 13.sp, lineHeight = 18.sp,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        formatDepart(r.createdAt),
+                        color = CanonMuted, fontSize = 11.sp, lineHeight = 16.sp,
                     )
                 }
             }

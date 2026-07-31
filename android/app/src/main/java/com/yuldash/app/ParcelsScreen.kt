@@ -10,10 +10,13 @@ package com.yuldash.app
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
@@ -25,6 +28,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeliveryDining
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocalShipping
@@ -73,6 +78,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
@@ -81,6 +87,24 @@ import com.yuldash.app.data.CourierEstimateDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.ParcelDto
 import kotlinx.coroutines.launch
+
+// ───────────────── Типографика доставки: ровно ЧЕТЫРЕ размера ─────────────────
+// Больше кеглей = «самоделка»: до этого прохода на трёх экранах доставки жило 16 разных
+// размеров (11,12,13,14,15,16,17,18,20,22,24,26,28,30,32,44) — глаз не понимал, что главнее.
+// Роли жёсткие, других размеров в ParcelsScreen/CourierScreen/CourierOnboardingScreen нет:
+//   Display — ОДНА главная цифра на карточку (код вручения, сумма, счётчик, рейтинг)
+//   Title   — заголовок экрана/секции и крупный денежный акцент в ленте
+//   Body    — содержательный текст; Black/Bold = заголовок строки или карточки
+//   Caption — подписи, пояснения, чипы, статусы
+// Размеры в sp → уважают системный шрифт и глобальный тумблер «Крупный шрифт» (FontScalePrefs).
+internal val DeliveryDisplay = 30.sp
+internal val DeliveryDisplayLine = 34.sp
+internal val DeliveryTitle = 20.sp
+internal val DeliveryTitleLine = 26.sp
+internal val DeliveryBody = 15.sp
+internal val DeliveryBodyLine = 21.sp
+internal val DeliveryCaption = 13.sp
+internal val DeliveryCaptionLine = 18.sp
 
 // ─────────────────────────── Хелперы посылок ───────────────────────────
 

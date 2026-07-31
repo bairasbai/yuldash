@@ -123,6 +123,10 @@ class PendingRatingOut(BaseModel):
     id: int
     author: str = ""                         # кто оставил (для админа; в публичном профиле тоже без телефона)
     ratee_id: int                            # кому адресован (водитель/пассажир)
+    # Имя того, О КОМ отзыв. Без него админ модерировал текст вслепую: видел «нахамил и вёз
+    # молча», но не знал, чей это профиль и кому прилетит публикация. Телефоны не отдаём —
+    # для решения «публиковать или нет» достаточно имени.
+    ratee: str = ""
     stars: int
     text: str
     created_at: datetime
@@ -138,12 +142,20 @@ def pending_ratings(user: User = Depends(current_user), session: Session = Depen
         .where(Rating.text_published == False, Rating.text != "")  # noqa: E712
         .order_by(Rating.created_at.desc())
     ).all()
-    author_ids = {r.rater_id for r in rows}
-    authors = {a.id: a for a in session.exec(select(User).where(User.id.in_(author_ids))).all()} if author_ids else {}
+    # Одним запросом обе стороны: и кто написал, и о ком — иначе на каждый отзыв уходило бы
+    # по два похода в базу, а очередь модерации может быть длинной.
+    people_ids = {r.rater_id for r in rows} | {r.ratee_id for r in rows}
+    people = {u.id: u for u in session.exec(select(User).where(User.id.in_(people_ids))).all()} if people_ids else {}
+
+    def _name(uid: int, fallback: str) -> str:
+        u = people.get(uid)
+        return ((u.name if u else "") or "").strip() or fallback
+
     return [
         PendingRatingOut(
-            id=r.id, author=((authors.get(r.rater_id).name if authors.get(r.rater_id) else "") or "Аноним"),
-            ratee_id=r.ratee_id, stars=r.stars, text=r.text, created_at=r.created_at,
+            id=r.id, author=_name(r.rater_id, "Аноним"),
+            ratee_id=r.ratee_id, ratee=_name(r.ratee_id, "Пользователь"),
+            stars=r.stars, text=r.text, created_at=r.created_at,
         )
         for r in rows
     ]
@@ -168,9 +180,11 @@ def publish_rating(rating_id: int, body: RatingPublishIn, user: User = Depends(c
     session.commit()
     session.refresh(r)
     author = session.get(User, r.rater_id)
+    ratee = session.get(User, r.ratee_id)
     return PendingRatingOut(
         id=r.id, author=((author.name if author else "") or "Аноним"),
-        ratee_id=r.ratee_id, stars=r.stars, text=r.text, created_at=r.created_at,
+        ratee_id=r.ratee_id, ratee=((ratee.name if ratee else "") or "Пользователь"),
+        stars=r.stars, text=r.text, created_at=r.created_at,
     )
 
 
