@@ -263,8 +263,6 @@ class AccessibilityDeep4ContentTest {
                 onWheelchairChange = {}, onBaggageChange = {}, onNonSmokingChange = {},
                 onOnlyTrustedChange = {},
                 onAirConditionerChange = {},
-                // «Только для своих» — параметр появился в экране, тест про него не знал.
-                onlyTrusted = false, onOnlyTrustedChange = {},
                 onSubmit = onSubmit,
                 // Слоты полей адреса не передаём → Content рисует простые OutlinedTextField (без гео-сети).
             )

@@ -140,6 +140,48 @@ def check(path: Path) -> list:
         else:
             seen_imports[key] = idx
 
+    # Один и тот же именованный аргумент дважды в одном вызове: `Argument already passed
+    # for this parameter`. Тот же след слияния, что и дубль импорта: обе ветки дописали
+    # недостающий параметр в разные строки списка, git взял оба. Стоило второго круга CI.
+    for m in re.finditer(r"\w\(", code):
+        open_at = m.end() - 1
+        depth, i = 1, open_at + 1
+        while i < len(code) and depth:
+            if code[i] == "(":
+                depth += 1
+            elif code[i] == ")":
+                depth -= 1
+            i += 1
+        if depth:
+            continue
+        args = code[open_at + 1:i - 1]
+        if len(args) > 4000 or "=" not in args:
+            continue
+        # Имена аргументов ТОЛЬКО верхнего уровня: во вложенных вызовах и лямбдах
+        # одноимённые параметры законны.
+        names, lvl, cur = [], 0, []
+        for ch in args:
+            if ch in "([{":
+                lvl += 1
+            elif ch in ")]}":
+                lvl -= 1
+            if ch == "," and lvl == 0:
+                names.append("".join(cur)); cur = []
+            else:
+                cur.append(ch)
+        names.append("".join(cur))
+        used = {}
+        for piece in names:
+            nm = re.match(r"\s*(\w+)\s*=(?!=)", piece)
+            if not nm:
+                continue
+            key = nm.group(1)
+            if key in used:
+                ln = code.count("\n", 0, open_at) + 1
+                problems.append(f"{path.name}:{ln}: аргумент «{key}» передан дважды в одном "
+                                f"вызове → Argument already passed for this parameter")
+            used[key] = True
+
     # CanonTaxiInk НА CanonTaxiBg — невидимый текст в тёмной теме (контраст 1.05).
     # Ink рассчитан на ЖЁЛТЫЙ CanonTaxi; подложка CanonTaxiBg в тёмной теме тёмно-коричневая.
     # Ловили это уже дважды (госномер машины, потом разбор цены) — поэтому проверка, а не память.
