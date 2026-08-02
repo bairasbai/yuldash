@@ -253,6 +253,10 @@ class ProfileDeep3ContentTest {
             .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
         composeRule.onNodeWithContentDescription("4 звезды").performClick()
         assertEquals(false, fired)
+        // Подпись под звёздами лежит ниже края экрана: узел в дереве есть, но не показан,
+        // поэтому assertIsDisplayed падал. Доскроллить до самой подписи, а не до заголовка.
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Выбрано 4 звезды — подтвердите"))
         composeRule.onNodeWithText("Выбрано 4 звезды — подтвердите").assertIsDisplayed()
     }
 
@@ -268,6 +272,10 @@ class ProfileDeep3ContentTest {
             .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
         // Звёзды помечены contentDescription "1".."5" (не text) → четвёртая = "4".
         composeRule.onNodeWithContentDescription("4 звезды").performClick()
+        // Кнопка появляется через AnimatedVisibility и оказывается за нижним краем: тап по
+        // не показанному узлу молча не доходит, и onRate не срабатывал. Сначала прокрутка.
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Отправить оценку"))
         composeRule.onNodeWithText("Отправить оценку").performClick()
         assertEquals(77, ratedBooking)
         assertEquals(4, ratedStars)

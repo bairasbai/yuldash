@@ -117,6 +117,9 @@ class ProfileDeep2ContentTest {
         }
         // Карточки активной поездки нет, но нижние навигационные строки на месте.
         composeRule.onNodeWithText("Уфа → Казань").assertDoesNotExist()
+        // Над списком теперь стоит карточка «Активных поездок нет» — строка ушла за экран,
+        // а в LazyColumn это значит «не создана вовсе». Доскроллить, потом проверять.
+        scrollTo("Найти поездку")
         composeRule.onNodeWithText("Найти поездку").assertIsDisplayed()
         scrollTo("Создать заявку")
         composeRule.onNodeWithText("Создать заявку").assertIsDisplayed()
@@ -135,6 +138,7 @@ class ProfileDeep2ContentTest {
                 )
             }
         }
+        scrollTo("Сәфәр табыу")
         composeRule.onNodeWithText("Сәфәр табыу").assertIsDisplayed()
         scrollTo("Заявка булдырыу")
         composeRule.onNodeWithText("Заявка булдырыу").assertIsDisplayed()
@@ -227,6 +231,7 @@ class ProfileDeep2ContentTest {
                 )
             }
         }
+        scrollTo("Найти поездку")
         composeRule.onNodeWithText("Найти поездку").performClick()
         assertTrue(found)
     }
