@@ -5,12 +5,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -70,6 +73,15 @@ class AccessibilityDeep4ContentTest {
                 onChat = onChat,
             )
         }
+    }
+
+    /** Прокрутить форму до строки с текстом.
+     *  Форма заявки выросла, и секция «Условия поездки» уехала ниже видимой области теста.
+     *  Для LazyColumn это значит, что её строки ещё и НЕ СОЗДАНЫ — отсюда не только
+     *  «is not displayed», но и «нет ни одного переключателя» в тесте тумблера. */
+    private fun scrollTo(text: String) {
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText(text))
     }
 
     @Test
@@ -249,10 +261,15 @@ class AccessibilityDeep4ContentTest {
     @Test
     fun passenger_conditionsSection_showsTitleAndToggleLabels() {
         composeRule.setContent { PassengerContent() }
+        scrollTo("Условия поездки")
         composeRule.onNodeWithText("Условия поездки").assertIsDisplayed()
+        scrollTo("Только женщины")
         composeRule.onNodeWithText("Только женщины").assertIsDisplayed()
+        scrollTo("Детское кресло")
         composeRule.onNodeWithText("Детское кресло").assertIsDisplayed()
+        scrollTo("Еду с животным")
         composeRule.onNodeWithText("Еду с животным").assertIsDisplayed()
+        scrollTo("Нужен кондиционер")
         composeRule.onNodeWithText("Нужен кондиционер").assertIsDisplayed()
     }
 
@@ -261,7 +278,9 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent {
             PassengerContent(language = AppLanguage.Ba, selectedCategoryText = "Ғәҙәти")
         }
+        scrollTo("Сәфәр шарттары")
         composeRule.onNodeWithText("Сәфәр шарттары").assertIsDisplayed()
+        scrollTo("Тик ҡатын-ҡыҙ")
         composeRule.onNodeWithText("Тик ҡатын-ҡыҙ").assertIsDisplayed()
     }
 
@@ -270,6 +289,7 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent { PassengerContent() }
         composeRule.onNodeWithText("Мест").assertIsDisplayed()
         composeRule.onNodeWithText("Цена, ₽").assertIsDisplayed()
+        scrollTo("Комментарий")
         composeRule.onNodeWithText("Комментарий").assertIsDisplayed()
     }
 
@@ -305,6 +325,9 @@ class AccessibilityDeep4ContentTest {
         var toggled: Boolean? = null
         composeRule.setContent { PassengerContent(onWomenOnlyChange = { toggled = it }) }
         // Первый свитч в секции «Условия поездки» — «Только женщины» (по порядку PrefToggleRow).
+        // Секцию надо сперва проявить прокруткой: в LazyColumn её строки не созданы,
+        // пока она ниже видимой области — иначе переключателей в дереве НЕТ вообще.
+        scrollTo("Условия поездки")
         composeRule.onAllNodes(isToggleable())[0].performClick()
         assertEquals(true, toggled)
     }

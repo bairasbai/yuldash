@@ -105,6 +105,16 @@ class ProfileDeep3ContentTest {
 
     // --- Шапка + двуязычие ---
 
+    /** Прокрутить кабинет до строки с текстом.
+     *  Кабинет водителя вырос (появились новые строки), и часть контента уехала ниже видимой
+     *  области теста. Узел в дереве ЕСТЬ, но assertIsDisplayed проверяет попадание в окно —
+     *  поэтому без прокрутки падает «is not displayed». В этом же файле такой приём уже
+     *  используется в проходящих тестах. */
+    private fun scrollTo(text: String) {
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText(text))
+    }
+
     @Test
     fun header_russian_showsTitleAndSubtitle() {
         content()
@@ -168,13 +178,16 @@ class ProfileDeep3ContentTest {
     @Test
     fun empty_noRides_showsEmptyStateWithPublishAction() {
         content(driverRides = emptyList())
+        scrollTo("Ваших маршрутов пока нет")
         composeRule.onNodeWithText("Ваших маршрутов пока нет").assertIsDisplayed()
+        scrollTo("Опубликовать маршрут")
         composeRule.onNodeWithText("Опубликовать маршрут").assertIsDisplayed()
     }
 
     @Test
     fun empty_bashkir_showsBashkirEmptyState() {
         content(driverRides = emptyList(), language = AppLanguage.Ba)
+        scrollTo("Һеҙҙең маршруттар әлегә юҡ")
         composeRule.onNodeWithText("Һеҙҙең маршруттар әлегә юҡ").assertIsDisplayed()
     }
 
@@ -182,6 +195,7 @@ class ProfileDeep3ContentTest {
     fun empty_publishClick_firesOnCreateRide() {
         var created = false
         content(driverRides = emptyList(), onCreateRide = { created = true })
+        scrollTo("Опубликовать маршрут")
         composeRule.onNodeWithText("Опубликовать маршрут").performClick()
         assertTrue(created)
     }
@@ -191,6 +205,7 @@ class ProfileDeep3ContentTest {
     @Test
     fun list_showsRideCardWithRouteAndStatus() {
         content(driverRides = listOf(ride()))
+        scrollTo("Уфа → Сибай")
         composeRule.onNodeWithText("Уфа → Сибай").assertIsDisplayed()
         composeRule.onNodeWithText("Опубликована").assertIsDisplayed()
         composeRule.onNodeWithText("2 места · 350 ₽").assertIsDisplayed()
@@ -200,6 +215,7 @@ class ProfileDeep3ContentTest {
     fun list_boostClick_firesOnBoost() {
         var boosted = false
         content(driverRides = listOf(ride()), onBoost = { boosted = true })
+        scrollTo("Поднять")
         composeRule.onNodeWithText("Поднять").performClick()
         assertTrue(boosted)
     }
@@ -207,6 +223,7 @@ class ProfileDeep3ContentTest {
     @Test
     fun list_bashkir_showsBashkirStatus() {
         content(driverRides = listOf(ride()), language = AppLanguage.Ba)
+        scrollTo("Баҫтырылды")
         composeRule.onNodeWithText("Баҫтырылды").assertIsDisplayed()
     }
 
