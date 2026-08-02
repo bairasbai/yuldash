@@ -1340,6 +1340,7 @@ object ApiClient {
                     passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
                     route = o.optString("route"),
                     status = o.optString("status"),
+                    myStars = o.optInt("my_stars"),
                 )
             }
         }
@@ -2959,6 +2960,8 @@ object ApiClient {
         description = o.optString("description"),
         receiverName = o.optString("receiver_name"),
         receiverPhone = o.optString("receiver_phone"),
+        senderName = o.optString("sender_name"),
+        senderPhone = o.optString("sender_phone"),
         feeKop = o.optInt("fee_kop"),
         status = o.optString("status", "created"),
         confirmCode = o.optString("confirm_code"),
@@ -3060,9 +3063,11 @@ object ApiClient {
             .onSuccess { Analytics.log("parcel_status_$status") }
     }
 
-    /** Курьер: посылки, которые везу (телефон получателя виден, кода нет). */
+    /** Курьер: активные + короткая история завершённых доставок.
+     *  Финальная карточка не исчезает после вручения/отмены/возврата: остаются квитанция,
+     *  компенсация, оценка и спор. Сервер ограничивает историю последними 10 строками. */
     suspend fun getCarryingParcels(): Result<List<ParcelDto>> =
-        call("GET", "/parcels/carrying", null, auth = true).map { obj ->
+        call("GET", "/parcels/carrying?include_recent=true&recent_limit=10", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
         }
@@ -3233,10 +3238,25 @@ object ApiClient {
             .map { parseParcelSettlement(it.optJSONObject("settlement")) ?: ParcelSettlementDto(actualKop, 0, actualKop, false) }
             .onSuccess { Analytics.log("courier_goods_cost") }
 
-    /** Открыть спор по заказу (отправитель или курьер). reason — что случилось. */
-    suspend fun disputeParcel(id: Int, reason: String): Result<Unit> =
-        call("POST", "/parcels/$id/dispute", JSONObject().put("reason", reason.trim()), auth = true).map { }
+    /** Открыть спор по заказу (отправитель или курьер) с классификацией и приватными фото. */
+    suspend fun disputeParcel(
+        id: Int,
+        reason: String,
+        type: String,
+        evidenceUrls: List<String>,
+    ): Result<Unit> {
+        val safeEvidence = evidenceUrls
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(3)
+        val body = JSONObject()
+            .put("reason", reason.trim().take(1000))
+            .put("type", type.trim().take(32))
+            .put("evidence_urls", JSONArray(safeEvidence))
+        return call("POST", "/parcels/$id/dispute", body, auth = true).map { }
             .onSuccess { Analytics.log("parcel_dispute") }
+    }
 
     /** Кабинет курьера: заявка + профиль (если одобрен) + выписка (доставлено/сбор). */
     suspend fun getCourierMe(): Result<CourierMeDto> =
@@ -3694,6 +3714,7 @@ object ApiClient {
                     id = o.optInt("id"),
                     author = o.optString("author"),
                     rateeId = o.optInt("ratee_id"),
+                    ratee = o.optString("ratee"),
                     stars = o.optInt("stars"),
                     text = o.optString("text"),
                     createdAt = o.optString("created_at"),
@@ -3980,7 +4001,15 @@ data class InstantOrderDto(
     val driverFeeKop: Int = 0,
     val driverNetKop: Int = 0,
     val driverFeePercent: Double = 0.0,
+    // Часы поиска. Свой таймер на экране врёт: свернул приложение — отсчёт начался заново.
+    // createdAt — сколько человек ждёт ВСЕГО (перезапуск поиска его не сбрасывает);
+    // searchingAt — начало текущего круга подбора (у предзаказа это активация, а не бронирование).
+    val createdAt: String? = null,
+    val searchingAt: String? = null,
 ) {
+    /** С какого момента честно считать «ищем уже M:SS». null = сервер старый, счётчик не показываем. */
+    val searchClockFrom: String? get() = if (scheduledAt != null) searchingAt else (createdAt ?: searchingAt)
+
     /** Терминальный статус — заказ окончен (успех/отмена/протух). */
     val isTerminal: Boolean get() = status == "done" || status == "cancelled" || status == "expired"
     /**
@@ -4049,6 +4078,8 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     driverFeeKop = optInt("driver_fee_kop"),
     driverNetKop = optInt("driver_net_kop"),
     driverFeePercent = optDouble("driver_fee_percent", 0.0),
+    createdAt = if (isNull("created_at")) null else optString("created_at").ifBlank { null },
+    searchingAt = if (isNull("searching_at")) null else optString("searching_at").ifBlank { null },
 )
 
 /** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */
@@ -4498,6 +4529,9 @@ data class DriverBookingDto(
     val passengerRating: Double?,
     val route: String,
     val status: String,
+    // Сколько звёзд водитель уже поставил по этой брони: 0 = ещё не оценивал.
+    // Без этого после перезагрузки экрана звёзды снова были пустые, и человек оценивал повторно.
+    val myStars: Int = 0,
 )
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
@@ -4898,13 +4932,19 @@ data class PendingRatingDto(
     val id: Int,
     val author: String,       // кто оставил (админу; в публичном профиле — тоже без телефона)
     val rateeId: Int,         // кому адресован
+    // Имя того, О КОМ отзыв. Без него модератор читал текст вслепую: видно «вёз молча»,
+    // а чей это профиль и кому прилетит публикация — нет. Телефон не отдаём, имени хватает.
+    val ratee: String = "",
     val stars: Int,
     val text: String,
     val createdAt: String,
 )
 
-/** Спор «Справедливости» (двусторонний разбор). Поля reporter… и respondent… заполнены ТОЛЬКО
- *  в админ-выдаче: участникам телефон второй стороны не отдаём — это приватность, не забывчивость.
+/** Спор «Справедливости» (двусторонний разбор). Поля `reporterId/Name/Phone` и
+ *  `respondentId/Name/Phone` заполнены ТОЛЬКО в админ-выдаче: участникам телефон второй
+ *  стороны не отдаём — это приватность, не забывчивость.
+ *  (Здесь нельзя писать «reporter» со звёздочкой перед косой чертой: пара символов закрывает
+ *  KDoc раньше времени, и весь остаток файла компилятор читает как код.)
  *
  *  status: open | awaiting_response | under_review | appealed | resolved | closed
  *  myRole: reporter (я подал) | respondent (обвинили меня) | admin
@@ -5160,6 +5200,8 @@ data class ParcelDto(
     val description: String,
     val receiverName: String,
     val receiverPhone: String,   // "" если скрыт
+    val senderName: String = "", // после accept: контакт точки забора/возврата
+    val senderPhone: String = "",// после accept; до него сервер не отдаёт
     val feeKop: Int,
     val status: String,
     val confirmCode: String,     // "" если скрыт

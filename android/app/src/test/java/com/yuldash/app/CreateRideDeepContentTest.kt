@@ -75,7 +75,9 @@ class CreateRideDeepContentTest {
                 pickup = "", pinned = false,
                 womenOnly = false, childSeat = false, petsAllowed = false,
                 baggage = false, airConditioner = false, smoking = false,
-                quiet = false, waypoints = emptyList(), onlyTrusted = false,
+                // «Только для своих», «тихая поездка» и промежуточные остановки — параметры
+                // появились в форме позже, тесты про них не знали и перестали компилироваться.
+                onlyTrusted = false, quiet = false, waypoints = emptyList(),
                 priceHint = priceHint, loading = loading, error = error,
                 onFromChange = {}, onToChange = {}, onSeatsChange = {}, onPriceChange = {},
                 onCommentChange = {}, onSelectType = {}, onSelectRecurrence = onSelectRecurrence,
@@ -83,7 +85,7 @@ class CreateRideDeepContentTest {
                 onOpenPicker = {}, onOpenDatePicker = {}, onUsePriceHint = onUsePriceHint,
                 onWomenOnly = {}, onChildSeat = {}, onPetsAllowed = {}, onBaggage = {},
                 onAirConditioner = {}, onSmoking = {},
-                onQuiet = {}, onWaypointsChange = {}, onOnlyTrusted = {},
+                onOnlyTrusted = {}, onQuiet = {}, onWaypointsChange = {},
                 onPublish = {}, onCancel = {},
             )
         }

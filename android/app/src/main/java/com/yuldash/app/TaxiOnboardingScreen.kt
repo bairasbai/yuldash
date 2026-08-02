@@ -110,6 +110,24 @@ internal fun taxiAgeYears(birthIso: String): Int? =
  * «Стать таксистом Юлдаша»: правила → форма → статус заявки.
  * Вход — из кабинета водителя (зона «Такси»). onOpenDriverCabinet — после одобрения ведём в кабинет.
  */
+// ─────────────────────────── Типографика такси-водителя ───────────────────────────
+// Пять ролей и ни одной лишней. Числа совпадают со «Сроками документов» (TaxiDocsScreens.kt) —
+// водитель ходит между этими экранами, и текст не должен «прыгать» в размере.
+// До этого здесь жили одиннадцать разных размеров вперемешку (11, 12, 13, 14, 15, 16, 17, 19,
+// 20, 22), половина без межстрочного интервала — башкирский, который длиннее русского, слипался.
+internal object TaxiType {
+    val Hero = 22.sp        // заголовок экрана: один на экран
+    val HeroLine = 27.sp
+    val Title = 18.sp       // заголовок карточки/секции
+    val TitleLine = 24.sp
+    val Body = 15.sp        // читаемый текст, значения, названия пунктов
+    val BodyLine = 20.sp
+    val Caption = 13.sp     // подпись, пояснение, сноска, мета
+    val CaptionLine = 18.sp
+    val EmojiRow = 20.sp    // эмодзи-значок в строке правила (картинка, не текст)
+    val EmojiHero = 44.sp   // эмодзи в круге на экране статуса
+}
+
 @Composable
 internal fun TaxiOnboardingScreen(onBack: () -> Unit, onOpenDriverCabinet: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
@@ -290,7 +308,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                         Spacer(Modifier.width(12.dp))
                         Text(
                             appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу"),
-                            color = CanonText, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Black,
+                            color = CanonText, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine, fontWeight = FontWeight.Black,
                         )
                     }
                     Text(
@@ -298,7 +316,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                             "Вози своих — по-соседски и без жадных процентов. Заполни заявку, мы проверим документы и подключим тебя к заказам.",
                             "Үҙебеҙҙекеләрҙе йөрөт — күршеләрсә һәм йыртҡыс процентһыҙ. Заявканы тултыр, документтарҙы тикшереп, һине заказдарға тоташтырабыҙ.",
                         ),
-                        color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
+                        color = CanonText, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine,
                     )
                 }
             }
@@ -332,7 +350,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         appText("По закону (580-ФЗ) нужно", "Закон буйынса (580-ФЗ) кәрәк"),
-                        color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp,
+                        color = CanonText, fontWeight = FontWeight.Black, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine,
                     )
                     TaxiRuleRow("🧾", appText("Самозанятость (ИНН)", "Үҙмәшғүллек (ИНН)"),
                         appText("Оформляется бесплатно в приложении «Мой налог» за 10 минут.", "«Мой налог» ҡушымтаһында 10 минутта бушлай яһала."))
@@ -354,8 +372,8 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
             item {
                 Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Комментарий админа", "Админ комментарийы"), color = CanonRed, fontWeight = FontWeight.Black, fontSize = 14.sp)
-                        Text(prefill.comment, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                        Text(appText("Комментарий админа", "Админ комментарийы"), color = CanonRed, fontWeight = FontWeight.Black, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
+                        Text(prefill.comment, color = CanonText, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
                     }
                 }
             }
@@ -418,7 +436,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
             }
         }
         // Класс машины (§6): Эконом на старте у всех; Комфорт — авто новее/чище, подтвердит админ.
-        item { Text(appText("Класс машины", "Машина класы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+        item { Text(appText("Класс машины", "Машина класы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine) }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 TaxiClassChip(
@@ -437,16 +455,16 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                 )
             }
         }
-        item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+        item { Text(appText("Документы (фото)", "Документтар (фото)"), color = CanonText, fontWeight = FontWeight.Black, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine) }
         item { UploadTile(appText("Фото разрешения на такси", "Такси рөхсәте фотоһы"), permitPhotoUrl != null, uploadingPermit) { pickPermit.launch("image/*") } }
         item { UploadTile(appText("Фото полиса ОСАГО", "ОСАГО полисы фотоһы"), osagoUrl != null, uploadingOsago) { pickOsago.launch("image/*") } }
         // Сроки документов: по ним мы напомним заранее и снимем допуск, если срок всё же выйдет.
-        item { Text(appText("Сроки документов", "Документтар ваҡыты"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+        item { Text(appText("Сроки документов", "Документтар ваҡыты"), color = CanonText, fontWeight = FontWeight.Black, fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine) }
         item {
             Text(
                 appText("Мы напомним за две недели до истечения — чтобы такси не встало для тебя неожиданно.",
                         "Ваҡыт бөтөүенә ике аҙна ҡалғас иҫкә төшөрәбеҙ — такси көтмәгәндә туҡтамаһын."),
-                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 4.dp),
+                color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine, modifier = Modifier.padding(horizontal = 4.dp),
             )
         }
         item {
@@ -474,7 +492,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
             Text(
                 appText("Селфи с правами в руках — чтобы за рулём был именно ты (как в Яндекс.Такси).",
                         "Ҡулыңда права менән селфи — рулдә нәҡ һин булыуың өсөн (Яндекс.Такси кеүек)."),
-                color = CanonMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp),
+                color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine, modifier = Modifier.padding(horizontal = 4.dp),
             )
         }
         item { UploadTile(appText("Селфи с правами в руках", "Ҡулыңда права менән селфи"), selfieUrl != null, uploadingSelfie) { pickSelfie.launch("image/*") } }
@@ -482,7 +500,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
             Text(
                 appText("Справка о несудимости (Госуслуги) — по желанию, но повышает доверие соседей.",
                         "Судимлек юҡлығы тураһында белешмә (Госуслуги) — теләк буйынса, әммә күршеләр ышанысын арттыра."),
-                color = CanonMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp),
+                color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine, modifier = Modifier.padding(horizontal = 4.dp),
             )
         }
         item { UploadTile(appText("Справка о несудимости (по желанию)", "Судимлек юҡлығы белешмәһе (теләк буйынса)"), criminalUrl != null, uploadingCriminal) { pickCriminal.launch("image/*") } }
@@ -493,7 +511,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
                     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Info, contentDescription = null, tint = CanonRed, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(10.dp))
-                        Text(submitError ?: "", color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                        Text(submitError ?: "", color = CanonText, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
                     }
                 }
             }
@@ -526,7 +544,7 @@ private fun TaxiApplyFormContent(prefill: TaxiApplicationDto?, onSubmitted: (Tax
         item {
             Text(
                 appText("Фото нужны только для проверки и не видны другим пользователям.", "Фотолар тик тикшереү өсөн, башҡаларға күренмәй."),
-                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
             )
         }
     }
@@ -549,8 +567,8 @@ private fun TaxiClassChip(
         modifier = modifier.height(64.dp),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.Center) {
-            Text(title, color = if (selected) CanonGreen2 else CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+            Text(title, color = if (selected) CanonGreen2 else CanonText, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine, maxLines = 1)
         }
     }
 }
@@ -574,8 +592,8 @@ private fun TaxiCommissionStep(value: String, label: String, modifier: Modifier 
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(value, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 20.sp)
-            Text(label, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+            Text(value, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine)
+            Text(label, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine, maxLines = 1)
         }
     }
 }
@@ -585,12 +603,12 @@ private fun TaxiCommissionStep(value: String, label: String, modifier: Modifier 
 private fun TaxiRuleRow(emoji: String, title: String, body: String) {
     Row(verticalAlignment = Alignment.Top) {
         Surface(color = CanonBg, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(40.dp)) {
-            Box(contentAlignment = Alignment.Center) { Text(emoji, fontSize = 20.sp) }
+            Box(contentAlignment = Alignment.Center) { Text(emoji, fontSize = TaxiType.EmojiRow) }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 19.sp)
-            Text(body, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
+            Text(body, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine)
         }
     }
 }
@@ -677,14 +695,14 @@ private fun TaxiStatusScaffold(
     ) {
         item {
             Surface(shape = CircleShape, color = tintBg, border = BorderStroke(1.dp, tint.copy(alpha = 0.3f))) {
-                Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { Text(emoji, fontSize = 44.sp) }
+                Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { Text(emoji, fontSize = TaxiType.EmojiHero) }
             }
             Spacer(Modifier.height(20.dp))
         }
         item {
-            Text(title, color = CanonText, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            Text(title, color = CanonText, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
             Spacer(Modifier.height(8.dp))
-            Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
+            Text(body, color = CanonMuted, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine, textAlign = TextAlign.Center)
             Spacer(Modifier.height(20.dp))
         }
         if (summary != null) {
@@ -708,7 +726,7 @@ private fun TaxiStatusScaffold(
             if (secondaryLabel != null && onSecondary != null) {
                 Spacer(Modifier.height(6.dp))
                 TextButton(onClick = onSecondary, modifier = Modifier.fillMaxWidth()) {
-                    Text(secondaryLabel, color = CanonMuted, fontSize = 15.sp)
+                    Text(secondaryLabel, color = CanonMuted, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
                 }
             }
         }
@@ -718,7 +736,7 @@ private fun TaxiStatusScaffold(
 @Composable
 private fun TaxiSummaryRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth()) {
-        Text(label, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.width(120.dp))
-        Text(value.ifBlank { "—" }, color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine, modifier = Modifier.width(120.dp))
+        Text(value.ifBlank { "—" }, color = CanonText, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine, fontWeight = FontWeight.Bold)
     }
 }

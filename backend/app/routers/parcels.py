@@ -562,7 +562,7 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
                       f"Твоя посылка {parcel.from_city} → {parcel.to_city} вручена получателю. Спасибо!")
         except Exception:
             pass
-    return _parcel_for_courier(parcel)
+    return _parcel_for_courier(parcel, session)
 
 
 @router.post("/parcels/{parcel_id}/release")
@@ -710,16 +710,36 @@ def parcel_return_done(parcel_id: int, user: User = Depends(current_user),
 
 
 @router.get("/parcels/carrying")
-def parcels_carrying(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Что я везу: принятые мной и ещё не завершённые (accepted|in_transit), новые сверху.
-    Я курьер → вижу телефон получателя (нужен для связи по доставке)."""
-    rows = session.exec(
+def parcels_carrying(include_recent: bool = False, recent_limit: int = 10,
+                     user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Что я везу: активные доставки, новые сверху.
+
+    ``include_recent=true`` аддитивно возвращает до ``recent_limit`` последних завершённых
+    доставок этого же курьера. Это нужно Android-клиенту, чтобы после вручения, отмены или
+    возврата не исчезала квитанция с компенсацией, оценкой и входом в спор. Старые клиенты
+    без параметра по-прежнему получают только активные статусы.
+
+    Закрытая витрина всегда сериализуется с ``session``: после принятия курьеру нужны контакты
+    и получателя, и отправителя — в том числе для забора и возврата посылки.
+    """
+    active = session.exec(
         select(ParcelDelivery).where(
             ParcelDelivery.courier_id == user.id,
             ParcelDelivery.status.in_(_CARRYING_STATUSES),
         ).order_by(ParcelDelivery.id.desc())
     ).all()
-    return [_parcel_for_courier(p) for p in rows]
+    rows = list(active)
+    if include_recent:
+        limit = max(1, min(int(recent_limit or 10), 20))
+        recent = session.exec(
+            select(ParcelDelivery).where(
+                ParcelDelivery.courier_id == user.id,
+                ParcelDelivery.status.in_(_FINAL_STATUSES),
+            ).order_by(ParcelDelivery.id.desc()).limit(limit)
+        ).all()
+        rows.extend(recent)
+        rows.sort(key=lambda p: int(p.id or 0), reverse=True)
+    return [_parcel_for_courier(p, session) for p in rows]
 
 
 # ---------- Спор по доставке (ответственность) ----------

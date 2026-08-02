@@ -12,9 +12,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
@@ -36,7 +38,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeliveryDining
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.LocalShipping
@@ -63,8 +64,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.CourierApplicationDto
@@ -185,7 +186,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp),
     ) {
         // Герой: тёплое приглашение.
@@ -198,13 +199,13 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
                                 Icons.Default.DeliveryDining,
                                 contentDescription = appText("Курьер", "Курьер"),
                                 tint = Color.White,
-                                modifier = Modifier.padding(12.dp).size(26.dp),
+                                modifier = Modifier.padding(12.dp).size(24.dp),
                             )
                         }
                         Spacer(Modifier.width(12.dp))
                         Text(
                             appText("Стать курьером Юлдаша", "Юлдаш курьеры булыу"),
-                            color = CanonText, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Black,
+                            color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Black,
                         )
                     }
                     Text(
@@ -212,7 +213,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
                             "Развози посылки своим — по-соседски и без жадных процентов. Оставь заявку, мы проверим тебя и подключим к заказам.",
                             "Үҙебеҙҙекеләргә бандеролдәр илт — күршеләрсә һәм йыртҡыс процентһыҙ. Заявка ҡалдыр, беҙ һине тикшереп заказдарға тоташтырабыҙ.",
                         ),
-                        color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
+                        color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
                     )
                 }
             }
@@ -250,8 +251,8 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
             item {
                 Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Причина отказа", "Кире ҡағыу сәбәбе"), color = CanonRed, fontWeight = FontWeight.Black, fontSize = 14.sp)
-                        Text(prefill.rejectReason, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                        Text(appText("Причина отказа", "Кире ҡағыу сәбәбе"), color = CanonRed, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                        Text(prefill.rejectReason, color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                     }
                 }
             }
@@ -259,7 +260,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
         // Транспорт.
         item { SectionHeader(appText("Транспорт", "Транспорт"), appText("На чём возишь", "Нимәлә йөрөтәһең")) }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CourierTransportChip(
                     title = appText("Легковой", "Еңел машина"),
                     subtitle = appText("посылки, покупки", "бандероль, һатып алыу"),
@@ -281,16 +282,15 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
         // Кто пригласил (из реферала).
         item {
             Surface(color = CanonMint, shape = CanonItemShape) {
-                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("🤝", fontSize = 20.sp)
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(appText("Кто пригласил", "Кем саҡырҙы"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text(
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("🤝", fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(appText("Кто пригласил", "Кем саҡырҙы"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                        DeliveryHint(
                             if (prefill?.invitedBy != null && prefill.invitedBy.isNotBlank())
                                 appText("Тебя пригласил: ", "Һине саҡырҙы: ") + prefill.invitedBy
                             else appText("Возьмём из твоего реферального кода — так админ видит, кто за тебя поручился.", "Реферал кодыңдан алабыҙ — админ кем һинең өсөн яуаплы икәнен күрер."),
-                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                         )
                     }
                 }
@@ -299,14 +299,14 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
         // Селфи с документом.
         item { SectionHeader(appText("Селфи с документом", "Документ менән селфи"), appText("Чтобы возил именно ты", "Нәҡ һин йөрөтөүең өсөн")) }
         item {
-            Text(
+            DeliveryHint(
                 appText("Сделай селфи с паспортом или правами в руках — так соседи знают, кому доверяют посылку (как в Яндекс.Доставке).",
                         "Ҡулыңда паспорт йәки права менән селфи яһа — шулай күршеләр бандеролде кемгә ышанғандарын белә (Яндекс.Доставка кеүек)."),
-                color = CanonMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp),
+                modifier = Modifier.padding(horizontal = 4.dp),
             )
         }
         item { UploadTile(appText("Селфи с документом в руках", "Ҡулыңда документ менән селфи"), selfieUrl != null, uploadingSelfie) { pickSelfie.launch("image/*") } }
-        item { Text(appText("О себе", "Үҙең тураһында"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
+        item { DeliverySectionTitle(appText("О себе", "Үҙең тураһында")) }
         item {
             OutlinedTextField(
                 value = fullName,
@@ -336,23 +336,24 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
                 border = BorderStroke(1.dp, if (rulesAccepted) CanonGreen2 else CanonBorder),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
             ) {
-                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Галочка согласия — единственный «замок» формы: она должна отзываться живо.
+                    val agreeTint by animateColorAsState(if (rulesAccepted) CanonGreen2 else CanonMuted, tween(200), label = "agree-tint")
                     Icon(
                         if (rulesAccepted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                         contentDescription = null,
-                        tint = if (rulesAccepted) CanonGreen2 else CanonMuted,
+                        tint = agreeTint,
                         modifier = Modifier.size(24.dp),
                     )
                     Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(appText("Согласен с правилами доставки", "Илтеү ҡағиҙәләре менән килешәм"),
-                            color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text(
+                            color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                        DeliveryHint(
                             appText(
                                 "Везу бережно, не вскрываю, запрещённое не беру. Если что-то пошло не так — говорю сразу, а не молчу.",
                                 "Һаҡ илтәм, асмайым, тыйылғанды алмайым. Берәй хәл булһа — шунда уҡ әйтәм, өндәшмәй ҡалмайым.",
                             ),
-                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                         )
                     }
                 }
@@ -360,15 +361,9 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
         }
         // Ошибка отправки (текст сервера — например «Заявка уже на рассмотрении» или «Курьер скоро»).
         item {
-            AnimatedVisibility(visible = submitError != null) {
-                Surface(color = CanonDangerBg, shape = CanonItemShape) {
-                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Info, contentDescription = null, tint = CanonRed, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Text(submitError ?: "", color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
-                    }
-                }
-            }
+            // Та же карточка ошибки, что на форме посылки: иконка + рамка, появляется и
+            // схлопывается плавно. Раньше блок «прыгал» без exit-анимации и в своём стиле.
+            DeliveryErrorCard(submitError)
         }
         item {
             AppButton(
@@ -395,10 +390,7 @@ private fun CourierApplyFormContent(prefill: CourierApplicationDto?, onSubmitted
             )
         }
         item {
-            Text(
-                appText("Фото нужно только для проверки и не видно другим пользователям.", "Фото тик тикшереү өсөн, башҡаларға күренмәй."),
-                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
-            )
+            DeliveryHint(appText("Фото нужно только для проверки и не видно другим пользователям.", "Фото тик тикшереү өсөн, башҡаларға күренмәй."))
         }
     }
 }
@@ -413,17 +405,31 @@ private fun CourierTransportChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Выбор транспорта — самый «кликаемый» элемент формы: подложка, рамка и надпись переезжают
+    // плавно, иначе выбор читается как мигание, а не как отклик.
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "transport-bg")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "transport-line")
+    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonText, tween(200), label = "transport-ink")
+    val iconTint by animateColorAsState(if (selected) CanonGreen2 else CanonMuted, tween(200), label = "transport-icon")
     Surface(
         onClick = onClick,
         shape = CanonItemShape,
-        color = if (selected) CanonMint else CanonSurface,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
-        modifier = modifier.height(96.dp),
+        color = bg,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, line),
+        // heightIn, а не height: при системном «крупном шрифте» строки выше, и жёсткие 96dp
+        // обрезали подпись. Оба чипа устроены одинаково, поэтому растут одинаково.
+        modifier = modifier.heightIn(min = 96.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(icon, contentDescription = null, tint = if (selected) CanonGreen2 else CanonMuted, modifier = Modifier.size(26.dp))
-            Text(title, color = if (selected) CanonGreen2 else CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
+            Text(
+                title, color = ink, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, fontWeight = FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle, color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -433,12 +439,12 @@ private fun CourierTransportChip(
 private fun CourierRuleRow(emoji: String, title: String, body: String) {
     Row(verticalAlignment = Alignment.Top) {
         Surface(color = CanonBg, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(40.dp)) {
-            Box(contentAlignment = Alignment.Center) { Text(emoji, fontSize = 20.sp) }
+            Box(contentAlignment = Alignment.Center) { Text(emoji, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) }
         }
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 19.sp)
-            Text(body, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+            DeliveryHint(body)
         }
     }
 }
@@ -524,21 +530,29 @@ private fun CourierStatusScaffold(
         contentPadding = PaddingValues(vertical = 24.dp),
     ) {
         item {
-            Surface(shape = CircleShape, color = tintBg, border = BorderStroke(1.dp, tint.copy(alpha = 0.3f))) {
-                Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) { Text(emoji, fontSize = 44.sp) }
+            // Значок статуса вырастает ПОСЛЕ первого кадра: с visible = true сразу
+            // AnimatedVisibility не проигрывает ничего, и «⏳» просто возникал бы на месте.
+            var badgeShown by remember { mutableStateOf(false) }
+            LaunchedEffect(emoji) { badgeShown = true }
+            AnimatedVisibility(visible = badgeShown, enter = scaleIn(tween(420)) + fadeIn(tween(420))) {
+                Surface(shape = CircleShape, color = tintBg, border = BorderStroke(1.dp, tint.copy(alpha = 0.3f))) {
+                    Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) {
+                        Text(emoji, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
+                    }
+                }
             }
             Spacer(Modifier.height(20.dp))
         }
         item {
-            Text(title, color = CanonText, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            Text(title, color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
             Spacer(Modifier.height(8.dp))
-            Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center)
+            Text(body, color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, textAlign = TextAlign.Center)
             Spacer(Modifier.height(20.dp))
         }
         if (summary != null) {
             item {
                 AppCard {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         CourierSummaryRow(appText("Транспорт", "Транспорт"), courierTransportLabel(summary.transport))
                         CourierSummaryRow(
                             appText("Селфи", "Селфи"),
@@ -555,9 +569,9 @@ private fun CourierStatusScaffold(
         item {
             AppButton(primaryLabel, onPrimary, style = AppButtonStyle.Primary)
             if (secondaryLabel != null && onSecondary != null) {
-                Spacer(Modifier.height(6.dp))
-                TextButton(onClick = onSecondary, modifier = Modifier.fillMaxWidth()) {
-                    Text(secondaryLabel, color = CanonMuted, fontSize = 15.sp)
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onSecondary, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(secondaryLabel, color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                 }
             }
         }
@@ -567,8 +581,11 @@ private fun CourierStatusScaffold(
 @Composable
 private fun CourierSummaryRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth()) {
-        Text(label, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.width(120.dp))
-        Text(value.ifBlank { "—" }, color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, modifier = Modifier.width(120.dp))
+        Text(
+            value.ifBlank { "—" }, color = CanonText, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+            fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
+        )
     }
 }
 

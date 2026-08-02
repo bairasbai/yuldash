@@ -113,6 +113,10 @@ def test_return_flow_closes_order_without_commission(client, user_factory):
     p = _parcel(pid)
     assert p.status == "returned" and p.returned_at is not None
     assert p.commission_kop == 0 and p.commission_paid is True
+    recent = client.get("/parcels/carrying?include_recent=true", headers=courier["auth"])
+    returned = next(x for x in recent.json() if x["id"] == pid)
+    assert returned["status"] == "returned"
+    assert returned["return_reason"] == "получателя нет дома"
     # Идемпотентно: повтор не ломает состояние.
     assert client.post(f"/parcels/{pid}/return-done", headers=courier["auth"]).status_code == 200
 

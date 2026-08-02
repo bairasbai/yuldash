@@ -23,6 +23,17 @@ W="${KTBUILD_DIR:-${TMPDIR:-/tmp}/yuldash-ktbuild}"
 BASE="$ROOT/tools/.unresolved-baseline.txt"
 MODE="${1:-check}"
 
+# ⚠️ Рабочий каталог ОБЩИЙ (в нём кэш kotlinc и 270 МБ библиотек), поэтому два одновременных
+# запуска затирают друг другу out-baseline и baseline-raw.log. 2026-07-31 это дало ЛОЖНО-ЗЕЛЁНЫЙ
+# результат: «неразрешённых имён: 0» при логе на 9 МБ из нулевых байтов. Ложно-зелёная проверка
+# опаснее отсутствующей — поэтому запуски сериализуются блокировкой, а не «договорённостью».
+mkdir -p "$W"
+exec 9>"$W/.lock"
+if ! flock -n 9; then
+  echo "→ каталог занят другим прогоном, жду освобождения…"
+  flock 9
+fi
+
 [ -x "$W/kotlinc/bin/kotlinc" ] || { echo "нет окружения — сначала: bash tools/compile-data-layer.sh"; exit 1; }
 cp "$ROOT/tools/stubs/"*.kt "$W/stubs/"
 
@@ -35,6 +46,14 @@ JAVA_TOOL_OPTIONS="" ./kotlinc/bin/kotlinc \
 if grep -qi "syntax error\|Expecting\|Unexpected token" baseline-raw.log; then
   echo "✗ ОШИБКИ РАЗБОРА (файл сломан):"
   grep -i "syntax error\|Expecting\|Unexpected token" baseline-raw.log | head -20
+  exit 1
+fi
+
+# Санитарная проверка: компилятор ОБЯЗАН был отругаться на Compose (его тут нет).
+# Пустой или мусорный лог означает, что прогон не состоялся, а не что всё хорошо.
+if ! grep -q "unresolved reference" baseline-raw.log; then
+  echo "✗ лог компилятора не содержит ни одной ожидаемой ошибки — прогон НЕ СОСТОЯЛСЯ."
+  echo "  (размер лога: $(wc -c < baseline-raw.log) байт). Зелёный результат тут был бы враньём."
   exit 1
 fi
 

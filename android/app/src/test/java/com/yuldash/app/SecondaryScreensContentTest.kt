@@ -30,7 +30,7 @@ class SecondaryScreensContentTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    // --- NotificationRow: строка уведомления (иконка + заголовок + подзаголовок + время) ---
+    // --- NotificationRow: строка уведомления (заголовок + текст + «когда» + непрочитанное) ---
 
     /** Собрать уведомление под текущий контракт: NotificationRow берёт DTO и сам достаёт
      *  заголовок/текст по языку, а время считает относительно «сейчас» из createdAt. */
@@ -51,7 +51,10 @@ class SecondaryScreensContentTest {
     @Test
     fun notificationRow_showsTitleAndSubtitle() {
         composeRule.setContent {
-            NotificationRow(notif("Новое сообщение", "Рамиль ответил на заявку"), onClick = {})
+            NotificationRow(
+                notif = notif(titleRu = "Новое сообщение", bodyRu = "Рамиль ответил на заявку", read = false),
+                onClick = {},
+            )
         }
         composeRule.onNodeWithText("Новое сообщение").assertIsDisplayed()
         composeRule.onNodeWithText("Рамиль ответил на заявку").assertIsDisplayed()
@@ -63,7 +66,10 @@ class SecondaryScreensContentTest {
     fun notificationRow_read_stillShowsText() {
         // read=true: подложка спокойная (не мятная), но текст рендерится как обычно.
         composeRule.setContent {
-            NotificationRow(notif("Заголовок", "Подзаголовок", read = true), onClick = {})
+            NotificationRow(
+                notif = notif(titleRu = "Заголовок", bodyRu = "Подзаголовок", read = true),
+                onClick = {},
+            )
         }
         composeRule.onNodeWithText("Заголовок").assertIsDisplayed()
         composeRule.onNodeWithText("Подзаголовок").assertIsDisplayed()

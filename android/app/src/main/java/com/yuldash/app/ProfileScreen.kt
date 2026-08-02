@@ -161,13 +161,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
@@ -205,6 +203,8 @@ import android.Manifest
 import android.app.Activity
 import android.speech.RecognizerIntent
 import android.content.pm.PackageManager
+// Платформенный ExifInterface, а не androidx: конструктор от InputStream есть с API 24,
+// minSdk у нас 26 — значит новая зависимость не нужна (CLAUDE.md §10).
 import android.media.ExifInterface
 import android.media.MediaPlayer
 import android.media.MediaRecorder
@@ -233,6 +233,10 @@ import android.graphics.Matrix
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.graphics.Canvas
+// decodeToJpeg: ImageDecoder сам применяет EXIF-поворот (API 28+), Matrix доворачивает вручную
+// на более старых. Без этих двух импортов файл не компилировался — сборка CI, 2026-07-30.
+import android.graphics.ImageDecoder
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
@@ -339,9 +343,16 @@ internal fun ProfileScreen(
     var role by remember { mutableStateOf("") }
     var city by remember { mutableStateOf("") }   // родной город: показываем в шапке, редактируется тапом
     var profileConfirmed by remember { mutableStateOf(ApiClient.isLoggedIn()) }
-    LaunchedEffect(Unit) {
+    // Три честных состояния шапки: грузим / пришло / сеть упала. Раньше сбой /me был немым —
+    // человек видел кэшированное имя и не понимал, что данные устарели и что делать.
+    var meLoading by remember { mutableStateOf(true) }
+    var meError by remember { mutableStateOf(false) }
+    var meReload by remember { mutableIntStateOf(0) }
+    LaunchedEffect(meReload) {
+        meLoading = true
         ApiClient.me()
             .onSuccess { o ->
+                meError = false
                 profileConfirmed = true
                 myRating = if (o.isNull("rating")) null else o.optDouble("rating")
                 o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
@@ -351,7 +362,12 @@ internal fun ProfileScreen(
             }
             // Сбой /me: сеть упала (таймаут/нет связи) — НЕ роняем залогиненного в «демо».
             // Не подтверждён только если реально не вошёл ИЛИ токен отвергнут (401).
-            .onFailure { e -> profileConfirmed = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401 }
+            .onFailure { e ->
+                profileConfirmed = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401
+                // 401 — это «не вошёл» (обычный демо-режим), а не сбой сети: ошибку не показываем.
+                meError = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401
+            }
+        meLoading = false
     }
     val editCtx = LocalContext.current
     val editScope = rememberCoroutineScope()
@@ -390,13 +406,17 @@ internal fun ProfileScreen(
             dismissButton = { TextButton(onClick = { showRedeem = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
+    // Загрузка фото занимает секунды на слабой сети — показываем это прямо на аватаре,
+    // иначе тап выглядит как «ничего не произошло» и человек жмёт ещё раз.
+    var avatarUploading by remember { mutableStateOf(false) }
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { u ->
             editScope.launch {
+                avatarUploading = true
                 // Перекодируем в компактный JPEG на IO-потоке: нормализует формат (png/webp/heic → jpg,
                 // иначе сервер отвергал не-jpeg) и уменьшает тяжёлое фото до размера аватара.
                 val bytes = withContext(Dispatchers.IO) { decodeToJpeg(editCtx, u) }
-                if (bytes == null) { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show(); return@launch }
+                if (bytes == null) { avatarUploading = false; Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show(); return@launch }
                 ApiClient.uploadChatPhoto(bytes)
                     .onSuccess { url ->
                         ApiClient.updateAvatar(url)
@@ -404,6 +424,7 @@ internal fun ProfileScreen(
                             .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
                     }
                     .onFailure { Toast.makeText(editCtx, saveErrMsg, Toast.LENGTH_SHORT).show() }
+                avatarUploading = false
             }
         }
     }
@@ -544,7 +565,7 @@ internal fun ProfileScreen(
             dismissButton = { TextButton(enabled = !deletingAccount, onClick = { showDeleteAccount = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+    Scaffold(containerColor = CanonBg) { padding ->
         LazyColumn(
             modifier = Modifier
                 .padding(padding)
@@ -575,7 +596,7 @@ internal fun ProfileScreen(
                                 modifier = Modifier
                                     .size(70.dp)
                                     .background(Color.White.copy(alpha = 0.18f), CircleShape)
-                                    .bounceClick { avatarPicker.launch("image/*") },
+                                    .bounceClick { if (!avatarUploading) avatarPicker.launch("image/*") },
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (avatarUrl.isBlank()) {
@@ -588,15 +609,27 @@ internal fun ProfileScreen(
                                         contentScale = ContentScale.Crop,
                                     )
                                 }
+                                // Фото уходит на сервер — честно показываем это на самом аватаре.
+                                AvatarUploadOverlay(uploading = avatarUploading)
                                 // BA-draft
                                 Icon(Icons.Default.Edit, contentDescription = appText("Изменить фото", "Фотоны үҙгәртеү"), tint = Color.White, modifier = Modifier.size(15.dp).align(Alignment.BottomEnd))
                             }
                             Spacer(Modifier.width(14.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(displayName, color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
-                                    Spacer(Modifier.width(6.dp))
-                                    Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.minimumInteractiveComponentSize().size(18.dp).bounceClick { nameDraft = displayName; showEditName = true })
+                                    Text(
+                                        displayName, color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp,
+                                        lineHeight = 26.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                    // Тач-цель = сам Box 48dp: раньше minimumInteractiveComponentSize() стоял
+                                    // ПЕРЕД clickable и раздвигал раскладку вокруг 18dp-области, а не её саму.
+                                    Box(
+                                        modifier = Modifier.size(48.dp).bounceClick { nameDraft = displayName; showEditName = true },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
+                                    }
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     // Настоящая роль с сервера (пассажир/водитель/админ).
@@ -629,26 +662,19 @@ internal fun ProfileScreen(
                                 Text(appText("Телефон скрыт до подтверждения поездки", "Телефон сәфәр раҫланғанға тиклем йәшерелгән"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, lineHeight = 16.sp)
                             }
                         }
-                        Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    if (profileConfirmed) appText("Профиль подтверждён", "Профиль раҫланған") else appText("Демо-режим без входа", "Инеүһеҙ демо-режим"),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
+                        ProfileStatusPill(
+                            loading = meLoading,
+                            error = meError,
+                            confirmed = profileConfirmed,
+                            onRetry = { meReload++ },
+                        )
                     }
                 }
             }
-            item {
-                referral?.let { ref ->
+            // Реферала ещё нет (не загрузился/не вошёл) → item вообще не создаём: пустой item
+            // всё равно съедал 14dp из spacedBy и оставлял дыру под шапкой.
+            referral?.let { ref ->
+                item {
                     Box(Modifier.appearIn(0)) {
                         Card(colors = CardDefaults.cardColors(containerColor = CanonMint), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -658,10 +684,12 @@ internal fun ProfileScreen(
                                     Text(appText("Позови своего", "Үҙеңдекен саҡыр"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.weight(1f))
                                 }
                                 Text(appText("Пригласил соседа → вы оба получаете бонус (бесплатное поднятие поездки).", "Күршеңде саҡырҙың → икәүегеҙ ҙә бонус (сәфәрҙе бушлай күтәреү) аласаҡ."), color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp)
-                                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                                    Column { Text(appText("Позвал", "Саҡырҙы"), color = CanonGreen2, fontSize = 12.sp); Text(ref.invited.toString(), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 20.sp) }
-                                    Column { Text(appText("Бонусов", "Бонус"), color = CanonGreen2, fontSize = 12.sp); Text(ref.credits.toString(), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 20.sp) }
-                                    Column { Text(appText("Твой код", "Кодың"), color = CanonGreen2, fontSize = 12.sp); Text(ref.code, color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 2.sp) }
+                                // Три равные колонки вместо жёсткого spacedBy(20): длинные
+                                // башкирские подписи больше не выталкивают код за край карточки.
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    ReferralStat(appText("Позвал", "Саҡырҙы"), ref.invited.toString(), Modifier.weight(1f))
+                                    ReferralStat(appText("Бонусов", "Бонус"), ref.credits.toString(), Modifier.weight(1f))
+                                    ReferralStat(appText("Твой код", "Кодың"), ref.code, Modifier.weight(1f), code = true)
                                 }
                                 val shareTxt = appText(
                                     "Я в Юлдаше — попутки между своими по Башкортостану. Мой код: ${ref.code}. Введи его в профиле — получим бонусы. Скачать: https://yulbash.ru",
@@ -685,7 +713,7 @@ internal fun ProfileScreen(
                 }
             }
             item {
-                Text(appText("Личный кабинет", "Шәхси кабинет"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                ProfileSectionLabel(appText("Личный кабинет", "Шәхси кабинет"))
             }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Мой Юлдаш", "Минең Юлдаш"), appText("Твои километры, поездки и звание", "Километрҙарың, сәфәрҙәрең һәм исемең"), Icons.Default.Insights, onMyStats) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Скидки по пути", "Юл буйынса ташламалар"), appText("Скидки от местных заведений по маршруту", "Маршрут буйынса ерле урындарҙан ташлама"), Icons.Default.LocalOffer, onCoupons) } }
@@ -703,13 +731,13 @@ internal fun ProfileScreen(
             item { Box(Modifier.appearIn(7)) { ProfileActionCard(appText("Центр справедливости", "Ғәҙеллек үҙәге"), appText("Спорные ситуации: обе стороны слышимы", "Бәхәсле хәлдәр: ике яҡ та ишетелә"), Icons.Default.Shield, onFairness) } }
             item { Box(Modifier.appearIn(7)) { ProfileActionCard(appText("Поддержать Юлдаш", "Юлдашҡа ярҙам итеү"), appText("Серверы, карты, SMS и поддержка", "Серверҙар, карталар, SMS һәм ярҙам"), Icons.Default.VolunteerActivism, onSupport) } }
             item {
-                Text(appText("Для родителей и близких", "Ата-әсә һәм яҡындар өсөн"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                ProfileSectionLabel(appText("Для родителей и близких", "Ата-әсә һәм яҡындар өсөн"))
             }
             item { Box(Modifier.appearIn(8)) { SeniorAccessCard(onSimpleMode = onSimpleMode) } }
             item { Box(Modifier.appearIn(9)) { ProfileActionCard(appText("Доверенные контакты", "Ышаныслы контакттар"), appText("Кому отправлять статус поездки", "Сәфәр статусын кемгә ебәрергә"), Icons.Default.Person, onTrustedContacts) } }
             item { Box(Modifier.appearIn(10)) { ProfileActionCard(appText("Попросить звонок", "Шылтыратыу һорау"), appText("Помощь без чата и сложных форм", "Чатһыҙ һәм ҡатмарлы формаларһыҙ ярҙам"), R.drawable.yu_support, onCallbackHelp) } }
             item {
-                Text(appText("Настройки и помощь", "Көйләүҙәр һәм ярҙам"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                ProfileSectionLabel(appText("Настройки и помощь", "Көйләүҙәр һәм ярҙам"))
             }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Настройки", "Көйләүҙәр"), appText("Уведомления, карта, предпочтения", "Хәбәрҙәр, карта, өҫтөнлөктәр"), Icons.Default.Settings, onSettings) } }
             item { Box(Modifier.appearIn(11)) { ProfileActionCard(appText("Конфиденциальность", "Хосусилыҡ"), appText("Геолокация и разрешения", "Геолокация һәм рөхсәттәр"), Icons.Default.Shield, onPrivacy) } }
@@ -721,7 +749,7 @@ internal fun ProfileScreen(
                 item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Управление рекламой", "Реклама идаралау"), appText("Объявления партнёров: публикация, пауза, удаление", "Партнёр иғландары: баҫтырыу, пауза, бөтөрөү"), Icons.Default.AdminPanelSettings, onAdminAds) } }
             }
             item {
-                Text(appText("Партнёры Юлдаш", "Юлдаш партнёрҙары"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                ProfileSectionLabel(appText("Партнёры Юлдаш", "Юлдаш партнёрҙары"))
             }
             item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Мой бизнес", "Минең бизнес"), appText("Разместить купоны и привлечь клиентов", "Купон ҡуйып клиент йыйыу"), Icons.Default.Storefront, onPartnerCabinet) } }
             item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Кабинет рекламы", "Реклама кабинеты"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), Icons.Default.Payments, onAdsCabinet) } }
@@ -742,7 +770,7 @@ internal fun ProfileScreen(
             // Danger zone: удаление аккаунта. Только для залогиненных (в демо нечего удалять).
             if (ApiClient.isLoggedIn()) {
                 item {
-                    Text(appText("Аккаунт", "Иҫәп"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                    ProfileSectionLabel(appText("Аккаунт", "Иҫәп"))
                 }
                 item {
                     Box(Modifier.appearIn(14)) {
@@ -755,6 +783,108 @@ internal fun ProfileScreen(
                 }
             }
             item { Spacer(Modifier.height(92.dp)) }
+        }
+    }
+}
+
+/**
+ * Подпись раздела профиля: спокойная, с воздухом сверху — сгруппированный список, а не
+ * заголовки вперемешку с карточками. Цвет — токен CanonMuted (был MaterialTheme, вне палитры).
+ */
+@Composable
+private fun ProfileSectionLabel(text: String) {
+    Text(
+        text,
+        modifier = Modifier.padding(top = 10.dp, start = 4.dp),
+        color = CanonMuted,
+        fontSize = 13.sp,
+        lineHeight = 16.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.6.sp,
+    )
+}
+
+/** Затемнение поверх аватара, пока фото уходит на сервер. Плавно появляется и уходит. */
+@Composable
+private fun AvatarUploadOverlay(uploading: Boolean) {
+    // Отдельная функция, а не AnimatedVisibility по месту: внутри Box, у которого лексически
+    // выше есть Column, компилятор выбрал бы ColumnScope-версию и получателя не нашёл.
+    AnimatedVisibility(visible = uploading, enter = fadeIn(tween(160)), exit = fadeOut(tween(220))) {
+        Box(
+            Modifier.size(70.dp).background(CanonGreenInkDark.copy(alpha = 0.55f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+        }
+    }
+}
+
+/** Одна цифра реферальной карточки: подпись + значение. Равные колонки, ничего не выпирает. */
+@Composable
+private fun ReferralStat(label: String, value: String, modifier: Modifier = Modifier, code: Boolean = false) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, color = CanonGreen2, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            value, color = CanonGreen, fontWeight = FontWeight.Black,
+            fontSize = if (code) 18.sp else 20.sp, lineHeight = 24.sp,
+            letterSpacing = if (code) 1.5.sp else 0.sp,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * Состояние профиля одной плашкой: грузим → сеть упала («Обновить») → подтверждён / демо.
+ * Смена состояний — мягкий кросс-фейд, без прыжка раскладки.
+ */
+@Composable
+private fun ProfileStatusPill(loading: Boolean, error: Boolean, confirmed: Boolean, onRetry: () -> Unit) {
+    val state = when {
+        loading -> 0
+        error -> 1
+        confirmed -> 2
+        else -> 3
+    }
+    AnimatedContent(
+        targetState = state,
+        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+        label = "profileStatus",
+    ) { s ->
+        val bg = if (s == 1) CanonWarnBg else CanonMint
+        val fg = if (s == 1) CanonWarn else CanonGreen2
+        Surface(color = bg, shape = RoundedCornerShape(999.dp)) {
+            Row(
+                modifier = Modifier.heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                when (s) {
+                    0 -> CircularProgressIndicator(color = fg, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                    1 -> Icon(Icons.Default.Refresh, contentDescription = null, tint = fg, modifier = Modifier.size(20.dp))
+                    else -> Icon(Icons.Default.CheckCircle, contentDescription = null, tint = fg, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    when (s) {
+                        0 -> appText("Обновляем профиль…", "Профилде яңыртабыҙ…")
+                        1 -> appText("Нет связи с сервером", "Сервер менән бәйләнеш юҡ")
+                        2 -> appText("Профиль подтверждён", "Профиль раҫланған")
+                        else -> appText("Демо-режим без входа", "Инеүһеҙ демо-режим")
+                    },
+                    color = fg, fontWeight = FontWeight.Bold, fontSize = 13.sp, lineHeight = 17.sp,
+                    modifier = Modifier.weight(1f, fill = false), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                if (s == 1) {
+                    Spacer(Modifier.width(4.dp))
+                    // Тач-цель 48dp — сам Box, а не текст: маленькая надпись «Обновить»
+                    // в состоянии «нет связи» должна попадаться пальцем с первого раза.
+                    Box(
+                        modifier = Modifier.heightIn(min = 48.dp).bounceClick(onRetry).padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(appText("Обновить", "Яңыртыу"), color = fg, fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
+                    }
+                }
+            }
         }
     }
 }
@@ -994,9 +1124,11 @@ internal fun PassengerCabinetContent(
             }
         }
         item {
+            // Пока брони не пришли — «—», а не честные на вид нули: ноль активных поездок
+            // и «ещё не загрузилось» для человека выглядят одинаково, но значат разное.
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CabinetMetric(appText("Активные", "Актив"), activeCount.toString(), Modifier.weight(1f))
-                CabinetMetric(appText("Заявки", "Заявкалар"), requestCount.toString(), Modifier.weight(1f))
+                CabinetMetric(appText("Активные", "Актив"), if (loading) "—" else activeCount.toString(), Modifier.weight(1f))
+                CabinetMetric(appText("Заявки", "Заявкалар"), if (loading) "—" else requestCount.toString(), Modifier.weight(1f))
                 CabinetMetric(appText("Рейтинг", "Рейтинг"), ratingText, Modifier.weight(1f))
             }
         }
@@ -1025,6 +1157,24 @@ internal fun PassengerCabinetContent(
                     icon = Icons.Default.Refresh,
                     action = appText("Повторить", "Ҡабатлау"),
                     onAction = onRetry
+                )
+            }
+        }
+        // Пусто — тоже состояние: раньше при отсутствии активной брони человек видел просто
+        // список ссылок и не понимал, «загрузилось ли» и что делать дальше.
+        if (!loading && !error && activeRide == null) {
+            item {
+                EmptyStateCard(
+                    title = appText("Активных поездок нет", "Актив сәфәрҙәр юҡ"),
+                    text = appText(
+                        "Найди попутку рядом или оставь заявку — водители увидят её и откликнутся.",
+                        "Яҡындағы юлдашты тап йәки заявка ҡалдыр — водителдәр күреп яуап бирер.",
+                    ),
+                    icon = Icons.Default.EventSeat,
+                    // Формулировка намеренно отличается от строки списка ниже: два одинаковых
+                    // «Найти поездку» на одном экране читаются как дубль.
+                    action = appText("Смотреть попутки рядом", "Яҡындағы юлдаштарҙы ҡарау"),
+                    onAction = onFindRide,
                 )
             }
         }
@@ -1269,11 +1419,20 @@ internal fun DriverCabinetScreen(
                 }
                 goOnlineConfirmed()
             },
-            onRate = { bookingId, n ->
+            onRate = { bookingId, n, onDone ->
                 rateScope.launch {
                     ApiClient.rateBooking(bookingId, n)
-                        .onSuccess { Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show() }
-                        .onFailure { Toast.makeText(ctx, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                        .onSuccess {
+                            Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show()
+                            onDone(true)
+                            // Перечитываем список: сервер вернёт my_stars, и карточка покажет
+                            // «Вы поставили ★N» вместо пустых звёзд после любой перезагрузки.
+                            bookingsReload++
+                        }
+                        .onFailure {
+                            Toast.makeText(ctx, rateFailMsg, Toast.LENGTH_SHORT).show()
+                            onDone(false)
+                        }
                 }
             },
             onCreateRide = onCreateRide,
@@ -1376,6 +1535,37 @@ internal fun DriverCabinetScreen(
         if (online && taxiAllowed && ApiClient.isLoggedIn()) TaxiLineService.start(ctx, appLang)
         else TaxiLineService.stop(ctx)
     }
+    }
+}
+
+/**
+ * Подтверждение статуса линии под тумблером: пока водитель онлайн — спокойная мятная плашка
+ * «Ты на линии». Выносим отдельной функцией: AnimatedVisibility по месту внутри Column взял бы
+ * ColumnScope-версию, а внутри Box получателя бы не нашёл (ловили на карте).
+ */
+@Composable
+private fun DriverOnlineHint(online: Boolean) {
+    AnimatedVisibility(
+        visible = online,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { -it / 3 },
+        exit = fadeOut(tween(160)),
+    ) {
+        Surface(color = CanonMint, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(CanonGreen2))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    appText(
+                        "Ты на линии — заказы придут сюда, экран можно погасить.",
+                        "Һин линияла — заказдар бында килә, экранды һүндерергә була.",
+                    ),
+                    color = CanonGreen2, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
     }
 }
 
@@ -1577,7 +1767,12 @@ private fun feePct(p: Double): String =
  */
 @Composable
 private fun TaxiDashboardCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
-    val netEarnKop by animateIntAsState(wd.netTodayKop, tween(600), label = "netEarnKop")
+    // animate*AsState на ПЕРВОМ кадре берёт цель как есть — счётчик просто появлялся готовым.
+    // Стартуем с нуля и включаем цель после первой композиции. Источник — netTodayKop:
+    // дашборд показывает водителю чистый доход после комиссии с точностью до копейки.
+    var netEarnTargetKop by remember { mutableIntStateOf(0) }
+    LaunchedEffect(wd.netTodayKop) { netEarnTargetKop = wd.netTodayKop }
+    val netEarnKop by animateIntAsState(netEarnTargetKop, tween(700), label = "netEarnKop")
     val tiers = wd.feeTiers.ifEmpty { listOf(3.0, 5.0, 8.0) }
     // Индекс текущей ступени по стажу (границы feeTierDays = [30,60]).
     val activeIdx = when {
@@ -1680,10 +1875,13 @@ private fun pluralDaysRu(n: Int): String {
 private fun TaxiShiftProgressCard(wd: com.yuldash.app.data.TaxiWorkdayDto) {
     val warm = wd.remainingSec <= 3600                     // последний час — мягкое предупреждение
     val accent by animateColorAsState(if (warm) CanonWarn else CanonGreen2, tween(500), label = "shiftAccent")
-    val progress by animateFloatAsState(
-        (wd.secondsOnline.toFloat() / wd.limitSec.coerceAtLeast(1)).coerceIn(0f, 1f),
-        tween(700), label = "shiftProgress",
-    )
+    // Полоса заполняется на глазах: с нуля к реальной доле смены. Без этого на первом кадре
+    // animateFloatAsState брал цель как есть и «рост» не был виден вообще.
+    var progressTarget by remember { mutableStateOf(0f) }
+    LaunchedEffect(wd.secondsOnline, wd.limitSec) {
+        progressTarget = (wd.secondsOnline.toFloat() / wd.limitSec.coerceAtLeast(1)).coerceIn(0f, 1f)
+    }
+    val progress by animateFloatAsState(progressTarget, tween(700), label = "shiftProgress")
     Surface(color = if (warm) CanonWarnBg else CanonSurface, shape = CanonItemShape,
         border = BorderStroke(1.dp, if (warm) CanonWarn.copy(alpha = 0.35f) else CanonBorder)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1882,7 +2080,11 @@ internal fun DriverDemandSection(online: Boolean) {
                         zones.take(6).forEachIndexed { i, z ->
                             val norm = (z.weight / maxWeight).toFloat().coerceIn(0f, 1f)
                             // Индикатор веса: размер и насыщенность зелёного ∝ спросу (Canon-зелёный).
-                            val dot by animateFloatAsState(targetValue = norm, label = "demandDot")
+                            // Цель включаем после первой композиции и с лёгким каскадом сверху вниз —
+                            // иначе точки просто «есть», рост спроса не читается.
+                            var dotTarget by remember { mutableStateOf(0f) }
+                            LaunchedEffect(norm) { delay(60L * i); dotTarget = norm }
+                            val dot by animateFloatAsState(targetValue = dotTarget, animationSpec = tween(520), label = "demandDot")
                             Row(
                                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1921,6 +2123,28 @@ internal fun DriverDemandSection(online: Boolean) {
     }
 }
 
+/** Шапка карточки пассажира в кабинете водителя: буква-аватар, имя, маршрут, его рейтинг. */
+@Composable
+private fun PassengerRow(b: com.yuldash.app.data.DriverBookingDto) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+            Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(b.passengerName, fontWeight = FontWeight.Bold, color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (b.route.isNotBlank()) {
+                Text(b.route, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        b.passengerRating?.let { r ->
+            Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(3.dp))
+            Text(String.format(java.util.Locale.US, "%.1f", r), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CanonText)
+        }
+    }
+}
+
 /**
  * Чистый рендер кабинета водителя: тумблер «на линии», метрики (маршруты/свободно/рейтинг),
  * пусто-заглушка или список опубликованных маршрутов, блок «оцените пассажиров» и нижние действия.
@@ -1937,7 +2161,9 @@ internal fun DriverCabinetContent(
     driverBookings: List<com.yuldash.app.data.DriverBookingDto>,
     ratingText: String,
     onToggleOnline: (Boolean) -> Unit,
-    onRate: (Int, Int) -> Unit,
+    // (bookingId, звёзды, обратный вызов «ушло/не ушло») — карточка должна знать исход,
+    // иначе после сбоя сети на экране остаётся оценка, которой на сервере нет.
+    onRate: (Int, Int, (Boolean) -> Unit) -> Unit,
     isWomanDriver: Boolean = false,                       // F9: opt-in «женщина за рулём»
     onToggleWoman: (Boolean) -> Unit = {},
     onCreateRide: () -> Unit,
@@ -2035,6 +2261,9 @@ internal fun DriverCabinetContent(
                             onToggleOnline,
                         )
                     }
+                    // Тумблер сам по себе — это «галочка включена», а не «меня видят».
+                    // Плашка отвечает на настоящий вопрос водителя: заказы точно придут сюда?
+                    DriverOnlineHint(online = online)
                     // Зона работы (география, волна 2): «🏙 Мой город / 🛣 Межгород / 🌍 Соседний регион».
                     DriverZoneChip(zone = zone, onClick = onZoneClick)
                 }
@@ -2146,7 +2375,15 @@ internal fun DriverCabinetContent(
         val pendingBookings = driverBookings.filter { it.status == "pending" }
         if (pendingBookings.isNotEmpty()) {
             item {
-                Text(appText("Ждут подтверждения", "Раҫлауҙы көтәләр"), fontWeight = FontWeight.Black, fontSize = 16.sp, color = CanonGreen)
+                // Тот же SectionHeader, что в «Архиве» — единая типографика разделов.
+                // Подпись объясняет, почему это главная кнопка кабинета.
+                SectionHeader(
+                    appText("Ждут подтверждения", "Раҫлауҙы көтәләр"),
+                    appText(
+                        "Пока не подтвердишь — пассажир не видит телефон и точку сбора.",
+                        "Раҫламағансы — пассажир телефонды ла, йыйылыу урынын да күрмәй.",
+                    ),
+                )
             }
             items(pendingBookings, key = { "pend-${it.bookingId}" }) { b ->
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
@@ -2183,55 +2420,133 @@ internal fun DriverCabinetContent(
                 }
             }
         }
-        if (driverBookings.isNotEmpty()) {
+        // Едут прямо сейчас: подтверждённые и уже в пути. Оценивать их нельзя (поездка не
+        // состоялась — сервер вернёт 409), а вот «пассажир не вышел» нужно именно тут.
+        val ridingBookings = driverBookings.filter { it.status == "confirmed" || it.status == "onboard" }
+        if (ridingBookings.isNotEmpty()) {
             item {
-                Text(appText("Пассажиры — оцените после поездки", "Пассажирҙар — сәфәрҙән һуң баһалағыҙ"), fontWeight = FontWeight.Black, fontSize = 16.sp)
+                SectionHeader(
+                    appText("Едут с тобой", "Һинең менән баралар"),
+                    appText(
+                        "Поездка ещё не закончилась. Оценить сможешь, когда завершишь рейс.",
+                        "Сәфәр әле тамамланманы. Рейсты тамамлағас баһалай алаһың.",
+                    ),
+                )
             }
-            items(driverBookings, key = { it.bookingId }) { b ->
-                var stars by remember(b.bookingId) { mutableStateOf(0) }
+            items(ridingBookings, key = { "ride-${it.bookingId}" }) { b ->
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PassengerRow(b)
+                        // «Не явился» — пассажир не пришёл на посадку.
+                        NoShowButton(bookingId = b.bookingId)
+                    }
+                }
+            }
+        }
+        // Оценивать можно ТОЛЬКО завершённые поездки: раньше в списке висели брони, которые
+        // ещё не состоялись, и тап по звезде отвечал «Не получилось оценить» — сервер их
+        // не принимает (иначе рейтинг можно накрутить, не съездив).
+        val ratableBookings = driverBookings.filter { it.status == "done" }
+        if (ratableBookings.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    appText("Пассажиры — оцените после поездки", "Пассажирҙар — сәфәрҙән һуң баһалағыҙ"),
+                    appText(
+                        "Честные оценки берегут круг «своих» — их видят другие водители.",
+                        "Ғәҙел баһалар «үҙебеҙҙекеләр» түңәрәген һаҡлай — башҡа водителдәр ҙә күрә.",
+                    ),
+                )
+            }
+            items(ratableBookings, key = { it.bookingId }) { b ->
+                // Оценка ставится в ДВА шага. Раньше первое касание сразу уходило на сервер:
+                // промахнулся пальцем по первой звезде — человеку упал единицей рейтинг,
+                // и вернуть было нечем. Теперь звёзды выбираешь, потом подтверждаешь.
+                var stars by remember(b.bookingId, b.myStars) { mutableStateOf(b.myStars) }
+                var editing by remember(b.bookingId, b.myStars) { mutableStateOf(b.myStars == 0) }
+                var sending by remember(b.bookingId, b.myStars) { mutableStateOf(false) }
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PassengerRow(b)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-                                Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(b.passengerName, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (b.route.isNotBlank()) Text(b.route, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            b.passengerRating?.let {
-                                Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(3.dp))
-                                Text(it.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             (1..5).forEach { n ->
-                                val starCd = starsText(n)
+                                val lit = n <= stars
+                                // Звезда «зажигается»: цвет и размер догоняют выбор — оценка
+                                // ощущается нажатием, а не молчаливой сменой картинки.
+                                val starTint by animateColorAsState(if (lit) CanonStar else CanonMuted, tween(240), label = "starTint")
+                                val starScale by animateFloatAsState(if (lit) 1.14f else 1f, tween(240), label = "starScale")
                                 // Тач-цель ≥48dp (иконка визуально 34dp внутри).
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
-                                        .clickable {
-                                            stars = n
-                                            onRate(b.bookingId, n)
-                                        },
+                                        .then(
+                                            if (editing && !sending) Modifier.clickable { stars = n } else Modifier
+                                        ),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(
                                         Icons.Default.Star,
-                                        contentDescription = starCd,
-                                        tint = if (n <= stars) CanonStar else CanonBorder,
-                                        modifier = Modifier.size(34.dp),
+                                        contentDescription = starsText(n),
+                                        tint = starTint,
+                                        modifier = Modifier.size(34.dp).scale(starScale),
                                     )
+                                }
+                            }
+                            Spacer(Modifier.weight(1f))
+                            // Уже оценил — показываем сколько и даём переставить. Сервер оценку
+                            // разрешает изменить, значит и в приложении это не тупик.
+                            if (!editing) {
+                                TextButton(
+                                    onClick = { editing = true },
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2),
+                                ) { Text(appText("Изменить", "Үҙгәртеү"), fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                            }
+                        }
+                        // Подпись под звёздами = состояние словами. Незрячим она же читает оценку.
+                        Text(
+                            when {
+                                !editing -> appText("Вы поставили ${starsText(stars)}", "Һеҙ ${starsText(stars)} ҡуйҙығыҙ")
+                                stars == 0 -> appText("Выберите оценку", "Баһа һайлағыҙ")
+                                else -> appText("Выбрано ${starsText(stars)} — подтвердите", "${starsText(stars)} һайланды — раҫлағыҙ")
+                            },
+                            color = CanonMuted, fontSize = 12.sp,
+                        )
+                        AnimatedVisibility(visible = editing && stars > 0) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = {
+                                        sending = true
+                                        onRate(b.bookingId, stars) { ok ->
+                                            sending = false
+                                            // Не ушло — возвращаем как было, чтобы на экране не
+                                            // осталась «поставленная» оценка, которой нет на сервере.
+                                            if (ok) editing = false else stars = b.myStars
+                                        }
+                                    },
+                                    enabled = !sending,
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                                ) {
+                                    Text(
+                                        if (sending) appText("Отправляем…", "Ебәрәбеҙ…")
+                                        else appText("Отправить оценку", "Баһаны ебәреү"),
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                // Отмена нужна только когда есть что отменять — уже поставленную раньше оценку.
+                                if (b.myStars > 0) {
+                                    OutlinedButton(
+                                        onClick = { stars = b.myStars; editing = false },
+                                        enabled = !sending,
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                    ) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
                                 }
                             }
                         }
                         // B8-7: «пассажир не заплатил» одним тапом — только по завершённой поездке.
-                        if (b.status == "done") UnpaidReportButton(bookingId = b.bookingId)
-                        // «Не явился» — по подтверждённой/в-пути брони (пассажир не пришёл на посадку).
-                        if (b.status == "confirmed" || b.status == "onboard") NoShowButton(bookingId = b.bookingId)
+                        UnpaidReportButton(bookingId = b.bookingId)
                     }
                 }
             }
@@ -2598,11 +2913,14 @@ private fun AddScheduleDialog(onDismiss: () -> Unit, onSaved: (DriverScheduleDto
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     WEEKDAY_ORDER.forEach { d ->
                         val on = selectedDays.contains(d)
+                        // 48dp — сам чип. Раньше minimumInteractiveComponentSize() стоял ПЕРЕД
+                        // clickable: раздвигал раскладку вокруг 44dp-области, но не саму область.
+                        val chipBg by animateColorAsState(if (on) CanonGreen2 else CanonBg, tween(180), label = "dayBg")
                         Surface(
-                            color = if (on) CanonGreen2 else CanonBg,
-                            shape = RoundedCornerShape(12.dp),
+                            color = chipBg,
+                            shape = RoundedCornerShape(14.dp),
                             border = BorderStroke(1.dp, if (on) CanonGreen2 else CanonBorder),
-                            modifier = Modifier.minimumInteractiveComponentSize().size(44.dp).clickable {
+                            modifier = Modifier.size(48.dp).clickable {
                                 if (on) selectedDays.remove(d) else selectedDays.add(d)
                             },
                         ) {
@@ -2777,8 +3095,15 @@ internal fun AdsCabinetContent(
 ) {
     Box(modifier) {
         when {
-            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = CanonGreen2)
+            // Скелетон «формой кабинета» вместо голого спиннера: видно, что грузится
+            // (кнопка + карточки объявлений), а не пустой экран с кружком посередине.
+            loading -> Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                SkeletonBox(height = 52.dp, shape = RoundedCornerShape(16.dp))
+                SkeletonCard(lines = 3)
+                SkeletonCard(lines = 2)
             }
             error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 ListedError(error) { onRetry() }
@@ -2822,7 +3147,9 @@ internal fun AdStatusBadge(status: String) {
     val (label, fg, bg) = when (status) {
         "active" -> Triple(appText("Активно", "Актив"), CanonGreen2, CanonMint)
         "pending_review" -> Triple(appText("На модерации", "Тикшереүҙә"), CanonWarn, CanonWarnBg)
-        "rejected" -> Triple(appText("Отклонено", "Кире ҡағылды"), CanonRed, CanonRed.copy(alpha = 0.12f))
+        // Подложка отказа — токен CanonDangerBg: пара «CanonRed на CanonDangerBg» проверена
+        // по WCAG (4.68/4.70), самодельная прозрачность красного — нет.
+        "rejected" -> Triple(appText("Отклонено", "Кире ҡағылды"), CanonRed, CanonDangerBg)
         "paused" -> Triple(appText("На паузе", "Туҡталышта"), CanonMuted, CanonMint)
         "draft" -> Triple(appText("Черновик", "Ҡаралама"), CanonMuted, CanonMint)
         else -> Triple(appText("Завершено", "Тамамланды"), CanonMuted, CanonMint)
@@ -2861,7 +3188,8 @@ internal fun MyAdCard(ad: MyAdDto, stats: MyAdStatsDto? = null, submitting: Bool
                 AdStatsTiles(stats)
             }
             if (ad.status == "rejected" && ad.rejectReason.isNotBlank()) {
-                Surface(color = CanonRed.copy(alpha = 0.10f), shape = RoundedCornerShape(12.dp)) {
+                // Тот же проверенный по контрасту токен, что и в бейдже статуса.
+                Surface(color = CanonDangerBg, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, CanonDangerBorder)) {
                     Text(
                         appText("Причина отказа: ${ad.rejectReason}", "Кире ҡағыу сәбәбе: ${ad.rejectReason}"),
                         modifier = Modifier.padding(10.dp), color = CanonRed, fontSize = 12.sp, lineHeight = 16.sp
@@ -2929,11 +3257,17 @@ internal fun AdStatsTiles(stats: MyAdStatsDto) {
     val daysValue = stats.daysLeft?.let { "$it" } ?: "∞"
     val daysLabel = if (stats.daysLeft != null) appText("осталось дней", "көн ҡалды")
                     else appText("бессрочно", "сикһеҙ")
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        CabinetMetric(appText("показы", "күрһәтеү"), "${stats.impressions}", Modifier.weight(1f))
-        CabinetMetric(appText("клики", "баҫыу"), "${stats.clicks}", Modifier.weight(1f))
-        CabinetMetric(appText("CTR", "CTR"), "${stats.ctr}%", Modifier.weight(1f))
-        CabinetMetric(daysLabel, daysValue, Modifier.weight(1f))
+    // Две строки по две плитки вместо четырёх в ряд: на узком экране четыре плитки давали
+    // ~45dp под текст — «1 250» и «осталось дней» просто обрезались.
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            CabinetMetric(appText("показы", "күрһәтеү"), "${stats.impressions}", Modifier.weight(1f))
+            CabinetMetric(appText("клики", "баҫыу"), "${stats.clicks}", Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            CabinetMetric(appText("CTR", "CTR"), "${stats.ctr}%", Modifier.weight(1f))
+            CabinetMetric(daysLabel, daysValue, Modifier.weight(1f))
+        }
     }
 }
 
@@ -2955,6 +3289,19 @@ internal fun AdsShowcase(packages: List<AdPackageDto>, modifier: Modifier, onCre
             )
         }
         item { Text(appText("Тарифы", "Тарифтар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp) }
+        // Тарифы не пришли (сеть/сервер) — под заголовком не должно оставаться пустое место.
+        if (packages.isEmpty()) {
+            item {
+                InfoCard(
+                    title = appText("Тарифы подгружаются", "Тарифтар йөкләнә"),
+                    text = appText(
+                        "Если так и не появились — проверь интернет. Объявление можно составить и сейчас, тариф выберешь потом.",
+                        "Барыбер күренмәһә — интернетты тикшер. Иғланды хәҙер ҙә яҙып була, тарифты һуңынан һайларһың.",
+                    ),
+                    icon = Icons.Default.Refresh,
+                )
+            }
+        }
         items(packages, key = { it.code }) { p ->
             Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CanonBorder)) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -3127,7 +3474,7 @@ internal fun InfoCard(
 ) {
     val clickModifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier
     Card(
-        modifier = clickModifier,
+        modifier = clickModifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -3140,9 +3487,12 @@ internal fun InfoCard(
                 Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp))
             }
             Spacer(Modifier.width(12.dp))
-            Column {
-                Text(title, color = CanonText, fontWeight = FontWeight.Bold)
-                Text(text, color = CanonMuted)
+            // weight(1f) обязателен: без него длинный текст (башкирский почти всегда длиннее
+            // русского) уезжал за край карточки и обрезался. Размеры — в sp, чтобы уважать
+            // системный крупный шрифт.
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp, lineHeight = 20.sp)
+                Text(text, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
             }
         }
     }

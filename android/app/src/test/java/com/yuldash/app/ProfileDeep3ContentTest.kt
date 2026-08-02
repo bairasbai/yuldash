@@ -63,12 +63,14 @@ class ProfileDeep3ContentTest {
         passengerRating: Double? = null,
         route: String = "Уфа → Сибай",
         status: String = "done",
+        myStars: Int = 0,
     ) = DriverBookingDto(
         bookingId = bookingId,
         passengerName = passengerName,
         passengerRating = passengerRating,
         route = route,
         status = status,
+        myStars = myStars,
     )
 
     // Хелпер: чистый Content с дефолтами, оборачиваем в провайдер языка.
@@ -78,7 +80,7 @@ class ProfileDeep3ContentTest {
         driverBookings: List<DriverBookingDto> = emptyList(),
         ratingText: String = "—",
         onToggleOnline: (Boolean) -> Unit = {},
-        onRate: (Int, Int) -> Unit = { _, _ -> },
+        onRate: (Int, Int, (Boolean) -> Unit) -> Unit = { _, _, done -> done(true) },
         onCreateRide: () -> Unit = {},
         onVerifyDriver: () -> Unit = {},
         onBoost: () -> Unit = {},
@@ -239,20 +241,58 @@ class ProfileDeep3ContentTest {
     }
 
     @Test
-    fun bookings_starClick_firesOnRateWithBookingIdAndStars() {
-        // Клик по 4-й звезде брони 77 → onRate(77, 4).
+    fun bookings_starClickAlone_doesNotSendRating() {
+        // Промах пальцем по звезде НЕ должен уходить на сервер: раньше единица улетала
+        // мгновенно и вернуть её было нечем. Оценка отправляется только по кнопке.
+        var fired = false
+        content(
+            driverBookings = listOf(booking(bookingId = 77)),
+            onRate = { _, _, done -> fired = true; done(true) },
+        )
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
+        composeRule.onNodeWithContentDescription("4 звезды").performClick()
+        assertEquals(false, fired)
+        composeRule.onNodeWithText("Выбрано 4 звезды — подтвердите").assertIsDisplayed()
+    }
+
+    @Test
+    fun bookings_confirmButton_firesOnRateWithBookingIdAndStars() {
         var ratedBooking: Int? = null
         var ratedStars: Int? = null
         content(
             driverBookings = listOf(booking(bookingId = 77)),
-            onRate = { id, n -> ratedBooking = id; ratedStars = n },
+            onRate = { id, n, done -> ratedBooking = id; ratedStars = n; done(true) },
         )
         composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
             .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
         // Звёзды помечены contentDescription "1".."5" (не text) → четвёртая = "4".
         composeRule.onNodeWithContentDescription("4 звезды").performClick()
+        composeRule.onNodeWithText("Отправить оценку").performClick()
         assertEquals(77, ratedBooking)
         assertEquals(4, ratedStars)
+    }
+
+    @Test
+    fun bookings_notFinishedTrip_notOfferedForRating() {
+        // Поездка ещё не состоялась — сервер оценку не примет (409). Значит и звёзд быть не должно:
+        // раньше водитель тапал и получал «Не получилось оценить» без объяснения.
+        content(driverBookings = listOf(booking(status = "confirmed")))
+        composeRule.onNodeWithText("Пассажиры — оцените после поездки").assertDoesNotExist()
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Едут с тобой"))
+        composeRule.onNodeWithText("Едут с тобой").assertIsDisplayed()
+    }
+
+    @Test
+    fun bookings_alreadyRated_showsMyStarsAndChangeButton() {
+        // После перезагрузки экрана оценка не исчезает: сервер помнит её (my_stars).
+        content(driverBookings = listOf(booking(myStars = 4)))
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Вы поставили 4 звезды"))
+        composeRule.onNodeWithText("Вы поставили 4 звезды").assertIsDisplayed()
+        composeRule.onNodeWithText("Отправить оценку").assertDoesNotExist()
+        composeRule.onNodeWithText("Изменить").assertIsDisplayed()
     }
 
     @Test

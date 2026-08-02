@@ -4,7 +4,8 @@ package com.yuldash.app
 // Если не одобрен → CTA «Стать курьером». Если одобрен → тумблер «На линии» + выбор зоны
 // (🏙 город / 🛣 межгород / 🌍 регион) → доступные заказы (без телефона, «Взять»→accept) +
 // «Везу» (телефон виден, «В пути»/«Доставлено» по коду). Кабинет: доставлено N · наш сбор.
-// Бэкенд: GET /courier/me, POST /courier/online|offline, GET /courier/available,
+// Бэкенд: GET /courier/application → /courier/me только для approved,
+//         POST /courier/online|offline, GET /courier/available,
 //         приём/доставка — существующие /parcels/{id}/accept, /parcels/{id}/status, /parcels/carrying.
 
 import android.content.Intent
@@ -29,11 +30,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,7 +46,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeliveryDining
-import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.PauseCircle
@@ -58,8 +61,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -79,6 +80,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -86,14 +88,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.CourierApplicationDto
 import com.yuldash.app.data.CourierMeDto
 import com.yuldash.app.data.ParcelDto
 import com.yuldash.app.data.PayCommissionDto
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val COURIER_REFRESH_INTERVAL_MS = 25_000L
 
 @Composable
 internal fun CourierScreen(
@@ -102,17 +107,36 @@ internal fun CourierScreen(
     // «Мой заработок» курьера: раньше он видел только «должен Юлдашу столько-то».
     onEarnings: () -> Unit = {},
 ) {
-    val scope = rememberCoroutineScope()
+    var application by remember { mutableStateOf<CourierApplicationDto?>(null) }
+    var applicationChecked by remember { mutableStateOf(false) }
+    var applicationRefreshFailed by remember { mutableStateOf(false) }
     var me by remember { mutableStateOf<CourierMeDto?>(null) }
     var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf(false) }
+    var meError by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(reloadKey) {
-        loading = true; error = false
-        ApiClient.getCourierMe()
-            .onSuccess { me = it }
-            .onFailure { error = true }
+        loading = true
+        meError = false
+        applicationRefreshFailed = false
+        ApiClient.getCourierApplication()
+            .onSuccess { latestApplication ->
+                application = latestApplication
+                applicationChecked = true
+                if (latestApplication?.status == "approved") {
+                    ApiClient.getCourierMe()
+                        .onSuccess { me = it }
+                        .onFailure { meError = true }
+                } else {
+                    // Для нового/pending/rejected /courier/me намеренно не вызываем:
+                    // этот endpoint требует уже созданный профиль и раньше превращал онбординг в 404.
+                    me = null
+                }
+            }
+            .onFailure {
+                applicationChecked = true
+                applicationRefreshFailed = true
+            }
         loading = false
     }
 
@@ -120,18 +144,34 @@ internal fun CourierScreen(
         Box(Modifier.padding(padding).fillMaxSize()) {
             val m = me
             when {
-                loading && m == null -> Column(
+                loading && !applicationChecked -> Column(
                     Modifier.fillMaxSize().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     SkeletonCard(lines = 2)
                     SkeletonCard(lines = 3)
                     SkeletonCard(lines = 3)
                 }
-                error && m == null -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
+                application?.status == "approved" && loading && m == null -> Column(
+                    Modifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    SkeletonCard(lines = 2)
+                    SkeletonCard(lines = 3)
+                    SkeletonCard(lines = 3)
+                }
+                application?.status == "approved" && meError && m == null -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
-                m == null || m.application?.status != "approved" -> CourierNotApprovedView(m, onBecomeCourier)
+                application?.status != "approved" -> CourierNotApprovedView(
+                    application = application,
+                    refreshFailed = applicationRefreshFailed,
+                    onRetry = { reloadKey++ },
+                    onBecomeCourier = onBecomeCourier,
+                )
+                m == null -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center) {
+                    AppErrorState(onRetry = { reloadKey++ })
+                }
                 else -> CourierWorkContent(m, onReloadMe = { reloadKey++ }, onEarnings = onEarnings)
             }
         }
@@ -140,8 +180,13 @@ internal fun CourierScreen(
 
 // ─────────────────────────── Не одобрен → CTA ───────────────────────────
 @Composable
-private fun CourierNotApprovedView(me: CourierMeDto?, onBecomeCourier: () -> Unit) {
-    val status = me?.application?.status
+private fun CourierNotApprovedView(
+    application: CourierApplicationDto?,
+    refreshFailed: Boolean,
+    onRetry: () -> Unit,
+    onBecomeCourier: () -> Unit,
+) {
+    val status = application?.status
     val (emoji, title, body) = when (status) {
         "pending" -> Triple(
             "⏳",
@@ -165,20 +210,32 @@ private fun CourierNotApprovedView(me: CourierMeDto?, onBecomeCourier: () -> Uni
         verticalArrangement = Arrangement.Center,
         contentPadding = PaddingValues(vertical = 24.dp),
     ) {
+        if (refreshFailed) {
+            item {
+                CourierRefreshStrip(
+                    text = appText(
+                        "Не удалось обновить статус заявки. Можно продолжить или повторить.",
+                        "Заявка статусын яңыртып булманы. Дауам итергә йәки ҡабатларға мөмкин.",
+                    ),
+                    onRetry = onRetry,
+                )
+                Spacer(Modifier.height(20.dp))
+            }
+        }
         item {
             Surface(shape = CircleShape, color = CanonMint, border = BorderStroke(1.dp, CanonGreen2.copy(alpha = 0.3f))) {
                 Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) {
                     // Приглашение стать курьером — брендовая иконка (в тон онлайн-герою); статусы (⏳/✋) остаются эмодзи.
-                    if (emoji == "🛵") Icon(painterResource(R.drawable.yu_mode_courier), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(46.dp))
-                    else Text(emoji, fontSize = 44.sp)
+                    if (emoji == "🛵") Icon(painterResource(R.drawable.yu_mode_courier), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(48.dp))
+                    else Text(emoji, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
                 }
             }
             Spacer(Modifier.height(20.dp))
         }
         item {
-            Text(title, color = CanonText, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Black, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(title, color = CanonText, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, fontWeight = FontWeight.Black, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(8.dp))
-            Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(body, color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(20.dp))
         }
         item {
@@ -192,6 +249,37 @@ private fun CourierNotApprovedView(me: CourierMeDto?, onBecomeCourier: () -> Uni
     }
 }
 
+@Composable
+private fun CourierRefreshStrip(text: String, onRetry: () -> Unit) {
+    Surface(color = CanonWarnBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonWarn)) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text,
+                color = CanonWarn,
+                fontSize = DeliveryCaption,
+                lineHeight = DeliveryCaptionLine,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(
+                    appText("Повторить", "Ҡабатлау"),
+                    color = CanonWarn,
+                    fontWeight = FontWeight.Black,
+                    fontSize = DeliveryBody,
+                    lineHeight = DeliveryBodyLine,
+                )
+            }
+        }
+    }
+}
+
 // ─────────────────────────── Одобрен → работа ───────────────────────────
 @Composable
 private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarnings: () -> Unit = {}) {
@@ -199,39 +287,112 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarni
     val ctx = LocalContext.current
 
     var online by remember { mutableStateOf(me.profile?.online ?: false) }
-    var zone by rememberSaveable { mutableStateOf(me.profile?.zone?.takeIf { it.isNotBlank() } ?: "city") }
+    var confirmedZone by remember { mutableStateOf(me.profile?.zone?.takeIf { it.isNotBlank() } ?: "city") }
+    var zone by rememberSaveable { mutableStateOf(confirmedZone) }
     var workCity by rememberSaveable { mutableStateOf(me.profile?.workCity ?: "") }
+    var workCityDraft by rememberSaveable { mutableStateOf(workCity) }
+    var syncedProfileUpdatedAt by rememberSaveable { mutableStateOf(me.profile?.updatedAt.orEmpty()) }
     var toggling by remember { mutableStateOf(false) }
+    var configSaving by remember { mutableStateOf(false) }
     var sub by rememberSaveable { mutableIntStateOf(0) }   // 0 = доступные, 1 = везу, 2 = кабинет
+    val lineBusy = toggling || configSaving
 
     val toggleErr = appText("Не получилось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшер.")
     val needCityMsg = appText("Укажи город работы", "Эш ҡалаһын күрһәт")
 
+    // Если /courier/me обновился извне, локальный экран возвращается к серверной правде.
+    LaunchedEffect(me.profile?.updatedAt) {
+        val profile = me.profile ?: return@LaunchedEffect
+        if (profile.updatedAt == syncedProfileUpdatedAt) return@LaunchedEffect
+        val serverZone = profile.zone.takeIf { it.isNotBlank() } ?: "city"
+        val serverCity = profile.workCity.orEmpty()
+        online = profile.online
+        confirmedZone = serverZone
+        zone = serverZone
+        workCity = serverCity
+        workCityDraft = serverCity
+        syncedProfileUpdatedAt = profile.updatedAt
+    }
+
     fun setOnline(target: Boolean) {
-        if (toggling) return
-        if (target && zone == "city" && workCity.isBlank()) {
+        if (lineBusy) return
+        val candidateCity = workCityDraft.trim()
+        if (target && zone == "city" && candidateCity.isBlank()) {
             Toast.makeText(ctx, needCityMsg, Toast.LENGTH_SHORT).show(); return
         }
         toggling = true
         scope.launch {
-            val res = if (target) ApiClient.courierOnline(zone, if (zone == "city") workCity.trim() else null, null)
+            val res = if (target) ApiClient.courierOnline(zone, candidateCity.takeIf { it.isNotBlank() }, null)
             else ApiClient.courierOffline()
-            res.onSuccess { online = target }
-                .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: toggleErr, Toast.LENGTH_SHORT).show() }
+            res.onSuccess {
+                online = target
+                if (target) {
+                    confirmedZone = zone
+                    workCity = candidateCity
+                    workCityDraft = candidateCity
+                }
+            }.onFailure {
+                // courierOnline не подтвердил черновик — не выдаём его за активную настройку.
+                if (target) {
+                    zone = confirmedZone
+                    workCityDraft = workCity
+                }
+                Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: toggleErr, Toast.LENGTH_SHORT).show()
+            }
             toggling = false
         }
     }
 
-    // C2: смена зоны. Если уже на линии — сразу переустанавливаем зону на сервере, иначе заказы
-    // продолжали бы приходить по старой зоне (список тоже перезапросится: он завязан на zone).
     fun changeZone(newZone: String) {
-        if (newZone == zone) return
-        zone = newZone
-        if (online && !(newZone == "city" && workCity.isBlank())) {
-            scope.launch {
-                ApiClient.courierOnline(newZone, if (newZone == "city") workCity.trim() else null, null)
-                    .onFailure { Toast.makeText(ctx, toggleErr, Toast.LENGTH_SHORT).show() }
-            }
+        if (newZone == zone || lineBusy) return
+        val candidateCity = workCityDraft.trim()
+        if (newZone == "city" && candidateCity.isBlank() && online) {
+            Toast.makeText(ctx, needCityMsg, Toast.LENGTH_SHORT).show(); return
+        }
+        if (!online) {
+            // Оффлайн это явно черновик «на следующую линию»; сервер подтвердит его при включении.
+            zone = newZone
+            return
+        }
+        configSaving = true
+        scope.launch {
+            ApiClient.courierOnline(newZone, candidateCity.takeIf { it.isNotBlank() }, null)
+                .onSuccess {
+                    confirmedZone = newZone
+                    zone = newZone
+                    workCity = candidateCity
+                    workCityDraft = candidateCity
+                }
+                .onFailure {
+                    zone = confirmedZone
+                    workCityDraft = workCity
+                    Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: toggleErr, Toast.LENGTH_SHORT).show()
+                }
+            configSaving = false
+        }
+    }
+
+    fun saveWorkCity() {
+        if (!online || lineBusy) return
+        val candidateCity = workCityDraft.trim()
+        if (candidateCity.isBlank()) {
+            Toast.makeText(ctx, needCityMsg, Toast.LENGTH_SHORT).show(); return
+        }
+        if (candidateCity == workCity) return
+        configSaving = true
+        scope.launch {
+            // И зона, и город уходят одним запросом: сервер никогда не видит половину настройки.
+            ApiClient.courierOnline(zone, candidateCity, null)
+                .onSuccess {
+                    confirmedZone = zone
+                    workCity = candidateCity
+                    workCityDraft = candidateCity
+                }
+                .onFailure {
+                    workCityDraft = workCity
+                    Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: toggleErr, Toast.LENGTH_SHORT).show()
+                }
+            configSaving = false
         }
     }
 
@@ -239,25 +400,47 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarni
         // Главный рабочий статус — один взгляд: онлайн/оффлайн, зона и город.
         CourierLineHero(
             online = online,
-            toggling = toggling,
+            toggling = lineBusy,
             onToggle = { setOnline(it) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CourierZoneChip(Icons.Default.LocationCity, appText("Город", "Ҡала"), zone == "city") { changeZone("city") }
-                CourierZoneChip(Icons.Default.AltRoute, appText("Межгород", "Ҡалалар араһы"), zone == "intercity") { changeZone("intercity") }
-                CourierZoneChip(Icons.Default.Public, appText("Регион", "Төбәк"), zone == "region") { changeZone("region") }
+                CourierZoneChip(Icons.Default.LocationCity, appText("Город", "Ҡала"), zone == "city", !lineBusy) { changeZone("city") }
+                CourierZoneChip(Icons.Default.AltRoute, appText("Межгород", "Ҡалалар араһы"), zone == "intercity", !lineBusy) { changeZone("intercity") }
+                CourierZoneChip(Icons.Default.Public, appText("Регион", "Төбәк"), zone == "region", !lineBusy) { changeZone("region") }
             }
             if (zone == "city") {
                 OutlinedTextField(
-                    value = workCity,
-                    onValueChange = { workCity = it.take(40) },
+                    value = workCityDraft,
+                    onValueChange = { workCityDraft = it.take(40) },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !lineBusy,
                     label = { Text(appText("Город работы", "Эш ҡалаһы")) },
                     placeholder = { Text(appText("Например: Баймак", "Мәҫәлән: Баймаҡ"), color = CanonMuted) },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                 )
+                if (workCityDraft.trim() != workCity) {
+                    DeliveryHint(
+                        if (online) {
+                            appText("Подтверди новый город — до этого заказы остаются по прежнему.", "Яңы ҡаланы раҫла — уға тиклем заказдар элекке ҡала буйынса ҡала.")
+                        } else {
+                            appText("Город применится после успешного включения линии.", "Ҡала линия уңышлы ҡабыҙылғас ҡулланыласаҡ.")
+                        },
+                    )
+                    if (online) {
+                        AppButton(
+                            text = appText("Сохранить город", "Ҡаланы һаҡлау"),
+                            onClick = { saveWorkCity() },
+                            style = AppButtonStyle.Secondary,
+                            enabled = !lineBusy && workCityDraft.isNotBlank(),
+                            loading = configSaving,
+                        )
+                    }
+                }
+            }
+            if (!online && zone != confirmedZone) {
+                DeliveryHint(appText("Настройки подтвердятся при включении линии.", "Көйләүҙәр линия ҡабыҙылғанда раҫланасаҡ."))
             }
         }
         // Под-вкладки.
@@ -281,8 +464,14 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarni
             label = "courier-sub",
         ) { s ->
             when (s) {
-                0 -> CourierAvailableTab(zone = zone, workCity = if (zone == "city") workCity else "")
-                1 -> CourierCarryingTab()
+                0 -> CourierAvailableTab(
+                    online = online,
+                    lineBusy = lineBusy,
+                    zone = confirmedZone,
+                    workCity = if (confirmedZone == "city") workCity else "",
+                    onGoOnline = { setOnline(true) },
+                )
+                1 -> CourierCarryingTab(online = online)
                 else -> CourierCabinetTab(me, onReloadMe, onEarnings)
             }
         }
@@ -290,11 +479,14 @@ private fun CourierWorkContent(me: CourierMeDto, onReloadMe: () -> Unit, onEarni
 }
 
 @Composable
-private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
+private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val bg by animateColorAsState(if (active) CanonGreen2 else CanonSurface, tween(200), label = "zone")
+    // Рамка и надпись тоже переезжают: раньше фон плыл, а текст с обводкой щёлкали кадром.
+    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(200), label = "zone-line")
+    val ink by animateColorAsState(if (active) Color.White else CanonMutedStrong, tween(200), label = "zone-ink")
     Surface(
-        onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
+        onClick = onClick, enabled = enabled, color = bg, shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, line),
         modifier = Modifier
             .height(48.dp)
             .semantics(mergeDescendants = true) {
@@ -302,9 +494,34 @@ private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, o
                 selected = active
             },
     ) {
-        Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(icon, contentDescription = null, tint = if (active) Color.White else CanonMuted, modifier = Modifier.size(18.dp))
-            Text(label, color = if (active) Color.White else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(20.dp))
+            Text(
+                label, color = ink, fontWeight = FontWeight.Bold,
+                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Выбор доставки, чью карту показывать: курьер часто везёт сразу несколько посылок. */
+@Composable
+private fun TrackTargetChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "trk")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "trk-line")
+    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonMutedStrong, tween(200), label = "trk-ink")
+    Surface(
+        onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, line),
+        modifier = Modifier.height(48.dp),
+    ) {
+        Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            Text(
+                label, color = ink, fontWeight = FontWeight.Bold,
+                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -321,31 +538,53 @@ private fun CourierSubTab(label: String, active: Boolean, modifier: Modifier = M
 
 // ─────────────────────────── Доступные заказы ───────────────────────────
 @Composable
-private fun CourierAvailableTab(zone: String, workCity: String) {
+private fun CourierAvailableTab(
+    online: Boolean,
+    lineBusy: Boolean,
+    zone: String,
+    workCity: String,
+    onGoOnline: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var loadedQuery by remember { mutableStateOf<String?>(null) }
+    var refreshKey by remember { mutableIntStateOf(0) }
     var busyId by remember { mutableIntStateOf(0) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val actionErr = appText("Не получилось взять. Проверь сеть.", "Алып булманы. Селтәрҙе тикшер.")
     val tookMsg = appText("Заказ у тебя. Он во вкладке «Везу».", "Заказ һиндә. Ул «Илтәм» бүлегендә.")
 
-    fun reload() {
-        loading = true; error = null
-        scope.launch {
+    val queryKey = "$zone|${workCity.trim()}"
+    val hasLoadedCurrentQuery = loadedQuery == queryKey
+    val visibleList = if (hasLoadedCurrentQuery) list else emptyList()
+
+    // Один последовательный цикл на текущий фильтр. Смена ключа отменяет старый запрос,
+    // поэтому таймер, ручной retry и подтверждённая смена зоны не создают дублей.
+    LaunchedEffect(online, zone, workCity, refreshKey) {
+        if (!online) {
+            // Доступные заказы быстро устаревают: после новой сессии линии сначала подтверждаем их сервером.
+            loadedQuery = null
+            error = null
+            return@LaunchedEffect
+        }
+        error = null
+        while (true) {
             ApiClient.getCourierAvailable(fromCity = workCity.takeIf { it.isNotBlank() })
-                .onSuccess { list = it }
+                .onSuccess {
+                    list = it
+                    loadedQuery = queryKey
+                    error = null
+                }
                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
-            loading = false
+            delay(COURIER_REFRESH_INTERVAL_MS)
         }
     }
-    LaunchedEffect(zone, workCity) { reload() }
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
         item {
@@ -358,30 +597,65 @@ private fun CourierAvailableTab(zone: String, workCity: String) {
                 ),
             )
         }
+        if (online && error != null && hasLoadedCurrentQuery) {
+            item {
+                CourierRefreshStrip(
+                    text = appText(
+                        "Не удалось обновить заказы — показываем последний список.",
+                        "Заказдарҙы яңыртып булманы — һуңғы исемлекте күрһәтәбеҙ.",
+                    ),
+                    onRetry = { refreshKey++ },
+                )
+            }
+        }
         when {
-            loading && list.isEmpty() -> {
+            !online -> {
+                item {
+                    AppEmptyState(
+                        title = appText("Сначала включи линию", "Тәүҙә линияны ҡабыҙ"),
+                        text = appText(
+                            "Доступные заказы появятся только на линии — так никто не возьмёт заказ случайно.",
+                            "Буш заказдар тик линияла күренә — шулай заказды осраҡлы алып булмай.",
+                        ),
+                        icon = Icons.Default.LocalShipping,
+                    )
+                }
+                item {
+                    AppButton(
+                        text = appText("Включить линию", "Линияны ҡабыҙыу"),
+                        onClick = onGoOnline,
+                        style = AppButtonStyle.Primary,
+                        icon = Icons.Default.LocalShipping,
+                        enabled = !lineBusy,
+                        loading = lineBusy,
+                    )
+                }
+            }
+            !hasLoadedCurrentQuery && error == null -> {
                 item { SkeletonCard(lines = 3) }
                 item { SkeletonCard(lines = 3) }
             }
-            error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
-            list.isEmpty() -> item {
+            error != null && !hasLoadedCurrentQuery -> item { ListedError(error ?: "") { refreshKey++ } }
+            visibleList.isEmpty() -> item {
                 AppEmptyState(
                     title = appText("Свободных заказов нет", "Буш заказдар юҡ"),
                     text = appText("Загляни позже — соседи скоро что-нибудь отправят.", "Һуңыраҡ кер — күршеләр тиҙҙән берәй нәмә ебәрер."),
                     icon = Icons.Default.LocalShipping,
                 )
             }
-            else -> items(list.size, key = { "cav-" + list[it].id }) { i ->
+            else -> items(visibleList.size, key = { "cav-" + visibleList[it].id }) { i ->
+                val parcel = visibleList[i]
                 Box(Modifier.appearIn(i.coerceAtMost(6))) {
                     CourierAvailableCard(
-                        p = list[i],
-                        busy = busyId == list[i].id,
+                        p = parcel,
+                        busy = busyId == parcel.id,
+                        canTake = online && !lineBusy,
                         onTake = {
-                            if (busyId != 0) return@CourierAvailableCard
-                            busyId = list[i].id
+                            if (!online || lineBusy || busyId != 0) return@CourierAvailableCard
+                            busyId = parcel.id
                             scope.launch {
-                                ApiClient.acceptParcel(list[i].id)
-                                    .onSuccess { Toast.makeText(ctx, tookMsg, Toast.LENGTH_SHORT).show(); reload() }
+                                ApiClient.acceptParcel(parcel.id)
+                                    .onSuccess { Toast.makeText(ctx, tookMsg, Toast.LENGTH_SHORT).show(); refreshKey++ }
                                     .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
                                 busyId = 0
                             }
@@ -394,7 +668,7 @@ private fun CourierAvailableTab(zone: String, workCity: String) {
 }
 
 @Composable
-private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit) {
+private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, onTake: () -> Unit) {
     val deliveryLabel = when (p.deliveryType) {
         "buy_bring" -> appText("Купи и привези", "Һатып ал да килтер")
         "courier" -> appText("Курьер", "Курьер")
@@ -424,8 +698,8 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit
                         kopToRub(p.commissionKop),
                     color = CanonGreen2,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
+                    fontSize = DeliveryCaption,
+                    lineHeight = DeliveryCaptionLine,
                     modifier = Modifier.fillMaxWidth().padding(11.dp),
                 )
             }
@@ -436,7 +710,8 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit
                     appText("На покупку: ", "Һатып алыуға: ") + kopToRub(p.codAmountKop),
                     color = CanonWarn,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
+                    fontSize = DeliveryCaption,
+                    lineHeight = DeliveryCaptionLine,
                     modifier = Modifier.fillMaxWidth().padding(11.dp),
                 )
             }
@@ -446,7 +721,7 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit
             onClick = onTake,
             style = AppButtonStyle.Primary,
             icon = Icons.Default.LocalShipping,
-            enabled = !busy,
+            enabled = canTake && !busy,
             loading = busy,
         )
     }
@@ -454,12 +729,13 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit
 
 // ─────────────────────────── Везу ───────────────────────────
 @Composable
-private fun CourierCarryingTab() {
+private fun CourierCarryingTab(online: Boolean) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var refreshKey by remember { mutableIntStateOf(0) }
     var busyId by remember { mutableIntStateOf(0) }
     var deliverTarget by remember { mutableStateOf<ParcelDto?>(null) }
     var goodsTarget by remember { mutableStateOf<ParcelDto?>(null) }
@@ -473,22 +749,41 @@ private fun CourierCarryingTab() {
     val deliveredMsg = appText("Заказ вручён. Спасибо!", "Заказ тапшырылды. Рәхмәт!")
     val goodsSavedMsg = appText("Стоимость покупки сохранена", "Һатып алыу хаҡы һаҡланды")
 
-    fun reload() {
-        loading = true; error = null
-        scope.launch {
+    fun reload() { refreshKey++ }
+
+    // Историю/активную доставку грузим и оффлайн один раз; на линии держим один
+    // последовательный polling-цикл без перекрывающихся getCarryingParcels.
+    LaunchedEffect(online, refreshKey) {
+        while (true) {
+            loading = true
             ApiClient.getCarryingParcels()
-                .onSuccess { list = it.sortedByDescending { p -> p.acceptedAt ?: p.createdAt } }
+                .onSuccess {
+                    list = it.sortedByDescending { p -> p.acceptedAt ?: p.createdAt }
+                    error = null
+                }
                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
             loading = false
+            if (!online) return@LaunchedEffect
+            delay(COURIER_REFRESH_INTERVAL_MS)
         }
     }
-    LaunchedEffect(Unit) { reload() }
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
+        if (error != null && list.isNotEmpty()) {
+            item {
+                CourierRefreshStrip(
+                    text = appText(
+                        "Не удалось обновить доставки — показываем последние данные.",
+                        "Илтеүҙәрҙе яңыртып булманы — һуңғы мәғлүмәтте күрһәтәбеҙ.",
+                    ),
+                    onRetry = { reload() },
+                )
+            }
+        }
         when {
             loading && list.isEmpty() -> {
                 item { SkeletonCard(lines = 3) }
@@ -503,39 +798,68 @@ private fun CourierCarryingTab() {
                 )
             }
             else -> {
-                // Онлайн-трекинг: карта активной доставки (курьер шлёт свой GPS отправителю). Одна на вкладку.
-                list.firstOrNull { it.status == "accepted" || it.status == "in_transit" }?.let { activeParcel ->
+                // Онлайн-трекинг: карта активной доставки (курьер шлёт свой GPS отправителю).
+                // Карта одна — MapKit тяжёлый, три карты в одном списке подвесят прокрутку.
+                // Но раньше она молча показывала ПЕРВУЮ посылку: курьер вёз три, вручал вторую,
+                // а на карте был чужой маршрут. Теперь при нескольких доставках он выбирает, чью
+                // карту смотреть, а по умолчанию открыта та, что уже в пути.
+                val activeParcels = list.filter { it.status == "accepted" || it.status == "in_transit" }
+                if (activeParcels.isNotEmpty()) {
                     item(key = "ccar-track") {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(appText("Ты в пути — отправитель видит тебя на карте", "Һин юлда — ебәреүсе һине картала күрә"),
-                                color = CanonMuted, fontSize = 12.sp)
-                            ParcelTrackMap(activeParcel, asCourier = true)
+                        val defaultId = (activeParcels.firstOrNull { it.status == "in_transit" }
+                            ?: activeParcels.first()).id
+                        var trackedId by remember(activeParcels.map { it.id }) { mutableIntStateOf(defaultId) }
+                        val tracked = activeParcels.firstOrNull { it.id == trackedId } ?: activeParcels.first()
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                if (activeParcels.size > 1) appText(
+                                    "Ты в пути — отправители видят тебя на карте. Выбери доставку:",
+                                    "Һин юлда — ебәреүселәр һине картала күрә. Илтеүҙе һайла:",
+                                ) else appText(
+                                    "Ты в пути — отправитель видит тебя на карте",
+                                    "Һин юлда — ебәреүсе һине картала күрә",
+                                ),
+                                color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                            )
+                            if (activeParcels.size > 1) {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(activeParcels, key = { "track-chip-${it.id}" }) { p ->
+                                        TrackTargetChip(
+                                            label = p.toCity.ifBlank { appText("Доставка", "Илтеү") } + " · №${p.id}",
+                                            selected = p.id == tracked.id,
+                                            onClick = { trackedId = p.id },
+                                        )
+                                    }
+                                }
+                            }
+                            ParcelTrackMap(tracked, asCourier = true)
                         }
                     }
                 }
                 items(list.size, key = { "ccar-" + list[it].id }) { i ->
-                Box(Modifier.appearIn(i.coerceAtMost(6))) {
-                    CourierCarryingCard(
-                        p = list[i],
-                        busy = busyId == list[i].id,
-                        onTransit = {
-                            if (busyId != 0) return@CourierCarryingCard
-                            busyId = list[i].id
-                            scope.launch {
-                                ApiClient.setParcelStatus(list[i].id, "in_transit")
-                                    .onSuccess { Toast.makeText(ctx, transitMsg, Toast.LENGTH_SHORT).show(); reload() }
-                                    .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
-                                busyId = 0
-                            }
-                        },
-                        onDeliver = { deliverTarget = list[i] },
-                        onSetGoods = { goodsTarget = list[i] },
-                        onDispute = { disputeTarget = list[i] },
-                        onTrouble = { troubleTarget = list[i] },
-                        rated = ratedIds.contains(list[i].id),
-                        onRate = { rateTarget = list[i] },
-                    )
-                }
+                    val parcel = list[i]
+                    Box(Modifier.appearIn(i.coerceAtMost(6))) {
+                        CourierCarryingCard(
+                            p = parcel,
+                            busy = busyId == parcel.id,
+                            onTransit = {
+                                if (busyId != 0) return@CourierCarryingCard
+                                busyId = parcel.id
+                                scope.launch {
+                                    ApiClient.setParcelStatus(parcel.id, "in_transit")
+                                        .onSuccess { Toast.makeText(ctx, transitMsg, Toast.LENGTH_SHORT).show(); reload() }
+                                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: actionErr, Toast.LENGTH_SHORT).show() }
+                                    busyId = 0
+                                }
+                            },
+                            onDeliver = { deliverTarget = parcel },
+                            onSetGoods = { goodsTarget = parcel },
+                            onDispute = { disputeTarget = parcel },
+                            onTrouble = { troubleTarget = parcel },
+                            rated = ratedIds.contains(parcel.id),
+                            onRate = { rateTarget = parcel },
+                        )
+                    }
                 }
             }
         }
@@ -561,10 +885,10 @@ private fun CourierCarryingTab() {
         AlertDialog(
             onDismissRequest = { if (!saving) goodsTarget = null },
             containerColor = CanonSurface,
-            title = { Text(appText("Стоимость покупки", "Һатып алыу хаҡы"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Стоимость покупки", "Һатып алыу хаҡы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(appText("Сколько ты потратил на товар? Получатель вернёт эту сумму плюс доставку.", "Тауарға күпме тотондоң? Алыусы был сумманы һәм илтеүҙе кире ҡайтарыр."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DeliveryHint(appText("Сколько ты потратил на товар? Получатель вернёт эту сумму плюс доставку.", "Тауарға күпме тотондоң? Алыусы был сумманы һәм илтеүҙе кире ҡайтарыр."))
                     OutlinedTextField(
                         value = rub,
                         onValueChange = { rub = it.filter(Char::isDigit).take(5); goodsError = null },
@@ -576,12 +900,13 @@ private fun CourierCarryingTab() {
                         singleLine = true,
                         isError = goodsError != null,
                     )
-                    Text(appText("Лимит покупки — 5000 ₽.", "Һатып алыу лимиты — 5000 ₽."), color = CanonMuted, fontSize = 12.sp)
-                    if (goodsError != null) Text(goodsError ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    DeliveryHint(appText("Лимит покупки — 5000 ₽.", "Һатып алыу лимиты — 5000 ₽."))
+                    DialogErrorLine(goodsError)
                 }
             },
             confirmButton = {
                 TextButton(
+                    modifier = Modifier.heightIn(min = 48.dp),
                     enabled = !saving && goodsOk,
                     onClick = {
                         val kop = (rubInt ?: 0) * 100
@@ -596,9 +921,9 @@ private fun CourierCarryingTab() {
                             saving = false
                         }
                     },
-                ) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+                ) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryBody) }
             },
-            dismissButton = { TextButton(enabled = !saving, onClick = { goodsTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+            dismissButton = { TextButton(modifier = Modifier.heightIn(min = 48.dp), enabled = !saving, onClick = { goodsTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted, fontSize = DeliveryBody) } },
         )
     }
 
@@ -644,10 +969,10 @@ private fun CourierCarryingTab() {
         AlertDialog(
             onDismissRequest = { if (!submitting) deliverTarget = null },
             containerColor = CanonSurface,
-            title = { Text(appText("Код вручения", "Тапшырыу коды"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Код вручения", "Тапшырыу коды"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(appText("Спроси код у получателя и введи его. Так подтвердим, что заказ попал по адресу.", "Кодты алыусынан һора һәм индер. Шулай заказ дөрөҫ ергә барғанын раҫлайбыҙ."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DeliveryHint(appText("Спроси код у получателя и введи его. Так подтвердим, что заказ попал по адресу.", "Кодты алыусынан һора һәм индер. Шулай заказ дөрөҫ ергә барғанын раҫлайбыҙ."))
                     OutlinedTextField(
                         value = code,
                         onValueChange = { code = it; codeError = null },
@@ -657,7 +982,7 @@ private fun CourierCarryingTab() {
                         singleLine = true,
                         isError = codeError != null,
                     )
-                    if (codeError != null) Text(codeError ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    DialogErrorLine(codeError)
                     // Фото «отдал целой» — необязательно, но это единственное, что отличает
                     // слово от доказательства, если получатель потом скажет «пришло битое».
                     AppButton(
@@ -675,6 +1000,7 @@ private fun CourierCarryingTab() {
             },
             confirmButton = {
                 TextButton(
+                    modifier = Modifier.heightIn(min = 48.dp),
                     enabled = !submitting && code.isNotBlank(),
                     onClick = {
                         submitting = true; codeError = null
@@ -688,9 +1014,9 @@ private fun CourierCarryingTab() {
                             submitting = false
                         }
                     },
-                ) { Text(appText("Подтвердить вручение", "Тапшырыуҙы раҫлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+                ) { Text(appText("Подтвердить вручение", "Тапшырыуҙы раҫлау"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryBody) }
             },
-            dismissButton = { TextButton(enabled = !submitting, onClick = { deliverTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+            dismissButton = { TextButton(modifier = Modifier.heightIn(min = 48.dp), enabled = !submitting, onClick = { deliverTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted, fontSize = DeliveryBody) } },
         )
     }
 }
@@ -750,7 +1076,7 @@ internal fun ParcelTrackMap(parcel: ParcelDto, asCourier: Boolean, modifier: Mod
     InstantRouteMap(
         from = from, to = to,
         car = courierPoint, carBearing = courierBearing,
-        modifier = modifier.fillMaxWidth().height(190.dp).clip(CanonItemShape),
+        modifier = modifier.fillMaxWidth().height(192.dp).clip(CanonItemShape),
     )
 }
 
@@ -770,67 +1096,79 @@ private fun CourierCarryingCard(
     val canDeliver = canCourierDeliverParcel(p.status)
     val buyBring = p.deliveryType == "buy_bring"
     val needGoods = buyBring && (p.settlement?.goodsActualKop ?: 0) == 0
+    val showSenderContact = (
+        p.status == "accepted" || p.status == "in_transit" ||
+            p.status == "returning" || p.status == "returned"
+        ) && (p.senderName.isNotBlank() || p.senderPhone.isNotBlank())
     AppCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     CourierRouteRow(p.fromCity, p.toCity)
-                    Text(parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""), color = CanonMuted, fontSize = 13.sp)
+                    Text(
+                        parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""),
+                        color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                    )
                 }
                 ParcelStatusChip(p.status)
             }
             CourierDeliveryProgress(status = p.status)
             ParcelReturnNotice(status = p.status, reason = p.returnReason, forCourier = true)
             Surface(color = CanonMint, shape = CanonItemShape) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(p.receiverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                    if (p.receiverPhone.isNotBlank()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Phone, contentDescription = appText("Телефон получателя", "Алыусы телефоны"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(p.receiverPhone, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                        }
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CourierContactDetails(
+                        label = appText("Получатель", "Алыусы"),
+                        name = p.receiverName,
+                        phone = p.receiverPhone,
+                    )
+                    if (showSenderContact) {
+                        Surface(color = CanonHairlineGreen, modifier = Modifier.fillMaxWidth().height(1.dp)) { }
+                        CourierContactDetails(
+                            label = if (p.status == "returning" || p.status == "returned") {
+                                appText("Отправитель · точка возврата", "Ебәреүсе · ҡайтарыу урыны")
+                            } else {
+                                appText("Отправитель · точка забора", "Ебәреүсе · алып китеү урыны")
+                            },
+                            name = p.senderName,
+                            phone = p.senderPhone,
+                        )
                     }
                 }
             }
             if (buyBring) {
                 val st = p.settlement
                 if (st != null) ParcelSettlementBlock(st, forCourier = true)
-                else if (p.codAmountKop > 0) Text(appText("Выкуп товара: ", "Тауар выкупы: ") + kopToRub(p.codAmountKop), color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                else if (p.codAmountKop > 0) Text(
+                    appText("Выкуп товара: ", "Тауар выкупы: ") + kopToRub(p.codAmountKop),
+                    color = CanonWarn, fontWeight = FontWeight.Bold,
+                    fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                )
             }
             when {
-                p.status == "returning" || p.status == "returned" -> Text(
-                    appText(
+                p.status == "returning" || p.status == "returned" -> DeliveryHint(
+                    text = appText(
                         "При возврате комиссию Юлдаша не берём. Расчёт по расходам — напрямую с отправителем.",
                         "Ҡайтарғанда Юлдаш комиссия алмай. Сығымдар буйынса ебәреүсе менән туранан-тура иҫәпләш.",
                     ),
-                    color = CanonWarn,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
+                    tone = CanonWarn,
                 )
-                p.cancelFeeKop > 0 -> Text(
-                    appText("Компенсация от отправителя: ", "Ебәреүсенән компенсация: ") + kopToRub(p.cancelFeeKop),
-                    color = CanonWarn,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
+                p.cancelFeeKop > 0 -> DeliveryHint(
+                    text = appText("Компенсация от отправителя: ", "Ебәреүсенән компенсация: ") +
+                        kopToRub(p.cancelFeeKop),
+                    tone = CanonWarn,
                 )
                 else -> {
+                    // Комиссия до вручения — оценка; финал считается после вручения.
                     val feeEst = if (!delivered) appText(" ≈ ориентировочно", " ≈ самаға") else ""
                     val myIncome = courierNetKop(p.priceKop, p.commissionKop)
-                    Text(
-                        if (p.priceKop > 0) {
+                    DeliveryHint(
+                        text = if (p.priceKop > 0) {
                             appText("Твой доход: ", "Һинең килем: ") + kopToRub(myIncome) +
                                 appText(
                                     " (наш сбор ${kopToRub(p.commissionKop)}$feeEst)",
                                     " (беҙҙең сбор ${kopToRub(p.commissionKop)}$feeEst)",
                                 )
                         } else appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"),
-                        color = CanonMuted,
-                        fontSize = 13.sp,
                     )
                 }
             }
@@ -843,12 +1181,9 @@ private fun CourierCarryingCard(
                         icon = Icons.Default.Payments,
                         enabled = !busy,
                     )
-                    Text(
-                        appText("Сначала укажи стоимость покупки — потом сможешь вручить заказ.", "Тәүҙә һатып алыу хаҡын күрһәт — шунан заказды тапшыра алырһың."),
-                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
-                    )
+                    DeliveryHint(appText("Сначала укажи стоимость покупки — потом сможешь вручить заказ.", "Тәүҙә һатып алыу хаҡын күрһәт — шунан заказды тапшыра алырһың."))
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (p.status == "accepted") {
                         AppButton(
                             text = appText("В пути", "Юлда"),
@@ -884,6 +1219,51 @@ private fun CourierCarryingCard(
     }
 }
 
+@Composable
+private fun CourierContactDetails(label: String, name: String, phone: String) {
+    val spokenContact = listOf(label, name, phone).filter { it.isNotBlank() }.joinToString(". ")
+    Column(
+        Modifier.fillMaxWidth().semantics(mergeDescendants = true) { contentDescription = spokenContact },
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            label,
+            color = CanonMutedStrong,
+            fontWeight = FontWeight.Bold,
+            fontSize = DeliveryCaption,
+            lineHeight = DeliveryCaptionLine,
+        )
+        if (name.isNotBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    name,
+                    color = CanonText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = DeliveryBody,
+                    lineHeight = DeliveryBodyLine,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (phone.isNotBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Phone, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    phone,
+                    color = CanonGreen2,
+                    fontWeight = FontWeight.Black,
+                    fontSize = DeliveryBody,
+                    lineHeight = DeliveryBodyLine,
+                )
+            }
+        }
+    }
+}
+
 // ─────────────────────────── Кабинет курьера ───────────────────────────
 @Composable
 private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnings: () -> Unit = {}) {
@@ -903,7 +1283,7 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
         // «Мой заработок» — первым делом: курьер должен видеть, СКОЛЬКО он получил, а не только
@@ -921,14 +1301,14 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
             item {
                 Surface(color = CanonWarnBg, shape = CanonCardShape, border = BorderStroke(1.dp, CanonWarn)) {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.PauseCircle, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(26.dp))
-                        Spacer(Modifier.width(14.dp))
+                        Icon(Icons.Default.PauseCircle, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
                         val until10 = until.take(10)
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(appText("Пауза по качеству", "Сифат буйынса пауза"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Text(appText("Пауза по качеству", "Сифат буйынса пауза"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                             Text(
                                 appText("Пауза до $until10. Подтяни рейтинг — и снова в строю. Мы рядом, поможем.", "$until10 тиклем пауза. Рейтингты күтәр — һәм ҡабат сафта. Беҙ янда, ярҙам итербеҙ."),
-                                color = CanonWarn, fontSize = 13.sp, lineHeight = 18.sp,
+                                color = CanonWarn, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
                             )
                         }
                     }
@@ -939,19 +1319,19 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
         item {
             val avg = me.rating.avg
             Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.padding(12.dp).size(26.dp))
+                        Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.padding(12.dp).size(24.dp))
                     }
                     Spacer(Modifier.width(16.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(appText("Твой рейтинг", "Һинең рейтинг"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(appText("Твой рейтинг", "Һинең рейтинг"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                         if (avg != null && me.rating.count > 0) {
-                            Text(String.format("%.1f", avg) + " ★", color = CanonText, fontWeight = FontWeight.Black, fontSize = 28.sp)
-                            Text(appText("оценок: ${me.rating.count}", "баһа: ${me.rating.count}"), color = CanonMuted, fontSize = 12.sp)
+                            Text(String.format("%.1f", avg) + " ★", color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
+                            Text(appText("оценок: ${me.rating.count}", "баһа: ${me.rating.count}"), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                         } else {
-                            Text(appText("Пока нет оценок", "Әлегә оценка юҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                            Text(appText("Первые доставки — и рейтинг появится.", "Тәүге илтеүҙәр — һәм рейтинг күренер."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                            Text(appText("Пока нет оценок", "Әлегә оценка юҡ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                            Text(appText("Первые доставки — и рейтинг появится.", "Тәүге илтеүҙәр — һәм рейтинг күренер."), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                         }
                     }
                 }
@@ -960,14 +1340,14 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
         // Доставлено заказов.
         item {
             Surface(color = CanonMint, shape = CanonCardShape, border = BorderStroke(1.dp, CanonGreen2)) {
-                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Surface(color = CanonSurface, shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(26.dp))
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
                     }
                     Spacer(Modifier.width(16.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Доставлено заказов", "Тапшырылған заказдар"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Text("${st.deliveredCount}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 30.sp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(appText("Доставлено заказов", "Тапшырылған заказдар"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+                        Text("${st.deliveredCount}", color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
                     }
                 }
             }
@@ -988,23 +1368,22 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
                     shape = CanonCardShape,
                     border = BorderStroke(1.dp, if (promo) CanonGreen2 else CanonBorder),
                 ) {
-                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Surface(color = if (promo) CanonSurface else CanonMint, shape = RoundedCornerShape(14.dp)) {
-                                Icon(Icons.Default.Percent, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
+                                Icon(Icons.Default.Percent, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
                             }
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(appText("Сейчас ты платишь $currentFeePercent% комиссии", "Хәҙер һин $currentFeePercent% комиссия түләйһең"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                                Text(tierLine, color = if (promo) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(appText("Сейчас ты платишь $currentFeePercent% комиссии", "Хәҙер һин $currentFeePercent% комиссия түләйһең"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                                Text(tierLine, color = if (promo) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                             }
                         }
                         if (st.commissionMinKop > 0) {
-                            Text(
+                            DeliveryHint(
                                 appText(
                                     "Комиссия минимум ${kopToRub(st.commissionMinKop)} за доставку. Всё прозрачно — видно, сколько и за что.",
                                     "Комиссия иң кәме ${kopToRub(st.commissionMinKop)} бер илтеү өсөн. Барыһы ла асыҡ — күпме һәм ни өсөн икәне күренә.",
                                 ),
-                                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                             )
                         }
                     }
@@ -1014,22 +1393,24 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
         // Комиссия: заработали · к оплате (крупно) · оплачено.
         item {
             Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, if (owed > 0) CanonGreen2 else CanonBorder)) {
-                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
-                        Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                        Icon(Icons.Default.Payments, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
+                        Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                     }
-                    Text(
+                    DeliveryHint(
                         appText("Это сбор Юлдаша$feeShare за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.", "Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы$feeShare. Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш."),
-                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                     )
                     StatementRow(appText("Всего заработали мы", "Барлығы беҙ эшләнек"), kopToRub(st.commissionEarnedKop), CanonMuted)
                     StatementRow(appText("Уже оплачено", "Түләнгән"), kopToRub(st.commissionPaidKop), CanonGreen2)
                     // К оплате сейчас — крупно.
                     Surface(color = if (owed > 0) CanonMint else CanonBg, shape = CanonItemShape) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(appText("К оплате сейчас", "Хәҙер түләргә"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                            Text(kopToRub(owed), color = if (owed > 0) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = 24.sp)
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                appText("К оплате сейчас", "Хәҙер түләргә"), color = CanonText, fontWeight = FontWeight.Black,
+                                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, modifier = Modifier.weight(1f),
+                            )
+                            Text(kopToRub(owed), color = if (owed > 0) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
                         }
                     }
                     if (owed > 0) {
@@ -1067,12 +1448,14 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
                             icon = Icons.Default.Payments,
                             loading = paying,
                         )
-                        Text(
+                        DeliveryHint(
                             appText("Переведи сумму по СБП на реквизиты Юлдаша — админ подтвердит оплату вручную.", "Сумманы СБП аша Юлдаш реквизиттарына күсер — админ түләүҙе ҡулдан раҫлар."),
-                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                         )
                     } else {
-                        Text(appText("Долгов нет — спасибо, что возишь по-честному.", "Бурыс юҡ — намыҫлы илткәнең өсөн рәхмәт."), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            appText("Долгов нет — спасибо, что возишь по-честному.", "Бурыс юҡ — намыҫлы илткәнең өсөн рәхмәт."),
+                            color = CanonGreen2, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }
@@ -1080,9 +1463,15 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
         me.profile?.let { pr ->
             item {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(appText("Транспорт: ", "Транспорт: ") + courierTransportLabel(me.application?.transport ?: ""), color = CanonText, fontSize = 14.sp)
-                        Text(appText("Статус: ", "Статус: ") + if (pr.online) appText("на линии", "линияла") else appText("не на линии", "линияла түгел"), color = if (pr.online) CanonGreen2 else CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            appText("Транспорт: ", "Транспорт: ") + courierTransportLabel(me.application?.transport ?: ""),
+                            color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                        )
+                        Text(
+                            appText("Статус: ", "Статус: ") + if (pr.online) appText("на линии", "линияла") else appText("не на линии", "линияла түгел"),
+                            color = if (pr.online) CanonGreen2 else CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }
@@ -1108,35 +1497,28 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
 @Composable
 private fun StatementRow(label: String, value: String, valueColor: Color) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = CanonMuted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Text(value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(label, color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, modifier = Modifier.weight(1f))
+        Text(value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
     }
 }
 
 // ─────────────────────────── Общие мелочи ───────────────────────────
-/** Строка «маршрут»: Откуда → Куда. */
+/** Строка «маршрут»: Откуда → Куда. Города сжимаются, а не уезжают за экран:
+ *  башкирские названия длиннее русских, и без weight+ellipsis «Ҡара-Йылға» ломал карточку. */
 @Composable
 private fun CourierRouteRow(from: String, to: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(Icons.Default.Place, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
         Text(
-            from.ifBlank { "—" },
-            color = CanonText,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+            from.ifBlank { "—" }, color = CanonText, fontWeight = FontWeight.Bold,
+            fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
         )
-        Text("→", color = CanonMuted, fontSize = 14.sp)
+        Text("→", color = CanonMuted, fontSize = DeliveryBody)
         Text(
-            to.ifBlank { "—" },
-            color = CanonText,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+            to.ifBlank { "—" }, color = CanonText, fontWeight = FontWeight.Bold,
+            fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
         )
     }
 }
@@ -1156,8 +1538,10 @@ internal fun CourierDeliveryTag(deliveryType: String, urgency: String) {
     Surface(color = bg, shape = RoundedCornerShape(8.dp)) {
         Text(
             label + if (urgency == "now") appText(" · срочно", " · ашығыс") else "",
-            color = fg, fontWeight = FontWeight.Bold, fontSize = 11.sp,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            color = fg, fontWeight = FontWeight.Bold,
+            fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }
 }

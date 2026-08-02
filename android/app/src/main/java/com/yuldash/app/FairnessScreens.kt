@@ -2,24 +2,40 @@ package com.yuldash.app
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
@@ -28,8 +44,10 @@ import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,12 +63,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.IncidentDto
@@ -77,7 +100,44 @@ import kotlinx.coroutines.withContext
  *
  *  Приватность: телефон второй стороны участнику не показывается никогда, фото лежат в
  *  приватной области и открываются только сторонам спора.
+ *
+ *  ── Визуальный канон раздела (правки 2026-07-30) ───────────────────────────
+ *  Тема разговора тяжёлая, поэтому экран намеренно тихий: никакой пестроты, весь цвет
+ *  работает как смысл (жёлтый — ждём тебя, красный — пауза/апелляция, зелёный — решено).
+ *  Три правила, которые тут держат «дорогой» вид:
+ *   • ЧЕТЫРЕ размера текста и ни одного лишнего (см. FairMetric/FairTitle/FairBody/FairMeta);
+ *   • всё кратно 4dp: карточка дышит 20dp, строка списка 16dp, блоки 12dp, пары 4dp;
+ *   • один значок статуса (44dp) и одна пилюля на весь раздел — шапки карточек не «прыгают».
  */
+
+// ─────────────────────────── Типографика раздела ───────────────────────────
+// Четыре размера, у каждого ОДНА роль. Больше — каша, меньше — пропадает иерархия.
+//   Metric — единственное крупное число экрана (Надёжность), больше нигде.
+//   Title  — смысловой акцент блока: заголовок карточки/секции и значение счётчика.
+//   Body   — читаемый текст, который человек действительно читает.
+//   Meta   — подпись, дата, статус-пилюля, сноска.
+// Вес тоже закреплён за ролью: Black — Title и числа, Bold — акцентная мета (пилюля,
+// «твоя очередь», подпись стороны), Normal — весь Body и спокойная мета.
+// Двух весов, делающих одно и то же, в файле нет.
+private val FairMetric = 26.sp
+private val FairTitle = 17.sp
+private val FairBody = 14.sp
+private val FairMeta = 12.sp
+private val FairMetricLine = 30.sp
+private val FairTitleLine = 22.sp
+private val FairBodyLine = 20.sp
+private val FairMetaLine = 16.sp
+
+// ─────────────────────────── Ритм раздела (сетка 4dp) ───────────────────────────
+private val FairCardPad = 20.dp    // внутренний воздух крупной карточки
+private val FairRowPad = 16.dp     // внутренний воздух строки списка / вложенной плашки
+private val FairGap = 12.dp        // между смысловыми блоками
+private val FairGapTight = 8.dp    // между близкими элементами
+private val FairGapHair = 4.dp     // пара «подпись + значение»
+private val FairBadge = 44.dp      // диаметр значка статуса (один на весь раздел)
+private val FairTouch = 48.dp      // минимальная тач-цель
+private val FairIcon = 20.dp       // иконка в строке/значке
+private val FairHeroMin = 104.dp   // = 48 + 8 + 48: главное число вровень с двумя счётчиками
 
 // Типы споров — ровно те, что принимает сервер (safety_logic.INCIDENT_TYPES).
 // Неизвестный тип он отвергнет, поэтому список здесь и там должен совпадать.
@@ -128,6 +188,74 @@ private fun statusColors(status: String): Pair<Color, Color> = when (status) {
     else -> CanonWarnBg to CanonWarn
 }
 
+/** Значок статуса. Только из уже используемых в разделе иконок — новых сущностей не плодим. */
+private fun statusIcon(status: String): ImageVector = when (status) {
+    "resolved", "closed" -> Icons.Default.CheckCircle
+    "appealed" -> Icons.Default.Report
+    else -> Icons.Default.Shield
+}
+
+// ─────────────────────────── Общие мелкие блоки раздела ───────────────────────────
+
+/**
+ * Круглый значок статуса — ОДИН размер (44dp) на весь раздел. До этого шапки карточек
+ * жили каждая своей жизнью (46dp в одной, 40dp в другой), и вертикальный ритм скакал.
+ *
+ * [description] — двуязычная озвучка для TalkBack. Передаём её только там, где значок
+ * САМ несёт смысл (статус спора). Если рядом стоит тот же текст — оставляем null,
+ * иначе TalkBack читает одно и то же дважды.
+ */
+@Composable
+private fun StatusBadge(icon: ImageVector, tint: Color, bg: Color, description: String? = null) {
+    Surface(color = bg, shape = CircleShape, modifier = Modifier.size(FairBadge)) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(FairIcon))
+        }
+    }
+}
+
+/** Пилюля-статус: одна форма и один размер текста на весь раздел. */
+@Composable
+private fun StatusPill(text: String, bg: Color, fg: Color, modifier: Modifier = Modifier) {
+    Surface(color = bg, shape = CircleShape, modifier = modifier) {
+        Text(
+            text,
+            color = fg,
+            fontSize = FairMeta,
+            lineHeight = FairMetaLine,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = FairGap, vertical = FairGapTight),
+        )
+    }
+}
+
+/** Плашка-сообщение внутри карточки (ошибка, ожидание, подсказка). Единый вид на весь раздел. */
+@Composable
+private fun FairNotice(text: String, bg: Color, fg: Color, modifier: Modifier = Modifier) {
+    Surface(color = bg, shape = CanonItemShape, modifier = modifier.fillMaxWidth()) {
+        Text(
+            text,
+            color = fg,
+            fontSize = FairBody,
+            lineHeight = FairBodyLine,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(FairRowPad),
+        )
+    }
+}
+
+/** Поля ввода раздела: одна форма и брендовый зелёный фокус вместо фиолетового по умолчанию. */
+@Composable
+private fun fairFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = CanonGreen2,
+    cursorColor = CanonGreen2,
+    focusedLabelColor = CanonGreen2,
+)
+
+private val FairFieldShape = RoundedCornerShape(16.dp)
+
 // ─────────────────────────── Центр справедливости ───────────────────────────
 
 @Composable
@@ -147,45 +275,97 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
         loading = false
     }
 
+    // Сколько споров ждут именно тебя — самое важное число на экране.
+    val waitingForMe = remember(list) { list.count { it.needsMyStatement } }
+
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Центр справедливости", "Ғәҙеллек үҙәге"), onBack) },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
+            modifier = Modifier.padding(padding).padding(horizontal = FairRowPad),
+            verticalArrangement = Arrangement.spacedBy(FairGap),
+            contentPadding = PaddingValues(top = FairGapTight, bottom = 24.dp),
         ) {
-            item {
+            item(key = "lede") {
                 Text(
                     appText(
                         "Здесь разбираются спорные ситуации. Правило одно: слушаем обе стороны и объясняем решение обоим.",
                         "Бында бәхәсле хәлдәр ҡарала. Ҡағиҙә бер: ике яҡты ла тыңлайбыҙ һәм ҡарарҙы икеһенә лә аңлатабыҙ.",
                     ),
-                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = CanonMutedStrong,
+                    fontSize = FairBody,
+                    lineHeight = FairBodyLine,
+                    modifier = Modifier.appearIn(0).padding(vertical = FairGapHair),
                 )
             }
-            standing?.let { st -> item { StandingCard(st) } }
-            item {
-                Text(appText("Мои разборы", "Минең бәхәстәр"), color = CanonText,
-                    fontWeight = FontWeight.Black, fontSize = 17.sp, modifier = Modifier.padding(top = 4.dp))
-            }
-            when {
-                loading && list.isEmpty() ->
-                    item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(2) { SkeletonCard(lines = 3) } } }
-                error && list.isEmpty() -> item { AppErrorState(onRetry = { reload++ }) }
-                list.isEmpty() -> item {
-                    AppEmptyState(
-                        title = appText("Споров нет", "Бәхәс юҡ"),
-                        text = appText(
-                            "И пусть так и останется. Если что-то случится — спор можно открыть из завершённой поездки или доставки.",
-                            "Шулай ҡалһын. Берәй хәл булһа — тамамланған сәфәрҙән йәки илтеүҙән бәхәс асып була.",
-                        ),
-                        icon = Icons.Default.Handshake,
-                    )
+
+            // Моё положение. Пока грузим — скелетон той же формы, чтобы карточка не «выпрыгивала».
+            if (loading || standing != null) {
+                item(key = "standing") {
+                    AnimatedContent(
+                        targetState = standing,
+                        transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(140)) },
+                        label = "fair-standing",
+                    ) { st ->
+                        if (st == null) SkeletonCard(lines = 2) else StandingCard(st)
+                    }
                 }
-                else -> items(list, key = { it.id }) { inc ->
-                    IncidentRow(inc, onClick = { onOpenIncident(inc.id) })
+            }
+
+            item(key = "section") {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = FairGapHair),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        appText("Мои разборы", "Минең бәхәстәр"),
+                        color = CanonText,
+                        fontWeight = FontWeight.Black,
+                        fontSize = FairTitle,
+                        lineHeight = FairTitleLine,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // Row без spacedBy → скрытая пилюля не оставляет «фантомного» отступа.
+                    AnimatedVisibility(
+                        visible = waitingForMe > 0,
+                        enter = fadeIn(tween(240)),
+                        exit = fadeOut(tween(140)),
+                    ) {
+                        StatusPill(
+                            appText("Ждут тебя: $waitingForMe", "Һине көтә: $waitingForMe"),
+                            CanonWarnBg,
+                            CanonWarn,
+                        )
+                    }
+                }
+            }
+
+            when {
+                loading && list.isEmpty() -> items(2) { i ->
+                    Box(Modifier.appearIn(i)) { SkeletonCard(lines = 3) }
+                }
+                error && list.isEmpty() -> item(key = "error") {
+                    Box(Modifier.appearIn(0)) { AppErrorState(onRetry = { reload++ }) }
+                }
+                list.isEmpty() -> item(key = "empty") {
+                    Box(Modifier.appearIn(0)) {
+                        AppEmptyState(
+                            title = appText("Споров нет", "Бәхәс юҡ"),
+                            text = appText(
+                                "И пусть так и останется. Если что-то случится — спор можно открыть из завершённой поездки или доставки.",
+                                "Шулай ҡалһын. Берәй хәл булһа — тамамланған сәфәрҙән йәки илтеүҙән бәхәс асып була.",
+                            ),
+                            icon = Icons.Default.Handshake,
+                            actionLabel = appText("Обновить", "Яңыртыу"),
+                            onAction = { reload++ },
+                        )
+                    }
+                }
+                else -> itemsIndexed(list, key = { _, inc -> inc.id }) { i, inc ->
+                    Box(Modifier.appearIn(i.coerceAtMost(6))) {
+                        IncidentRow(inc, onClick = { onOpenIncident(inc.id) })
+                    }
                 }
             }
         }
@@ -196,82 +376,200 @@ internal fun FairnessCenterScreen(onBack: () -> Unit, onOpenIncident: (Int) -> U
 @Composable
 private fun StandingCard(st: StandingDto) {
     val paused = !st.canAct
+    // Акцент шапки меняется плавно: «всё в порядке» ↔ «пауза» без резкого перекраса.
+    val accent by animateColorAsState(if (paused) CanonRed else CanonGreen2, tween(320), label = "fair-accent")
+    val accentBg by animateColorAsState(if (paused) CanonDangerBg else CanonMint, tween(320), label = "fair-accentBg")
+    // Надёжность подрастает до своего значения — число «оживает», а не подставляется.
+    var counted by remember { mutableStateOf(false) }
+    LaunchedEffect(st.reliability) { counted = true }
+    val reliability by animateIntAsState(if (counted) st.reliability else 0, tween(760), label = "fair-reliability")
+    val reliabilityTint = if (st.reliability >= 60) CanonGreen2 else CanonWarn
+
+    val okTitle = appText("Всё в порядке", "Бөтәһе лә тәртиптә")
+    val pausedTitle = appText("Аккаунт на паузе", "Аккаунт паузала")
+
     AppCard {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(FairCardPad), verticalArrangement = Arrangement.spacedBy(FairGap)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = if (paused) CanonDangerBg else CanonMint, shape = CircleShape) {
-                    Icon(
-                        if (paused) Icons.Default.Report else Icons.Default.Shield,
-                        contentDescription = null,
-                        tint = if (paused) CanonRed else CanonGreen2,
-                        modifier = Modifier.padding(12.dp).size(22.dp),
-                    )
+                StatusBadge(
+                    icon = if (paused) Icons.Default.Report else Icons.Default.Shield,
+                    tint = accent,
+                    bg = accentBg,
+                    description = if (paused) pausedTitle else okTitle,
+                )
+                Spacer(Modifier.width(FairGap))
+                AnimatedContent(
+                    targetState = paused,
+                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                    label = "fair-standingTitle",
+                    modifier = Modifier.weight(1f),
+                ) { isPaused ->
+                    Column(verticalArrangement = Arrangement.spacedBy(FairGapHair)) {
+                        Text(
+                            if (isPaused) pausedTitle else okTitle,
+                            color = CanonText,
+                            fontWeight = FontWeight.Black,
+                            fontSize = FairTitle,
+                            lineHeight = FairTitleLine,
+                        )
+                        Text(
+                            if (isPaused) appText("Новые заказы пока недоступны", "Яңы заказдар әлегә юҡ")
+                            else appText("С тобой спокойно ехать", "Һинең менән тыныс барырға"),
+                            color = CanonMuted,
+                            fontSize = FairMeta,
+                            lineHeight = FairMetaLine,
+                        )
+                    }
                 }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (paused) appText("Аккаунт на паузе", "Аккаунт паузала")
-                        else appText("Всё в порядке", "Бөтәһе лә тәртиптә"),
-                        color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp,
+            }
+
+            // Одно крупное число слева, два счётчика справа. Раньше здесь стояли три равные
+            // плитки — на узком экране с крупным системным шрифтом «100%» в треть ширины
+            // просто обрезалось, а длинное «Ышаныслылыҡ» рвало низ ряда. Здесь у главного
+            // числа половина ширины, а у счётчиков подпись и значение разведены по краям
+            // строки — башкирский любой длины укладывается сам.
+            // Высоты сведены минимумом (104dp = 48+8+48 справа), а не жёсткой подгонкой:
+            // при системном «крупном шрифте» блок просто вырастет, а не обрежет текст.
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(FairGapTight),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StandingHero(
+                    label = appText("Надёжность", "Ышаныслылыҡ"),
+                    value = "$reliability%",
+                    tint = reliabilityTint,
+                    modifier = Modifier.weight(1f),
+                )
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(FairGapTight),
+                ) {
+                    StandingCounter(
+                        appText("Предупреждений", "Иҫкәртеү"), st.warnings.toString(),
+                        if (st.warnings > 0) CanonWarn else CanonMutedStrong,
                     )
-                    Text(
-                        if (paused) appText("Новые заказы пока недоступны", "Яңы заказдар әлегә юҡ")
-                        else appText("С тобой спокойно ехать", "Һинең менән тыныс барырға"),
-                        color = CanonMuted, fontSize = 13.sp,
+                    StandingCounter(
+                        appText("Страйков", "Страйк"), st.strikes.toString(),
+                        if (st.strikes > 0) CanonRed else CanonMutedStrong,
                     )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StandingTile(appText("Надёжность", "Ышаныслылыҡ"), "${st.reliability}%", CanonGreen2, Modifier.weight(1f))
-                StandingTile(
-                    appText("Предупреждений", "Иҫкәртеү"), st.warnings.toString(),
-                    if (st.warnings > 0) CanonWarn else CanonMuted, Modifier.weight(1f),
-                )
-                StandingTile(
-                    appText("Страйков", "Страйк"), st.strikes.toString(),
-                    if (st.strikes > 0) CanonRed else CanonMuted, Modifier.weight(1f),
-                )
-            }
+
             if (paused && st.suspendReason.isNotBlank()) {
-                Surface(color = CanonDangerBg, shape = CanonItemShape) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(st.suspendReason, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp)
+                Surface(color = CanonDangerBg, shape = CanonItemShape, modifier = Modifier.appearIn(1)) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(FairRowPad),
+                        verticalArrangement = Arrangement.spacedBy(FairGapHair),
+                    ) {
+                        Text(st.suspendReason, color = CanonRed, fontSize = FairBody, lineHeight = FairBodyLine)
                         st.suspendedUntil?.let {
-                            Text(appText("До ", "Ҡәҙәр ") + formatDepart(it), color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            // Порядок слов разный: по-русски предлог впереди, по-башкирски послелог сзади.
+                            Text(
+                                appText("До " + formatDepart(it), formatDepart(it) + " ҡәҙәр"),
+                                color = CanonRed,
+                                fontSize = FairMeta,
+                                lineHeight = FairMetaLine,
+                                fontWeight = FontWeight.Bold,
+                            )
                         }
                     }
                 }
             }
+
             if (st.ratingShield) {
-                Text(
-                    appText(
-                        "Спорная оценка исключена из твоего рейтинга — мы разобрались, что она была несправедливой.",
-                        "Бәхәсле баһа рейтингыңдан алып ташланды — уның ғәҙелһеҙ булғанын асыҡланыҡ.",
-                    ),
-                    color = CanonGreen2, fontSize = 12.sp, lineHeight = 17.sp,
-                )
+                Surface(color = CanonMint, shape = CanonItemShape, modifier = Modifier.appearIn(2)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(FairRowPad),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Default.Shield,
+                            contentDescription = appText("Щит рейтинга", "Рейтинг ҡалҡаны"),
+                            tint = CanonGreen2,
+                            modifier = Modifier.size(FairIcon),
+                        )
+                        Spacer(Modifier.width(FairGap))
+                        Text(
+                            appText(
+                                "Спорная оценка исключена из твоего рейтинга — мы разобрались, что она была несправедливой.",
+                                "Бәхәсле баһа рейтингыңдан алып ташланды — уның ғәҙелһеҙ булғанын асыҡланыҡ.",
+                            ),
+                            color = CanonGreen2,
+                            fontSize = FairMeta,
+                            lineHeight = FairMetaLine,
+                        )
+                    }
+                }
             }
+
             Text(
                 appText(
                     "Надёжность — это доля поездок, которые прошли без срывов. Она растёт сама, когда всё хорошо.",
                     "Ышаныслылыҡ — өҙөлөүһеҙ үткән сәфәрҙәр өлөшө. Бөтәһе лә яҡшы барһа, ул үҙе үҫә.",
                 ),
-                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                color = CanonMuted,
+                fontSize = FairMeta,
+                lineHeight = FairMetaLine,
             )
         }
     }
 }
 
+/** Главное число карточки — единственное место, где живёт размер Metric. */
 @Composable
-private fun StandingTile(label: String, value: String, tint: Color, modifier: Modifier = Modifier) {
+private fun StandingHero(label: String, value: String, tint: Color, modifier: Modifier = Modifier) {
     Surface(color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder), modifier = modifier) {
         Column(
-            Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            Modifier.fillMaxWidth().heightIn(min = FairHeroMin).padding(FairRowPad),
+            verticalArrangement = Arrangement.spacedBy(FairGapHair, Alignment.CenterVertically),
         ) {
-            Text(value, color = tint, fontWeight = FontWeight.Black, fontSize = 22.sp)
-            Text(label, color = CanonMuted, fontSize = 11.sp, textAlign = TextAlign.Center, maxLines = 2)
+            Text(
+                value,
+                color = tint,
+                fontWeight = FontWeight.Black,
+                fontSize = FairMetric,
+                lineHeight = FairMetricLine,
+                maxLines = 1,
+            )
+            Text(
+                label,
+                color = CanonMuted,
+                fontSize = FairMeta,
+                lineHeight = FairMetaLine,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Второстепенный счётчик: подпись слева, значение справа — длина подписи роли не играет. */
+@Composable
+private fun StandingCounter(label: String, value: String, tint: Color) {
+    Surface(color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = FairTouch).padding(horizontal = FairGap, vertical = FairGapTight),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                color = CanonMuted,
+                fontSize = FairMeta,
+                lineHeight = FairMetaLine,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(FairGapTight))
+            Text(
+                value,
+                color = tint,
+                fontWeight = FontWeight.Black,
+                fontSize = FairTitle,
+                lineHeight = FairTitleLine,
+                maxLines = 1,
+            )
         }
     }
 }
@@ -279,35 +577,64 @@ private fun StandingTile(label: String, value: String, tint: Color, modifier: Mo
 @Composable
 private fun IncidentRow(inc: IncidentDto, onClick: () -> Unit) {
     val (bg, fg) = statusColors(inc.status)
+    // Статус меняется после действия (объяснил → «На разборе») — цвет переезжает плавно.
+    val pillBg by animateColorAsState(bg, tween(300), label = "fair-rowBg")
+    val pillFg by animateColorAsState(fg, tween(300), label = "fair-rowFg")
+    val statusText = incidentStatusLabel(inc.status)
+
     AppCard(onClick = onClick, shape = CanonItemShape) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(FairRowPad), verticalArrangement = Arrangement.spacedBy(FairGap)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(incidentTypeLabel(inc.type), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                StatusBadge(statusIcon(inc.status), pillFg, pillBg, statusText)
+                Spacer(Modifier.width(FairGap))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FairGapHair)) {
+                    Text(
+                        incidentTypeLabel(inc.type),
+                        color = CanonText,
+                        fontWeight = FontWeight.Black,
+                        fontSize = FairTitle,
+                        lineHeight = FairTitleLine,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Text(
                         (inc.route ?: appText("Без маршрута", "Маршрутһыҙ")) + " · " + formatDepart(inc.createdAt),
-                        color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = CanonMuted,
+                        fontSize = FairMeta,
+                        lineHeight = FairMetaLine,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                }
-                Surface(color = bg, shape = RoundedCornerShape(999.dp)) {
-                    Text(incidentStatusLabel(inc.status), color = fg, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
                 }
             }
-            Text(
-                (if (inc.myRole == "reporter") appText("Ты открыл спор с ", "Һин бәхәс астың: ")
-                else appText("Спор открыл ", "Бәхәсте асҡан: ")) + inc.otherName,
-                color = CanonMutedStrong, fontSize = 13.sp,
-            )
+            // Классическая «двухконцевая» строка: слева статус, справа — кто открыл спор.
+            // Подпись справа тянется весом и обрезается многоточием, поэтому длинный
+            // башкирский статус ничего не ломает — просто отъедает место у второстепенного.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusPill(statusText, pillBg, pillFg)
+                Spacer(Modifier.width(FairGapTight))
+                Text(
+                    // Порядок слов строим отдельно для каждого языка: в башкирском сказуемое
+                    // идёт в конец, «Асҡан: Айгөл» звучит как машинный перевод.
+                    if (inc.myRole == "reporter")
+                        appText("Ты открыл · " + inc.otherName, "Һин астың · " + inc.otherName)
+                    else appText("Открыл " + inc.otherName, inc.otherName + " асҡан"),
+                    color = CanonMutedStrong,
+                    fontSize = FairMeta,
+                    lineHeight = FairMetaLine,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             // Главное — не потерять своё право объясниться: подсвечиваем, когда ход за тобой.
             if (inc.needsMyStatement) {
-                Surface(color = CanonWarnBg, shape = CanonItemShape) {
-                    Text(
-                        appText("Твоя очередь: расскажи, как было", "Һинең сират: нисек булғанын һөйлә"),
-                        color = CanonWarn, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                    )
-                }
+                FairNotice(
+                    appText("Твоя очередь: расскажи, как было", "Һинең сират: нисек булғанын һөйлә"),
+                    CanonWarnBg,
+                    CanonWarn,
+                )
             }
         }
     }
@@ -374,66 +701,99 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
         topBar = { ScreenTopBar(appText("Разбор спора", "Бәхәсте ҡарау"), onBack) },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
+            modifier = Modifier.padding(padding).padding(horizontal = FairRowPad),
+            verticalArrangement = Arrangement.spacedBy(FairGap),
+            contentPadding = PaddingValues(top = FairGapTight, bottom = 24.dp),
         ) {
             val i = inc
             when {
-                loading && i == null -> item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
-                i == null -> item { AppErrorState(onRetry = { reload++ }) }
+                loading && i == null -> items(3) { n ->
+                    Box(Modifier.appearIn(n)) { SkeletonCard(lines = 3) }
+                }
+                i == null -> item(key = "error") {
+                    Box(Modifier.appearIn(0)) { AppErrorState(onRetry = { reload++ }) }
+                }
                 else -> {
-                    item { IncidentHeaderCard(i) }
-                    item {
-                        IncidentSideCard(
-                            title = if (i.myRole == "reporter") appText("Твоя версия", "Һинең версия")
-                            else appText("Версия ${i.otherName}", "${i.otherName} версияһы"),
-                            text = i.description,
-                            photos = i.evidenceUrls,
-                        )
-                    }
-                    if (i.respondentStatement.isNotBlank()) {
-                        item {
+                    item(key = "header") { Box(Modifier.appearIn(0)) { IncidentHeaderCard(i) } }
+                    item(key = "side-reporter") {
+                        Box(Modifier.appearIn(1)) {
                             IncidentSideCard(
-                                title = if (i.myRole == "respondent") appText("Твоё объяснение", "Һинең аңлатма")
-                                else appText("Объяснение ${i.otherName}", "${i.otherName} аңлатмаһы"),
-                                text = i.respondentStatement,
-                                photos = i.respondentEvidenceUrls,
+                                title = if (i.myRole == "reporter") appText("Твоя версия", "Һинең версия")
+                                else appText("Версия ${i.otherName}", "${i.otherName} версияһы"),
+                                text = i.description,
+                                photos = i.evidenceUrls,
                             )
                         }
                     }
-                    if (i.resolution.isNotBlank()) item { IncidentVerdictCard(i) }
+                    if (i.respondentStatement.isNotBlank()) {
+                        item(key = "side-respondent") {
+                            Box(Modifier.appearIn(2)) {
+                                IncidentSideCard(
+                                    title = if (i.myRole == "respondent") appText("Твоё объяснение", "Һинең аңлатма")
+                                    else appText("Объяснение ${i.otherName}", "${i.otherName} аңлатмаһы"),
+                                    text = i.respondentStatement,
+                                    photos = i.respondentEvidenceUrls,
+                                )
+                            }
+                        }
+                    }
+                    if (i.resolution.isNotBlank()) {
+                        item(key = "verdict") { Box(Modifier.appearIn(3)) { IncidentVerdictCard(i) } }
+                    }
 
-                    // 1. Право объясниться — главное в системе. Показываем крупно и первым.
+                    // 1. Право объясниться — главное в системе. Показываем крупно и первым из действий.
                     if (i.needsMyStatement) {
-                        item {
-                            AppCard {
-                                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text(appText("Расскажи, как было", "Нисек булғанын һөйлә"), color = CanonText,
-                                        fontWeight = FontWeight.Black, fontSize = 17.sp)
-                                    Text(
-                                        appText(
-                                            "Мы не решаем ничего, пока не услышим тебя. Пиши спокойно и по делу — читать будет человек.",
-                                            "Һине ишетмәйенсә бер нәмә лә хәл итмәйбеҙ. Тыныс һәм эшлекле яҙ — уны кеше уҡыясаҡ.",
-                                        ),
-                                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
-                                    )
-                                    OutlinedTextField(
-                                        value = statement,
-                                        onValueChange = { statement = it.take(2000) },
-                                        label = { Text(appText("Как было на самом деле", "Ысынында нисек булды")) },
-                                        minLines = 4,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(16.dp),
-                                    )
-                                    EvidencePicker(photos, uploading) { pickPhoto.launch("image/*") }
-                                    AppButton(
-                                        text = appText("Отправить объяснение", "Аңлатманы ебәреү"),
-                                        onClick = { act { ApiClient.respondIncident(i.id, statement, photos) } },
-                                        enabled = statement.isNotBlank() && !uploading,
-                                        loading = busy,
-                                        icon = Icons.Default.Send,
-                                    )
+                        item(key = "statement") {
+                            Box(Modifier.appearIn(4)) {
+                                AppCard {
+                                    Column(
+                                        Modifier.padding(FairCardPad),
+                                        verticalArrangement = Arrangement.spacedBy(FairGap),
+                                    ) {
+                                        StatusPill(
+                                            appText("Твоя очередь", "Һинең сират"),
+                                            CanonWarnBg,
+                                            CanonWarn,
+                                        )
+                                        Text(
+                                            appText("Расскажи, как было", "Нисек булғанын һөйлә"),
+                                            color = CanonText,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = FairTitle,
+                                            lineHeight = FairTitleLine,
+                                        )
+                                        Text(
+                                            appText(
+                                                "Мы не решаем ничего, пока не услышим тебя. Пиши спокойно и по делу — читать будет человек.",
+                                                "Һине ишетмәйенсә бер нәмә лә хәл итмәйбеҙ. Тыныс һәм эшлекле яҙ — уны кеше уҡыясаҡ.",
+                                            ),
+                                            color = CanonMuted,
+                                            fontSize = FairMeta,
+                                            lineHeight = FairMetaLine,
+                                        )
+                                        OutlinedTextField(
+                                            value = statement,
+                                            onValueChange = { statement = it.take(2000) },
+                                            label = {
+                                                Text(
+                                                    appText("Как было на самом деле", "Ысынында нисек булды"),
+                                                    fontSize = FairBody,
+                                                )
+                                            },
+                                            minLines = 4,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = FairFieldShape,
+                                            colors = fairFieldColors(),
+                                        )
+                                        EvidencePicker(photos, uploading) { pickPhoto.launch("image/*") }
+                                        AppButton(
+                                            text = appText("Отправить объяснение", "Аңлатманы ебәреү"),
+                                            onClick = { act { ApiClient.respondIncident(i.id, statement, photos) } },
+                                            enabled = statement.isNotBlank() && !uploading,
+                                            loading = busy,
+                                            icon = Icons.Default.Send,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -441,25 +801,42 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
 
                     // 2. «Решили миром» — заявитель закрывает спор без последствий для второй стороны.
                     if (i.canWithdraw) {
-                        item {
-                            AppCard {
-                                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text(appText("Договорились сами?", "Үҙегеҙ килештегеҙме?"), color = CanonText,
-                                        fontWeight = FontWeight.Black, fontSize = 17.sp)
-                                    Text(
-                                        appText(
-                                            "Закроем спор миром — без страйков и последствий для обоих. Это лучший исход, и мы за него.",
-                                            "Бәхәсте тыныслыҡ менән ябабыҙ — икегеҙгә лә страйксыҙ һәм эҙемтәһеҙ. Был иң яҡшы юл.",
-                                        ),
-                                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
-                                    )
-                                    AppButton(
-                                        text = appText("Мы решили миром", "Тыныслыҡ менән хәл иттек"),
-                                        onClick = { confirmPeace = true },
-                                        style = AppButtonStyle.Secondary,
-                                        icon = Icons.Default.Handshake,
-                                        enabled = !busy,
-                                    )
+                        item(key = "peace") {
+                            Box(Modifier.appearIn(5)) {
+                                AppCard {
+                                    Column(
+                                        Modifier.padding(FairCardPad),
+                                        verticalArrangement = Arrangement.spacedBy(FairGap),
+                                    ) {
+                                        Text(
+                                            appText("Договорились сами?", "Үҙегеҙ килештегеҙме?"),
+                                            color = CanonText,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = FairTitle,
+                                            lineHeight = FairTitleLine,
+                                        )
+                                        Text(
+                                            appText(
+                                                "Закроем спор миром — без страйков и последствий для обоих. Это лучший исход, и мы за него.",
+                                                "Бәхәсте тыныслыҡ менән ябабыҙ — икегеҙгә лә страйксыҙ һәм эҙемтәһеҙ. Был иң яҡшы юл.",
+                                            ),
+                                            color = CanonMuted,
+                                            fontSize = FairMeta,
+                                            lineHeight = FairMetaLine,
+                                        )
+                                        // loading: диалог подтверждения закрывается сразу, и без
+                                        // спиннера здесь секунда ожидания выглядела бы как «ничего
+                                        // не произошло». Действия карточек взаимоисключающие,
+                                        // поэтому общий busy крутит ровно ту кнопку, что нажали.
+                                        AppButton(
+                                            text = appText("Мы решили миром", "Тыныслыҡ менән хәл иттек"),
+                                            onClick = { confirmPeace = true },
+                                            style = AppButtonStyle.Secondary,
+                                            icon = Icons.Default.Handshake,
+                                            loading = busy,
+                                            enabled = !busy,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -467,46 +844,67 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
 
                     // 3. Апелляция — один раз, только на вынесенное решение.
                     if (i.canAppeal) {
-                        item {
-                            AppCard {
-                                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text(appText("Не согласен с решением?", "Ҡарар менән килешмәйһеңме?"), color = CanonText,
-                                        fontWeight = FontWeight.Black, fontSize = 17.sp)
-                                    Text(
-                                        appText(
-                                            "Апелляцию можно подать один раз. Напиши, что, по-твоему, не учли — решение пересмотрит человек.",
-                                            "Ялыуҙы бер тапҡыр бирергә була. Нимә иҫәпкә алынмаған, шуны яҙ — ҡарарҙы кеше ҡабат ҡарай.",
-                                        ),
-                                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
-                                    )
-                                    AppButton(
-                                        text = appText("Подать апелляцию", "Ялыу бирергә"),
-                                        onClick = { appealOpen = true },
-                                        style = AppButtonStyle.Secondary,
-                                        icon = Icons.Default.Report,
-                                        enabled = !busy,
-                                    )
+                        item(key = "appeal") {
+                            Box(Modifier.appearIn(6)) {
+                                AppCard {
+                                    Column(
+                                        Modifier.padding(FairCardPad),
+                                        verticalArrangement = Arrangement.spacedBy(FairGap),
+                                    ) {
+                                        Text(
+                                            appText("Не согласен с решением?", "Ҡарар менән килешмәйһеңме?"),
+                                            color = CanonText,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = FairTitle,
+                                            lineHeight = FairTitleLine,
+                                        )
+                                        Text(
+                                            appText(
+                                                "Апелляцию можно подать один раз. Напиши, что, по-твоему, не учли — решение пересмотрит человек.",
+                                                "Ялыуҙы бер тапҡыр бирергә була. Нимә иҫәпкә алынмаған, шуны яҙ — ҡарарҙы кеше ҡабат ҡарай.",
+                                            ),
+                                            color = CanonMuted,
+                                            fontSize = FairMeta,
+                                            lineHeight = FairMetaLine,
+                                        )
+                                        AppButton(
+                                            text = appText("Подать апелляцию", "Ялыу бирергә"),
+                                            onClick = { appealOpen = true },
+                                            style = AppButtonStyle.Secondary,
+                                            icon = Icons.Default.Report,
+                                            loading = busy,
+                                            enabled = !busy,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+
                     if (i.appealStatus.isNotBlank()) {
-                        item {
-                            Surface(color = CanonWarnBg, shape = CanonItemShape) {
-                                Text(
-                                    appText("Апелляция подана — ждём разбора человеком.", "Ялыу бирелде — кешенең ҡарауын көтәбеҙ."),
-                                    color = CanonWarn, fontSize = 13.sp, lineHeight = 18.sp,
-                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        item(key = "appeal-status") {
+                            Box(Modifier.appearIn(7)) {
+                                FairNotice(
+                                    appText(
+                                        "Апелляция подана — ждём разбора человеком.",
+                                        "Ялыу бирелде — кешенең ҡарауын көтәбеҙ.",
+                                    ),
+                                    CanonWarnBg,
+                                    CanonWarn,
                                 )
                             }
                         }
                     }
-                    errText?.let {
-                        item {
-                            Surface(color = CanonDangerBg, shape = CanonItemShape) {
-                                Text(it, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp,
-                                    modifier = Modifier.fillMaxWidth().padding(14.dp))
-                            }
+
+                    // Ошибка действия — последним элементом: и появляется рядом с кнопкой,
+                    // и «фантомный» отступ скрытого блока прячется в нижнем контент-паддинге.
+                    item(key = "act-error") {
+                        AnimatedVisibility(
+                            visible = errText != null,
+                            enter = fadeIn(tween(220)),
+                            exit = fadeOut(tween(140)),
+                        ) {
+                            FairNotice(errText.orEmpty(), CanonDangerBg, CanonRed)
                         }
                     }
                 }
@@ -519,24 +917,50 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { confirmPeace = false },
             containerColor = CanonSurface,
-            title = { Text(appText("Закрыть спор миром?", "Бәхәсте тыныслыҡ менән ябырғамы?"), color = CanonText, fontWeight = FontWeight.Black) },
-            text = {
+            shape = CanonCardShape,
+            title = {
                 Text(
-                    appText(
-                        "Спор закроется без последствий для второй стороны. Открыть его заново по этой же поездке будет нельзя.",
-                        "Бәхәс икенсе яҡ өсөн эҙемтәһеҙ ябыла. Ошо сәфәр буйынса уны ҡабат асып булмаясаҡ.",
-                    ),
-                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    appText("Закрыть спор миром?", "Бәхәсте тыныслыҡ менән ябырғамы?"),
+                    color = CanonText,
+                    fontWeight = FontWeight.Black,
                 )
             },
+            text = {
+                // Скролл на случай крупного системного шрифта: Material-диалог сам не прокручивает
+                // и просто обрезал бы текст предупреждения.
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        appText(
+                            "Спор закроется без последствий для второй стороны. Открыть его заново по этой же поездке будет нельзя.",
+                            "Бәхәс икенсе яҡ өсөн эҙемтәһеҙ ябыла. Ошо сәфәр буйынса уны ҡабат асып булмаясаҡ.",
+                        ),
+                        color = CanonMuted,
+                        fontSize = FairBody,
+                        lineHeight = FairBodyLine,
+                    )
+                }
+            },
             confirmButton = {
-                TextButton(enabled = !busy, onClick = {
-                    confirmPeace = false
-                    if (i != null) act { ApiClient.withdrawIncident(i.id) }
-                }) { Text(appText("Да, решили миром", "Эйе, килештек"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+                TextButton(
+                    enabled = !busy,
+                    modifier = Modifier.heightIn(min = FairTouch),
+                    onClick = {
+                        confirmPeace = false
+                        if (i != null) act { ApiClient.withdrawIncident(i.id) }
+                    },
+                ) {
+                    Text(
+                        appText("Да, решили миром", "Эйе, килештек"),
+                        color = CanonGreen2,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = FairBody,
+                    )
+                }
             },
             dismissButton = {
-                TextButton(onClick = { confirmPeace = false }) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
+                TextButton(onClick = { confirmPeace = false }, modifier = Modifier.heightIn(min = FairTouch)) {
+                    Text(appText("Отмена", "Кире алыу"), color = CanonMuted, fontSize = FairBody)
+                }
             },
         )
     }
@@ -546,30 +970,49 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { if (!busy) appealOpen = false },
             containerColor = CanonSurface,
+            shape = CanonCardShape,
             title = { Text(appText("Апелляция", "Ялыу"), color = CanonText, fontWeight = FontWeight.Black) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(FairGap),
+                ) {
                     Text(
                         appText("Что, по-твоему, не учли при решении?", "Ҡарар ҡабул иткәндә нимә иҫәпкә алынмаған?"),
-                        color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                        color = CanonMuted,
+                        fontSize = FairBody,
+                        lineHeight = FairBodyLine,
                     )
                     OutlinedTextField(
                         value = appealText,
                         onValueChange = { appealText = it.take(2000) },
                         minLines = 3,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = FairFieldShape,
+                        colors = fairFieldColors(),
                     )
                 }
             },
             confirmButton = {
-                TextButton(enabled = !busy && appealText.isNotBlank(), onClick = {
-                    appealOpen = false
-                    if (i != null) act { ApiClient.appealIncident(i.id, appealText) }
-                }) { Text(appText("Подать", "Бирергә"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+                TextButton(
+                    enabled = !busy && appealText.isNotBlank(),
+                    modifier = Modifier.heightIn(min = FairTouch),
+                    onClick = {
+                        appealOpen = false
+                        if (i != null) act { ApiClient.appealIncident(i.id, appealText) }
+                    },
+                ) {
+                    Text(appText("Подать", "Бирергә"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = FairBody)
+                }
             },
             dismissButton = {
-                TextButton(enabled = !busy, onClick = { appealOpen = false }) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
+                TextButton(
+                    enabled = !busy,
+                    onClick = { appealOpen = false },
+                    modifier = Modifier.heightIn(min = FairTouch),
+                ) {
+                    Text(appText("Отмена", "Кире алыу"), color = CanonMuted, fontSize = FairBody)
+                }
             },
         )
     }
@@ -578,47 +1021,183 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
 @Composable
 private fun IncidentHeaderCard(i: IncidentDto) {
     val (bg, fg) = statusColors(i.status)
+    val badgeBg by animateColorAsState(bg, tween(300), label = "fair-headBg")
+    val badgeFg by animateColorAsState(fg, tween(300), label = "fair-headFg")
+    val statusText = incidentStatusLabel(i.status)
+
     AppCard {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(FairCardPad), verticalArrangement = Arrangement.spacedBy(FairGap)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = bg, shape = CircleShape) {
-                    Icon(Icons.Default.Shield, contentDescription = null, tint = fg, modifier = Modifier.padding(12.dp).size(22.dp))
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(incidentTypeLabel(i.type), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
-                    Text(incidentStatusLabel(i.status), color = fg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                StatusBadge(statusIcon(i.status), badgeFg, badgeBg, statusText)
+                Spacer(Modifier.width(FairGap))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FairGapHair)) {
+                    Text(
+                        incidentTypeLabel(i.type),
+                        color = CanonText,
+                        fontWeight = FontWeight.Black,
+                        fontSize = FairTitle,
+                        lineHeight = FairTitleLine,
+                    )
+                    AnimatedContent(
+                        targetState = statusText,
+                        transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                        label = "fair-headStatus",
+                    ) { s ->
+                        Text(s, color = badgeFg, fontSize = FairMeta, lineHeight = FairMetaLine, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
             i.route?.takeIf { it.isNotBlank() }?.let {
-                Text(it, color = CanonMutedStrong, fontSize = 14.sp)
+                Text(it, color = CanonMutedStrong, fontSize = FairBody, lineHeight = FairBodyLine)
             }
             Text(
                 appText("Вторая сторона: ", "Икенсе яҡ: ") + i.otherName + " · " + formatDepart(i.createdAt),
-                color = CanonMuted, fontSize = 12.sp,
+                color = CanonMuted,
+                fontSize = FairMeta,
+                lineHeight = FairMetaLine,
             )
         }
     }
 }
 
-/** Версия одной стороны: текст + приложенные фото (миниатюрами не грузим — приватная область). */
+/** Версия одной стороны: текст + приложенные фото. Фото приватные (Bearer-токен), но сторонам
+ *  спора они открыты — их и надо ПОКАЗАТЬ. Раньше тут стояло только число «Приложено фото: 3»,
+ *  и человек не мог посмотреть даже собственное доказательство, не то что чужое. */
 @Composable
 private fun IncidentSideCard(title: String, text: String, photos: List<String>) {
+    var viewerAt by remember(photos) { mutableIntStateOf(-1) }   // -1 = просмотр закрыт
     AppCard(shape = CanonItemShape) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        Column(Modifier.padding(FairRowPad), verticalArrangement = Arrangement.spacedBy(FairGapTight)) {
+            // Заголовок стороны — это подпись «кто говорит», а не заголовок карточки:
+            // роль Meta/Bold, чтобы читалась сама история, а не её ярлык.
+            Text(
+                title,
+                color = CanonMutedStrong,
+                fontSize = FairMeta,
+                lineHeight = FairMetaLine,
+                fontWeight = FontWeight.Bold,
+            )
             Text(
                 text.ifBlank { appText("Без описания", "Тасуирламаһыҙ") },
                 color = if (text.isBlank()) CanonMuted else CanonText,
-                fontSize = 14.sp, lineHeight = 20.sp,
+                fontSize = FairBody,
+                lineHeight = FairBodyLine,
             )
             if (photos.isNotEmpty()) {
                 Text(
-                    appText("Приложено фото: ${photos.size}", "Фото тағылған: ${photos.size}"),
-                    color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    appText("Приложено фото: ${photos.size} · нажми, чтобы открыть",
+                        "Фото тағылған: ${photos.size} · асыр өсөн баҫ"),
+                    color = CanonMutedStrong, fontSize = FairMeta, lineHeight = FairMetaLine,
                 )
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(FairGapTight),
+                ) {
+                    photos.forEachIndexed { idx, url ->
+                        EvidenceThumb(
+                            url = url,
+                            index = idx,
+                            total = photos.size,
+                            onClick = { viewerAt = idx },
+                        )
+                    }
+                }
             }
         }
+    }
+    if (viewerAt >= 0) {
+        EvidenceViewer(photos = photos, startAt = viewerAt, onClose = { viewerAt = -1 })
+    }
+}
+
+/** Миниатюра доказательства. Пока грузится или если не загрузилось — ровный фон, а не дыра. */
+@Composable
+private fun EvidenceThumb(url: String, index: Int, total: Int, onClick: () -> Unit) {
+    val ctx = LocalContext.current
+    val token = remember { ApiClient.currentToken() ?: "" }
+    coil.compose.AsyncImage(
+        model = coil.request.ImageRequest.Builder(ctx).data(url)
+            .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+        contentDescription = appText("Фото ${index + 1} из $total — открыть",
+            "Фото ${index + 1} / $total — асыу"),
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .size(84.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(CanonBg)
+            .clickable(onClick = onClick),
+    )
+}
+
+/** Полноэкранный просмотр доказательства: тёмный фон, фото целиком, стрелки при нескольких.
+ *  Тема разбора тяжёлая — никаких зумов и жестов, только «посмотреть и закрыть». */
+@Composable
+private fun EvidenceViewer(photos: List<String>, startAt: Int, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val token = remember { ApiClient.currentToken() ?: "" }
+    var at by remember(startAt) { mutableIntStateOf(startAt.coerceIn(0, photos.lastIndex)) }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            Modifier.fillMaxSize().background(Color(0xE6000000)).clickable(onClick = onClose),
+            contentAlignment = Alignment.Center,
+        ) {
+            coil.compose.AsyncImage(
+                model = coil.request.ImageRequest.Builder(ctx).data(photos[at])
+                    .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+                contentDescription = appText("Фото ${at + 1} из ${photos.size}",
+                    "Фото ${at + 1} / ${photos.size}"),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().padding(FairGap),
+            )
+            // Закрыть — крестом сверху справа, а не только тапом по фону: тап по фону догадаться
+            // надо, а крест видно. Тач-цель 48dp, как везде.
+            Box(Modifier.fillMaxSize().padding(FairGap), contentAlignment = Alignment.TopEnd) {
+                Surface(color = Color(0x66000000), shape = CircleShape) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = appText("Закрыть фото", "Фотоны ябыу"),
+                        tint = Color.White,
+                        modifier = Modifier.size(FairTouch).clickable(onClick = onClose).padding(FairGap),
+                    )
+                }
+            }
+            if (photos.size > 1) {
+                Box(Modifier.fillMaxSize().padding(FairGap), contentAlignment = Alignment.BottomCenter) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(FairGap),
+                    ) {
+                        ViewerArrow(Icons.Default.ChevronLeft,
+                            appText("Предыдущее фото", "Алдағы фото"),
+                            enabled = at > 0) { at-- }
+                        Text(
+                            appText("${at + 1} из ${photos.size}", "${at + 1} / ${photos.size}"),
+                            color = Color.White, fontSize = FairMeta, lineHeight = FairMetaLine,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        ViewerArrow(Icons.Default.ChevronRight,
+                            appText("Следующее фото", "Киләһе фото"),
+                            enabled = at < photos.lastIndex) { at++ }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Стрелка листания в просмотре: погашенная — не кликается и видно, что дальше некуда. */
+@Composable
+private fun ViewerArrow(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+    Surface(color = Color(0x66000000), shape = CircleShape) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (enabled) Color.White else Color(0x66FFFFFF),
+            modifier = Modifier
+                .size(FairTouch)
+                .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(FairGapTight),
+        )
     }
 }
 
@@ -626,31 +1205,64 @@ private fun IncidentSideCard(title: String, text: String, photos: List<String>) 
 @Composable
 private fun IncidentVerdictCard(i: IncidentDto) {
     AppCard {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(FairCardPad), verticalArrangement = Arrangement.spacedBy(FairGap)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = CanonMint, shape = CircleShape) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2,
-                        modifier = Modifier.padding(10.dp).size(20.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Text(appText("Решение", "Ҡарар"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                StatusBadge(Icons.Default.CheckCircle, CanonGreen2, CanonMint)
+                Spacer(Modifier.width(FairGap))
+                Text(
+                    appText("Решение", "Ҡарар"),
+                    color = CanonText,
+                    fontWeight = FontWeight.Black,
+                    fontSize = FairTitle,
+                    lineHeight = FairTitleLine,
+                )
             }
             Text(
                 i.resolutionNote.ifBlank { appText("Решение принято.", "Ҡарар ҡабул ителде.") },
-                color = CanonText, fontSize = 14.sp, lineHeight = 20.sp,
+                color = CanonText,
+                fontSize = FairBody,
+                lineHeight = FairBodyLine,
             )
             if (i.compensationKop > 0) {
                 Surface(color = CanonMint, shape = CanonItemShape) {
-                    Text(
-                        appText("Компенсация: ", "Компенсация: ") + kopToRub(i.compensationKop) +
-                            appText(" — переводом напрямую, как договоритесь.", " — килешкәнсә, туранан-тура күсереп."),
-                        color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
-                        modifier = Modifier.fillMaxWidth().padding(14.dp),
-                    )
+                    Column(
+                        Modifier.fillMaxWidth().padding(FairRowPad),
+                        verticalArrangement = Arrangement.spacedBy(FairGapHair),
+                    ) {
+                        Text(
+                            appText("Компенсация", "Компенсация"),
+                            color = CanonGreen2,
+                            fontSize = FairMeta,
+                            lineHeight = FairMetaLine,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            kopToRub(i.compensationKop),
+                            color = CanonGreen2,
+                            fontWeight = FontWeight.Black,
+                            fontSize = FairTitle,
+                            lineHeight = FairTitleLine,
+                        )
+                        Text(
+                            appText(
+                                "Переводом напрямую, как договоритесь.",
+                                "Килешкәнсә, туранан-тура күсереп.",
+                            ),
+                            color = CanonMutedStrong,
+                            fontSize = FairMeta,
+                            lineHeight = FairMetaLine,
+                        )
+                    }
                 }
             }
             i.resolvedAt?.let {
-                Text(appText("Решено ", "Хәл ителде ") + formatDepart(it), color = CanonMuted, fontSize = 12.sp)
+                // Русский: «Решено 12.07, 14:30». Башкирский: дата впереди, глагол сзади.
+                Text(
+                    appText("Решено " + formatDepart(it), formatDepart(it) + " — хәл ителде"),
+                    color = CanonMuted,
+                    fontSize = FairMeta,
+                    lineHeight = FairMetaLine,
+                )
             }
         }
     }
@@ -659,25 +1271,38 @@ private fun IncidentVerdictCard(i: IncidentDto) {
 /** Прикрепление фото-доказательств: приватные, видят только стороны спора и разбирающий. */
 @Composable
 private fun EvidencePicker(photos: List<String>, uploading: Boolean, onPick: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            photos.forEachIndexed { idx, _ ->
-                Surface(color = CanonMint, shape = CanonItemShape) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(appText("Фото ${idx + 1}", "Фото ${idx + 1}"), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    // Раньше вместо снимков стояли зелёные плашки «Фото 1», «Фото 2». Приложил не тот кадр —
+    // и понять это было нельзя до самой отправки. Теперь видно, что именно уходит.
+    var viewerAt by remember(photos) { mutableIntStateOf(-1) }
+    Column(verticalArrangement = Arrangement.spacedBy(FairGapTight)) {
+        if (photos.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(FairGapTight),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                photos.forEachIndexed { idx, url ->
+                    Box(Modifier.appearIn(idx.coerceAtMost(4))) {
+                        EvidenceThumb(
+                            url = url,
+                            index = idx,
+                            total = photos.size,
+                            onClick = { viewerAt = idx },
+                        )
                     }
                 }
             }
         }
+        if (viewerAt >= 0) {
+            EvidenceViewer(photos = photos, startAt = viewerAt, onClose = { viewerAt = -1 })
+        }
+        // Кнопка на пределе в 10 фото раньше просто гасла молча — теперь честно объясняет, почему.
         AppButton(
-            text = if (uploading) appText("Загружаем фото…", "Фото йөкләнә…")
-            else appText("Приложить фото", "Фото тағыу"),
+            text = when {
+                uploading -> appText("Загружаем фото…", "Фото йөкләнә…")
+                photos.size >= 10 -> appText("Больше 10 фото не нужно", "10 фотонан артыҡ кәрәкмәй")
+                else -> appText("Приложить фото", "Фото тағыу")
+            },
             onClick = onPick,
             style = AppButtonStyle.Secondary,
             icon = Icons.Default.PhotoCamera,
@@ -689,7 +1314,9 @@ private fun EvidencePicker(photos: List<String>, uploading: Boolean, onPick: () 
                 "Фото видят только вы двое и тот, кто разбирает спор. В общий доступ они не попадают.",
                 "Фотоны тик икегеҙ һәм бәхәсте ҡараусы күрә. Дөйөм ҡулланыуға улар эләкмәй.",
             ),
-            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+            color = CanonMuted,
+            fontSize = FairMeta,
+            lineHeight = FairMetaLine,
         )
     }
 }
@@ -702,6 +1329,12 @@ private fun EvidencePicker(photos: List<String>, uploading: Boolean, onPick: () 
  *
  * Почему это отдельно от жалобы (`Report`): жалоба анонимна и односторонняя, а разбор —
  * двусторонний: вторую сторону пригласят объясниться, и решение объяснят обоим.
+ *
+ * Две вещи, без которых диалог был нерабочим:
+ *  • содержимое прокручивается — Material-диалог сам не скроллит, и нижние типы вместе с
+ *    кнопкой «Открыть разбор» просто обрезались бы;
+ *  • список типов сворачивается после выбора — иначе девять пунктов + поле + фото дают
+ *    простыню на два экрана, и до кнопки надо доскроллить.
  */
 @Composable
 internal fun FileIncidentDialog(
@@ -720,6 +1353,10 @@ internal fun FileIncidentDialog(
     var uploading by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
+    // Девять типов подряд превращали диалог в двухэкранную простыню: поле рассказа и кнопка
+    // «Открыть разбор» уезжали далеко вниз. Выбрал тип — список сворачивается в одну строку,
+    // и всё нужное снова помещается на один экран. Передумал — нажал строку, список вернулся.
+    var typesOpen by remember { mutableStateOf(true) }
 
     val errFallback = appText("Не получилось открыть разбор. Проверь сеть.", "Ҡарауҙы асып булманы. Селтәрҙе тикшер.")
     val uploadFail = appText("Фото не загрузилось, попробуй ещё раз", "Фото йөкләнмәне, тағы ҡабатла")
@@ -740,54 +1377,83 @@ internal fun FileIncidentDialog(
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         containerColor = CanonSurface,
+        shape = CanonCardShape,
         title = { Text(appText("Открыть разбор", "Ҡарауҙы асыу"), color = CanonText, fontWeight = FontWeight.Black) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(FairGap),
+            ) {
                 Text(
                     appText(
                         "Мы позовём ${respondentName} объясниться и решим по-соседски. Решение объясним вам обоим.",
                         "${respondentName} кешене аңлатырға саҡырабыҙ һәм күршеләрсә хәл итәбеҙ. Ҡарарҙы икегеҙгә лә аңлатабыҙ.",
                     ),
-                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = CanonMuted,
+                    fontSize = FairBody,
+                    lineHeight = FairBodyLine,
                 )
-                Text(appText("Что случилось?", "Нимә булды?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    incidentTypesRide.forEach { t ->
-                        Surface(
-                            onClick = { type = t.key },
-                            color = if (type == t.key) CanonMint else CanonBg,
-                            shape = CanonItemShape,
-                            border = BorderStroke(1.dp, if (type == t.key) CanonGreen2 else CanonBorder),
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        ) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    if (type == t.key) Icons.Default.CheckCircle else Icons.Default.Flag,
-                                    contentDescription = null,
-                                    tint = if (type == t.key) CanonGreen2 else CanonMuted,
-                                    modifier = Modifier.size(18.dp),
+                Text(
+                    appText("Что случилось?", "Нимә булды?"),
+                    color = CanonText,
+                    fontWeight = FontWeight.Black,
+                    fontSize = FairTitle,
+                    lineHeight = FairTitleLine,
+                )
+                AnimatedContent(
+                    targetState = typesOpen,
+                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
+                    label = "fair-types",
+                ) { open ->
+                    if (open) {
+                        Column(verticalArrangement = Arrangement.spacedBy(FairGapTight)) {
+                            incidentTypesRide.forEach { t ->
+                                IncidentTypeOption(
+                                    label = appText(t.ru, t.ba),
+                                    selected = type == t.key,
+                                    onClick = { type = t.key; typesOpen = false },
                                 )
-                                Spacer(Modifier.width(10.dp))
-                                Text(appText(t.ru, t.ba), color = CanonText, fontSize = 14.sp)
                             }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(FairGapTight)) {
+                            IncidentTypeOption(
+                                label = incidentTypeLabel(type),
+                                selected = true,
+                                onClick = { typesOpen = true },
+                            )
+                            Text(
+                                appText("Нажми, чтобы выбрать другое", "Башҡаһын һайлар өсөн баҫ"),
+                                color = CanonMuted,
+                                fontSize = FairMeta,
+                                lineHeight = FairMetaLine,
+                            )
                         }
                     }
                 }
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it.take(2000) },
-                    label = { Text(appText("Как было", "Нисек булды")) },
+                    label = { Text(appText("Как было", "Нисек булды"), fontSize = FairBody) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = FairFieldShape,
+                    colors = fairFieldColors(),
                 )
                 EvidencePicker(photos, uploading) { pickPhoto.launch("image/*") }
-                err?.let { Text(it, color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                AnimatedVisibility(
+                    visible = err != null,
+                    enter = fadeIn(tween(220)),
+                    exit = fadeOut(tween(140)),
+                ) {
+                    FairNotice(err.orEmpty(), CanonDangerBg, CanonRed)
+                }
             }
         },
         confirmButton = {
             TextButton(
                 enabled = !busy && !uploading && type.isNotBlank() && description.isNotBlank(),
+                modifier = Modifier.heightIn(min = FairTouch),
                 onClick = {
                     busy = true; err = null
                     scope.launch {
@@ -797,10 +1463,65 @@ internal fun FileIncidentDialog(
                         busy = false
                     }
                 },
-            ) { Text(appText("Открыть разбор", "Ҡарауҙы асыу"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            ) {
+                // Отправка не должна выглядеть как «ничего не произошло»: подпись сменяется спиннером.
+                AnimatedContent(
+                    targetState = busy,
+                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                    label = "fair-fileBusy",
+                ) { sending ->
+                    if (sending) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(FairIcon),
+                            color = CanonGreen2,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text(
+                            appText("Открыть разбор", "Ҡарауҙы асыу"),
+                            color = CanonGreen2,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = FairBody,
+                        )
+                    }
+                }
+            }
         },
         dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
+            TextButton(enabled = !busy, onClick = onDismiss, modifier = Modifier.heightIn(min = FairTouch)) {
+                Text(appText("Отмена", "Кире алыу"), color = CanonMuted, fontSize = FairBody)
+            }
         },
     )
+}
+
+/** Один тип спора в списке выбора. Тач-цель 48dp, выбор подсвечивается плавно. */
+@Composable
+private fun IncidentTypeOption(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonBg, tween(220), label = "fair-typeBg")
+    val border by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(220), label = "fair-typeBorder")
+    val tint by animateColorAsState(if (selected) CanonGreen2 else CanonMuted, tween(220), label = "fair-typeTint")
+    Surface(
+        onClick = onClick,
+        color = bg,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, border),
+        modifier = Modifier.fillMaxWidth().heightIn(min = FairTouch),
+    ) {
+        Row(
+            Modifier.padding(FairGap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (selected) Icons.Default.CheckCircle else Icons.Default.Flag,
+                // Галочка — единственный признак выбора, поэтому её озвучиваем; невыбранный
+                // флажок декоративен, рядом стоит сам текст пункта.
+                contentDescription = if (selected) appText("Выбрано", "Һайланды") else null,
+                tint = tint,
+                modifier = Modifier.size(FairIcon),
+            )
+            Spacer(Modifier.width(FairGapTight))
+            Text(label, color = CanonText, fontSize = FairBody, lineHeight = FairBodyLine)
+        }
+    }
 }

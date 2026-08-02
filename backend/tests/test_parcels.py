@@ -52,6 +52,8 @@ def test_full_happy_path(client, user_factory):
     assert rac.status_code == 200, rac.text
     assert rac.json()["status"] == "accepted"
     assert rac.json()["receiver_phone"] == "+79990001122"
+    assert rac.json()["sender_name"] == "Отправитель"
+    assert rac.json()["sender_phone"]
     assert rac.json()["courier_id"] == courier["id"]
 
     # /carrying содержит + телефон виден
@@ -59,6 +61,8 @@ def test_full_happy_path(client, user_factory):
     assert rc.status_code == 200, rc.text
     carry = next(x for x in rc.json() if x["id"] == pid)
     assert carry["receiver_phone"] == "+79990001122"
+    assert carry["sender_name"] == "Отправитель"
+    assert carry["sender_phone"] == rac.json()["sender_phone"]
 
     # отправитель видит курьера в /parcels/mine
     rm = client.get("/parcels/mine", headers=sender["auth"])
@@ -79,6 +83,13 @@ def test_full_happy_path(client, user_factory):
     # после доставки — не в /carrying
     rc2 = client.get("/parcels/carrying", headers=courier["auth"])
     assert all(x["id"] != pid for x in rc2.json())
+
+    # Новый клиент запрашивает короткую историю: финальная карточка не исчезает сразу после
+    # вручения и остаются достижимы квитанция, оценка и спор.
+    recent = client.get("/parcels/carrying?include_recent=true", headers=courier["auth"])
+    recent_row = next(x for x in recent.json() if x["id"] == pid)
+    assert recent_row["status"] == "delivered"
+    assert recent_row["sender_name"] == "Отправитель"
 
     # admin statement: считает доставленные, а «собрано» — только реально оплаченные комиссии
     admin = user_factory(name="Админ", role=UserRole.admin)
