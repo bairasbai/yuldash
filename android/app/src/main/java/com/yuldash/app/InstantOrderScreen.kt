@@ -912,9 +912,15 @@ private fun InstantDestinationPicker(
     LaunchedEffect(effFrom, toPoint) {
         if (toPoint != null) { nearbyDrivers = emptyList(); return@LaunchedEffect }
         val f = effFrom ?: return@LaunchedEffect
-        while (true) {
-            ApiClient.getNearbyDrivers(f.latitude, f.longitude).onSuccess { nearbyDrivers = it; nearbyLoaded = true }
-            delay(15_000)
+        var fails = 0
+        while (isActive) {
+            ApiClient.getNearbyDrivers(f.latitude, f.longitude)
+                .onSuccess { nearbyDrivers = it; nearbyLoaded = true; fails = 0 }
+                .onFailure { fails = (fails + 1).coerceAtMost(4) }
+            // В подвале и в дороге сеть пропадает надолго. Раньше экран всё равно стучался
+            // каждые 15 секунд — впустую жёг батарею и квоту. Теперь после сбоя пауза растёт
+            // 15с → 30 → 60 → 120 → 4 мин, а первый же успешный ответ возвращает обычные 15с.
+            delay(15_000L shl fails)
         }
     }
 

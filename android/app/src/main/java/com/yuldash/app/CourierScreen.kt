@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -319,6 +321,27 @@ private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, o
     }
 }
 
+/** Выбор доставки, чью карту показывать: курьер часто везёт сразу несколько посылок. */
+@Composable
+private fun TrackTargetChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "trk")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "trk-line")
+    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonMutedStrong, tween(200), label = "trk-ink")
+    Surface(
+        onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, line),
+        modifier = Modifier.height(48.dp),
+    ) {
+        Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            Text(
+                label, color = ink, fontWeight = FontWeight.Bold,
+                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 @Composable
 private fun CourierSubTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(220), label = "csub")
@@ -509,15 +532,41 @@ private fun CourierCarryingTab() {
                 )
             }
             else -> {
-                // Онлайн-трекинг: карта активной доставки (курьер шлёт свой GPS отправителю). Одна на вкладку.
-                list.firstOrNull { it.status == "accepted" || it.status == "in_transit" }?.let { activeParcel ->
+                // Онлайн-трекинг: карта активной доставки (курьер шлёт свой GPS отправителю).
+                // Карта одна — MapKit тяжёлый, три карты в одном списке подвесят прокрутку.
+                // Но раньше она молча показывала ПЕРВУЮ посылку: курьер вёз три, вручал вторую,
+                // а на карте был чужой маршрут. Теперь при нескольких доставках он выбирает, чью
+                // карту смотреть, а по умолчанию открыта та, что уже в пути.
+                val activeParcels = list.filter { it.status == "accepted" || it.status == "in_transit" }
+                if (activeParcels.isNotEmpty()) {
                     item(key = "ccar-track") {
+                        val defaultId = (activeParcels.firstOrNull { it.status == "in_transit" }
+                            ?: activeParcels.first()).id
+                        var trackedId by remember(activeParcels.map { it.id }) { mutableIntStateOf(defaultId) }
+                        val tracked = activeParcels.firstOrNull { it.id == trackedId } ?: activeParcels.first()
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                appText("Ты в пути — отправитель видит тебя на карте", "Һин юлда — ебәреүсе һине картала күрә"),
+                                if (activeParcels.size > 1) appText(
+                                    "Ты в пути — отправители видят тебя на карте. Выбери доставку:",
+                                    "Һин юлда — ебәреүселәр һине картала күрә. Илтеүҙе һайла:",
+                                ) else appText(
+                                    "Ты в пути — отправитель видит тебя на карте",
+                                    "Һин юлда — ебәреүсе һине картала күрә",
+                                ),
                                 color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
                             )
-                            ParcelTrackMap(activeParcel, asCourier = true)
+                            if (activeParcels.size > 1) {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(activeParcels, key = { "track-chip-${it.id}" }) { p ->
+                                        TrackTargetChip(
+                                            label = p.toCity.ifBlank { appText("Доставка", "Илтеү") } + " · №${p.id}",
+                                            selected = p.id == tracked.id,
+                                            onClick = { trackedId = p.id },
+                                        )
+                                    }
+                                }
+                            }
+                            ParcelTrackMap(tracked, asCourier = true)
                         }
                     }
                 }

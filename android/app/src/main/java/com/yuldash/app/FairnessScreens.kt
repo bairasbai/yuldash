@@ -11,6 +11,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +33,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
@@ -59,12 +64,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.IncidentDto
@@ -128,7 +137,6 @@ private val FairGapHair = 4.dp     // пара «подпись + значени
 private val FairBadge = 44.dp      // диаметр значка статуса (один на весь раздел)
 private val FairTouch = 48.dp      // минимальная тач-цель
 private val FairIcon = 20.dp       // иконка в строке/значке
-private val FairIconSmall = 16.dp  // иконка внутри мелкой плашки
 private val FairHeroMin = 104.dp   // = 48 + 8 + 48: главное число вровень с двумя счётчиками
 
 // Типы споров — ровно те, что принимает сервер (safety_logic.INCIDENT_TYPES).
@@ -1052,9 +1060,12 @@ private fun IncidentHeaderCard(i: IncidentDto) {
     }
 }
 
-/** Версия одной стороны: текст + приложенные фото (миниатюрами не грузим — приватная область). */
+/** Версия одной стороны: текст + приложенные фото. Фото приватные (Bearer-токен), но сторонам
+ *  спора они открыты — их и надо ПОКАЗАТЬ. Раньше тут стояло только число «Приложено фото: 3»,
+ *  и человек не мог посмотреть даже собственное доказательство, не то что чужое. */
 @Composable
 private fun IncidentSideCard(title: String, text: String, photos: List<String>) {
+    var viewerAt by remember(photos) { mutableIntStateOf(-1) }   // -1 = просмотр закрыт
     AppCard(shape = CanonItemShape) {
         Column(Modifier.padding(FairRowPad), verticalArrangement = Arrangement.spacedBy(FairGapTight)) {
             // Заголовок стороны — это подпись «кто говорит», а не заголовок карточки:
@@ -1073,13 +1084,120 @@ private fun IncidentSideCard(title: String, text: String, photos: List<String>) 
                 lineHeight = FairBodyLine,
             )
             if (photos.isNotEmpty()) {
-                StatusPill(
-                    appText("Приложено фото: ${photos.size}", "Фото тағылған: ${photos.size}"),
-                    CanonMint,
-                    CanonGreen2,
+                Text(
+                    appText("Приложено фото: ${photos.size} · нажми, чтобы открыть",
+                        "Фото тағылған: ${photos.size} · асыр өсөн баҫ"),
+                    color = CanonMutedStrong, fontSize = FairMeta, lineHeight = FairMetaLine,
                 )
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(FairGapTight),
+                ) {
+                    photos.forEachIndexed { idx, url ->
+                        EvidenceThumb(
+                            url = url,
+                            index = idx,
+                            total = photos.size,
+                            onClick = { viewerAt = idx },
+                        )
+                    }
+                }
             }
         }
+    }
+    if (viewerAt >= 0) {
+        EvidenceViewer(photos = photos, startAt = viewerAt, onClose = { viewerAt = -1 })
+    }
+}
+
+/** Миниатюра доказательства. Пока грузится или если не загрузилось — ровный фон, а не дыра. */
+@Composable
+private fun EvidenceThumb(url: String, index: Int, total: Int, onClick: () -> Unit) {
+    val ctx = LocalContext.current
+    val token = remember { ApiClient.currentToken() ?: "" }
+    coil.compose.AsyncImage(
+        model = coil.request.ImageRequest.Builder(ctx).data(url)
+            .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+        contentDescription = appText("Фото ${index + 1} из $total — открыть",
+            "Фото ${index + 1} / $total — асыу"),
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .size(84.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(CanonBg)
+            .clickable(onClick = onClick),
+    )
+}
+
+/** Полноэкранный просмотр доказательства: тёмный фон, фото целиком, стрелки при нескольких.
+ *  Тема разбора тяжёлая — никаких зумов и жестов, только «посмотреть и закрыть». */
+@Composable
+private fun EvidenceViewer(photos: List<String>, startAt: Int, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val token = remember { ApiClient.currentToken() ?: "" }
+    var at by remember(startAt) { mutableIntStateOf(startAt.coerceIn(0, photos.lastIndex)) }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            Modifier.fillMaxSize().background(Color(0xE6000000)).clickable(onClick = onClose),
+            contentAlignment = Alignment.Center,
+        ) {
+            coil.compose.AsyncImage(
+                model = coil.request.ImageRequest.Builder(ctx).data(photos[at])
+                    .addHeader("Authorization", "Bearer $token").crossfade(true).build(),
+                contentDescription = appText("Фото ${at + 1} из ${photos.size}",
+                    "Фото ${at + 1} / ${photos.size}"),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().padding(FairGap),
+            )
+            // Закрыть — крестом сверху справа, а не только тапом по фону: тап по фону догадаться
+            // надо, а крест видно. Тач-цель 48dp, как везде.
+            Box(Modifier.fillMaxSize().padding(FairGap), contentAlignment = Alignment.TopEnd) {
+                Surface(color = Color(0x66000000), shape = CircleShape) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = appText("Закрыть фото", "Фотоны ябыу"),
+                        tint = Color.White,
+                        modifier = Modifier.size(FairTouch).clickable(onClick = onClose).padding(FairGap),
+                    )
+                }
+            }
+            if (photos.size > 1) {
+                Box(Modifier.fillMaxSize().padding(FairGap), contentAlignment = Alignment.BottomCenter) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(FairGap),
+                    ) {
+                        ViewerArrow(Icons.Default.ChevronLeft,
+                            appText("Предыдущее фото", "Алдағы фото"),
+                            enabled = at > 0) { at-- }
+                        Text(
+                            appText("${at + 1} из ${photos.size}", "${at + 1} / ${photos.size}"),
+                            color = Color.White, fontSize = FairMeta, lineHeight = FairMetaLine,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        ViewerArrow(Icons.Default.ChevronRight,
+                            appText("Следующее фото", "Киләһе фото"),
+                            enabled = at < photos.lastIndex) { at++ }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Стрелка листания в просмотре: погашенная — не кликается и видно, что дальше некуда. */
+@Composable
+private fun ViewerArrow(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+    Surface(color = Color(0x66000000), shape = CircleShape) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (enabled) Color.White else Color(0x66FFFFFF),
+            modifier = Modifier
+                .size(FairTouch)
+                .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(FairGapTight),
+        )
     }
 }
 
@@ -1153,6 +1271,9 @@ private fun IncidentVerdictCard(i: IncidentDto) {
 /** Прикрепление фото-доказательств: приватные, видят только стороны спора и разбирающий. */
 @Composable
 private fun EvidencePicker(photos: List<String>, uploading: Boolean, onPick: () -> Unit) {
+    // Раньше вместо снимков стояли зелёные плашки «Фото 1», «Фото 2». Приложил не тот кадр —
+    // и понять это было нельзя до самой отправки. Теперь видно, что именно уходит.
+    var viewerAt by remember(photos) { mutableIntStateOf(-1) }
     Column(verticalArrangement = Arrangement.spacedBy(FairGapTight)) {
         if (photos.isNotEmpty()) {
             Row(
@@ -1160,30 +1281,20 @@ private fun EvidencePicker(photos: List<String>, uploading: Boolean, onPick: () 
                 horizontalArrangement = Arrangement.spacedBy(FairGapTight),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                photos.forEachIndexed { idx, _ ->
-                    Surface(color = CanonMint, shape = CanonItemShape, modifier = Modifier.appearIn(idx.coerceAtMost(4))) {
-                        Row(
-                            Modifier.padding(horizontal = FairGap, vertical = FairGapTight),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = CanonGreen2,
-                                modifier = Modifier.size(FairIconSmall),
-                            )
-                            Spacer(Modifier.width(FairGapTight))
-                            Text(
-                                appText("Фото ${idx + 1}", "Фото ${idx + 1}"),
-                                color = CanonGreen2,
-                                fontSize = FairMeta,
-                                lineHeight = FairMetaLine,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
+                photos.forEachIndexed { idx, url ->
+                    Box(Modifier.appearIn(idx.coerceAtMost(4))) {
+                        EvidenceThumb(
+                            url = url,
+                            index = idx,
+                            total = photos.size,
+                            onClick = { viewerAt = idx },
+                        )
                     }
                 }
             }
+        }
+        if (viewerAt >= 0) {
+            EvidenceViewer(photos = photos, startAt = viewerAt, onClose = { viewerAt = -1 })
         }
         // Кнопка на пределе в 10 фото раньше просто гасла молча — теперь честно объясняет, почему.
         AppButton(

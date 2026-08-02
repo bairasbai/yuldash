@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.TaxiApplicationDto
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /*
@@ -146,6 +147,16 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
 
     val savedMsg = appText("Дата сохранена", "Дата һаҡланды")
     val errFallback = appText("Не получилось сохранить. Проверь сеть.", "Һаҡлап булманы. Селтәрҙе тикшер.")
+
+    // «Дата сохранена» висела до ухода с экрана. Через минуту водитель менял ДРУГУЮ дату, а
+    // старая зелёная плашка всё ещё стояла рядом — и читалась как «и эта сохранена тоже».
+    // Успех сам уходит через 3,5 секунды. Ошибку не прячем: по ней человеку надо что-то сделать.
+    LaunchedEffect(msg) {
+        if (msg != null) {
+            delay(3_500)
+            msg = null
+        }
+    }
 
     LaunchedEffect(reload) {
         loading = true; error = false
@@ -612,6 +623,10 @@ internal fun PretripCheckScreen(onBack: () -> Unit, onConfirmed: () -> Unit = {}
     }
 
     val confirmed = state?.confirmed == true
+    // Обязательна отметка сегодня или нет — решает сервер (флаг pretrip_check_required).
+    // Раньше этот ответ приходил и молча выбрасывался: экран всем одинаково намекал, что
+    // без отметки на линию не пустят. Пока флаг выключен — это неправда, и врать нельзя.
+    val required = state?.required == true
     val allChecked = health && car && sober
 
     Scaffold(
@@ -634,7 +649,7 @@ internal fun PretripCheckScreen(onBack: () -> Unit, onConfirmed: () -> Unit = {}
                     Box(Modifier.appearIn(0)) { PretripDoneCard(state?.confirmedAt) }
                 }
                 else -> {
-                    item(key = "intro") { Box(Modifier.appearIn(0)) { PretripIntroCard() } }
+                    item(key = "intro") { Box(Modifier.appearIn(0)) { PretripIntroCard(required) } }
                     item(key = "progress") {
                         PretripProgress(
                             done = (if (health) 1 else 0) + (if (car) 1 else 0) + (if (sober) 1 else 0),
@@ -731,9 +746,10 @@ private fun PretripSkeleton() {
     }
 }
 
-/** Честное объяснение, зачем этот экран. Один заголовок — один абзац, без нравоучений. */
+/** Честное объяснение, зачем этот экран. Один заголовок — один абзац, без нравоучений.
+ *  @param required правда ли, что без отметки сегодня на линию не выпустят (решает сервер). */
 @Composable
-private fun PretripIntroCard() {
+private fun PretripIntroCard(required: Boolean) {
     AppCard {
         Column(Modifier.padding(CardPad), verticalArrangement = Arrangement.spacedBy(GapS)) {
             Text(
@@ -746,6 +762,20 @@ private fun PretripIntroCard() {
                     "Өс пунктты билдәлә — көнөнә бер тапҡыр. Был медосмотр түгел: табибыбыҙ юҡ, һәм беҙ уны уйнап күрһәтмәйбеҙ. Был — һинең һүҙең, ул яҙма булып ҡала: берәй хәл булһа, ошо көндә нимә раҫлағаның күренәсәк.",
                 ),
                 color = CanonMuted, fontSize = SubSize, lineHeight = SubLead,
+            )
+            // Обязательно это сегодня или по желанию — человек должен знать до того, как начнёт
+            // отмечать, а не после отказа на тумблере «на линии».
+            Text(
+                if (required) appText(
+                    "Сегодня без этой отметки заказы такси брать нельзя.",
+                    "Бөгөн был билдәһеҙ такси заказдары алып булмай.",
+                ) else appText(
+                    "Пока не обязательно — но отметка сохранится и пригодится при разборе.",
+                    "Әлегә мотлаҡ түгел — әммә билдә һаҡлана һәм тикшереүҙә ярҙам итә.",
+                ),
+                color = if (required) CanonRed else CanonMuted,
+                fontSize = SubSize, lineHeight = SubLead,
+                fontWeight = if (required) FontWeight.Bold else FontWeight.Normal,
             )
         }
     }
