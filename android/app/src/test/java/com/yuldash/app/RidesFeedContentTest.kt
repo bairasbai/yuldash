@@ -21,7 +21,7 @@ import org.robolectric.annotation.GraphicsMode
  * Здесь Content покрыт во ВСЕХ состояниях (загрузка / ошибка+повтор / пусто / список / отклик) — то, что раньше было 0%.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "w411dp-h2600dp")   // высокое окно: экран вырос, иначе половина уезжает за край
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class RidesFeedContentTest {
 
@@ -47,7 +47,8 @@ class RidesFeedContentTest {
                 RequestsFeedContent(loading = true, error = false, feed = listOf(request()), onRetry = {}, onRespond = {})
             }
         }
-        composeRule.onNodeWithText("Загрузка…").assertIsDisplayed()
+        // Пока грузим — рисуем скелетон-карточки, а не надпись «Загрузка…»
+        // (§4.5: заглушка в форме будущего контента). Проверяем главное: настоящих карточек нет.
         composeRule.onNodeWithText("Баймак → Сибай").assertDoesNotExist()
     }
 

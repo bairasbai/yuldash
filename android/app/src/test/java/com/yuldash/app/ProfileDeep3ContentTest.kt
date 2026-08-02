@@ -37,7 +37,7 @@ import org.robolectric.annotation.GraphicsMode
  * hasScrollToNodeAction (внутри LazyColumn несколько прокручиваемых узлов → onFirst).
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "w411dp-h2600dp")   // высокое окно: экран вырос, иначе половина уезжает за край
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ProfileDeep3ContentTest {
 
@@ -135,7 +135,7 @@ class ProfileDeep3ContentTest {
         // online=false → клик по тумблеру должен позвать onToggleOnline(true).
         var toggledTo: Boolean? = null
         content(online = false, onToggleOnline = { toggledTo = it })
-        composeRule.onNode(isToggleable()).performClick()
+        composeRule.onAllNodes(isToggleable())[0].performClick()
         assertEquals(true, toggledTo)
     }
 
@@ -143,7 +143,7 @@ class ProfileDeep3ContentTest {
     fun onlineSwitch_whenOn_click_firesOnToggleFalse() {
         var toggledTo: Boolean? = null
         content(online = true, onToggleOnline = { toggledTo = it })
-        composeRule.onNode(isToggleable()).performClick()
+        composeRule.onAllNodes(isToggleable())[0].performClick()
         assertEquals(false, toggledTo)
     }
 

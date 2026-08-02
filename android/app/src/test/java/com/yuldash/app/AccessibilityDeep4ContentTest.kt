@@ -246,9 +246,16 @@ class AccessibilityDeep4ContentTest {
         }
     }
 
+    /** Раскрыть блок «Дополнительно»: условия поездки, «только для своих» и комментарий свёрнуты
+     *  по умолчанию (осознанно — чтобы форма не пугала объёмом). Без этого их просто нет на экране. */
+    private fun expandExtras(ba: Boolean = false) {
+        composeRule.onNodeWithText(if (ba) "Өҫтәмә" else "Дополнительно").performClick()
+    }
+
     @Test
     fun passenger_conditionsSection_showsTitleAndToggleLabels() {
         composeRule.setContent { PassengerContent() }
+        expandExtras()
         composeRule.onNodeWithText("Условия поездки").assertIsDisplayed()
         composeRule.onNodeWithText("Только женщины").assertIsDisplayed()
         composeRule.onNodeWithText("Детское кресло").assertIsDisplayed()
@@ -261,6 +268,7 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent {
             PassengerContent(language = AppLanguage.Ba, selectedCategoryText = "Ғәҙәти")
         }
+        expandExtras(ba = true)
         composeRule.onNodeWithText("Сәфәр шарттары").assertIsDisplayed()
         composeRule.onNodeWithText("Тик ҡатын-ҡыҙ").assertIsDisplayed()
     }
@@ -270,6 +278,8 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent { PassengerContent() }
         composeRule.onNodeWithText("Мест").assertIsDisplayed()
         composeRule.onNodeWithText("Цена, ₽").assertIsDisplayed()
+        // Комментарий переехал в свёрнутый блок «Дополнительно» — раскрываем, как человек.
+        expandExtras()
         composeRule.onNodeWithText("Комментарий").assertIsDisplayed()
     }
 
@@ -304,6 +314,8 @@ class AccessibilityDeep4ContentTest {
     fun passenger_womenOnlyToggle_firesCallback() {
         var toggled: Boolean? = null
         composeRule.setContent { PassengerContent(onWomenOnlyChange = { toggled = it }) }
+        // Тумблеров нет, пока блок «Дополнительно» свёрнут — сначала раскрываем.
+        expandExtras()
         // Первый свитч в секции «Условия поездки» — «Только женщины» (по порядку PrefToggleRow).
         composeRule.onAllNodes(isToggleable())[0].performClick()
         assertEquals(true, toggled)

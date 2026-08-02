@@ -20,7 +20,7 @@ import org.robolectric.annotation.GraphicsMode
  * состояниях (загрузка-скелетон / ошибка+повтор / пусто / активная поездка / клики) — то, что раньше было 0%.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "w411dp-h2600dp")   // высокое окно: экран вырос, иначе половина уезжает за край
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ProfileDeep2ContentTest {
 

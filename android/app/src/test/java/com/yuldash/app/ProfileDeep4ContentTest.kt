@@ -149,7 +149,7 @@ class ProfileDeep4ContentTest {
         var newValue: Boolean? = null
         driverContent(online = false, onToggleOnline = { newValue = it })
         // Тумблер выключен → клик просит включить (true). Кликаем по самому Switch, не по тексту.
-        composeRule.onNode(isToggleable()).performClick()
+        composeRule.onAllNodes(isToggleable())[0].performClick()
         assertEquals(true, newValue)
     }
 
@@ -158,7 +158,7 @@ class ProfileDeep4ContentTest {
         var newValue: Boolean? = null
         driverContent(online = true, onToggleOnline = { newValue = it })
         // Тумблер включён → клик просит выключить (false).
-        composeRule.onNode(isToggleable()).performClick()
+        composeRule.onAllNodes(isToggleable())[0].performClick()
         assertEquals(false, newValue)
     }
 

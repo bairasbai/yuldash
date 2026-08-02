@@ -20,7 +20,7 @@ import org.robolectric.annotation.GraphicsMode
  * ВСЕХ состояниях (загрузка / ошибка+повтор / пусто / список) — то, что раньше было 0%.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "w411dp-h2600dp")   // высокое окно: экран вырос, иначе половина уезжает за край
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class SecondaryDeep2ContentTest {
 
@@ -119,7 +119,8 @@ class SecondaryDeep2ContentTest {
                 AdminReportsContent(loading = false, error = null, reports = listOf(report(reason = "")), onRetry = {})
             }
         }
-        composeRule.onNodeWithText("без причины").assertIsDisplayed()
+        // Заглушку переименовали: «без причины» → «без деталей».
+        composeRule.onNodeWithText("без деталей").assertIsDisplayed()
     }
 
     @Test

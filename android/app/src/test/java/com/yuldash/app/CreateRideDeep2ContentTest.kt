@@ -215,8 +215,9 @@ class CreateRideDeep2ContentTest {
     }
 
     // ─────────── Тумблеры условий: клик по Switch дёргает колбэк (тумблер обязан что-то делать) ───────────
-    // 6 PrefToggleRow → 6 Switch. Кликаем по конкретному по индексу в onAllNodes(isToggleable()),
-    // порядок в дереве = порядок в коде (women, child, pets, baggage, AC, smoking).
+    // PrefToggleRow → Switch. Кликаем по конкретному по индексу в onAllNodes(isToggleable()),
+    // порядок в дереве = порядок в коде: women, child, pets, baggage, AC, quiet, smoking,
+    // дальше «только для своих». Добавили тумблер в середину — индексы ниже сдвинулись.
 
     @Test
     fun womenOnlyToggle_off_click_firesTrue() {
@@ -262,7 +263,8 @@ class CreateRideDeep2ContentTest {
     fun smokingToggle_on_click_firesFalse() {
         var v: Boolean? = null
         composeRule.setContent { Content(language = AppLanguage.Ru, smoking = true, onSmoking = { v = it }) }
-        composeRule.onAllNodes(isToggleable())[5].performClick()   // 6-й = «Можно курить», включён → просит false
+        composeRule.onAllNodes(isToggleable())[6].performClick()   // 7-й = «Можно курить», включён → просит false
+        // Было 6-м, стало 7-м: между кондиционером и курением встала «Тихая поездка».
         assertEquals(false, v)
     }
 
