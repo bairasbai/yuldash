@@ -260,7 +260,11 @@ class CreateRideDeep2ContentTest {
     fun smokingToggle_on_click_firesFalse() {
         var v: Boolean? = null
         composeRule.setContent { Content(language = AppLanguage.Ru, smoking = true, onSmoking = { v = it }) }
-        composeRule.onAllNodes(isToggleable())[5].performClick()   // 6-й = «Можно курить», включён → просит false
+        // Порядок PrefToggleRow в форме (CreateRideScreen.kt): 0 женщины · 1 детское кресло ·
+        // 2 животное · 3 багаж · 4 кондиционер · 5 ТИХАЯ ПОЕЗДКА · 6 можно курить · 7 только для своих.
+        // «Тихая поездка» добавлена между кондиционером и курением — индекс курения уехал с 5 на 6,
+        // поэтому тест жал не тот тумблер и onSmoking не вызывался (было null вместо false).
+        composeRule.onAllNodes(isToggleable())[6].performClick()   // 7-й = «Можно курить», включён → просит false
         assertEquals(false, v)
     }
 

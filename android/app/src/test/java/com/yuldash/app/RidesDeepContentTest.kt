@@ -39,7 +39,10 @@ class RidesDeepContentTest {
                 ResponsesContent(loading = true, error = false, responses = listOf(response()), accepting = false, onRetry = {}, onAccept = {})
             }
         }
-        composeRule.onNodeWithText("Загрузка…").assertIsDisplayed()
+        // Состояние загрузки перешло со слова «Загрузка…» на скелетон-заглушки
+        // (SkeletonCard). Текста там больше нет, а метки у скелетона тоже нет —
+        // проверять его нечем. Поэтому проверяем то, что реально важно и проверяемо:
+        // пока грузим, содержимое списка НЕ показано.
         composeRule.onNodeWithText("Поехать с этим водителем").assertDoesNotExist()
     }
 

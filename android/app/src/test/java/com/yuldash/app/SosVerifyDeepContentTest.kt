@@ -215,8 +215,11 @@ class SosVerifyDeepContentTest {
     @Test
     fun sos_sent_showsSentInfoCard() {
         setSos(sent = true)
-        scrollTo("Уведомление отправлено")
-        composeRule.onNodeWithText("Уведомление отправлено").assertIsDisplayed()
+        // Текст карточки переписан: было «Уведомление отправлено», стало «Сигнал отправлен»
+        // (SosVerifyScreens.kt). Тест ждал старую формулировку — отсюда и провал прокрутки:
+        // performScrollToNode искал узел, которого в дереве нет вообще.
+        scrollTo("Сигнал отправлен")
+        composeRule.onNodeWithText("Сигнал отправлен").assertIsDisplayed()
     }
 
     @Test

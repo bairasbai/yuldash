@@ -2,9 +2,13 @@ package com.yuldash.app
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import com.yuldash.app.data.AdminReportDto
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -119,6 +123,10 @@ class SecondaryDeep2ContentTest {
                 AdminReportsContent(loading = false, error = null, reports = listOf(report(reason = "")), onRetry = {})
             }
         }
+        // Список жалоб вырос — строка уехала ниже видимой области теста. Узел в дереве есть,
+        // но assertIsDisplayed проверяет попадание в окно, поэтому сперва прокручиваем.
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("без причины"))
         composeRule.onNodeWithText("без причины").assertIsDisplayed()
     }
 
