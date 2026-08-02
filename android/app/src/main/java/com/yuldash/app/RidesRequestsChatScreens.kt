@@ -635,7 +635,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
             ) {
                 SmallAvatar(dto.driverAvatar, dto.driverName, 30)
                 Spacer(Modifier.width(8.dp))
-                Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(dto.driverName.ifBlank { appText("Водитель", "Йөрөтөүсе") }, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (dto.driverOnline) { Spacer(Modifier.width(6.dp)); OnlineBadge() }
                 if (dto.driverIsWoman) { Spacer(Modifier.width(6.dp)); WomanDriverBadge() }
                 Spacer(Modifier.weight(1f))

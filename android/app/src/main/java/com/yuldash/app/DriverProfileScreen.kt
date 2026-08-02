@@ -131,7 +131,7 @@ private fun DriverHeaderCard(d: DriverPublicDto) {
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        d.name.ifBlank { appText("Водитель", "Водитель") },
+                        d.name.ifBlank { appText("Водитель", "Йөрөтөүсе") },
                         fontWeight = FontWeight.Black, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine,
                         color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )

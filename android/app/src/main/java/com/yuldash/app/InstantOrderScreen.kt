@@ -1894,7 +1894,7 @@ private fun InstantDriverEnRouteCard(order: InstantOrderDto, onCancel: () -> Uni
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                order.driverName.ifBlank { appText("Водитель", "Водитель") },
+                                order.driverName.ifBlank { appText("Водитель", "Йөрөтөүсе") },
                                 color = CanonText, fontSize = TxBody, lineHeight = LhBody,
                                 fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false),
