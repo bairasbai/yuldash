@@ -25,8 +25,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -62,6 +66,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,10 +81,11 @@ internal fun Context.findActivityCompat(): Activity? {
     return null
 }
 
-private val Gold = Color(0xFFD89B12)
-private val GoldLight = Color(0xFFFFF1CC)
-private val GreenTop = Color(0xFF0B6B3A)
-private val GreenBottom = Color(0xFF05301D)
+// Палитра интро — только токены Canon* (CanonTokens.kt), своих Color(0xFF…) тут нет:
+//   CanonGold     — золото бренда: черта под словом и блик по «Юлдаш» (тёплое в обеих темах);
+//   CanonGreenInk — тот же зелёный, что у СИСТЕМНОГО сплэша → бесшовный хэндофф, пока проявляется пейзаж.
+// Color.White/Color.Black с alpha — это не палитра темы, а свет и тень КАДРА (вуаль над фото), они
+// обязаны быть одинаковыми в светлой и тёмной теме: сцена всегда тёмная, текст всегда белый.
 
 /** Montserrat (сабсет с кириллицей+башкирским) — премиум-гарнитура интро. */
 private val Montserrat = FontFamily(
@@ -164,6 +170,11 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     var done by remember { mutableStateOf(false) }
     fun finish() { if (!done) { done = true; onComplete() } }
 
+    // Видимый выход из интро. Тап по экрану скипал и раньше — но об этом никто не знал, а ролик идёт ~6 с.
+    // Кнопка приходит через 1,4 с (сначала дать сцене подышать). Отдельный эффект — таймлайн ниже не трогаем.
+    var showSkip by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(1400); showSkip = true }
+
     val logoScale = remember { Animatable(if (reduceMotion) 1f else 0.96f) }   // лёгкий settle, без «прыжка» (значок уже виден на системном сплэше)
     val logoAlpha = remember { Animatable(1f) }   // лого видно сразу — бесшовный хэндофф с системного сплэша (фейд даёт переход экрана)
     val drift = remember { Animatable(1f) }
@@ -200,15 +211,21 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     val sloganAlpha by animateFloatAsState(if (showSlogan) 1f else 0f, tween(560, easing = EaseOutExpo), label = "sloA")
 
     val brandBrush = Brush.linearGradient(
-        listOf(Color.White, Color.White, GoldLight, Color.White, Color.White),
+        listOf(Color.White, Color.White, CanonGold, Color.White, Color.White),
         start = Offset(sheen.value, 0f), end = Offset(sheen.value + 200f, 0f),
     )
 
+    val skipLabel = appText("Пропустить", "Үткәреү")
     Box(
         Modifier
             .fillMaxSize()
-            .background(GreenTop)   // тот же зелёный, что у СИСТЕМНОГО сплэша → бесшовный хэндофф, пока пейзаж проявляется
-            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { finish() },
+            .background(CanonGreenInk)   // тот же зелёный, что у СИСТЕМНОГО сплэша → бесшовный хэндофф, пока пейзаж проявляется
+            // onClickLabel: TalkBack проговаривает, ЧТО сделает тап по экрану (раньше — безымянное «активировать»).
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClickLabel = skipLabel,
+            ) { finish() },
         contentAlignment = Alignment.Center,
     ) {
         // Пейзаж Башкортостана (как на референсе) — проявляется из зелёного (alpha) + мягкий push-in (scale)
@@ -221,19 +238,21 @@ internal fun IntroScreen(onComplete: () -> Unit) {
             },
         )
         // Тёплая вуаль + виньетка: тёмно-зелёный тон и читаемость белого текста поверх сцены
-        Box(Modifier.fillMaxSize().background(Color(0x33000000)))
-        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Transparent, Color(0x5A000000)), radius = 1500f)))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.20f)))
+        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)), radius = 1500f)))
 
         // Золотая «пыльца» в небе — лёгкая премиум-жизнь, появляется/гаснет вместе с пейзажем
         SkyMotes(Modifier.fillMaxSize()) { sceneAlpha.value }
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.graphicsLayer {
-                alpha = exitAlpha
-                scaleX = exitScale * drift.value
-                scaleY = exitScale * drift.value
-            },
+            modifier = Modifier
+                .padding(horizontal = 24.dp)   // длинный башкирский слоган не упирается в края экрана
+                .graphicsLayer {
+                    alpha = exitAlpha
+                    scaleX = exitScale * drift.value
+                    scaleY = exitScale * drift.value
+                },
         ) {
             BrandHero(
                 logoAlpha = logoAlpha.value,
@@ -241,8 +260,9 @@ internal fun IntroScreen(onComplete: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
             // Слот СЛОВА (Попутчик/Юлдаш) — компактный, слово по центру; черта и слоган идут вплотную ниже.
-            Box(modifier = Modifier.height(58.dp), contentAlignment = Alignment.Center) {
-                StaggerWord(INTRO_MEANING_WORD, showMeaning, 38.sp)
+            // heightIn (а не height): при системном КРУПНОМ шрифте слот растёт, а не срезает слово.
+            Box(modifier = Modifier.heightIn(min = 56.dp), contentAlignment = Alignment.Center) {
+                StaggerWord(INTRO_MEANING_WORD, showMeaning, 36.sp)
                 Text(
                     INTRO_BRAND_WORD,
                     fontSize = 44.sp,
@@ -253,16 +273,17 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                     style = TextStyle(brush = brandBrush),
                 )
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
             Box(
-                Modifier.width(72.dp).height(3.dp)
+                Modifier.width(72.dp).height(4.dp)
                     .graphicsLayer { scaleX = underline }
-                    .background(Gold, RoundedCornerShape(2.dp)),
+                    .background(CanonGold, RoundedCornerShape(2.dp)),
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
             // Высота слота слогана зарезервирована ВСЕГДА → его появление НЕ меняет высоту колонки
             // и не двигает лого вверх (раньше колонка перецентрировалась → дёрганье). Слоган только фейдится.
-            Box(modifier = Modifier.height(22.dp), contentAlignment = Alignment.Center) {
+            // min (а не фикс): крупный шрифт и перенос длинного башкирского — слот растёт, текст цел.
+            Box(modifier = Modifier.heightIn(min = 24.dp), contentAlignment = Alignment.Center) {
                 AnimatedContent(
                     targetState = sloganBa,
                     transitionSpec = {
@@ -274,11 +295,37 @@ internal fun IntroScreen(onComplete: () -> Unit) {
                 ) { ba ->
                     Text(
                         if (ba) INTRO_SLOGAN_BA else INTRO_SLOGAN_RU,
-                        color = Color.White.copy(0.92f), fontSize = 15.sp, fontFamily = Montserrat,
-                        fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
+                        color = Color.White.copy(0.92f), fontSize = 15.sp, lineHeight = 20.sp,
+                        fontFamily = Montserrat, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
+                        textAlign = TextAlign.Center,
                         modifier = Modifier.graphicsLayer { alpha = sloganAlpha },
                     )
                 }
+            }
+        }
+
+        // «Пропустить» — понятный выход, а не догадка «наверное, можно тапнуть».
+        // Тач-цель 168×48dp, два языка (и для TalkBack — onClickLabel), уходит вместе со сценой.
+        AnimatedVisibility(
+            visible = showSkip && !exiting,
+            enter = fadeIn(tween(420, easing = EaseOutExpo)) +
+                slideInVertically(tween(520, easing = EaseOutExpo)) { it / 3 },
+            exit = fadeOut(tween(200)),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 32.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 168.dp, minHeight = 48.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .border(1.dp, Color.White.copy(alpha = 0.32f), CircleShape)
+                    .clickable(onClickLabel = skipLabel) { finish() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    skipLabel, color = Color.White, fontSize = 15.sp, fontFamily = Montserrat,
+                    fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
+                )
             }
         }
     }
@@ -301,28 +348,32 @@ internal fun IntroBrandContent(
     showSlogan: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.padding(horizontal = 24.dp),
+    ) {
         BrandHero(logoAlpha = 1f, logoScale = 1f)
         Spacer(Modifier.height(4.dp))
-        Box(modifier = Modifier.height(58.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.heightIn(min = 56.dp), contentAlignment = Alignment.Center) {
             Text(
                 if (showMeaning) INTRO_MEANING_WORD else INTRO_BRAND_WORD,
                 color = Color.White,
-                fontSize = if (showMeaning) 38.sp else 44.sp,
+                fontSize = if (showMeaning) 36.sp else 44.sp,
                 fontWeight = if (showMeaning) FontWeight.Medium else FontWeight.Black,
                 fontFamily = Montserrat,
                 letterSpacing = if (showMeaning) 1.sp else 2.sp,
             )
         }
-        Spacer(Modifier.height(10.dp))
-        Box(Modifier.width(72.dp).height(3.dp).background(Gold, RoundedCornerShape(2.dp)))
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.width(72.dp).height(4.dp).background(CanonGold, RoundedCornerShape(2.dp)))
+        Spacer(Modifier.height(16.dp))
         if (showSlogan) {
-            Box(modifier = Modifier.height(22.dp), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.heightIn(min = 24.dp), contentAlignment = Alignment.Center) {
                 Text(
                     introSlogan(language),
-                    color = Color.White.copy(0.92f), fontSize = 15.sp, fontFamily = Montserrat,
-                    fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
+                    color = Color.White.copy(0.92f), fontSize = 15.sp, lineHeight = 20.sp,
+                    fontFamily = Montserrat, fontWeight = FontWeight.Medium, letterSpacing = 0.5.sp,
+                    textAlign = TextAlign.Center,
                 )
             }
         }

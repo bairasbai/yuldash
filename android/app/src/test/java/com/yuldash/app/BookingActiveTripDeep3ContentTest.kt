@@ -8,6 +8,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
@@ -159,7 +161,12 @@ class BookingActiveTripDeep3ContentTest {
                 CompactProfileBanner()
             }
         }
-        composeRule.onNodeWithText("Пассажир · Баймаҡ").assertIsDisplayed()
+        // Роль теперь из ApiClient.cachedRole() (null без логина → строка роли не рисуется, «Баймаҡ» убран).
+        // Проверяем имя-фолбэк «Я» и подпись о телефоне.
+        // «Я» на экране ДВА раза: буквой в аватарке (первая буква имени) и самим именем.
+        // Оба — один и тот же фолбэк, поэтому onNodeWithText падал с «Expected at most 1 node
+        // but found 2». Проверяем, что фолбэк отрисован, — берём первое совпадение.
+        composeRule.onAllNodesWithText("Я").onFirst().assertIsDisplayed()
         composeRule.onNodeWithText("Телефон скрыт до подтверждения").assertIsDisplayed()
     }
 

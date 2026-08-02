@@ -17,6 +17,17 @@ tasks.withType<Test>().configureEach {
         isIncludeNoLocationClasses = true
         excludes = listOf("jdk.internal.*")
     }
+    // Полный текст падения прямо в лог. По умолчанию Gradle пишет только «Тест X FAILED» и
+    // короткое имя исключения — по такой строке причину не понять, а HTML-отчёт в CI лежит
+    // артефактом, который ещё надо скачать. Печатаем причину сразу: время разбора → минуты
+    // вместо часов (первый же прогон в CI дал 76 падений без единого объяснения).
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStackTraces = true
+        showCauses = true
+        showExceptions = true
+    }
 }
 
 // FCM (push): google-services применяем ТОЛЬКО когда есть app/google-services.json.
@@ -50,6 +61,14 @@ val releaseApiBaseUrl: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YULDASH_RELEASE_API_BASE_URL", "https://yulbash.ru")
 
+// Публичный сайт (лендинг) — база для расшариваемых ссылок на поездку yulbash.ru/r/{id}.
+// Переопределяется YULDASH_WEB_BASE_URL в local.properties. По умолчанию — прод-домен.
+// Отдельно от API base: в debug тот указывает на localhost, а ссылка должна быть рабочей всегда.
+val webBaseUrl: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_WEB_BASE_URL", "https://yulbash.ru")
+
 // Телефон поддержки/оператора (для звонка из приложения). Задать в local.properties:
 //   YULDASH_SUPPORT_PHONE=+79991234567
 // Пусто → кнопка звонка прячется, остаётся «попросить звонок».
@@ -80,6 +99,14 @@ val smsLoginEnabled: Boolean = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YULDASH_SMS_LOGIN", "false").trim().lowercase() == "true"
 
+// Sentry DSN (сбор ошибок приложения) — из local.properties (НЕ в git):
+//   YULDASH_SENTRY_DSN=https://<key>@o0.ingest.sentry.io/0
+// Пусто → Sentry не инициализируется (no-op), приложение работает как раньше.
+val sentryDsn: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("YULDASH_SENTRY_DSN", "")
+
 // Подпись релиза: данные из keystore.properties (в .gitignore, в git не попадает).
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
@@ -102,7 +129,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 2
-        versionName = "0.1.0"
+        versionName = "1.0.0"      // первый публичный релиз
         // Рунер инструментальных тестов (без него AGP берёт легаси android.test.* → краш Compose-тестов).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -112,7 +139,9 @@ android {
         buildConfigField("String", "YULDASH_SUPPORT_PHONE", "\"$supportPhone\"")
         buildConfigField("String", "TELEGRAM_BOT", "\"$telegramBot\"")
         buildConfigField("String", "VK_APP_ID", "\"$vkAppId\"")
+        buildConfigField("String", "YULDASH_WEB_BASE_URL", "\"$webBaseUrl\"")
         buildConfigField("boolean", "SMS_LOGIN_ENABLED", "$smsLoginEnabled")
+        buildConfigField("String", "SENTRY_DSN", "\"$sentryDsn\"")
     }
 
     buildFeatures {
@@ -124,6 +153,20 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            // Печатать ПРИЧИНУ падения прямо в консоль. Без этого Gradle пишет только
+            // «AssertionError at Файл.kt:73», а текст (что ожидали и что нашли) остаётся
+            // в HTML-отчёте — то есть в CI его не видно вообще, и чинить приходится вслепую.
+            all {
+                it.testLogging {
+                    events("failed")
+                    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                    showStackTraces = true
+                    showCauses = true
+                }
+                // Один упавший тест не должен обрывать прогон: нужен ПОЛНЫЙ список проблем
+                // за один заход, иначе каждый круг CI (11 минут) вскрывает по одной ошибке.
+                it.ignoreFailures = false
+            }
         }
     }
 
@@ -195,6 +238,9 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics-ktx")   // метрики: DAU/удержание/воронка событий (активно при google-services.json)
     // Шифрованное хранилище JWT (вместо открытого SharedPreferences).
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // Sentry (сбор ошибок/крашей). Инициализируется вручную в YuldashApplication ТОЛЬКО
+    // при заданном BuildConfig.SENTRY_DSN (без Gradle-плагина — меньше риска для сборки).
+    implementation("io.sentry:sentry-android:7.14.0")
     // ZXing core (только генерация QR-матрицы, без Android-модуля) — QR оплаты Сбербанка (СБП по номеру).
     implementation("com.google.zxing:core:3.5.3")
     // Lifecycle-aware корутины в Compose (LocalLifecycleOwner + repeatOnLifecycle):
@@ -203,6 +249,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     // ViewModel в Compose (viewModel()) — состояние приложения вынесено из YuldashApp в YuldashViewModel.
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
+    // Google Play In-App Review: системный запрос оценки в Play после хорошей поездки (только 5★).
+    // Без Play/на эмуляторе — тихий no-op. Play сам решает, показывать ли (правило Google).
+    implementation("com.google.android.play:review-ktx:2.0.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
     // JVM unit-тесты (каркас «с нуля»): чистая логика без Android-фреймворка. Запуск: gradlew :app:testDebugUnitTest
     testImplementation("junit:junit:4.13.2")

@@ -72,7 +72,7 @@ class SupportBoostContentTest {
             }
         }
         composeRule.onNodeWithText("Уфа → Казань").assertIsDisplayed()
-        composeRule.onNodeWithText("3 мест · 500 ₽").assertIsDisplayed()
+        composeRule.onNodeWithText("3 места · 500 ₽").assertIsDisplayed()
     }
 
     @Test

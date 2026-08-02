@@ -209,8 +209,8 @@ class MapScreenContentTest {
                 RequestPreviewCard(req = request(seats = 2, distanceKm = 3.0), onClose = {})
             }
         }
-        // meta склеивается через "  ·  " → "2 мест  ·  ≈ 3 км рядом"
-        composeRule.onNodeWithText("2 мест  ·  ≈ 3 км рядом").assertIsDisplayed()
+        // meta склеивается через "  ·  " → "2 места  ·  ≈ 3 км рядом"
+        composeRule.onNodeWithText("2 места  ·  ≈ 3 км рядом").assertIsDisplayed()
     }
 
     @Test

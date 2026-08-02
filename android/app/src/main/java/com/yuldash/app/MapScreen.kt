@@ -3,6 +3,7 @@ package com.yuldash.app
 // Вкладка «Карта»: MapScreen + Яндекс MapKit (YandexMapCard, MapHero, маркеры-ценники,
 // геолокация, контролы). Вынесено из MainActivity (Фаза 3). Импорты целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -19,7 +20,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -139,6 +139,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -149,12 +150,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
@@ -164,6 +163,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.getValue
@@ -234,7 +234,6 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -254,6 +253,9 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+// Цвет линии маршрута на карте MapKit (ARGB): фирменный зелёный Юлдаша с прозрачностью.
+private const val ROUTE_STROKE_ARGB: Long = 0xCC0B6B3A
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MapScreen(
@@ -268,7 +270,10 @@ internal fun MapScreen(
     onSos: () -> Unit,
     onOpenPopular: (PopularRoute) -> Unit,
     onDriver: () -> Unit,
-    onBoost: () -> Unit
+    onBoost: () -> Unit,
+    onClinicRides: () -> Unit,   // F22: раздел «Поездки к клинике»
+    onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13 «карауль поездку»: открыть «Мои подписки»
+    onSeasonalPublish: (String) -> Unit = {}   // F15: баннер «на праздник» → форма создания поездки (аргумент — дата-шаблон)
 ) {
     val nearbyAd = ads.forPlacement(AdPlacement.Nearby).firstOrNull { it.city == "Баймаҡ" }
     var selectedRide by remember { mutableStateOf<Ride?>(null) }
@@ -283,26 +288,43 @@ internal fun MapScreen(
     var nearbyReload by remember { mutableStateOf(0) }
     var nearbyTotal by remember { mutableStateOf(0) }       // всего на маршруте (для «Показать ещё»)
     var nearbyLimit by remember { mutableStateOf(NEARBY_PAGE) }  // сколько показываем сейчас
+    // F15: сезонное событие для баннера «на праздник». Один запрос; сервер сам считает даты по годам.
+    var seasonalEvent by remember { mutableStateOf<com.yuldash.app.data.SeasonalEventDto?>(null) }
+    var seasonalDismissed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        ApiClient.getSeasonalEvents().onSuccess { list ->
+            // самое релевантное: идущее сейчас, иначе — ближайшее (сервер уже отсортировал по дате начала)
+            seasonalEvent = list.firstOrNull { it.active } ?: list.firstOrNull()
+        }
+    }
     val filterCtx = LocalContext.current
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
     val verifiedOnly = remember { AppPrefs.verifiedOnly(filterCtx) }  // «Только проверенные» из раздела Безопасность
+    // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
+    // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
+    var dateFilter by remember { mutableStateOf<String?>(null) }
     val focusFrom = activeTrip?.from
     val focusTo = activeTrip?.to
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
     val userLng = LocationPrefs.lastLng
-    // Сбрасываем страницу при смене маршрута/позиции (новый контекст → снова с начала).
-    LaunchedEffect(focusFrom, focusTo, userLat, userLng) { nearbyLimit = NEARBY_PAGE }
-    LaunchedEffect(focusFrom, focusTo, userLat, userLng, nearbyReload, nearbyLimit) {
+    // Огрублённый ключ позиции (~1.1 км, 2 знака): перезапрашиваем «рядом» только при заметном
+    // смещении, а не на КАЖДЫЙ GPS-фикс (было — REST на каждый фикс, жёг трафик и квоту). Сам запрос
+    // уходит с ТОЧНОЙ позицией — грубим только частоту, не точность.
+    val userLatKey = userLat?.let { kotlin.math.round(it * 100) }
+    val userLngKey = userLng?.let { kotlin.math.round(it * 100) }
+    // Сбрасываем страницу при смене маршрута/позиции/дня (новый контекст → снова с начала).
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter) { nearbyLimit = NEARBY_PAGE }
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
         // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
-        ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit)
+        ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit, date = dateFilter)
             .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false }
             .onFailure { nearbyError = true }
         nearbyLoading = false
     }
     // Заявки пассажиров рядом → маркеры на карте (кто ищет попутку). Радиус — когда знаем позицию.
-    LaunchedEffect(userLat, userLng, nearbyReload) {
+    LaunchedEffect(userLatKey, userLngKey, nearbyReload) {
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
         ApiClient.getNearbyRequests(userLat, userLng, radius)
             .onSuccess { nearbyRequests = it }
@@ -338,7 +360,7 @@ internal fun MapScreen(
     val shownNearby = remember(nearby, prefFilter, verifiedOnly) {
         if (prefFilter.isEmpty() && !verifiedOnly) nearby else nearby.filter { d ->
             (!verifiedOnly || d.driverVerified) &&
-                ("women" !in prefFilter || d.womenOnly) &&
+                ("women" !in prefFilter || d.womenOnly || d.driverIsWoman) &&   // F9: женщины за рулём тоже подходят
                 ("child" !in prefFilter || d.childSeat) &&
                 ("pets" !in prefFilter || d.petsAllowed) &&
                 ("baggage" !in prefFilter || d.baggage) &&
@@ -359,10 +381,10 @@ internal fun MapScreen(
                 .fillMaxSize()
         ) {
             // Закреплённый верх: шапка + карта (НЕ в прокрутке → вертикальный пан двигает карту, а не страницу).
-            Column(modifier = Modifier.padding(horizontal = 14.dp)) {
-                Spacer(Modifier.height(2.dp))
+            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                Spacer(Modifier.height(4.dp))
                 Box(Modifier.appearIn(0)) { HomeHeader(onSos = onSos) }
-                Spacer(Modifier.height(11.dp))
+                Spacer(Modifier.height(12.dp))
                 Box(Modifier.appearIn(1)) {
                     MapHero(
                         activeTrip = activeTrip,
@@ -378,61 +400,184 @@ internal fun MapScreen(
                 }
                 // Закреплённый зазор кнопки → «Ближайшие поездки»: держится и на скролле
                 // (contentPadding ниже «съедается» прокруткой, поэтому воздух ставим тут, в пине).
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
             }
             // Прокручиваемый низ: простой режим, ближайшие поездки, реклама.
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(11.dp),
-                contentPadding = PaddingValues(top = 11.dp, bottom = 10.dp)   // низ потеснее (просьба: внизу было много места)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp)   // низ потеснее (просьба: внизу было много места)
             ) {
+                // F15: баннер «на праздник» — только когда близко событие (нет события → пункта нет, без пустой дырки).
+                seasonalEvent?.takeIf { !seasonalDismissed }?.let { sev ->
+                    item(key = "seasonal") {
+                        SeasonalBanner(
+                            event = sev,
+                            onPublish = { onSeasonalPublish(seasonalRidePrefillDate(sev)) },
+                            onDismiss = { seasonalDismissed = true },
+                        )
+                    }
+                }
                 item {
                     Box(Modifier.appearIn(2)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),   // маленькая пауза заголовок → карточка
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),   // маленькая пауза заголовок → карточка
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр"), fontSize = 16.sp, fontWeight = FontWeight.Black)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр"),
+                                    color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Black,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                                )
                                 if (focusFrom != null && focusTo != null) {
                                     Text("$focusFrom → $focusTo", color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
-                            if (nearby.isNotEmpty()) {
-                                Text(appText("${shownNearby.size} рядом", "${shownNearby.size} яҡында"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            // Счётчик — пилюля с мягкой сменой цифры (фильтры/обновление ленты меняют её на лету).
+                            AnimatedVisibility(
+                                visible = nearby.isNotEmpty(),
+                                enter = fadeIn(tween(220)),
+                                exit = fadeOut(tween(140))
+                            ) {
+                                Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
+                                    AnimatedContent(
+                                        targetState = shownNearby.size,
+                                        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+                                        label = "nearbyCount"
+                                    ) { count ->
+                                        Text(
+                                            appText("$count рядом", "$count яҡында"),
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 12.sp, maxLines = 1
+                                        )
+                                    }
+                                }
                             }
+                        }
+                    }
+                }
+                item {
+                    // F4: «Когда едем» — видим ВСЕГДА (даже при пустой выдаче: выбрал «Сегодня»,
+                    // пусто → должен смочь вернуться на «Все дни»). Даты — по часам устройства.
+                    val today = java.time.LocalDate.now()
+                    // Тач-цель чипа ≥48dp (§4.5): Surface пробрасывает min-высоту внутрь, текст остаётся по центру.
+                    val chipTouch = Modifier.heightIn(min = 48.dp)
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        NearbyFilterChip(Icons.Default.CalendarMonth, appText("Все дни", "Бөтә көндәр"), dateFilter == null, modifier = chipTouch) { dateFilter = null }
+                        NearbyFilterChip(Icons.Default.Schedule, appText("Сегодня", "Бөгөн"), dateFilter == today.toString(), modifier = chipTouch) {
+                            dateFilter = if (dateFilter == today.toString()) null else today.toString()
+                        }
+                        NearbyFilterChip(Icons.Default.Schedule, appText("Завтра", "Иртәгә"), dateFilter == today.plusDays(1).toString(), modifier = chipTouch) {
+                            dateFilter = if (dateFilter == today.plusDays(1).toString()) null else today.plusDays(1).toString()
                         }
                     }
                 }
                 item {
                     if (nearby.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            NearbyFilterChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), "women" in prefFilter) { prefFilter = if ("women" in prefFilter) prefFilter - "women" else prefFilter + "women" }
-                            NearbyFilterChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), "child" in prefFilter) { prefFilter = if ("child" in prefFilter) prefFilter - "child" else prefFilter + "child" }
-                            NearbyFilterChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"), "pets" in prefFilter) { prefFilter = if ("pets" in prefFilter) prefFilter - "pets" else prefFilter + "pets" }
-                            NearbyFilterChip(Icons.Default.Luggage, appText("Багаж", "Багаж"), "baggage" in prefFilter) { prefFilter = if ("baggage" in prefFilter) prefFilter - "baggage" else prefFilter + "baggage" }
-                            NearbyFilterChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), "ac" in prefFilter) { prefFilter = if ("ac" in prefFilter) prefFilter - "ac" else prefFilter + "ac" }
-                            NearbyFilterChip(Icons.Default.Block, appText("Некурящий", "Тартмаусы"), "nosmoke" in prefFilter) { prefFilter = if ("nosmoke" in prefFilter) prefFilter - "nosmoke" else prefFilter + "nosmoke" }
+                      // Тач-цель ≥48dp (§4.5) + зазор справа у каждого чипа. Зазор ИМЕННО у чипа, а не
+                      // spacedBy у Row: скрытый «Сбросить» тогда не оставляет пустой отступ слева.
+                      val chipTouch = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
+                      Column {
+                        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                            // «Сбросить · N» — выезжает слева, как только включён хоть один фильтр,
+                            // и уезжает обратно, когда фильтров нет (не занимает место зря).
+                            AnimatedVisibility(
+                                visible = prefFilter.isNotEmpty(),
+                                enter = fadeIn(tween(200)) + slideInHorizontally(tween(240)) { -it },
+                                exit = fadeOut(tween(140)) + slideOutHorizontally(tween(180)) { -it }
+                            ) {
+                                NearbyFilterChip(
+                                    Icons.Default.Close,
+                                    appText("Сбросить · ${prefFilter.size}", "Бушатырға · ${prefFilter.size}"),
+                                    false,
+                                    modifier = chipTouch
+                                ) { prefFilter = emptySet() }
+                            }
+                            NearbyFilterChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), "women" in prefFilter, modifier = chipTouch) { prefFilter = if ("women" in prefFilter) prefFilter - "women" else prefFilter + "women" }
+                            NearbyFilterChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), "child" in prefFilter, modifier = chipTouch) { prefFilter = if ("child" in prefFilter) prefFilter - "child" else prefFilter + "child" }
+                            NearbyFilterChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"), "pets" in prefFilter, modifier = chipTouch) { prefFilter = if ("pets" in prefFilter) prefFilter - "pets" else prefFilter + "pets" }
+                            NearbyFilterChip(Icons.Default.Luggage, appText("Багаж", "Багаж"), "baggage" in prefFilter, modifier = chipTouch) { prefFilter = if ("baggage" in prefFilter) prefFilter - "baggage" else prefFilter + "baggage" }
+                            NearbyFilterChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), "ac" in prefFilter, modifier = chipTouch) { prefFilter = if ("ac" in prefFilter) prefFilter - "ac" else prefFilter + "ac" }
+                            NearbyFilterChip(Icons.Default.Block, appText("Некурящий", "Тартмаусы"), "nosmoke" in prefFilter, modifier = chipTouch) { prefFilter = if ("nosmoke" in prefFilter) prefFilter - "nosmoke" else prefFilter + "nosmoke" }
                         }
+                        // F9: поясняем, что фильтр «Только женщины» включает и женщин за рулём.
+                        AnimatedVisibility(
+                            visible = "women" in prefFilter,
+                            enter = fadeIn(tween(200)),
+                            exit = fadeOut(tween(140))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Woman, contentDescription = null, tint = CanonWoman, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    appText("Женщины за рулём и поездки «только для женщин».", "Рулдә ҡатын-ҡыҙҙар һәм «тик ҡатын-ҡыҙ өсөн» сәфәрҙәр."),
+                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
+                                )
+                            }
+                        }
+                      }
                     }
                 }
                 item {
+                    // Состояния ленты: загрузка → скелетоны, пусто/нет сети → карточка-заглушка,
+                    // фильтры всё срезали → подсказка, иначе — карусель. Переход между состояниями
+                    // мягкий (скелетоны не «хлопают» в карточки, а растворяются друг в друга).
+                    val nearbyState = when {
+                        nearbyLoading && nearby.isEmpty() -> "loading"
+                        nearby.isEmpty() -> if (nearbyError) "error" else "empty"
+                        shownNearby.isEmpty() -> "filtered"
+                        else -> "list"
+                    }
                     Box(Modifier.appearIn(3)) {
-                        when {
-                            nearbyLoading && nearby.isEmpty() -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AnimatedContent(
+                            targetState = nearbyState,
+                            transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(160)) },
+                            label = "nearbyState"
+                        ) { state ->
+                        when (state) {
+                            "loading" -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 NearbySkeletonCard(); NearbySkeletonCard()
                             }
-                            nearby.isEmpty() -> NearbyEmptyCard(hasRoute = focusFrom != null, onRetry = { nearbyReload++ }, error = nearbyError)
-                            shownNearby.isEmpty() -> Text(
-                                appText("Нет поездок с такими условиями. Снимите часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн алығыҙ."),
-                                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
+                            "empty", "error" -> NearbyEmptyCard(
+                                hasRoute = focusFrom != null,
+                                onRetry = { nearbyReload++ },
+                                error = nearbyError,
+                                onWatchRoute = if (!nearbyError) ({ onRouteWatch(focusFrom, focusTo) }) else null
                             )
+                            "filtered" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    appText("Нет поездок с такими условиями. Снимите часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн алығыҙ."),
+                                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
+                                )
+                                if (prefFilter.isNotEmpty()) {
+                                    Surface(
+                                        onClick = { prefFilter = emptySet() },
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = CanonSurface,
+                                        border = BorderStroke(1.dp, CanonBorder)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                                            Spacer(Modifier.width(8.dp))
+                                            // BA-draft
+                                            Text(appText("Сбросить фильтры", "Фильтрҙы бушат"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        }
+                                    }
+                                }
+                            }
                             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 itemsIndexed(shownNearby, key = { i, dto -> "${dto.id}#$i" }) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
@@ -445,11 +590,17 @@ internal fun MapScreen(
                                 }
                             }
                         }
+                        }
+                    }
+                }
+                item {
+                    Box(Modifier.appearIn(4)) {
+                        ClinicRidesEntryCard(onClick = onClinicRides)
                     }
                 }
                 nearbyAd?.let { ad ->
                     item {
-                        Box(Modifier.appearIn(4)) {
+                        Box(Modifier.appearIn(5)) {
                             PartnerAdCard(
                                 ad = ad,
                                 stats = adStats[ad.id] ?: AdStats(),
@@ -476,18 +627,19 @@ internal fun MapScreen(
     }
     AnimatedVisibility(
         visible = selectedRide != null,
-        enter = slideInVertically { it } + fadeIn(),
-        exit = slideOutVertically { it } + fadeOut(),
+        // Лист выезжает снизу мягко и чуть медленнее, чем уходит — так он читается «дорого», а не резко.
+        enter = slideInVertically(tween(340)) { it } + fadeIn(tween(240)),
+        exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(160)),
         modifier = Modifier.align(Alignment.BottomCenter)
     ) {
         lastPreview?.let { ride ->
             Surface(
                 color = CanonSurface,
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),   // радиус как у карточек Canon
                 shadowElevation = 16.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(Modifier.navigationBarsPadding().padding(horizontal = 14.dp).padding(top = 10.dp, bottom = 16.dp)) {
+                Column(Modifier.navigationBarsPadding().padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 16.dp)) {
                     Box(
                         Modifier.align(Alignment.CenterHorizontally).width(40.dp).height(4.dp)
                             .clip(RoundedCornerShape(2.dp)).background(CanonBorder)
@@ -563,7 +715,7 @@ private fun MapHero(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(350.dp)
+                .height(352.dp)   // сетка 4dp
         ) {
             if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank() && nativeMapVisible) {
                 YandexMapCard(
@@ -580,42 +732,18 @@ private fun MapHero(
                 MapPreview(Modifier.matchParentSize())
             }
             // Плашка активного маршрута до партнёра + крестик «сбросить» (как в навигаторах).
-            if (adRoute != null) {
-                Surface(
-                    modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
-                    color = CanonSurface,
-                    shape = RoundedCornerShape(14.dp),
-                    shadowElevation = 4.dp,
-                    border = BorderStroke(1.dp, CanonHairlineGreen)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.Directions, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                        Text(
-                            appText("Маршрут · ${adRoute.title}", "Маршрут · ${adRoute.titleBa ?: adRoute.title}"),
-                            color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp)
-                        )
-                        Surface(
-                            onClick = onClearRoute,
-                            shape = CircleShape,
-                            color = CanonMint,
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = appText("Сбросить маршрут", "Маршрутты бетереү"), tint = CanonGreen2, modifier = Modifier.padding(6.dp))
-                        }
-                    }
-                }
-            }
+            // Появляется/уходит мягко — карта не «моргает» плашкой при выборе маршрута из рекламы.
+            MapAdRouteBanner(
+                adRoute = adRoute,
+                onClearRoute = onClearRoute,
+                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+            )
             // Подсказка-маршрут плавает в нижней части карты: свайп вправо → язычок, тап → назад.
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(10.dp)
+                    .padding(12.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     AnimatedVisibility(
@@ -641,44 +769,48 @@ private fun MapHero(
                     ) {
                         Surface(
                             onClick = { cardCollapsed = false },
-                            shape = RoundedCornerShape(topStart = 18.dp, bottomStart = 18.dp),
+                            shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp),
                             color = CanonSurface,
-                            shadowElevation = 4.dp
+                            shadowElevation = 4.dp,
+                            modifier = Modifier.size(width = 48.dp, height = 56.dp)   // тач-цель ≥48dp (§4.5): было 40dp по ширине
                         ) {
-                            Icon(
-                                Icons.Default.ArrowBackIosNew,
-                                contentDescription = appText("Показать популярный маршрут", "Популяр маршрутты күрһәтеү"),
-                                tint = CanonGreen2,
-                                modifier = Modifier.padding(vertical = 14.dp, horizontal = 12.dp).size(16.dp)
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.ArrowBackIosNew,
+                                    contentDescription = appText("Показать популярный маршрут", "Популяр маршрутты күрһәтеү"),
+                                    tint = CanonGreen2,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-        // Кнопки — отдельный блок ПОД картой (не плавают на ней).
+        // Кнопки — отдельный блок ПОД картой (не плавают на ней). Один размер текста, одна высота,
+        // один радиус: пара читается как одна пилюля-действие, зелёная — главная, золотая — вторая.
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 onClick = { onFind(activeRoute ?: popular.firstOrNull() ?: demoPopularRoutes.first()) },
-                modifier = Modifier.weight(1.25f).height(52.dp),
-                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.weight(1.25f).height(56.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
-                contentPadding = PaddingValues(horizontal = 10.dp)
+                contentPadding = PaddingValues(horizontal = 12.dp)
             ) {
-                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(appText("Найти поездку", "Сәфәр табыу"), fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1)
+                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(appText("Найти попутку", "Юлдаш табыу"), fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Button(
                 onClick = onDriver,
-                modifier = Modifier.weight(0.95f).height(52.dp),
-                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.weight(0.95f).height(56.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGold, contentColor = CanonGoldInk),
-                contentPadding = PaddingValues(horizontal = 10.dp)
+                contentPadding = PaddingValues(horizontal = 12.dp)
             ) {
-                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1)
+                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -702,14 +834,20 @@ private fun HomeHeader(onSos: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(timeGreeting(ApiClient.cachedName() ?: "друг"), color = CanonMuted, fontSize = 14.sp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                timeGreeting(ApiClient.cachedName() ?: appText("друг", "дуҫ")),
+                color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
             Text(
                 appText("Куда поедем?", "Ҡайҙа барабыҙ?"),
                 color = CanonGreen,
                 fontSize = 28.sp,
-                lineHeight = 29.sp,
-                fontWeight = FontWeight.Black
+                lineHeight = 32.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
         // Тумблер день/ночь: иконка солнца в тёмной теме (тап → светлая), луны в светлой (тап → тёмная).
@@ -723,24 +861,24 @@ private fun HomeHeader(onSos: () -> Unit) {
                     themeCtx.getSharedPreferences("yuldash_theme", Context.MODE_PRIVATE)
                         .edit().putBoolean("dark_override", newDark).apply()
                 }
-                .size(44.dp),
+                .size(48.dp),   // тач-цель 48dp (a11y §4.5): было 44dp
             shape = RoundedCornerShape(16.dp),
             color = CanonSurface,
             border = BorderStroke(1.dp, CanonBorder)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    if (isDarkNow) Icons.Default.LightMode else Icons.Default.DarkMode,
+                    painterResource(if (isDarkNow) R.drawable.yu_sun else R.drawable.yu_moon),
                     contentDescription = appText(
                         if (isDarkNow) "Светлая тема" else "Тёмная тема",
                         if (isDarkNow) "Яҡты тема" else "Ҡараңғы тема"
                     ),
                     tint = CanonGreen2,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(8.dp))
         Surface(
             modifier = Modifier.bounceClick(onSos),
             shape = RoundedCornerShape(16.dp),
@@ -748,12 +886,17 @@ private fun HomeHeader(onSos: () -> Unit) {
             border = BorderStroke(1.dp, CanonDangerBorder)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Shield, contentDescription = "SOS", tint = CanonRed, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("SOS", color = CanonRed, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Icon(
+                    Icons.Default.Shield,
+                    contentDescription = appText("SOS — экстренная помощь", "SOS — ашығыс ярҙам"),
+                    tint = CanonRed,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("SOS", color = CanonRed, fontWeight = FontWeight.Black, fontSize = 14.sp)
             }
         }
     }
@@ -802,7 +945,7 @@ private fun QuickSearchCard(
         shape = CanonCardShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(if (compact) 12.dp else 14.dp)) {
+        Column(modifier = Modifier.padding(if (compact) 12.dp else 16.dp)) {
             HorizontalPager(
                 state = pagerState,
                 pageSpacing = 12.dp,
@@ -819,15 +962,15 @@ private fun QuickSearchCard(
                 }
                 // Единый макет: бейдж+пилюля (верх) · заголовок фикс.высоты · подпись+точки (низ).
                 // Фикс. высота заголовка → все карточки ровно одного размера, карусель не «прыгает».
-                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 9.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(6.dp))
+                                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
                                 Text(
                                     appText(card.badge, card.badgeBa),
                                     color = CanonGreen2, fontWeight = FontWeight.Bold,
@@ -837,7 +980,7 @@ private fun QuickSearchCard(
                         }
                         // Честный сигнал: пока лента не пришла с сервера — цифры демо/офлайн, помечаем «≈ примерно».
                         if (!feedLive) {
-                            Spacer(Modifier.width(7.dp))
+                            Spacer(Modifier.width(8.dp))
                             Text(
                                 appText("≈ примерно", "≈ яҡынса"),
                                 color = CanonMuted, fontWeight = FontWeight.Medium,
@@ -845,24 +988,24 @@ private fun QuickSearchCard(
                             )
                         }
                         Spacer(Modifier.weight(1f))
-                        Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                        Surface(color = CanonMint, shape = RoundedCornerShape(16.dp)) {
                             Text(
                                 appText(card.pill, card.pillBa),
-                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 color = CanonGreen, fontWeight = FontWeight.Black,
                                 fontSize = 13.sp, maxLines = 1
                             )
                         }
                     }
                     Box(
-                        modifier = Modifier.height(if (compact) 46.dp else 54.dp),
+                        modifier = Modifier.height(if (compact) 48.dp else 56.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         Text(
                             appText(card.title, card.titleBa),
                             color = CanonGreen, fontWeight = FontWeight.Black,
-                            fontSize = if (compact) 19.sp else 23.sp,
-                            lineHeight = if (compact) 22.sp else 26.sp,
+                            fontSize = if (compact) 20.sp else 24.sp,
+                            lineHeight = if (compact) 24.sp else 28.sp,
                             maxLines = 2, overflow = TextOverflow.Ellipsis
                         )
                     }
@@ -874,13 +1017,26 @@ private fun QuickSearchCard(
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(Modifier.width(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        // Индикатор карусели: активная точка вытягивается в пилюлю и подкрашивается —
+                        // переход плавный, поэтому смена карточки читается, а не «мигает».
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             val active = pagerState.currentPage % count
                             safeFeed.forEachIndexed { index, _ ->
+                                val dotWidth by animateDpAsState(
+                                    targetValue = if (index == active) 16.dp else 6.dp,
+                                    animationSpec = tween(280),
+                                    label = "feedDotWidth"
+                                )
+                                val dotColor by animateColorAsState(
+                                    targetValue = if (index == active) CanonGreen2 else CanonBorder,
+                                    animationSpec = tween(280),
+                                    label = "feedDotColor"
+                                )
                                 Box(
                                     modifier = Modifier
-                                        .size(if (index == active) 7.dp else 6.dp)
-                                        .background(if (index == active) CanonGreen2 else CanonBorder, CircleShape)
+                                        .width(dotWidth)
+                                        .height(6.dp)
+                                        .background(dotColor, CircleShape)
                                 )
                             }
                         }
@@ -932,9 +1088,11 @@ internal fun SeniorAccessCard(onSimpleMode: () -> Unit) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Switch(
-                checked = false,
-                onCheckedChange = { onSimpleMode() }
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = appText("Открыть простой режим", "Ябай режимды асыу"),
+                tint = CanonGreen2,
+                modifier = Modifier.size(24.dp)
             )
         }
     }
@@ -987,7 +1145,7 @@ private fun drawRoadRoute(
     onRoutePoints: (List<Point>, Double) -> Unit = { _, _ -> }   // геометрия маршрута + полное время (сек) — для живого ETA
 ): com.yandex.mapkit.directions.driving.DrivingSession? {
     val straightLine = map.mapObjects.addPolyline(Polyline(listOf(from, to))).apply {
-        setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 4f
+        setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 4f
     }
     added += straightLine
     val session = runCatching {
@@ -1013,7 +1171,7 @@ private fun drawRoadRoute(
                         }
                         // Основной (оптимальный по Яндексу — он сам учитывает пробки и закрытия дорог) — зелёным, поверх.
                         added += map.mapObjects.addPolyline(r.geometry).apply {
-                            setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
+                            setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 5f
                         }
                     }
                     runCatching { onEta(r.metadata.weight.time.text) }   // «45 мин» — время в пути
@@ -1343,7 +1501,9 @@ private fun YandexMapCard(
     }
     // Маршрут до партнёра из рекламы — прямо на нашей карте (как активная поездка, но к точке магазина).
     // Есть геолокация → дорога от меня к магазину; нет → просто центрируем карту на магазине с флажком.
-    DisposableEffect(adRoutePoint, lastUserPoint) {
+    // Ключ ТОЛЬКО adRoutePoint (origin захватываем при запуске): раньше был и lastUserPoint → маршрут
+    // пересчитывался DrivingRouter'ом на КАЖДЫЙ GPS-фикс, жёг квоту MapKit и линия мигала.
+    DisposableEffect(adRoutePoint) {
         val map = mapView.mapWindow.map
         val added = mutableListOf<com.yandex.mapkit.map.MapObject>()
         var roadSession: com.yandex.mapkit.directions.driving.DrivingSession? = null
@@ -1357,7 +1517,7 @@ private fun YandexMapCard(
             val origin = lastUserPoint
             if (origin != null) {
                 val straightLine = map.mapObjects.addPolyline(Polyline(listOf(origin, dest))).apply {
-                    setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 4f
+                    setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 4f
                 }
                 added += straightLine
                 // Дорога по дорогам (DrivingRouter). Нет квоты/ошибка → остаётся прямая линия (фоллбэк).
@@ -1379,7 +1539,7 @@ private fun YandexMapCard(
                                     map.mapObjects.remove(straightLine)
                                     added.remove(straightLine)
                                     added += map.mapObjects.addPolyline(r.geometry).apply {
-                                        setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f
+                                        setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 5f
                                     }
                                 }
                             }
@@ -1400,11 +1560,21 @@ private fun YandexMapCard(
             added.forEach { runCatching { map.mapObjects.remove(it) } }
         }
     }
-    // Жизненный цикл карты привязан к появлению/скрытию экрана «Карта».
-    DisposableEffect(Unit) {
-        MapKitFactory.getInstance().onStart()
-        mapView.onStart()
+    // Жизненный цикл карты привязан к lifecycle экрана, а не к композиции: иначе при сворачивании
+    // приложения (экран «Карта» ещё в композиции) mapView.onStop() не звался → MapKit продолжал
+    // рендер/сеть в фоне (батарея + квота). Теперь onStart/onStop по ON_START/ON_STOP владельца.
+    val mapLifecycle = LocalLifecycleOwner.current
+    DisposableEffect(mapLifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> { MapKitFactory.getInstance().onStart(); mapView.onStart() }
+                Lifecycle.Event.ON_STOP -> { mapView.onStop(); MapKitFactory.getInstance().onStop() }
+                else -> {}
+            }
+        }
+        mapLifecycle.lifecycle.addObserver(observer)
         onDispose {
+            mapLifecycle.lifecycle.removeObserver(observer)
             mapView.onStop()
             MapKitFactory.getInstance().onStop()
         }
@@ -1412,10 +1582,20 @@ private fun YandexMapCard(
     Box(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .border(1.dp, CanonBorder, RoundedCornerShape(24.dp))
+            .clip(CanonCardShape)
+            .border(1.dp, CanonBorder, CanonCardShape)
     ) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+        // Мягкая вуаль по верхнему краю карты: чип времени и кнопки зума читаются на ЛЮБОЙ подложке
+        // (лес, город, вода), а карта под ней остаётся видна. Цвет — фон темы, поэтому и днём, и ночью
+        // вуаль «своя». Жесты не перехватывает (нет pointerInput) — карта тянется пальцем как раньше.
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(88.dp)
+                .background(Brush.verticalGradient(listOf(CanonBg.copy(alpha = 0.55f), CanonBg.copy(alpha = 0f))))
+        )
         // ETA-чип (слева сверху): при движении — «≈ … осталось» (живой остаток до конца), иначе общее «≈ … в пути».
         val liveSec = liveRemainSec
         val etaText: String? = when {
@@ -1430,24 +1610,39 @@ private fun YandexMapCard(
             (activeTrip != null || previewRide != null) && routeEta != null -> appText("≈ $routeEta в пути", "≈ $routeEta юлда")
             else -> null
         }
-        if (etaText != null) {
+        // Чип живёт своей жизнью: выезжает сверху, когда маршрут появился, и уходит вверх, когда снят.
+        // Держим последний текст (lastEta), чтобы на выезде чип не «схлопывался» в пустоту, а сама
+        // цифра минут менялась мягкой сменой — по ходу поездки она обновляется постоянно.
+        var lastEta by remember { mutableStateOf("") }
+        LaunchedEffect(etaText) { etaText?.let { lastEta = it } }
+        AnimatedVisibility(
+            visible = etaText != null,
+            enter = fadeIn(tween(240)) + slideInVertically(tween(280)) { -it },
+            exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { -it },
+            modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
+        ) {
             Surface(
-                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                 color = CanonSurface,
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 shadowElevation = 4.dp,
                 border = BorderStroke(1.dp, CanonHairlineGreen)
             ) {
-                Text(
-                    etaText,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1
-                )
+                AnimatedContent(
+                    targetState = lastEta,
+                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+                    label = "etaChip"
+                ) { text ->
+                    Text(
+                        text,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1
+                    )
+                }
             }
         }
         // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
         MapZoomControls(
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp),
             onZoomIn = {
                 val cam = mapView.mapWindow.map.cameraPosition
                 val t = if (LocationPrefs.sharingEnabled) (lastUserPoint ?: cam.target) else cam.target
@@ -1473,10 +1668,10 @@ private fun YandexMapCard(
                     else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                 }
             },
-            // top=120: зум-стек (2×48dp + делитель ≈97dp от top=14 → низ ~111dp); ставим «где я» ниже с зазором ~9dp.
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 120.dp, end = 14.dp).size(48.dp).zIndex(6f),  // тач-цель ≥48dp
-            shape = RoundedCornerShape(13.dp),
-            color = Color.White,
+            // top=120: зум-стек (2×48dp + делитель = 97dp от top=16 → низ 113dp); «где я» ниже с зазором ~7dp, по сетке 4dp.
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 120.dp, end = 16.dp).size(48.dp).zIndex(6f),  // тач-цель ≥48dp
+            shape = RoundedCornerShape(16.dp),
+            color = CanonSurface,   // адаптивно: белая кнопка была нечитаема-инородна в тёмной теме
             shadowElevation = 4.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -1484,8 +1679,8 @@ private fun YandexMapCard(
                     // Запрет геолокации → зачёркнутая стрелка; включил в Профиль→Конфиденциальность → обычная.
                     if (LocationPrefs.sharingEnabled) Icons.Default.NearMe else Icons.Default.NearMeDisabled,
                     contentDescription = if (LocationPrefs.sharingEnabled) appText("Где я", "Мин ҡайҙа") else appText("Геолокация выключена", "Геолокация һүнгән"),
-                    tint = if (LocationPrefs.sharingEnabled) CanonGreen2 else CanonMuted,
-                    modifier = Modifier.size(22.dp)
+                    tint = if (LocationPrefs.sharingEnabled) CanonGreen2 else CanonMutedStrong,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -1493,15 +1688,20 @@ private fun YandexMapCard(
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(14.dp),
+                    .padding(16.dp),
                 colors = CardDefaults.cardColors(containerColor = CanonSurface),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(20.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Lock, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(appText("Геолокация откроется после подтверждения поездки", "Геолокация сәфәр раҫланғас асыла"), fontSize = 15.sp)
+                    Surface(color = CanonMint, shape = CircleShape) {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(16.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        appText("Геолокация откроется после подтверждения поездки", "Геолокация сәфәр раҫланғас асыла"),
+                        color = CanonText, fontSize = 14.sp, lineHeight = 20.sp
+                    )
                 }
             }
         }
@@ -1509,7 +1709,7 @@ private fun YandexMapCard(
         selectedRequest?.let { req ->
             RequestPreviewCard(
                 req = req,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
                 onClose = { selectedRequest = null }
             )
         }
@@ -1530,7 +1730,7 @@ private fun YandexMapCard(
                         // Длины сегментов + полная длина → едем с ПОСТОЯННОЙ скоростью по длине (а не по вершинам).
                         val seg = DoubleArray(road.size - 1) { geoMeters(road[it], road[it + 1]) }
                         val total = seg.sum().coerceAtLeast(1.0)
-                        val line = simMap.mapObjects.addPolyline(Polyline(road)).apply { setStrokeColor(0xCC0B6B3A.toInt()); strokeWidth = 5f }
+                        val line = simMap.mapObjects.addPolyline(Polyline(road)).apply { setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 5f }
                         try {
                             simMap.move(CameraPosition(road.first(), 11.5f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
                             val durMs = 30000.0      // весь маршрут ~30с (спокойный круиз)
@@ -1598,31 +1798,36 @@ internal fun RequestPreviewCard(
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(req.passengerName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                Text(appText("ищет попутку", "юлдаш эҙләй"), color = CanonMuted, fontSize = 12.sp)
+                // Аватар-кружок вместо голой иконки: карточка сразу читается как «человек», а не как плашка.
+                Surface(color = CanonMint, shape = CircleShape) {
+                    Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(req.passengerName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(appText("ищет попутку", "юлдаш эҙләй"), color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+                }
             }
-            Text("${req.fromCity}  →  ${req.toCity}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text("${req.fromCity}  →  ${req.toCity}", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val meta = buildList {
-                if (req.seats > 0) add(appText("${req.seats} мест", "${req.seats} урын"))
+                if (req.seats > 0) add(seatsText(req.seats))
                 req.distanceKm?.let { add(appText("≈ ${it.toInt()} км рядом", "≈ ${it.toInt()} км яҡын")) }
             }.joinToString("  ·  ")
-            if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 13.sp)
-            if (req.comment.isNotBlank()) Text(req.comment, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 3)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            if (meta.isNotBlank()) Text(meta, color = CanonMuted, fontSize = 12.sp)
+            if (req.comment.isNotBlank()) Text(req.comment, color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Button(
                     onClick = { respondOpen = true },
                     modifier = Modifier.weight(1f).height(48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
-                    shape = RoundedCornerShape(14.dp)
-                ) { Text(appText("Откликнуться", "Яуап бирергә"), fontWeight = FontWeight.Bold) }
-                TextButton(onClick = onClose) { Text(appText("Закрыть", "Ябырға"), color = CanonMuted) }
+                    shape = RoundedCornerShape(16.dp)
+                ) { Text(appText("Откликнуться", "Яуап бирергә"), fontWeight = FontWeight.Black, fontSize = 15.sp, maxLines = 1) }
+                TextButton(onClick = onClose) { Text(appText("Закрыть", "Ябырға"), color = CanonMuted, fontSize = 15.sp) }
             }
         }
     }
@@ -1632,7 +1837,7 @@ internal fun RequestPreviewCard(
             onDismissRequest = { respondOpen = false },
             title = { Text(appText("Отклик на заявку", "Заявкаға яуап")) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${req.fromCity} → ${req.toCity}", color = CanonMuted, fontSize = 14.sp)
                     OutlinedTextField(
                         value = price,
@@ -1753,15 +1958,21 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
         modifier = modifier
             .fillMaxWidth()
             .background(
-                Brush.linearGradient(listOf(Color(0xFFDDEEDF), Color(0xFFEEF3E5), Color(0xFFFFE7AC))),
-                RoundedCornerShape(24.dp)
+                // Запасная «мок-карта» (без ключа MapKit) — цвета из Canon-токенов, адаптивны к тёмной теме.
+                Brush.linearGradient(listOf(CanonMint, CanonBg, CanonGold.copy(alpha = 0.20f))),
+                CanonCardShape
             )
-            .border(1.dp, CanonBorder, RoundedCornerShape(24.dp))
+            .border(1.dp, CanonBorder, CanonCardShape)
             .padding(0.dp)
     ) {
+        // Canon-токены — @Composable-значения; читаем их ДО Canvas (DrawScope не композабл-контекст).
+        val routeColor = CanonGreen2
+        val destColor = CanonGold
+        val casingColor = CanonSurface   // «обводка» дороги — фон-подложка, адаптивна к тёмной теме
+        val decorColor = CanonBorder     // декоративные штрихи/пятна
         Canvas(Modifier.fillMaxSize()) {
-            drawCircle(Color.White.copy(alpha = 0.55f), radius = 170f, center = Offset(size.width * 0.05f, size.height * 0.12f))
-            drawCircle(Color(0xFF0B6B3A).copy(alpha = 0.08f), radius = 210f, center = Offset(size.width * 0.95f, size.height * 0.88f))
+            drawCircle(decorColor, radius = 170f, center = Offset(size.width * 0.05f, size.height * 0.12f))
+            drawCircle(routeColor.copy(alpha = 0.08f), radius = 210f, center = Offset(size.width * 0.95f, size.height * 0.88f))
             val route = Path().apply {
                 moveTo(size.width * 0.16f, size.height * 0.28f)
                 cubicTo(
@@ -1777,43 +1988,48 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
                 moveTo(size.width * 0.02f, size.height * 0.58f)
                 cubicTo(size.width * 0.28f, size.height * 0.50f, size.width * 0.48f, size.height * 0.38f, size.width * 0.74f, size.height * 0.18f)
             }
-            drawPath(sideRoad, Color.White.copy(alpha = 0.75f), style = Stroke(width = 11f, cap = StrokeCap.Round))
-            drawPath(sideRoad, Color(0xFF8DB39A).copy(alpha = 0.45f), style = Stroke(width = 3f, cap = StrokeCap.Round))
-            drawPath(route, Color.White, style = Stroke(width = 22f, cap = StrokeCap.Round))
-            drawPath(route, Color(0xFF0B6B3A), style = Stroke(width = 7f, cap = StrokeCap.Round))
-            drawCircle(Color(0xFF0B6B3A), radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
-            drawCircle(Color(0xFFE2A11B), radius = 15f, center = Offset(size.width * 0.84f, size.height * 0.68f))
+            drawPath(sideRoad, casingColor.copy(alpha = 0.75f), style = Stroke(width = 11f, cap = StrokeCap.Round))
+            drawPath(sideRoad, routeColor.copy(alpha = 0.45f), style = Stroke(width = 3f, cap = StrokeCap.Round))
+            drawPath(route, casingColor, style = Stroke(width = 22f, cap = StrokeCap.Round))
+            drawPath(route, routeColor, style = Stroke(width = 7f, cap = StrokeCap.Round))
+            drawCircle(routeColor, radius = 15f, center = Offset(size.width * 0.16f, size.height * 0.28f))
+            drawCircle(destColor, radius = 15f, center = Offset(size.width * 0.84f, size.height * 0.68f))
         }
-        MapLabel(from, Modifier.align(Alignment.TopStart).padding(20.dp))
-        MapLabel(to, Modifier.align(Alignment.CenterEnd).padding(20.dp))
+        MapLabel(from, Modifier.align(Alignment.TopStart).padding(16.dp))
+        MapLabel(to, Modifier.align(Alignment.CenterEnd).padding(16.dp))
         distance?.let { dist ->
             Surface(
-                modifier = Modifier.align(Alignment.TopEnd).padding(18.dp),
-                color = Color.White.copy(alpha = 0.92f),
+                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+                color = CanonSurface.copy(alpha = 0.92f),
                 shape = RoundedCornerShape(999.dp)
             ) {
-                Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(16.dp), tint = CanonGreen2)
-                    Spacer(Modifier.width(5.dp))
-                    Text(dist, fontWeight = FontWeight.Bold)
+                Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(painterResource(R.drawable.yu_route), contentDescription = null, modifier = Modifier.size(16.dp), tint = CanonGreen2)
+                    Spacer(Modifier.width(8.dp))
+                    Text(dist, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CanonText)
                 }
             }
         }
         Card(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(14.dp),
+                .padding(16.dp),
             colors = CardDefaults.cardColors(containerColor = CanonSurface),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(20.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Row(
                 modifier = Modifier.padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Lock, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(appText("Геолокация откроется после подтверждения поездки", "Геолокация сәфәр раҫланғас асыла"), fontSize = 15.sp)
+                Surface(color = CanonMint, shape = CircleShape) {
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(16.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    appText("Геолокация откроется после подтверждения поездки", "Геолокация сәфәр раҫланғас асыла"),
+                    color = CanonText, fontSize = 14.sp, lineHeight = 20.sp
+                )
             }
         }
     }
@@ -1824,11 +2040,15 @@ internal fun MapPreview(modifier: Modifier = Modifier, from: String = "Байм�
 internal fun MapLabel(text: String, modifier: Modifier) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        color = Color.White,
+        shape = RoundedCornerShape(12.dp),
+        color = CanonSurface,   // адаптивно: белый ярлык на тёмной карте заменён на surface темы
         shadowElevation = 3.dp
     ) {
-        Text(text, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontWeight = FontWeight.Bold)
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CanonText
+        )
     }
 }
 
@@ -1836,17 +2056,66 @@ internal fun MapLabel(text: String, modifier: Modifier) {
 // Чистые: сам зум делает вызывающий через колбэки (карта тут не упоминается) → internal, покрыто Robolectric.
 @Composable
 internal fun MapZoomControls(modifier: Modifier = Modifier, onZoomIn: () -> Unit, onZoomOut: () -> Unit) {
-    Surface(modifier = modifier, color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(13.dp), shadowElevation = 3.dp) {
+    Surface(modifier = modifier, color = CanonSurface, shape = RoundedCornerShape(16.dp), shadowElevation = 4.dp) {   // адаптивно (тёмная тема): было хардкод-белое
         Column {
             IconButton(onClick = onZoomIn, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp (a11y §4.5)
-                Icon(Icons.Default.Add, contentDescription = appText("Приблизить", "Яҡынайтыу"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Add, contentDescription = appText("Приблизить", "Яҡынайтыу"), tint = CanonGreen2, modifier = Modifier.size(20.dp))
             }
-            Box(Modifier.width(20.dp).height(1.dp).background(CanonBorder).align(Alignment.CenterHorizontally))
+            Box(Modifier.width(24.dp).height(1.dp).background(CanonBorder).align(Alignment.CenterHorizontally))
             IconButton(onClick = onZoomOut, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp (a11y §4.5)
-                Icon(Icons.Default.Remove, contentDescription = appText("Отдалить", "Йыраҡлаштырыу"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Remove, contentDescription = appText("Отдалить", "Йыраҡлаштырыу"), tint = CanonGreen2, modifier = Modifier.size(20.dp))
             }
         }
     }
 }
 
-
+/**
+ * Плашка активного маршрута до партнёра.
+ *
+ * Вынесена в отдельную функцию НЕ ради красоты: на месте вызова `AnimatedVisibility` стоит
+ * внутри `Box`, но лексически выше есть `Column`, и компилятор выбирал `ColumnScope`-версию,
+ * для которой получателя в этой точке нет — сборка падала с «cannot be called in this context
+ * with an implicit receiver». Здесь ни `Column`, ни `Row` в области видимости нет, поэтому
+ * резолвится обычная версия. Позиционирование приходит извне через [modifier].
+ */
+@Composable
+private fun MapAdRouteBanner(
+    adRoute: PartnerAd?,
+    onClearRoute: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = adRoute != null,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { -it },
+        exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { -it },
+        modifier = modifier,
+    ) {
+        Surface(
+            color = CanonSurface,
+            shape = RoundedCornerShape(16.dp),
+            shadowElevation = 4.dp,
+            border = BorderStroke(1.dp, CanonHairlineGreen),
+        ) {
+            Row(
+                modifier = Modifier.heightIn(min = 48.dp).padding(start = 12.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Default.Directions, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                Text(
+                    appText("Маршрут · ${adRoute?.title ?: ""}", "Маршрут · ${adRoute?.titleBa ?: adRoute?.title ?: ""}"),
+                    color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp),
+                )
+                Surface(
+                    onClick = onClearRoute,
+                    shape = CircleShape,
+                    color = CanonMint,
+                    modifier = Modifier.minimumInteractiveComponentSize().size(32.dp),
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = appText("Сбросить маршрут", "Маршрутты бетереү"), tint = CanonGreen2, modifier = Modifier.padding(8.dp))
+                }
+            }
+        }
+    }
+}

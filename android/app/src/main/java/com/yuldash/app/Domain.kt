@@ -9,9 +9,13 @@ internal data class Ride(
     val to: String,
     val time: String,
     val timeBa: String? = null,
+    val driverId: Int = 0,          // id водителя на сервере → открыть публичный профиль (0 = демо/неизвестно)
     val driver: String,
     val driverAvatar: String = "",
     val driverOnline: Boolean = false,
+    val driverTrips: Int = 0,        // F8: завершённых поездок водителя (бейдж «N поездок»)
+    val driverSince: String = "",    // F8: месяц регистрации "YYYY-MM" (бейдж «С нами с …»)
+    val driverIsWoman: Boolean = false,   // F9: водитель — женщина (opt-in) → бейдж «Водитель-женщина»
     val car: String,
     val carBa: String? = null,
     val price: Int,
@@ -25,6 +29,8 @@ internal data class Ride(
     val smoking: Boolean = false,
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
+    val quiet: Boolean = false,
+    val waypoints: List<String> = emptyList(),   // остановки по пути (A→точки→B)
     val pickup: String = "",
     val pickupLat: Double? = null,
     val pickupLng: Double? = null,

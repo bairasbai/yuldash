@@ -1,14 +1,24 @@
 name: CI
 
-# Запускается при push/PR — ловит регрессии (бэкенд-тесты) автоматически.
-# Готов к работе, как только проект окажется на GitHub (git remote + push).
+# Ловит регрессии (бэкенд-тесты) автоматически.
+# Триггеры: PR (любая ветка) + push в main. Раньше было `push:` + `pull_request:` —
+# это давало ДВА прогона на каждый пуш в ветку с открытым PR (событие push + событие
+# pull_request). Теперь ветки проверяются через свой PR (одно событие), main — на push.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+
+# Новый пуш в ту же ветку/PR отменяет предыдущий незавершённый прогон — минуты не горят вхолостую.
+# Но только для PR: на main отмена оставляла бы «дыры» в истории прогонов при частых пушах.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15          # зависший тест не сожрёт дефолтные 360 минут лимита Actions
     defaults:
       run:
         working-directory: backend
@@ -17,8 +27,151 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip             # кеш зависимостей → быстрее прогон, меньше минут
+          cache-dependency-path: backend/requirements-dev.txt
       - name: Install deps
         run: pip install -r requirements-dev.txt
+      - name: Lint (ruff — мёртвые импорты/переменные, F-правила)
+        # Быстрый гейт: ловит забытые/неиспользуемые импорты и переменные до прогона тестов.
+        # Только F-набор (Pyflakes) — без спорного стиля, чтобы не заваливать PR-ы по мелочи.
+        run: ruff check app/ --select F
       - name: Run tests
+        # Coverage-gate: покрытие пакета app/. Порог мягкий (70%) на старте, чтобы не
+        # заваливать PR-ы — поднять до 80 по мере роста покрытия. term-missing показывает
+        # непокрытые строки прямо в логе. Тесты на изолированной SQLite (conftest), прод-БД не нужна.
+        run: python -m pytest tests/ -q --cov=app --cov-report=term-missing --cov-fail-under=70
+
+  # Тот же набор тестов, но на РЕАЛЬНОМ Postgres (как в проде на yulbash.ru), а не на SQLite.
+  # Зачем отдельная джоба: SQLite не проверяет внешние ключи и не даёт настоящих блокировок строк.
+  # На Postgres прогоняется настоящая гонка брони (test_overbooking_concurrent — потоки под FOR UPDATE)
+  # и включён контроль FK — это доказывает, что новые блокировки денег/брони держат нагрузку.
+  # Плюс валидируем миграции alembic (одна голова, upgrade/downgrade идемпотентны) на реальной БД.
+  backend-tests-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16          # как в проде; UTF-8 по умолчанию (кириллица в тестовых данных)
+        env:
+          POSTGRES_USER: yuldash
+          POSTGRES_PASSWORD: yuldash
+          POSTGRES_DB: yuldash_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install deps
+        run: pip install -r requirements-dev.txt
+      - name: Alembic — одна голова + upgrade/downgrade идемпотентны (на Postgres)
+        # Валидируем миграции на реальной БД: ровно одна голова, полный upgrade → downgrade → upgrade.
+        # Гоняем на отдельной базе yuldash_test, чтобы не пересекаться с create_all тестового прогона.
+        env:
+          DATABASE_URL: postgresql+psycopg2://yuldash:yuldash@localhost:5432/yuldash_test
+        run: |
+          heads=$(alembic heads 2>/dev/null | grep -c 'head' || true)
+          if [ "$heads" != "1" ]; then echo "Ожидалась одна голова alembic, получено: $heads"; alembic heads; exit 1; fi
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+      - name: Отдельная чистая база под тестовый прогон
+        # conftest поднимает схему через create_all; даём ему свежую базу, не тронутую alembic-шагом.
+        run: PGPASSWORD=yuldash psql -h localhost -U yuldash -d yuldash_test -c "CREATE DATABASE yuldash_run;"
+      - name: Run tests on Postgres (FK + реальная гонка брони под FOR UPDATE)
+        env:
+          DATABASE_URL: postgresql+psycopg2://yuldash:yuldash@localhost:5432/yuldash_run
         run: python -m pytest tests/ -q
-        # Тесты на изолированной SQLite (conftest), прод-БД не нужна.
+
+  # Android debug-сборка в CI (закрывает разрыв: раньше APK собирался только локально у Александра).
+  # БЛОКИРУЮЩИЙ: сборка стабильно зелёная (стек такси+курьер+монетизация+доводка собран многократно),
+  # поэтому красный android-build теперь честно валит PR — реальный компилятор Kotlin в CI.
+  #   * google-services.json (FCM) и local.properties (ключи MapKit/геокодера) в git НЕ лежат —
+  #     build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые).
+  android-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45          # две сборки + ~1100 юнит-тестов; первая сборка ещё и тянет зависимости
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # JDK, на котором ЗАПУСКАЕТСЯ Gradle и юнит-тесты, — это НЕ то же самое, что целевой
+          # байткод: jvmTarget/sourceCompatibility остаются 17, их не трогаем.
+          # Почему 21: MapKit (com.yandex.android:maps.mobile:4.39.0-full) поставляется с
+          # байткодом новее 17, и на JDK 17 его классы не грузятся. Сборка APK это переживала
+          # (там классы не загружаются, только компилируются), а юнит-тесты — нет: 43 падения
+          # UnsupportedClassVersionError/NoClassDefFoundError, включая тесты чистой геометрии,
+          # которым MapKit нужен лишь ради типа Point. Локально Александр гоняет тесты под JBR
+          # из Android Studio (это JDK 21) — поэтому у него они шли, а в CI падали.
+          java-version: "21"
+          cache: gradle          # кеш ~/.gradle → быстрее повторные сборки
+      - uses: android-actions/setup-android@v3
+      - name: Собрать debug APK
+        # local.properties/google-services.json в git нет — build.gradle.kts подставляет
+        # безопасные дефолты (пустые ключи, push выключен), так что сборка проходит без секретов.
+        run: chmod +x ./gradlew && ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      # Релизная сборка с R8 (minify+shrink): ловит «в debug работало, в release упало» —
+      # вырезанные R8 классы (рефлексия/JSON/MapKit). Без keystore → неподписанный APK, для проверки достаточно.
+      - name: Build release (R8 minify check)
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+  # Compose-тесты экранов (app/src/test, Robolectric) — их не компилирует ни assembleDebug, ни
+  # локальная сборка Александра, поэтому «уехавшая» сигнатура в тесте до сих пор никем не ловилась.
+  #
+  # ОТДЕЛЬНОЙ РАБОТОЙ, а не шагом внутри android-build: Robolectric поднимает эмулируемый Android
+  # на каждый класс и идёт минутами. Внутри android-build он съедал бюджет 30 минут у сборки APK —
+  # то есть медленный тест мог уронить проверку, которая к нему отношения не имеет.
+  #
+  # БЛОКИРУЮЩАЯ. Заводилась как «пока не блокирующая: состояние тестов неизвестно» — это было
+  # верно ровно до того, как прогон состоялся. Он состоялся: 1103 теста зелёные на этом же дереве
+  # (run 30746442925). Оставлять continue-on-error после этого — держать декоративный гейт:
+  # он рисует галочку и пропускает регрессию (см. docs/lessons.md, «ложно-зелёный CI»).
+  android-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45          # Robolectric медленный: свой запас, чужой сборке не мешает
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          # ЗДЕСЬ 21, а в сборке APK — 17, и это не описка.
+          # Яндекс MapKit 4.39.0 внутри собран под Java 21 (проверено: 920 классов, class-версия 65).
+          # Сборке приложения это не мешает — она пропускает классы через D8/R8. А JVM-тест грузит
+          # их как есть, и JDK 17 отказывается: UnsupportedClassVersionError. Так падали ВСЕ тесты
+          # экранов, которые рисуют что-либо с картой (а её импортируют профиль, создание поездки
+          # и доступность — то есть почти всё). Тесты при этом были совершенно правильные.
+          # Версию сборки приложения не трогаем: она зелёная, и `jvmTarget`/`compileOptions`
+          # остаются 17 — итоговый байт-код приложения от этой строки не меняется.
+          java-version: "21"
+          distribution: temurin
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Тесты экранов (Robolectric + Compose)
+        run: chmod +x ./gradlew && ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+      # Отчёт нужен именно при падении: по нему видно, какой тест и на чём упал.
+      - name: Отчёт о тестах (даже если упали)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-report
+          path: android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore

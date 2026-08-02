@@ -1,0 +1,62 @@
+# =============================================================================
+# Юлдаш · Пример systemd-таймеров (альтернатива cron)
+# -----------------------------------------------------------------------------
+# systemd-таймеры удобнее cron: видно историю запусков (systemctl list-timers),
+# лог в journalctl, автодогон пропущенного (Persistent=true).
+#
+# УСТАНОВКА (на сервере, от root):
+#   1) Создай 4 файла ниже в /etc/systemd/system/ (содержимое — из блоков,
+#      строки раскомментировать, пути подставить свои).
+#   2) systemctl daemon-reload
+#   3) systemctl enable --now yuldash-backup.timer yuldash-restore-verify.timer
+#   4) Проверка:  systemctl list-timers | grep yuldash
+#   5) Разовый прогон вручную:  systemctl start yuldash-backup.service
+#   6) Лог:  journalctl -u yuldash-backup.service -n 50
+# =============================================================================
+
+
+# ===== /etc/systemd/system/yuldash-backup.service ===========================
+# [Unit]
+# Description=Юлдаш — ежедневный бэкап PostgreSQL
+#
+# [Service]
+# Type=oneshot
+# ExecStart=/opt/yuldash/backend/ops/backup.sh
+# # Переменные можно задать здесь или в /opt/yuldash/.backup.env (его читает сам скрипт):
+# # Environment=DB_NAME=yuldash
+# # Environment=BACKUP_DIR=/opt/yuldash/backups
+# # Environment=KEEP_DAYS=14
+
+
+# ===== /etc/systemd/system/yuldash-backup.timer =============================
+# [Unit]
+# Description=Юлдаш — запускать бэкап ежедневно в 04:00
+#
+# [Timer]
+# OnCalendar=*-*-* 04:00:00
+# Persistent=true
+# # Persistent=true догонит запуск, если сервер был выключен в 04:00.
+#
+# [Install]
+# WantedBy=timers.target
+
+
+# ===== /etc/systemd/system/yuldash-restore-verify.service ===================
+# [Unit]
+# Description=Юлдаш — репетиция восстановления из бэкапа
+#
+# [Service]
+# Type=oneshot
+# ExecStart=/opt/yuldash/backend/ops/restore-verify.sh
+
+
+# ===== /etc/systemd/system/yuldash-restore-verify.timer =====================
+# [Unit]
+# Description=Юлдаш — проверять восстановление еженедельно (вс 05:00)
+#
+# [Timer]
+# OnCalendar=Sun *-*-* 05:00:00
+# Persistent=true
+#
+# [Install]
+# WantedBy=timers.target

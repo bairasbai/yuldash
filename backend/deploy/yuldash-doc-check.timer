@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Yuldash driver document check once a day
+
+[Timer]
+# Раз в сутки утром по Уфе (UTC+5 → 04:10 UTC = 09:10 местного): напоминание приходит,
+# когда человек проснулся и может съездить за документом, а не ночью в пустоту.
+OnCalendar=*-*-* 04:10:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -73,10 +73,12 @@ class AccessibilityDeep3ContentTest {
                 womenOnly = false, childSeat = false, pets = false, wheelchair = false,
                 baggage = false, nonSmoking = false, airConditioner = false,
                 loading = loading,
+                onlyTrusted = false,
                 onCategoryChange = {}, onSeatsChange = {}, onPriceChange = {},
                 onCommentChange = {}, onTimeChange = {},
                 onWomenOnlyChange = {}, onChildSeatChange = {}, onPetsChange = {},
                 onWheelchairChange = {}, onBaggageChange = {}, onNonSmokingChange = {},
+                onOnlyTrustedChange = {},
                 onAirConditionerChange = {},
                 onSubmit = onSubmit,
                 // Слоты полей адреса не передаём → Content рисует простые OutlinedTextField (без гео-сети).

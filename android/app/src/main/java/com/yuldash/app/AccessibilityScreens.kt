@@ -4,6 +4,7 @@ package com.yuldash.app
 // доверенные контакты, повтор маршрута, обратный звонок. Вынесено из MainActivity (Фаза 1).
 // Импорты скопированы целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -19,6 +20,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.togetherWith
@@ -86,6 +89,7 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -101,6 +105,7 @@ import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
@@ -230,7 +235,6 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -263,6 +267,15 @@ internal fun SimpleModeScreen(
     onChat: () -> Unit
 ) {
     val latest3 = remember(latestRequests) { latestRequests.take(3) }
+    val ctx = LocalContext.current
+    var showFontDialog by remember { mutableStateOf(false) }
+    if (showFontDialog) {
+        FontScalePickerDialog(
+            current = FontScalePrefs.option,
+            onPick = { FontScalePrefs.set(ctx, it); showFontDialog = false },
+            onDismiss = { showFontDialog = false },
+        )
+    }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Простой режим", "Ябай режим"), onBack) }) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -281,6 +294,7 @@ internal fun SimpleModeScreen(
             item { Box(Modifier.appearIn(1)) { SeniorBigAction(Icons.Default.PhoneLocked, appText("Позвоните мне", "Миңә шылтыратығыҙ"), appText("Помощник сам перезвонит", "Ярдамсы үҙе шылтыратыр"), onCallbackHelp) } }
             item { Box(Modifier.appearIn(2)) { SeniorBigAction(Icons.Default.Shield, appText("SOS", "SOS"), appText("Экстренная помощь", "Ашығыс ярҙам"), onSos, danger = true) } }
             item { Box(Modifier.appearIn(3)) { SeniorBigAction(Icons.Default.Refresh, appText("Частые маршруты", "Йыш маршруттар"), appText("В больницу, к детям, на рынок", "Больницаға, балаларға, баҙарға"), onRepeatTrip) } }
+            item { Box(Modifier.appearIn(4)) { SeniorBigAction(Icons.Default.FormatSize, appText("Крупный шрифт", "Эре шрифт"), fontScaleLabel(FontScalePrefs.option), { showFontDialog = true }) } }
             item { Text(appText("Ещё", "Тағы"), color = CanonMuted, fontWeight = FontWeight.Bold) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -343,7 +357,12 @@ internal fun SimpleSmallAction(title: String, icon: ImageVector, onClick: () -> 
     }
 }
 
-// Поле адреса с автоподсказкой через Яндекс.Геокодер.
+/** Имя населённого пункта на выбранном языке: башкирское, если есть перевод, иначе русское. */
+internal fun settlementTitleFor(language: AppLanguage, s: com.yuldash.app.data.SettlementDto): String =
+    if (language == AppLanguage.Ba) (s.nameBa ?: s.nameRu) else s.nameRu
+
+// Поле адреса с автоподсказкой: сначала наш справочник городов/сёл (/settlements, с 1-го символа),
+// ниже — Яндекс.Геокодер (адреса, с 2-х символов). Ошибка сети → подсказок просто нет, без красного.
 @Composable
 internal fun AddressSuggestField(
     value: String,
@@ -351,14 +370,23 @@ internal fun AddressSuggestField(
     label: String,
     leadingIcon: ImageVector
 ) {
+    val language = LocalAppLanguage.current
+    var towns by remember { mutableStateOf<List<com.yuldash.app.data.SettlementDto>>(emptyList()) }
     var hits by remember { mutableStateOf<List<GeoHit>>(emptyList()) }
     var picked by remember { mutableStateOf(true) }   // не подсказывать для предзаполненных значений при открытии
     LaunchedEffect(value) {
         if (picked) { picked = false; return@LaunchedEffect }
-        if (value.trim().length < 2) { hits = emptyList(); return@LaunchedEffect }
-        delay(350)
-        hits = GeocoderClient.suggest(value)
+        val q = value.trim()
+        if (q.isEmpty()) { towns = emptyList(); hits = emptyList(); return@LaunchedEffect }
+        delay(250)   // дебаунс: не дёргаем сеть на каждую букву
+        towns = ApiClient.searchSettlements(q).getOrDefault(emptyList())
+        if (q.length < 2) { hits = emptyList(); return@LaunchedEffect }
+        delay(100)
+        // Геокодер — вторым эшелоном; дубли того, что уже дал справочник, прячем.
+        val townTitles = towns.map { it.nameRu.lowercase() }.toSet()
+        hits = GeocoderClient.suggest(value).filter { it.title.lowercase() !in townTitles }
     }
+    fun pick(text: String) { picked = true; onValueChange(text); towns = emptyList(); hits = emptyList() }
     Column(Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = value,
@@ -369,7 +397,7 @@ internal fun AddressSuggestField(
             shape = RoundedCornerShape(16.dp),
             singleLine = true
         )
-        if (hits.isNotEmpty()) {
+        AnimatedVisibility(visible = towns.isNotEmpty() || hits.isNotEmpty(), enter = fadeIn(tween(150)), exit = fadeOut(tween(120))) {
             Surface(
                 color = CanonSurface,
                 shape = RoundedCornerShape(12.dp),
@@ -377,15 +405,35 @@ internal fun AddressSuggestField(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
             ) {
                 Column {
-                    hits.forEach { hit ->
+                    towns.take(6).forEach { town ->
+                        val title = settlementTitleFor(language, town)
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { picked = true; onValueChange(hit.title); hits = emptyList() }
+                                .clickable { pick(title) }
+                                .heightIn(min = 48.dp)
                                 .padding(horizontal = 14.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(title, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (town.region.isNotBlank()) {
+                                Spacer(Modifier.width(8.dp))
+                                Text(town.region, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    hits.forEach { hit ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { pick(hit.title) }
+                                .heightIn(min = 48.dp)
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(hit.title, color = CanonText, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
@@ -437,7 +485,7 @@ private fun VoiceRequestPlayRow(url: String) {
                         playing = true
                     }
                 },
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(if (playing) Icons.Default.Close else Icons.Default.PlayArrow, contentDescription = appText("Слушать заявку", "Заявканы тыңлау"), tint = CanonGreen2)
             }
@@ -545,7 +593,7 @@ internal fun VoiceRequestScreen(
                         text = appText("Создать заявку", "Заявка булдырыу"),
                         loading = submittingText,
                         onClick = {
-                            // Разбор «откуда → куда» как в fireRequestFromRoute, но ждём ответ сервера.
+                            // Разбор строки-маршрута «откуда → куда», но здесь ждём ответ сервера.
                             val parts = text.split("→", "->", "-").map { it.trim() }.filter { it.isNotEmpty() }
                             val from = parts.getOrElse(0) { text.trim() }
                             val to = parts.getOrElse(1) { "" }
@@ -631,10 +679,11 @@ internal fun CreatePassengerRequestScreen(
     var baggage by remember { mutableStateOf(false) }
     var nonSmoking by remember { mutableStateOf(false) }
     var airConditioner by remember { mutableStateOf(false) }
+    var onlyTrusted by remember { mutableStateOf(false) }   // «только для своих» (L3)
     val categories = listOf(
         "regular" to LocalizedText("Обычная", "Ғәҙәти"),
         "urgent" to LocalizedText("Срочно", "Ашығыс"),
-        "parcel" to LocalizedText("Посылка", "Посылка"),
+        "parcel" to LocalizedText("Посылка", "Бандероль"),
         "cargo" to LocalizedText("Груз", "Йөк"),
         "kids" to LocalizedText("С детьми", "Балалар менән")
     )
@@ -644,6 +693,12 @@ internal fun CreatePassengerRequestScreen(
     val scope = rememberCoroutineScope()
     val sendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
     var submitting by remember { mutableStateOf(false) }
+    // F14: выбранная точка сбора из подсказок (у заявки нет своей pickup-колонки — ориентир кладём в комментарий,
+    // id пополняет справочник). null = не выбрано / ручной ввод.
+    var pickupPointId by remember { mutableStateOf<Int?>(null) }
+    var pickupLabel by remember { mutableStateOf("") }
+    val isBa = LocalAppLanguage.current == AppLanguage.Ba
+    val meetPrefix = appText("Точка сбора", "Йыйылыу нөктәһе")
 
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Создать заявку", "Заявка булдырыу"), onBack) }) { padding ->
         CreatePassengerRequestContent(
@@ -651,6 +706,7 @@ internal fun CreatePassengerRequestScreen(
             comment = comment, categories = categories, selectedCategoryText = selectedCategoryText,
             womenOnly = womenOnly, childSeat = childSeat, pets = pets, wheelchair = wheelchair,
             baggage = baggage, nonSmoking = nonSmoking, airConditioner = airConditioner,
+            onlyTrusted = onlyTrusted,
             loading = submitting,
             onCategoryChange = { category = it }, onSeatsChange = { seats = it }, onPriceChange = { price = it },
             onCommentChange = { comment = it }, onTimeChange = { time = it },
@@ -658,6 +714,7 @@ internal fun CreatePassengerRequestScreen(
             onPetsChange = { pets = it }, onWheelchairChange = { wheelchair = it },
             onBaggageChange = { baggage = it }, onNonSmokingChange = { nonSmoking = it },
             onAirConditionerChange = { airConditioner = it },
+            onOnlyTrustedChange = { onlyTrusted = it },
             onSubmit = {
                 if (submitting) return@CreatePassengerRequestContent   // гард двойного нажатия
                 val (apiCat, withKids) = when (category) {
@@ -676,15 +733,22 @@ internal fun CreatePassengerRequestScreen(
                 submitting = true
                 scope.launch {
                     // Ждём ответ сервера: «создано» показываем только при реальном успехе POST.
+                    // F14: если выбрана точка сбора — добавляем ориентир в комментарий (у заявки нет pickup-поля),
+                    // чтобы водитель видел «где встречаемся»; pickupPointId пополняет справочник.
+                    val commentWithPickup = if (pickupLabel.isNotBlank())
+                        listOf("$meetPrefix: $pickupLabel", comment.trim()).filter { it.isNotBlank() }.joinToString("\n")
+                    else comment.trim()
                     ApiClient.createRequest(
                         from.trim(), to.trim(),
                         seats.toIntOrNull() ?: 1,
-                        apiCat, withKids, comment.trim(), priceVal,
+                        apiCat, withKids, commentWithPickup, priceVal,
                         assisted = true,   // заявка за близкого → уведомить админа
                         desiredAt = desiredIso,
                         womenOnly = womenOnly, childSeat = childSeat, pets = pets,
                         wheelchair = wheelchair, nonSmoking = nonSmoking,
                         airConditioner = airConditioner, baggage = baggage,
+                        onlyTrusted = onlyTrusted,
+                        pickupPointId = pickupPointId,
                     )
                         .onSuccess { newId ->
                             onCreateRequest(
@@ -709,6 +773,12 @@ internal fun CreatePassengerRequestScreen(
             // Поля адреса с гео-подсказками (собственный эффект) — слотами, чтобы Content остался чистым.
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
             toField = { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
+            pickupChips = {
+                PickupSuggestionChips(city = from, selectedId = pickupPointId) { p ->
+                    pickupPointId = p.id
+                    pickupLabel = if (isBa && p.titleBa.isNotBlank()) p.titleBa else p.titleRu
+                }
+            },
             modifier = Modifier.padding(padding),
         )
     }
@@ -746,6 +816,7 @@ internal fun CreatePassengerRequestContent(
     baggage: Boolean,
     nonSmoking: Boolean,
     airConditioner: Boolean,
+    onlyTrusted: Boolean,
     loading: Boolean,
     onCategoryChange: (String) -> Unit,
     onSeatsChange: (String) -> Unit,
@@ -759,11 +830,17 @@ internal fun CreatePassengerRequestContent(
     onBaggageChange: (Boolean) -> Unit,
     onNonSmokingChange: (Boolean) -> Unit,
     onAirConditionerChange: (Boolean) -> Unit,
+    onOnlyTrustedChange: (Boolean) -> Unit,
     onSubmit: () -> Unit,
     fromField: (@Composable () -> Unit)? = null,
     toField: (@Composable () -> Unit)? = null,
+    pickupChips: (@Composable () -> Unit)? = null,   // F14: подсказки точек сбора (умный слот)
     modifier: Modifier = Modifier,
 ) {
+    // «Дополнительно»: условия поездки + «только для своих» + комментарий свёрнуты, чтобы не пугать
+    // пожилых и новичков. Основное (откуда/куда/когда/места/цена) всегда на виду. Ни одно поле не теряется.
+    var extrasExpanded by remember { mutableStateOf(false) }
+    val extrasChevron by animateFloatAsState(if (extrasExpanded) 180f else 0f, label = "extrasChevron")
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -801,6 +878,7 @@ internal fun CreatePassengerRequestContent(
                 singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)
             )
         }
+        if (pickupChips != null) item { pickupChips() }   // F14: чипы «частые точки сбора» для города отправления
         item {
             val ctxDt = LocalContext.current
             // Нативный календарь Android: башкирской локали (ba) в системе нет → русский для обоих языков (вместо англ.).
@@ -858,29 +936,69 @@ internal fun CreatePassengerRequestContent(
                 }
             }
         }
+        // «Дополнительно» — сворачиваемый блок: условия поездки, «только для своих», комментарий.
+        // По умолчанию свёрнут, чтобы форма не перегружала. Плавное раскрытие. Ни одного поля не потеряли.
         item {
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Column(Modifier.padding(vertical = 6.dp)) {
-                    Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
-                    PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
-                    PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), childSeat, onChildSeatChange)
-                    PrefToggleRow(Icons.Default.Pets, appText("Еду с животным", "Хайуан менән"), pets, onPetsChange)
-                    PrefToggleRow(Icons.Default.Person, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair, onWheelchairChange)
-                    PrefToggleRow(Icons.Default.Luggage, appText("Есть багаж", "Багаж бар"), baggage, onBaggageChange)
-                    PrefToggleRow(Icons.Default.Block, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking, onNonSmokingChange)
-                    PrefToggleRow(Icons.Default.AcUnit, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
+                Column {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .bounceClick { extrasExpanded = !extrasExpanded }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, tint = CanonGreen2)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(appText("Дополнительно", "Өҫтәмә"), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                            Text(
+                                appText("Условия поездки, «только для своих», комментарий", "Сәфәр шарттары, «үҙебеҙҙекеләр өсөн», комментарий"),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 16.sp,
+                            )
+                        }
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (extrasExpanded) appText("Свернуть", "Йыйыу") else appText("Развернуть", "Асыу"),
+                            tint = CanonMuted,
+                            modifier = Modifier.graphicsLayer { rotationZ = extrasChevron }
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible = extrasExpanded,
+                        enter = expandVertically(tween(220)) + fadeIn(tween(180)),
+                        exit = shrinkVertically(tween(200)) + fadeOut(tween(140)),
+                    ) {
+                        Column(Modifier.padding(bottom = 8.dp)) {
+                            PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"), womenOnly, onWomenOnlyChange)
+                            PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"), childSeat, onChildSeatChange)
+                            PrefToggleRow(R.drawable.yu_pet, appText("Еду с животным", "Хайуан менән"), pets, onPetsChange)
+                            PrefToggleRow(R.drawable.yu_accessible, appText("Инвалидная коляска", "Инвалид коляскаһы"), wheelchair, onWheelchairChange)
+                            PrefToggleRow(R.drawable.yu_luggage, appText("Есть багаж", "Багаж бар"), baggage, onBaggageChange)
+                            PrefToggleRow(R.drawable.yu_smoke_free, appText("Некурящий салон", "Тартмаусы салон"), nonSmoking, onNonSmokingChange)
+                            PrefToggleRow(R.drawable.yu_ac, appText("Нужен кондиционер", "Кондиционер кәрәк"), airConditioner, onAirConditionerChange)
+                            PrefToggleRow(Icons.Default.Groups, appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"), onlyTrusted, onOnlyTrustedChange)
+                            Text(
+                                appText(
+                                    "Заявку увидят и возьмут только проверенные «свои» (уровень «Свой»).",
+                                    "Заявканы тик тикшерелгән «үҙебеҙҙекеләр» (Үҙебеҙҙеке кимәле) күрер һәм алыр.",
+                                ),
+                                modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 12.dp),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                            )
+                            OutlinedTextField(
+                                value = comment,
+                                onValueChange = onCommentChange,
+                                label = { Text(appText("Комментарий", "Комментарий")) },
+                                placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).heightIn(min = 96.dp),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                        }
+                    }
                 }
             }
-        }
-        item {
-            OutlinedTextField(
-                value = comment,
-                onValueChange = onCommentChange,
-                label = { Text(appText("Комментарий", "Комментарий")) },
-                placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
-                shape = RoundedCornerShape(16.dp)
-            )
         }
         item {
             VoiceParsedCard(
@@ -893,7 +1011,10 @@ internal fun CreatePassengerRequestContent(
                         time.isNotBlank()
                     ),
                     CheckLine(
-                        listOf("$seats ${appText("место", "урын")}", selectedCategoryText).joinToString(" · "),
+                        listOf(
+                            seats.toIntOrNull()?.let { seatsText(it) } ?: "$seats ${appText("место", "урын")}",
+                            selectedCategoryText
+                        ).joinToString(" · "),
                         seats.isNotBlank()
                     ),
                     CheckLine(appText("Готовая сумма: $price ₽", "Әҙер сумма: $price ₽"), price.isNotBlank())
@@ -951,7 +1072,11 @@ internal fun FamilyOrderScreen(
             onSubmit = {
                 if (submitting) return@FamilyOrderFormContent   // гард двойного нажатия
                 val f = fromCity.trim(); val t = toCity.trim()
-                val comment = if (phone.isBlank()) commentLabel else "$commentLabel · ${phone.trim()}"
+                // ПРИВАТНОСТЬ: телефон близкого НЕ кладём в публичный комментарий заявки —
+                // он виден всем водителям в ленте ДО подтверждения (утечка ПДн третьего лица).
+                // Комментарий — только нейтральная метка. Контакт раскрывается после матча (в чате брони).
+                // TODO(backend): отдельное поле relative_phone с раскрытием только матч-водителю — docs/tasks.md.
+                val comment = commentLabel
                 submitError = null
                 submitting = true
                 scope.launch {

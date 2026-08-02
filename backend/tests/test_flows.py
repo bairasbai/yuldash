@@ -55,7 +55,33 @@ def test_price_hint(client, user_factory):
     drv = user_factory("PHDrv", role=UserRole.driver)
     _publish(client, drv, frm="Зилаир", to="Уфа", price=900)
     body = client.get("/rides/price_hint", params={"from_city": "Зилаир", "to_city": "Уфа"}).json()
+    # Обратная совместимость: старые поля на месте.
     assert body["count"] >= 1 and body["avg"] > 0
+
+
+def test_price_hint_fuel_estimate_known_cities(client):
+    """Справедливая цена: для известных городов (справочник БашРТ) считаются
+    distance_km и fuel_estimate_kop = км × расход × цена бензина."""
+    from app.config import settings
+    from app.services import geocode_city, haversine_km
+
+    body = client.get("/rides/price_hint", params={"from_city": "Уфа", "to_city": "Сибай"}).json()
+    assert body["distance_km"] is not None and body["distance_km"] > 0
+    assert body["fuel_estimate_kop"] is not None and body["fuel_estimate_kop"] > 0
+
+    # Сверяем с формулой контракта напрямую.
+    f, t = geocode_city("Уфа"), geocode_city("Сибай")
+    dist = round(haversine_km(f[0], f[1], t[0], t[1]), 1)
+    expected_kop = round(dist * (settings.fuel_consumption_l_per_100km / 100.0) * settings.fuel_price_rub_per_liter * 100)
+    assert body["distance_km"] == dist
+    assert body["fuel_estimate_kop"] == expected_kop
+
+
+def test_price_hint_fuel_null_unknown_city(client):
+    """Нет координат хотя бы одного конца → distance_km / fuel_estimate_kop = null (без краша)."""
+    body = client.get("/rides/price_hint", params={"from_city": "Уфа", "to_city": "ГородКоторогоНет"}).json()
+    assert body["distance_km"] is None
+    assert body["fuel_estimate_kop"] is None
 
 
 def test_rides_near_distance(client, user_factory):
@@ -151,13 +177,21 @@ def test_cannot_book_own_ride(client, user_factory):
     assert client.post("/bookings", headers=drv["auth"], json={"ride_id": ride["id"], "seats": 1}).status_code == 400
 
 
-def test_confirm_only_by_driver(client, user_factory):
+def test_confirm_only_by_driver(client, user_factory, monkeypatch):
     drv, pax, ride, booking = _trip(client, user_factory)
+    pushed = []
+    # RC: бронь теперь уведомляет через services.push_notification (F5) — перехватываем send_push внутри него.
+    monkeypatch.setattr("app.services.send_push", lambda s, uid, title, body, **kw: pushed.append((uid, title)))
     # пассажир не может подтвердить
     assert client.post(f"/bookings/{booking['id']}/confirm", headers=pax["auth"]).status_code == 403
     # водитель — может
     r = client.post(f"/bookings/{booking['id']}/confirm", headers=drv["auth"])
     assert r.status_code == 200 and r.json()["status"] == "confirmed"
+    # F2: пассажиру ушёл push «Бронь подтверждена» (открывает телефон/точку сбора)
+    assert (pax["id"], "Бронь подтверждена") in pushed
+    # идемпотентный повтор — без второго пуша
+    assert client.post(f"/bookings/{booking['id']}/confirm", headers=drv["auth"]).status_code == 200
+    assert len([p for p in pushed if p[1] == "Бронь подтверждена"]) == 1
 
 
 def test_booking_details_unlock_after_confirm(client, user_factory):
@@ -287,6 +321,32 @@ def test_referral_flow(client, user_factory):
     assert client.post("/referral/redeem", headers=a["auth"], json={"code": code}).status_code == 400
 
 
+def test_driver_referral_bonus(client, user_factory):
+    """Узел F19/B8: базовый реферал (+1 обоим по коду) работает и не сломан. А ДОП.
+    водительский бонус начисляет СТРОГАЯ версия B8 — за реально ЗАВЕРШЁННЫЕ поездки
+    приглашённого с ≥3 разными пассажирами (см. test_antifraud), а НЕ за факт публикации
+    рейса. Публикация сама по себе доп. бонус не даёт (защита от накрутки пустыми рейсами)."""
+    inviter = user_factory("InviteDrvA")
+    invited = user_factory("InviteDrvB")
+    code = client.get("/referral/me", headers=inviter["auth"]).json()["code"]
+    # обычный реферал: invited вводит код → оба +1 (базовый бонус, как и раньше — не сломан)
+    assert client.post("/referral/redeem", headers=invited["auth"], json={"code": code}).json()["credits"] == 1
+    assert client.get("/referral/me", headers=inviter["auth"]).json()["credits"] == 1
+    # invited публикует рейс — доп. водительский бонус НЕ начисляется на публикацию
+    # (узел B8: бонус только за завершённые поездки с разными пассажирами).
+    _publish(client, invited, frm="Баймак", to="Уфа")
+    assert client.get("/referral/me", headers=inviter["auth"]).json()["credits"] == 1
+
+
+def test_driver_referral_no_inviter_no_bonus(client, user_factory):
+    """Не приглашённый водитель публикует рейс → водительский бонус никому не начисляется
+    (обычный поток публикации не ломается, никаких побочных начислений)."""
+    solo = user_factory("SoloDrv")
+    before = client.get("/referral/me", headers=solo["auth"]).json()["credits"]
+    _publish(client, solo, frm="Баймак", to="Магнитогорск")
+    assert client.get("/referral/me", headers=solo["auth"]).json()["credits"] == before
+
+
 def test_boost_free_consumes_credit(client, user_factory):
     drv = user_factory("BoostDrv", role=UserRole.driver)
     other = user_factory("BoostRef")
@@ -331,8 +391,10 @@ def test_chat_conversations_notifications(client, user_factory):
     assert msgs[-1]["text"] == "Я на месте"
     convs = client.get("/conversations", headers=drv["auth"]).json()
     assert any(c["booking_id"] == bid for c in convs)
+    # Центр уведомлений: типизированная лента {unread, items}; входящее сообщение → уведомление type=message.
     notes = client.get("/notifications", headers=drv["auth"]).json()
-    assert any(n["type"] == "message" for n in notes)
+    assert notes["unread"] >= 1
+    assert any(n["type"] == "message" for n in notes["items"])
 
 
 # ----------------------------- рейтинги -----------------------------
@@ -375,6 +437,26 @@ def test_share_only_passenger(client, user_factory):
     c = client.post("/trusted-contacts", headers=drv["auth"], json={"name": "X"}).json()
     # водитель не может расшарить чужую (пассажирскую) поездку
     assert client.post(f"/bookings/{booking['id']}/share", headers=drv["auth"], json={"contact_id": c["id"]}).status_code == 403
+
+
+def test_trusted_contact_validation_and_cap(client, user_factory):
+    """P1: анти-SMS-бомбинг — кривой номер отклоняется, число контактов ограничено."""
+    pax = user_factory("Кеп")
+    # кривой номер (буквы/короткий) → 400
+    assert client.post("/trusted-contacts", headers=pax["auth"],
+                       json={"name": "Плохой", "phone": "abc"}).status_code == 400
+    assert client.post("/trusted-contacts", headers=pax["auth"],
+                       json={"name": "Короткий", "phone": "12345"}).status_code == 400
+    # заполняем до потолка валидными номерами
+    for i in range(10):
+        r = client.post("/trusted-contacts", headers=pax["auth"],
+                        json={"name": f"К{i}", "phone": f"+7999000{i:04d}"})
+        assert r.status_code == 200, r.text
+    # 11-й — отказ
+    over = client.post("/trusted-contacts", headers=pax["auth"],
+                       json={"name": "Лишний", "phone": "+79990009999"})
+    assert over.status_code == 400
+    assert "довер" in over.json()["detail"].lower()
 
 
 def test_trip_status_bad_value(client, user_factory):
@@ -448,8 +530,10 @@ def test_upload_photo_and_bad_b64(client, user_factory):
     r = client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "jpg"})
     assert r.status_code == 200 and "/secure/docs/" in r.json()["url"]
     assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": "!!!notb64!!!", "ext": "jpg"}).status_code == 400
-    # запрещённое расширение
-    assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "exe"}).status_code == 400
+    # Ярлык расширения от клиента игнорируем — тип берём из содержимого (фикс «фото не сохраняется»):
+    # валидный JPEG, помеченный «exe», сохраняется как .jpg (не .exe), а не отвергается.
+    r_exe = client.post("/upload/photo", headers=u["auth"], json={"photo_b64": good, "ext": "exe"})
+    assert r_exe.status_code == 200 and r_exe.json()["url"].endswith(".jpg")
     # R2: байты без JPEG-сигнатуры под видом .jpg → 400 (magic-bytes)
     notimg = base64.b64encode(b"this is not an image").decode()
     assert client.post("/upload/photo", headers=u["auth"], json={"photo_b64": notimg, "ext": "jpg"}).status_code == 400
@@ -469,9 +553,12 @@ def test_feed_and_routes_shapes(client, user_factory):
     assert isinstance(client.get("/popular-routes").json(), list)
 
 
-def test_geocode_empty_without_key(client):
+def test_geocode_empty_without_key(client, user_factory):
     # ключ геокодера в тестах не задан → пустой список, не падаем
-    assert client.get("/geocode", params={"q": "Сибай"}).json() == {"items": []}
+    u = user_factory("Гео")
+    assert client.get("/geocode", headers=u["auth"], params={"q": "Сибай"}).json() == {"items": []}
+    # без авторизации — 401 (защита квоты Яндекса от анонимного абуза)
+    assert client.get("/geocode", params={"q": "Сибай"}).status_code == 401
 
 
 def test_ads_empty_without_seed(client):
@@ -746,23 +833,33 @@ def test_driver_rides_own_only(client, user_factory):
     assert client.get("/driver/rides").status_code == 401   # нужен токен
 
 
-def test_yookassa_webhook_only_known_payment(client, user_factory):
-    """P1: вебхук активирует ТОЛЬКО известный платёж; чужой/случайный id — no-op (анти-амплификация)."""
+def test_yookassa_webhook_only_known_payment(client, user_factory, monkeypatch):
+    """P1: вебхук активирует ТОЛЬКО известный платёж И только при активном yookassa;
+    чужой/случайный id — no-op (анти-амплификация); mock/sbp_manual — вебхук не активирует ничего."""
     from app.db import engine
     from app.models import Payment, Ride
-    from sqlmodel import Session, select
+    from sqlmodel import Session
     drv = user_factory("WhDrv", role=UserRole.driver)
     ride = _publish(client, drv, frm="ХукГрад", to="Сибай")
-    # эмулируем выпущенный нами yookassa-платёж (pending)
+    # эмулируем выпущенный нами платёж (pending)
     with Session(engine) as s:
         s.add(Payment(user_id=drv["id"], purpose="boost", ride_id=ride["id"], tier="day",
                       amount_kop=5000, provider_id="pid_known", status="pending"))
         s.commit()
+    # SECURITY: при провайдере != yookassa (в тестах дефолт mock) вебхук НЕ активирует даже
+    # известный платёж — иначе поддельный POST активировал бы sbp_manual/mock-платёж бесплатно.
+    assert client.post("/payments/yookassa/webhook", json={"object": {"id": "pid_known"}}).status_code == 200
+    with Session(engine) as s:
+        assert s.get(Ride, ride["id"]).boosted_until is None      # mock-провайдер → не активировано
+
+    # Дальше — реальный путь yookassa: fetch_payment замокан на succeeded.
+    monkeypatch.setattr("app.config.settings.payments_provider", "yookassa")
+    monkeypatch.setattr("app.routers.payments.fetch_payment", lambda pid: {"status": "succeeded", "metadata": {}})
     # чужой id — ничего не активирует, 200
     assert client.post("/payments/yookassa/webhook", json={"object": {"id": "pid_random_attacker"}}).status_code == 200
     with Session(engine) as s:
         assert s.get(Ride, ride["id"]).boosted_until is None      # не тронуто
-    # наш id — fetch_payment в dev возвращает succeeded → активируется
+    # наш id + yookassa → активируется
     assert client.post("/payments/yookassa/webhook", json={"object": {"id": "pid_known"}}).status_code == 200
     with Session(engine) as s:
         assert s.get(Ride, ride["id"]).boosted_until is not None   # поднято

@@ -115,7 +115,8 @@ def test_chat_message_must_belong_to_booking(client, user_factory):
 def test_conversations_and_notifications_empty_and_voice_fallback(client, user_factory):
     solo = user_factory("ChatSolo")
     assert client.get("/conversations", headers=solo["auth"]).json() == []
-    assert client.get("/notifications", headers=solo["auth"]).json() == []
+    # Центр уведомлений: типизированная лента {unread, items}; у нового юзера событий нет.
+    assert client.get("/notifications", headers=solo["auth"]).json() == {"unread": 0, "items": []}
 
     driver, passenger, _ride, booking = _trip(client, user_factory, "Voice")
     booking_id = booking["id"]
@@ -132,10 +133,22 @@ def test_conversations_and_notifications_empty_and_voice_fallback(client, user_f
 
     conversations = client.get("/conversations", headers=driver["auth"]).json()
     assert any(item["booking_id"] == booking_id and item["last_message"] for item in conversations)
+    # peer_verified — РЕАЛЬНЫЙ статус собеседника, не фейк «проверен» у всех. Помечаем пассажира
+    # непроверенным в БД → в инбоксе водителя peer_verified должен стать False (доказывает чтение статуса).
+    from app.db import engine as _engine
+    from app.models import User as _User
+    from sqlmodel import Session as _Session
+    with _Session(_engine) as _s:
+        pax = _s.get(_User, passenger["id"])
+        pax.verified = False
+        _s.add(pax); _s.commit()
+    conv = next(item for item in client.get("/conversations", headers=driver["auth"]).json()
+                if item["booking_id"] == booking_id)
+    assert conv["peer_verified"] is False
 
-    driver_notifications = client.get("/notifications", headers=driver["auth"]).json()
-    assert any(item["type"] == "message" and item["text"] for item in driver_notifications)
-    passenger_notifications = client.get("/notifications", headers=passenger["auth"]).json()
+    driver_notifications = client.get("/notifications", headers=driver["auth"]).json()["items"]
+    assert any(item["type"] == "message" and item["body_ru"] for item in driver_notifications)
+    passenger_notifications = client.get("/notifications", headers=passenger["auth"]).json()["items"]
     assert all(item["type"] != "message" for item in passenger_notifications)
 
 

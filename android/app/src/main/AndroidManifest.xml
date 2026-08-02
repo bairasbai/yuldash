@@ -2,6 +2,8 @@
 
     <!-- Карта Яндекс MapKit грузит тайлы по сети -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Состояние сети: авто-восстановление сокетов/очереди при возврате связи (ConnectivityManager.registerDefaultNetworkCallback) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Геолокация: понадобится для «моё местоположение» (запрашиваем в рантайме, после подтверждения поездки) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -9,9 +11,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Push-уведомления (FCM). На Android 13+ запрашивается в рантайме. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Foreground-сервис live-позиции: слать GPS попутчику во время активной поездки (с погасшим экраном). -->
+    <!-- Foreground-сервисы: live-позиция поездки + «Я на линии» (такси) — работают с погасшим экраном. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Полноэкранный входящий заказ такси (как звонок) + вибрация оффера. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".YuldashApplication"
@@ -20,7 +25,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.Yuldash">
         <activity
             android:name=".MainActivity"
@@ -30,6 +35,17 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- F16: расшаренная ссылка на поездку yulbash.ru/r/{id} открывается в приложении.
+                 autoVerify → Android проверит assetlinks.json на домене и будет открывать
+                 ссылку сразу в Юлдаше (без диалога выбора). Отдельный filter, MAIN не трогает. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="yulbash.ru" android:pathPrefix="/r/" />
+                <data android:scheme="http" android:host="yulbash.ru" android:pathPrefix="/r/" />
             </intent-filter>
         </activity>
 
@@ -44,11 +60,31 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="yuldash_default" />
+        <!-- Иконка фоновых (системный трей) пушей — монохромный силуэт, не launcher (иначе белый квадрат). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notification" />
 
         <!-- Foreground-сервис live-позиции в активной поездке. -->
         <service
             android:name=".TripLocationService"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <!-- Foreground-сервис «Я на линии» (такси): presence-heartbeat + опрос оффера из фона. -->
+        <service
+            android:name=".TaxiLineService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+        <!-- Шеринг картинки статистики «Мой Юлдаш»: отдаём PNG из кэша через content:// URI. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

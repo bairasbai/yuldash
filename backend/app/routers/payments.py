@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -30,11 +31,72 @@ def boost_plans():
     ]
 
 
+def _start_yookassa(session: Session, payment: Payment, description: str, phone: str) -> dict:
+    """M2: создать платёж в ЮKassa безопасно. При сбое (таймаут/недоступность ЮKassa) не роняем
+    500 и не оставляем висящий pending без provider_id — удаляем orphan-строку и просим повторить."""
+    try:
+        return create_payment(payment.amount_kop, description, {"payment_id": str(payment.id)}, customer_phone=phone)
+    except Exception:  # noqa: BLE001 — сеть/ЮKassa недоступна: чистим orphan, отдаём мягкую 503
+        session.delete(payment)
+        session.commit()
+        raise HTTPException(503, "Оплата временно недоступна. Попробуй ещё раз.")
+
+
 def _activate_payment(session: Session, payment: Payment) -> None:
-    """Применить оплаченный платёж (идемпотентно, только из pending):
-    boost → поднять поездку; ad → опубликовать рекламу; donate → просто succeeded."""
+    """Применить оплаченный платёж (идемпотентно, только из pending).
+
+    M3: блокируем строку платежа (FOR UPDATE) — webhook/поллинг/админ могут прийти параллельно.
+    C1: для ДЕНЕЖНЫХ/идемпотентных эффектов (начисление водителю, гашение комиссии/долга)
+    сначала выполняем ЭФФЕКТ, потом ставим succeeded. Иначе краш между commit(succeeded) и
+    начислением оставил бы водителя недоплаченным навсегда (ретрай упёрся бы в guard succeeded).
+    Для АДДИТИВНЫХ эффектов (boost/ad/подписка) наоборот — succeeded первым (защита от двойного
+    применения при повторном/параллельном webhook)."""
+    locked = session.exec(select(Payment).where(Payment.id == payment.id).with_for_update()).one_or_none()
+    if locked is None:
+        return
+    payment = locked
     if payment.status == "succeeded":
         return
+    # --- Идемпотентные эффекты: ЭФФЕКТ → потом succeeded (settle сам идемпотентен под FOR UPDATE+paid) ---
+    if payment.purpose == "ride" and payment.order_id is not None:
+        from .. import ledger
+        ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop)
+        payment.status = "succeeded"; session.add(payment); session.commit()
+        return
+    if payment.purpose == "booking" and payment.booking_id is not None:
+        from .. import ledger
+        ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop)
+        payment.status = "succeeded"; session.add(payment); session.commit()
+        return
+    if payment.purpose == "courier_commission":
+        # Курьер оплатил накопленную комиссию → помечаем paid его доставленные неоплаченные заказы,
+        # но ТОЛЬКО те, что вошли в снапшот суммы (delivered_at <= момент создания платежа). Иначе
+        # доставки, сделанные в окне между «жму оплатить» и подтверждением, погасились бы бесплатно.
+        # Идемпотентно (только ещё неоплаченные). Новые доставки останутся к оплате следующим платежом.
+        from ..models import ParcelDelivery
+        rows = session.exec(
+            select(ParcelDelivery).where(
+                ParcelDelivery.courier_id == payment.user_id,
+                ParcelDelivery.status == "delivered",
+                ParcelDelivery.commission_paid == False,  # noqa: E712
+                ParcelDelivery.delivered_at <= payment.created_at,
+            )
+        ).all()
+        for pd in rows:
+            pd.commission_paid = True
+            session.add(pd)
+        payment.status = "succeeded"; session.add(payment); session.commit()
+        return
+    if payment.purpose == "taxi_debt":
+        # Таксист оплатил недельную комиссию картой → гасим долг (unpaid+pending), но только тот, что
+        # вошёл в снапшот суммы (created_at <= момент создания платежа). Долг, накопленный в окне до
+        # подтверждения, останется к оплате следующим платежом (иначе гасился бы бесплатно). Идемпотентно.
+        from .. import debt as debt_mod
+        debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at)
+        payment.status = "succeeded"; session.add(payment); session.commit()
+        return
+    # --- Аддитивные / прочие эффекты: succeeded ПЕРВЫМ (под тем же row-lock), потом эффект ---
+    # donate / support → только отметка succeeded (доход платформы, ledger не трогаем).
     payment.status = "succeeded"
     session.add(payment)
     if payment.purpose == "boost" and payment.ride_id is not None:
@@ -55,6 +117,24 @@ def _activate_payment(session: Session, payment: Payment) -> None:
                 ad.starts_at = utcnow()
                 ad.ends_at = utcnow() + timedelta(days=ad.period_days)
             session.add(ad)
+    elif payment.purpose == "partner_sub" and payment.partner_id is not None:
+        # Подписка бизнеса «Скидки по пути» (M1). Продление добавляет период к остатку
+        # (как реклама даёт полный оплаченный период): если подписка ещё активна —
+        # считаем от её конца, иначе от now. Тариф зафиксирован в payment.tier.
+        from ..models import Partner
+        from .coupons import PARTNER_PLANS
+        partner = session.get(Partner, payment.partner_id)
+        plan = PARTNER_PLANS.get(payment.tier)
+        if partner and plan:
+            now = utcnow()
+            base = partner.subscription_until if (partner.subscription_until and partner.subscription_until > now) else now
+            partner.subscription_until = base + timedelta(days=plan["period_days"])
+            partner.subscription_plan = payment.tier
+            # Оплата не понижает статус одобренного бизнеса, но и НЕ реанимирует отклонённого:
+            # rejected (фрод/бан модерацией) не должен возвращаться в витрину через старый pending.
+            if partner.status != "rejected":
+                partner.status = "active"
+            session.add(partner)
     session.commit()
 
 
@@ -62,7 +142,8 @@ def _notify_new_payment(session: Session, payment: Payment) -> None:
     """Telegram админу о новой заявке на оплату (СБП): сверь карту → подтверди в кабинете."""
     payer = session.get(User, payment.user_id)
     who = (payer.name if payer and payer.name else "—") + (f" · {payer.phone}" if payer and payer.phone else "")
-    label = {"boost": "Буст", "donate": "Донат", "ad": "Реклама"}.get(payment.purpose, payment.purpose)
+    label = {"boost": "Буст", "donate": "Донат", "support": "Поддержка", "ad": "Реклама",
+             "courier_commission": "Комиссия курьера"}.get(payment.purpose, payment.purpose)
     notify_admin_telegram(
         (
             f"💳 Новая оплата СБП\n"
@@ -144,7 +225,7 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
         }
 
     # mock/yookassa. user.phone реальный (current_user не пускает плейсхолдер) → на него ЮKassa шлёт чек.
-    res = create_payment(amount_kop, f"Юлдаш · {title}", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    res = _start_yookassa(session, payment, f"Юлдаш · {title}", user.phone)
     payment.provider_id = res["provider_id"]
     session.add(payment)
     session.commit()
@@ -183,7 +264,7 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
             "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
         }
 
-    res = create_payment(amount * 100, "Юлдаш · донат", {"payment_id": str(payment.id)}, customer_phone=user.phone)
+    res = _start_yookassa(session, payment, "Юлдаш · донат", user.phone)
     payment.provider_id = res["provider_id"]
     session.add(payment)
     session.commit()
@@ -191,6 +272,77 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
         _activate_payment(session, payment)     # для donate просто помечает succeeded (поездку не трогает)
         return {"status": "succeeded", "method": "yookassa", "payment_id": payment.id}
     return {"status": "pending", "method": "yookassa", "payment_id": payment.id, "confirmation_url": res["confirmation_url"]}
+
+
+# ----------------------------- «Поддержать Юлдаш» (добровольная поддержка платформы) -----------------------------
+# Пресеты берёт клиент (кнопки 20/50/100 ₽), но границы валидирует СЕРВЕР — клиенту не верим.
+SUPPORT_MIN_KOP = 1000        # 10 ₽ — нижняя граница (символическая поддержка)
+SUPPORT_MAX_KOP = 500_000     # 5000 ₽ — верхняя граница (защита от опечатки/фрода)
+
+
+class SupportDonateIn(BaseModel):
+    amount_kop: int   # сумма поддержки, целые копейки (деньги — только int)
+
+
+@router.post("/support/donate")
+def support_donate(body: SupportDonateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """«Поддержать Юлдаш» — ДОБРОВОЛЬНАЯ поддержка платформы (не обязательная, не за проезд).
+
+    Это доход платформы, а НЕ водителю: ledger НЕ трогаем (purpose=support → _activate_payment
+    только помечает succeeded). Оплата через ту же ЮKassa-инфру, что boost/донат; без ключей —
+    СБП-перевод по номеру (подтверждает админ). Идемпотентно на уровне денег: повторный webhook
+    по тому же provider_id → no-op (payment уже succeeded), задвоения нет."""
+    amount_kop = body.amount_kop
+    if amount_kop < SUPPORT_MIN_KOP or amount_kop > SUPPORT_MAX_KOP:
+        raise HTTPException(400, f"Сумма поддержки — от {SUPPORT_MIN_KOP // 100} до {SUPPORT_MAX_KOP // 100} ₽")
+    if settings.is_prod and settings.payments_provider == "mock":
+        raise HTTPException(503, "Оплата скоро будет доступна")
+
+    payment = Payment(user_id=user.id, purpose="support", amount_kop=amount_kop)
+    session.add(payment)
+    session.commit()
+    session.refresh(payment)
+
+    # СБП-перевод по номеру: платёж висит pending, подтверждает админ после получения денег.
+    if settings.payments_provider == "sbp_manual":
+        _notify_new_payment(session, payment)
+        return {
+            "status": "pending", "method": "sbp_manual", "payment_id": payment.id,
+            "amount": amount_kop // 100,
+            "payee": {"phone": settings.sbp_phone, "bank": settings.sbp_bank, "name": settings.sbp_name},
+        }
+
+    res = _start_yookassa(session, payment, "Юлдаш · поддержка платформы", user.phone)
+    payment.provider_id = res["provider_id"]
+    session.add(payment)
+    session.commit()
+    if res["status"] == "succeeded":          # mock/dev — оплачено сразу
+        _activate_payment(session, payment)     # purpose=support → просто succeeded, ledger не трогаем
+        return {"status": "succeeded", "method": "yookassa", "payment_id": payment.id}
+    return {"status": "pending", "method": "yookassa", "payment_id": payment.id, "confirmation_url": res["confirmation_url"]}
+@router.get("/payments/{payment_id}/status")
+def payment_status(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Статус СВОЕГО платежа — клиент поллит после возврата из браузера ЮKassa (ON_RESUME экрана).
+
+    Подтверждение go-live не должно зависеть только от вебхука (он может задержаться/не дойти):
+    если платёж ещё pending и провайдер yookassa — сами перепроверяем статус по своему
+    provider_id (`fetch_payment`) и при успехе активируем (идемпотентно, как вебхук).
+    Владелец — только сам плательщик (чужой платёж → 404, не раскрываем существование)."""
+    payment = session.get(Payment, payment_id)
+    if not payment or payment.user_id != user.id:
+        raise HTTPException(404, "Платёж не найден")
+    if payment.status == "pending" and payment.provider_id and settings.payments_provider == "yookassa":
+        try:
+            info = fetch_payment(payment.provider_id)   # перепроверка у ЮKassa (телу вебхука не доверяем)
+        except Exception:  # noqa: BLE001 — сеть/ЮKassa недоступна → вернём текущий статус, клиент повторит
+            info = None
+        if info and info["status"] == "succeeded":
+            _activate_payment(session, payment)
+    boosted_until = None
+    if payment.purpose == "boost" and payment.ride_id is not None:
+        ride = session.get(Ride, payment.ride_id)
+        boosted_until = ride.boosted_until if ride else None
+    return {"payment_id": payment.id, "status": payment.status, "purpose": payment.purpose, "boosted_until": boosted_until}
 
 
 # ----------------------------- Админ: подтверждение СБП-переводов -----------------------------
@@ -201,9 +353,15 @@ def _require_admin(user: User) -> None:
 
 @router.get("/admin/payments/pending")
 def admin_pending_payments(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Список ожидающих подтверждения платежей (СБП). Для админа."""
+    """Список ожидающих подтверждения платежей (СБП). Для админа.
+
+    Платежи, созданные у провайдера (provider_id != ''), сюда НЕ попадают: их судьбу знает только
+    вебхук/перепроверка ЮKassa. Иначе после флипа на yookassa в списке висели бы карточные pending,
+    и случайный тап «подтвердить» начислил бы водителю деньги, которых не было."""
     _require_admin(user)
-    rows = session.exec(select(Payment).where(Payment.status == "pending").order_by(Payment.id.desc())).all()
+    rows = session.exec(select(Payment).where(
+        Payment.status == "pending", Payment.provider_id == "",
+    ).order_by(Payment.id.desc())).all()
     out = []
     for p in rows:
         payer = session.get(User, p.user_id)
@@ -234,6 +392,10 @@ def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), s
         raise HTTPException(404, "Платёж не найден")
     if payment.status == "succeeded":
         return {"payment_id": payment.id, "status": "succeeded"}
+    # Карточный платёж (создан у провайдера) вручную не подтверждаем — его подтверждает вебхук
+    # после реального списания. Ручной confirm здесь = начисление без денег (фантом в ledger).
+    if payment.provider_id:
+        raise HTTPException(409, "Платёж у провайдера — подтвердится автоматически после оплаты")
     _activate_payment(session, payment)
     return {"payment_id": payment.id, "status": "succeeded"}
 
@@ -258,15 +420,24 @@ def admin_payments_summary(user: User = Depends(current_user), session: Session 
     _require_admin(user)
 
     def agg(purpose: str) -> dict:
-        rows = session.exec(select(Payment).where(Payment.purpose == purpose, Payment.status == "succeeded")).all()
-        return {"count": len(rows), "sum_rub": sum(p.amount_kop for p in rows) // 100}
+        # Агрегируем в SQL (func.count/sum), не тянем все строки в Python — растущая таблица.
+        cnt, total = session.exec(
+            select(func.count(), func.coalesce(func.sum(Payment.amount_kop), 0))
+            .where(Payment.purpose == purpose, Payment.status == "succeeded")
+        ).one()
+        return {"count": int(cnt), "sum_rub": int(total) // 100}
 
-    return {"donate": agg("donate"), "boost": agg("boost")}
+    return {"donate": agg("donate"), "boost": agg("boost"), "support": agg("support")}
 
 
 @router.post("/payments/yookassa/webhook")
 async def yookassa_webhook(request: Request, session: Session = Depends(get_session)):
     """Уведомление ЮKassa. Телу НЕ доверяем — по id перепроверяем статус через API ЮKassa."""
+    # Вебхук релевантен ТОЛЬКО при активном yookassa. При mock/sbp_manual `fetch_payment`
+    # возвращает succeeded без похода наружу → поддельный POST мог бы активировать чужой
+    # pending-платёж (Boost/рекламу бесплатно). При sbp_manual платежи подтверждает админ в Telegram.
+    if settings.payments_provider != "yookassa":
+        return {"ok": True}
     try:
         body = await request.json()
     except Exception:

@@ -185,6 +185,65 @@ def ads_mine(user: User = Depends(current_user), session: Session = Depends(get_
     return [_ad_mine(a, a.id in paid_ids) for a in rows]
 
 
+def _events_by_ad(session: Session, ad_ids: list) -> dict:
+    """Батч-агрегат показов/кликов по объявлениям (GROUP BY в SQL, не тянем всю AdEvent в память).
+    Возвращает {ad_id: {"impressions": n, "clicks": m}} для КАЖДОГО запрошенного id (нули если событий нет)."""
+    out = {aid: {"impressions": 0, "clicks": 0} for aid in ad_ids}
+    if not ad_ids:
+        return out
+    rows = session.exec(
+        select(AdEvent.ad_id, AdEvent.event_type, func.count())
+        .where(AdEvent.ad_id.in_(ad_ids))
+        .group_by(AdEvent.ad_id, AdEvent.event_type)
+    ).all()
+    for ad_id, etype, cnt in rows:
+        key = "clicks" if etype == "click" else "impressions"
+        out.setdefault(ad_id, {"impressions": 0, "clicks": 0})[key] = cnt
+    return out
+
+
+def _ad_stat_payload(ad: Ad, imp: int, clk: int, now: datetime) -> dict:
+    """Статистика ОДНОГО объявления для кабинета партнёра: показы/клики/CTR + срок размещения.
+    CTR = клики / показы * 100 (%), 1 знак; при 0 показов — 0.0 (без деления на ноль)."""
+    ctr = round(clk / imp * 100, 1) if imp > 0 else 0.0
+    days_left = None
+    if ad.ends_at is not None:
+        days_left = max(0, (ad.ends_at - now).days)
+    return {
+        "ad_id": str(ad.id),
+        "title": ad.title,
+        "status": ad.status,
+        "impressions": imp,
+        "clicks": clk,
+        "ctr": ctr,
+        "starts_at": ad.starts_at.isoformat() if ad.starts_at else None,
+        "ends_at": ad.ends_at.isoformat() if ad.ends_at else None,
+        "days_left": days_left,        # сколько дней размещения осталось (null = бессрочно/не запущено)
+    }
+
+
+@router.get("/ads/mine/stats")
+def ads_mine_stats(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Статистика по ВСЕМ моим объявлениям (показы/клики/CTR/срок) — для кабинета рекламодателя.
+    Приватность: строго owner_id == я. Чужую статистику не отдаём (IDOR закрыт)."""
+    rows = session.exec(
+        select(Ad).where(Ad.owner_id == user.id).order_by(Ad.created_at.desc())
+    ).all()
+    now = utcnow()
+    ev = _events_by_ad(session, [a.id for a in rows])
+    return [_ad_stat_payload(a, ev[a.id]["impressions"], ev[a.id]["clicks"], now) for a in rows]
+
+
+@router.get("/ads/{ad_id}/stats")
+def ad_mine_stats_one(ad_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Статистика одного объявления. Только владелец — чужое отдаёт 404 (не раскрываем существование, IDOR-защита)."""
+    ad = session.get(Ad, ad_id)
+    if not ad or ad.owner_id != user.id:
+        raise HTTPException(404, "Объявление не найдено")
+    ev = _events_by_ad(session, [ad.id])[ad.id]
+    return _ad_stat_payload(ad, ev["impressions"], ev["clicks"], utcnow())
+
+
 def _is_paid(session: Session, ad_id: int) -> bool:
     row = session.exec(
         select(Payment.id).where(
@@ -217,12 +276,12 @@ def _apply_package(ad: Ad, code: str) -> None:
 
 
 class AdCreateIn(BaseModel):
-    title: str = ""
-    text: str = ""
-    button: str = ""
-    target: str = ""
-    package: str = ""       # код тарифа из AD_PACKAGES
-    cities: str = ""        # CSV городов таргета; пусто = все
+    title: str = Field("", max_length=120)
+    text: str = Field("", max_length=2000)
+    button: str = Field("", max_length=60)
+    target: str = Field("", max_length=300)
+    package: str = Field("", max_length=40)       # код тарифа из AD_PACKAGES
+    cities: str = Field("", max_length=500)        # CSV городов таргета; пусто = все
 
 
 @router.post("/ads")
@@ -411,11 +470,17 @@ def _admin_view(ad: Ad, now: datetime, paid: bool = False) -> dict:
 
 
 @router.get("/admin/ads")
-def admin_ads(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_ads(limit: int = 200, offset: int = 0,
+              user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Все объявления (кроме архива) + сколько founder-слотов занято."""
     _require_admin(user)
     now = utcnow()
-    rows = session.exec(select(Ad).where(Ad.status != "archived")).all()
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    rows = session.exec(
+        select(Ad).where(Ad.status != "archived")
+        .order_by(Ad.created_at.desc()).offset(offset).limit(limit)
+    ).all()
     rows.sort(key=lambda a: a.created_at or now, reverse=True)
     paid = _paid_ad_ids(session, [a.id for a in rows])
     return {

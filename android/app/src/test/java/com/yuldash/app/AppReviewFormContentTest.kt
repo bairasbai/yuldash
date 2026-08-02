@@ -112,7 +112,7 @@ class AppReviewFormContentTest {
             }
         }
         assertEquals(-1, picked)
-        composeRule.onNodeWithContentDescription("3 звёзд").performClick()
+        composeRule.onNodeWithContentDescription("3 звезды").performClick()
         assertEquals(3, picked)
     }
 

@@ -3,19 +3,21 @@ from sqlalchemy.exc import ProgrammingError
 from sqlmodel import SQLModel, Session, create_engine
 
 from .config import settings
+from .logs import log
 
 # Для SQLite нужен check_same_thread=False (FastAPI ходит из разных потоков).
 _is_sqlite = settings.database_url.startswith("sqlite")
 connect_args = {"check_same_thread": False} if _is_sqlite else {}
 
-# Тюнинг пула под нагрузку (только Postgres). При запуске с наплывом и нескольких
-# воркерах важно: не плодить соединения сверх Postgres max_connections (=100) и не
-# держать мёртвые. pool_size+max_overflow ≤ 25 на воркер → 2 воркера ≤ 50 < 100.
+# Тюнинг пула под нагрузку (только Postgres). Критично: не плодить соединения сверх
+# Postgres max_connections (дефолт 100). Формула — (pool_size+max_overflow)×воркеров ≤ лимит−резерв.
+# Прод: 5 воркеров × (8+7)=15 = 75 < 100. Раньше было 25/воркер → 5×25=125 > 100 = отказ
+# соединений на пике. Числа берём из config (env-настраиваемо), см. settings.db_pool_size.
 # pool_pre_ping — отбрасывает соединения, оборвавшиеся после рестарта/таймаута БД
 # (иначе первый запрос после простоя падает). pool_recycle — пересоздаёт раз в 30 мин.
 _pool_kwargs = {} if _is_sqlite else {
-    "pool_size": 10,
-    "max_overflow": 15,
+    "pool_size": settings.db_pool_size,
+    "max_overflow": settings.db_max_overflow,
     "pool_pre_ping": True,
     "pool_recycle": 1800,
     "pool_timeout": 30,
@@ -82,7 +84,7 @@ def init_db() -> None:
     try:
         SQLModel.metadata.create_all(engine)
     except ProgrammingError as e:  # psycopg2 DuplicateTable и т.п. при гонке воркеров
-        print(f"[INIT_DB] create_all race ignored: {e}")
+        log.warning(f"[INIT_DB] create_all race ignored: {e}")
     _migrate_sqlite_add_columns()
 
 

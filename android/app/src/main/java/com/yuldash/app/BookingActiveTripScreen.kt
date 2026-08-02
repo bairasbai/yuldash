@@ -3,6 +3,7 @@ package com.yuldash.app
 // Экраны брони (BookingScreen) и активной поездки (ActiveTripScreen: чат/статус/SOS).
 // Вынесено из MainActivity (Фаза 2). Импорты целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -89,7 +90,9 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
@@ -136,6 +139,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
@@ -143,6 +147,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -174,6 +179,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -240,7 +246,6 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -257,9 +262,41 @@ import com.yuldash.app.data.FeedDto
 import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
 import com.yuldash.app.data.AdDto
+import com.yuldash.app.data.TripPass
+import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.Outbox
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * F11 — сохранить офлайн-паспорт брони из подтверждённых деталей. Дотягивает код посадки,
+ * чтобы паспорт был полным ещё до входа в активную поездку. Телефон водителя (ПДн) уходит
+ * в secure-хранилище TripPassStore и НЕ логируется.
+ */
+private suspend fun saveTripPass(context: android.content.Context, d: com.yuldash.app.data.BookingDetailsDto) {
+    val code = ApiClient.getBoardingCode(d.bookingId).getOrNull().orEmpty()
+    TripPassStore.save(
+        context,
+        TripPass(
+            bookingId = d.bookingId,
+            fromCity = d.fromCity,
+            toCity = d.toCity,
+            departAt = d.departAt,
+            driverName = d.driverName,
+            driverCar = d.driverCar,
+            driverPhone = d.driverPhone,
+            boardingCode = code,
+            pickup = d.pickup,
+            pickupLat = d.pickupLat,
+            pickupLng = d.pickupLng,
+            price = d.price,
+            seats = d.seats,
+            paymentNote = "",   // явной договорённости от бэка нет — оплату показываем из price (двуязычно на экране)
+            savedAt = System.currentTimeMillis(),
+        ),
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -274,11 +311,15 @@ internal fun BookingScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
     canOpenActiveTrip: Boolean = true,
-    onConfirmRide: () -> Unit
+    onConfirmRide: (payMethod: String, payAmount: Int?) -> Unit
 ) {
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
     var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
+    // Договорённость об оплате (ЗАПИСЬ, не платёж): что выбрал пассажир до брони.
+    // Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены поездки.
+    var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
+    var payAmountText by remember(bookingId) { mutableStateOf(if (ride.price > 0) ride.price.toString() else "") }
     var detailsLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
     var detailsError by remember(bookingId) { mutableStateOf(false) }
     var detailsReload by remember(bookingId) { mutableIntStateOf(0) }
@@ -286,7 +327,12 @@ internal fun BookingScreen(
         val bid = bookingId ?: return@LaunchedEffect
         detailsLoading = true
         ApiClient.getBookingDetails(bid)
-            .onSuccess { loaded -> details = loaded; detailsError = false }
+            .onSuccess { loaded ->
+                details = loaded; detailsError = false
+                // F11: как только бронь подтверждена (телефон/встреча открыты) — сохраняем офлайн-паспорт.
+                // Так экран активной поездки поднимет данные без сети на трассе без связи.
+                if (loaded.contactUnlocked) saveTripPass(context, loaded)
+            }
             .onFailure { detailsError = true }
         detailsLoading = false
     }
@@ -385,14 +431,17 @@ internal fun BookingScreen(
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        // Двуязычный дефолт имени водителя (toUiRide больше не кладёт русский литерал). BA-draft: «Йөрөтөүсе».
+                        val driverFallback = appText("Водитель", "Йөрөтөүсе")
+                        val driverName = displayRide.driver.ifBlank { driverFallback }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(color = CanonMint, shape = CircleShape) {
-                                Text(displayRide.driver.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(22.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                                Text(driverName.firstOrNull()?.uppercase() ?: "?", modifier = Modifier.padding(22.dp), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 22.sp)
                             }
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(displayRide.driver, color = CanonText, fontWeight = FontWeight.Black, fontSize = 21.sp)
+                                    Text(driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 21.sp)
                                     if (displayRide.verified) {
                                         Spacer(Modifier.width(6.dp))
                                         Icon(Icons.Default.Verified, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
@@ -408,7 +457,14 @@ internal fun BookingScreen(
                                     runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$driverPhone"))) }
                                 } else Modifier
                             ) {
-                                Icon(if (contactUnlocked && driverPhone.isNotBlank()) Icons.Default.Phone else Icons.Default.PhoneLocked, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
+                                Icon(
+                                    if (contactUnlocked && driverPhone.isNotBlank()) Icons.Default.Phone else Icons.Default.PhoneLocked,
+                                    contentDescription = if (contactUnlocked && driverPhone.isNotBlank())
+                                        appText("Позвонить", "Шылтыратыу")          // BA-draft
+                                    else appText("Телефон пока скрыт", "Телефон әлегә йәшерелгән"),  // BA-draft
+                                    tint = CanonGreen2,
+                                    modifier = Modifier.padding(16.dp)
+                                )
                             }
                         }
                         TripInfoRow(
@@ -477,6 +533,14 @@ internal fun BookingScreen(
                                 icon = Icons.Default.Lock
                             )
                         }
+                        PayAgreementBlock(
+                            editable = bookingId == null,
+                            method = if (bookingId == null) payMethod else (details?.payMethod ?: "negotiate"),
+                            amountText = payAmountText,
+                            summaryAmount = details?.payAmount,
+                            onMethod = { payMethod = it },
+                            onAmount = { payAmountText = it }
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
                                 onClick = onMessage,
@@ -489,7 +553,7 @@ internal fun BookingScreen(
                                 Text(appText("Написать", "Яҙырға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                             }
                             Button(
-                                onClick = onConfirmRide,
+                                onClick = { onConfirmRide(payMethod, payAmountText.trim().toIntOrNull()) },
                                 enabled = bookingId == null || canOpenActiveTrip,
                                 modifier = Modifier.weight(1.15f).height(54.dp),
                                 shape = RoundedCornerShape(18.dp),
@@ -523,6 +587,96 @@ internal fun BookingScreen(
                     text = appText("Все поездки защищены и отслеживаются службой поддержки Юлдаш.", "Бөтә сәфәрҙәр Юлдаш ярҙам хеҙмәте тарафынан күҙәтелә."),
                     icon = Icons.Default.Shield
                 )
+            }
+        }
+    }
+}
+
+/** Способы оплаты-договорённости: ключ на бэке + иконка + двуязычная подпись.
+ * Это ЗАПИСЬ «как договорились платить», НЕ платёж и не движение денег. */
+internal val payMethodKeys = listOf("cash", "sbp", "negotiate")
+
+@Composable
+internal fun payMethodLabel(method: String): String = when (method) {
+    "cash" -> appText("Наличными", "Аҡса менән")
+    "sbp" -> appText("Перевод по СБП", "СБП аша күсереү")
+    else -> appText("Договоримся", "Килешербеҙ")
+}
+
+internal fun payMethodIcon(method: String) = when (method) {
+    "cash" -> Icons.Default.Payments
+    "sbp" -> Icons.Default.CreditCard
+    else -> Icons.Default.VolunteerActivism
+}
+
+/**
+ * Блок «Как договорились платить» в деталях брони.
+ * editable=true (до брони) — пассажир выбирает способ (чипы) и сумму.
+ * editable=false (бронь есть) — только показ договорённости обеим сторонам.
+ * ВАЖНО: это запись договорённости, а НЕ оплата — деньги через приложение не идут.
+ */
+@Composable
+internal fun PayAgreementBlock(
+    editable: Boolean,
+    method: String,
+    amountText: String,
+    summaryAmount: Int?,
+    onMethod: (String) -> Unit,
+    onAmount: (String) -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, CanonBorder, CanonItemShape)
+            .background(CanonBg, CanonItemShape)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Handshake, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(appText("Как договорились платить", "Түләү тураһында нисек килешкәнбеҙ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+        }
+        Text(
+            appText(
+                "Это просто запись договорённости — деньги через приложение не проходят.",
+                "Был — тик килешеү яҙмаһы, аҡса ҡулланма аша үтмәй."
+            ),
+            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp
+        )
+        if (editable) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                payMethodKeys.forEach { key ->
+                    // Способ оплаты — решение про деньги, тач-цель ≥ 48dp (§4.5), не мелкий фильтр.
+                    NearbyFilterChip(
+                        payMethodIcon(key), payMethodLabel(key), method == key,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { onMethod(key) }
+                }
+            }
+            OutlinedTextField(
+                value = amountText,
+                onValueChange = { new -> onAmount(new.filter { it.isDigit() }.take(6)) },
+                label = { Text(appText("Сумма, ₽ (необязательно)", "Сумма, ₽ (мотлаҡ түгел)")) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
+                    Row(Modifier.padding(horizontal = 11.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(payMethodIcon(method), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(payMethodLabel(method), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+                if (summaryAmount != null && summaryAmount > 0) {
+                    Text("$summaryAmount ₽", color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                }
             }
         }
     }
@@ -645,7 +799,7 @@ internal fun RouteMapUnavailableCard(modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(color = CanonMint, shape = CircleShape) {
-                Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
+                Icon(painterResource(R.drawable.yu_route), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -681,7 +835,8 @@ internal fun SettingsNavRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    badge: Int = 0,   // >0 → зелёный бейдж непрочитанного (напр. новые ответы поддержки)
 ) {
     val modifier = if (onClick != null) Modifier.bounceClick(onClick) else Modifier
     Row(modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -692,6 +847,16 @@ internal fun SettingsNavRow(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
             Text(subtitle, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+        }
+        if (badge > 0) {
+            Surface(color = CanonGreen2, shape = RoundedCornerShape(999.dp)) {
+                Text(
+                    if (badge > 99) "99+" else badge.toString(),
+                    color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+            Spacer(Modifier.width(8.dp))
         }
         if (onClick != null) {
             Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
@@ -730,12 +895,13 @@ internal fun CompactProfileBanner() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(Modifier.size(62.dp).background(Color.White.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
-                Text((ApiClient.cachedName() ?: "Я").take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 24.sp)
+                Text((ApiClient.cachedName() ?: appText("Я", "Мин")).take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Black, fontSize = 24.sp)
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(ApiClient.cachedName() ?: "Я", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
-                Text(appText("Пассажир · Баймаҡ", "Пассажир · Баймаҡ"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                Text(ApiClient.cachedName() ?: appText("Я", "Мин"), color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                // Настоящая роль из кеша /me (города в профиле нет — не выдумываем «Баймаҡ»).
+                Text(roleLabel(ApiClient.cachedRole() ?: ""), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
                 Text(appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерен"), color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
             }
         }
@@ -750,7 +916,9 @@ internal fun ActiveTripScreen(
     bookingId: Int?,
     onBack: () -> Unit,
     onTripEnd: () -> Unit,
-    onSos: () -> Unit
+    onSos: () -> Unit,
+    onSupport: () -> Unit = {},
+    onOpenReceipt: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
     var messages by remember(bookingId) { mutableStateOf<List<MessageDto>>(emptyList()) }
@@ -761,9 +929,15 @@ internal fun ActiveTripScreen(
     val chatSendFailMsg = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
     val chatActionFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     // Роль в этой брони: водитель видит «Я выехал/Подъезжаю» (push пассажиру), пассажир — «сел/доехал/завершить».
-    var role by remember { mutableStateOf("") }
+    // Ключуем по bookingId (как driverPhase/bookingStatus ниже): иначе при открытии ДРУГОЙ брони до первого
+    // опроса видны кнопки чужой роли (водительские «Я выехал» у пассажира).
+    var role by remember(bookingId) { mutableStateOf("") }
     var driverPhase by remember(bookingId) { mutableStateOf("") }   // ""/departed/arriving — для live-баннера пассажиру
     var bookingStatus by remember(bookingId) { mutableStateOf("") }
+    // F11: офлайн-паспорт брони. Читаем СРАЗУ из локального (secure) хранилища — данные видны без сети.
+    var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
+    // offline = последний опрос состояния упал по СЕТИ (не по ответу сервера). Тогда показываем паспорт+плашку.
+    var offline by remember(bookingId) { mutableStateOf(false) }
     // Опрос состояния поездки раз в ~12с: роль + подфаза водителя. Так пассажир видит «водитель выехал/
     // подъезжает» LIVE (раньше это приходило только пушем — его легко пропустить, а UI не обновлялся).
     // На паузе в фоне (repeatOnLifecycle RESUMED) — не дёргаем сервер и батарею, когда приложение свёрнуто.
@@ -772,26 +946,69 @@ internal fun ActiveTripScreen(
         val id = bookingId ?: return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
-                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; bookingStatus = st.status }
+                ApiClient.getTripState(id)
+                    .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; bookingStatus = st.status; offline = false }
+                    // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
+                    .onFailure { e -> if (e !is ApiException) offline = true }
                 kotlinx.coroutines.delay(12_000)
             }
         }
     }
-    var draft by remember { mutableStateOf("") }
-    var editingId by remember { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
-    var status by remember { mutableStateOf<String?>(null) }
+    // F12 «Зимний протокол»: мягкая проверка «доехал?». Показываем ОДИН раз за поездку
+    // (rememberSaveable переживает поворот и kill процесса). departIso — старт поездки (raw ISO).
+    // Момент проверки считаем по РАСЧЁТНОЙ ETA маршрута (расстояние/скорость + запас), а НЕ по
+    // фиксированному часу — иначе на длинном межгороде спросили бы «доехал?» в середине пути и
+    // могли зря потревожить близкого через шаринг. Нет координат маршрута → щедрый фолбэк.
+    var showArrivalCheck by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var arrivalAsked by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var departIso by remember(bookingId) { mutableStateOf("") }
+    var armAfterMs by remember(bookingId) { mutableStateOf(ARRIVAL_CHECK_FALLBACK_MS) }
+    // F12: пробудить проверку «доехал?» один раз, когда прошёл буфер после выезда, а поездка
+    // ещё активна (не done/cancelled). Буфер — эвристика (ETA в этом экране нет): сервер сам
+    // не пошлёт пуш до depart_at и не эскалирует раньше 30 мин + активного шаринга.
+    LaunchedEffect(bookingId, lifecycleOwner) {
+        val id = bookingId ?: return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (!arrivalAsked) {
+                val iso = departIso.ifBlank { tripPass?.departAt ?: "" }
+                val departMs = iso.takeIf { it.isNotBlank() }?.let(::parseIsoUtcMillis)
+                val active = bookingStatus != "done" && bookingStatus != "cancelled"
+                if (active && role != "driver" && departMs != null &&
+                    System.currentTimeMillis() >= departMs + armAfterMs
+                ) {
+                    arrivalAsked = true
+                    showArrivalCheck = true
+                    ApiClient.winterCheck(id)   // арм (сервер решает: too_early / check_sent)
+                    break
+                }
+                kotlinx.coroutines.delay(60_000)
+            }
+        }
+    }
+    // Ключуем по bookingId: черновик/режим редактирования/выбранный статус не должны утекать в другую бронь.
+    var draft by remember(bookingId) { mutableStateOf("") }
+    var editingId by remember(bookingId) { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
+    var status by remember(bookingId) { mutableStateOf<String?>(null) }
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
     val tripSharedPrefix = appText("Поездка отправлена", "Сәфәр ебәрелде")
+    val shareRevokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
 
     val myId = remember { ApiClient.myUserId() ?: -1 }
+    val frostyNight = remember { isFrostyWinterNight() }   // F12: морозная ночь — считаем один раз (LazyListScope не @Composable)
     var wsConnected by remember { mutableStateOf(false) }
     // Оптимистичные (ещё не подтверждённые сервером) сообщения получают уникальный
     // отрицательный id (-2, -3, …). failedIds — те, что не доставились (показываем «Повторить»).
     var failedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
+    // F11: сообщения, поставленные в очередь при отсутствии сети (уйдут авто-ретраем).
+    var queuedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
     var tempSeq by remember(bookingId) { mutableStateOf(-2) }
     var boardingCode by remember(bookingId) { mutableStateOf("") }
+    // Договорённость об оплате (ЗАПИСЬ, не платёж) — показываем обеим сторонам в активной поездке.
+    var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
+    var payAmount by remember(bookingId) { mutableStateOf<Int?>(null) }
     val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
+    val queuedMsg = appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ")
     // Состояние первой загрузки истории чата: спиннер, ошибка (с «Повторить»), пусто.
     var historyLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
     var historyError by remember(bookingId) { mutableStateOf(false) }
@@ -806,7 +1023,13 @@ internal fun ActiveTripScreen(
             .onSuccess { messages = it }
             .onFailure { historyError = true }
         historyLoading = false
-        ApiClient.getBoardingCode(id).onSuccess { boardingCode = it }
+        ApiClient.getBoardingCode(id).onSuccess { code ->
+            boardingCode = code
+            // F11: дополним офлайн-паспорт кодом посадки (его пассажир называет водителю без сети).
+            TripPassStore.updateBoardingCode(context, id, code)
+            tripPass = TripPassStore.load(context, id)
+        }
+        ApiClient.getBookingDetails(id).onSuccess { d -> payMethod = d.payMethod; payAmount = d.payAmount; if (d.departAt.isNotBlank()) departIso = d.departAt; armAfterMs = arrivalCheckAfterMs(d.fromLat, d.fromLng, d.toLat, d.toLng) }
     }
 
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
@@ -820,10 +1043,11 @@ internal fun ActiveTripScreen(
                     voiceScope.launch {
                         // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
                         val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
+                        val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
                         messages = when {
-                            optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = MessageDto(inc.id, inc.text, inc.senderId) }
+                            optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = dto }
                             inc.id > 0 && messages.any { it.id == inc.id } -> messages   // дубль по id — пропустить
-                            else -> messages + MessageDto(inc.id, inc.text, inc.senderId)
+                            else -> messages + dto
                         }
                     }
                 },
@@ -847,8 +1071,38 @@ internal fun ActiveTripScreen(
         }
     }
 
+    // F11: авто-ретрай очереди исходящих при появлении сети. Слушаем ConnectivityManager: сеть вернулась →
+    // разгружаем очередь (сообщения/статусы), затем подтягиваем авторитетную историю и состояние.
+    fun flushOutbox() {
+        val id = bookingId ?: return
+        voiceScope.launch {
+            val changed = Outbox.flush(context)
+            if (changed) {
+                queuedIds = emptySet()
+                ApiClient.getMessages(id).onSuccess { messages = it }
+                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; bookingStatus = st.status; offline = false }
+            }
+        }
+    }
+    // Пробуем разгрузить очередь при входе на экран (мог накопить в прошлой сессии без сети).
+    LaunchedEffect(bookingId) { if (bookingId != null) flushOutbox() }
+    DisposableEffect(bookingId) {
+        val id = bookingId
+        if (id == null) { onDispose { } }
+        else {
+            val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) { flushOutbox() }
+            }
+            runCatching { cm?.registerDefaultNetworkCallback(cb) }
+            onDispose { runCatching { cm?.unregisterNetworkCallback(cb) } }
+        }
+    }
+
     // Доставка одного сообщения. Сперва WS (если жив), иначе REST. Ошибку НЕ глотаем:
-    // при сбое сети помечаем сообщение «не доставлено» (кнопка повтора), чтобы оно не пропало молча.
+    // - сетевой сбой (нет связи на трассе) → кладём в очередь (Outbox), помечаем «в очереди» —
+    //   отправится само при появлении сети (F11), ничего не теряется;
+    // - ошибка сервера → «Не доставлено · Повторить» (ручной повтор, как прежде).
     fun deliver(tempId: Int, text: String) {
         val bid = bookingId ?: return
         val ws = chatSocket
@@ -857,9 +1111,16 @@ internal fun ActiveTripScreen(
         voiceScope.launch {
             ApiClient.sendMessage(bid, text)
                 .onSuccess { ApiClient.getMessages(bid).onSuccess { messages = it } }   // забираем авторитетную историю
-                .onFailure {
-                    failedIds = failedIds + tempId
-                    Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                .onFailure { e ->
+                    if (e is ApiException) {
+                        failedIds = failedIds + tempId
+                        Toast.makeText(context, sendFailMsg, Toast.LENGTH_SHORT).show()
+                    } else {
+                        // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
+                        Outbox.enqueue(context, Outbox.newMessage(bid, text))
+                        queuedIds = queuedIds + tempId
+                        Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
+                    }
                 }
         }
     }
@@ -890,12 +1151,22 @@ internal fun ActiveTripScreen(
         ) {
             item {
                 TripRouteHeaderCard(
-                    from = ride?.from,
-                    to = ride?.to,
-                    driver = ride?.driver,
-                    time = ride?.time,
+                    // Без сети ride может быть null (холодный старт по bookingId) — берём из офлайн-паспорта.
+                    from = ride?.from ?: tripPass?.fromCity,
+                    to = ride?.to ?: tripPass?.toCity,
+                    driver = ride?.driver ?: tripPass?.driverName,
+                    time = ride?.time ?: tripPass?.departAt?.let { formatDepart(it) },
                     modifier = Modifier.appearIn(0),
                 )
+            }
+            // F11: офлайн-режим — сервер недоступен, но паспорт поездки сохранён локально.
+            if (offline && tripPass != null) {
+                item { OfflineTripBanner(modifier = Modifier.appearIn(0)) }
+                item { TripPassCard(pass = tripPass!!, modifier = Modifier.appearIn(1)) }
+            }
+            // F12 «Зимний протокол»: спокойное напоминание в морозную ночь (ноя–мар + ночь).
+            if (frostyNight) {
+                item { FrostyNightBanner(modifier = Modifier.appearIn(1)) }
             }
             // Live-баннер пассажиру: водитель выехал/подъезжает (опрос статуса раз в ~12с, не только пуш).
             if (role == "passenger" && (driverPhase == "departed" || driverPhase == "arriving")) {
@@ -909,6 +1180,20 @@ internal fun ActiveTripScreen(
             if (boardingCode.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus)) {
                 item {
                     BoardingCodeCard(code = boardingCode, modifier = Modifier.appearIn(1))
+                }
+            }
+            if (bookingId != null) {
+                item {
+                    Box(Modifier.appearIn(1)) {
+                        PayAgreementBlock(
+                            editable = false,
+                            method = payMethod,
+                            amountText = "",
+                            summaryAmount = payAmount,
+                            onMethod = {},
+                            onAmount = {}
+                        )
+                    }
                 }
             }
             val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
@@ -927,13 +1212,18 @@ internal fun ActiveTripScreen(
                                 else voiceScope.launch {
                                     ApiClient.driverStatus(bid, st)
                                         .onSuccess {
-                                            if (st == "done") onTripEnd()   // уходим с экрана только при реальном закрытии брони
+                                            if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }   // уходим с экрана только при реальном закрытии брони + чистим ПДн из паспорта
                                             else {
                                                 Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
                                                 ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним UI, не ждём 12с поллинга
                                             }
                                         }
-                                        .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { e ->
+                                            if (e !is ApiException) {   // нет сети → статус в очередь на авто-ретрай (F11)
+                                                Outbox.enqueue(context, Outbox.newDriverStatus(bid, st))
+                                                Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
+                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                                        }
                                 }
                             } else {
                                 status = st
@@ -942,10 +1232,15 @@ internal fun ActiveTripScreen(
                                     ApiClient.setTripStatus(bid, st)
                                         // «Завершить» уходит с экрана только при реальном закрытии брони на сервере.
                                         .onSuccess {
-                                            if (st == "done") onTripEnd()
+                                            if (st == "done") { TripPassStore.remove(context, bid); onTripEnd() }
                                             else ApiClient.getTripState(bid).onSuccess { s -> role = s.role; driverPhase = s.driverPhase; bookingStatus = s.status }   // сразу синхроним статус/код посадки
                                         }
-                                        .onFailure { Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show() }
+                                        .onFailure { e ->
+                                            if (e !is ApiException) {   // нет сети → статус «сел/доехал» в очередь на авто-ретрай (F11)
+                                                Outbox.enqueue(context, Outbox.newTripStatus(bid, st))
+                                                Toast.makeText(context, queuedMsg, Toast.LENGTH_SHORT).show()
+                                            } else Toast.makeText(context, statusErrMsg, Toast.LENGTH_SHORT).show()
+                                        }
                                 }
                             }
                         },
@@ -954,20 +1249,26 @@ internal fun ActiveTripScreen(
             }
             if (bookingStatus == "done") item {
                 var myStars by remember { mutableStateOf(0) }
+                var reviewText by remember { mutableStateOf("") }
                 var rating by remember { mutableStateOf(false) }   // запрос в полёте — блок повторных тапов, откат при сбое
+                var reviewSent by remember { mutableStateOf(false) }
+                val isDriver = role == "driver"
                 val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
+                val reviewSentMsg = appText("Спасибо! Отзыв на проверке", "Рәхмәт! Фекер тикшереүҙә")
                 val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
+                // Кого оцениваем: пассажир → водителя, водитель → пассажира.
+                val rateTitle = if (isDriver) appText("Оцените попутчика", "Юлдашты баһалағыҙ")
+                                else appText("Оцените водителя", "Водителде баһалағыҙ")
                 Card(modifier = Modifier.appearIn(2), colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(appText("Оцените водителя", "Водителде баһалағыҙ"), fontWeight = FontWeight.Bold)
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(rateTitle, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             (1..5).forEach { n ->
-                                Icon(
-                                    Icons.Default.Star,
-                                    contentDescription = "$n",
-                                    tint = if (n <= myStars) CanonStar else CanonBorder,
+                                val starCd = starsText(n)
+                                // Тач-цель ≥48dp (иконка визуально 38dp внутри), клик на всей зоне.
+                                Box(
                                     modifier = Modifier
-                                        .size(38.dp)
+                                        .size(48.dp)
                                         .clickable(enabled = !rating) {
                                             val prev = myStars
                                             myStars = n
@@ -975,13 +1276,125 @@ internal fun ActiveTripScreen(
                                             if (id != null) {
                                                 rating = true
                                                 voiceScope.launch {
-                                                    ApiClient.rateBooking(id, n)
-                                                        .onSuccess { rating = false; Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show() }
+                                                    // Звёзды уходят сразу; текст (если уже написан) прикрепляем тем же запросом.
+                                                    ApiClient.rateBooking(id, n, reviewText)
+                                                        .onSuccess {
+                                                            rating = false
+                                                            if (!reviewSent) Toast.makeText(context, thanksMsg, Toast.LENGTH_SHORT).show()
+                                                            // Честный рост: просим оценку в Play только у довольного пассажира (5★).
+                                                            // Play сам решит, показывать ли; не чаще раза в 30 дней; без Play — no-op.
+                                                            if (n == 5 && !isDriver) maybeRequestStoreReview(context)
+                                                        }
                                                         .onFailure { rating = false; myStars = prev; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }   // откат: не показываем «оценено», если не сохранилось
                                                 }
                                             }
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = starCd,
+                                        tint = if (n <= myStars) CanonStar else CanonMuted,
+                                        modifier = Modifier.size(48.dp),
+                                    )
+                                }
+                            }
+                        }
+                        // Текстовый отзыв — появляется после выбора звёзд. Идёт на модерацию.
+                        if (myStars > 0 && !reviewSent) {
+                            OutlinedTextField(
+                                value = reviewText,
+                                onValueChange = { if (it.length <= 500) reviewText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text(appText("Пара слов о поездке (необязательно)", "Сәфәр тураһында бер-ике һүҙ (мотлаҡ түгел)")) },
+                                minLines = 2,
+                                maxLines = 4,
+                                shape = CanonItemShape,
+                            )
+                            Text(
+                                appText("Отзыв появится после проверки", "Фекер тикшереүҙән һуң күренер"),
+                                color = CanonMuted, fontSize = 12.sp,
+                            )
+                            Button(
+                                onClick = {
+                                    val id = bookingId
+                                    if (id != null && reviewText.isNotBlank()) {
+                                        rating = true
+                                        voiceScope.launch {
+                                            ApiClient.rateBooking(id, myStars, reviewText)
+                                                .onSuccess { rating = false; reviewSent = true; Toast.makeText(context, reviewSentMsg, Toast.LENGTH_SHORT).show() }
+                                                .onFailure { rating = false; Toast.makeText(context, rateFailMsg, Toast.LENGTH_SHORT).show() }
                                         }
-                                )
+                                    }
+                                },
+                                enabled = !rating && reviewText.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                            ) {
+                                Text(appText("Оставить отзыв", "Фекер ҡалдырыу"), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (reviewSent) {
+                            Text(appText("✓ Отзыв отправлен на проверку", "✓ Фекер тикшереүгә ебәрелде"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+            // Онлайн-оплата завершённой поездки (карта/СБП через ЮKassa, за флагом провайдера).
+            // Только пассажиру — платит владелец брони. Сумма для показа — из договорённости/цены,
+            // списывает сервер по цене брони. 503 (провайдер выключен) → карточка тихо исчезает
+            // на всю сессию (OnlinePayGate) — договорённость «на доверии» остаётся как раньше.
+            if (bookingStatus == "done" && bookingId != null && role == "passenger") item {
+                PayOnlineCard(
+                    amountRub = payAmount ?: ride?.price?.takeIf { it > 0 },
+                    pay = { m -> ApiClient.payBooking(bookingId, m) },
+                    modifier = Modifier.appearIn(2),
+                )
+            }
+            // Квитанция завершённой поездки: маршрут, дата, сумма, способ оплаты, водитель.
+            if (bookingStatus == "done" && bookingId != null) item {
+                AppButton(
+                    text = appText("Квитанция поездки", "Сәфәр квитанцияһы"),
+                    onClick = { onOpenReceipt(bookingId) },
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.ReceiptLong,
+                    modifier = Modifier.appearIn(2),
+                )
+            }
+            // Мягкое, ненавязчивое предложение поддержать платформу после завершённой поездки.
+            // Легко закрыть (крестик / «Не сейчас») — поддержка строго по желанию.
+            if (bookingStatus == "done") item {
+                var supportDismissed by rememberSaveable(bookingId) { mutableStateOf(false) }
+                AnimatedVisibility(visible = !supportDismissed) {
+                    Card(
+                        modifier = Modifier.appearIn(3),
+                        colors = CardDefaults.cardColors(containerColor = CanonGreen.copy(alpha = 0.10f)),
+                        shape = CanonItemShape,
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.VolunteerActivism, contentDescription = null, tint = CanonGreen)
+                                Text(appText("Юлдаш делают для своих 🌱", "Юлдашты үҙебеҙ өсөн эшләйбеҙ 🌱"), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                IconButton(onClick = { supportDismissed = true }) {
+                                    Icon(Icons.Default.Close, contentDescription = appText("Закрыть", "Ябыу"), tint = CanonMuted)
+                                }
+                            }
+                            Text(
+                                appText("Если нравится — поддержи, это по желанию.", "Оҡшаһа — ярҙам ит, был ирекле."),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                FilledTonalButton(
+                                    onClick = onSupport,
+                                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonGreen.copy(alpha = 0.18f))
+                                ) {
+                                    Text(appText("Поддержать", "Ярҙам итеү"), color = CanonGreen, fontWeight = FontWeight.Bold)
+                                }
+                                TextButton(onClick = { supportDismissed = true }) {
+                                    Text(appText("Не сейчас", "Хәҙер түгел"), color = CanonMuted)
+                                }
                             }
                         }
                     }
@@ -992,7 +1405,13 @@ internal fun ActiveTripScreen(
             }
             if (bookingId == null || bookingStatus == "confirmed") item {
                 var showCancel by remember { mutableStateOf(false) }
+                var cancelReason by remember { mutableStateOf("") }   // код причины отмены (по желанию пассажира)
                 val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
+                // B8-8: отмена после открытия телефона/чата — мягкое напоминание (не обвиняем).
+                val contactCancelMsg = appText(
+                    "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
+                    "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
+                )
                 val cancelFailMsg = appText("Не удалось отменить", "Кире алып булманы")
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
@@ -1011,14 +1430,43 @@ internal fun ActiveTripScreen(
                     AlertDialog(
                         onDismissRequest = { showCancel = false },
                         title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")) },
-                        text = { Text(appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай.")) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай."))
+                                Text(appText("Причина (по желанию):", "Сәбәбе (теләгәнсә):"), color = CanonMuted, fontSize = 12.sp)
+                                listOf(
+                                    "plans_changed" to appText("Планы поменялись", "Пландар үҙгәрҙе"),
+                                    "found_other" to appText("Нашёл другой вариант", "Башҡа юл таптым"),
+                                    "driver_no_response" to appText("Водитель не отвечает", "Водитель яуап бирмәй"),
+                                ).forEach { (code, label) ->
+                                    val on = cancelReason == code
+                                    Text(
+                                        label,
+                                        color = if (on) CanonGreen2 else CanonText,
+                                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                            .clickable { cancelReason = if (on) "" else code }
+                                            .background(if (on) CanonMint else Color.Transparent)
+                                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                        },
                         confirmButton = {
                             TextButton(onClick = {
                                 showCancel = false
                                 bookingId?.let { id ->
                                     voiceScope.launch {
-                                        ApiClient.cancelBooking(id)
-                                            .onSuccess { Toast.makeText(context, cancelOkMsg, Toast.LENGTH_SHORT).show(); onTripEnd() }
+                                        ApiClient.cancelBooking(id, cancelReason)
+                                            .onSuccess { contactThenCancel ->
+                                                // F11: локальный паспорт поездки больше не нужен — бронь отменена.
+                                                TripPassStore.remove(context, id)
+                                                // B8-8: телефон/чат уже открывались → мягко напоминаем про защиту в приложении.
+                                                val msg = if (contactThenCancel) contactCancelMsg else cancelOkMsg
+                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                                onTripEnd()
+                                            }
                                             .onFailure { Toast.makeText(context, cancelFailMsg, Toast.LENGTH_SHORT).show() }
                                     }
                                 } ?: onTripEnd()
@@ -1088,15 +1536,21 @@ internal fun ActiveTripScreen(
                     }
                 }
             }
+            // B8-6: дисклеймер безопасности при первом открытии чата (закрывается «Понятно»).
+            item { ChatSafetyDisclaimer() }
             items(visibleMessages, key = { it.id }) { m ->
                 val saved = m.id > 0   // оптимистичные (id<0) ещё не на сервере — без меню
+                Box(Modifier.fillMaxWidth().animateItem()) {   // плавное появление/перестановка пузыря в списке
                 MessageBubble(
                     text = m.text,
                     voiceUrl = m.voiceUrl,
                     mine = m.senderId == myId,
                     failed = m.id in failedIds,
+                    queued = m.id in queuedIds,
                     deleted = m.deleted,
                     edited = m.edited,
+                    warn = m.flag == "warn",
+                    fromAdmin = m.fromAdmin,
                     canEdit = saved && m.senderId == myId && m.voiceUrl == null && !m.deleted,
                     canDeleteAll = saved && m.senderId == myId && !m.deleted,
                     canDeleteMine = saved && !m.deleted,
@@ -1110,6 +1564,7 @@ internal fun ActiveTripScreen(
                         }
                     },
                 )
+                }
             }
             item {
                 val voiceSoon = appText("Голос записан", "Тауыш яҙылды")
@@ -1171,8 +1626,52 @@ internal fun ActiveTripScreen(
                                 }
                                 .onFailure { Toast.makeText(context, chatSendFailMsg, Toast.LENGTH_SHORT).show() }
                         }
-                    }
+                    },
+                    onQuickSend = { phrase -> sendText(phrase) }   // готовая фраза — тот же надёжный путь (WS→REST)
                 )
+            }
+            // F12 «Застрял на трассе» — уровень мягче паники SOS: зовём своих на помощь в дороге.
+            // Только в реальной активной поездке (есть бронь и посадка подтверждена).
+            if (bookingId != null && bookingStatusAllowsBoarding(bookingStatus)) {
+                item {
+                    var stuckSending by remember { mutableStateOf(false) }
+                    var stuckSent by remember { mutableStateOf(false) }
+                    var showStuck by remember { mutableStateOf(false) }
+                    val stuckOkMsg = appText("Своим отправлен сигнал о помощи", "Үҙеңдекеләргә ярҙам сигналы ебәрелде")
+                    val stuckFailMsg = appText("Не удалось отправить. Попробуй ещё раз.", "Ебәреп булманы. Тағы бер тапҡыр ҡарап ҡара.")
+                    RoadsideHelpButton(
+                        sending = stuckSending,
+                        sent = stuckSent,
+                        onClick = { showStuck = true },
+                        modifier = Modifier.appearIn(5),
+                    )
+                    if (showStuck) {
+                        AlertDialog(
+                            onDismissRequest = { showStuck = false },
+                            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = CanonWarn) },
+                            title = { Text(appText("Нужна помощь на трассе?", "Юлда ярҙам кәрәкме?")) },
+                            text = { Text(appText(
+                                "Отправим твоим доверенным контактам сигнал и координаты, чтобы тебя нашли. Это не экстренный вызов 112 — для угрозы жизни жми SOS.",
+                                "Ышаныслы кешеләреңә сигнал һәм координаталар ебәрәбеҙ — һине табыр өсөн. Был 112 ашығыс саҡырыу түгел — тормошҡа хәүеф булһа, SOS баҫ.",
+                            )) },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showStuck = false
+                                    val bid = bookingId
+                                    if (bid != null) {
+                                        stuckSending = true
+                                        voiceScope.launch {
+                                            ApiClient.roadsideHelp(bid, LocationPrefs.lastLat, LocationPrefs.lastLng, "")
+                                                .onSuccess { stuckSending = false; stuckSent = true; Toast.makeText(context, stuckOkMsg, Toast.LENGTH_LONG).show() }
+                                                .onFailure { stuckSending = false; Toast.makeText(context, stuckFailMsg, Toast.LENGTH_SHORT).show() }
+                                        }
+                                    }
+                                }) { Text(appText("Позвать на помощь", "Ярҙамға саҡырырға"), color = CanonWarn, fontWeight = FontWeight.Bold) }
+                            },
+                            dismissButton = { TextButton(onClick = { showStuck = false }) { Text(appText("Назад", "Кире")) } }
+                        )
+                    }
+                }
             }
             item {
                 Button(
@@ -1190,9 +1689,72 @@ internal fun ActiveTripScreen(
         }
     }
 
+    if (showArrivalCheck) {
+        val bid = bookingId
+        AlertDialog(
+            onDismissRequest = { showArrivalCheck = false },
+            containerColor = CanonSurface,
+            icon = { Icon(Icons.Default.AcUnit, contentDescription = null, tint = CanonGreen2) },
+            title = { Text(appText("Ты доехал(а)?", "Барып еттеңме?"), color = CanonText, fontWeight = FontWeight.Black) },
+            text = {
+                Text(
+                    appText("Отметь, что всё хорошо — и близкие не будут волноваться.",
+                        "Бөтәһе лә яҡшы тип билдәлә — яҡындарың борсолмаҫ."),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showArrivalCheck = false
+                    if (bid != null) voiceScope.launch { ApiClient.winterCheckOk(bid) }
+                }) { Text(appText("Доехал ✓", "Барып еттем ✓"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showArrivalCheck = false }) {
+                    Text(appText("Ещё в пути", "Юлдамын"), color = CanonMuted)
+                }
+            },
+        )
+    }
+
     if (showShare) {
         ModalBottomSheet(onDismissRequest = { showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
+            // Ссылка live-поездки (B7c): после выбора близкого показываем её тут же —
+            // скопировать или отправить самому через системный share-sheet.
+            var liveLink by remember { mutableStateOf<String?>(null) }
+            // Приватность: активные ссылки этой сессии + возможность отозвать (на бэке нет GET
+            // shares для брони, поэтому копим созданные тут; отозванные убираем сразу).
+            var activeShares by remember { mutableStateOf<List<Pair<com.yuldash.app.data.TripShareDto, String>>>(emptyList()) }
+            // «Поделиться ещё» гасит вид ссылки, но список активных ссылок оставляем видимым.
+            var showContacts by remember { mutableStateOf(true) }
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+                val link = liveLink
+                if (activeShares.isNotEmpty() && !showContacts) {
+                    Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    if (!link.isNullOrBlank()) LiveLinkCard(link)
+                    ActiveSharesList(activeShares) { share ->
+                        val bid = bookingId
+                        if (bid != null) voiceScope.launch {
+                            ApiClient.revokeBookingShare(bid, share.id)
+                                .onSuccess {
+                                    activeShares = activeShares.filterNot { it.first.id == share.id }
+                                    if (activeShares.none { !it.first.link.isNullOrBlank() }) liveLink = null
+                                    if (activeShares.isEmpty()) showContacts = true
+                                    Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
+                                }
+                                .onFailure { Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show() }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextButton(onClick = { showContacts = true }) {
+                            Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(onClick = { showShare = false }) {
+                            Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
                 Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 if (contacts.isEmpty()) {
                     Text(appText("Сначала добавьте доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтәгеҙ"), color = CanonMuted)
@@ -1201,12 +1763,21 @@ internal fun ActiveTripScreen(
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             val bid = bookingId
-                            showShare = false
                             if (bid != null) voiceScope.launch {
                                 ApiClient.shareTrip(bid, c.id)
-                                    .onSuccess { Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show() }
-                                    .onFailure { Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show() }
-                            }
+                                    .onSuccess { share ->
+                                        Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
+                                        if (share != null) {
+                                            activeShares = activeShares.filterNot { it.first.id == share.id } + (share to c.name)
+                                            if (!share.link.isNullOrBlank()) liveLink = share.link
+                                            showContacts = false
+                                        } else showShare = false
+                                    }
+                                    .onFailure {
+                                        showShare = false
+                                        Toast.makeText(context, shareErrMsg, Toast.LENGTH_SHORT).show()
+                                    }
+                            } else showShare = false
                         }.padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1221,6 +1792,7 @@ internal fun ActiveTripScreen(
                         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
                     }
                 }
+                }
             }
         }
     }
@@ -1231,6 +1803,103 @@ internal fun ActiveTripScreen(
 // Surface/Card. Двуязычие считается внутри через appText (по LocalAppLanguage). Анимацию появления
 // (`appearIn`) экран навешивает снаружи через modifier — тела остаются без анимаций/эффектов, что
 // делает их покрываемыми на JVM (Robolectric). Поведение 1:1 с прежним инлайном.
+
+/** F12: параметры мягкой проверки «доехал?». Момент проверки = расчётная ETA маршрута
+ *  (расстояние по прямой / средняя скорость) + запас. Скорость консервативная (со стопами и
+ *  трафиком), запас щедрый — чтобы НЕ спросить «доехал?» посреди длинной межгородской поездки
+ *  и не потревожить близкого зря. Нет координат маршрута → фолбэк (3 ч). */
+private const val ARRIVAL_CHECK_FALLBACK_MS = 3L * 60 * 60_000L   // нет ETA → щедрый фолбэк
+private const val ARRIVAL_CHECK_GRACE_MS = 45L * 60_000L          // запас после расчётного прибытия
+private const val ARRIVAL_ASSUMED_KMH = 45.0                      // консервативная средняя скорость
+
+/** Через сколько после выезда будить проверку «доехал?»: расчётное время в пути (haversine/скорость)
+ *  + запас. Нет полных координат → фолбэк. Никаких сетевых вызовов — считаем локально. */
+internal fun arrivalCheckAfterMs(fromLat: Double?, fromLng: Double?, toLat: Double?, toLng: Double?): Long {
+    if (fromLat == null || fromLng == null || toLat == null || toLng == null) return ARRIVAL_CHECK_FALLBACK_MS
+    val r = 6371.0
+    val dLat = Math.toRadians(toLat - fromLat)
+    val dLon = Math.toRadians(toLng - fromLng)
+    val h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(Math.toRadians(fromLat)) * Math.cos(Math.toRadians(toLat)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    val km = 2 * r * Math.asin(Math.min(1.0, Math.sqrt(h)))
+    if (km <= 0.0) return ARRIVAL_CHECK_FALLBACK_MS
+    val travelMs = (km / ARRIVAL_ASSUMED_KMH * 3_600_000.0).toLong()
+    return travelMs + ARRIVAL_CHECK_GRACE_MS
+}
+
+/** ISO выезда (UTC-наивный с сервера) → epoch millis. Терпимо к 'Z'/смещению/долям секунды. */
+internal fun parseIsoUtcMillis(iso: String): Long? = try {
+    val s = iso.substringBefore('.').substringBefore('+').removeSuffix("Z").take(19)
+    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+    fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+    fmt.parse(s)?.time
+} catch (e: Exception) {
+    null
+}
+
+/** F12 «Зимний протокол»: сейчас морозная ночь? Зима по МЕСЯЦУ (ноя–мар) + ночное время
+ *  (20:00–07:00) по календарю устройства. Без внешних API/погоды в v1 — простое и честное правило. */
+internal fun isFrostyWinterNight(now: java.util.Calendar = java.util.Calendar.getInstance()): Boolean {
+    val month = now.get(java.util.Calendar.MONTH)   // 0=янв … 11=дек
+    val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
+    val winter = month == java.util.Calendar.NOVEMBER || month == java.util.Calendar.DECEMBER ||
+        month == java.util.Calendar.JANUARY || month == java.util.Calendar.FEBRUARY || month == java.util.Calendar.MARCH
+    val night = hour >= 20 || hour < 7
+    return winter && night
+}
+
+/** Спокойный баннер морозной ночи: напомнить взять тепло и проверить заряд. Тон — заботливый, не тревожный. */
+@Composable
+internal fun FrostyNightBanner(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = CanonMint),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.AcUnit, contentDescription = appText("Морозная ночь", "Һыуыҡ төн"), tint = CanonGreen2, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(appText("Морозная ночь", "Һыуыҡ төн"), fontWeight = FontWeight.Bold, color = CanonGreen2)
+                Text(
+                    appText(
+                        "Возьми тёплые вещи и проверь заряд телефона перед дорогой. Поделись поездкой со своими.",
+                        "Йылы кейем ал һәм юлға сыҡҡанға тиклем телефон зарядын тикшер. Сәфәреңде үҙеңдекеләр менән уртаҡлаш.",
+                    ),
+                    color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            }
+        }
+    }
+}
+
+/** F12 «Застрял на трассе»: заметная, но спокойная (амбер), отдельный уровень от красной паники SOS.
+ *  Состояния: обычная / отправка / отправлено. Двуязычие внутри. */
+@Composable
+internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = !sending && !sent,
+        modifier = modifier.fillMaxWidth().height(50.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = CanonWarnBg, contentColor = CanonWarn),
+        border = BorderStroke(1.dp, CanonWarn),
+    ) {
+        if (sending) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonWarn)
+            Spacer(Modifier.width(8.dp))
+            Text(appText("Отправляем…", "Ебәрелә…"), color = CanonWarn, fontWeight = FontWeight.Bold)
+        } else {
+            Icon(if (sent) Icons.Default.CheckCircle else Icons.Default.Warning, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (sent) appText("Помощь позвана", "Ярҙам саҡырылды") else appText("Застрял на трассе", "Юлда ҡалдым"),
+                color = CanonWarn, fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
 
 /** Шапка активной поездки: «откуда → куда», водитель, время. Пустые значения → «—». */
 @Composable
@@ -1243,7 +1912,7 @@ internal fun TripRouteHeaderCard(
 ) {
     Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape, elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("${from ?: "—"}  →  ${to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Black)
+            Text("${from ?: "—"}  →  ${to ?: "—"}", fontSize = 22.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
@@ -1292,6 +1961,91 @@ internal fun BoardingCodeCard(
             }
             Spacer(Modifier.width(10.dp))
             Text(code, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 30.sp, letterSpacing = 4.sp)
+        }
+    }
+}
+
+/**
+ * F11 — плашка офлайн-режима. Сервер недоступен (трасса без связи), но паспорт поездки
+ * сохранён локально: спокойно сообщаем об этом, без тревоги, тёплым тоном.
+ */
+@Composable
+internal fun OfflineTripBanner(modifier: Modifier = Modifier) {
+    Surface(modifier = modifier.fillMaxWidth(), color = CanonWarnBg, shape = CanonCardShape) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.CloudOff, contentDescription = appText("Нет сети", "Селтәр юҡ"), tint = CanonWarn, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(appText("Офлайн — данные сохранены", "Офлайн — мәғлүмәт һаҡланған"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Text(
+                    appText("Показываем сохранённую поездку. Сообщения и статусы отправим, как появится сеть.",
+                        "Һаҡланған сәфәрҙе күрһәтәбеҙ. Хәбәр һәм хәлдәрҙе селтәр булғас ебәрербеҙ."),
+                    color = CanonWarn, fontSize = 13.sp, lineHeight = 17.sp
+                )
+            }
+        }
+    }
+}
+
+/**
+ * F11 — карточка «Паспорт поездки»: всё главное для встречи с водителем без сети —
+ * маршрут, время, водитель+машина, телефон (кнопка «Позвонить»), код посадки, точка сбора, оплата.
+ * Телефон — ПДн, показываем участнику брони; НЕ логируем.
+ */
+@Composable
+internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CanonSurface),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Lock, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(appText("Паспорт поездки", "Сәфәр паспорты"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+            }
+            TripPassRow(Icons.Default.Route, appText("Маршрут", "Юл"), "${pass.fromCity} → ${pass.toCity}")
+            if (pass.departAt.isNotBlank()) TripPassRow(Icons.Default.Schedule, appText("Время", "Ваҡыт"), formatDepart(pass.departAt))
+            val driverLine = listOf(pass.driverName, pass.driverCar).filter { it.isNotBlank() }.joinToString(" · ")
+            if (driverLine.isNotBlank()) TripPassRow(Icons.Default.Person, appText("Водитель", "Водитель"), driverLine)
+            if (pass.driverPhone.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TripPassRow(Icons.Default.Phone, appText("Телефон", "Телефон"), pass.driverPhone, modifier = Modifier.weight(1f))
+                    FilledTonalButton(
+                        onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${pass.driverPhone}"))) }
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
+                    ) {
+                        Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(appText("Позвонить", "Шылтыратыу"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            }
+            if (pass.pickup.isNotBlank()) TripPassRow(Icons.Default.LocationOn, appText("Точка сбора", "Йыйылыу урыны"), pass.pickup)
+            if (pass.boardingCode.isNotBlank()) TripPassRow(Icons.Default.Pin, appText("Код посадки", "Ултырыу коды"), pass.boardingCode)
+            if (pass.price > 0) TripPassRow(
+                Icons.Default.Payments, appText("Оплата", "Түләү"),
+                appText("${pass.price} ₽ · перевод по СБП", "${pass.price} ₽ · СБП аша күсереү")
+            )
+        }
+    }
+}
+
+@Composable
+private fun TripPassRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(label, color = CanonMuted, fontSize = 12.sp)
+            Text(value, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 19.sp)
         }
     }
 }
@@ -1354,6 +2108,39 @@ internal fun ShareTripRow(
     }
 }
 
+/** Список активных live-ссылок поездки с кнопкой «Отозвать» (приватность B7c). */
+@Composable
+private fun ActiveSharesList(
+    shares: List<Pair<com.yuldash.app.data.TripShareDto, String>>,
+    onRevoke: (com.yuldash.app.data.TripShareDto) -> Unit,
+) {
+    if (shares.isEmpty()) return
+    Spacer(Modifier.height(14.dp))
+    Text(
+        appText("Активные ссылки", "Әүҙем һылтанмалар"),
+        color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+    )
+    Spacer(Modifier.height(6.dp))
+    shares.forEach { (share, name) ->
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(name, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            TextButton(
+                onClick = { onRevoke(share) },
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
+                Icon(Icons.Default.Close, contentDescription = appText("Отозвать ссылку", "Һылтанманы кире алыу"), tint = CanonRed, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun MessageBubble(
@@ -1361,8 +2148,11 @@ internal fun MessageBubble(
     voiceUrl: String?,
     mine: Boolean,
     failed: Boolean = false,
+    queued: Boolean = false,
     deleted: Boolean = false,
     edited: Boolean = false,
+    warn: Boolean = false,       // B8-6: сервер пометил flag=warn → плашка получателю
+    fromAdmin: Boolean = false,  // B8-9: бейдж «Юлдаш ✓» (только серверный флаг)
     canEdit: Boolean = false,
     canDeleteAll: Boolean = false,
     canDeleteMine: Boolean = false,
@@ -1376,6 +2166,7 @@ internal fun MessageBubble(
     var menu by remember { mutableStateOf(false) }
     val showMenu = !deleted && (canEdit || canDeleteAll || canDeleteMine)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+    if (fromAdmin && !deleted) YuldashOfficialBadge(Modifier.padding(bottom = 2.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Box {
         Surface(
@@ -1407,7 +2198,7 @@ internal fun MessageBubble(
                                 playing = true
                             }
                         },
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(if (playing) Icons.Default.Close else Icons.Default.PlayArrow, contentDescription = appText("Воспроизвести", "Уйнатыу"), tint = if (mine) Color.White else CanonGreen2)
                     }
@@ -1452,10 +2243,14 @@ internal fun MessageBubble(
             }
         }
     }
+        if (warn && !mine && !deleted) {
+            // B8-6: предупреждение получателю — сообщение похоже на развод (коды из SMS/карта/увод оплаты).
+            PhishingWarnPlate(Modifier.padding(top = 3.dp))
+        }
         if (edited && !deleted) {
             Text(
                 appText("изменено", "үҙгәртелде"),
-                color = CanonMuted, fontSize = 11.sp,
+                color = CanonMuted, fontSize = 13.sp,
                 modifier = Modifier.padding(top = 2.dp, end = 4.dp)
             )
         }
@@ -1467,6 +2262,19 @@ internal fun MessageBubble(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 2.dp, end = 4.dp).bounceClick { onRetry() }
             )
+        } else if (queued) {
+            // F11: сообщение в очереди — уйдёт само, когда вернётся сеть.
+            Row(
+                modifier = Modifier.padding(top = 2.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(13.dp))
+                Text(
+                    appText("В очереди · отправим при сети", "Сиратта · селтәр булғас ебәрербеҙ"),
+                    color = CanonMuted, fontSize = 12.sp
+                )
+            }
         }
     }
 }

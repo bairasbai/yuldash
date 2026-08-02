@@ -5,6 +5,7 @@
 Лимитер — in-memory (скользящее окно на IP). Для одного-двух воркеров на MVP
 этого достаточно. На несколько воркеров/серверов позже — Redis (см. system-design.md).
 """
+import math
 import time
 from collections import defaultdict, deque
 
@@ -13,12 +14,29 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
+from .logs import log
+
+_WINDOW_SEC = 60  # окно счёта запросов (согласовано с *_per_min в config)
 
 # Префиксы, где лимит строже (перебор кодов, спам SOS, флуд админа в Telegram). Совпадение и с /api/v1.
 # /callback, /donate, /boost/create шлют уведомление админу → без строгого лимита их можно заспамить.
+# /waitlist — публичный без auth (ранний доступ, §11) → строгий бюджет против спама номеров.
 _STRICT_PREFIXES = (
-    "/auth", "/sos", "/callback", "/donate", "/boost/create",
-    "/api/v1/auth", "/api/v1/sos", "/api/v1/callback", "/api/v1/donate", "/api/v1/boost/create",
+    "/auth", "/sos", "/callback", "/donate", "/support/donate", "/boost/create", "/waitlist",
+    "/api/v1/auth", "/api/v1/sos", "/api/v1/callback", "/api/v1/donate", "/api/v1/support/donate",
+    "/api/v1/boost/create", "/api/v1/waitlist",
+)
+
+# Освобождены от ЖЁСТКОГО лимита: пробы мониторинга (их долбит uptime-чек и деплой-гейт)
+# и вебхуки внешних сервисов (Telegram/ЮKassa) — у них своя защита (секрет/подпись), а объём
+# легитимного трафика может кратно превышать пользовательский. Важно: /auth/telegram/webhook
+# начинается с "/auth" → без этого списка попал бы в строгий бюджет и Telegram-бота при
+# активности резало бы 429. Проверяется ПЕРЕД _STRICT_PREFIXES. Совпадение и с /api/v1.
+_EXEMPT_PREFIXES = (
+    "/health", "/version",
+    "/auth/telegram/webhook", "/payments/yookassa/webhook",
+    "/api/v1/health", "/api/v1/version",
+    "/api/v1/auth/telegram/webhook", "/api/v1/payments/yookassa/webhook",
 )
 
 
@@ -39,9 +57,12 @@ def _client_ip(request: Request) -> str:
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Лимит запросов на IP, окно 60с. Два бюджета: общий и строгий (auth/sos).
 
+    Пробы мониторинга (`/health`, `/version`) и вебхуки (Telegram/ЮKassa) освобождены
+    от жёсткого лимита (`_EXEMPT_PREFIXES`) — у них своя защита и высокий легитимный поток.
+
     Если задан `REDIS_URL` — счётчики в Redis (общие на все воркеры/серверы).
     Иначе/при сбое Redis — in-memory скользящее окно (на воркер). Сбой Redis НЕ
-    роняет запрос: тихо падаем в in-memory."""
+    роняет запрос: тихо падаем в in-memory. При отбое — 429 с телом и `Retry-After`."""
 
     def __init__(self, app):
         super().__init__(app)
@@ -59,53 +80,65 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 import redis.asyncio as aioredis
                 self._redis = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
             except Exception as e:  # noqa: BLE001
-                print(f"[RATELIMIT] redis init failed, fallback in-memory: {e}")
+                log.warning(f"[RATELIMIT] redis init failed, fallback in-memory: {e}")
                 self._redis = None
         return self._redis
 
-    def _over_mem(self, store: dict[str, deque], key: str, limit: int, now: float) -> bool:
+    def _over_mem(self, store: dict[str, deque], key: str, limit: int, now: float) -> tuple[bool, int]:
+        """Скользящее окно. Возвращает (превышен?, сек до освобождения слота)."""
         dq = store[key]
-        edge = now - 60.0
+        edge = now - _WINDOW_SEC
         while dq and dq[0] < edge:
             dq.popleft()
         if len(dq) >= limit:
-            return True
+            retry = max(1, math.ceil(dq[0] + _WINDOW_SEC - now))
+            return True, retry
         dq.append(now)
-        return False
+        return False, 0
 
-    async def _over_redis(self, client, key: str, limit: int) -> bool:
-        """Фиксированное окно 60с в Redis: INCR + EXPIRE на первом хите."""
+    async def _over_redis(self, client, key: str, limit: int) -> tuple[bool, int]:
+        """Фиксированное окно 60с в Redis: INCR + EXPIRE на первом хите.
+        Возвращает (превышен?, сек до сброса окна = TTL ключа)."""
         n = await client.incr(key)
         if n == 1:
-            await client.expire(key, 60)
-        return n > limit
+            await client.expire(key, _WINDOW_SEC)
+        if n > limit:
+            ttl = await client.ttl(key)
+            return True, (ttl if ttl and ttl > 0 else _WINDOW_SEC)
+        return False, 0
 
     async def dispatch(self, request: Request, call_next):
-        if not settings.rate_limit_enabled:
+        path = request.url.path
+        # Выключен глобально ИЛИ путь освобождён (мониторинг/вебхуки) → без лимита.
+        if not settings.rate_limit_enabled or path.startswith(_EXEMPT_PREFIXES):
             return await call_next(request)
         ip = _client_ip(request)
-        path = request.url.path
         strict = path.startswith(_STRICT_PREFIXES)
         client = self._get_redis()
-        over = False
+        over, retry_after = False, 0
         if client is not None:
             try:
                 if strict:
-                    over = await self._over_redis(client, f"rl:s:{ip}", settings.rate_limit_auth_per_min)
+                    over, retry_after = await self._over_redis(client, f"rl:s:{ip}", settings.rate_limit_auth_per_min)
                 if not over:
-                    over = await self._over_redis(client, f"rl:g:{ip}", settings.rate_limit_per_min)
+                    over, retry_after = await self._over_redis(client, f"rl:g:{ip}", settings.rate_limit_per_min)
             except Exception as e:  # noqa: BLE001 — Redis недоступен → in-memory
-                print(f"[RATELIMIT] redis error, fallback in-memory: {e}")
+                log.warning(f"[RATELIMIT] redis error, fallback in-memory: {e}")
                 self._redis = None
                 client = None
         if client is None:
             now = time.monotonic()
-            if strict and self._over_mem(self._hits_strict, ip, settings.rate_limit_auth_per_min, now):
-                over = True
-            elif self._over_mem(self._hits, ip, settings.rate_limit_per_min, now):
-                over = True
+            if strict:
+                over, retry_after = self._over_mem(self._hits_strict, ip, settings.rate_limit_auth_per_min, now)
+            if not over:
+                over, retry_after = self._over_mem(self._hits, ip, settings.rate_limit_per_min, now)
         if over:
-            return JSONResponse({"detail": "Слишком много запросов. Подожди немного."}, status_code=429)
+            retry_after = retry_after or _WINDOW_SEC
+            return JSONResponse(
+                {"detail": "Слишком много запросов. Подожди немного.", "retry_after": retry_after},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
         return await call_next(request)
 
 
@@ -128,11 +161,34 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         start = time.monotonic()
         resp = await call_next(request)
         ms = (time.monotonic() - start) * 1000.0
-        print(f"[REQ] {request.method} {request.url.path} -> {resp.status_code} {ms:.0f}ms")
+        path = request.url.path
+        # Live-ссылка близкому (/t/{token}, B7c) — capability-URL: токен в пути = секрет,
+        # в лог не пишем (тот же принцип, что «без query», 152-ФЗ).
+        if path.startswith("/t/") or path.startswith("/api/v1/t/"):
+            path = path[: path.index("/t/") + 3] + "***"
+        log.info(f"[REQ] {request.method} {path} -> {resp.status_code} {ms:.0f}ms")
+        # Явные серверные ошибки (500/503 и т.п.) считаем для алерта о всплеске.
+        # /health* исключаем: 503 от readiness-пробы — ожидаемый сигнал (его отслеживает monitor.sh).
+        if resp.status_code >= 500 and not path.startswith("/health"):
+            from .services import record_server_error
+            record_server_error(path)
         return resp
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Любая необработанная ошибка → 500 без утечки стека наружу (стек — в лог)."""
-    print(f"[ERR] {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
+    path = request.url.path
+    if path.startswith("/t/") or path.startswith("/api/v1/t/"):
+        path = path[: path.index("/t/") + 3] + "***"   # токен live-ссылки — секрет (B7c)
+    log.error(f"[ERR] {request.method} {path}: {type(exc).__name__}: {exc}", exc_info=exc)
+    # Обработчик bare Exception мог бы «съесть» авто-захват Sentry — шлём явно.
+    from .observability import capture
+    capture(exc)
+    # Реальный краш (проброшенное исключение) до AccessLogMiddleware не доходит —
+    # считаем его здесь, у источника 500.
+    # ВАЖНО: передаём уже замаскированный `path`, а не `request.url.path` — иначе
+    # секретный токен live-ссылки /t/{token} уезжает в Telegram админа (алерт о всплеске
+    # 5xx подставляет путь в текст). Маскировка выше была бы бессмысленной.
+    from .services import record_server_error
+    record_server_error(path)
     return JSONResponse({"detail": "Внутренняя ошибка сервера"}, status_code=500)

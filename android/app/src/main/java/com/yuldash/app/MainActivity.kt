@@ -162,6 +162,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -234,7 +235,6 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -266,12 +266,66 @@ class MainActivity : ComponentActivity() {
         // Восстановить выбор темы день/ночь (если пользователь переключал тумблером в шапке).
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
+        FontScalePrefs.load(this)   // «Крупный шрифт»: восстановить выбранный размер текста (yuldash_prefs)
+        handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
+        handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         setContent {
             YuldashTheme(darkTheme = appIsDark()) {
-                YuldashApp()
+                // Крупный шрифт: множим системный fontScale на выбранный пользователем множитель —
+                // весь sp-текст приложения масштабируется разом, системная настройка тоже уважается.
+                val base = LocalDensity.current
+                val scaled = FontScalePrefs.option.multiplier
+                CompositionLocalProvider(
+                    LocalDensity provides Density(density = base.density, fontScale = base.fontScale * scaled)
+                ) {
+                    YuldashApp()
+                }
             }
         }
     }
+
+    // Приложение уже открыто (SINGLE_TOP): и такси-оффер, и новая ссылка (WhatsApp/Telegram) ловятся тут.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNavIntent(intent)   // сигнал оффера такси без пересоздания (B7a-2)
+        handleDeepLink(intent)    // deep-link ссылки yulbash.ru/r/{id} (F16)
+    }
+
+    /** Уведомление «Новый заказ 🚕» → сигнал YuldashApp открыть кабинет водителя (карточка оффера). */
+    private fun handleNavIntent(i: Intent?) {
+        if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) == true) {
+            i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)   // не сработать повторно при пересоздании
+            NavSignals.openDriverCabinet.value = true
+        }
+        // Пуш о ходе такси-заказа (B9b-2). Два пути: наше уведомление из FcmService (extra
+        // EXTRA_OPEN_ORDER) ИЛИ системный трей FCM в фоне (data-ключи приходят как extras интента).
+        if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) == true ||
+            i?.getStringExtra("type") == "instant_status"
+        ) {
+            i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER)
+            i.removeExtra("type")
+            NavSignals.openInstantOrder.value = true
+        }
+    }
+
+    /** F16 deep-link: из https://yulbash.ru/r/{id} достаём id поездки и кладём в DeepLink —
+     *  YuldashApp подхватит его и откроет поездку. Кривые ссылки молча игнорим. */
+    private fun handleDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (!data.host.equals("yulbash.ru", ignoreCase = true)) return
+        // путь вида /r/123 (+ возможный trailing slash) → берём числовой сегмент после "r"
+        val segments = data.pathSegments
+        val idx = segments.indexOf("r")
+        val rideId = segments.getOrNull(idx + 1)?.toIntOrNull() ?: return
+        DeepLink.pendingRideId.value = rideId
+    }
+}
+
+/** Мост deep-link → Compose: onCreate/onNewIntent пишут сюда id поездки,
+ *  YuldashApp читает как snapshot-состояние и открывает поездку. */
+internal object DeepLink {
+    val pendingRideId = mutableStateOf<Int?>(null)
 }
 
 internal enum class Screen {
@@ -294,6 +348,7 @@ internal enum class Screen {
     Privacy,
     Rules,
     PaymentInfo,
+    PricingInfo,   // «Честно о цене»: как считается цена попутки/такси и куда идёт комиссия
     Blocklist,
     Report,
     Filters,
@@ -318,8 +373,56 @@ internal enum class Screen {
     AppReview,
     AdminReviews,
     AdminAds,
-    AdEditor
+    AdEditor,
+    InstantOrder,       // «Быстрый заказ» — экран пассажира (куда едем → ищем → водитель едет)
+    InstantDriverTrip,  // «Быстрый заказ» — экран поездки водителя (навигация → приехал/посадил/завершил)
+    InstantChat,        // Чат такси-заказа (B7b-1): пассажир ↔ водитель, привязка к order_id
+    TaxiOnboarding,     // «Стать таксистом Юлдаша» (580-ФЗ): правила + заявка + статус проверки
+    AdminTaxi,          // Админ: заявки таксистов (одобрить/отклонить) + города, где включено такси
+    AdminWaitlist,      // Админ: лист ожидания раннего доступа (счётчики, волны) — §11 «Запуск»
+    AdminTaxiPulse,     // Админ: «Пульс такси» (B7b-3) — на линии, активные заказы, по городам
+    IncomeCalculator,   // Админ: живой калькулятор дохода автора (оценка выручки/чистыми)
+    DriverProfile,  // публичный профиль водителя (тапом с карточки поездки): стаж, поездки, рейтинг, отзывы
+    RouteWatches,  // «Мои подписки» на маршрут (F13 «карауль поездку»)
+    Trust,        // «Доверие»: уровень L0–L3 + путь к следующему (Фаза 4)
+    Invites,      // «Позвать своего»: инвайт-коды в круг доверия
+    Consents,     // Согласия и данные (152-ФЗ)
+    MyStats,       // «Мой Юлдаш» — личная статистика попутчика (F18)
+    ClinicRides,   // F22: «Поездки к клинике» — справочник клиник-партнёров + попутки к выбранной клинике
+    Coupons,        // M1: «Скидки по пути» — купонный маркетплейс для пассажира
+    PartnerCabinet, // M1: «Мой бизнес» — кабинет партнёра (регистрация, подписка, купоны, погашение)
+    AdminPartners,  // M1: Админ — модерация бизнесов-партнёров (купоны)
+    PromoCode,      // M2: «Промокод» — ввод кода друга/акции (пользователь)
+    AdminPromo,     // M2: Админ — промокоды и кампании (блогеры, акции, статистика)
+    Parcels,        // M3: «Посылки» — отправить с попутчиком / возить (пользователь)
+    AdminParcels,   // M3: Админ — доставки посылок и собранный сбор
+    CourierOnboarding, // C1: «Стать курьером Юлдаша» — правила + транспорт + селфи + статус заявки
+    Courier,        // C1: «Режим курьера» — на линии, зона, доступные заказы, кабинет
+    AdminCourier,   // C1: Админ — заявки курьеров (одобрить/отклонить с причиной)
+    Wallet,         // Кошелёк: баланс + история операций (ledger) — доступен из кабинетов
+    DriverEarnings, // «Мой заработок»: заработок водителя по периодам (неделя/месяц/всё) + по дням
+    SavedPlaces,    // «Мои адреса»: Дом/Работа/свои — просмотр, добавление, удаление (вход из кабинета пассажира)
+    TripReceipt,    // Квитанция завершённой поездки (маршрут, дата, сумма, способ оплаты, водитель)
+    TaxiReceipt,    // Чек за поездку на такси + «рәхмәт», «забыл вещь», «наличные получил»
+    DriverTaxiRides,// «Мои поездки такси»: цена → комиссия → чистыми по каждой поездке
+    AdminSos,       // Админ: лента сигналов SOS + отметка «Принял»
+    TaxiDocuments,  // Сроки ОСАГО/разрешения/диагностической карты + продление без пере-подачи (580-ФЗ)
+    PretripCheck,   // Готовность к работе на сегодня: самочувствие, машина, без алкоголя (580-ФЗ)
+    FairnessCenter, // «Центр справедливости»: моё положение (Надёжность/страйки) + мои споры
+    IncidentDetail, // Карточка спора: обе версии, фото, решение, объясниться/апелляция/мир
+    AdminIncidents, // Админ: разбор споров (обе версии рядом, телефоны, решение с объяснением)
+    AdminRatings,   // Админ: модерация текстовых отзывов о поездке (без неё тексты не публикуются)
+    CourierEarnings, // «Мой заработок» курьера: чистыми, комиссия, доставки по дням
+    SupportTickets, // «Поддержка Юлдаш» — список моих обращений (замена ссылки «Написать в Telegram»)
+    SupportTicket,  // Тред обращения в поддержку (пузыри user/admin, ответ, закрыть/переоткрыть)
+    ScheduledOrders, // «Мои предзаказы» — такси «на время»: список, обратный отсчёт, начать поиск/отменить
+    DriverResponses // «Мои отклики» (водитель): торг о цене — принять встречную или предложить свою
 }
+
+/** Действие «открыть публичный профиль водителя» — прокинуто из YuldashApp,
+ *  чтобы карточки поездки (FullRideCard/NearbyRideCard/детали) открывали профиль
+ *  без ручного протаскивания колбэка через все экраны. 0/пусто = ничего не делаем. */
+internal val LocalOpenDriverProfile = staticCompositionLocalOf<(Int) -> Unit> { {} }
 
 internal enum class HomeTab {
     Map,
@@ -394,16 +497,27 @@ private const val SBP_BANK = "Сбербанк"
 @Composable
 internal fun LocalizedText.text(): String = appText(ru, ba)
 
-@Composable
-internal fun seatsText(count: Int): String {
-    val ru = when {
-        count % 100 in 11..14 -> "$count мест"
-        count % 10 == 1 -> "$count место"
-        count % 10 in 2..4 -> "$count места"
-        else -> "$count мест"
-    }
-    return appText(ru, "$count урын")
+/**
+ * Русское склонение существительного по числу: 1 → one, 2..4 → few, иначе → many
+ * (учитывает 11..14 → many). Пример: pluralRu(n, "место", "места", "мест").
+ * Единый хелпер, чтобы не плодить «1 мест»/«1 звёзд» по экранам. Не @Composable — зовётся откуда угодно.
+ */
+internal fun pluralRu(n: Int, one: String, few: String, many: String): String = when {
+    n % 100 in 11..14 -> many
+    n % 10 == 1 -> one
+    n % 10 in 2..4 -> few
+    else -> many
 }
+
+@Composable
+internal fun seatsText(count: Int): String =
+    // Башкирский (тюркский) не склоняет счётное существительное — «$count урын» верно для любого числа.
+    appText("$count " + pluralRu(count, "место", "места", "мест"), "$count урын")
+
+/** Число звёзд с правильным склонением: «1 звезда», «2 звезды», «5 звёзд». */
+@Composable
+internal fun starsText(count: Int): String =
+    appText("$count " + pluralRu(count, "звезда", "звезды", "звёзд"), "$count йондоҙ")
 
 @Composable
 internal fun Ride.timeText(): String = appText(time, timeBa ?: time)
@@ -441,9 +555,13 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     from = fromCity,
     to = toCity,
     time = formatDepart(departAt),
-    driver = driverName.ifBlank { "Водитель" },
+    driverId = driverId,
+    driver = driverName,   // пусто оставляем; двуязычный дефолт «Водитель»/«Йөрөтөүсе» — на слое отрисовки через appText
     driverAvatar = driverAvatar,
     driverOnline = driverOnline,
+    driverTrips = driverTrips,
+    driverSince = driverSince,
+    driverIsWoman = driverIsWoman,
     car = driverCar,
     price = price,
     seats = seatsLeft,
@@ -456,6 +574,8 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     smoking = smoking,
     baggage = baggage,
     airConditioner = airConditioner,
+    quiet = quiet,
+    waypoints = waypoints,
     pickup = pickup,
     pickupLat = pickupLat,
     pickupLng = pickupLng,
@@ -482,16 +602,8 @@ internal fun rideTypeMeta(key: String): Triple<androidx.compose.ui.graphics.vect
     "parcel" -> Triple(Icons.Default.Inventory2, "Посылка", "Посылка")
     "cargo" -> Triple(Icons.Default.LocalShipping, "Груз", "Йөк")
     "urgent" -> Triple(Icons.Default.Bolt, "Срочно", "Ашығыс")
+    "hospital" -> Triple(Icons.Default.LocalHospital, "В больницу", "Дауаханаға")   // F22: поездка к клинике-партнёру
     else -> Triple(Icons.Default.DirectionsCar, "Пассажиры", "Пассажирҙар")
-}
-
-// Заявка из строки-маршрута «Откуда → Куда» (голосовая / за близкого) → реальная серверная заявка.
-internal fun fireRequestFromRoute(route: String, comment: String = "", voiceUrl: String? = null, transcript: String? = null) {
-    val parts = route.split("→", "->", "-").map { it.trim() }.filter { it.isNotEmpty() }
-    val from = parts.getOrElse(0) { route.trim() }
-    val to = parts.getOrElse(1) { "" }
-    // assisted=true: вызывается из «помощь»-режимов (голос/повтор/простой) → админ получит уведомление.
-    if (from.isNotBlank()) ApiClient.fireCreateRequest(from, to, 1, "regular", false, comment, 0, voiceUrl, transcript, assisted = true)
 }
 
 // Нативный календарь + часы → строка «ДД.ММ.ГГГГ, ЧЧ:ММ» в поле даты заявки/поездки.

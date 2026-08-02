@@ -2,9 +2,13 @@ package com.yuldash.app
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -40,6 +44,15 @@ class ProfileDeep2ContentTest {
         rating = 0.0, verified = true, boosted = false,
     )
 
+    /** Прокрутить кабинет до строки с текстом.
+     *  Кабинет пассажира вырос (добавились строки — быстрый заказ и др.), часть контента уехала
+     *  ниже видимой области теста. Узел в дереве ЕСТЬ, но assertIsDisplayed/performClick требуют
+     *  попадания в окно — без прокрутки падает «is not displayed» либо клик уходит в никуда. */
+    private fun scrollTo(text: String) {
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText(text))
+    }
+
     @Test
     fun loading_showsSkeletonNotActiveRide() {
         composeRule.mainClock.autoAdvance = false   // скелетон-шиммер бесконечен
@@ -49,7 +62,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = true, error = false, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -65,11 +78,12 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = true, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
         composeRule.onNodeWithText("Не удалось загрузить поездки").assertIsDisplayed()
+        scrollTo("Повторить")
         composeRule.onNodeWithText("Повторить").assertIsDisplayed()
     }
 
@@ -81,10 +95,11 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = true, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = { retried = true }, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = { retried = true }, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
+        scrollTo("Повторить")
         composeRule.onNodeWithText("Повторить").performClick()
         assertTrue(retried)
     }
@@ -96,14 +111,19 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
         // Карточки активной поездки нет, но нижние навигационные строки на месте.
         composeRule.onNodeWithText("Уфа → Казань").assertDoesNotExist()
+        // Над списком теперь стоит карточка «Активных поездок нет» — строка ушла за экран,
+        // а в LazyColumn это значит «не создана вовсе». Доскроллить, потом проверять.
+        scrollTo("Найти поездку")
         composeRule.onNodeWithText("Найти поездку").assertIsDisplayed()
+        scrollTo("Создать заявку")
         composeRule.onNodeWithText("Создать заявку").assertIsDisplayed()
+        scrollTo("Безопасность поездки")
         composeRule.onNodeWithText("Безопасность поездки").assertIsDisplayed()
     }
 
@@ -114,11 +134,13 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
+        scrollTo("Сәфәр табыу")
         composeRule.onNodeWithText("Сәфәр табыу").assertIsDisplayed()
+        scrollTo("Заявка булдырыу")
         composeRule.onNodeWithText("Заявка булдырыу").assertIsDisplayed()
     }
 
@@ -129,7 +151,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 3, requestCount = 5, ratingText = "4.8",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -146,14 +168,16 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 1, requestCount = 0, ratingText = "—",
                     activeRide = ride(), activeStatus = "pending",
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
         composeRule.onNodeWithText("Уфа → Казань").assertIsDisplayed()
         composeRule.onNodeWithText("Ближайшая").assertIsDisplayed()
+        scrollTo("2 места · 350 ₽")
         composeRule.onNodeWithText("2 места · 350 ₽").assertIsDisplayed()
         // status=pending → не активная поездка → кнопка «Подробнее».
+        scrollTo("Подробнее")
         composeRule.onNodeWithText("Подробнее").assertIsDisplayed()
     }
 
@@ -164,11 +188,12 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 1, requestCount = 0, ratingText = "—",
                     activeRide = ride(), activeStatus = "confirmed",
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
         // status=confirmed → активная поездка → кнопка «Открыть поездку».
+        scrollTo("Открыть поездку")
         composeRule.onNodeWithText("Открыть поездку").assertIsDisplayed()
         composeRule.onNodeWithText("Подробнее").assertDoesNotExist()
     }
@@ -184,10 +209,11 @@ class ProfileDeep2ContentTest {
                     loading = false, error = false, activeCount = 1, requestCount = 0, ratingText = "—",
                     activeRide = r, activeStatus = "confirmed",
                     onRetry = {}, onMyTrips = {}, onOpenBooking = { ride, status -> openedRide = ride; openedStatus = status },
-                    onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
+        scrollTo("Открыть поездку")
         composeRule.onNodeWithText("Открыть поездку").performClick()
         assertEquals("42", openedRide?.id)
         assertEquals("confirmed", openedStatus)
@@ -201,10 +227,11 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = { found = true }, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = { found = true }, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
+        scrollTo("Найти поездку")
         composeRule.onNodeWithText("Найти поездку").performClick()
         assertTrue(found)
     }

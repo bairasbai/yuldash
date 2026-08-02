@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -63,12 +64,14 @@ class ProfileDeep4ContentTest {
         passengerRating: Double? = null,
         route: String = "Сибай → Уфа",
         status: String = "confirmed",
+        myStars: Int = 0,
     ) = DriverBookingDto(
         bookingId = bookingId,
         passengerName = passengerName,
         passengerRating = passengerRating,
         route = route,
         status = status,
+        myStars = myStars,
     )
 
     // Дефолтные пустые колбэки — переопределяем только нужный сценарию.
@@ -78,7 +81,7 @@ class ProfileDeep4ContentTest {
         driverBookings: List<DriverBookingDto> = emptyList(),
         ratingText: String = "—",
         onToggleOnline: (Boolean) -> Unit = {},
-        onRate: (Int, Int) -> Unit = { _, _ -> },
+        onRate: (Int, Int, (Boolean) -> Unit) -> Unit = { _, _, done -> done(true) },
         onCreateRide: () -> Unit = {},
         onVerifyDriver: () -> Unit = {},
         onBoost: () -> Unit = {},
@@ -147,7 +150,10 @@ class ProfileDeep4ContentTest {
         var newValue: Boolean? = null
         driverContent(online = false, onToggleOnline = { newValue = it })
         // Тумблер выключен → клик просит включить (true). Кликаем по самому Switch, не по тексту.
-        composeRule.onNode(isToggleable()).performClick()
+        // В кабинете водителя теперь ДВА тумблера: «на линии» и «женщина за рулём» (F9),
+        // поэтому onNode(isToggleable()) падал с «Expected exactly 1 node but found 2».
+        // Берём первый по порядку — это «на линии» (он выше по вёрстке, y≈112 против y≈304).
+        composeRule.onAllNodes(isToggleable()).onFirst().performClick()
         assertEquals(true, newValue)
     }
 
@@ -156,7 +162,10 @@ class ProfileDeep4ContentTest {
         var newValue: Boolean? = null
         driverContent(online = true, onToggleOnline = { newValue = it })
         // Тумблер включён → клик просит выключить (false).
-        composeRule.onNode(isToggleable()).performClick()
+        // В кабинете водителя теперь ДВА тумблера: «на линии» и «женщина за рулём» (F9),
+        // поэтому onNode(isToggleable()) падал с «Expected exactly 1 node but found 2».
+        // Берём первый по порядку — это «на линии» (он выше по вёрстке, y≈112 против y≈304).
+        composeRule.onAllNodes(isToggleable()).onFirst().performClick()
         assertEquals(false, newValue)
     }
 
@@ -185,8 +194,16 @@ class ProfileDeep4ContentTest {
 
     @Test
     fun driver_withBookings_showsRateSectionAndPassenger() {
-        driverContent(driverBookings = listOf(booking()))
+        driverContent(driverBookings = listOf(booking(status = "done")))
         composeRule.onNodeWithText("Пассажиры — оцените после поездки").assertIsDisplayed()
+        composeRule.onNodeWithText("Гульнара").assertIsDisplayed()
+    }
+
+    @Test
+    fun driver_bookingInProgress_goesToRidingSectionNotRating() {
+        driverContent(driverBookings = listOf(booking(status = "onboard")))
+        composeRule.onNodeWithText("Пассажиры — оцените после поездки").assertDoesNotExist()
+        composeRule.onNodeWithText("Едут с тобой").assertIsDisplayed()
         composeRule.onNodeWithText("Гульнара").assertIsDisplayed()
     }
 
@@ -197,17 +214,32 @@ class ProfileDeep4ContentTest {
     }
 
     @Test
-    fun driver_ratePassenger_starClick_firesOnRateWithBookingAndStars() {
+    fun driver_ratePassenger_confirmButton_firesOnRateWithBookingAndStars() {
         var ratedBooking: Int? = null
         var ratedStars: Int? = null
         driverContent(
-            driverBookings = listOf(booking(bookingId = 77)),
-            onRate = { id, n -> ratedBooking = id; ratedStars = n },
+            // Оценивают только завершённую поездку — незавершённую сервер не примет.
+            driverBookings = listOf(booking(bookingId = 77, status = "done")),
+            onRate = { id, n, done -> ratedBooking = id; ratedStars = n; done(true) },
         )
-        // Звёзды — иконки-кнопки с contentDescription "1".."5". Жмём 4-ю.
-        composeRule.onNodeWithContentDescription("4").performClick()
+        // Звёзды — иконки-кнопки с contentDescription "1".."5". Жмём 4-ю, потом подтверждаем.
+        composeRule.onNodeWithContentDescription("4 звезды").performClick()
+        composeRule.onNodeWithText("Отправить оценку").performClick()
         assertEquals(77, ratedBooking)
         assertEquals(4, ratedStars)
+    }
+
+    @Test
+    fun driver_ratePassenger_sendFailed_starsRollBack() {
+        // Сеть отвалилась → на экране не должна остаться оценка, которой на сервере нет.
+        driverContent(
+            driverBookings = listOf(booking(bookingId = 78, status = "done")),
+            onRate = { _, _, done -> done(false) },
+        )
+        composeRule.onNodeWithContentDescription("4 звезды").performClick()
+        composeRule.onNodeWithText("Отправить оценку").performClick()
+        composeRule.onNodeWithText("Выберите оценку").assertIsDisplayed()
+        composeRule.onNodeWithText("Вы поставили 4 звезды").assertDoesNotExist()
     }
 
     // --- Нижние строки водителя: «Заявки пассажиров» → колбэк onRequestsFeed. ---

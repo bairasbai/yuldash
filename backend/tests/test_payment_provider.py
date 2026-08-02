@@ -28,7 +28,7 @@ def test_mock_payment_provider_is_immediate_success():
         assert result["confirmation_url"] == ""
         assert result["status"] == "succeeded"
         assert result["mock"] is True
-        assert payments.fetch_payment("anything") == {"status": "succeeded", "metadata": {}}
+        assert payments.fetch_payment("anything") == {"status": "succeeded", "metadata": {}, "confirmation_url": ""}
     finally:
         settings.payments_provider = old_provider
         settings.yookassa_shop_id = old_shop
@@ -127,6 +127,6 @@ def test_yookassa_fetch_payment_returns_status_and_metadata(monkeypatch):
         settings.yookassa_shop_id = old_shop
         settings.yookassa_secret_key = old_secret
 
-    assert result == {"status": "succeeded", "metadata": {"payment_id": "42"}}
+    assert result == {"status": "succeeded", "metadata": {"payment_id": "42"}, "confirmation_url": ""}
     assert captured["url"] == f"{payments.YOOKASSA_API}/yk_123"
     assert captured["auth"] == ("shop", "secret")

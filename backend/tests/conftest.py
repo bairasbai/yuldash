@@ -18,13 +18,21 @@ os.environ["JWT_SECRET"] = "test-secret-key-1234567890"
 # Лимитер выключен для тестов: все /auth-хиты сессии делят один IP 'testclient'
 # и иначе упёрлись бы в строгий бюджет. Тест лимита включает его локально.
 os.environ["RATE_LIMIT_ENABLED"] = "false"
+# Гейт такси (волна 2): в тестах такси ВКЛЮЧЕНО (иначе весь instant-стек отдаёт 403 «скоро»).
+# Сам гейт (выключенный флаг/города) проверяется в test_taxi_gate.py через monkeypatch.
+os.environ["TAXI_ENABLED"] = "true"
+# Дневная сводка (B9b-3): middleware выключен, чтобы прогон после 21:00 местного не слал
+# фоновую «сводку» посреди тестов. Сама логика проверяется в test_launch_extras.py напрямую.
+os.environ["DAILY_DIGEST_ENABLED"] = "false"
+
+from datetime import date  # noqa: E402
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlmodel import Session  # noqa: E402
 
 from app.main import app  # noqa: E402
 from app.db import engine  # noqa: E402
-from app.models import User, UserRole  # noqa: E402
+from app.models import TaxiApplication, TaxiApplicationStatus, User, UserRole  # noqa: E402
 from app.security import make_token  # noqa: E402
 
 
@@ -39,7 +47,9 @@ _uid_counter = {"n": 0}   # глобальный — уникальные юзе
 
 @pytest.fixture
 def user_factory(client):
-    def make(name="User", role=UserRole.passenger):
+    def make(name="User", role=UserRole.passenger, taxi_approved: bool | None = None):
+        """taxi_approved: None → водителю авто-одобряем заявку таксиста (существующие тесты
+        такси-стека написаны про работающих таксистов); False → без заявки (для тестов гейта)."""
         _uid_counter["n"] += 1
         i = _uid_counter["n"]
         with Session(engine) as s:
@@ -47,6 +57,15 @@ def user_factory(client):
             s.add(u)
             s.commit()
             s.refresh(u)
+            if taxi_approved is None:
+                taxi_approved = role == UserRole.driver
+            if taxi_approved:
+                s.add(TaxiApplication(
+                    user_id=u.id, inn="123456789012", permit_number="Т-0001",
+                    birth_date=date(1990, 1, 1), license_since_year=2010,
+                    status=TaxiApplicationStatus.approved,
+                ))
+                s.commit()
             tok = make_token(u.id)
             return {"id": u.id, "token": tok, "auth": {"Authorization": f"Bearer {tok}"}}
 

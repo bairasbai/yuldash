@@ -43,7 +43,7 @@ class SupportBoostDeep2ContentTest {
             }
         }
         composeRule.onNodeWithText("Добровольная поддержка").assertIsDisplayed()
-        composeRule.onNodeWithText("30 ₽").assertIsDisplayed()
+        composeRule.onNodeWithText("20 ₽").assertIsDisplayed()
         composeRule.onNodeWithText("Своя сумма").assertIsDisplayed()
         composeRule.onNodeWithText("Поддержать на 30 ₽").assertIsDisplayed()
     }
@@ -122,7 +122,7 @@ class SupportBoostDeep2ContentTest {
                 )
             }
         }
-        composeRule.onNodeWithText("От 10 до 100 000 ₽").assertIsDisplayed()
+        composeRule.onNodeWithText("От 10 до 5 000 ₽").assertIsDisplayed()
     }
 
     @Test

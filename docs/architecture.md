@@ -3,6 +3,72 @@
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
 > ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
 
+## 👤 Полировка вкладки «Профиль» и кабинетов (2026-07-31, только `ProfileScreen.kt`)
+
+Точечный проход по качеству (без правки логики, сигнатур и вызовов сети). Новые `private @Composable`: `ProfileSectionLabel`, `ProfileStatusPill`, `AvatarUploadOverlay`, `ReferralStat`, `DriverOnlineHint`.
+
+- **Шапка профиля — все состояния.** `/me` теперь под `LaunchedEffect(meReload)` + флаги `meLoading`/`meError`; плашка статуса (`ProfileStatusPill`, `AnimatedContent`-кросс-фейд) показывает «Обновляем профиль…» → «Нет связи с сервером · Обновить» (retry = `meReload++`) → «Профиль подтверждён» / «Демо-режим без входа». Раньше сбой `/me` был немым. 401 (не вошёл) ошибкой НЕ считается.
+- **Тач-цели.** Карандаш «изменить имя» и чипы дней недели в `AddScheduleDialog` были `minimumInteractiveComponentSize()` ПЕРЕД `clickable` (раздвигает раскладку, а не саму область) → реальные 48dp-`Box`/чип. Кнопка «Обновить» в плашке статуса — тоже 48dp.
+- **Анимации, которые не проигрывались.** `animate*AsState` на первом кадре берёт цель как есть → счётчик заработка (`TaxiDashboardCard`), полоса смены (`TaxiShiftProgressCard`) и точки спроса (`DriverDemandSection`) появлялись готовыми. Теперь стартуют с нуля, цель включается после первой композиции (у точек — каскад 60мс). Звёзды оценки пассажира «зажигаются» (цвет + масштаб).
+- **Загрузка/пусто/ошибка.** Кабинет пассажира: метрики показывают «—», пока брони не пришли (ноль ≠ «не загрузилось») + `EmptyStateCard` «Активных поездок нет» (текст действия намеренно отличается от строки списка, иначе дубль). Кабинет рекламы: голый спиннер → скелетон формой кабинета. Витрина тарифов: пустой список тарифов → `InfoCard` вместо пустоты под заголовком.
+- **Токены и типографика.** 5 подписей разделов и фон `Scaffold` ушли с `MaterialTheme.colorScheme.*` на `Canon*`; подложки отказа в рекламе — `CanonDangerBg`/`CanonDangerBorder` (пара с `CanonRed` проверена `tools/contrast.py`) вместо самодельной прозрачности. Заголовки «Ждут подтверждения» / «Пассажиры — оцените» → общий `SectionHeader` с поясняющей подписью.
+- **Длинный башкирский.** `InfoCard` (используется 15+ экранами) не имел `weight(1f)` — длинный текст уезжал за край; добавлены `fillMaxWidth`+`weight`+размеры в sp. Реферальные цифры — три равные колонки (`ReferralStat`); имя в шапке — `weight(fill=false)`+ellipsis. Плитки статистики объявления — 2×2 вместо 4 в ряд (на узком экране обрезались).
+- **Мелочи с эффектом.** Аватар показывает прогресс загрузки (`AvatarUploadOverlay`) и не принимает повторный тап; карточка реферала больше не создаёт пустой `item` (съедал 14dp из `spacedBy`); под тумблером «Я на линии» — плашка `DriverOnlineHint` («заказы придут сюда, экран можно погасить»).
+
+Проверено: `tools/ktcheck.py`, `tools/ktbaseline.sh check` (новых неразрешённых имён нет), `tools/contrast.py`, `tools/navcheck.py`. Сборка `gradlew :app:assembleDebug` — на машине Александра (в песочнице нет Android SDK). Черновой башкирский — `docs/tasks.md` «Переводы на проверку — Профиль и кабинеты (2026-07-31)».
+
+## 🛡 Система «Справедливость» (Trust/Safety/Fairness) + порт из веток (2026-07-25, `release-2026-07`)
+> Переписано НА релиз из закрытых веток (`pr88-safety-p3`, `notification-client-android`) — не мержем, а пишем заново (ветки отстали, мерж = регресс). Весь backend, проверено sqlite+postgres (949 passed). Философия и решения — [decisions.md](decisions.md) 2026-07-25.
+
+**Backend «Справедливость» (дополняет анонимные жалобы `Report`, НЕ заменяет):**
+- **Модели** (`backend/app/models.py`): `Incident` (двусторонний спор: `reporter`/`respondent`/`type`/`status` open→awaiting_response→under_review→resolved/appealed/closed, `resolution`/`fault`/`appeal_status`), `SafetyProfile` (1:1 с User: `strikes`/`warnings`/`standing` good→warned→limited→suspended, `suspended_until`). `Rating.excluded` (щит рейтинга), `Booking.cancelled_by` (Надёжность).
+- **`backend/app/safety_logic.py`** — ядро: `INCIDENT_TYPES`/`SEVERE_TYPES`, лестница §2 (`recompute_standing`/`refresh_standing`/`_escalation_days`/`apply_incident_resolution` — лок при мутации страйков), `reliability_for` (Надёжность 0..100, неявка ТОЛЬКО по resolved-инциденту — защита оболганного), `_exclude_linked_ratings` (снять оценку-месть).
+- **`backend/app/routers/incidents.py`** — `POST /incidents` (подать, гейт `ensure_active`), `/incidents/{id}/respond` (объясниться), `/appeal`, `/withdraw` (мир), `/incidents/mine`, `GET /admin/incidents`, `POST /admin/incidents/{id}/resolve` (лестница), `GET /me/standing`, `GET /users/{id}/trust` (витрина: рейтинг+поездки+Надёжность), `GET /safety/policy`. Приватность: телефон 2-й стороны — только админу; SEVERE → сразу Telegram.
+- **`backend/app/collusion.py` + `routers/sybil.py`** — детект накрутки доверия сговором (взаимный реферал / взаимные 5★ / много броней между собой), `GET /admin/sybil/suspects` (read-only админ-сигнал, без авто-наказаний).
+- **`backend/app/routers/reviews.py`** — `POST /admin/ratings/{id}/exclude` (снять оценку из среднего). Фильтр `excluded=False` — в ОБОИХ путях агрегата (`services.user_rating` + `drivers_bundle`).
+- **Хуки** (`routers/bookings.py`): `cancel_booking`/`mark_no_show` проставляют `cancelled_by`. **Конфиг** — `safety_*` в `config.py`. **Миграции** `j_rating_excluded`→`k_incidents`→`l_booking_cancelled_by` (идемпотентные). **Тесты**: `test_rating_exclude`/`test_sybil`/`test_incidents`(13)/`test_reliability`(7).
+- ⏳ **Не сделано:** Android-экран «Центр справедливости» (фаза 5, нужна сборка) + детект «бампинга» (нужна слежка за republish).
+
+**Прочее из порта:**
+- **`backend/app/rate_reminder.py`** (из `notification-fixes`) — фоновый systemd-таймер (`app/rate_reminder.py`, ~30 мин): двуязычный push «оцените поездку» не оценившим. `Booking.rate_reminded` (дедуп), миграция `h_rate_reminded`, флаг `rate_reminder_enabled`.
+- **Push-каналы Android** (из `notification-client-android`): `FcmService.kt` переписан — раздельные каналы `yuldash_chat`/`yuldash_default` + монохромная иконка `ic_stat_notification` + deep-link extras; таксишные пуши (`instant_offer`/`instant_status`) СОХРАНЕНЫ. Ждёт `android-build` (Kotlin тут не собрать).
+- **Индекс** `riderequest.status` (миграция `i_riderequest_status_ix`) — горячий фильтр авто-подбора/ленты.
+
+## 💳 Деньги за флагами: вывод на карту + онлайн-оплата поездки (2026-07-17, только `android/`)
+
+Обе фичи «за флагом»: сервер сейчас отвечает `enabled=false`/503 «скоро», UI показывает честную заглушку и **оживёт сам**, когда Александр включит флаги (`PAYOUTS_ENABLED`, `PAYMENTS_PROVIDER=yookassa`) — без правок клиента.
+
+- **«Вывести на карту» (Модель Б, кошелёк).** `WalletScreen.kt`, секция под карточкой баланса. Статус — `GET /wallet/payout/status` (`ApiClient.getPayoutStatus()` → `PayoutStatusDto{enabled, balanceKop, hasRequisite, cardLast4, minKop, maxKop}`; статус грузится отдельно от баланса — его сбой не роняет кошелёк, есть свой скелетон/ошибка+повтор). `enabled=false` → `PayoutSoonCard` (честное «скоро», без кнопок). `enabled=true` → `PayoutCard`: карта ····last4 или «Добавить карту» → `PayoutCardDialog` (**приватность: полный номер карты живёт только в state диалога — на сервер через `savePayoutRequisite(cardLast4)` уходят ТОЛЬКО последние 4 цифры, посчитанные локально; ничего не логируем**); поле суммы с границами min/max/баланс С СЕРВЕРА (inline-валидация) + чип «Всё»; «Вывести» → двойное подтверждение (AlertDialog с суммой и ····last4) → `requestPayout(amountKop, idempotencyKey)`. **Идемпотентность:** `java.util.UUID.randomUUID()` генерится ОДИН раз на попытку и переиспользуется при ретрае той же попытки (сбрасывается при смене суммы/успехе), кнопки блокируются на in-flight — двойной тап/обрыв сети не спишет баланс дважды (сервер вернёт `status=already`). 400 → человеческий `detail` тостом (`ApiException.message`). Успех → тост + перезагрузка баланса/истории/статуса.
+- **Онлайн-оплата завершённой поездки (ЮKassa, за флагом провайдера).** Новый файл `PayOnlineCard.kt`: переиспользуемый `PayOnlineCard(amountRub, pay)` — чипы Карта/СБП (реюз `NearbyFilterChip`), стадии Idle→Waiting→Paid (`AnimatedContent`); `pay` = `ApiClient.payBooking(id, m)` или `ApiClient.payInstantOrder(id, m)` → `PayTripResultDto{status, method, paymentId, confirmationUrl}` (`isPaid` = paid|already_paid|succeeded); `confirmation_url` открывается `ACTION_VIEW`, затем «Проверить оплату» — существующий `getPaymentStatus(paymentId)` (тот же механизм, что Boost: сервер при pending сам перепроверяет ЮKassa и начисляет). **Гейт `OnlinePayGate`** (объект в том же файле): первый же 503 от `/pay` (провайдер mock в проде) → `unavailable=true` на всю сессию → карточка исчезает везде + честный тост «скоро» — сервер = источник правды, никаких кнопок-обманок. Точки встраивания: `BookingActiveTripScreen.kt::ActiveTripScreen` (item при `bookingStatus=="done" && role=="passenger"`, перед «Квитанцией»; сумма к показу `payAmount ?: ride.price`, списывает сервер по цене брони; договорённость `PayAgreementBlock` не тронута — онлайн-оплата дополняет) и `InstantOrderScreen.kt` (done-ветка пассажира, в `extra` перед `InstantRateAndReport`; сумма `priceFinal ?: priceEstimate`).
+- `data/ApiClient.kt`: методы `getPayoutStatus`/`savePayoutRequisite(cardLast4, payoutToken="")`/`requestPayout(amountKop, idempotencyKey)`/`payBooking(bookingId, methodKey)`/`payInstantOrder(orderId, methodKey)`; DTO `PayoutStatusDto`, `PayoutResultDto{status ok|already, entryId, amountKop, balanceKop}`, `PayTripResultDto`. Бэкенд-контракты — `backend/app/routers/wallet.py`.
+
+## ⭐ In-App Review + карта спроса водителю (2026-07-16, только `android/`)
+
+- **Google Play In-App Review** (честный рост): зависимость `com.google.android.play:review-ktx:2.0.2` (`app/build.gradle.kts`). Хелпер `StoreReview.kt::maybeRequestStoreReview(context)` — `ReviewManagerFactory.create().requestReviewFlow()`→`launchReviewFlow`, всё в `runCatching` (без Play/на эмуляторе — тихий no-op). Частота: prefs `yuldash_review/last_store_review_ms`, не чаще ~30 дней. Триггер — `BookingActiveTripScreen.kt`, `onSuccess` тапа звезды в блоке оценки поездки: **только `n == 5 && !isDriver`** (довольный пассажир). Своего диалога нет — Play сам решает показ.
+- **«Спрос рядом» водителю** (`ProfileScreen.kt::DriverDemandSection`): контракт `GET /instant/demand?city=<опц.>` → `{zones:[{lat,lng,weight,requests}], updated_at}`. `ApiClient.getInstantDemand(city?)` → `InstantDemandDto(zones, updatedAt)` + DTO `DemandZoneDto` (зоны сортируются по `weight` убыв.). Секция подключена слотом `demandSection` в `DriverCabinetContent` (сразу под тумблером «Я на линии»), передаётся из `DriverCabinetScreen` только одобренному таксисту. Список «Зона N · ищут: M» + зелёный индикатор (размер+альфа ∝ weight, Canon-зелёный). Загрузка при входе + авто-refresh 60с пока `online`; вне линии/пусто → `EmptyStateCard` «Пока тихо»; ошибка → `AppErrorState`+повтор. Приватность: только агрегат, без личности. **Ждёт бэкенд `/instant/demand`** (до него — «Пока тихо»/ошибка, без краша).
+
+## 💡 Волна В: честность и прозрачность (2026-07-16, только `android/`)
+
+- **Бензин при создании поездки** (`CreateRideScreen.kt`): `PriceHintDto` (`data/ApiClient.kt`) получил аддитивные `distanceKm: Float?`, `fuelEstimateKop: Int?` (парс `distance_km`/`fuel_estimate_kop`, дефолт null). Экран хранит `priceHintDto` (не голый `Int`), под ценой рисует `FuelHintBlock` (≈км · бензин ≈₽ + по-соседски сплит `fuel/seats ₽/чел`). Null → блок скрыт, без краша.
+- **Топливо в калькуляторе дохода** (`IncomeCalculatorScreen.kt`): в такси-блоке — ползунки км/поездку, л/100км, ₽/л (8×55 дефолт) + карточка «Сколько остаётся водителю» (валовый vs «Чистыми после бензина», подпись что вычли). Расчёт на клиенте.
+- **Быстрые ответы в чате**: `ChatComposer` (`RidesRequestsChatScreens.kt`) получил параметр `onQuickSend`; над полем ввода — `LazyRow` из `QuickReplyChip` (5 готовых фраз, тач-цель ≥48dp). `BookingActiveTripScreen.kt` (ActiveTrip) прокидывает `onQuickSend = { sendText(it) }` — тот же надёжный путь WS→REST.
+- **Экран «Честно о цене»**: новый `Screen.PricingInfo` → `PricingInfoScreen` (`SecondaryScreens.kt`, хелперы `PricingBlock`/`PricingWhereRow`). Объясняет: попутка бесплатна (бензин напрямую), тариф такси, сурж-потолок ×1.5, комиссия водителя 3–8% + куда идёт, оплата СБП «на доверии». Вход — карточка «Честно о цене» в `PaymentInfoScreen` (`onOpenPricing`, ветка в `YuldashApp.kt`). Цифры — реальные (без выдуманных), стиль сверен с сурж-плашкой `InstantOrderScreen`.
+
+## 🔌 Волна А: подключены готовые бэкенд-фичи к UI (2026-07-16)
+
+Клиент начал вызывать эндпоинты, которые уже были на бэке, но UI их не дёргал. Правки только `android/`, зона данных + точечный UI.
+
+- **Авто-подбор попуток (`GET /match/rides?request_id=`).** `ApiClient.matchRides(requestId)` → `List<RideDto>`. В `RidesRequestsChatScreens.kt` под каждой своей активной заявкой (`MyRequestsScreen`) — секция `MatchingRidesSection` (новый приватный composable): загрузка/пусто «Пока нет совпадений…»/ошибка+повтор/`LazyRow` из `NearbyRideCard`. Тап → `onOpenRide(dto)` → `onBookRide(dto.toUiRide())` (бронь). Проброс параметра `onOpenRide` через `HomeScreen` (`YuldashApp.kt`).
+- **Зимняя проверка «доехал?» (`POST /bookings/{id}/winter-check` + `/winter-check/ok`).** `ApiClient.winterCheck(bookingId)`/`winterCheckOk(bookingId)`. В `BookingActiveTripScreen.kt::ActiveTripScreen` — эффект будит мягкий `AlertDialog` «Ты доехал(а)?» один раз (`rememberSaveable`), когда прошёл буфер `ARRIVAL_CHECK_AFTER_MS`(60 мин) после `departAt` (raw ISO из `getBookingDetails`/`tripPass`, парсер `parseIsoUtcMillis`) и бронь ещё активна; арм зовёт `winterCheck` (сервер сам гейтит too_early/эскалацию). «Доехал ✓» → `winterCheckOk`. ETA-механики в экране нет → буфер эвристический (задокументировано, будущее — реальный ETA маршрута).
+- **Правка заявки пассажира (`POST /requests/{id}/edit`).** `ApiClient.editRequest(id, fromCity?, toCity?, maxPrice?, comment?, seats?, desiredAt?)` (по образцу `editRide`). Кнопка «Редактировать» в `RequestSummaryCard` → `EditRequestDialog` (префилл маршрут/цена/комментарий) → `onEditRequest` в `YuldashApp` → `editRequest` + оптимистичное обновление карточки.
+- **Отзыв live-ссылки поездки (`DELETE /bookings/{id}/share/{share_id}`, `GET/DELETE /instant/orders/{id}/share...`).** `shareTrip`/`shareInstantTrip` теперь возвращают `TripShareDto?` (id + link, а не только строку). Новое: `getInstantShares`, `revokeBookingShare`, `revokeInstantShare`, DTO `TripShareDto`. В шитах «Поделиться поездкой» (`BookingActiveTripScreen` + `InstantOrderScreen`) — список активных ссылок + «Отозвать» (приватность). Booking: GET shares на бэке нет → копим ссылки сессии; instant: подгружаем существующие через `getInstantShares`. Общий компонент `ActiveSharesList`.
+- **Удаление сообщения в чате** — оказалось уже сделано ранее (`ApiClient.deleteMessage` + меню `MessageBubble` «Редактировать»/«Удалить у себя»/«Удалить у всех»). Не трогали.
+- Локальной сборки нет — финальную проверку берёт CI (`android-build`).
+
+## 🔀 Сведение ветки `release-taxi` → `release-2026-07` (2026-07-14)
+
+Ветка `origin/release-taxi` слита в `release-2026-07` одним merge-коммитом. Все её фичи — **тихая поездка** (`Ride.quiet`, миграция `ride_quiet`), **остановки по пути** (`Ride.waypoints`, миграция `ride_waypoints`), **дашборд водителя** (`debt.driver_dashboard`/`driver_earnings`, заработок за сегодня + лесенка комиссии в `/instant/workday` и кабинете `ProfileScreen`), **«честные машины рядом»** (`/instant/nearby-drivers`, анонимные маркеры без цены/личности на `InstantRouteMap`), **премиум-иконки** нижней навигации/режимов/удобств и **починка пустых векторов** — уже присутствовали в `release-2026-07` (она — надмножество). Конфликты возникали только там, где наша ветка добавляла соседние поля поверх (`only_trusted`, `pickup_point_id`, `partner_id`, `/driver/earnings`, карточки «Доверие»/«Согласия»); разрешены аддитивно — сохранены обе стороны. Alembic — одна линейная голова `f26_instant_scheduled_at` (цепочка `city_profile → ride_quiet → ride_waypoints → … → f26`). Бэкенд: pytest 790 passed / 1 skipped, ruff F чисто.
+
 ## 🆕 АКТУАЛЬНАЯ карта файлов (2026-06-30) — UI разрезан на ~16 файлов
 
 `MainActivity.kt` (~664 строки) — ТОНКОЕ ядро: `onCreate`, `enum Screen/HomeTab/RideRole`, демо-сиды, `toUiRide`. Навигация — `YuldashApp.kt` (`enum Screen` + ветки `when` + старт-экран=КАРТА). Экраны в своих файлах:
@@ -11,25 +77,87 @@
 |---|---|
 | `YuldashApp.kt` | Корень: навигация (`when(screen)`), старт-экран, lifecycle поездок, старт/стоп `TripLocationService`, push-разрешения |
 | `MapScreen.kt` (~1.8к строк; иконки → `MapPins.kt`, гео-хелперы → `MapGeo.kt`, Спринт 3) | Вкладка Карта: `YandexMapCard`, маршрут (`drawRoadRoute` + объездные), live-стрелка (chaser-эффект), ETA-чип, демо-симуляция, фильтры «Ближайшие», маркеры заявок + `RequestPreviewCard`, авто-refresh + WS `MapFeedSocket`, карусель `QuickSearchCard` (+ донаты) |
-| `BookingActiveTripScreen.kt` | `BookingScreen` (детали поездки/бронь: public locked → private unlocked через `/bookings/{id}/details`; pending-бронь не открывает active trip) + `ActiveTripScreen` (чат, код посадки только для `confirmed/onboard`, статус-вотчер `getTripState`, live-баннер фазы, SOS, оценка только при `done`) |
+| `BookingActiveTripScreen.kt` | `BookingScreen` (детали поездки/бронь: public locked → private unlocked через `/bookings/{id}/details`; pending-бронь не открывает active trip; **F11: при `contactUnlocked` сохраняет офлайн-паспорт** `saveTripPass`) + `ActiveTripScreen` (чат, код посадки только для `confirmed/onboard`, статус-вотчер `getTripState`, live-баннер фазы, SOS, оценка только при `done`; **F11: офлайн-режим — при сетевом сбое `getTripState` показывает `TripPassCard`+`OfflineTripBanner` из сохранённого паспорта; исходящие без сети → `Outbox` с авто-flush по `ConnectivityManager`**) |
+| `data/TripPass.kt` | **F11 (офлайн-паспорт):** `TripPass` (снимок брони) + `TripPassStore` (EncryptedSharedPreferences — телефон = ПДн, не логируем; save/load/updateBoardingCode/remove по booking id) + `Outbox` (очередь исходящих на диске: сообщение/статус, `flush()` авто-ретраит при сети, ApiException → снять из очереди, сеть → оставить). Инициализация в `ApiClient.init`. |
 | `RidesRequestsChatScreens.kt` | Вкладки Поездки/Заявки/Чат, `RideCard`, `RequestsFeedScreen` (чипы условий), `ResponsesScreen`, `ChatSocket`-чат; вкладка `Мои поездки` передаёт статус брони в навигацию |
 | `CreateRideScreen.kt` | Публикация поездки (маршрут, цена, удобства `PrefToggleRow`, повтор) |
 | `AccessibilityScreens.kt` | «Создать заявку» (+ карточка «Условия поездки», 7 предпочтений), Простой режим, голосовая заявка, за близкого, доверенные контакты, повтор маршрута |
-| `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии» |
+| `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии». Кабинет пассажира — карточка входа «Быстрый заказ»; кабинет водителя — `InstantDriverOnlineController` (presence + оффер) |
+| `InstantOrderScreen.kt` 🆕 (2026-07-06) | **«Быстрый заказ» (такси-режим, Фаза 2).** Пассажир `Screen.InstantOrder`: `InstantOrderScreen` (Куда едем → `instantEstimate` цена → «Ищем машину» → «Водитель едет»: `InstantRouteMap` A→B + ETA + телефон после accept + отмена; состояния searching/active/expired/cancelled/done, восстановление активного заказа через `getMyInstantOrders`). Водитель: `InstantDriverOnlineController` (heartbeat `fireInstantPresence` + опрос `getDriverOffer` пока «на линии» → полноэкранный `InstantOfferOverlay` с таймером 20с, «Взять»/«Пропустить») и `Screen.InstantDriverTrip` → `InstantDriverTripScreen` (навигация к пассажиру, Приехал/Посадил/Завершить). Гео — `rememberMyPoint` (LocationManager, как на карте); выбор точки Б — переиспользован `PickupPickerOverlay`. Бэкенд-контракт — `backend/app/routers/instant.py`, DTO/методы в `data/ApiClient.kt`. **Полировка 2026-07-31:** типографика файла сведена к четырём размерам (`TxHero/TxTitle/TxBody/TxCaption` + `Lh*`), форма контролов — `InstantControlShape`; `InstantTripPhaseBar(step)` — полоска фаз «Ищем→Едет→На месте→В пути» (в `InstantSearchingCard` и в шторке `InstantDriverEnRouteCard`); `InstantAddressResults` — подсказки адреса со скелетоном/«не нашли»; `InstantNearbyBadge(count, loaded)` — машины рядом со склонением (`carsWordRu`) и честным «рядом нет» (вынесен из `Box`, иначе `AnimatedVisibility` не компилируется); `InstantQueuePulse` — живая полоска очереди ожидания; `InstantFinalCard` получил `tone: InstantTone` (Good/Bad — отмена больше не зелёная); ошибка оценки цены больше не тупик (кнопка «Повторить» → `estimateTick`) |
 | `SecondaryScreens.kt` | Уведомления, Безопасность, Настройки, «Фильтры по умолчанию», правила, админ-экраны |
 | `SosVerifyScreens.kt` | SOS + проверка водителя (фото, OCR-баннер причин отказа) |
 | `SupportBoostScreen.kt` | Поддержка, Boost, Help (буст-оплата — общий `SberPayBlock`) |
 | `LoginScreen.kt` / `IntroScreen.kt` | Вход Telegram / брендовое интро |
 | `Domain.kt` / `Mocks.kt` / `CanonTokens.kt` | Модели · демо-фолбэк · цвета `Canon*` |
-| `data/ApiClient.kt` | REST + парсинг DTO (`BookingDetailsDto`, `RideDto`, заявки, чат); `data/ChatSocket.kt`, `data/LocationSocket.kt`, `data/MapFeedSocket.kt` — WS; `TripLocationService.kt` — foreground GPS |
+| `CourierOnboardingScreen.kt` / `CourierScreen.kt` / `AdminCourierScreen.kt` | **C1 Курьер:** заявка «Стать курьером» (транспорт+селфи, статусы) · режим работы (на линии, зона, доступные/везу/кабинет) · админ-модерация заявок. Заказ курьера/«купи и привези» — в `ParcelsScreen` вкладка «Отправить» (тип доставки + `courierEstimate` честная цена + `createCourierOrder`). `enum Screen += CourierOnboarding, Courier, AdminCourier`. Вход: ProfileActionCard «Режим курьера», SettingsNavRow «Курьеры» (админ). **C3 (2026-07-12):** оценка доставки обеими сторонами после вручения (`ParcelRateDialog`/`ParcelRateButton`/`ParcelRatedRow` в `ParcelsScreen.kt`, 5 звёзд + `rateParcel`), рейтинг курьера у отправителя (`MyParcelCard`, null=«новый курьер»), кабинет курьера расширен: рейтинг + statement (earned/owed/paid) + «Оплатить комиссию» (`payCommission` → общий `SbpTransferSheet`) + плашка «Пауза по качеству». **C4 (2026-07-12):** в кабинете курьера — плашка «Сейчас ты платишь N% комиссии» с подписью по ступени (`feeTier`: promo/tier1/tier2/tier3) + honest-строка про минимум (`commissionMinKop`); пометка « ≈ ориентировочно» у оценки комиссии до вручения (EstimateCard в `ParcelsScreen`, карточка «Везу» в `CourierScreen`). DTO: `CourierStatementDto += currentFeePercent/feeTier/commissionMinKop`, `CourierEstimateBreakdown += commissionMinKop/commissionEstimated` (аддитивно, дефолты). |
+| `CouponsScreen.kt` 🆕 (M1, 2026-07-11) | **«Скидки по пути» (пассажир).** `CouponsScreen(onBack)`: вкладки «Скидки рядом» (`getCoupons`, фильтр-чипы по городу; **при входе фильтр по умолчанию = родной город из профиля** `User.city` через `me()`, легко сбросить чипом «Все города») + «Мои купоны» (`getMyCoupons`); `CouponCard` (заведение+иконка категории, `discount_text` золотым бейджем, «осталось N», premium); детально → `activateCoupon` → крупный моноширинный КОД + дисклеймер. Хелперы `couponCategoryIcon/couponCategoryLabel/kopToRub/shortDate` — переиспользуются партнёром/админом |
+| `PartnerCabinetScreen.kt` 🆕 (M1, 2026-07-11) | **«Мой бизнес» (кабинет партнёра).** Ветвление по `getPartnerMe`: нет→`PartnerForm`(createPartner), pending→`PartnerPendingView`, rejected→причина+правка(updatePartner), active→`ActivePartnerCabinet` (подписка `getPartnerPlans`/`subscribePartner` СБП «на доверии» + выписка `StatementDto` + купоны `getPartnerCoupons` CRUD/`setPartnerCouponStatus` + `RedeemDialog`→`redeemCoupon`). Premium-переключатель купона только при `has_premium` |
+| `AdminPartnersScreen.kt` 🆕 (M1, 2026-07-11) | **Админ-модерация бизнесов.** `getAdminPartners` (pending сверху), карточка + `approvePartner`/`rejectPartner`(диалог с причиной). Вход — `AdminCabinetScreen` («Бизнесы-партнёры»). По паттерну `AdminWaitlistScreen` |
+| `ParcelsScreen.kt` 🆕 (M3, 2026-07-11) | **«Посылки» (пользователь).** `ParcelsScreen(onBack)`: 3 вкладки. «Отправить» — форма (города, размер small/medium/large карточками, что за посылка, получатель имя+тел) + обязательный чекбокс правил + дисклеймер → `createParcel` → крупный моноширинный КОД вручения. «Мои» (`getMyParcels`) — статус, код вручения (моё видно), курьер если принята, «Отменить» (`cancelParcel`). «Возить» (курьер): подвкладки «Доступные» (`getAvailableParcels`, фильтр город-чипами, БЕЗ телефона, «Взять»=`acceptParcel`) и «Везу» (`getCarryingParcels`, телефон получателя виден, «В пути»/«Доставлено»→диалог кода→`setParcelStatus`). Хелперы `parcelSizeLabel`/`ParcelStatusChip` (internal, реюз в админе). Вход — `ProfileActionCard` «Посылки» в профиле (`onParcels`) |
+| `AdminParcelsScreen.kt` 🆕 (M3, 2026-07-11) | **Админ — доставки посылок.** `adminListParcels` (`/admin/parcels` → parcels+statement), активные сверху; плашка дохода (собрано ₽ + доставлено N) + карточка посылки (маршрут/размер/получатель/сбор/курьер/дата вручения). Вход — `AdminCabinetScreen` («Посылки», `Icons.Default.LocalShipping`, `onParcelsAdmin`). DTO `ParcelDto`/`ParcelCourierDto`/`ParcelStatementDto`/`ParcelAdminListDto` + методы в `data/ApiClient.kt`. `enum Screen += Parcels, AdminParcels` |
+| `WalletScreen.kt` 🆕 (2026-07-14) | **«Кошелёк» водителя (Деньги v1, ledger).** `WalletScreen(onBack)`: крупная карточка баланса (`getWalletBalance` → ₽, ink-градиент) + список операций `getWalletLedger(50)` (LazyColumn key=id): назначение (`note`, фолбэк по `kind`), дата (`formatDepart`), сумма со знаком/цветом (приход `CanonGreen2` +, списание `CanonMutedStrong` −). Все состояния (скелетоны/пусто/ошибка+повтор). `enum Screen += Wallet`. Вход — `SettingsNavRow` «Кошелёк» в кабинетах пассажира И водителя (`ProfileScreen.kt`, `onWallet`). Хелпер `fmtRub` (реюз в заработке) |
+| `DriverEarningsScreen.kt` 🆕 (2026-07-14) | **«Мой заработок» водителя.** `DriverEarningsScreen(onBack)`: чипы периода Неделя/Месяц/Всё (`getDriverEarnings(week\|month\|all)`), крупные плитки «Заработано ₽»/«Поездок», разбивка по дням с горизонтальными барами (∝ сумме дня, `CanonGreen2`). **Полировка 2026-08-02:** две половинные плитки заменены на одну карточку итога `EarnTotalsCard` (сумма во всю ширину + строка `MoneyLine` «Поездок») — шестизначная сумма больше не упирается в край; типографика файла ушла на общий `MoneyType` (как у курьера и в расшифровке таксиста), скелетон повторяет новую форму. ⚠️ `total`/`sum` — в РУБЛЯХ (backend `debt.py::driver_earnings` = сумма цен `price_final`), НЕ копейки. Все состояния (нули для новичка → «Пока нет завершённых поездок»). `enum Screen += DriverEarnings`. Вход — `SettingsNavRow` «Мой заработок» рядом с Архивом в кабинете водителя (`onEarnings`) |
+| `SavedPlacesScreen.kt` 🆕 (2026-07-14) | **«Мои адреса» + быстрый выбор в заказе.** `SavedPlacesScreen(onBack)` — управление Дом/Работа/свои (список + удаление + добавить через `GeocoderClient.suggest` → диалог «как сохранить»); все состояния (скелетон/пусто/ошибка+повтор). Переиспользуемые блоки для пикера: `QuickPlacesBlock` (Дом/Работа + Недавние над полем ввода, тап подставляет адрес+коорд без геокодинга; пусто → дружелюбная подсказка) и `SaveAsPlaceChips` («Сохранить как Дом/Работу» для выбранного адреса). Хелперы `placeKindIcon`/`placeKindLabel`. `enum Screen += SavedPlaces`. Вход — `SettingsNavRow` «Мои адреса» в кабинете пассажира (`ProfileScreen.kt`, `onSavedPlaces`). **Интеграция в такси-заказ:** `InstantOrderScreen.kt::InstantDestinationPicker` показывает `QuickPlacesBlock` до поля «Куда» и `SaveAsPlaceChips` после выбора; при создании заказа `ApiClient.fireAddRecentPlace(toText, lat, lng)` наполняет «Недавние» (best-effort). |
+| `TripReceiptScreen.kt` 🆕 (2026-07-14) | **Квитанция завершённой поездки.** `TripReceiptScreen(bookingId, onBack)` (`Screen.TripReceipt`, id брони через `receiptBookingId` в `YuldashApp.kt`): тёплая карточка — ink-шапка «Поездка завершена», детали (маршрут/дата/места/водитель+«Проверен»), сумма ₽ + способ оплаты (`payMethodLabel`, переиспользован из `BookingActiveTripScreen`) + бейдж «Оплачено», кнопка «Поделиться» (`shareRide`). Состояния: загрузка/ошибка+повтор; **409 → спокойная карточка «Квитанция ещё не готова»**. Вход — кнопка «Квитанция поездки» в `ActiveTripScreen` (`BookingActiveTripScreen.kt`) при `bookingStatus==done`, через `onOpenReceipt`. |
+| `TaxiReceiptScreen.kt` 🆕 (2026-07-26) | **Чек за поездку на такси + всё «после поездки».** `TaxiReceiptScreen(orderId, onBack, onOpenChat)` (`Screen.TaxiReceipt`, id через `taxiReceiptOrderId`; вход — кнопка «Чек за поездку» в финальной карточке заказа у ОБЕИХ сторон, через `NavSignals.openTaxiReceipt`). `GET /instant/orders/{id}/receipt`: маршрут, дата, км, сумма + отдельной строкой платное ожидание, способ оплаты, водитель+«Проверен», «Поделиться». Ниже — действия: пассажиру «Сказать рәхмәт» (`/tip`+`/thanks`), водителю «Наличные получил» (`/cash-received`, если `paid=false`), обеим сторонам «Я забыл вещь в машине» (`/lost-item` → чат заказа снова на запись 48 ч → `onOpenChat`). Состояния: скелетон / 409 «Чек ещё не готов» / ошибка+повтор. Строки `ReceiptRow`/`ReceiptDivider`/`ReceiptDriverRow` переиспользованы из `TripReceiptScreen.kt` (стали `internal`). |
+| `DriverTaxiRidesScreen.kt` 🆕 (2026-07-26) | **«Мои поездки такси» — расшифровка денег.** `DriverTaxiRidesScreen(onBack, onOpenReceipt)` (`Screen.DriverTaxiRides`, вход — `SettingsNavRow` «Мои поездки такси» рядом с «Мой заработок» в кабинете водителя, `onTaxiRides`). `GET /driver/taxi-rides`: итоги (пассажиры заплатили → комиссия Юлдаша → осталось тебе) и по каждой поездке цена/комиссия/чистыми + метки «Оплачено», способ оплаты, статус комиссии. ⚠️ `price` — в РУБЛЯХ, `fee_kop`/`net_kop` — в КОПЕЙКАХ (`kopToRub`). Тап по строке → чек этой поездки. Закрывает «Юлдаш говорит 4200, я насчитал 4600». |
+| `AdminSosScreen.kt` 🆕 (2026-07-26) | **Админ: лента сигналов SOS.** `AdminSosScreen(onBack)` (`Screen.AdminSos`, вход — строка «Сигналы SOS» в кабинете админа, `onSosFeed`). `GET /admin/sos?status=open\|handled`: карточка = имя, время, категория (medical/breakdown/other), маршрут заказа, текст сигнала; главное действие — «Позвонить» (ACTION_DIAL), затем «Принять сигнал» с заметкой «что сделали» (`POST /admin/sos/{id}/handle`). Состояния: скелетон / ошибка+повтор / пусто («Тишина — это хорошая новость»). |
+| `CourierTroubleDialog.kt` 🆕 (2026-07-26) | **Курьер: «что-то пошло не так».** `CourierTroubleButton(returning, onClick)` на карточке доставки + `CourierTroubleDialog(parcel, onDismiss, onDone)`. Три выхода: «Не смогу везти» (`POST /parcels/{id}/release` — посылка обратно в общий список), «Везу обратно» (`/return-start`, причина ≤200), «Вернул отправителю» (`/return-done`, комиссия обнуляется). Подключено одной строкой в `CourierCarryingCard` (`CourierScreen.kt`, `onTrouble`). Статусы `returning`/`returned` добавлены в `parcelStatusStyle` (`ParcelsScreen.kt`) — раньше падали в `else` и врали «Ждёт курьера». |
+| `DriverResponsesScreen.kt` + `BargainUi.kt` 🆕 (2026-07-27) | **Торг о цене — второй круг (механика inDrive).** Отклик водителя был «бери или уходи»: он назвал 500, пассажир хотел 400 — поездка не случалась, хотя оба согласились бы на 450. Бэкенд: `POST /responses/{id}/counter` (встречная цена, ходят ПО ОЧЕРЕДИ, ≤3 встречных на сторону), `POST /responses/{id}/decline`, `GET /responses/mine`; `/responses/{id}/accept` теперь принимает ЧУЖУЮ цену (свою принять нельзя) и создаёт поездку по цене НА СТОЛЕ (`current_price`), а не по первой. Android: `BargainUi.kt` — общий для обеих сторон (`BargainSummary` = «как шёл торг» 500 → 400 → 450 + подпись «чей ход», `CounterPriceDialog` = ввод цены + честное «осталось ходов»); `ResponsesContent` (`RidesRequestsChatScreens.kt`) получил `onCounter`/`onDecline` (со значениями по умолчанию — старые вызовы и Robolectric-тесты не ломаются) и показывает `onTable` вместо первой цены; `DriverResponsesScreen.kt` — «Мои отклики» водителя (`Screen.DriverResponses`, вход — `SettingsNavRow` «Мои отклики» рядом с «Заявки пассажиров» в кабинете водителя, `onMyResponses`): без него второй круг не работал бы — встречную цену водитель видел бы только в пуше. DTO `ResponseDto` += `currentPrice`/`lastOfferBy`/`bargainRounds`/`canCounter`/`canAccept`/`bargainHistory` (аддитивно; `onTable` = fallback на `price` для старого сервера). Миграция `r_bargain_rounds`. |
+| `SupportChatScreen.kt` 🆕 (2026-07-14) | **«Поддержка Юлдаш» (внутренний чат вместо ссылки в Telegram).** `SupportTicketsScreen(onBack,onOpenTicket)` — список обращений (статус открыто/закрыто, превью, точка непрочитанного, «Новое обращение» → форма тема+текст) + `SupportTicketScreen(ticketId,onBack)` — тред через переиспользованный `ChatContent` (пузыри user/admin, ответ поддержки со значком «Юлдаш ✓» по `from_admin`; REST-поллинг 8с без WS; «Закрыть обращение», закрытый можно снова написать → сервер переоткрывает). `enum Screen += SupportTickets, SupportTicket`. Вход: `HelpScreen` («Написать в Telegram» заменён на «Поддержка Юлдаш» + бейдж непрочитанного; карточка «Не нашёл ответ?» под FAQ), deep-link `ref_kind="support"` из `NotificationsScreen`. DTO/методы — `data/ApiClient.kt` (`getSupportTickets`/`getSupportTicket`/`createSupportTicket`/`postSupportMessage`/`closeSupportTicket`). `SettingsNavRow` += опц. `badge: Int`. |
+| `ScheduledOrdersScreen.kt` 🆕 (2026-07-14) | **«Мои предзаказы» — такси «на время».** `ScheduledOrdersScreen(onBack,onActivated)`: список предзаказов (маршрут, время подачи, живой обратный отсчёт/«пора») + «Начать поиск сейчас» (`activateScheduledOrder` → `Screen.InstantOrder`) и «Отменить» (`cancelScheduledOrder`). При входе `getScheduledOrders` — бэкенд лениво активирует наступившие → блок «Пора ехать» (пульс-карточка). Мягкая подсказка «фонового шедулера нет». `enum Screen += ScheduledOrders`. Вход: строка «Мои предзаказы» в кабинете пассажира + из `InstantOrderScreen`. **Интеграция в заказ:** `InstantOrderScreen.kt::InstantDestinationPicker` — блок «Когда подать?» (чипы Сейчас/На время + системный date-time пикер ≤7 суток) → `scheduleInstantOrder` + карточка `InstantScheduledCreatedCard`. DTO `ScheduledOrdersDto`, `InstantOrderDto += scheduledAt`/`isScheduled`. |
+| `data/ApiClient.kt` | REST + парсинг DTO (`BookingDetailsDto`, `RideDto`, заявки, чат, `WalletBalanceDto`/`WalletLedgerEntryDto`/`DriverEarningsDto`+`DriverEarningsDayDto`; **`SavedPlaceDto`/`RecentPlaceDto`/`TripReceiptDto` + методы `getSavedPlaces`/`saveSavedPlace`/`deleteSavedPlace`/`getRecentPlaces`/`addRecentPlace`(+`fireAddRecentPlace`)/`getTripReceipt`**; методы `getWalletBalance`/`getWalletLedger`/`getDriverEarnings`); `data/ChatSocket.kt`, `data/LocationSocket.kt`, `data/MapFeedSocket.kt` — WS; `TripLocationService.kt` — foreground GPS |
+
+**🔠 Крупный шрифт (глобальный, 2026-07-14):** единая точка правды — `FontScalePrefs` в `CanonTokens.kt` (`mutableStateOf<FontScaleOption>` Normal ×1.0 / Large ×1.15 / ExtraLarge ×1.30; хранится в `yuldash_prefs`, ключ `font_scale`; `load()` в `MainActivity.onCreate`, `set(ctx,…)` из настроек и простого режима). Density провайдится в `MainActivity.setContent`: `CompositionLocalProvider(LocalDensity provides Density(density = base.density, fontScale = base.fontScale * multiplier))` вокруг `YuldashApp()` — весь sp-текст масштабируется разом, системный fontScale умножается (уважается), экраны не трогаются. Управление: строка «Размер текста» в `SettingsScreen` (`SecondaryScreens.kt` → `FontScalePickerDialog`, превью «Аа») и крупная кнопка «Крупный шрифт» в `SimpleModeScreen` (`AccessibilityScreens.kt`).
+
+**📝 Форма заявки пассажира разгружена (2026-07-14):** `CreatePassengerRequestContent` (`AccessibilityScreens.kt`) — на виду откуда/куда/дата-время/места/цена/категории; 7 тумблеров условий + «только для своих» + комментарий свёрнуты в раскрывающийся блок «Дополнительно» (`AnimatedVisibility` expand/shrink, шеврон вращается, по умолчанию свёрнут). Поля не потеряны, логика заявки не менялась.
 
 **💳 Оплата (СБП/Сбербанк, единый компонент):** `SberPayBlock(phone)` в `MainActivity.kt` (рядом с `SbpTransferSheet`) — QR + кнопка «Оплатить в Сбербанке». QR генерит **ZXing** (`com.google.zxing:core:3.5.3`) на клиенте: `sberQrBitmap()`; ссылка `sberPayLink()` = `https://www.sberbank.com/sms/pbpn?requisiteNumber=<цифры SBP_PHONE_DIGITS>`. Переиспользован в 4 местах: донат (`SbpTransferSheet`), буст (`BoostResultCard`), кабинет рекламы/партнёр (`ProfileScreen.kt`), админ «Заявки на оплату» (`SecondaryScreens.kt`). Эквайринг/фискальный чек (54-ФЗ) — пока НЕ реализован (приём «на доверии» + QR).
 
+**Бэкенд** `backend/app/routers/`: `location.py` (WS `/ws/trip/{id}/location` реле + `/ws/map` сигнал), `requests.py` (заявка + prefs + `/near` округл. коорд + лента + отзыв отклика), `bookings.py` (бронь, приватные детали `/bookings/{id}/details`, `driver_phase`, статусы), `rides.py`, `discovery.py` (`/feed` + `donations_total`), `chat.py` (WS `/ws/bookings/{id}`, REST-история, `/conversations` показывает активные брони даже до первого сообщения), `drivers.py`, `payments.py` (донат/буст СБП «на доверии»), `ads.py`, `safety.py`, `family.py`, `notifications.py` (Центр уведомлений — см. ниже), `trust.py` (доверие «между своими» — уровни/инвайты/согласия). Деплой — `docs/server.md`.
+
+**🔔 Центр уведомлений (F5, 2026-07-05):** таблица `Notification` (models.py: `user_id`, `type` booking/ride/system/message, двуязычные `title_ru/ba`+`body_ru/ba`, `ref_kind`/`ref_id` для deep-link, `read_at`, `created_at`; alembic `0005_notification_table`, идемпотентно). Единый хелпер `services.push_notification(...)` пишет строку в СВОЕЙ сессии (чтобы commit не сбросил ORM-объект вызывающего) + шлёт FCM-push — ставится в тех же местах, что и `send_push` (бронь создана/подтверждена/отменена, водитель выехал/подъезжает/завершил, отклик пришёл, заявку приняли, новое сообщение по REST). Роутер `notifications.py`: `GET /notifications` → `{unread, items}` (непрочитанные сверху, `unread` = бейдж), `POST /notifications/read` `{id}`/`{all:true}` (только свои строки). Тесты: `tests/test_notifications.py`. **Android:** `NotificationsScreen` (`SecondaryScreens.kt`) — типизированные вкладки Все/Поездки/Сообщения/Система, непрочитанные сверху, относительное время, состояния loading/empty/error+retry, «Прочитать всё», тап → mark-read + deep-link (бронь → `Screen.Booking`, отклик → `RequestResponses`). Бейдж непрочитанного на кнопке «Система» в `ChatScreen`. DTO `NotifDto`/`NotifFeed` + `getNotifications`/`markNotificationsRead` в `data/ApiClient.kt`.
+
+**🗂 F6 История поездок + отзыв отклика (2026-07-05, ветка `feat/ride-history`):**
+- **`GET /driver/rides?status=all|done|cancelled`** (`rides.py`) — раньше отдавал только активные; добавлен фильтр `status` (дефолт/`active` = как раньше, для Boost; `done`/`cancelled`/`all` — для «Архива», сортировка по времени выезда ↓). Не ломает существующий вызов Boost.
+- **`DELETE /responses/{id}`** (`requests.py::withdraw_response`) — водитель отзывает свой отклик, пока пассажир не принял. Только автор (403 иначе), после accept → **409**, нет → 404. Лента `/requests/feed` теперь отдаёт `my_response_id` (id своего отклика → кнопка «Отозвать»). pytest: `tests/test_ride_history_edges.py` (6 тестов — фильтр статусов, изоляция по водителю, отзыв pending, запрет чужого/принятого, 404).
+- **UI:** раздел **«Архив»** в кабинете водителя (`ProfileScreen.kt` → `DriverCabinetContent` + `ArchiveRideCard`) со счётчиками «Рейсов сделано» / «Пассажиров отвезено» (`seats_total - seats_left` по done), все состояния (skeleton/empty/error+retry). Кнопка **«Отозвать отклик»** в `RequestsFeedContent` (`RidesRequestsChatScreens.kt`) с confirm-диалогом. `ApiClient.getDriverRides(status)` + `deleteResponse(id)`; `RideDto.status`, `RequestFeedDto.myResponseId`.
+
+### Домен «Доверие между своими» (Фаза 4 / D5) — БЭКЕНД (ветка `feat/trust-levels`, ⏳ не в проде)
+> Полная спека и политика хранения 152-ФЗ — [docs/trust-levels-backend.md](trust-levels-backend.md).
+- **Уровни L0..L3 (вычисляемые + дарованный).** Логика — `app/trust_service.py::trust_level(session, user)`. L0 телефон → L1 +имя+фото → L2 +документы (переиспользует `User.verified` из модерации водителя) → L3 «свой» (по инвайту). Итог = `max(вычисленный из профиля, дарованный)`. L0 — нормальный пользователь, уровни НЕ унижают.
+- **Модели** (`models.py`): `Trust(user_id, level, invited_by, updated_at)` — строка только для дарованного L3 «свой» + цепочка приглашений; `InviteCode(code, owner_id, uses_left, created_at)` — инвайт-коды (запас на юзера `MAX_INVITES_PER_USER=5`, код не бесконечен `uses_left`); `Consent(user_id, kind, granted_at)` — реестр согласий 152-ФЗ (kind: offer/privacy/geo). Плюс флаг `only_trusted` на `Ride` и `RideRequest`.
+- **Эндпоинты** (`routers/trust.py`, двойной монтаж `/…` и `/api/v1/…`): `GET /me/trust` (мой уровень + что даёт следующий, двуязычно); `POST /invites` (создать, только L2+); `GET /invites/mine`; `POST /invites/redeem {code}` (→ L3, пишет invited_by, uses_left--); `GET /me/consents`; `POST /me/consents {kind}`.
+- **«Только для своих»** (`only_trusted`): поездки/заявки видят и берут лишь L3. Фильтр — per-user поверх кеша в `rides.py::_hide_trusted_only` (как `_hide_blocked`), в `/rides`, `/rides/near`, `/requests/feed`, `/requests/near`, `/match/rides`; свою поездку водитель видит всегда. Прямой id не обходит (guard в `respond_to_request`).
+- **Приватность (IDOR):** чужой уровень/инвайты/согласия не отдаём — все эндпоинты только про себя. Удаление аккаунта (`account.py`) стирает Trust/InviteCode/Consent и отвязывает `Trust.invited_by`.
+- **Миграция** `alembic/versions/p4_trust.py` (down_revision `0004_booking_boarding_code`) — идемпотентна (проверка inspector), проходит upgrade/downgrade и поверх create_all. **Свести миграцию при merge — лид** (несколько feat-веток от 0004).
+**🔗 F16 — расшарить поездку (viral loop, ветка `feat/share-ride-link`):** `backend/app/routers/share.py` (новый) — `GET /r/{id}/preview` (JSON без ПДн, явный белый список: маршрут/время/цена/удобства/имя+рейтинг водителя; телефон и точка сбора НЕ отдаются) + `GET /r/{id}` (server-rendered HTML с OG-тегами → карточка в WhatsApp/Telegram, `?lang=ba`, deep-link + «Скачать»). Веб-превью отдаёт БЭКЕНД (nginx-fallback на API), т.к. лендинг `web/` статический (`output:"export"`) не умеет per-ride OG (краулеры не исполняют JS). Android: share-sheet вкладывает ссылку `yulbash.ru/r/{id}` (хост из `BuildConfig.YULDASH_WEB_BASE_URL`, не API base); intent-filter `yulbash.ru/r/*` (autoVerify, AndroidManifest) → `MainActivity.handleDeepLink` → `DeepLink.pendingRideId` → `YuldashApp` тянет `ApiClient.getRide(id)` и открывает `BookingScreen`.
+
 **Бэкенд** `backend/app/routers/`: `location.py` (WS `/ws/trip/{id}/location` реле + `/ws/map` сигнал), `requests.py` (заявка + prefs + `/near` округл. коорд + лента), `bookings.py` (бронь, приватные детали `/bookings/{id}/details`, `driver_phase`, статусы), `rides.py`, `discovery.py` (`/feed` + `donations_total`), `chat.py` (WS `/ws/bookings/{id}`, REST-история, `/conversations` показывает активные брони даже до первого сообщения), `drivers.py`, `payments.py` (донат/буст СБП «на доверии»), `ads.py`, `safety.py`, `family.py`. Деплой — `docs/server.md`.
+
+**🔭 Наблюдаемость (2026-07-06, ветка `feat/observability`, Фаза 1.1):**
+- **Sentry (бэк)** — `backend/app/observability.py:init_sentry()`, зовётся в `main.create_app()`. Активен ТОЛЬКО при `SENTRY_DSN` в env, иначе полный no-op. Конфиг: `sentry_dsn`, `sentry_traces_sample_rate` в `config.py`. PII не шлём (`send_default_pii=False`, 152-ФЗ). Зависимость `sentry-sdk[fastapi]` в `requirements.txt`.
+- **Sentry (Android)** — `YuldashApplication.initSentry()` (SDK `io.sentry:sentry-android`), DSN из `BuildConfig.SENTRY_DSN` ← `local.properties:YULDASH_SENTRY_DSN` (НЕ в git). Пусто → no-op. PII off.
+- **`/health` расширен** (`routers/health.py`) — компоненты `{db, redis, fcm}` + агрегат `components`; плоские `status`/`db` сохранены (парсит `monitor.sh` и старые тесты). Пробы не бросают исключений: недоступный компонент → его статус, а не 500.
+- **`/health/ready`** — гейт деплоя: 200 если БД доступна, иначе 503.
+- **Алерт 5xx** — `services.record_server_error()`: счётчик серверных ошибок в окне + порог → ОДНО сообщение админу в Telegram (`notify_admin_telegram`), затем cooldown (анти-спам). Пороги: `error_alert_threshold/window_sec/cooldown_sec` в `config.py`. Считается в `AccessLogMiddleware` (явные 5xx, кроме `/health*`) и в `unhandled_exception_handler` (реальные краши). Тесты — `tests/test_observability.py` (7).
+- **Шаги Александра для активации:** создать проект Sentry → положить DSN в прод-env (`SENTRY_DSN=...`) и в `local.properties` (`YULDASH_SENTRY_DSN=...`); при желании задать `ERROR_ALERT_THRESHOLD`. Без этих шагов всё работает как раньше (no-op).
 
 **Кабинет партнёра (реклама, План B — в разработке):** `Ad` расширен полями `owner_id` (партнёр-владелец), `reject_reason`, `package`/`budget_kop`/`period_days` (тариф), `submitted_at`/`reviewed_at`; статусы `pending_review`/`rejected` добавлены к строке `status`. `User.is_advertiser`. Тарифы — конфиг `AD_PACKAGES` в `ads.py` (не хардкод в клиенте). Миграция `alembic/versions/0003_partner_ads_columns.py`. Приватность: партнёр видит/меняет только `owner_id==self`, админ — всё.
 
+**F10 — Договорённость об оплате в брони (2026-07-05, ветка `feat/payment-agreement`):** `Booking` +2 поля `pay_method` (`PayMethod`: cash/sbp/negotiate, дефолт negotiate) + `pay_amount` (₽, опц.). Это ЗАПИСЬ «как договорились платить», **НЕ платёж** и не движение денег — юр-модель не меняется; видно обеим сторонам, опора в споре. Бэк (`bookings.py`): `BookIn` принимает способ/сумму при брони (дефолт суммы — цена поездки, `_clean_pay_amount` валидирует ≤100k); `POST /bookings/{id}/pay-agreement` — правка любой стороной; поля отдаются в `/bookings/{id}/details` и `/bookings/mine`. Миграция `alembic/versions/f10_payment_agreement.py` (revises `0004`, идемпотентна; цепочку сведёт лид при мердже). UI (`BookingActiveTripScreen.kt`): `PayAgreementBlock` — чипы способа + поле суммы до брони (`Canon*`, переиспользует `NearbyFilterChip`), read-only показ договорённости в деталях брони и активной поездке обеим сторонам. Тексты — `appText(ru,ba)`, ба-черновик → `docs/tasks.md`.
+**F20 — статистика кабинета рекламодателя (2026-07-06):** `GET /ads/mine/stats` (все мои объявления) и `GET /ads/{id}/stats` (одно) — показы/клики/CTR/остаток срока, агрегат по `AdEvent` через SQL `GROUP BY` (без загрузки всей таблицы в память). CTR = клики/показы·100, при 0 показов = 0.0. IDOR закрыт: строго `owner_id==self`, чужое → 404. Миграции не требуется (только чтение `AdEvent`). Клиент: `MyAdStatsDto` + `ApiClient.getMyAdsStats()`; в `ProfileScreen.kt` — `AdStatsTiles` (плитки показы/клики/CTR/срок в `MyAdCard`, только для active) + кнопка «Продлить размещение» для оплаченных (тот же СБП-флоу `SbpTransferSheet`; серверное продление — заявка+подтверждение админом — бэклог). Тесты: `backend/tests/test_ads_stats.py` (8). Спека — [ads-system.md](ads-system.md) сценарий 12.
+**🏥 F22 «медцентр-партнёр» (ветка `feat/medical-partner`):** справочник клиник как точек назначения поездок «в больницу» (ЛОГИСТИКА, не медуслуга — без мед.данных пациента). Backend: модель `MedicalPartner` (название/город/адрес/коорд/описание) + `Ride.partner_id` (опц.), миграция `f22_medical_partner` (down_revision `0004`, идемпотентно + сид РКБ/ЦРБ), роутер `medical.py` (`GET /medical-partners`, `/medical-partners/{id}`, `/medical-partners/{id}/rides` — публичная витрина без телефона). UI: `ClinicRidesScreen.kt` (`Screen.ClinicRides`, вход — карточка на вкладке Карта), выбор клиники-назначения в `CreateRideScreen` (тип «В больницу»). `pytest 187 passed`. **Миграции сведёт лид.**
+**📅 F15 v2 — сезонные события на АВТО-датах (ветка `feat/seasonal-events`):** `backend/app/routers/seasonal.py` — даты НЕ хардкодятся на год, а вычисляются. Три типа: `fixed` (9 Мая, 1 сент, День Республики 11 окт, День России, День народного единства…), `nth_weekday` (Сабантуй — 2-я суббота июня; дни городов; День металлурга — 3-е вс июля), `hijri` (Ураза=Шавваль 1, Курбан=Зульхиджа 10 — через табличный исламский календарь, эпоха 1948439, ±1 день к муфтияту, **пересчёт сам каждый год**). Добавлены дни городов РБ (Уфа/Стерлитамак/Салават/Нефтекамск/Октябрьский/Сибай + Магнитогорск у границы) — паттерн-оценка, «дата уточняется». `SEASONAL_OVERRIDES` — прибить офиц. дату на год (приоритет над расчётом). Ответ обогащён `anchor`+`category` (fed/rb/religious/school/city). Чистая `active_events(today, window)` тестируема без привязки к дате. Тесты `tests/test_seasonal.py` (12). Эндпоинт публичный `GET /seasonal-events?days=` → `{"items":[...]}` (единый контракт списков). **UI-баннер:** `SeasonalBanner.kt` — карточка на вкладке Карта «Скоро {событие} — едешь? Опубликуй поездку» (эмодзи, дата `ДД.ММ`, пометка, кнопка → форма создания поездки), показывается только при близком событии, скрываемая, плавное появление, Canon/две темы. Данные тянет `MapScreen` (`ApiClient.getSeasonalEvents` + `SeasonalEventDto`), проброс `MapScreen ← PassengerModeHome ← HomeScreen`. Кнопка баннера открывает форму поездки с предзаполненной датой праздника (`seasonalRidePrefillDate` → `openCreateRide(prefillDate)` → `CreateRideScreen(prefillDate)`); маршрут не подставляем (место праздника неоднозначно). F15 закрыт end-to-end.
+**F17 — Постоянные маршруты водителя (ветка `feat/driver-schedule`):** таблица `DriverSchedule` (driver_id, from_city, to_city, weekdays CSV ISO 1–7, time «ЧЧ:ММ», active) + миграция `alembic/versions/f17_driver_schedule.py` (revision `f17_driver_schedule` ← `0004`, идемпотентна). Роутер `backend/app/routers/driver_schedule.py`: `POST /driver/schedule` (создать, валидация дней/времени), `GET /driver/schedule` (мои), `GET /drivers/{id}/schedule` (публичные active, без auth), `DELETE /driver/schedule/{id}` (своё; чужое → 403). UI: блок «Регулярные маршруты» в `DriverCabinetScreen` (`ProfileScreen.kt` — `DriverScheduleSection`/`AddScheduleDialog`/`ScheduleRow`, дни чипами, время, все состояния, Canon*). Хук для пассажира `PublicDriverSchedulesCard` (кнопка «Следить» → route-watch F13, когда появится экран профиля водителя). ApiClient: `createDriverSchedule`/`getMyDriverSchedules`/`getPublicDriverSchedules`/`deleteDriverSchedule` + `DriverScheduleDto`. Тесты: `tests/test_driver_schedule.py` (CRUD, публичный список без auth, 403 на чужое, валидация). Миграции сводит лид.
+
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
+
+## F18 «Мой Юлдаш» — личная статистика (2026-07-06, ветка `feat/my-stats`)
+- **Экран:** `MyStatsScreen.kt` — новый `Screen.MyStats` (в `enum Screen` MainActivity.kt) + ветка в `YuldashApp.kt`; вход из профиля (карточка «Мой Юлдаш», `ProfileScreen.kt`, параметр `onMyStats`). Плитки Canon* (км/поездки/₽/CO₂), «звание» + прогресс-бар до следующего, кнопка «Поделиться». Все состояния (загрузка/ошибка+повтор/нули для новичка).
+- **Шеринг картинкой:** открытка рисуется на Android `Canvas` (`drawStatsBitmap`, 1080×1350) → PNG в `cacheDir/shared/` → `FileProvider` (authority `${applicationId}.fileprovider`, `res/xml/file_paths.xml`, объявлен в манифесте) → `ACTION_SEND image/png`. Фолбэк — текстовый шеринг при ошибке.
+- **Данные:** `ApiClient.getMyStats()` → `MyStatsDto` (км/поездки/сэкономлено ₽/CO₂/звание+прогресс).
+- **Backend:** `GET /me/stats` (`backend/app/routers/stats.py`, зарегистрирован в `routers/__init__.py`) — агрегаты по `current_user` (приватность): завершённые брони (пассажир) + завершённые поездки (водитель). Дистанция — координаты концов маршрута, иначе `geocode_city`. Звание — по числу поездок (`RANKS`), уровень 0 у новичка (без «наград»). Коэффициенты в `config.py`: `stats_taxi_rub_per_km`, `stats_co2_grams_per_km` (⚠️ уточнит Александр). Тесты `tests/test_stats_edges.py`. Миграция НЕ нужна.
 
 ## Лендинг web/ — интерактивная версия 2026-06-29
 - **Production-hardening 2026-06-30:** `web/` обновлён до Next.js 16.2.9, PostCSS поднят до 8.5.x через `overrides`, потому `npm audit --omit=dev` теперь 0 vulnerabilities. Build остаётся статическим (`output: "export"`) и деплоится как `web/out/` в `/var/www/yuldash-landing`.
@@ -66,7 +194,7 @@
 - `AdminCabinetScreen` — хаб; `AdminRequestScreen` (заявка за юзера по телефону, `/admin/request-for-phone`); `AdminResponsesScreen` (принять отклик ЗА юзера без интернета); `AdminDriversScreen` (модерация: фото прав/авто через Coil+Bearer к `/secure/docs`, одобрить/отклонить); `AdminReportsScreen` (жалобы `/admin/reports`).
 - **Автоадмин:** вход через Telegram-id (`ADMIN_TELEGRAM_CHAT_ID`) ИЛИ телефон (`ADMIN_PHONES`) → роль admin сама (`_maybe_promote_admin` в auth.py).
 
-**Профиль/доверие** (`ProfileScreen.kt`): имя редактируется (карандаш, `updateName`→`/me/update`); аватар (пикер→`uploadChatPhoto`→`updateAvatar`, Coil) — везде через `SmallAvatar`; онлайн-водитель — тумблер в `DriverCabinetScreen` (`setOnline`→`/driver/online`), бейдж `OnlineBadge`, `RideOut.driver_online`.
+**Профиль/доверие** (`ProfileScreen.kt`): имя редактируется (карандаш, `updateName`→`/me/update`); аватар (пикер→`uploadChatPhoto`→`updateAvatar`, Coil) — везде через `SmallAvatar`; **родной город** — тап по строке 📍 в шапке → диалог с автоподсказками из справочника (`searchSettlements`), `updateCity`→`/me/update`; онлайн-водитель — тумблер в `DriverCabinetScreen` (`setOnline`→`/driver/online`), бейдж `OnlineBadge`, `RideOut.driver_online`.
 **Удаление аккаунта** (danger-zone в `ProfileScreen`, только для залогиненных): `deleteAccount()`→`POST /me/delete` (auth) → сервис `app/account.py::delete_user_account` стирает строки во ВСЕХ таблицах юзера в FK-безопасном порядке + best-effort медиа (аватар/доки водителя/его голосовые); отвязывает чужие ссылки (`referred_by`, `Ad.created_by`→NULL). Клиент после успеха чистит сессию (`clearLocalSession`, реюз с logout) → `Screen.Login`. Необратимо (152-ФЗ). Тест: `test_delete_account_wipes_all_data`.
 **Ориентация:** приложение зафиксировано в портрет (`android:screenOrientation="portrait"` на `MainActivity`) — как Яндекс Такси/inDrive/Uber; ландшафт-вёрстки нет, поворот не ломает UI.
 `PassengerCabinetScreen` теперь даёт прямой вход в «Мои поездки», показывает loading/error для `/bookings/mine`, а ближайшая бронь открывает реальный booking-flow: `pending` → `BookingScreen`, `confirmed/onboard` → `ActiveTripScreen`.
@@ -75,7 +203,14 @@
 
 **Прочие новые** (`SecondaryScreens.kt`): `RulesScreen`, `PaymentInfoScreen` (СБП), `BlocklistScreen` (`/blocks`), `ReportScreen`, `FiltersScreen` (`FilterPrefs` в SharedPreferences), `ThemePickerDialog`. Код посадки — карточка в `BookingActiveTripScreen` (`getBoardingCode`). Аналитика — `data/Analytics.kt` (Firebase).
 
-**enum `Screen`** пополнен: Rules, PaymentInfo, Blocklist, Report, Filters, AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, RequestsFeed, RequestResponses — каждый ветка в `when(screen)` (`YuldashApp.kt`).
+### 🆕 F7 — Текстовые отзывы + публичный профиль водителя (ветка `feat/reviews-driver-profile`)
+- **Экран `DriverProfileScreen.kt`** (`Screen.DriverProfile`): публичная витрина доверия — фото, бейдж «Проверен», стаж в Юлдаше (плитка из даты регистрации), число завершённых поездок, средний рейтинг★, последние текстовые отзывы (прошедшие модерацию). БЕЗ ПДн (телефона нет). Все состояния: загрузка/ошибка+повтор/успех/пусто. Данные — `ApiClient.getDriverPublic(id)` → `GET /drivers/{id}/public`. Типографика — общий `TaxiType` (2026-08-02).
+- **Открытие** — тапом по строке водителя в карточке поездки (`RideCard` и `NearbyRideCard` в `RidesRequestsChatScreens.kt`). Навигация без протаскивания колбэков: `LocalOpenDriverProfile` (CompositionLocal в `MainActivity.kt`), провайдится в `YuldashApp.kt`; `RideDto.driverId`/`Ride.driverId` (из `driver_id` бэкенда) — кого открыть.
+- **Текстовый отзыв** — карточка оценки в `BookingActiveTripScreen` (при `bookingStatus==done`): звёзды уходят сразу, опц. поле отзыва (≤500) → `ApiClient.rateBooking(id, stars, text)`. Текст идёт на модерацию (в профиле появляется только после одобрения).
+- **Бэкенд:** `Rating.text` + `Rating.text_published` (модель + alembic `0005_rating_text_review`, идемпотентная). `family.py::rate_booking` принимает `text`; смена текста → снова на модерацию. `drivers.py::GET /drivers/{id}/public` (без auth, без телефона): агрегаты (done-брони по поездкам водителя, средний рейтинг, стаж в днях) + последние N отзывов с `text_published=True`. Модерация текста — `reviews.py`: `GET /admin/ratings/pending`, `POST /admin/ratings/{id}/publish` (паттерн 1-в-1 как у `AppReview`). Тесты — `tests/test_reviews_driver_profile.py`.
+
+**enum `Screen`** пополнен: Rules, PaymentInfo, **PricingInfo** («Честно о цене»), Blocklist, Report, Filters, AdminCabinet, AdminRequest, AdminResponses, AdminDrivers, AdminReports, RequestsFeed, RequestResponses, **DriverProfile** — каждый ветка в `when(screen)` (`YuldashApp.kt`).
+
 - **Application:** `android/app/src/main/java/com/yuldash/app/YuldashApplication.kt` — отдаёт ключ Яндекс MapKit (`MapKitFactory.setApiKey`) при старте. Прописан в манифесте как `android:name=".YuldashApplication"`.
 - **Ключ карты:** `local.properties` → `YANDEX_MAPKIT_KEY` (в `.gitignore`) → пробрасывается в `BuildConfig.YANDEX_MAPKIT_KEY` через `app/build.gradle.kts` (`buildConfig = true`). В коде ключ не хардкодим.
 - Тексты-ресурсы: `android/app/src/main/res/values/strings.xml` (RU) + `values-ba/strings.xml` (BA).
@@ -129,6 +264,12 @@
 - DTO: `RideDto`, `RequestDto`, `ContactDto`, `MessageDto` (маппинг `RideDto` — один шов `JSONObject.toRideDto()`). Геокодер адресов — через бэкенд `/geocode` (`GeocoderClient`), ключ на сервере. Мёртвый слой `Models.kt`/`Repository.kt`/`MockRepository.kt` **УДАЛЁН** 2026-06-27 (0 ссылок).
 - Загрузка с сервера: поездки и заявки — `LaunchedEffect` в `YuldashApp`; контакты — там же; сообщения — в `ActiveTripScreen`.
 - **`ActiveTripScreen`** (`Screen.ActiveTrip`) — экран «Моя поездка» после брони: чат по `booking_id`, поделиться с контактом, статус поездки, SOS.
+
+## 🔀 Переключатель режимов пассажира: Такси ↔ Попутка (2026-07-09, ветка `feat/mode-switch`)
+- **Где:** вверху вкладки «Карта» (главный экран пассажира). Файл `ModeSwitchHome.kt`: `enum RideMode { Pooling, Taxi }`, `PassengerModeHome` (обёртка), `ModeSwitchBar` (2 больших сегмента ≥66dp: 🚗 Попутка зелёная / 🚕 Такси жёлтая), `ModeSegment`, `ModeHintSheet`.
+- **Логика:** `HomeTab.Map` в `HomeScreen` теперь рендерит `PassengerModeHome` (раньше сразу `MapScreen`). Попутка (по умолчанию) → `MapScreen` (поиск плановых поездок); Такси → `InstantOrderScreen(embedded=true)` (без своей шапки — контекст задаёт переключатель). Смена — `AnimatedContent`. Аппаратная «Назад» в такси → к попутке (`BackHandler`). Вход требуется только для такси (`onInstantLogin` → `Screen.Login`).
+- **Цвета:** токены `CanonTaxi/CanonTaxiBg/CanonTaxiInk` (жёлтый) и `CanonPooling/CanonPoolingBg` (зелёный бренд) в `CanonTokens.kt` (светлый/тёмный). Активный режим красит CTA и полоску-индикатор. CTA такси = «Вызвать машину» (жёлтая), попутки = «Найти попутку» (зелёная).
+- **Подсказка первого входа:** `ModeHintSheet` (bottom-sheet, крупный текст) — один раз, флаг `mode_hint_shown` в `yuldash_prefs`. Повтор — ссылкой «Чем отличается?» у переключателя.
 
 ## Навигация (как устроены экраны)
 
@@ -201,8 +342,10 @@
 ## Мёртвый код — удалён (2026-06-22)
 - `RequestTabScreen`, `DirectionChips`, `FiltersCard` удалены (не вызывались, ~265 строк). При необходимости — в истории git.
 
-## Доступность / семья (добавлено 2026-06-22)
-- Входы: карточка `SeniorAccessCard` на вкладке Карта и раздел «Для родителей и близких» в Профиле.
+## Доступность / семья (добавлено 2026-06-22; вход в простой режим перенесён 2026-07-14)
+- **Вход в простой режим (2026-07-14, релиз):** убран с главных вкладок (карточка `SeniorAccessCard` больше НЕ на вкладке Карта — только раздел «Для родителей и близких» в Профиле, `ProfileScreen.kt`). В самой карточке сбивающий `Switch(checked=false)` заменён на понятный chevron-переход (вся карточка = `bounceClick(onSimpleMode)`). Определение `SeniorAccessCard` пока живёт в `MapScreen.kt`, используется только Профилем.
+- **Предложение простого режима в онбординге (2026-07-14):** на последнем слайде (рядом с выбором роли РУС/БАШ) мягкая карточка `OnboardingSimpleModeCard` (`YuldashApp.kt`): «Тебе удобнее крупные кнопки и голосовой заказ?» + крупная кнопка «Включить простой режим» (ведёт в `Screen.SimpleMode`, ставит `simple_mode_opted_in=true` + `onboarding_completed=true` в `yuldash_prefs`) и «Не сейчас» (прячет карточку). `OnboardingScreen`/`OnboardingContent` получили параметр `onSimpleMode` (у `OnboardingContent` — с дефолтом `{}`, чтобы Robolectric-тесты не ломались).
+- Входы (было): карточка `SeniorAccessCard` на вкладке Карта и раздел «Для родителей и близких» в Профиле.
 - `SimpleModeScreen`: крупные действия для пожилых пользователей.
 - `VoiceRequestScreen`: локальная имитация голосового ввода, автозаполнение маршрута и добавление `LocalRequest`.
 - `FamilyOrderScreen`: локальная заявка за близкого с пассажиром, телефоном и доверенным контактом.
@@ -213,6 +356,28 @@
 
 ## Что РЕАЛЬНО на сервере (обновлено 2026-06-23)
 Подключено к бэкенду `https://yulbash.ru` через `data/ApiClient.kt`: **вход через Telegram-код** (JWT, автологин; SMS-код заморожен флагом), **поездки** (список), **заявки** (создать+список), **публикация поездки**, **бронь**, **SOS**, **доверенные контакты**, **чат**, **экран активной поездки** (share/статус). Данные живут на сервере (PostgreSQL), не пропадают при перезапуске.
+
+### 🆕 UI доверия «между своими» — уровни L0–L3, инвайты, «только для своих», согласия (2026-07-06, ветка `feat/trust-ui` от `feat/trust-levels`)
+Клиентский UI поверх бэкенда доверия (Фаза 4). Новый файл **`TrustScreens.kt`** — три экрана + `enum Screen` пополнен `Trust`, `Invites`, `Consents` (ветки в `when` внутри `YuldashApp()`).
+- **`TrustScreen`** (`Screen.Trust`, вход: Профиль → «Доверие»): текущий уровень L0–L3 (карточка с бейджем + горизонтальная лесенка `TrustLadder` из 4 сегментов, анимация заполнения), «что тебе доступно» (benefits с сервера), карточка «следующий уровень» (что даёт + `how` + действие: L0→L1 профиль, L1→L2 проверка, L2→L3 инвайт), для L2+ — callout «ты можешь звать своих». Данные — `ApiClient.getMyTrust()` (`GET /me/trust`). Деликатно: L0 — полноправный участник, тексты мотивируют, не унижают.
+- **`InvitesScreen`** (`Screen.Invites`, «Позвать своего»): для не-L3 — поле «ввести код» → `redeemInvite` → «Теперь ты свой»; для L2+ — список моих кодов (`getMyInvites`) с шерингом через системный share-sheet + «Создать код» (`createInvite`); для непроверенных — деликатная заглушка «пройди проверку». 
+- **`ConsentsScreen`** (`Screen.Consents`, вход: Профиль → «Согласия и данные» и Настройки → приватность): оферта/политика/гео с датами согласия (`getConsents`), кнопка «Отметить» (`setConsent`). 152-ФЗ.
+- **Тумблер «Только для своих»** (`only_trusted`) в создании поездки (`CreateRideScreen`/`CreateRideFormContent`) и заявки (`CreatePassengerRequestScreen`/`Content`) — отдельная карточка с пояснением «увидят только проверенные свои (L3)». Прокинут в `ApiClient.publishRide`/`createRequest`.
+- **`ApiClient`**: `getMyTrust`/`createInvite`/`getMyInvites`/`redeemInvite`/`getConsents`/`setConsent` + DTO `TrustSummaryDto`/`TrustNextDto`/`Bilingual`/`InviteDto`/`ConsentDto`; `only_trusted` в теле `publishRide`/`createRequest`.
+- Все надписи двуязычны (`appText`); черновой башкирский → `docs/tasks.md` «Переводы на проверку — Доверие». Все состояния (загрузка/ошибка/пусто), тач-цели ≥48dp, `Canon*`. ⏳ Собрать APK перед мержем; вливать ПОСЛЕ бэкенд-PR #38 (эта ветка от `feat/trust-levels`).
+
+## F8 — Бейджи и «стаж своего» (2026-07-05, ветка `feat/trust-badges`, draft PR)
+- **Агрегаты, БЕЗ новых таблиц.** `RideOut` (`schemas.py`) +2 поля: `driver_trips` (завершённых поездок = distinct done-броней водителя) и `driver_since` (`"YYYY-MM"` из `User.created_at`). Считаются батчем в `services.py`: новый хелпер `driver_trips_agg()` + расширены `drivers_bundle()` (теперь 4-кортеж) и `ride_out_with()` (принимает `trips_agg`). Один запрос на весь список карточек — без N+1. Проходят через `public_ride_payload` (не приватные).
+- **Почему done-брони, а не done-поездки:** завершение ставит `Booking.status=done`, а `Ride.status` остаётся `active` (см. `bookings.py::driver-status`), поэтому «N поездок» меряем по завершённым броням (distinct по `ride_id`).
+- **UI** (`RidesRequestsChatScreens.kt`): `DriverTrustBadges` (FlowRow-чипы Canon: Проверен · N поездок · с <мес год>) в детальной `RideCard`; `CompactTrustLine` (одна строка в weight-зоне, не растит фикс-высоту) в `NearbyRideCard`. RU-плюрал `tripsWordRu`, месяцы `f8MonthsRu/Ba`. `RideDto`/`Ride`/`toUiRide` проброшены. Длинный башкирский переносится/обрезается — вёрстка цела.
+- **Пропущено честно:** «Отвечает быстро» (нет `confirmed_at`). Появятся данные → добавим. ~~«Земляк» (нет города у `User`)~~ — закрыто: `User.city` добавлено (см. «Город в профиле» ниже), бейдж «Земляк» теперь реализуем.
+- Тесты: `backend/tests/test_trust_badges.py` (6). Android — собрать (нет SDK в worktree). Черновой башкирский → `docs/tasks.md` «Переводы на проверку — F8».
+
+## F9 «Женщинам — водитель-женщина» (ветка `feat/women-driver`, 2026-07-05) — opt-in
+> Чувствительная тема → строго добровольно (opt-in). Показываем только полезный сигнал «женщина за рулём»; мужской пол наружу не выпячиваем.
+- **Бэкенд:** `DriverProfile.gender` (`""` не указан / `female` / `male`, дефолт `""`). Миграция `alembic/versions/f9_driver_gender.py` (revision `f9_driver_gender`, down_revision `0004_booking_boarding_code`, идемпотентна). Эндпоинт `POST /driver/gender` (меняет только сам водитель, валидация значений); `GET /driver/status` отдаёт `gender` (виден только владельцу). `RideOut.driver_is_woman` = `gender=="female"` — БИНАРНЫЙ публичный сигнал (male и «не указан» неотличимы → приватность). Фильтр `GET /rides?women_only=true` теперь `Ride.women_only == True OR DriverProfile.gender=='female'` (OUTER JOIN). Тесты `tests/test_women_driver.py` (opt-in, поиск женщины, приватность мужчины) — pytest зелёный.
+- **Android:** `Ride.driverIsWoman`/`RideDto.driver_is_woman` (парсинг+маппинг в `toUiRide`/inline). Бейдж `WomanDriverBadge()` (токены `CanonWoman`/`CanonWomanBg` в `CanonTokens.kt`, иконка `Woman`) в `RideCard` и `NearbyRideCard` (`RidesRequestsChatScreens.kt`). Тумблер opt-in «Я — женщина за рулём» в `DriverCabinetScreen` (`ProfileScreen.kt`, `ApiClient.setDriverGender`). Клиент-фильтр «Только женщины» в `MapScreen.kt` теперь пропускает и женщин за рулём + пояснительная подпись. Всё двуязычно (`appText`), черновой ба → `docs/tasks.md` «Переводы на проверку — F9».
+- ⚠️ **Цепочку миграций сведёт лид** (несколько фича-веток ответвлены от `0004` → параллельные alembic heads).
 
 ## Бэкенд: премиум-поля и проверка водителя (2026-06-24, ✅ ЗАДЕПЛОЕНО на yulbash.ru)
 - `Ride` + `RideIn`/`RideOut`: новые булевы поля предпочтений — `pets_allowed` (животные), `child_seat` (детское кресло/бустер), `women_only` (только женщины), `smoking`, `baggage`, `air_conditioner`. `GET /rides` принимает их как фильтры. Дефолты `False` → обратносовместимо.
@@ -240,6 +405,7 @@
 - **Реклама партнёров через очередь** (`ads.py` + `AdminAdsScreen.kt`): поле «Цена партнёру, ₽» в форме. Цена>0 → `Payment(purpose="ad", ad_id)` pending → в «Заявки на оплату» (с партнёром+названием); подтвердил → `_activate_payment` публикует объявление (`Ad.status=active`). Цена 0 → ручная публикация как раньше. Поле `payment.ad_id` (миграция `migrate_ad_payment.sql`). `_activate_boost`→`_activate_payment` (boost+ad+donate). Прод flow-тест 17/17 PASS, задеплоено.
 - **Редактирование объявлений** (`AdminAdsScreen.kt`, только Android): кнопка «Изменить» на карточке → форма предзаполняется (`AdminAdDto` + парсинг расширены `button`/`target`/`cities`) → `ApiClient.updateAd`→`POST /admin/ads/{id}` (эндпоинт уже был). Бэкенд НЕ менялся.
 - ⚠️ **Осталось:** релизный APK (бэк уже отдаёт, старый APK игнорит). ЮKassa — после публикации (код готов, `payments.py`).
+- **F21 — Boost через ЮKassa (ветка `feat/boost-yookassa`):** при `PAYMENTS_PROVIDER=yookassa`+ключах `POST /boost/create` возвращает `confirmation_url` (оплата в браузере), boost поднимается ТОЛЬКО после реальной оплаты — вебхук `/payments/yookassa/webhook` ИЛИ поллинг `GET /payments/{id}/status` (перепроверяет статус у ЮKassa через `fetch_payment` и активирует go-live; владелец-only, чужой→404). Без ключей — СБП-fallback как раньше (админ подтверждает). Клиент (`SupportBoostScreen.kt`/`BoostScreen`): открывает `confirmation_url`, на `ON_RESUME` экрана (вернулся из браузера) авто-поллит статус (`repeatOnLifecycle(RESUMED)`) + кнопка «Я оплатил — проверить»; состояния «Проверяем оплату…»/«Объявление поднято». `ApiClient.getPaymentStatus` + `PaymentStatusDto`. Миграция не нужна (модель `Payment` без изменений). Секреты ЮKassa — только в `.env`. Тесты: `backend/tests/test_boost_yookassa.py` (4). Требует ключей ЮKassa на проде.
 
 ## Push-уведомления (FCM) — реализованы, Firebase настроен (2026-06-27)
 Полный end-to-end, активируется наличием конфигов (без них — тихо выключено, сборка не падает):
@@ -247,6 +413,11 @@
 - **Бэкенд:** `services.send_push(session, user_id, title, body)` через `firebase_admin` → шлёт на все `DeviceToken` юзера. Триггеры: новая бронь (`bookings.py`), новое сообщение чата (`chat.py`), SOS. `POST /push/register` сохраняет токен. Конфиг `firebase_credentials` (путь к service-account JSON).
 - **Конфиги на месте:** прод `/opt/yuldash/firebase-service-account.json` + `FIREBASE_CREDENTIALS` в `.env` (бэкенд шлёт); `android/app/google-services.json` — в главном чекауте Александра (в `.gitignore`, потому в worktree-сборках FCM скомпилён, но неактивен → токен не регистрируется).
 - ⚠️ **Осталось:** проверить реальную доставку на устройство (сборка из главного чекаута). Для теста в worktree — скопировать `google-services.json` в `android/app/`.
+
+## F13 — Подписка на маршрут «карауль поездку» (2026-07-05, ветка `feat/route-watch`)
+Retention-двигатель: юзер подписывается на маршрут (Сибай→Уфа), и как только водитель публикует подходящую поездку — приходит push + запись в ленте уведомлений.
+- **Бэкенд:** модель `RouteWatch` (user_id, from_city, to_city, опц. `watch_date`, `direction` forward/both, анти-спам `last_notified_at`, `expires_at`=+14 дней) + `Notification` (персистентная лента). Роутер `app/routers/route_watch.py`: `POST /route-watch` (создать; дубль того же маршрута → продлеваем, не плодим), `GET /route-watch` (мои непротухшие), `DELETE /route-watch/{id}` (только свою). Матчинг — `services.notify_route_watchers(session, ride)`, вызывается из `rides.create_ride` после коммита. Анти-спам: ≤1 пуш на подписку в сутки; протухшие (>14 дней) не матчатся и скрыты. Пуш/запись двуязычны по `user.language`. Города — как есть. Лента `/notifications` (chat.py) теперь мержит `Notification`. Миграция `alembic/versions/0005_route_watch.py` (идемпотентна). Тесты `tests/test_route_watch.py` (10): CRUD, матчинг right/not-wrong, self-skip, both-направление, анти-спам, протухание, дата-фильтр, валидация.
+- **Android:** `Screen.RouteWatches` + ветка в `YuldashApp.kt`. Экран `RouteWatchesScreen` (`SecondaryScreens.kt`): форма (откуда/куда + тумблер «туда-обратно») + список подписок с удалением, все состояния (loading/error/empty). Вход: карточка «Мои подписки на маршрут» в `NotificationsScreen` + кнопка «Следить за маршрутом» на пустой выдаче «Ближайших» (`NearbyEmptyCard` в `RidesRequestsChatScreens.kt`, проброс `onRouteWatch(from,to)` через `MapScreen`→`HomeScreen`). `ApiClient`: `createRouteWatch`/`getRouteWatches`/`deleteRouteWatch` + `RouteWatchDto`. Двуязычие через `appText` (черновой ба → `docs/tasks.md` «Переводы — F13»).
 
 ## Что ещё фейковое (только UI)
 Платежи (донат/Boost — мок), проверка водителя, реальное распознавание голоса (имитация), звонок оператору, «скрытый номер»/код посадки (UI). Реклама — локальные счётчики показов/кликов. **SMS** — код провайдера готов (`sms.ru`), но без ключа работает мок (код в логе сервера). Полные чат-треды списком диалогов — `ChatScreen` всё ещё показывает мок-карточки (реальный тред — в `ActiveTripScreen`).
@@ -337,4 +508,548 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
   - `test_auth_edges.py`
 - Latest backend verification: `pytest tests -q` → `148 passed, 1 skipped`; coverage for `backend/app` → `91%` (`3186` statements, `300` missed).
 - High-covered active modules after this pass: `routers/ads.py` 99%, `routers/auth.py` 98%, `payments.py` 100%, `routers/payments.py` 95%, `routers/requests.py` 95%, `routers/safety.py` 99%, `driver_check.py` 96%, `routers/rides.py` 93%.
+
+## 2026-07-06 — 🚕 Домен «Быстрый заказ» (такси-режим, Фаза 2, БЭКЕНД) — ветка `feat/instant-order`
+
+Флагман Фазы 2. **Отдельный поток** от плановых поездок (Ride/Booking — не тронут). Полный статус, конфиг и «что осталось» — в [instant-order-backend.md](instant-order-backend.md).
+
+**Новые файлы:**
+- `backend/app/instant_service.py` — сервисный слой: presence (Redis GEO), тариф (сервер считает сам), machine состояний + matcher.
+- `backend/app/routers/instant.py` — эндпоинты (`/instant/*`), зарегистрирован в `routers/__init__.py`.
+- `backend/alembic/versions/p2_instant_order.py` — миграция (rev `p2_instant_order`, down `0004`), идемпотентна: на свежей БД create_all уже создал таблицы → no-op; на проде создаёт `tariff` + `instantorder` c индексами.
+- `backend/tests/test_instant.py` — 25 тестов (тариф/presence/matcher/машина/гонка/таймаут/отмены/приватность).
+
+**Модели (`models.py`):** `Tariff(zone, category, base, per_km, per_min, min_price, k, active)`; `InstantOrder(...+ таймстампы переходов)`; `InstantOrderStatus` (created→searching→offered→accepted→arriving→onboard→done, терминальные cancelled/expired). **Presence — только Redis** (эфемерно, в БД нет).
+
+**Presence:** `POST /instant/presence` (водитель «на линии») → `GEOADD presence` + `SET presence:hb:{id} EX 60`. Переиспользует `services._cache_client()`. Без Redis — graceful (заказ не находит водителей, не падает).
+
+**Тариф:** `POST /instant/estimate` — сервер считает `max(min_price, base + per_km·dist + per_min·eta)·k`, округл. до 10 ₽, `dist = haversine × road_k`. **Клиенту не верит** (в схеме нет поля цены). Зоны город/межгород по порогу дистанции. Сид тарифов — в lifespan (`seed_tariffs`, всегда, не под `seed_demo`). **Стартовые цены (₽, сильно ниже конкурентов, правятся в БД):** город base=70/per_km=11/per_min=3/min=100; межгород base=80/per_km=9/per_min=2/min=150; k=1.0.
+
+**Заказ + matcher:** `POST /instant/orders` считает цену → matcher `GEOSEARCH` c расширением 3→7→15 км → фильтр (online/verified/не занят/не в блоке) → скоринг (подача/рейтинг) → оффер top-1 через `send_push` (data-payload) с таймаутом 20с. Переходы: `/accept /decline /arrived /onboard /done /cancel` — под row-lock (`with_for_update`) + атомарный условный UPDATE (гонка двух accept → второму **409**, корректно и на SQLite). Ленивый таймаут оффера (reconcile при чтении) — работает **без arq-воркера**. Приватность: телефоны сторон раскрываются ТОЛЬКО после accept; координаты не логируем.
+
+**Тесты:** backend `pytest -q` → **206 passed, 1 skipped**. Alembic `upgrade head` на чистой БД проходит + идемпотентен (оба пути проверены).
 - Remaining lower areas are mostly integration-heavy/infrastructure: `services.py`, `db.py`, `middleware.py`, and WebSocket internals in `routers/chat.py`.
+
+## 2026-07-06 — 💰 Домен «Деньги v1» (ledger + комиссия + оплата done + сверка, Фаза 3, БЭКЕНД) — ветка `feat/payments-ledger`
+
+Реализация D3 (v1, БЕЗ hold/capture — это v2). Пассажир платит за **завершённую** поездку картой/СБП через СУЩЕСТВУЮЩУЮ ЮKassa-инфру (`payments.py` create/fetch/webhook); водителю начисляется через **append-only ledger** (кошелёк). Полный статус — в [payments-ledger-backend.md](payments-ledger-backend.md).
+
+**Новые файлы:**
+- `backend/app/ledger.py` — деньги: `fee_kop_for` (комиссия, целые копейки, ROUND_HALF_UP), `driver_balance` (= SUM), `settle_instant_order`/`settle_booking` (идемпотентно, под row-lock), `reconcile` (сверка за период).
+- `backend/app/routers/wallet.py` — эндпоинты оплаты/кошелька/сверки, зарегистрирован в `routers/__init__.py`.
+- `backend/alembic/versions/p3_ledger.py` — миграция (rev `p3_ledger`, down `p2_instant_order`), идемпотентна: свежая БД create_all → no-op; прод создаёт `ledgerentry` c 5 индексами и добавляет колонки в `payment`/`instantorder`/`booking`.
+- `backend/tests/test_ledger.py` — 19 тестов (комиссия/начисление/только-done/наличные/идемпотентность webhook/append-only/сверка/IDOR/бронь).
+
+**Модели (`models.py`):** `LedgerEntry(id, driver_id, order_id NULL, booking_id NULL, kind[earn|fee|payout|adj], amount_kop, created_at, note)` — **append-only, баланс = SUM(amount_kop)**, историю НЕ редактируем (правка → запись `adj`). Расширены: `Payment(+order_id,+booking_id,+method, purpose=ride|booking)`, `InstantOrder(+paid,+payment_method)`, `Booking(+paid,+payment_method)`. Деньги — только int-копейки, без float.
+
+**Комиссия:** `service_fee_percent` в config (дефолт **8%** — втрое ниже Яндекса ~24–30%; правится без пересборки, финальный процент утверждает Александр). Успешная безналичная оплата → в ledger две записи: `earn` (+вся сумма водителю) и `fee` (−комиссия). Баланс водителя за поездку = earn − fee.
+
+**«Поддержать Юлдаш» (добровольная поддержка):** `POST /support/donate {amount_kop}` (`routers/payments.py`) — `Payment(purpose="support")`, доход платформы (НЕ водителю): `_activate_payment` только помечает succeeded, **ledger не трогает**. Через ту же ЮKassa-инфру (карта/СБП), без ключей — СБП-фолбэк по номеру (подтверждает админ). Границы 10–5000 ₽, идемпотентно по деньгам (повторный webhook → no-op). UI — `SupportScreen` (`SupportBoostScreen.kt`, пресеты 20/50/100 ₽ + своя сумма, `ApiClient.supportDonate`), вход: профиль + мягкое дисмиссируемое предложение после done-поездки (`BookingActiveTripScreen`, колбэк `onSupport`).
+
+**Оплата после done:** `POST /instant/orders/{id}/pay` и `POST /bookings/{id}/pay` (метод `cash|card|sbp`). Только владелец-пассажир (анти-IDOR), только статус **done**. Безнал → ЮKassa (mock/dev → succeeded сразу; прод → confirmation_url, начисление по webhook). **Наличные** → заказ помечается `paid`, но ledger НЕ двигаем (деньги мимо нас). **Идемпотентность:** повторный webhook не задваивает — `_activate_payment` фиксирует succeeded, затем `settle_*` под row-lock гейтит по флагу `paid` (второй раз → «already»).
+
+**Кошелёк/сверка:** `GET /wallet/balance` и `GET /wallet/ledger` — только СВОИ записи (анти-IDOR). `GET /admin/ledger/reconcile?days=N` (админ) — сверка `SUM(earn)` ↔ `SUM(успешных безналичных Payment)`; `diff≠0` → расхождение (алерт вешает Александр). Наличные в сверку не входят.
+
+**Тесты:** backend `pytest -q` → **225 passed, 1 skipped** (+19 денежных). Alembic `upgrade head` — оба пути (baseline no-op + прод create-table с 5 индексами), идемпотентно.
+
+**Что НЕ входит (v2/за Александром):** hold→capture («безопасная сделка»), выплаты водителям (payout API), UI экрана оплаты, ЮKassa-чеки 54-ФЗ для поездок, финальный процент комиссии + оферта (юр.).
+
+## 2026-07-09 — 🧾 Домен «Долг по комиссии за такси» (Модель А «на доверии», Фаза 3) — ветка `feat/driver-debt`
+
+**Суть:** за завершённый ТАКСИ-заказ (instant) водитель получает деньги напрямую (нал/прямой СБП), а комиссию 8% ДОЛЖЕН платформе. Раз в неделю переводит долг Александру по СБП → «Я оплатил» → админ подтверждает. Не оплатил в срок → режим ТАКСИ блокируется. **ПОПУТКА (плановые Ride/Booking) этим НЕ блокируется** — отдельный поток.
+
+Новые файлы:
+- `backend/app/debt.py` — логика: `order_commission_kop` (8% с цены, int-копейки), `accrue_for_order` (начисление в done, идемпотентно по order_id), `taxi_block_reason` (просрочка / сумма unpaid > порога), `debt_summary`, `declare_paid`, `admin_confirm`, `admin_reject`.
+- `backend/app/routers/debt.py` — эндпоинты, зарегистрирован в `routers/__init__.py`.
+- `backend/alembic/versions/p3_debt.py` — миграция (rev `p3_debt`, down `p3_ledger`), идемпотентна (baseline create_all no-op / прод create_table `commissiondebt` c 5 индексами).
+- `backend/tests/test_debt.py` — **16 тестов** (начисление/идемпотентность/блок presence·offer·accept/ПОПУТКА-не-блокируется/цикл оплаты→confirm→разблок/reject→снова-блок/анти-IDOR/границы).
+
+**Модель (`models.py`):** `CommissionDebt(id, driver_id, order_id NULL, amount_kop, week, status[unpaid|pending|paid], created_at, due_at, paid_declared_at, confirmed_at)` — одна строка = комиссия одного заказа. `DebtStatus` enum. Деньги — int-копейки.
+
+**Начисление:** в `/instant/orders/{id}/done` (router) после успешного перехода → `debt.accrue_for_order` (гейт по order_id → повторный done не задваивает; нулевая комиссия долг не создаёт). База = `price_final || price_estimate` (₽ → копейки), процент = `service_fee_percent` (8%).
+
+**Блок такси (guard `_guard_taxi_not_blocked`):** `/instant/presence`, `/instant/driver/offer` (возвращает `offer:None`), `/instant/orders/{id}/accept` → 403 «Оплати долг сервису, чтобы возить такси», если есть просроченный unpaid ИЛИ `SUM(unpaid) > debt_block_threshold_kop`. `pending` (заявил оплату) НЕ блокирует — работаем «на доверии» (разблок сразу после «Я оплатил», окончательно — после админ-confirm). `/rides` и брони guard НЕ трогает.
+
+**Эндпоинты:** водитель — `GET /driver/debt` (сумма/срок/реквизиты СБП/блок, по своему токену), `POST /driver/debt/paid` (unpaid→pending, Telegram админу). Админ — `GET /admin/debts` (pending, группировка по водителю, representative `debt_id`), `POST /admin/debts/{id}/confirm` (весь pending водителя→paid, push «Долг подтверждён»), `/reject` (→unpaid). Все `/admin/*` — только роль admin.
+
+**Config (`config.py`, «уточнит Александр»):** `owner_sbp_phone`, `owner_sbp_name` (реквизиты СБП — из `.env`, НЕ хардкод), `debt_due_days=7`, `debt_block_threshold_kop=100000` (1000 ₽).
+
+**UI:** `DriverDebtBanner` (`ProfileScreen.kt`, в `DriverCabinetContent`) — «К оплате X ₽» + реквизиты СБП + «Я оплатил»; заблокированное такси красным + «попутка работает как обычно». Админ — секция «Долги за такси» в `AdminPaymentRequestsScreen` (`SecondaryScreens.kt`): Подтвердить/Отклонить. DTO/методы — `ApiClient.kt` (`getDriverDebt`, `declareDebtPaid`, `getAdminDebts`, `confirmDebt`, `rejectDebt`).
+
+**Тесты:** backend `pytest -q` → **249 passed, 1 skipped** (+16 долговых). Android-сборку прогнать на машине Александра (в Linux-песочнице нет Android SDK). Вливать ПОСЛЕ #34/#36/#42.
+
+## 2026-07-10 — 🛡 Домен «Качество: жалобы + лестница наказаний» (волна 2, батч B5, §9 бизнес-плана) — ветка `feat/quality-ladder`
+
+**Принципы (утвердил Александр):** честно/прозрачно/анонимно; человек в контуре (разбор у админа, право объяснения); попутка мягче такси (все паузы — ТОЛЬКО такси); SOS/безопасность — железно. **Цель жалобы НИКОГДА не видит автора**: `reporter_id` отдаётся только в `/admin/reports`; пуш цели — категория без имени/деталей.
+
+**Модели (`models.py`):** `Report` + `category` (перечень из 11: rude/kicked_out/dangerous_driving/price_fraud/dirty_car/late/safety_threat/no_show/damage/unpaid/other; default other — совместимость), `order_id NULL`/`booking_id NULL` (привязка к поездке), `status` (new|reviewing|resolved|rejected), `resolution NULL`, `resolved_at`. `Rating.booking_id` → NULLABLE + `order_id NULL` (взаимные оценки instant-заказов; одна оценка на (rater, order) — повтор обновляет). `DriverProfile` + `taxi_paused_until`/`taxi_pause_reason` (reports|review|admin), `low_rating_advice_at` (дедуп 🟡-совета).
+
+**Ядро — `app/quality.py`:** категории+лейблы RU/BA, `SEVERE_CATEGORIES` (safety_threat/kicked_out/dangerous_driving), `PASSENGER_STRIKE_CATEGORIES` (no_show/unpaid/damage), `pause_taxi` (пауза только удлиняется)/`unpause_taxi`/`guard_taxi_quality`, `escalate_severe` (Telegram админу + пауза до разбора), `apply_ladder_after_resolve`, `passenger_pause_until` (страйки B3 + resolved-жалобы одним счётчиком), `maybe_low_rating_advice`, `restrictions_payload`.
+
+**Лестница (§9, все цифры — конфиг):** 🟡 `rating < quality_advice_rating(4.8)` → мягкий пуш-совет, дедуп `quality_advice_interval_days(7)` (хук в обоих rate-эндпоинтах). 🟠 `rating < matcher_low_rating(4.6)` → `_score -= matcher_penalty_low_rating(1.0)` в matcher (`instant_service._score`) — реже получает заказы, не блок. 🔴 ≥`quality_pause_reports(3)` resolved-жалоб за `quality_window_days(30)` → авто-пауза такси `quality_pause_hours(72)` + пуш (в `admin_resolve_report`). ⛔ тяжёлая категория при создании жалобы → немедленный `notify_admin_telegram` + пауза такси «до разбора» (reason=review, until не показываем как дату); resolve с `keep_pause` снимает/переводит в таймерную, reject снимает (если нет других открытых тяжёлых). Гейт — как долговой/отдыха: `_guard_taxi_driver` (presence/accept) + `driver_offer` (`offer:None`); активный заказ доводится; ПОПУТКА работает всегда.
+
+**Жалобы:** `POST /reports` — category + `order_id`/`booking_id` (сервер проверяет участие, цель = вторая сторона; несовпадение переданного target → 400; self → 400); старое тело `{target_user_id, reason}` совместимо (category=other). Ответ автору — `ReportCreatedOut` без reporter-полей. Пуш цели «Поступила жалоба: <категория>» — анонимный, двуязычный. Свободный `reason` (детали) остаётся.
+
+**Оценки заказов:** `POST /instant/orders/{id}/rate {stars}` — обе стороны, только после done (иначе 409), не участник → 403; агрегат `user_rating` считает ВСЕ Rating по `ratee_id` (попутка + заказы) → `DriverProfile.rating`; в ответе только агрегат (rater не раскрывается).
+
+**Пассажирские страйки:** resolved-жалобы категорий no_show/unpaid/damage = страйк пассажиру; общий счётчик с B3 (`order_strike_times` + отчёты, те же `strike_limit/strike_window_days/strike_pause_hours`) → гейт `POST /instant/orders` (403, тёплый текст B3).
+
+**Право объяснения:** `GET /me/restrictions` → `{items:[{kind: taxi_pause|orders_pause, reason, category(+RU/BA), until (null=«до разбора»), title/note RU/BA}], support RU/BA}` — без автора.
+
+**Админ:** `GET /admin/reports` (+фильтры `?status=&category=`, новые поля category/status/resolution/order_id/booking_id/target_user_id; старые поля не тронуты — совместимость), `POST /admin/reports/{id}/resolve {resolution, keep_pause}`, `/reject`, `POST /admin/quality/{user_id}/pause {hours}`, `/unpause`. Всё — только роль admin.
+
+**Config:** `quality_advice_rating=4.8`, `quality_advice_interval_days=7`, `matcher_low_rating=4.6`, `matcher_penalty_low_rating=1.0`, `quality_pause_reports=3`, `quality_window_days=30`, `quality_pause_hours=72`.
+
+**UI (Android):** `SecondaryScreens.kt` — `ReportCategoryDialog` (категории с иконками, двуязычно, 48dp, «жалоба анонимна», «Другое» требует текста) + перечни `reportCategoriesDriver/Passenger/All`; `ReportScreen` использует диалог; `AdminReportsContent` — чип категории (тяжёлая красным), статус, Подтвердить/Отклонить (+«оставить паузу» для тяжёлой), пауза 72ч/снять (совместимость со старыми вызовами — новые параметры с дефолтами). `InstantOrderScreen.kt` — `InstantRateAndReport` в done-карточках ОБЕИХ сторон (звёзды 40dp с анимацией, «оценка анонимна», «Пожаловаться» → диалог категорий с привязкой order_id); `InstantFinalCard` получил слот `extra` + прокрутку. `ProfileScreen.kt` — `RestrictionsCard` («Мои ограничения»: что/категория/до когда/«попутка работает» + диалог «Написать в поддержку» → requestCallback) в кабинетах водителя И пассажира (виден только при непустом `/me/restrictions`). `ApiClient.kt`: `reportUser(+category/orderId/bookingId)`, `rateInstantOrder`, `getMyRestrictions`, `adminResolveReport/adminRejectReport/adminQualityPause/adminQualityUnpause`, DTO `RestrictionDto/RestrictionsDto`, `AdminReportDto` + category/status/resolution/targetUserId.
+
+**Миграция:** `alembic/versions/w2_quality.py` (down=`w2_work_hours`), идемпотентна оба пути (проверено up→down→up→no-op на SQLite): +6 колонок `report`, `rating.order_id` + booking_id→NULLABLE (batch), +3 колонки `driverprofile`, индексы; FK-колонки на SQLite без констрейнта (ALTER ADD CONSTRAINT там не работает), на Postgres — честный FK.
+
+**Тесты:** `pytest -q` → **368 passed, 1 skipped** (+19 в `test_quality.py`: категории/привязка/участие/несовпадение цели/совместимость старого тела/422 на мусорную категорию; анонимность (ответ автору, /me/restrictions цели, admin-only); оценки заказов (агрегат, unique-повтор, guard'ы); 🟡 дедуп совета, 🟠 штраф в score, 🔴 3 resolved → пауза+гейт+попутка работает, ⛔ тяжёлая → Telegram+пауза, resolve keep/release, reject снимает; пассажирские страйки за no_show-жалобы; админ-права/IDOR). Вливать ПОСЛЕ #51 (feat/work-hours).
+
+## 2026-07-10 — 🚀 Домен «Запуск: ранний доступ + „Скоро в городе"» (волна 2, батч B6, §11 бизнес-плана) — ветка `feat/launch-tools`
+
+**Суть:** у Александра сильный медиа-охват → трафик пускаем волнами через лист ожидания. Попутка — на всю РБ сразу, такси — по городам (per-city флаги из B1). Водителей набираем первыми («0% комиссии первые 3 месяца»). СМС на этом этапе НЕ шлём — invite только помечает волну, рассылку Александр делает сам.
+
+**Модель (`models.py`):** `WaitlistEntry` — `phone` (unique, index), `city NULL`, `role` (passenger|driver), `created_at`, `invited_at NULL`. Телефоны отдаются ТОЛЬКО админу, в логи не пишутся (152-ФЗ).
+
+**Роутер `app/routers/waitlist.py`:** `POST /waitlist {phone, city?, role}` — ПУБЛИЧНЫЙ (без auth: лендинг + приложение до входа), телефон нормализуется (пробелы/дефисы/скобки) и валидируется (`^\+?\d{10,15}$`, как family.py); дедуп по номеру — повтор обновляет city/role (город только если передан), не дублирует. Строгий rate-limit: `/waitlist` добавлен в `_STRICT_PREFIXES` (`middleware.py`). Админ: `GET /admin/waitlist?city=&role=&invited=` (счётчики total/invited/by_city[отсортирован]/by_role — по всей базе; items — по фильтрам), `GET /admin/waitlist.csv` (те же фильтры, attachment), `POST /admin/waitlist/invite {ids}` (проставить invited_at; уже позванных не перетирает — сохраняется номер волны; потолок 500 id).
+
+**Availability+город:** `app/taxi.py availability()` теперь возвращает аддитивное поле `city` (ближайший из CITY_COORDS) — для предзаполнения города в форме листа. Старые клиенты поле игнорируют.
+
+**UI (Android):** `InstantOrderScreen.kt` — `TaxiComingSoonCard` дополнен формой раннего доступа: телефон (предзаполнен из `/me`, tg-плейсхолдер не подставляется), город (из availability), чипы «Я пассажир»/«Я водитель», успех «Ты в списке! 🎉» (AnimatedVisibility); CTA-блок «Стань первым таксистом города 🚖» (0% комиссии 3 мес) переключает роль, при `reason=city_off` — кнопка «Пройти проверку таксиста заранее» → `Screen.TaxiOnboarding` (колбэк прокинут через HomeScreen→PassengerModeHome→InstantOrderScreen и из `Screen.InstantOrder`). Админ: `AdminWaitlistScreen.kt` (`Screen.AdminWaitlist`, вход из кабинета админа «Лист ожидания» рядом с «Таксисты») — счётчики (всего/ждут/позваны, пассажиры/водители, чипы городов), фильтры, чекбоксы + «Пометить волну (N)», все состояния. `ApiClient.kt`: `joinWaitlist` (auth=false), `getAdminWaitlist`, `adminWaitlistInvite`, DTO `WaitlistEntryDto`/`AdminWaitlistDto`, `TaxiAvailabilityDto.city`.
+
+**Web (лендинг `web/`):** `components/EarlyAccess.tsx` — секция «Ранний доступ» (после CoverageMap): табы пассажир/водитель, телефон+город, POST на относительный `/waitlist` (тот же домен, как /landing-stats), успех «Ты в списке!», двуязычно через `dict` (`ea_*` в `lang.tsx`), цели Метрики `waitlist_passenger/driver`.
+
+**Миграция:** `alembic/versions/w2_waitlist.py` (down=`w2_quality`), идемпотентна оба пути (проверено up→down→up на SQLite): create_table `waitlistentry` + 3 индекса, только если нет; downgrade дропает таблицу.
+
+**Тесты:** `pytest -q` → **379 passed, 1 skipped** (+11 в `test_waitlist.py`: публичность без токена, валидация/нормализация телефона, дедуп-обновление и «город не затирается», rate-limit (нормальная подача проходит, спам 429), админ-счётчики/фильтры/CSV/invite (повтор не перетирает метку), 403/401 для не-админа и анонима, city в availability). `npm run build` (web) зелёный. Вливать ПОСЛЕ #52 (feat/quality-ladder) — последний батч волны 2.
+
+## 2026-07-10 — 🌙 Домен «8-часовой лимит + отдых водителя» (волна 2, батч B4, §8 бизнес-плана) — ветка `feat/work-hours`
+
+**Суть:** безопасность = продукт. 8 часов на линии ТАКСИ за местный день → отдых до утра. Активный заказ не рубим, попутка вне блока не ограничена вообще. Все цифры — конфиг: `taxi_shift_limit_hours=8`, `rest_hours=8`, `rest_unlock_hour=6`, `local_tz_offset_hours=5` (Уфа UTC+5), `workday_step_cap_sec=60`.
+
+**Учёт (`app/workday.py` + модель `TaxiWorkDay`, `models.py`):** строка на (driver_id, местный день) — unique. На каждом `POST /instant/presence` `record_heartbeat` прибавляет интервал от прошлого пинга с кэпом ≤`workday_step_cap_sec` (редкие heartbeat не накручивают; первый пинг дня времени не даёт). Считается ТОЛЬКО такси-время: попутка presence не шлёт. Граница дня — местная полночь (UTC+`local_tz_offset_hours`); БД, как везде, наивный UTC (`timeutil`).
+
+**Лимит и гейт:** `seconds_online ≥ 8ч` → `limit_reached_at` (+пуш «Хорошо поработал 👏», один раз). `guard_taxi_rested` добавлен в `_guard_taxi_driver` (`routers/instant.py`) — в стиле долгового гейта держит `/instant/presence` (403), `/instant/driver/offer` (`offer:None`), `/accept` (403) с тёплым двуязычным текстом. Переходы активного заказа (`arrived/onboard/done`) через гейт НЕ ходят — начатую поездку доводим.
+
+**Разблокировка (`unlock_at`):** `max(следующий местный день в rest_unlock_hour(06:00); last_heartbeat_at дня лимита + rest_hours(8ч))` — покрывает все три условия §8 одной точкой времени; `blocking_workday` = последний лимитный день, пока `now < unlock_at`. После разблокировки первый heartbeat заводит новый `TaxiWorkDay` с нуля.
+
+**«Один попутчик домой»:** во время блока `POST /rides` (`guard_publish_ride`, `routers/rides.py`) пропускает ОДНУ публикацию попутки (ставит `return_ride_used`; флаг коммитится вместе с поездкой — упавшая публикация попытку не съедает), вторая → мягкий 403; отклик на заявку (`/requests/{id}/respond`, `guard_respond_request`) во время блока → 403. ВНЕ блока оба guard'а мгновенно пропускают — попутка не ограничена (rides-тесты не тронуты).
+
+**Вежливые пуши (дедуп флагами на строке дня):** `warned_60`/`warned_15` — «остался час»/«осталось 15 минут» по одному разу за смену; `winter_push_sent` — при блоке зимней ночью (ноя–мар, 20:00–07:00 местного) один совет про тепло/заряд. Итого за период отдыха ≤2 пуша (лимит + зимний).
+
+**Эндпоинты:** `GET /instant/workday` → `{day, seconds_online, limit_sec, remaining_sec, limit_hours, blocked, unlock_at, return_ride_used}`; `POST /instant/presence` теперь отдаёт ещё `shift_seconds_online`/`shift_remaining_sec`.
+
+**UI (Android):** `ProfileScreen.kt`, кабинет водителя — `TaxiShiftProgressCard` («На линии 6 ч 20 мин из 8», анимированный прогресс: спокойный зелёный, в последний час — тёплый оранжевый `CanonWarn`; переопрос сводки раз в 60с пока «на линии») и `TaxiRestCard` (блок: «Ты сегодня за рулём 8 часов 🌙» + время разблокировки из `unlock_at` + карточка «Возьми одного попутчика домой» с кнопкой на создание поездки, пока `return_ride_used=false`; после — «уже опубликован 💚»). Показываются только одобренному таксисту. `ApiClient.kt`: `getTaxiWorkday()` + `TaxiWorkdayDto`.
+
+**Миграция:** `alembic/versions/w2_work_hours.py` (down=`w2_money_rules`), идемпотентна оба пути (проверено up→down→up на SQLite): create_table `taxiworkday` (+unique driver_id+day, index driver_id).
+
+**Тесты:** `pytest -q` → **349 passed, 1 skipped** (+15 в `test_work_hours.py`: инкремент/кэп шага, новый день — новая строка, лимит на heartbeat → гейт presence/offer/accept, активный заказ доводится до done, разблокировка «следующий день/06:00/полные 8ч отдыха» (время мокается monkeypatch `workday.utcnow`), «один попутчик домой» первая/вторая/отклик/после разблокировки, попутка вне блока без ограничений, дедуп предупреждений и зимнего совета, сводка `/instant/workday`). Вливать ПОСЛЕ #50 (feat/taxi-money-rules).
+
+## 2026-07-10 — 💸 Домен «Деньги-тонкости» (волна 2, батч B3, §5+§6 бизнес-плана) — ветка `feat/taxi-money-rules`
+
+Четыре части поверх `feat/geo-catalog`. Все цифры — в конфиге (`app/config.py`) или в БД (тарифы): Александр правит без пересборки. ПОПУТКА не затронута. Деньги — только целые копейки (int `*_kop`).
+
+**1. Комиссия лесенкой 3/5/8 (`app/debt.py`):** `driver_fee_percent(session, driver_id)` — стаж = дни с ПЕРВОГО done instant-заказа водителя: ≤`fee_tier1_days`(30) → `fee_tier1_percent`(3%); ≤`fee_tier2_days`(60) → `fee_tier2_percent`(5%); дальше `service_fee_percent`(8%). Промо запуска: заявка таксиста approved до `launch_promo_until` (ISO-дата, `""`=выкл — дефолт) → `launch_promo_percent`(0%) первые `launch_promo_days`(90) от одобрения. `accrue_for_order` берёт процент лесенки; 0% → долг не создаётся.
+
+**2. Сурж (`app/instant_service.py`):** `surge_k_for(session, lat, lng)` — спрос (`searching/created` заказы за `surge_window_min`=10 мин в радиусе `surge_radius_km`=7 км, haversine) / предложение (живые presence из Redis GEOSEARCH, знаменатель ≥1) → ступени `SURGE_STEPS`: <1→1.0; ≥1→1.1; ≥1.5→1.2; ≥2→1.3; ≥3→1.5; потолок `surge_max_k`=1.5, флаг `surge_enabled`. Без Redis → 1.0 (не падаем и не наживаемся вслепую). Формула цены: `max(min_price, (base+per_km·d+per_min·t) · Tariff.k · surge_k)` — статичный `Tariff.k` остаётся АВАРИЙНЫМ множителем (всегда, дефолт 1.0), двойного счёта нет. `estimate` отдаёт `surge_k`, `surge_note{ru,ba}` (прозрачно ДО заказа) и `options[{category,price}]` (обе цены классов одним запросом); `POST /instant/orders` фиксирует `InstantOrder.surge_k` (price_estimate уже с ним).
+
+**3. Отмены/ожидание/страйки (Модель А — деньги НЕ двигаем, только фиксируем + страйки; решение Александра):**
+- Поля `InstantOrder`: `waiting_started_at` (ставится на переходе `arrived`→`arriving` = «Я на месте»), `waiting_fee_kop` (фикс на onboard: полные минуты сверх `wait_free_minutes`=5 × `wait_fee_rub_per_min`=5 ₽), `cancel_fee_kop`, `no_show`. На done `price_final = price_estimate + waiting_fee` (сурж уже внутри estimate).
+- **Семантика фаз уточнена (как Яндекс):** accepted = водитель едет к пассажиру, arriving = «машина на месте, ждёт» (эндпоинт `/arrived` = кнопка «Я на месте»), onboard = в пути. UI-лейблы обеих сторон обновлены.
+- Отмена пассажиром (`cancel_order`): бесплатно если ≤`cancel_free_minutes`(3) от accepted ИЛИ водитель ещё не «на месте»; иначе `cancel_fee_kop = Tariff.base × 100`. Payload отдаёт `cancel_fee_now_kop` — UI предупреждает ДО тапа (диалог).
+- No-show: водитель `POST /instant/orders/{id}/cancel {reason:"no_show"}` — только из arriving после `wait_free_minutes + no_show_extra_minutes`(3) (иначе 409); заказ cancelled + `no_show=true` + штраф-подача. Кнопка «Пассажир не вышел» появляется в UI по серверному `no_show_at`.
+- Страйки: `strike_pause_until` — платная отмена пассажира ИЛИ no-show = страйк (считается запросом по InstantOrder, без новой таблицы); ≥`strike_limit`(3) за `strike_window_days`(7) → `POST /instant/orders` 403 (тёплый текст RU+BA) на `strike_pause_hours`(24) от последнего страйка. Обычная отмена водителем штрафа/страйка не даёт.
+
+**4. Классы Эконом/Комфорт (§6):** сид `seed_tariffs` теперь идемпотентен ПО СТРОКАМ (прод досеет Комфорт сам): comfort город 90/14/4/130, межгород 100/12/3/200. `DriverProfile.car_class` (`economy|comfort`, NULL=economy): водитель заявляет в `/taxi/apply` (`car_class`), админ подтверждает/меняет в `/admin/taxi-applications/{id}/approve {car_class}` (+ поле в admin-списке). Matcher (`eligible`): comfort-заказ → только `car_class=comfort`; standard → все. `category` в `EstimateIn/OrderIn` ужат до `Literal["standard","comfort"]`.
+
+**Payload заказа (`order_payload`) добавил:** `surge_k, waiting_started_at, waiting_fee_kop, cancel_fee_kop, no_show, wait_free_min, wait_fee_rub_per_min, no_show_at, cancel_fee_now_kop`.
+
+**UI (Android):** `InstantOrderScreen.kt` — выбор класса (две карточки с ценами из `options`), плашка суржа ДО заказа (серверный текст RU/BA), живой таймер ожидания у ОБЕИХ сторон (`InstantWaitingRow`: «Бесплатное ожидание 3:12» → «Платное +5 ₽/мин», тикает по `waiting_started_at` + `rememberNowMs`), платная отмена с предупреждающим диалогом, кнопка «Пассажир не вышел» по таймингу `no_show_at` (+диалог), честные финальные карточки (no-show/платная отмена/бесплатно), бейдж «Комфорт» в оффере. `TaxiOnboardingScreen.kt` — выбор класса машины в заявке. `ApiClient.kt` — новые поля DTO + `car_class` в `applyTaxi`.
+
+**Миграция:** `alembic/versions/w2_money_rules.py` (down=`w2_geo`), идемпотентна оба пути (проверено up→down→up на SQLite): +5 колонок `instantorder`, +`driverprofile.car_class`.
+
+**Тесты:** `pytest -q` → **334 passed, 1 skipped** (+47 в `test_money_rules.py`: границы 30/60 дней и промо, ступени суржа/потолок/без Redis/фикс на заказе, окно отмены/ожидание/no-show тайминги/страйки→пауза→истечение, классы: сид/estimate/matcher/apply-approve). Обновлены 2 старых теста под новые правила (3% новичку; сид с category). Вливать ПОСЛЕ #49 (feat/geo-catalog).
+
+## 2026-07-10 — 🗺 Домен «География РБ + соседние регионы» (волна 2, батч B2) — ветка `feat/geo-catalog`
+
+**Суть (план §4):** единый справочник населённых пунктов `Settlement` (21 город респ. значения РБ + центры 54 районов + 18 приграничных городов соседей) + зона работы таксиста (🏙 город / 🛣 межгород / 🌍 регион) в matcher'е + автоподсказки городов и пресеты популярных маршрутов. ПОПУТКА не ломается: подсказки аддитивны, свободный ввод остаётся.
+
+**Файлы (бэкенд):** `app/geo.py` — данные сида `SETTLEMENTS_SEED` (координаты райцентров сверены по открытым данным, точность ~0.01°), `POPULAR_ROUTES` (10 пар), `seed_settlements` (идемпотентный insert-if-missing по name_ru, зовётся из lifespan как `seed_tariffs`; правки строк в БД не затирает), `search_settlements` (префикс RU/BA без регистра; фильтр в Python — SQL `lower()` в SQLite не знает кириллицу, строк ~80), `by_exact_name`, `nearest_settlement` (≤30 км, `NEAREST_KM`). Модель `Settlement(name_ru idx, name_ba, region, kind[city|district_center|neighbor], lat, lng, active)` + поля `DriverProfile.work_zone/work_city/work_direction_id` (`models.py`). Миграция `alembic/versions/w2_geo.py` (down=`w2_taxi_gate`, идемпотентна оба пути; downgrade колонок — через `batch_alter_table`, SQLite не снимает FK-колонку простым ALTER).
+
+**🏘 Деревни РБ (kind='village', ветка `feat/villages-rb`):** справочник расширен на ВСЕ сельские НП РБ (~4500), чтобы человек из деревни выбирал свою точку. Модель +`Settlement.district` (различать тёзок; миграция `villages_district`, down=`analytics_events`, идемпотентна — проверено fresh/повтор/prod-add). `_KIND_ORDER`: village идёт после city/district_center, перед neighbor; `district` в `settlement_payload`/`/settlements` (у города null). Сид `geo.seed_villages` читает `app/data/villages_rb.json` (в репо пустой `[]` → no-op; дедуп по `(name_ru, district)`), зовётся в lifespan после `seed_settlements`. Данные заливает `scripts/import_villages.py` (OSM Overpass по районам → координаты + district + часть `name:ba`; или `--from-file` дамп). Разбор `parse_overpass_elements` общий с рантаймом, покрыт `tests/test_villages.py`. **⛔ Данные ждут доступа к OSM** (среда закрывает Overpass 403) — обвязка готова, заливка = 1 команда. OSM = ODbL → при показе нужна атрибуция «© OpenStreetMap contributors».
+
+**Эндпоинты:** `GET /settlements?q=&limit=10` (ПУБЛИЧНЫЙ — справочник не перс.данные, rate-limit общий) → `{items:[{id,name_ru,name_ba,region,kind,lat,lng}]}`; `GET /settlements/popular-routes` → `{routes:[{from:{…},to:{…}}]}` (`app/routers/settlements.py`). Зона: `GET/POST /instant/zone` (`routers/instant.py`) — POST только водителю с approved-заявкой таксиста (409 нет профиля / 403 не одобрен / 404 направление не найдено); `work_zone=city` чистит направление.
+
+**geocode_city (`services.py`):** приоритет Settlement (точное имя RU/BA, без регистра) → старый `CITY_COORDS` → Яндекс-геокодер. Координаты городов, пересекающихся с `CITY_COORDS`, в сиде 1:1 те же — поведение не «уезжает»; запрос к БД в try/except (юнит-тесты без БД падают в фолбэк).
+
+**Matcher (`instant_service.py`, `eligible`)**: зона заказа = `zone_for_km(distance_km)` (порог 40 км дороги); «город» точек А/Б = `nearest_settlement` ≤30 км. Правила: city-заказ → водители `city` этого города (алиасы RU/BA) ИЛИ `intercity/region` БЕЗ направления; intercity-заказ → `intercity/region` с направлением = город точки Б или без направления; `city`-водитель межгород не получает; `work_zone=NULL` → прежнее поведение (все старые matcher-тесты живут без правок). Город не определён (глушь, нет НП ≤30 км) → fail-open, подбор не режем.
+
+**UI (Android):** `GeoUi.kt` — `DriverZoneSheet` (шторка «Где вожу»: 🏙 город / 🛣 межгород+направление / 🌍 регион; сохранение через `/instant/zone`, состояния сохранение/ошибка) и `DriverZoneChip` (чип текущей зоны под тумблером «Я на линии» в `DriverCabinetContent`, `ProfileScreen.kt`; при выходе на линию без зоны шторка открывается сама, мягко). Автоподсказки: `AddressSuggestField` (`AccessibilityScreens.kt`) двухэшелонный — сперва справочник `/settlements` (с 1-го символа, дебаунс 250мс, имя по языку BA/RU), ниже Яндекс-геокодер без дублей; поле общее для создания поездки И заявки, свободный ввод не тронут. Чипы популярных маршрутов — `PopularRouteChips` (`CreateRideScreen.kt`, обратно-совместимый слот `routeChips`). `ApiClient.kt`: `searchSettlements`, `getInstantZone`, `setInstantZone`, `getSettlementPopularRoutes` (имя — чтобы не столкнуться со старым `getPopularRoutes`/`PopularRouteDto`, живой статистикой маршрутов) + DTO `SettlementDto`/`InstantZoneDto`/`SettlementRouteDto`. Android-сборку прогнать на машине Александра (в Linux-песочнице нет Android SDK; баланс скобок всех правленых .kt = 0, символы/импорты сверены).
+
+**Тесты:** backend `pytest -q` → **287 passed, 1 skipped** (+21 в `test_geo.py`: сид 21/40/18 без дублей + повторный no-op, поиск RU/BA/limit/inactive, приоритет geocode, популярные маршруты, права `/instant/zone`, матрица зон в matcher'е: свой/чужой город, направление совпало/не совпало, межгород без направления берёт всё, NULL = прежнее поведение). Миграция прогнана: upgrade → повторный upgrade → downgrade → upgrade (SQLite). Вливать ПОСЛЕ #48 (feat/taxi-gate).
+
+## 2026-07-10 — 🚦 Домен «Гейт такси + онбординг таксиста» (580-ФЗ, волна 2, батч B1) — ветка `feat/taxi-gate`
+
+**Суть:** такси включается только когда Александр оформил документы (580-ФЗ). Два гейта, ПОПУТКА не затрагивается вообще:
+- **(a) Флаг/город:** `taxi_enabled=false` (config, по умолчанию) → такси «Скоро» ВЕЗДЕ. `true` + таблица `TaxiCity` пуста → такси везде; есть записи → только города с `enabled=true` (город юзера = ближайший из `CITY_COORDS` в радиусе `taxi_city_radius_km=30`; дальше → «город неизвестен» → выкл). RU/BA-имена города (Баймак/Баймаҡ) — алиасы одной точки.
+- **(b) Онбординг таксиста:** возить такси может только водитель с approved `TaxiApplication` (ИНН самозанятого 10–12 цифр, № разрешения, фото разрешения/ОСАГО через приватный `/upload/photo`→`/secure/docs`, возраст 20+, стаж 2+). Модерация — вручную админом; после reject повторная подача разрешена (та же строка → снова pending).
+
+**Файлы (бэкенд):** `app/taxi.py` (логика гейтов + двуязычные сообщения), `app/routers/taxi.py` (эндпоинты), модели `TaxiCity`/`TaxiApplication` в `models.py`, миграция `alembic/versions/w2_taxi_gate.py` (down=`p3_debt`, идемпотентна: baseline no-op / прод create_table, проверены оба пути).
+
+**Эндпоинты:** `GET /instant/availability?lat&lng` (auth) → `{enabled, reason: ok|global_off|city_off, message: {ru,ba}}`. Водитель: `POST /taxi/apply` (валидация 400 понятной строкой; чужой документ → 403 анти-IDOR), `GET /taxi/application` (404 если нет). Админ: `GET /admin/taxi-applications?status=`, `POST .../{id}/approve|reject {comment}` (+двуязычный push заявителю), `GET|POST /admin/taxi-cities` (upsert по имени без дублей), `DELETE /admin/taxi-cities/{id}`.
+
+**Гейты в `routers/instant.py`:** пассажирские ручки (`/instant/estimate`, `POST /instant/orders`) — только (a) по точке А; водительские (`/instant/presence`, `/instant/driver/offer` → `offer:None`, `/accept`) — (a) + (b) + долг (`_guard_taxi_driver`). Остальные переходы поездки не гейтятся (начатую поездку не рубим).
+
+**UI:** `TaxiOnboardingScreen.kt` (`Screen.TaxiOnboarding`) — правила простыми словами (комиссия 3→5→8%, СБП раз в неделю, лимит 8 ч, 580-ФЗ) + форма (ИНН/разрешение/год прав/дата рождения/2 фото) + статусы pending/approved/rejected (комментарий + «Подать снова»), `AnimatedContent`. Вход: кабинет водителя — без approved-заявки вместо тумблера «Я на линии» рисуется CTA `TaxiOnboardingCta` (`ProfileScreen.kt`), presence-контроллер выключен. Пассажир: `InstantOrderScreen` перед пикером дёргает `getTaxiAvailability` → выключено → `TaxiComingSoonCard` («Такси скоро 🚕», серверный текст RU/BA, кнопка к попутке; сеть упала → фолбэк-пикер, сервер гейтит сам). Админ: `AdminTaxiScreen.kt` (`Screen.AdminTaxi`, вход из кабинета админа «Таксисты») — заявки с фильтрами/фото/Approve/Reject-комментарием + секция «Города такси» (тумблер/добавить/удалить). DTO/методы — `ApiClient.kt` (`getTaxiAvailability`, `applyTaxi`, `getMyTaxiApplication`, `adminTaxi*`). **Типографика 2026-08-02:** одиннадцать разных размеров вперемешку сведены к пяти ролям `TaxiType` (Hero/Title/Body/Caption + два размера эмодзи), числа совпадают со «Сроками документов»; у каждого текста появился межстрочный интервал — башкирский длиннее русского и без него слипался. `TaxiType` объявлен в `TaxiOnboardingScreen.kt` и переиспользуется в `DriverProfileScreen.kt`.
+
+**Тесты:** backend `pytest -q` → **266 passed, 1 skipped** (+17 в `test_taxi_gate.py`: глобальный флаг/города/алиасы, валидация, цикл pending→approve/reject→повторная подача, попутка не блокируется, анти-IDOR, админ-права, CRUD городов). В `conftest.py` тестовое окружение включает `TAXI_ENABLED=true`, водителям user_factory авто-одобряет заявку (`taxi_approved=False` — для тестов гейта). **Активация такси: Александру после документов — `TAXI_ENABLED=true` в `.env` + города в админке.** Вливать ПОСЛЕ #47 (feat/taxi2-base).
+
+## 2026-07-11 — 🚕 Домен «Такси-полировка end-to-end» (батч B7a) — ветка `feat/taxi-polish`
+
+Полировка такси до уровня «настоящего таксопарка»: фоновая линия, оффер как звонок, live-машина, навигатор, рейтинг пассажира. От `feat/launch-tools` (вершина стека волны 2); миграция НЕ нужна (нет новых колонок — рейтинг считается агрегатом).
+
+**① Фоновый режим «на линии» (Android):**
+- `TaxiLineService.kt` 🆕 — foreground location-сервис (образец `TripLocationService`): двуязычное постоянное уведомление «Юлдаш · Ты на линии 🚕» (канал `taxi_line`, LOW), presence-heartbeat `instantPresence` ~15с + опрос `getDriverOffer` ~5с ИЗ ФОНА. Самоглушение: presence вернул 401/403/409 (выход, долг, 8ч-лимит, пауза качества, снятый тумблер) + сторож 12ч. Тумблер «Я на линии» (`DriverCabinetScreen`, `ProfileScreen.kt`) синкает сервис ПОСЛЕ загрузки статуса (`onlineLoaded`).
+- Манифест: `TaxiLineService` (`foregroundServiceType="location"`), `USE_FULL_SCREEN_INTENT`, `VIBRATE`.
+- `AppPrefs.language/setLanguage` (`SecondaryScreens.kt`) — язык для мира вне Compose; `YuldashApp` пишет при смене.
+
+**② Полноэкранный оффер при свёрнутом приложении:**
+- `TaxiOfferNotifier.kt` 🆕 — канал «Заказы такси» (`taxi_offers`, HIGH: звук+вибро) + полноэкранное уведомление (`CATEGORY_CALL`, full-screen intent, `setTimeoutAfter(ttl)`); `NavSignals.openDriverCabinet` — сигнал из уведомления в Compose.
+- `FcmService.kt`: data-пуш `type=instant_offer` → `TaxiOfferNotifier.show(...)`. `MainActivity.onCreate/onNewIntent` → `NavSignals` → `YuldashApp` открывает `Screen.DriverCabinet` (после сплэша), где существующий `InstantOfferOverlay`.
+- Бэкенд: `send_push(..., data_only=True)` (`services.py`) — оффер идёт БЕЗ блока notification + `AndroidConfig(priority=high)`, иначе `onMessageReceived` в фоне не зовётся; title/body дублируются в data. `_push_offer` (`instant_service.py`) → data-only.
+
+**③ Live-трек машины + «Навигатор»:**
+- Бэкенд: WS `/ws/instant/{order_id}/location` (`routers/location.py`) — зеркало `/ws/trip/...`: токен первым сообщением, только участники (пассажир + НАЗНАЧЕННЫЙ водитель), только accepted/arriving/onboard, направленные ключи без self-эхо в namespace `INSTANT_LOC_BASE=1_000_000_000` (booking-трек и чат не пересекаются), перепроверка токена/статуса раз в 15 кадров. Координаты не хранятся.
+- Android: `data/InstantLocationSocket.kt` 🆕 (реконнект с backoff, «Order not active» — мягкий ретрай). Водитель (`InstantDriverTripScreen`) шлёт позицию ~5с (курс из двух фиксов); пассажир (`InstantDriverEnRouteCard`) видит движущуюся нав-стрелку: `InstantRouteMap(car, carBearing)` — один placemark, двигаем geometry (без пересоздания). Кнопка «Навигатор» (`openNavigator`): до посадки → к подаче, после — к точке Б; `yandexnavi://` → `yandexmaps://` → `geo:`.
+
+**④ Рейтинг пассажира в оффере:**
+- Бэкенд: `passenger_stats` (`instant_service.py`) — анонимный ★-агрегат (`user_rating`) + поездки (done такси-заказы + done брони); в `order_payload` (только витрине водителя: `passenger_rating` null=новичок, `passenger_trips`) и в data пуша оффера. Телефон/имя до accept — по-прежнему пусто.
+- Android: поля в `InstantOrderDto`; в `InstantOfferOverlay` строка «Пассажир: ★ 4.9 · 12 поездок» / «новичок 🌱».
+
+**Тесты:** `backend/tests/test_taxi_polish.py` 🆕 — 8 шт: WS-реле водитель→пассажир, чужой/до accept/битый токен → закрытие, booking-трек цел рядом с такси-каналом; агрегат в оффере (4★ + 2 поездки, включая бронь), null-кейс новичка, приватность оффера, витрина пассажира без лишних вычислений. **Полный прогон: 387 passed, 1 skipped** (база 379 + 8).
+
+## 2026-07-11 — 🚕 Домен «Такси-полировка: связь и контроль» (батч B7b) — ветка `feat/taxi-polish-2`
+
+Финал такси end-to-end: чат в заказе, SOS/шаринг, пульс-панель админа, чек самозанятого. От `feat/taxi-polish` (вершина B7a). Миграция `w2_polish2` (down=`w2_waitlist`, идемпотентная, оба пути): `message.order_id` + `message.booking_id`→nullable, `tripshare.order_id` + `booking_id`→nullable, `sosevent.order_id`, `driverprofile.receipt_reminder_at`. FK-колонки на SQLite — без констрейнта (паттерн w2_quality).
+
+**① Чат в такси-заказе (B7b-1):**
+- Бэкенд (`routers/chat.py`): `Message` теперь с ровно ОДНОЙ привязкой (booking_id ИЛИ order_id). REST `GET/POST /instant/orders/{id}/messages` + WS `/ws/instant/{order_id}/chat` — зеркало booking-чата (токен первым сообщением, блокировки, пуш второй стороне через threadpool). Доступ: только участники (пассажир + НАЗНАЧЕННЫЙ водитель; кандидату с оффером — 403), писать — только accepted/arriving/onboard (`ORDER_CHAT_WRITABLE`), после done/отмены — read-only (GET ок, POST 409); до accept — 409. Namespace ключей `ConnectionManager`: `INSTANT_CHAT_KEY_BASE=1_500_000_000 + order_id` (не пересекается с booking-чатом >0, трек-каналами <0 и MAP_FEED_KEY=2e9). WS перепроверяет окно записи на каждом сообщении (заказ мог завершиться).
+- Android: `data/ChatSocket.forOrder(orderId)` (тот же протокол, путь параметром), `ApiClient.getOrderMessages/sendOrderMessage`, `InstantChatScreen.kt` 🆕 (`Screen.InstantChat`) — реюз чистой ленты `ChatContent`: оптимистичная отправка (WS → REST-фолбэк, откат при сбое), дотяжка истории после реконнекта, баннеры «соединение восстанавливается» и «read-only». Кнопки «Написать» (круглая, рядом с телефоном): пассажиру в `InstantDriverEnRouteCard`, водителю в `InstantDriverTripScreen` — навигация через `NavSignals.openInstantChat` (работает и из встроенного в главную режима).
+
+**② SOS и «Поделиться поездкой» в такси (B7b-2):**
+- SOS: `SosIn.order_id` (+`SosEvent.order_id`) — только участник заказа (403 чужому); админу в Telegram добавляется строка «Такси-заказ: #id A→B (статус)». Android: `SosScreen(orderId)`, `ApiClient.sos(..., orderId)`, кнопка SOS в активном заказе у ОБЕИХ сторон (`InstantSafetyRow`, `NavSignals.openSosForOrder`; `openSos()` в `YuldashApp` чистит контекст).
+- Шаринг: `POST /instant/orders/{id}/share` + `GET .../shares` (`routers/family.py`) — только пассажир, только свой контакт, дедуп (как booking-share). Близкий получает SMS сразу («едет на такси A→Б») и на переходах — `_notify_order_shares` (`instant_service.py`): onboard→«сел(а) в такси», done→«доехал(а)», отмена→«отменилась»; дедуп по `TripShare.last_status` (идемпотентные переходы дублей не шлют). Android: «Поделиться поездкой» в карточке пассажира → `InstantShareDialog` (доверенные контакты, состояния загрузка/пусто/ошибка) → `ApiClient.shareInstantTrip`.
+
+**③ Пульс-панель админа (B7b-3):**
+- `GET /admin/taxi/pulse` (`routers/taxi.py`, только админ): `drivers_online` (живой presence: Redis GEO `zrange` + heartbeat-фильтр; без Redis честно 0), `orders_active` (searching..onboard), `orders_today/done_today/cancelled_today/no_show_today` (от начала дня UTC), `avg_search_sec_today` (created→accepted, аномалии задним числом отфильтрованы), `by_city` — ближайший `Settlement` (как в availability): онлайн-водители по живым координатам, активные заказы по точке подачи. Координаты не логируются — наружу только агрегаты.
+- Android: `AdminTaxiPulseScreen.kt` 🆕 (`Screen.AdminTaxiPulse`, вход из кабинета админа «Пульс такси») — плитки цифр (акцентные «на линии»/«активные»), список городов с точками-счётчиками, автообновление 30с (сбой сети при живых данных не пугает), скелетон/ошибка/пусто, Canon*.
+
+**④ Чек самозанятого (B7b-4, напоминание — НЕ интеграция):**
+- Бэкенд: `isv.maybe_receipt_reminder` — после done пуш водителю «Не забудь чек в „Мой налог" 🧾» (RU+BA), дедуп 1/сутки (`DriverProfile.receipt_reminder_at`, паттерн `low_rating_advice_at`). Зовётся из `POST /instant/orders/{id}/done`.
+- Android: пункт «Чек после каждой поездки» в правилах онбординга таксиста (`TaxiOnboardingScreen`) + карточка `InstantReceiptReminder` на экране завершения у водителя.
+
+**Тесты:** `backend/tests/test_taxi_polish2.py` 🆕 — 18 шт: чат (REST/WS, чужой 403, до accept 409, read-only после done, booking-чат цел), SOS (участники обеих сторон, чужой 403), шаринг (создание/дедуп/403/404, SMS на переходах без дублей, booking-share цел), пульс (агрегаты + динамика done/active, только админ, без Redis не падает), чек (пуш после done, дедуп в сутки, снова через сутки). **Полный прогон: 405 passed, 1 skipped** (база 387 + 18).
+
+## 2026-07-11 — 🔗 Домен «Live-ссылка поездки для близких» (батч B7c) — ветка `feat/trip-live-link`
+
+Пассажир жмёт «Поделиться поездкой» → близкий получает SMS со ссылкой `https://yulbash.ru/t/{токен}` → открывает В БРАУЗЕРЕ (без приложения) живую карту поездки. Работает для такси (order) и попутки (booking). От `feat/taxi-polish-2` (вершина B7b). Миграция `w2_livelink` (down=`w2_polish2`, идемпотентная): `tripshare.token` (NULL, unique) — старые строки получают токен лениво при следующем share.
+
+**① Публичные ручки (`routers/share.py` 🆕, без auth, только по токену):**
+- `GET /t/{token}` — server-rendered самодостаточная HTML-страница (inline CSS/JS, RU основной + BA подписи, мобильная, тёмная тема через `prefers-color-scheme`). Карта — **Leaflet + OpenStreetMap-тайлы** (решение: без API-ключей; Яндекс JS-API требует ключ — для одноразовой публичной странички OSM прагматичнее). Нет CDN — статусы работают без карты. Все данные страница тянет из state.json и вставляет через `textContent` (анти-XSS), в HTML user-контента нет.
+- `GET /t/{token}/state.json` — `{status, phase_text{ru,ba}, from{lat,lng,text}, to{lat,lng,text}, car{lat,lng,bearing}|null, passenger_first_name, updated_at}`; страница поллит ~5с и двигает маркер машины. Фазы упрощённые: search / wait / to_pickup / onboard / finished (внутренние статусы наружу не отдаются).
+- Заголовки: `Cache-Control: no-store`, `X-Robots-Tag: noindex`.
+
+**② Позиция машины (`livepos.py` 🆕):** WS-хендлеры `location.py` при кадре ВОДИТЕЛЯ дополнительно кладут last-position в Redis (`livepos:order:{id}` / `livepos:booking:{id}`, TTL 120с; клиент — общий с presence/matcher, тесты подменяют через `isv._redis_override`). В БД координаты по-прежнему НЕ пишутся. Без Redis — `car=null`, страница показывает статусы без машины, не падает.
+
+**③ Безопасность:** токен — `secrets.token_urlsafe(16)` (≥16 случайных байт, unique-индекс); короткий/пустой токен даже не ищется (анти-перебор). Пока поездка активна — маршрут+машина; после done/отмены — «Поездка завершена ✅» БЕЗ координат (ключей from/to/car в ответе нет). Наружу ТОЛЬКО имя пассажира (первое слово `User.name`) — ни фамилий, ни телефонов, ни внутренних id. Отзыв share — `DELETE /instant/orders/{id}/share/{share_id}` и `DELETE /bookings/{id}/share/{share_id}` 🆕 (`family.py`, только пассажир, только свой контакт) — удаляет строку → токен «сгорает» (404). Access-лог и лог 500 маскируют `/t/{token}` → `/t/***` (`middleware.py`). Координаты не логируются.
+
+**④ SMS близкому (`family.py`):** к SMS при share (такси — было, попутка — добавлено) дописана ссылка «Следи за поездкой: {public_base_url}/t/{token}»; `public_base_url` — новый конфиг (дефолт `https://yulbash.ru`).
+
+**⑤ Android:** `ApiClient.shareTrip/shareInstantTrip` теперь возвращают live-ссылку (`BASE/t/{token}`; на старом сервере null → прежнее поведение). `TripLiveLink.kt` 🆕 — `LiveLinkCard` (ссылка + «Скопировать» + системный share-sheet ACTION_SEND, RU+BA). Листы «Поделиться поездкой» такси (`InstantShareDialog`) и попутки (`BookingActiveTripScreen`) после выбора близкого показывают ссылку, закрытие — «Готово».
+
+**Тесты:** `backend/tests/test_live_link.py` 🆕 — 11 шт: токен+SMS со ссылкой (такси и попутка), страница/state по валидному токену, невалидный/короткий токен 404, телефоны/фамилии/id не текут, WS-кадр водителя пишет livepos-кэш (fakeredis) и state отдаёт машину, без Redis car=null не падает, после done координат нет вообще, отзыв гасит токен (чужой/водитель 403), ленивый токен для строк до миграции. **Полный прогон: 416 passed, 1 skipped** (база 405 + 11).
+
+**Прод:** `alembic upgrade head`; проверить, что nginx фолбэчит `/t/…` на FastAPI (как остальные неизвестные пути).
+
+## 2026-07-11 — 🛡 Домен «Анти-фрод» (батч B8) — ветка `feat/anti-fraud`
+
+Защита от мошенников с обеих сторон (водитель и пассажир), прагматичный v1 без ML. **Принцип: автоматика только ПОМЕЧАЕТ (флаги/сигналы/счётчики админу), жёстко банит человек.** От `feat/trip-live-link` (вершина B7c). Миграция `w2_antifraud` (down=`w2_livelink`, идемпотентная, оба пути): таблицы `deviceban`, `referralbonus`; `user.last_device_id`; `message.flag`, `message.from_admin`; `booking/instantorder.unpaid_reported + contact_then_cancel`; `booking.cancelled_at`. Ядро — `app/antifraud.py` 🆕, админ-ручки — `routers/antifraud.py` 🆕.
+
+**① Бан устройства (обход бана новым номером).** Android шлёт стабильный `X-Device-Id` (ANDROID_ID) со ВСЕМИ запросами (`ApiClient.call/callMultipart/logout`). Логин/регистрация (`/auth/request-code`, `/auth/verify`, `/auth/tg/verify`) фиксируют `last_device_id` и режутся 403 «Аккаунт заблокирован — напиши в поддержку», если устройство в `DeviceBan`. Админ: `POST /admin/bans/device {device_id|user_id, reason}` (по user_id баним его последнее устройство — «блокируешь юзера → баним и устройство»), `DELETE /admin/bans/device/{device_id}`, `GET /admin/bans`. Старый клиент без заголовка не наказывается. device_id наружу/в логи не отдаётся.
+
+**② Сигнал нового устройства.** Вход с device_id ≠ последнего → push + SMS «Вход в Юлдаш с нового устройства. Это не ты — смени номер и напиши в поддержку» (`antifraud.remember_login_device`). Не блокируем — только сигнал; первый вход тишина.
+
+**③ Анти-телепорт GPS.** Скорость между последовательными точками > 200 км/ч → точка фейковая: presence (`isv.presence_heartbeat` → `antifraud.teleport_filter`, якорь+счётчик в Redis) её НЕ публикует (водитель не прыгает в GEO, ok=false, запрос не падает); WS-треки (попутка+такси, `location.py` → `TrackGuard` пер-соединение) кадр не ретранслируют. Якорь — последняя честная точка (два телепорта подряд не «легализуются»); первая точка после паузы проходит (время выросло → скорость упала). 3+ телепорта/час → флаг в суточный Redis-набор + лог (без координат); админ-пульс: `gps_suspects_today`.
+
+**④ Реферал-фрод.** `reward_driver_referral` (`routers/referral.py`): бонус пригласившему — только когда приглашённый водитель сделал ≥3 «живых» done-поездок (такси: `distance_km`>1 ИЛИ onboard→done >5 мин; попутка: маршрут >1 км) с ≥3 РАЗНЫМИ пассажирами. Один бонус на приглашённого (`ReferralBonus.invited_user_id` unique) + ≤5 бонусов/месяц на пригласившего. Хуки на done: `instant.done`, `bookings.driver-status`, `family.trip-status`. Накрутка той же парой не проходит.
+
+**⑤ Кап оценок пары.** `services.user_rating` + `drivers_bundle` (`_capped_stars`): от одной пары rater→ratee в агрегат идут только первые 3 оценки за скользящие 30 дней; остальные пишутся, но не влияют. Легаси-строки без даты не режутся.
+
+**⑥ Анти-фишинг чата.** `antifraud.phishing_flag`: узкие паттерны (просьба кода из SMS/подтверждения/входа, 16-значный номер карты, «переведи на другой номер/карту») → `Message.flag="warn"` во всех 4 путях отправки (WS+REST, бронь+заказ) и при редактировании. НЕ блокируем. Android: плашка «⚠️ Никому не сообщай коды из SMS…» под чужим warn-сообщением (`PhishingWarnPlate`, оба чата) + дисклеймер при первом открытии чата (`ChatSafetyDisclaimer`, prefs `chat_safety_seen`). Честные «код посадки» / «буду через 5 минут» / обычный СБП не флажатся.
+
+**⑦ «Пассажир не заплатил» одним тапом.** `POST /reports {category:"unpaid", order_id|booking_id}`: только водитель, только done-поездка, одна жалоба на заказ/бронь (повтор идемпотентен), пометка `unpaid_reported`. Страйк пассажиру — через СУЩЕСТВУЮЩУЮ механику B3/B5 (`quality.passenger_pause_until` + `unpaid_tap_strike_times`): свежие unpaid (new/reviewing) считаются сразу, reject админа снимает страйк, resolved считаются старым путём (не двоятся). Android: `UnpaidReportButton` (такси done-экран + карточки пассажиров попутки в кабинете водителя).
+
+**⑧ Увод мимо приложения (contact-then-cancel).** Такси: отмена ПОСЛЕ accept → `contact_then_cancel` на заказе (в `isv.cancel_order`). Попутка: отмена confirmed/onboard-брони ИЛИ pending с перепиской → флаг + `cancelled_at`. Админ-пульс: `contact_then_cancel_today` (такси+попутка). Android: пассажиру после такой отмены — мягкий баннер «Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚» (`ContactCancelSoftBanner` + тост при отмене брони).
+
+**⑨ Официальность «Юлдаш ✓».** `Message.from_admin` ставит ТОЛЬКО сервер по роли отправителя (admin) → клиент рисует бейдж `YuldashOfficialBadge` над пузырём (оба чата). Прикинуться поддержкой нельзя.
+
+**Тесты:** `backend/tests/test_antifraud.py` 🆕 — 50 шт (баны+IDOR, сигнал устройства, телепорт-фильтр/пульс, реферал (пара/живость/кэп/интеграция через done), кап рейтинга, фишинг-паттерны и не-флаг честных, unpaid (страйк/дедуп/права/reject), contact-then-cancel (такси/попутка/пульс), бейдж админа). **Полный прогон: 466 passed, 1 skipped** (база 416 + 50 новых). Alembic `w2_antifraud`: upgrade/downgrade/upgrade — зелёно. Баланс скобок изменённых .kt — дельта 0.
+
+**Прод:** `alembic upgrade head`. Банит человек: `POST /admin/bans/device`; пульс расширен полями `gps_suspects_today`, `contact_then_cancel_today`.
+## ❄️ F12 «Зимний протокол безопасности» (ветка feat/winter-safety, 2026-07-05)
+> РБ-фишка «между своими = заботимся»: зимняя трасса между сёлами опасна. Всё переиспользует существующие сущности — новых таблиц (кроме 2 колонок) нет.
+- **Бэкенд `routers/safety.py`** (3 новых эндпоинта, участник поездки only):
+  - `POST /bookings/{id}/stuck` — «Застрял на трассе»: координаты → доверенным контактам (SMS в фоне) + запись в SOS-ленту (`SosEvent category=breakdown`) + Telegram админу. Уровень мягче паники SOS.
+  - `POST /bookings/{id}/winter-check` — авто-проверка «доехал?» (прагматично v1: вызывается клиентом/по флагу, когда его ETA+буфер истёк). Идемпотентна: 1) не закрыта + пуш не слали → пуш «всё в порядке?» обеим сторонам (`send_push`), помечает `winter_check_sent_at`; 2) ответа нет ≥30 мин + активный `TripShare` → уведомление доверенному (SMS) + `SosEvent`; ветки `closed/ok/too_early/waiting/no_share/escalated`.
+  - `POST /bookings/{id}/winter-check/ok` — участник подтвердил «всё в порядке» (`winter_check_ack_at`) → гасит эскалацию.
+- **Модель `Booking` +2 колонки:** `winter_check_sent_at`, `winter_check_ack_at`. Миграция `alembic/versions/f12_winter_safety.py` (идемпотентна; на проде миграции F-веток сведёт лид).
+- **Android `BookingActiveTripScreen.kt`:** баннер «Морозная ночь» (`FrostyNightBanner`, показывается по `isFrostyWinterNight()` = месяц ноя–мар + время 20:00–07:00, без внешних API) + кнопка «Застрял на трассе» (`RoadsideHelpButton`, амбер `CanonWarn`, отдельный уровень от красной SOS, с подтверждением). `ApiClient.roadsideHelp(bookingId, lat, lng, note)` → `/stuck` (координаты из `LocationPrefs`).
+- **Тесты:** `backend/tests/test_winter_safety.py` (9 тестов: stuck пишет SOS+шлёт доверенным, права участника, все ветки авто-чека, ack гасит эскалацию).
+## F14 — Точки сбора по ориентирам (2026-07-06, ветка `feat/village-pickup-points`)
+РБ-фишка: в сёлах адресов нет — встречаются «у мечети», «у Магнита», «автовокзал».
+- **Бэкенд:** модель `PickupPoint` (city, title_ru, title_ba, lat, lng, usage_count, is_seed) — публичный двуязычный справочник ориентиров. Миграция `alembic/versions/f14_pickup_points.py` (revision `f14_pickup_points`, down_revision `0004_booking_boarding_code`, идемпотентно; **цепочку миграций сведёт лид** при сборке фича-веток). Роутер `routers/pickup.py`: `GET /pickup-points?city=` (подсказки, без токена — не персональные данные). Сид популярных точек Уфа/Сибай/Баймаҡ/Белорецк/Учалы (`services.py::seed_pickup_points`, вызывается в `main.py` lifespan, не под `SEED_DEMO`). Пополнение: `services.py::record_pickup_choice` — при `POST /rides` с `pickup_point_id` (привязка + usage_count++) или с новой точкой (текст+координаты → новый ориентир). `RideIn`/`RequestIn` +`pickup_point_id`. Тесты `tests/test_pickup_points.py` (сид, подсказки по городу, пополнение, приватность). pytest 187 passed / 1 skipped.
+- **Android:** `data/ApiClient.kt` — `PickupPointDto` + `getPickupPoints(city)`; `publishRide`/`createRequest` +`pickupPointId`. `CreateRideScreen.kt` — компонент `PickupSuggestionChips(city, selectedId, onSelect)` (LazyRow чипов Canon*, сам грузит справочник, дебаунс 350мс) над полем «Где встречаемся»; выбор чипа подставляет название+координаты, фолбэк на ручной пикер карты остаётся. Тот же компонент в форме «Создать заявку» (`AccessibilityScreens.kt`) — у заявки нет pickup-колонки, поэтому ориентир кладётся в комментарий («Точка сбора: …»), а `pickup_point_id` пополняет справочник. Двуязычие через `appText`/`titleBa`.
+## 2026-07-06 — F19 «Позови водителя» (водительский трек реферала, ветка `feat/invite-drivers`)
+
+Спрос сам растит предложение: на пустой выдаче поиска зовём пригласить знакомого водителя.
+
+- **Бэкенд (расширение существующего реферала, не ломает базовый):**
+  - `User.driver_referral_rewarded: bool` — новая колонка. Флаг «за этого приглашённого водительский бонус уже начислен» (ровно один раз).
+  - `routers/referral.py::reward_driver_referral(session, driver)` — если приглашённого (`referred_by` задан) ещё не наградили и он публикует **первый рейс** → пригласившему `+DRIVER_REFERRAL_BONUS` (=1 бесплатный Boost, потолок `MAX_REFERRAL_CREDITS`). Идемпотентно, row-lock приглашённого (гонка двух первых рейсов не задвоит).
+  - Хук — в `routers/rides.py::create_ride` после коммита поездки. Базовый реферал (по +1 обоим при redeem) не тронут.
+  - Миграция `alembic/versions/f19_invite_drivers.py` (revision `f19_invite_drivers`, ветвится от `0004`; идемпотентна; **сведение цепочки миграций — за лидом**).
+  - Тесты: `tests/test_flows.py::test_driver_referral_bonus` (бонус начисляется, ровно один раз), `::test_driver_referral_no_inviter_no_bonus` (не приглашённый — без побочных начислений). Базовый `test_referral_flow` не изменён.
+- **UI:** `RidesRequestsChatScreens.kt::InviteDriverCallout()` — блок внутри `NearbyEmptyCard` (реальная пустая выдача, не ошибка). Тянет реф-код из `/referral/me` (кэш), share-sheet (`ACTION_SEND`) персональной ссылки с упоминанием бонуса. Стиль `Canon*`, обе строки через `appText`. Не вошёл → делимся общей ссылкой без кода.
+
+## 2026-07-11 — 🚀 «Предзапусковые мелочи» (батч B9b) — ветка `feat/launch-extras`
+
+4 мелочи перед запуском. От `feat/anti-fraud` (вершина B8). Миграция `w2_extras` (down=`w2_antifraud`, идемпотентная, оба пути): таблица `dailydigestlog` (замок сводки, UNIQUE(day)) + `user.is_reviewer`.
+
+**① Force-update (минимальная версия).** `GET /version/min` (публичная, `routers/health.py`) → `{min_version_code, message{ru,ba}, store_url}` из конфига `min_app_version_code` (0 = выключено, дефолт) и `app_store_url`. Android: `ApiClient.minAppVersion()`, `YuldashApp` на старте дёргает ПАРАЛЛЕЛЬНО обычному запуску (LaunchedEffect, не блокирует); `BuildConfig.VERSION_CODE < min` → `ForceUpdateScreen.kt` 🆕 — блокирующий тёплый экран «Обнови Юлдаш 🙌» с кнопкой в стор (без выхода «Назад»; НЕ в enum Screen намеренно — рендерится вместо всего дерева до `when(screen)`). Офлайн/ошибка ручки → пропускаем, НЕ блокируем. Включение без пересборки: `.env` на сервере.
+
+**② Пуши пассажиру о ходе такси-заказа.** `instant_service.py`: `_notify_transition` (accepted «Водитель найден 🚗», arriving «Машина на месте!» — важнейший, onboard «В пути», done «Поездка завершена»), `_notify_cancel` (водитель отменил/no-show → пассажиру; пассажир отменил → ВОДИТЕЛЮ), `_expire_no_drivers` («Рядом никого») — все двуязычные (RU · BA) + data-payload `type=instant_status {order_id, status}`. Дедуп не нужен: переходы одноразовые. Android: `FcmService` помечает такие уведомления нав-экстрой `TaxiOfferNotifier.EXTRA_OPEN_ORDER` (отдельный requestCode PendingIntent — не «заражает» обычные), `MainActivity.handleNavIntent` ловит extra ИЛИ data-ключ `type` из системного трея FCM (фон) → `NavSignals.openInstantOrder` → `Screen.InstantOrder` (экран пассажира сам подхватывает активный заказ).
+
+**③ Дневная сводка админу в Telegram.** `app/digest.py` 🆕: `build_digest(session, day)` — агрегаты за МЕСТНЫЙ день (Уфа UTC+5): поездки попутки/брони, такси-заказы (done/отмен), новые юзеры, водители на линии (строки `TaxiWorkDay` дня), выручка-комиссия ~₽ (`CommissionDebt` за день), новые жалобы → `notify_admin_telegram`. Без внешнего cron: `DailyDigestMiddleware` (чистый ASGI, в `create_app` внешним слоем) на каждый запрос делает ДЕШЁВУЮ проверку (час + память процесса, без БД); после `daily_digest_hour` (21) — daemon-поток → `maybe_send_daily_digest`: замок `DailyDigestLog` UNIQUE(day) решает гонку воркеров. Конфиг: `daily_digest_enabled=True`, `daily_digest_hour=21`. В тестах middleware выключен через env (conftest), логика тестируется напрямую.
+
+**④ Тестовый аккаунт для модерации сторов.** Конфиг `review_phone`/`review_code` (пусто = выключено; только `.env`, НЕ в git). Оба заданы → `/auth/request-code` для этого номера НЕ шлёт SMS и НЕ создаёт OTP; `/auth/verify` принимает ТОЛЬКО фикс-код (constant-time, существующие OTP игнорируются; ошибка — текст обычного кода, режим не раскрываем). Юзер помечается `is_reviewer=True`, роль — обычный пассажир (автоадмин для этого пути отключён). Код не логируется и не попадает в ответы.
+
+**Тесты:** `backend/tests/test_launch_extras.py` 🆕 — 15 шт (version/min вкл/выкл/публичность; пуш на каждом переходе — получатель/RU/BA/payload, отмены обеих сторон, expired; digest — счётчики контролируемого дня, раз-в-день (память+замок БД «второй воркер»), до 21:00 не шлёт, выкл конфигом; review — фикс-код/без SMS/is_reviewer/без прав, реальный OTP не работает, нужны ОБА env, обычным номерам не мешает). **Полный прогон: 481 passed, 1 skipped** (база 466 + 15). Alembic `w2_extras` up/down/up — зелёно. Дельта баланса скобок .kt к `origin/feat/anti-fraud` = 0.
+
+**Прод:** `alembic upgrade head`; force-update включать `MIN_APP_VERSION_CODE` + `APP_STORE_URL` в `.env`; review-аккаунт — `REVIEW_PHONE` + `REVIEW_CODE` перед подачей в стор (после модерации можно очистить).
+## 2026-07-06 — Масштаб-ops до 100k (Фаза 5, ветка feat/scale-ops)
+
+Операционная обвязка под рост (код `app/` не менялся — масштаб процессами/пулами/индексами, не переписыванием). Детальный runbook: [scale-ops-runbook.md](scale-ops-runbook.md).
+
+**Добавлено (код/доки, готово к применению Александром):**
+- **Нагрузочное (Locust):** `backend/loadtest/locustfile.py` + `README.md` + `requirements.txt`. Сценарии на горячие пути: `/rides/near`, `/rides`, `/requests/near`, `/feed` (роль ReadUser), логин+бронь (RiderUser), matcher `/instant/*` (InstantUser, флаг), WS-чат `/ws/bookings/{id}` (ChatWSUser, флаг). Вердикт p95<300мс@200RPS с ненулевым кодом выхода для CI. Гонять ТОЛЬКО против staging.
+- **Многопроцессность:** `backend/deploy/gunicorn_conf.py` (gunicorn + UvicornWorker, число воркеров из `WEB_CONCURRENCY`), `yuldash-api.service.example` (systemd, заменяет одиночный uvicorn), `nginx-yuldash-scale.conf.example` (upstream + `ip_hash` для WS-стикинга при нескольких адресах бэкенда; события между воркерами и так разносит Redis pub/sub — `app/services.py` `_CHAT_CHANNEL`).
+- **PostgreSQL:** `pgbouncer.ini.example` (`pool_mode=transaction`), заметка про managed/отдельный инстанс, EXPLAIN-чеклист по горячим запросам (ключевое: `from_city/to_city` через `LIKE '%..%'` не берут btree → нужен pg_trgm GIN; PostGIS ST_DWithin требует функционального GiST-индекса по geography).
+- **Redis:** `redis.conf.example` (пароль `requirepass`, AOF `appendonly yes`, `maxmemory-policy volatile-lru`, вынос на отдельный инстанс при росте).
+
+**Шаги Александра (прод-подъём, за пределами кода):** выбрать managed/отдельный PostgreSQL; поставить PgBouncer; включить Redis-пароль+AOF; переключить systemd на gunicorn N воркеров; прогнать Locust против staging и подтвердить p95<300мс@200RPS + отказоустойчивость (убийство воркера). Порядок — §4 runbook.
+## 2026-07-06 — Медиа в облако: абстракция хранилища (Storage, Фаза 5.3)
+
+**Зачем.** Фото машин/документов/чеков раньше лежали ТОЛЬКО на диске сервера (`backend/media`, `backend/private`). При переезде/масштабировании (несколько воркеров, новый сервер) файлы терялись. Ввели единую абстракцию — а КУДА писать (диск или облако) решает конфиг.
+
+**Новый файл `backend/app/storage.py`:**
+- `Storage` (абстракция) + две реализации: `LocalStorage` (диск, дефолт) и `S3Storage` (S3-совместимое — Timeweb/VK Cloud/Selectel/AWS, через `boto3`).
+- Методы: `save(key, data)`, `load(key)→bytes`, `exists(key)`, `delete(key)`, `url(key)`. Ключи: `voice/<файл>`, `chat/<файл>` (публичные), `docs/<файл>` (приватные документы, 152-ФЗ).
+- Фабрика `get_storage()` (синглтон) + `reset_storage()` (для тестов). Выбор бэкенда — `settings.storage_is_s3`.
+- `boto3` импортируется **лениво** (внутри `S3Storage.__init__`) — без S3-конфига на рантайме не нужен. В `requirements.txt` добавлен `boto3>=1.34`.
+
+**Конфиг (`config.py`, всё из .env, секреты НЕ в git):** `STORAGE_BACKEND` (`""`=авто / `local` / `s3`), `S3_ENDPOINT_URL`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_SIGNED_URL_TTL`. Авто-режим включает S3, только если задан бакет + оба ключа; иначе — локальный диск (полный фолбэк, прод работает как раньше). Прод-гвард ругается, если `STORAGE_BACKEND=s3` без бакета/ключей.
+
+**Что мигрировано на абстракцию (внешнее поведение в локальном режиме — 1:1):**
+- `routers/discovery.py`: `/voice`, `/upload/chat-photo` → `get_storage().save("voice|chat/...", data)`.
+- `routers/drivers.py`: `/upload/photo` → `save("docs/...")`; `/secure/docs/{name}` — авторизация приложения сохранена всегда; локально `FileResponse`, в S3-режиме после проверки доступа `RedirectResponse` на подписанный (presigned) URL.
+- `driver_check.py`: чтение байтов документа для OCR → `get_storage().load("docs/...")` (работает и с диска, и из S3). `_doc_path` оставлен для локального резолвинга.
+- `account.py`: удаление медиа при удалении аккаунта → `get_storage().delete(...)` по всем областям.
+- `main.py`: локально `/media` раздаёт `StaticFiles`; в S3-режиме тот же путь `/media/{path}` редиректит на presigned URL. **Стабильные app-URL (`/media/...`, `/secure/docs/...`) в БД и в валидации `voice_url` чата НЕ меняются** — меняется только КАК путь резолвится (диск vs redirect на облако).
+
+**Тесты `backend/tests/test_storage.py` (13 шт.):** фолбэк на диск без ключей; локальный roundtrip + совпадение URL со старыми хелперами; разделение публичного/приватного дерева; нейтрализация path-traversal; S3-режим (мок boto3-клиента) — put/get/head/delete + presigned URL; фабрика выбирает S3 при полном наборе ключей. Полный прогон: `pytest -q` → **194 passed, 1 skipped**.
+
+**Шаги Александра для включения облака (пока НЕ включено, дефолт — диск):** 1) завести бакет у провайдера (Timeweb/VK Cloud/Selectel); 2) положить в `.env` `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_ENDPOINT_URL` (+`S3_REGION`), при желании `STORAGE_BACKEND=s3`; 3) один раз перенести существующие файлы из `backend/media` и `backend/private/docs` в бакет (скрипт-миграция — отдельной задачей). Без этих ключей всё работает как сейчас — с диска.
+
+## Город в профиле — `User.city` (2026-07-12, ветка `release-2026-07`)
+**Зачем (реальный пробел):** у `User` не было своего города — он был только у партнёра/курьера/таксиста. Из-за этого витрина «Скидки по пути» и посылки не могли по умолчанию показать «в моём городе», человек выбирал город вручную каждый раз. Также блокировало бейдж «Земляк» (F8).
+
+**Бэкенд:**
+- `models.py` — `User.city: str = Field(default="", index=True)` (name_ru из справочника `Settlement`; пусто = не задан).
+- Миграция `alembic/versions/city_profile.py` (revision `city_profile`, down=`courier_c3`) — идемпотентная (baseline-через-create_all, как соседние `courier_c*`): добавляет колонку `user.city` + индекс `ix_user_city`. Оба пути (upgrade/downgrade) проверены. **Новый единственный head — `city_profile`.**
+- `auth.py` — `MeUpdateIn.city: Optional[str]` (`max_length=80`, слишком длинный → 422); `update_me` тримит и сохраняет (пустая строка сбрасывает); `/me` уже отдаёт `city` через `model_dump()`, `/me/update` возвращает `city`.
+- Тест `tests/test_auth_edges.py::test_me_update_city` (дефолт пусто, сохранение с тримом, 422 на длинный, имя не трогает город, сброс пустой строкой). Полный прогон: **738 passed, 1 skipped**.
+
+**Android:**
+- `ApiClient.updateCity(city)` → POST `/me/update` `{city}`, инвалидирует кеш `me`.
+- `ProfileScreen.kt` — строка 📍 в шапке (тап → диалог `showEditCity` с автоподсказками `searchSettlements`, паттерн как `CitySuggestInput` в `GeoUi.kt`), состояние `city` грузится из `me()`. Тач-цель ≥ 32dp у строки, ≥ 48dp у пунктов подсказок. Двуязычно.
+- `CouponsScreen.kt` — `LaunchedEffect(Unit)` читает `me().city` и ставит фильтр по умолчанию (легко сбросить чипом «Все города»).
+
+**Дальше (когда появятся данные):** бейдж «Земляк» (F8) теперь реализуем — сравнить `User.city` пассажира и водителя; по желанию — дефолт города посылок из профиля.
+
+## 2026-07-21 — 📦 G1 «Трекинг-ссылка посылки получателю» (GAP Яндекс Про, ветка `claude/gap-features` от `release-2026-07`)
+**Зачем (флагманский пробел G1⭐):** у поездок публичная live-ссылка `/t/{token}` для близких была (батч B7c), у **посылок — нет**. Это самая хвалимая фича отправителей Яндекс Доставки: получатель без приложения видит в браузере, где его посылка. Реализовано, переиспользуя готовую инфраструктуру: курьер и так стримит гео в Redis (`livepos("parcel")`, `location.py`), страница `/t/{token}` уже отрисована — не хватало лишь привязки токена к доставке.
+
+**Бэкенд (всё под тестами, монетизации НЕ касается):**
+- `models.py` — `TripShare.parcel_id` (index, FK `parceldelivery.id`); `contact_id` → `Optional` (у посылки контакта-«близкого» нет, ссылку отдаёт отправитель / SMS получателю). Ссылка привязана к РОВНО ОДНОМУ из трёх: `booking_id` / `order_id` / `parcel_id`.
+- `family.py` — `POST /parcels/{id}/track-link`: только отправитель (чужое → 404, IDOR), дедуп (одна ссылка на посылку — `_ensure_share_token`), завершённую/отменённую не шарим (409). Есть телефон получателя → сразу SMS со ссылкой (best-effort). Возвращает `{token, url, sms_sent}`. TTL посылки — 72ч (`_PARCEL_SHARE_TTL`, межгород едет дольше поездки).
+- `share.py` — `_parcel_state`: статус посылки → упрощённая фаза (`created→searching`, `accepted→accepted`, `in_transit→onway`, `delivered/canceled→finished` БЕЗ координат). Позиция курьера из `livepos_get("parcel", id)` — пока курьер назначен и едет (`_PARCEL_LIVE_CAR=("accepted","in_transit")`, ровно когда он стримит гео). `_state` диспатчит на `parcel_id`. В state добавлен `kind` (ride|parcel); `_live`/`_finished` теперь принимают `kind`+`phases` (обратносовместимо, поездки шлют `ride`+`_PHASES`).
+- Общая страница `/t/{token}` — по `kind` выбирает иконку маркера (📦 vs 🚗), подпись бренда («посылка · бандероль» vs «живая поездка») и заголовок финала (из `phase_text`). Старые ссылки поездок не сломаны (регресс-сюит `test_live_link`/`test_share` зелёный).
+- Приватность (как B7c): токен `secrets.token_urlsafe(16)` (≥16 байт, unique); короткий → 404; телефоны получателя/отправителя наружу НЕ идут; после вручения — координат нет; `/t/***` маскируется в логах.
+- Миграция: `alembic/versions/g1_parcel_track.py` (revision `g1_parcel_track`, down=`p2_promo_unique` — **новый единственный head**). Идемпотентно: колонка `parcel_id` + индекс + снять NOT NULL с `contact_id` на Postgres; SQLite dev пересоздаётся из моделей.
+- Тесты: `tests/test_parcel_track.py` (11). Полный сюит: **869 passed, 1 skipped.**
+
+**Android (по чеклисту у Александра — облако не собирает APK):** кнопка «Поделиться отслеживанием» в карточке отправителя посылки → `ApiClient.parcelTrackLink(id)` (POST `/parcels/{id}/track-link`) → `LiveLinkCard` (копировать + share-sheet, уже есть в `TripLiveLink.kt`).
+
+**💳 Монетизация — off by default (подтверждено, код не трогал):** просьба «по умолчанию выключен, пока юр.моменты» уже выполнена мастер-флагами релиза (`taxi_enabled=False`, `courier_enabled=False`, `payments_provider="mock"`→503 «Оплата скоро» в проде, `payouts_enabled=False`). Отдельный флаг НЕ добавлял — был бы костыль поверх готового гейта. Дорожная карта совпадает с кодом: OFF → интерим `sbp_manual` («на доверии») → позже `yookassa`.
+
+## 2026-07-21 — 🧭 G3 «Пуш водителю: заявка по твоему направлению» (GAP Яндекс Про, ветка `claude/gap-features`)
+**Зачем:** F13 «Карауль поездку» — только пассажирская сторона (жду поездки водителей). G3 добавляет зеркальную водительскую: водитель караулит направление и узнаёт, когда пассажир создаёт заявку по нему. Суть попуток — сводим спрос и предложение; бесплатно (у Яндекса аналог — платный режим «Домой»).
+
+**Решение — один механизм на обе стороны, без новой сущности:**
+- `models.py` — `RouteWatch.watch_kind`: `rides` (дефолт, F13 — жду поездки) / `requests` (G3 — жду заявки) / `both`.
+- `route_watch.py` — `RouteWatchIn.watch_kind` (валидируется `^(rides|requests|both)$`), в `RouteWatchOut`; дедуп-ключ включает kind (rides/requests на одном маршруте — разные интенты, отдельные строки).
+- `services.py` — `notify_route_watchers` фильтрует по kind ∈ {rides, both}; новый `notify_request_watchers(session, request)` — зеркало (kind ∈ {requests, both}), те же правила: forward/both, опц. день (по `request.desired_at`), анти-спам 1/сутки на подписку (общий счётчик `last_notified_at` для обоих типов), автору заявки себе не шлём. Пуш/лента — через `push_notification(ntype="request_watch", ref_kind="request")`.
+- `requests.py` — `create_request` зовёт `notify_request_watchers` (best-effort, после commit; не роняет создание заявки).
+- Миграция `alembic/versions/g3_request_watch.py` (revision `g3_request_watch`, down=`g1_parcel_track` — **новый единственный head**, цепочка g3 → g1 → p2_promo_unique). Идемпотентна: `routewatch.watch_kind` со `server_default='rides'` (старые подписки = «жду поездки»).
+- Тесты: `tests/test_request_watch.py` (10) + регресс `test_route_watch.py`. Полный сюит: **879 passed, 1 skipped.**
+
+**Android (по чеклисту у Александра):** при подписке на маршрут — переключатель «Я водитель — караулить заявки» (`watch_kind`); обработчик пуша `request_watch` → открыть заявку/ленту заявок.
+
+## 2026-07-21 — 💡 G7 «Диагностика: почему мало откликов» (GAP Яндекс Про, ветка `claude/gap-features`)
+**Зачем:** водитель не понимал, почему поездку мало бронируют. Эталон — раздел «Диагностика» Яндекс Про, но по-нашему: советы, а не санкции.
+
+**Решение — read-only эндпоинт, без новых таблиц/миграций:**
+- `rides.py` — `GET /rides/{ride_id}/tips` (только водитель этой поездки, иначе 404). Собирает мягкие двуязычные советы по РЕАЛЬНЫМ сигналам:
+  - нет `User.avatar_url` → `add_photo`;
+  - `User.verified == False` → `get_verified` (L2 «Проверен» — сигнал доверия из ride_out);
+  - цена выше средней по маршруту: helper `_route_avg_price` (avg `Ride.price>0` по from/to), порог `_TIP_PRICE_OVER_RATIO=1.15`, только при выборке `≥ _TIP_PRICE_MIN_SAMPLE=3` (иначе шум) → `lower_price` (с ориентиром средней);
+  - пустой `Ride.comment` → `add_details`.
+- Ответ: `{ride_id, tips:[{code,ru,ba}], all_good, route_avg_price, route_sample}`. `all_good=true` (пусто) → UI показывает дружелюбную заглушку, не пустой экран. Ничего не пишем в БД.
+- Тесты: `tests/test_ride_tips.py` (6, уникальные маршруты — средняя не зависит от других тестов). Полный сюит: **885 passed, 1 skipped.**
+
+**Android (по чеклисту у Александра):** карточка «Как получить больше заявок» в кабинете водителя / на экране своей поездки — тянет `/rides/{id}/tips`, рисует советы (пусто → «всё хорошо»).
+
+## 2026-07-21 — 🏅 G8 «Достижения-пряники» (GAP Яндекс Про, ветка `claude/gap-features`)
+**Зачем:** тёплые бейджи профиля в духе «между своими» (доверие/сообщество = продукт, §8). У Яндекса уровни — с кнутом (влияют на распределение); у нас — только украшение и удержание, на распределение НЕ влияют. Цифры реальные, не фейк.
+
+**Решение — read-only эндпоинт, без таблиц/миграций:**
+- `stats.py` — `GET /me/achievements` (только свои). Метрики из реальных данных: done-брони (пассажир) + done-поездки (водитель) = `trips`; доставленные посылки как курьер (`ParcelDelivery.courier_id`==me, status delivered) = `parcels`; стаж `(now - User.created_at).days`; `User.verified`.
+- `_ACHIEVEMENTS` (code, ru, ba, метрика, порог): `first_trip`(1), `trips_10/50/100`, `parcel_helper`(5 посылок), `year_with_yuldash`(365 дней), `verified`. Ответ: список бейджей с `earned` + `value/goal` (прогресс для неполученных), `earned_count`, агрегаты. Пороги включительно.
+- Тесты: `tests/test_achievements.py` (7). Полный сюит: **899 passed, 1 skipped.**
+
+**Android (по чеклисту у Александра):** карточка «Достижения» в профиле — сетка бейджей (полученные яркие, остальные с прогрессом), тянет `/me/achievements`.
+
+## 2026-07-21 — 🔧 Синхронизация с base: пере-цепка alembic (единая голова)
+`release-2026-07` продвинулся во время работы над GAP и добавил миграцию `p3_money_bigint` (down=`p2_promo_unique`). Моя `g1_parcel_track` тоже висела на `p2_promo_unique` → в merge-дереве PR **две головы**, CI-гейт «одна голова alembic» краснел. Починка: влил свежий `release-2026-07` в ветку и пере-цепил цепочку линейно — `p2_promo_unique → p3_money_bigint → g1_parcel_track → g3_request_watch` (единая голова `g3_request_watch`). Мерж прошёл без конфликтов (base трогал другие поля/файлы). Полный сюит после мержа+G8: **899 passed, 1 skipped**; alembic upgrade-цикл чистый. **Урок в lessons.md:** при ветке от неслитого релиза перед пушем перепроверять голову alembic против свежего base (он мог уехать).
+
+## 2026-07-21 — ⭐ G6 «Окно свежести» рейтинга (GAP Яндекс Про, ветка `claude/gap-features`)
+**Зачем:** «право исправиться» — раньше среднее по ВСЕМ оценкам, старые «единицы» тянули навсегда. Теперь среднее — по последним `RATING_RECENT_WINDOW=50` учтённым (у Яндекса окно 150). Число оценок — полное (для «N отзывов» и порогов «Новичок <5»).
+
+**Решение — единый хелпер, чтобы рейтинг НЕ расходился (ключевое):**
+- `services.py` — рефактор: `_capped_entries(rows)` (анти-накрутка-кап пары, но возвращает `(created_at, stars)` в порядке старые→свежие; ключ сортировки не сравнивает `None` — починен латентный `TypeError` на 2+ легаси-nulls). Новый `_rating_from_rows(rows)` → `(среднее по последним N, ПОЛНОЕ число)`; ≤N → все (как раньше). Мёртвый `_capped_stars` удалён.
+- **`user_rating` (одиночный: профиль/лестницы) И `drivers_bundle` (батч: карточки в ленте `/rides`) оба зовут `_rating_from_rows`.** Иначе у водителя с >50 оценок рейтинг в профиле и на карточке разошёлся бы — тест `test_user_rating_and_bundle_consistent` стережёт инвариант.
+- Радиус: 10 вызовов `user_rating` + `drivers_bundle` — все консистентны. При ≤50 оценок (сейчас у всех, до запуска) поведение БАЙТ-в-байт прежнее (весь rating/quality/matcher-сюит зелёный).
+- Без миграций (только логика). Тесты `tests/test_rating_window.py` (5). Полный сюит: **904 passed, 1 skipped.**
+
+**Android:** ничего не требует — рейтинг приходит готовым в тех же полях (`driver_rating` и т.п.); правка чисто серверная и обратносовместимая.
+
+## 2026-07-21 — 💚 «Сказать рәхмәт» (чаевые водителю) (GAP Яндекс Про, ветка `claude/gap-features`)
+**Зачем:** последняя ценная фича из Яндекс Про (была открытым вопросом плана). Два слоя, чтобы уважить и бренд, и юр.осторожность.
+
+**Бэкенд (`family.py`), без денег через платформу:**
+- Модель: `DriverProfile.tips_sbp` (СБП водителя, opt-in; пусто = не принимает), `Booking.thanked` (дедуп «рәхмәт»).
+- `config.tips_money_enabled: bool = False` — гейт показа реквизита СБП пассажиру. Бесплатное «рәхмәт» флагом НЕ гейтится.
+- `POST /me/tips-sbp` — водитель вкл/выкл (валидация телефона `_PHONE_RE`, только при наличии `DriverProfile`, иначе 403).
+- `GET /bookings/{id}/tip` — пассажиру после завершённой поездки: `{driver_name, already_thanked, money}`. `money` (СБП+имя) non-null ТОЛЬКО при `tips_money_enabled` И `tips_sbp` заполнен. Иначе — только бесплатное рәхмәт.
+- `POST /bookings/{id}/thanks` — бесплатное «рәхмәт»: `booking.thanked=True` + пуш водителю (best-effort, дедуп — повтор второй пуш не шлёт).
+- Гейты доступа: только пассажир (`b.passenger_id==me`, иначе 403), только `done` (иначе 409). Приватность: реквизит СБП наружу до флага не идёт.
+- Миграция `g_tips` (revision `g_tips`, down=`g3_request_watch` — **новый единственный head**). Тесты `test_tips.py` (8). Полный сюит: **912 passed, 1 skipped.**
+
+**Деньги vs «монетизация выключена»:** чаевые — P2P «на доверии» (пассажир → водитель по СБП напрямую), платформа денег не касается и комиссию не берёт → это НЕ эквайринг и НЕ конфликтует с off-by-default монетизацией. Всё равно за флагом (осторожность). См. `decisions.md`.
+
+**Android:** кнопка «Сказать рәхмәт 💚» на экране завершённой поездки (+ показ реквизита, если `money != null`); тумблер «Принимать чаевые (СБП)» в кабинете водителя. Спека — в `docs/android-gap-checklist.md`.
+## Taxi + Courier Mobility UI (2026-07-29)
+
+- `android/app/src/main/java/com/yuldash/app/MobilityUi.kt` — общий визуальный слой такси/курьера:
+  `MobilityScreenIntro`, `TaxiMapFrame`, `MobilityRouteTimeline`, `TaxiServiceClassTile`,
+  `TaxiFareSummary`, `MobilityProgressRail`/`TaxiTripProgress`, `CourierLineHero`,
+  `MobilitySegmentTab`, `CourierOfferCard`, `CourierServiceTypeTile`,
+  `CourierFareSummary`, `CourierDeliveryProgress`.
+- `InstantOrderScreen.kt` сохраняет существующую state machine/API, но пассажирский пикер,
+  поиск, активная поездка и оффер водителю собраны на общих Mobility-компонентах.
+- `CourierScreen.kt` сохраняет онлайн/зоны/API, но рабочий hero, вкладки, офферы и прогресс
+  активной доставки используют Mobility-компоненты.
+- `ParcelsScreen.kt` — отправитель: новый выбор вида доставки и прозрачная разбивка цены.
+- `android/app/src/debug/java/com/yuldash/app/MobilityUiPreview.kt` — восемь Android Studio Preview:
+  заказ, поиск и активная поездка такси; «Заказы» и «Везу» курьера; оформление доставки;
+  loading/error и возврат на 320 dp при fontScale 1.5. Есть BA + dark варианты; debug-only,
+  в релиз не попадает.
+- `taxiProgressIndex` и `courierProgressIndex` — чистые преобразования серверного статуса
+  в визуальный этап. Composable рисует результат, JVM-тесты стережёт полный и возвратный пути.
+- Язык на холодном старте: `AppPrefs.language` → `YuldashViewModel.restorePersistedLanguage`
+  только при отсутствии валидного `SavedStateHandle`. До гидратации запрещены обратная запись
+  дефолтного RU, `persistNav` и синхронизация языка на сервер.
+- Полная спецификация и ручной чеклист: [taxi-courier-ui-redesign-2026-07.md](taxi-courier-ui-redesign-2026-07.md).
+
+## Taxi + Courier UI — состояние, деньги и возвраты (2026-07-29)
+
+### Непрерывность после пересоздания Activity
+
+- В `rememberSaveable` лежат только пользовательские черновики и навигационный выбор:
+  строки, числа, Boolean, id и координаты как `DoubleArray`.
+- Объекты Yandex MapKit не попадают в Bundle. `InstantPointStateSaver` сохраняет
+  `latitude/longitude` и восстанавливает новый `Point`.
+- Сетевые DTO, loading/error и live-сокеты не сохраняются: после пересоздания они заново
+  читаются с сервера. Так Bundle не становится вторым источником истины.
+- После успешного создания предзаказа/посылки сохраняются только поля квитанции
+  (id, код, маршрут, получатель, время). Черновик очищается сразу, поэтому поворот экрана
+  не создаёт дубликат заказа.
+
+### Серверная state machine остаётся источником истины
+
+- Предзаказ, который воркер перевёл из `scheduled` в активный статус, объединяется с
+  активными instant-заказами и остаётся открываемым из вкладки предзаказов.
+- Клиентская матрица посылки соответствует серверным переходам:
+  `created → accepted → in_transit → delivered` и
+  `accepted|in_transit → returning → returned`.
+- `ParcelDto` сохраняет поля ответа `return_reason`, `returned_at`,
+  `delivery_attempts`, `cancel_fee_kop`, а после принятия — контакты отправителя.
+- `GET /parcels/carrying` обратно совместим: без параметров отдаёт только активные доставки,
+  а `include_recent=true&recent_limit=10` добавляет короткую историю финальных статусов. Поэтому
+  квитанция, оценка, спор и результат возврата не исчезают сразу после завершения.
+- Спор доступен после назначения курьера (`accepted`) и остаётся доступен после
+  `returning/returned/delivered`; обычная отмена `buy_bring` скрывается после покупки товара.
+
+### Денежный контракт UI
+
+- Для профессиональной доставки `price_kop` — цена доставки до вычета комиссии,
+  `commission_kop` — сбор платформы, `courierNetKop = max(0, price − commission)`.
+- Оффер курьеру крупно показывает ориентировочный net-доход, а рядом — цену и комиссию.
+  Выбранный `delivery_type` передаётся в `/courier/estimate`, поэтому
+  `buy_bring` оценивается со своей надбавкой.
+- Кабинет показывает фактическую ступень комиссии из `current_fee_percent`, а не
+  захардкоженные 8%.
+- Водительская витрина instant-такси возвращает серверные `driver_gross_kop`,
+  `driver_fee_kop`, `driver_net_kop`, `driver_fee_percent`; пассажирская витрина получает
+  в этих полях нули. Клиент показывает чистый upfront-доход и не пересчитывает комиссию.
+- Окно оффера задаёт сервер через `offer_expires_at`; Android не использует локальную
+  константу TTL и запрещает принятие при пустой, повреждённой или истёкшей дате.
+
+### Тариф instant-такси v2
+
+- `/instant/estimate` считает цену только на сервере. Клиент передаёт маршрут и класс,
+  но не цену и не коэффициенты.
+- База использует дорожную дистанцию и время с пробками; при недоступном провайдере работает
+  детерминированная локальная оценка.
+- Спрос/предложение, дальняя подача, погода и ночной тариф перемножаются один раз и вместе
+  ограничиваются общим потолком `surge_max_k` (по умолчанию ×1.5).
+- Ответ содержит `pricing_version=v2` и двуязычный `price_factors`, чтобы пассажир видел,
+  почему изменилась цена. Платная дорога показывается отдельно и в тариф не включается.
+
+### Privacy boundary возврата
+
+Точный GPS и публичная tracking-ссылка остаются в прежнем scope `accepted/in_transit`.
+Статус и причина возврата показываются в приложении, но `returning` не расширяет раскрытие
+геопозиции автоматически. Изменение требует отдельного решения владельца о получателях,
+TTL, отзыве ссылки и удалении координат.

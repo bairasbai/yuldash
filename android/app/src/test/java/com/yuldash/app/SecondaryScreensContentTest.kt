@@ -1,12 +1,10 @@
 package com.yuldash.app
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.yuldash.app.data.NotifDto
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -32,34 +30,45 @@ class SecondaryScreensContentTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    // --- NotificationRow: строка уведомления (иконка + заголовок + подзаголовок + время) ---
+    // --- NotificationRow: строка уведомления (заголовок + текст + «когда» + непрочитанное) ---
+
+    /** Собрать уведомление под текущий контракт: NotificationRow берёт DTO и сам достаёт
+     *  заголовок/текст по языку, а время считает относительно «сейчас» из createdAt. */
+    private fun notif(
+        titleRu: String,
+        bodyRu: String,
+        read: Boolean = false,
+    ) = NotifDto(
+        id = 1,
+        type = "system",
+        titleRu = titleRu, titleBa = titleRu,
+        bodyRu = bodyRu, bodyBa = bodyRu,
+        refKind = "", refId = null,
+        read = read,
+        createdAt = "2026-01-01T12:30:00Z",
+    )
 
     @Test
     fun notificationRow_showsTitleAndSubtitle() {
         composeRule.setContent {
             NotificationRow(
-                icon = Icons.Default.Notifications,
-                title = "Новое сообщение",
-                subtitle = "Рамиль ответил на заявку",
-                time = "12:30",
-                unread = true,
+                notif = notif(titleRu = "Новое сообщение", bodyRu = "Рамиль ответил на заявку", read = false),
+                onClick = {},
             )
         }
         composeRule.onNodeWithText("Новое сообщение").assertIsDisplayed()
         composeRule.onNodeWithText("Рамиль ответил на заявку").assertIsDisplayed()
-        composeRule.onNodeWithText("12:30").assertIsDisplayed()
+        // Время НЕ проверяем строкой: notifTimeAgo считает его относительно текущего момента
+        // («5 мин», «вчера»), поэтому фиксированный ожидаемый текст был бы ложным тестом.
     }
 
     @Test
     fun notificationRow_read_stillShowsText() {
-        // unread=false: точка непрочитанного скрыта, но текст рендерится как обычно.
+        // read=true: подложка спокойная (не мятная), но текст рендерится как обычно.
         composeRule.setContent {
             NotificationRow(
-                icon = Icons.Default.Notifications,
-                title = "Заголовок",
-                subtitle = "Подзаголовок",
-                time = "",
-                unread = false,
+                notif = notif(titleRu = "Заголовок", bodyRu = "Подзаголовок", read = true),
+                onClick = {},
             )
         }
         composeRule.onNodeWithText("Заголовок").assertIsDisplayed()

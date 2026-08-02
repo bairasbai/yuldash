@@ -61,10 +61,11 @@ def test_public_and_secure_urls_use_configured_base(monkeypatch):
 
 def test_upload_validation_and_base64_decoding(monkeypatch):
     monkeypatch.setattr(settings, "max_upload_mb", 1)
-    assert services._looks_like_image(b"\xff\xd8\xffdata", "jpg") is True
-    assert services._looks_like_image(b"\x89PNG\r\n\x1a\nrest", "png") is True
-    assert services._looks_like_image(b"RIFFxxxxWEBPrest", "webp") is True
-    assert services._looks_like_image(b"bad", "jpg") is False
+    # тип определяется по СОДЕРЖИМОМУ (magic-bytes), а не по заявленному расширению
+    assert services._detect_image_ext(b"\xff\xd8\xffdata") == "jpg"
+    assert services._detect_image_ext(b"\x89PNG\r\n\x1a\nrest") == "png"
+    assert services._detect_image_ext(b"RIFFxxxxWEBPrest") == "webp"
+    assert services._detect_image_ext(b"bad") is None
 
     data_url = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\nrest").decode()
     data, ext = services.decode_upload_b64(data_url, {"png"}, "png", "photo", sniff_image=True)
@@ -351,13 +352,13 @@ def test_driver_bundle_and_ride_out_use_profile_and_real_rating(client, user_fac
         session.commit()
 
         ride = session.get(Ride, ride_id)
-        users, profiles, rating_agg = services.drivers_bundle(session, {driver["id"]})
-        out = services.ride_out_with(ride, users, profiles, rating_agg)
+        users, profiles, rating_agg, trips_agg = services.drivers_bundle(session, {driver["id"]})
+        out = services.ride_out_with(ride, users, profiles, rating_agg, trips_agg)
         assert out.driver_name == "BundleDriver"
         assert out.driver_car == "Kia Rio"
         assert out.driver_online is True
         assert out.driver_rating == 4.5
-        assert services.drivers_bundle(session, set()) == ({}, {}, {})
+        assert services.drivers_bundle(session, set()) == ({}, {}, {}, {})
 
 
 def test_send_push_initializes_firebase_and_ignores_per_token_errors(monkeypatch, user_factory):
@@ -392,15 +393,26 @@ def test_send_push_initializes_firebase_and_ignores_per_token_errors(monkeypatch
         initialized.append(cert.path)
         return object()
 
-    def send(message):
-        sent.append(message.token)
-        if message.token == "bad-token":
-            raise RuntimeError("fcm send failed")
+    class SendResponse:
+        def __init__(self, exc=None):
+            self.success = exc is None
+            self.exception = exc
+
+    class BatchResponse:
+        def __init__(self, responses):
+            self.responses = responses
+
+    def send_each(messages):
+        # batch-рассылка (send_each): ошибка одного токена не роняет остальные, она в его SendResponse.
+        for m in messages:
+            sent.append(m.token)
+        return BatchResponse([SendResponse(None if m.token == "ok-token"
+                                           else RuntimeError("fcm send failed")) for m in messages])
 
     credentials.Certificate = Certificate
     messaging.Notification = Notification
     messaging.Message = Message
-    messaging.send = send
+    messaging.send_each = send_each
     firebase_admin.initialize_app = initialize_app
     firebase_admin.credentials = credentials
     firebase_admin.messaging = messaging

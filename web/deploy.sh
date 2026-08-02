@@ -18,8 +18,10 @@ set -euo pipefail
 
 HOST="root@85.239.52.55"
 KEY="$HOME/.ssh/id_ed25519"
-SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i $KEY"
-SCP="scp -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i $KEY"
+# accept-new (не no): при ПЕРВОМ подключении ключ сервера запоминается, при подмене later —
+# отказ (защита от MITM). `=no` молча принимал бы любой подменённый host key. Как в deploy-backend.bat.
+SSH="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -i $KEY"
+SCP="scp -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -i $KEY"
 LIVE="/var/www/yuldash-landing"
 TARBALL="/tmp/yuldash-out.tar.gz"
 

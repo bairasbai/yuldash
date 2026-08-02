@@ -205,7 +205,11 @@ class CoreLogicTest {
         assertEquals("From", ride.from)
         assertEquals("To", ride.to)
         assertEquals("02.01, 03:04", ride.time)
-        assertEquals("Водитель", ride.driver)
+        // Пустое имя ОСТАЁТСЯ пустым — это не потеря данных, а осознанное решение (MainActivity.toUiRide):
+        // подстановка «Водитель»/«Йөрөтөүсе» живёт на слое отрисовки через appText. Если подставлять
+        // здесь, в маппере, в башкирском интерфейсе вылезет русское слово — язык на этом слое неизвестен.
+        // Раньше тест ждал русский дефолт из маппера; проверяем реальный контракт: сквозной проброс.
+        assertEquals("", ride.driver)
         assertEquals("Kia Rio", ride.car)
         assertEquals(1200, ride.price)
         assertEquals(2, ride.seats)

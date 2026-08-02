@@ -65,6 +65,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -81,12 +82,18 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.LocalTaxi
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.AddRoad
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Loyalty
+import androidx.compose.material.icons.filled.Sos
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
@@ -101,15 +108,18 @@ import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NearMe
@@ -122,9 +132,19 @@ import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.MoneyOff
+import androidx.compose.material.icons.filled.MoodBad
+import androidx.compose.material.icons.filled.PersonOff
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -166,6 +186,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -228,7 +249,6 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -243,6 +263,7 @@ import com.yuldash.app.data.PopularRouteDto
 import com.yuldash.app.data.FeedDto
 import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
+import com.yuldash.app.data.NotifFeed
 import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
@@ -250,23 +271,72 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Unit) {
+internal fun NotificationsScreen(
+    onBack: () -> Unit,
+    onSelectTab: (HomeTab) -> Unit,
+    onOpenBooking: (Int) -> Unit = {},
+    onOpenResponses: (Int) -> Unit = {},
+    onRouteWatches: () -> Unit = {},
+    onOpenSupport: (Int) -> Unit = {},
+) {
+    val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf("all") }
     val allLabel = appText("Все", "Бөтәһе")
-    val ridesLabel = appText("Поездки", "Сәфәрҙәр")
-    val chatLabel = appText("Чат", "Чат")
-    val systemLabel = appText("Система", "Система")
+    val tripsLabel = appText("Поездки", "Сәфәрҙәр")
+    val chatLabel = appText("Сообщения", "Хәбәрҙәр")
+    // Таба «Система» убрана: сервер таких уведомлений не шлёт (все события — booking/ride/message),
+    // поэтому она всегда была пустой. Оставили только реально наполняемые вкладки.
     val selectedLabel = when (selected) {
-        "rides" -> ridesLabel
+        "trips" -> tripsLabel
         "chat" -> chatLabel
-        "system" -> systemLabel
         else -> allLabel
     }
-    var serverNotifs by remember { mutableStateOf<List<NotifDto>>(emptyList()) }
-    var notifsLoading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) { ApiClient.getNotifications().onSuccess { serverNotifs = it }; notifsLoading = false }
-    // Только реальные события с сервера. Пусто → честная заглушка (без демо-обмана «Рамиль едет»).
-    val notifications = serverNotifs.map { Triple(Icons.Default.ChatBubble, it.title, it.text) }
+
+    var feed by remember { mutableStateOf(NotifFeed(0, emptyList())) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(reload) {
+        loading = true
+        ApiClient.getNotifications()
+            .onSuccess { feed = it; error = false }
+            // 401 / нет сессии — не сетевая ошибка: событий просто нет, показываем дружелюбное «пусто».
+            .onFailure { e -> error = (e as? ApiException)?.status != 401 }
+        loading = false
+    }
+
+    // Локальная пометка прочитанным (мгновенно в UI) + запрос на сервер. Не блокирует навигацию.
+    fun markRead(id: Int) {
+        if (feed.items.none { it.id == id && !it.read }) return
+        feed = feed.copy(
+            unread = (feed.unread - 1).coerceAtLeast(0),
+            items = feed.items.map { if (it.id == id) it.copy(read = true) else it },
+        )
+        scope.launch { ApiClient.markNotificationsRead(id) }
+    }
+    fun markAll() {
+        if (feed.unread == 0) return
+        feed = feed.copy(unread = 0, items = feed.items.map { it.copy(read = true) })
+        scope.launch { ApiClient.markNotificationsRead(null) }
+    }
+    fun openDeepLink(n: NotifDto) {
+        markRead(n.id)
+        val ref = n.refId ?: return
+        when (n.refKind) {
+            "booking" -> onOpenBooking(ref)
+            "request" -> onOpenResponses(ref)
+            "support" -> onOpenSupport(ref)
+        }
+    }
+
+    val visible = feed.items.filter { n ->
+        when (selected) {
+            "trips" -> n.type == "booking" || n.type == "ride"
+            "chat" -> n.type == "message"
+            else -> true
+        }
+    }
+
     Scaffold(
         containerColor = CanonBg,
         bottomBar = { YuldashBottomBar(selectedTab = HomeTab.Chat, onSelect = onSelectTab) }
@@ -278,46 +348,263 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
         ) {
             item { Spacer(Modifier.height(10.dp)) }
             item {
-                // «Очистить всё» убрана: уведомления вычисляются из последних сообщений на сервере
-                // (не хранятся как отдельные записи) → «очистка» не могла сохраниться и при перезаходе
-                // список возвращался. Лента сама обновляется по факту прочтения переписки.
-                Text(appText("Уведомления", "Хәбәрҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(appText("Уведомления", "Хәбәрҙәр"), color = CanonGreen, fontSize = 34.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                    // «Прочитать всё» — только когда есть непрочитанные (тач-цель 48dp через padding).
+                    AnimatedVisibility(visible = feed.unread > 0) {
+                        Text(
+                            appText("Прочитать всё", "Барыһын да уҡыу"),
+                            color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                            modifier = Modifier.bounceClick { markAll() }.padding(horizontal = 8.dp, vertical = 12.dp)
+                        )
+                    }
+                }
+            }
+            item {
+                // F13: вход в «Мои подписки» на маршрут — карауль поездку.
+                AppCard(onClick = onRouteWatches) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = CanonMint, shape = CircleShape) {
+                            Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(22.dp))
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(appText("Мои подписки на маршрут", "Маршрут яҙылыуҙарым"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                            Text(appText("Караулим поездку и сообщим первыми", "Сәфәрҙе күҙәтеп, беренсе булып хәбәр итәбеҙ"), color = CanonMuted, fontSize = 13.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = CanonMuted)
+                    }
+                }
             }
             item {
                 SegmentedTabs(
-                    listOf(allLabel, ridesLabel, chatLabel, systemLabel),
+                    listOf(allLabel, tripsLabel, chatLabel),
                     selectedLabel,
                     onSelect = {
                         selected = when (it) {
-                            ridesLabel -> "rides"
+                            tripsLabel -> "trips"
                             chatLabel -> "chat"
-                            systemLabel -> "system"
                             else -> "all"
                         }
                     }
                 )
             }
-            val visibleNotifications = notifications.filter { (icon, _, _) ->
-                selected == "all" ||
-                    (selected == "rides" && icon != Icons.Default.ChatBubble && icon != Icons.Default.Shield) ||
-                    (selected == "chat" && icon == Icons.Default.ChatBubble) ||
-                    (selected == "system" && icon == Icons.Default.Shield)
+            when {
+                loading && feed.items.isEmpty() -> {
+                    items(4) { SkeletonCard(lines = 2, modifier = Modifier.padding(vertical = 2.dp)) }
+                }
+                error && feed.items.isEmpty() -> {
+                    item { AppErrorState(onRetry = { reload++ }) }
+                }
+                visible.isEmpty() -> {
+                    item {
+                        AppEmptyState(
+                            title = appText("Уведомлений пока нет", "Хәбәрҙәр әлегә юҡ"),
+                            text = appText("Новые события по броням, поездкам и сообщениям появятся здесь.", "Броньдар, сәфәрҙәр һәм хәбәрҙәр буйынса яңы ваҡиғалар бында күренә."),
+                            icon = Icons.Default.Notifications,
+                        )
+                    }
+                }
+                else -> {
+                    itemsIndexed(visible, key = { _, n -> n.id }) { i, n ->
+                        Box(Modifier.appearIn(i)) {
+                            NotificationRow(notif = n, onClick = { openDeepLink(n) })
+                        }
+                    }
+                }
             }
-            if (notifsLoading) {
-                item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            } else if (visibleNotifications.isEmpty()) {
-                item {
-                    InfoCard(
-                        title = appText("Уведомлений пока нет", "Хәбәрҙәр әлегә юҡ"),
-                        text = appText("Новые события по поездкам, чату и профилю появятся здесь.", "Сәфәр, чат һәм профиль буйынса яңы ваҡиғалар бында күренә."),
-                        icon = Icons.Default.Notifications
+        }
+    }
+}
+
+/** Иконка типа уведомления (в едином стиле, без новых сущностей). */
+private fun notifIcon(type: String): androidx.compose.ui.graphics.vector.ImageVector = when (type) {
+    "booking" -> Icons.Default.EventSeat
+    "ride" -> Icons.Default.DirectionsCar
+    "message" -> Icons.Default.ChatBubble
+    else -> Icons.Default.Notifications
+}
+
+/** Относительное время события (двуязычно). created_at — наивный UTC ISO с бэкенда. */
+@Composable
+private fun notifTimeAgo(iso: String): String {
+    val ms = remember(iso) {
+        runCatching { java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli() }
+            .getOrElse { runCatching { java.time.LocalDateTime.parse(iso).toInstant(java.time.ZoneOffset.UTC).toEpochMilli() }.getOrNull() }
+    } ?: return ""
+    val mins = ((System.currentTimeMillis() - ms) / 60000L).coerceAtLeast(0)
+    return when {
+        mins < 1 -> appText("только что", "хәҙер генә")
+        mins < 60 -> appText("$mins мин", "$mins мин")
+        mins < 1440 -> appText("${mins / 60} ч", "${mins / 60} сәғ")
+        else -> appText("${mins / 1440} дн", "${mins / 1440} көн")
+    }
+}
+
+@Composable
+internal fun NotificationRow(notif: NotifDto, onClick: () -> Unit) {
+    val isBa = LocalAppLanguage.current == AppLanguage.Ba
+    val title = (if (isBa) notif.titleBa else notif.titleRu).ifBlank { notif.titleRu }
+    val subtitle = (if (isBa) notif.bodyBa else notif.bodyRu).ifBlank { notif.bodyRu }
+    val time = notifTimeAgo(notif.createdAt)
+    // Непрочитанное — чуть плотнее (мятная подложка), прочитанное — спокойный фон.
+    val bg = if (notif.read) CanonSurface else CanonMint
+    Card(
+        modifier = Modifier.fillMaxWidth().bounceClick(onClick),
+        colors = CardDefaults.cardColors(containerColor = bg),
+        shape = CanonItemShape,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (notif.read) 1.dp else 2.dp),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = if (notif.read) CanonMint else CanonSurface, shape = CircleShape) {
+                Icon(notifIcon(notif.type), contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(14.dp).size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp, lineHeight = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (subtitle.isNotBlank()) {
+                    Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (time.isNotBlank()) Text(time, color = CanonMuted, fontSize = 13.sp, maxLines = 1)
+                if (!notif.read) Box(Modifier.size(9.dp).background(CanonGreen2, CircleShape))
+            }
+        }
+    }
+}
+
+/**
+ * F13 «Мои подписки» — подписка на маршрут «карауль поездку» (retention-двигатель).
+ * Форма подписки (откуда/куда + туда-обратно) + список активных подписок с удалением.
+ * Все состояния: загрузка / ошибка+повтор / пусто / список. Двуязычно.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun RouteWatchesScreen(
+    onBack: () -> Unit,
+    prefillFrom: String = "",
+    prefillTo: String = "",
+) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var watches by remember { mutableStateOf<List<com.yuldash.app.data.RouteWatchDto>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
+    var from by rememberSaveable { mutableStateOf(prefillFrom) }
+    var to by rememberSaveable { mutableStateOf(prefillTo) }
+    var bothWays by rememberSaveable { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
+
+    val savedMsg = appText("Готово! Сообщим, как появится поездка", "Әҙер! Сәфәр сыҡҡас, хәбәр итәбеҙ")
+    val failMsg = appText("Не получилось. Проверь сеть и повтори", "Булманы. Сетте тикшереп ҡабатла")
+    val removedMsg = appText("Подписка удалена", "Яҙылыу юйылды")
+
+    fun reload() {
+        loading = true; error = false
+        scope.launch {
+            ApiClient.getRouteWatches()
+                .onSuccess { watches = it; error = false }
+                .onFailure { error = true }
+            loading = false
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
+
+    Scaffold(
+        containerColor = CanonBg,
+        topBar = { ScreenTopBar(appText("Мои подписки", "Яҙылыуҙарым"), onBack) }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item {
+                Text(
+                    appText(
+                        "Подпишись на маршрут — пришлём уведомление, как только водитель опубликует подходящую поездку.",
+                        "Маршрутҡа яҙыл — йөрөтөүсе тап килгән сәфәр баҫтырһа, шунда уҡ хәбәр итәбеҙ."
+                    ),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp
+                )
+            }
+            // --- Форма подписки ---
+            item {
+                AppCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            from, { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) },
+                            leadingIcon = { Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2) },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)
+                        )
+                        OutlinedTextField(
+                            to, { to = it }, label = { Text(appText("Куда", "Ҡайҙа")) },
+                            leadingIcon = { Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = CanonGreen2) },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(appText("И в обратную сторону", "Кире яҡҡа ла"), color = CanonText, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                            Switch(checked = bothWays, onCheckedChange = { bothWays = it })
+                        }
+                        val needBothMsg = appText("Укажи откуда и куда", "Ҡайҙан һәм ҡайҙа икәнен яҙ")
+                        AppButton(
+                            text = appText("Следить за маршрутом", "Маршрутты күҙәтеү"),
+                            onClick = {
+                                val f = from.trim(); val t = to.trim()
+                                if (f.isBlank() || t.isBlank()) {
+                                    Toast.makeText(ctx, needBothMsg, Toast.LENGTH_SHORT).show()
+                                    return@AppButton
+                                }
+                                submitting = true
+                                scope.launch {
+                                    ApiClient.createRouteWatch(f, t, if (bothWays) "both" else "forward")
+                                        .onSuccess {
+                                            Toast.makeText(ctx, savedMsg, Toast.LENGTH_SHORT).show()
+                                            from = ""; to = ""; bothWays = false
+                                            reload()
+                                        }
+                                        .onFailure {
+                                            val m = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg
+                                            Toast.makeText(ctx, m, Toast.LENGTH_LONG).show()
+                                        }
+                                    submitting = false
+                                }
+                            },
+                            icon = Icons.Default.NotificationsActive,
+                            loading = submitting,
+                        )
+                    }
+                }
+            }
+            // --- Список активных подписок ---
+            item {
+                Text(appText("Активные подписки", "Әүҙем яҙылыуҙар"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(top = 6.dp))
+            }
+            when {
+                loading && watches.isEmpty() -> item { AppLoading(appText("Загрузка…", "Йөкләнә…")) }
+                error && watches.isEmpty() -> item { AppErrorState(onRetry = { reload() }) }
+                watches.isEmpty() -> item {
+                    AppEmptyState(
+                        title = appText("Пока нет подписок", "Әлегә яҙылыуҙар юҡ"),
+                        text = appText("Подпишись на нужный маршрут выше — не пропустишь новую поездку.", "Кәрәкле маршрутҡа яҙыл — яңы сәфәрҙе үткәрмәҫһең."),
+                        icon = Icons.Default.NotificationsActive,
                     )
                 }
-            } else {
-                // Индекс в ключе: у всех уведомлений title == «Новое сообщение» (бэк) → ключ по title давал
-                // дубликаты при 2+ уведомлениях → краш экрана. Индекс гарантирует уникальность.
-                itemsIndexed(visibleNotifications, key = { i, it -> it.second + "#" + i }) { _, (icon, title, subtitle) ->
-                    NotificationRow(icon = icon, title = title, subtitle = subtitle, time = "", unread = true)
+                else -> items(watches, key = { it.id }) { w ->
+                    RouteWatchRow(
+                        watch = w,
+                        onDelete = {
+                            scope.launch {
+                                ApiClient.deleteRouteWatch(w.id)
+                                    .onSuccess { watches = watches.filterNot { it.id == w.id }; Toast.makeText(ctx, removedMsg, Toast.LENGTH_SHORT).show() }
+                                    .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show() }
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -325,20 +612,26 @@ internal fun NotificationsScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> U
 }
 
 @Composable
-internal fun NotificationRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, time: String, unread: Boolean) {
-    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+private fun RouteWatchRow(watch: com.yuldash.app.data.RouteWatchDto, onDelete: () -> Unit) {
+    AppCard {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
-                Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp))
+                Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(22.dp))
             }
             Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp, lineHeight = 21.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    if (watch.direction == "both") "${watch.fromCity}  ⇄  ${watch.toCity}" else "${watch.fromCity}  →  ${watch.toCity}",
+                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp
+                )
+                Text(
+                    if (watch.direction == "both") appText("Туда и обратно", "Бара һәм ҡайта")
+                    else appText("Караулим поездку", "Сәфәрҙе күҙәтәбеҙ"),
+                    color = CanonMuted, fontSize = 13.sp
+                )
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Text(time, color = CanonMuted, fontSize = 13.sp)
-                if (unread) Box(Modifier.size(8.dp).background(CanonGreen2, CircleShape))
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = appText("Удалить", "Юйыу"), tint = CanonRed)
             }
         }
     }
@@ -355,7 +648,6 @@ internal fun SafetyScreen(
     onReport: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
-    var hidePhone by remember { mutableStateOf(AppPrefs.hidePhone(ctx)) }
     var verifiedOnly by remember { mutableStateOf(AppPrefs.verifiedOnly(ctx)) }
     Scaffold(
         containerColor = CanonBg,
@@ -398,7 +690,9 @@ internal fun SafetyScreen(
             }
             item {
                 SettingsGroup {
-                    SettingSwitchRow(Icons.Default.PhoneLocked, appText("Скрывать телефон до подтверждения", "Телефонды раҫлағанға тиклем йәшереү"), appText("Ваш номер будет скрыт до подтверждения поездки.", "Номерегеҙ сәфәр раҫланғанға тиклем йәшерелә."), hidePhone) { hidePhone = it; AppPrefs.setHidePhone(ctx, it) }
+                    // Честно: телефон прячет сервер (отдаёт номер только после подтверждения поездки).
+                    // Раньше тут был тумблер, который писал в prefs, но ни на что не влиял — убрали ложное обещание.
+                    SettingsNavRow(Icons.Default.PhoneLocked, appText("Телефон скрыт до подтверждения", "Телефон раҫланғанға тиклем йәшерелгән"), appText("Твой номер откроется попутчику только после подтверждения поездки — так устроен Юлдаш.", "Номерың юлдашҡа тик сәфәр раҫланғас ҡына асыла — Юлдаш шулай эшләй."))
                     SettingSwitchRow(Icons.Default.Verified, appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар"), appText("Показывать и принимать поездки только от проверенных пользователей.", "Тик раҫланған ҡулланыусылар менән эшләү."), verifiedOnly) { verifiedOnly = it; AppPrefs.setVerifiedOnly(ctx, it) }
                     SettingsNavRow(Icons.Default.Person, appText("Поделиться поездкой с близким", "Сәфәрҙе яҡын кешегә ебәреү"), appText("Отправьте данные о поездке близкому человеку.", "Сәфәр мәғлүмәтен яҡын кешегә ебәрегеҙ."), onClick = onShareTrip)
                     SettingsNavRow(Icons.Default.Block, appText("Чёрный список", "Ҡара исемлек"), appText("Пользователи, с которыми вы не хотите ездить.", "Сәфәр итмәҫкә теләгән ҡулланыусылар."), onClick = onBlocklist)
@@ -419,6 +713,7 @@ internal fun SettingsScreen(
     onSelectTab: (HomeTab) -> Unit,
     onToggleLanguage: () -> Unit,
     onPrivacy: () -> Unit = {},
+    onConsents: () -> Unit = {},
     onPayments: () -> Unit = {},
     onFilters: () -> Unit = {},
     isAdmin: Boolean = false,
@@ -429,6 +724,7 @@ internal fun SettingsScreen(
     var notifications by remember { mutableStateOf(AppPrefs.notifications(ctx)) }
     var sounds by remember { mutableStateOf(AppPrefs.sounds(ctx)) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showFontDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     val isBashkir = LocalAppLanguage.current == AppLanguage.Ba
     // Текущая тема приложения (она же тема карты): системная / светлая / тёмная.
@@ -437,8 +733,17 @@ internal fun SettingsScreen(
         false -> appText("Светлая", "Яҡты")
         null -> appText("Как в системе", "Системалағыса")
     }
+    // Крупный шрифт: текущий выбранный размер текста (единая точка правды FontScalePrefs).
+    val fontLabel = fontScaleLabel(FontScalePrefs.option)
     if (showThemeDialog) {
         ThemePickerDialog(current = ThemePrefs.darkOverride, onPick = { ThemePrefs.darkOverride = it; showThemeDialog = false }, onDismiss = { showThemeDialog = false })
+    }
+    if (showFontDialog) {
+        FontScalePickerDialog(
+            current = FontScalePrefs.option,
+            onPick = { FontScalePrefs.set(ctx, it); showFontDialog = false },
+            onDismiss = { showFontDialog = false },
+        )
     }
     if (showLogoutDialog) {
         AlertDialog(
@@ -470,11 +775,13 @@ internal fun SettingsScreen(
                     SettingSwitchRow(Icons.Default.Notifications, appText("Уведомления", "Хәбәрҙәр"), appText("Получать важные обновления и напоминания", "Мөһим иҫкәртеүҙәр алыу"), notifications) { notifications = it; AppPrefs.setNotifications(ctx, it) }
                     SettingsNavRow(Icons.Default.Language, appText("Язык", "Тел"), if (isBashkir) "Башҡортса" else "Русский", onClick = onToggleLanguage)
                     SettingsNavRow(Icons.Default.Map, appText("Тема", "Тема"), themeLabel, onClick = { showThemeDialog = true })
+                    SettingsNavRow(Icons.Default.FormatSize, appText("Размер текста", "Текст ҙурлығы"), fontLabel, onClick = { showFontDialog = true })
                 }
             }
             item {
                 SettingsGroup {
                     SettingsNavRow(Icons.Default.Shield, appText("Приватность", "Махсуслыҡ"), appText("Управление безопасностью и данными", "Хәүефһеҙлек һәм мәғлүмәт"), onClick = onPrivacy)
+                    SettingsNavRow(Icons.Default.Description, appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт"), appText("Оферта, политика, геолокация — 152-ФЗ", "Оферта, сәйәсәт, геолокация — 152-ФЗ"), onClick = onConsents)
                     SettingSwitchRow(Icons.Default.VolumeUp, appText("Звуки", "Тауыштар"), appText("Звуковые уведомления и эффекты", "Тауышлы хәбәрҙәр"), sounds) { sounds = it; AppPrefs.setSounds(ctx, it) }
                 }
             }
@@ -493,7 +800,7 @@ internal fun SettingsScreen(
             }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.Info, appText("О приложении", "Ҡушымта тураһында"), "Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                    SettingsNavRow(Icons.Default.Info, appText("О приложении", "Ҡушымта тураһында"), appText("Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", "Нөсхә ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"))
                 }
             }
             item {
@@ -542,6 +849,63 @@ internal fun ThemePickerDialog(current: Boolean?, onPick: (Boolean?) -> Unit, on
     )
 }
 
+/** Подпись текущего размера текста (для строки настроек и простого режима). */
+@Composable
+internal fun fontScaleLabel(option: FontScaleOption): String = when (option) {
+    FontScaleOption.Normal -> appText("Обычный", "Ғәҙәти")
+    FontScaleOption.Large -> appText("Крупный", "Эре")
+    FontScaleOption.ExtraLarge -> appText("Очень крупный", "Бик эре")
+}
+
+/**
+ * Выбор размера текста (крупный шрифт для пожилых и слабовидящих).
+ * Превью справа показывает относительный размер выбранного множителя.
+ */
+@Composable
+internal fun FontScalePickerDialog(current: FontScaleOption, onPick: (FontScaleOption) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CanonSurface,
+        confirmButton = { TextButton(onClick = onDismiss) { Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold) } },
+        title = { Text(appText("Размер текста", "Текст ҙурлығы"), color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    appText("Увеличь текст во всём приложении — так удобнее читать.", "Бөтә ҡушымтала текстты ҙурайт — уҡырға уңайлыраҡ."),
+                    color = CanonMuted, fontSize = 14.sp, lineHeight = 18.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+                FontScaleOption.values().forEach { option ->
+                    val selected = option == current
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 52.dp)
+                            .bounceClick { onPick(option) }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (selected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                            contentDescription = null,
+                            tint = if (selected) CanonGreen2 else CanonMuted
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(fontScaleLabel(option), color = CanonText, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        // Превью относительного размера: одна и та же «Аа» в масштабе множителя.
+                        Text(
+                            "Аа",
+                            color = if (selected) CanonGreen2 else CanonMuted,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = (15f * option.multiplier).sp,
+                        )
+                    }
+                }
+            }
+        },
+    )
+}
+
 /** Правила поездок «между своими» — статический экран. */
 @Composable
 internal fun RulesScreen(onBack: () -> Unit) {
@@ -579,7 +943,7 @@ internal fun RulesScreen(onBack: () -> Unit) {
 
 /** Как оплачивать поездки — статический экран (сейчас СБП напрямую, ЮКасса позже). */
 @Composable
-internal fun PaymentInfoScreen(onBack: () -> Unit) {
+internal fun PaymentInfoScreen(onBack: () -> Unit, onOpenPricing: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Оплата поездок", "Сәфәр түләүе"), onBack) }) { padding ->
         LazyColumn(
             Modifier.padding(padding).padding(horizontal = 16.dp),
@@ -609,8 +973,172 @@ internal fun PaymentInfoScreen(onBack: () -> Unit) {
                 }
             }
             item {
+                // Честно о риске (не только о плюсе «без комиссии»): деньги мимо приложения.
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Row(Modifier.padding(18.dp), verticalAlignment = Alignment.Top) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Важно знать", "Белеп ҡуйығыҙ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Text(
+                                appText(
+                                    "Деньги идут напрямую между вами — Юлдаш их не держит и не может вернуть. Это доверие «между своими»: плати после поездки, смотри рейтинг и отзывы, а при споре напиши в поддержку — разберёмся по-человечески.",
+                                    "Аҡса тура үҙ-ара күсә — Юлдаш уны тотмай һәм кире ҡайтара алмай. Был «үҙ-ара» ышаныс: сәфәрҙән һуң түлә, баһа менән фекерҙәргә ҡара, бәхәс сыҡһа ярҙамға яҙ — кешеләрсә асыҡларбыҙ.",
+                                ),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                // Вход в подробную страницу «Честно о цене» (формула, комиссия, куда идёт).
+                Surface(
+                    color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder),
+                    modifier = Modifier.fillMaxWidth().bounceClick(onClick = onOpenPricing)
+                ) {
+                    Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(26.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(appText("Честно о цене", "Хаҡ тураһында асыҡтан-асыҡ"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                            Text(appText("Как считается цена и куда идёт комиссия", "Хаҡ нисек иҫәпләнә һәм комиссия ҡайҙа китә"), color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
+                        }
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
+                    }
+                }
+            }
+            item {
                 Text(appText("Скоро: оплата картой прямо в приложении.", "Тиҙҙән: ҡушымтала карта менән түләү."), color = CanonMuted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
             }
+        }
+    }
+}
+
+/**
+ * «Честно о цене» — по-соседски и с гордостью объясняем, за что платят и куда идёт комиссия.
+ * Никаких выдуманных цифр: попутка бесплатна (только бензин напрямую), у такси честный потолок
+ * суржа ×1.5 (не ×3), комиссия водителя 3–8% по стажу — и открыто, на что она уходит.
+ */
+@Composable
+internal fun PricingInfoScreen(onBack: () -> Unit) {
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Честно о цене", "Хаҡ тураһында"), onBack) }) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item {
+                Surface(color = CanonMint, shape = CanonItemShape) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(appText("Мы не прячем, на что живём", "Нимә менән йәшәгәнде йәшермәйбеҙ"), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp, lineHeight = 22.sp)
+                        Text(appText("Юлдаш — между своими. Здесь ты всегда видишь, из чего цена и куда уходит каждая копейка.", "Юлдаш — үҙ кешеләр араһында. Бында хаҡтың нимәнән торғанын һәм һәр тин ҡайҙа киткәнен күрәһең."), color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                    }
+                }
+            }
+            // (а) Попутка
+            item {
+                PricingBlock(
+                    icon = Icons.Default.VolunteerActivism,
+                    title = appText("Попутка — бесплатна", "Юлдаш — бушлай"),
+                    body = appText(
+                        "За саму поездку между своими Юлдаш не берёт ничего. Ты просто скидываешься водителю на бензин напрямую — по-соседски. Сумму видно заранее и можно честно поделить на всех.",
+                        "Үҙ кешеләр араһындағы сәфәр өсөн Юлдаш бер нәмә лә алмай. Һин бензинға тура водителгә өҫтәйһең — күршеләрсә. Сумма алдан күренә, бөтәһенә лә намыҫлы бүленә.",
+                    ),
+                )
+            }
+            // (б) Такси — формула тарифа + честный сурж
+            item {
+                PricingBlock(
+                    icon = Icons.Default.LocalTaxi,
+                    accent = CanonTaxi,
+                    title = appText("Такси — понятный тариф", "Такси — асыҡ тариф"),
+                    body = appText(
+                        "Цену показываем ДО заказа, без сюрпризов. Она складывается из подачи + за километры + за минуты в пути, и есть минимальная стоимость короткой поездки. Никакого счётчика, который «набегает» незаметно.",
+                        "Хаҡты заказға тиклем күрһәтәбеҙ, сюрприздарһыҙ. Ул килеү + километрҙар + юлдағы минуттар өсөн, һәм ҡыҫҡа сәфәрҙең минималь хаҡы бар. Һиҙҙермәй «үҫкән» счётчик юҡ.",
+                    ),
+                )
+            }
+            item {
+                Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
+                        Text("⚡", fontSize = 22.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(appText("Честный сурж: максимум ×1.5", "Намыҫлы сурж: күп тигәндә ×1.5"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Text(
+                                appText(
+                                    "Когда машин мало, цена может подрасти — но у нас потолок ×1.5, а не ×3, как у больших сервисов. И мы честно пишем, почему дороже, ещё до того, как ты вызовешь.",
+                                    "Машина аҙ булғанда хаҡ бер аҙ үҫә ала — тик бездә түшәм ×1.5, ҙур сервистарҙағыса ×3 түгел. Һәм ниңә ҡиммәтерәк икәнен саҡырғанға тиклем үк яҙабыҙ.",
+                                ),
+                                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                            )
+                        }
+                    }
+                }
+            }
+            // (в) Комиссия водителя + куда идёт
+            item {
+                PricingBlock(
+                    icon = Icons.Default.Verified,
+                    title = appText("Комиссия водителя — 3–8%", "Водитель комиссияһы — 3–8%"),
+                    body = appText(
+                        "С поездок такси Юлдаш берёт небольшую комиссию с водителя — от 3% до 8% в зависимости от стажа: чем дольше и надёжнее возишь, тем меньше платишь. У попутки комиссии нет вовсе.",
+                        "Такси сәфәрҙәренән Юлдаш водителдән бәләкәй комиссия ала — стажға ҡарап 3%-тан 8%-ҡа тиклем: оҙағыраҡ һәм ышаныслыраҡ йөрөтһәң, шунса аҙ түләйһең. Юлдашта комиссия бөтөнләй юҡ.",
+                    ),
+                )
+            }
+            item {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(appText("Куда идёт комиссия", "Комиссия ҡайҙа китә"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                        PricingWhereRow(Icons.Default.Info, appText("Серверы и связь", "Серверҙар һәм бәйләнеш"), appText("чтобы карта, чат и заказы работали без сбоев", "карта, чат һәм заказдар өҙлөкһөҙ эшләһен"))
+                        PricingWhereRow(Icons.Default.Map, appText("Карты и маршруты", "Карталар һәм маршруттар"), appText("оплата картографии, по которой строятся поездки", "сәфәрҙәр төҙөлгән картография түләүе"))
+                        PricingWhereRow(Icons.Default.TrendingUp, appText("Развитие приложения", "Ҡушымтаны үҫтереү"), appText("новые функции и поддержка — чтобы Юлдаш рос", "яңы мөмкинлектәр һәм ярҙам — Юлдаш үҫһен өсөн"))
+                        Text(appText("Мы не прячем, на что живём — сервис должен окупаться честно, без скрытых наценок.", "Нимә менән йәшәгәнде йәшермәйбеҙ — сервис йәшерен өҫтәмәләрһеҙ, намыҫлы аҡланырға тейеш."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                    }
+                }
+            }
+            // (г) Оплата
+            item {
+                PricingBlock(
+                    icon = Icons.Default.CreditCard,
+                    title = appText("Оплата — пока напрямую по СБП", "Түләү — әлегә СБП аша тура"),
+                    body = appText(
+                        "Сейчас деньги идут напрямую водителю переводом по СБП — «на доверии», как между своими. Юлдаш их не держит. Скоро добавим оплату картой прямо в приложении.",
+                        "Хәҙер аҡса водителгә СБП аша тура күсә — «ышаныс менән», үҙ-ара кеүек. Юлдаш уны тотмай. Тиҙҙән ҡушымтала карта менән түләү өҫтәйбеҙ.",
+                    ),
+                )
+            }
+            item {
+                Text(appText("Цифры могут меняться — но правило одно: ты всегда видишь, за что платишь.", "Һандар үҙгәрергә мөмкин — тик ҡағиҙә бер: нимә өсөн түләгәнеңде һәр ваҡыт күрәһең."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 4.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PricingBlock(icon: ImageVector, title: String, body: String, accent: Color? = null) {
+    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.Top) {
+            Icon(icon, contentDescription = null, tint = accent ?: CanonGreen2, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(body, color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PricingWhereRow(icon: ImageVector, title: String, sub: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(sub, color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp)
         }
     }
 }
@@ -647,12 +1175,14 @@ internal object AppPrefs {
     private fun sp(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     fun notifications(ctx: Context) = sp(ctx).getBoolean("notifications", true)
     fun sounds(ctx: Context) = sp(ctx).getBoolean("sounds", true)
+    /** Язык интерфейса для мира БЕЗ Compose (FCM/фоновые сервисы) — YuldashApp пишет при смене языка. */
+    fun language(ctx: Context): AppLanguage =
+        runCatching { AppLanguage.valueOf(sp(ctx).getString("app_language", "") ?: "") }.getOrDefault(AppLanguage.Ru)
+    fun setLanguage(ctx: Context, v: AppLanguage) = sp(ctx).edit().putString("app_language", v.name).apply()
     fun verifiedOnly(ctx: Context) = sp(ctx).getBoolean("verified_only", false)
-    fun hidePhone(ctx: Context) = sp(ctx).getBoolean("hide_phone", true)
     fun setNotifications(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("notifications", v).apply()
     fun setSounds(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("sounds", v).apply()
     fun setVerifiedOnly(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("verified_only", v).apply()
-    fun setHidePhone(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("hide_phone", v).apply()
 }
 
 /** Экран «Фильтры по умолчанию»: тумблеры условий, сохраняются и применяются к «Ближайшим». */
@@ -728,6 +1258,7 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
     val token = remember { ApiClient.currentToken() ?: "" }
     val approvedMsg = appText("Водитель одобрен", "Водитель раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
+    val actionErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     // error отделяет «сеть упала» от «список пуст» — иначе админ решит, что заявок на проверку нет.
     fun reload() { loading = true; error = null; scope.launch { ApiClient.getPendingDrivers().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
@@ -739,8 +1270,8 @@ internal fun AdminDriversScreen(onBack: () -> Unit) {
             drivers = list,
             token = token,
             onRetry = { reload() },
-            onApprove = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() } } },
-            onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() } } },
+            onApprove = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, true).onSuccess { Toast.makeText(ctx, approvedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
+            onReject = { d -> val id = d.userId; scope.launch { ApiClient.moderateDriver(id, false).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } },
             modifier = Modifier.padding(padding),
         )
     }
@@ -770,7 +1301,7 @@ internal fun AdminDriversContent(
         } else if (drivers.isEmpty()) {
             item { ListedEmpty(appText("Нет заявок на проверку", "Тикшереүгә заявка юҡ"), appText("Здесь появятся водители, отправившие документы.", "Бында документ ебәргән водителдәр күренер")) }
         } else {
-            items(drivers.size) { i ->
+            items(drivers.size, key = { drivers[it].userId }) { i ->
                 val d = drivers[i]
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -831,12 +1362,21 @@ internal fun AutoCheckRow(result: String, dataJson: String) {
 @Composable
 internal fun AdminReportsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<com.yuldash.app.data.AdminReportDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    val doneMsg = appText("Готово", "Әҙер")
+    val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     // error отделяет «сеть упала» от «жалоб нет» — иначе сбой выглядит как «всё хорошо».
     fun reload() { loading = true; error = null; scope.launch { ApiClient.getAdminReports().onSuccess { list = it }.onFailure { error = loadErr }; loading = false } }
+    fun act(block: suspend () -> Result<Unit>) {
+        scope.launch {
+            block().onSuccess { Toast.makeText(ctx, doneMsg, Toast.LENGTH_SHORT).show(); reload() }
+                .onFailure { Toast.makeText(ctx, actionErr, Toast.LENGTH_SHORT).show() }
+        }
+    }
     LaunchedEffect(Unit) { reload() }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Жалобы", "Ялыуҙар"), onBack) }) { padding ->
         AdminReportsContent(
@@ -845,9 +1385,23 @@ internal fun AdminReportsScreen(onBack: () -> Unit) {
             reports = list,
             onRetry = { reload() },
             modifier = Modifier.padding(padding),
+            onResolve = { r, keepPause -> act { ApiClient.adminResolveReport(r.id, resolution = "", keepPause = keepPause) } },
+            onReject = { r -> act { ApiClient.adminRejectReport(r.id) } },
+            onPause = { userId -> act { ApiClient.adminQualityPause(userId, hours = 72) } },
+            onUnpause = { userId -> act { ApiClient.adminQualityUnpause(userId) } },
         )
     }
 }
+
+/** Двуязычное название категории жалобы по id (для админки и карточек). */
+@Composable
+internal fun reportCategoryLabel(id: String): String {
+    val c = reportCategoriesAll().firstOrNull { it.id == id }
+    return if (c != null) appText(c.ru, c.ba) else appText("Другое", "Башҡа")
+}
+
+/** Тяжёлые категории (⛔ §9): мгновенная пауза такси до разбора. */
+internal val severeReportCategories = setOf("safety_threat", "kicked_out", "dangerous_driving")
 
 /**
  * Чистый рендер экрана жалоб: все состояния (загрузка / ошибка+повтор / пусто / список).
@@ -860,9 +1414,14 @@ internal fun AdminReportsContent(
     reports: List<com.yuldash.app.data.AdminReportDto>,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    // §9 Качество: действия разбора (дефолты — совместимость со старыми вызовами/тестами).
+    onResolve: (com.yuldash.app.data.AdminReportDto, Boolean) -> Unit = { _, _ -> },
+    onReject: (com.yuldash.app.data.AdminReportDto) -> Unit = {},
+    onPause: (Int) -> Unit = {},
+    onUnpause: (Int) -> Unit = {},
 ) {
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Жалобы пользователей. Разберись — позвони, предупреди или отклони водителя в модерации.", "Ҡулланыусы ялыуҙары. Тикшер — шылтырат, иҫкәрт йәки модерацияла кире ҡаҡ."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        item { Text(appText("Жалобы пользователей. Подтверди или отклони — лестница наказаний дальше считается сама. Автора видишь только ты.", "Ҡулланыусы ялыуҙары. Раҫла йәки кире ҡаҡ — язалар баҫҡысы артабан үҙе иҫәпләнә. Авторҙы тик һин күрәһең."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
         if (loading) {
             item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
         } else if (error != null) {
@@ -870,14 +1429,57 @@ internal fun AdminReportsContent(
         } else if (reports.isEmpty()) {
             item { ListedEmpty(appText("Жалоб нет", "Ялыу юҡ"), appText("Хороший знак — пользователи довольны.", "Яҡшы билдә — ҡулланыусылар риза.")) }
         } else {
-            items(reports.size) { i ->
+            items(reports.size, key = { reports[it].id }) { i ->
                 val r = reports[i]
-                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val severe = r.category in severeReportCategories
+                val open = r.status == "new" || r.status == "reviewing"
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, if (severe && open) CanonRed.copy(alpha = 0.45f) else CanonBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // Категория (⛔ тяжёлая — красным) + статус разбора.
+                            Surface(shape = RoundedCornerShape(8.dp), color = (if (severe) CanonRed else CanonGreen2).copy(alpha = 0.12f)) {
+                                Text(reportCategoryLabel(r.category), color = if (severe) CanonRed else CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                            }
+                            val (stLabel, stColor) = when (r.status) {
+                                "resolved" -> appText("Подтверждена", "Раҫланған") to CanonGreen2
+                                "rejected" -> appText("Отклонена", "Кире ҡағылған") to CanonMuted
+                                "reviewing" -> appText("В разборе", "Тикшереүҙә") to CanonWarn
+                                else -> appText("Новая", "Яңы") to CanonWarn
+                            }
+                            Text(stLabel, color = stColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.weight(1f))
+                            if (r.createdAt.length >= 10) Text(r.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
+                        }
                         Text("${r.reporterName}  →  ${r.targetName}", color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
                         if (r.targetPhone.isNotBlank()) Text(r.targetPhone, color = CanonMuted, fontSize = 13.sp)
-                        Text(r.reason.ifBlank { appText("без причины", "сәбәпһеҙ") }, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
-                        if (r.createdAt.length >= 10) Text(r.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
+                        Text(r.reason.ifBlank { appText("без деталей", "ентекһеҙ") }, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                        if (r.resolution.isNotBlank()) Text(appText("Решение: ", "Ҡарар: ") + r.resolution, color = CanonMuted, fontSize = 13.sp)
+                        if (open) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { onResolve(r, false) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) {
+                                    Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                                OutlinedButton(onClick = { onReject(r) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(12.dp)) {
+                                    Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                            }
+                            if (severe) {
+                                // ⛔ Тяжёлая: пауза стоит «до разбора» — можно подтвердить, ОСТАВИВ паузу.
+                                TextButton(onClick = { onResolve(r, true) }, modifier = Modifier.fillMaxWidth()) {
+                                    Text(appText("Подтвердить и оставить паузу такси", "Раҫлап такси паузаһын ҡалдырыу"), color = CanonWarn, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        if (r.targetUserId > 0) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = { onPause(r.targetUserId) }, modifier = Modifier.weight(1f)) {
+                                    Text(appText("⏸ Пауза такси 72ч", "⏸ Такси паузаһы 72сәғ"), color = CanonWarn, fontSize = 12.sp)
+                                }
+                                TextButton(onClick = { onUnpause(r.targetUserId) }, modifier = Modifier.weight(1f)) {
+                                    Text(appText("▶ Снять паузу", "▶ Паузаны алыу"), color = CanonGreen2, fontSize = 12.sp)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -887,7 +1489,7 @@ internal fun AdminReportsContent(
 
 /** Кабинет админа — единый центр: заявки помощи, отклики, реклама. Виден только админу. */
 @Composable
-internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}) {
+internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, onAdminResponses: () -> Unit, onAds: () -> Unit, onDrivers: () -> Unit = {}, onReports: () -> Unit = {}, onPaymentRequests: () -> Unit = {}, onTaxi: () -> Unit = {}, onWaitlist: () -> Unit = {}, onTaxiPulse: () -> Unit = {}, onPartners: () -> Unit = {}, onPromoAdmin: () -> Unit = {}, onParcelsAdmin: () -> Unit = {}, onCourierAdmin: () -> Unit = {}, onIncomeCalc: () -> Unit = {}, onSosFeed: () -> Unit = {}, onIncidents: () -> Unit = {}, onRatings: () -> Unit = {}) {
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Кабинет админа", "Админ кабинеты"), onBack) }) { padding ->
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
             item { Text(appText("Единый центр управления Юлдашем. Виден только администратору.", "Юлдашты идара итеү үҙәге. Тик админға күренә."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
@@ -900,13 +1502,28 @@ internal fun AdminCabinetScreen(onBack: () -> Unit, onAdminRequest: () -> Unit, 
             item {
                 SettingsGroup {
                     SettingsNavRow(Icons.Default.Verified, appText("Модерация водителей", "Водителдәрҙе модерациялау"), appText("Проверить права и фото, одобрить", "Права һәм фотоны тикшереп раҫлау"), onClick = onDrivers)
+                    SettingsNavRow(Icons.Default.LocalTaxi, appText("Таксисты", "Таксистар"), appText("Заявки 580-ФЗ и города, где включено такси", "580-ФЗ заявкалары һәм такси ҡабыҙылған ҡалалар"), onClick = onTaxi)
+                    SettingsNavRow(Icons.Default.MonitorHeart, appText("Пульс такси", "Такси пульсы"), appText("На линии, активные заказы, счётчики дня по городам", "Линияла, актив заказдар, көн һандары ҡалалар буйынса"), onClick = onTaxiPulse)
+                    SettingsNavRow(Icons.Default.Campaign, appText("Лист ожидания", "Көтөү исемлеге"), appText("Ранний доступ: кто ждёт запуска, волны приглашений", "Иртә инеү: кем көтә, саҡырыу тулҡындары"), onClick = onWaitlist)
                     SettingsNavRow(Icons.Default.Report, appText("Жалобы", "Ялыуҙар"), appText("Разобрать жалобы пользователей", "Ҡулланыусы ялыуҙарын тикшереү"), onClick = onReports)
+                    // SOS-лента: раньше сигнал уходил ОДНИМ сообщением в Telegram, и если его
+                    // не прочитали ночью — следа о происшествии не оставалось нигде.
+                    // «Справедливость»: двусторонний разбор — сервер умел давно, экрана не было.
+                    // Без этого экрана текстовые отзывы не публиковались НИКОГДА — люди писали в пустоту.
+                    SettingsNavRow(Icons.Default.Star, appText("Отзывы на модерации", "Модерациялағы фекерҙәр"), appText("Одобрить текст к показу в профиле", "Текстты профилдә күрһәтергә раҫлау"), onClick = onRatings)
+                    SettingsNavRow(Icons.Default.Shield, appText("Разбор споров", "Бәхәстәрҙе ҡарау"), appText("Обе версии рядом, телефоны сторон, решение с объяснением", "Ике версия ҡатар, телефондар, аңлатмалы ҡарар"), onClick = onIncidents)
+                    SettingsNavRow(Icons.Default.Sos, appText("Сигналы SOS", "SOS сигналдары"), appText("Кто позвал на помощь: позвонить и отметить «принял»", "Кем ярҙам һораған: шылтыратып «ҡабул иттем» тип билдәләү"), onClick = onSosFeed)
+                    SettingsNavRow(Icons.Default.Storefront, appText("Бизнесы-партнёры", "Партнёр-бизнестар"), appText("Модерация: одобрить купонных партнёров", "Модерация: купон партнёрҙарын раҫлау"), onClick = onPartners)
+                    SettingsNavRow(Icons.Default.Loyalty, appText("Промокоды и кампании", "Промокодтар һәм акциялар"), appText("Коды для блогеров и акций, статистика", "Блогерҙар һәм акциялар өсөн кодтар, статистика"), onClick = onPromoAdmin)
+                    SettingsNavRow(Icons.Default.LocalShipping, appText("Посылки", "Бандеролдәр"), appText("Доставки и собранный сбор", "Илтеүҙәр һәм йыйылған сбор"), onClick = onParcelsAdmin)
+                    SettingsNavRow(Icons.Default.DeliveryDining, appText("Курьеры", "Курьерҙар"), appText("Заявки курьеров: одобрить или отклонить", "Курьер заявкалары: раҫлау йәки кире ҡағыу"), onClick = onCourierAdmin)
                 }
             }
             item {
                 SettingsGroup {
                     SettingsNavRow(Icons.Default.Payments, appText("Заявки на оплату", "Түләү заявкалары"), appText("Подтвердить оплату буста и донаты", "Буст түләүен раҫлау һәм донаттар"), onClick = onPaymentRequests)
                     SettingsNavRow(Icons.Default.CreditCard, appText("Реклама", "Реклама"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), onClick = onAds)
+                    SettingsNavRow(Icons.Default.TrendingUp, appText("Калькулятор дохода", "Килем калькуляторы"), appText("Прикинь месячную выручку и «чистыми» по маршруту", "Маршрут буйынса айлыҡ килемде һәм таҙаһын самала"), onClick = onIncomeCalc)
                 }
             }
         }
@@ -919,16 +1536,19 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var list by remember { mutableStateOf<List<com.yuldash.app.data.PendingPaymentDto>>(emptyList()) }
+    var debts by remember { mutableStateOf<List<com.yuldash.app.data.AdminDebtDto>>(emptyList()) }
     var summary by remember { mutableStateOf<com.yuldash.app.data.PaymentsSummaryDto?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     val confirmedMsg = appText("Оплата подтверждена", "Түләү раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    val actionErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     fun reload() {
         loading = true; error = null
         scope.launch {
             ApiClient.getPaymentsSummary().onSuccess { summary = it }
+            ApiClient.getAdminDebts().onSuccess { debts = it }
             ApiClient.getPendingPayments().onSuccess { list = it }.onFailure { error = loadErr }
             loading = false
         }
@@ -972,14 +1592,41 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            // Долги водителей по комиссии за такси (Модель А «на доверии») — на подтверждение.
+            if (debts.isNotEmpty()) {
+                item {
+                    Text(appText("Долги за такси", "Такси бурыстары"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                }
+                item {
+                    Text(appText("Водитель перевёл комиссию по СБП и нажал «Я оплатил». Сверь по имени и сумме — подтверди, и такси у него разблокируется.", "Водитель комиссияны СБП аша күсереп «Мин түләнем» баҫҡан. Исем һәм сумма буйынса тикшер — раҫла, такси блокан асыла."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                }
+                items(debts.size, key = { debts[it].debtId }) { i ->
+                    val g = debts[i]
+                    val noName = appText("Без имени", "Исемһеҙ")
+                    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(appText("Долг за такси", "Такси бурысы"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                                Text("${g.amount} ₽", color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            }
+                            Text((g.driverName.ifBlank { noName }) + (if (g.driverPhone.isNotBlank()) " · ${g.driverPhone}" else ""), color = CanonMuted, fontSize = 13.sp)
+                            if (g.weeks.isNotEmpty()) Text(appText("Недели: ", "Аҙналар: ") + g.weeks.joinToString(", "), color = CanonMuted, fontSize = 12.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(onClick = { val id = g.debtId; scope.launch { ApiClient.confirmDebt(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = g.debtId; scope.launch { ApiClient.rejectDebt(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                    }
+                }
+            }
             if (loading) {
                 item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
             } else if (error != null) {
-                item { ListedError(error!!) { reload() } }
-            } else if (list.isEmpty()) {
-                item { ListedEmpty(appText("Нет заявок на оплату", "Түләү заявкалары юҡ"), appText("Здесь появятся оплаты буста и донаты на подтверждение.", "Бында буст түләүҙәре һәм донаттар раҫлауға күренер")) }
-            } else {
-                items(list.size) { i ->
+                item { ListedError(error ?: "") { reload() } }
+            } else if (list.isEmpty() && debts.isEmpty()) {
+                item { ListedEmpty(appText("Нет заявок на оплату", "Түләү заявкалары юҡ"), appText("Здесь появятся оплаты буста, донаты и долги за такси на подтверждение.", "Бында буст түләүҙәре, донаттар һәм такси бурыстары раҫлауға күренер")) }
+            } else if (list.isNotEmpty()) {
+                items(list.size, key = { list[it].paymentId }) { i ->
                     val p = list[i]
                     val label = when (p.purpose) {
                         "donate" -> appText("Донат", "Донат")
@@ -998,8 +1645,8 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                             if (p.note.isNotBlank()) Text(p.note, color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             if (p.createdAt.length >= 10) Text(p.createdAt.take(10), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(onClick = { val id = p.paymentId; scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                                OutlinedButton(onClick = { val id = p.paymentId; scope.launch { ApiClient.rejectPayment(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                                Button(onClick = { val id = p.paymentId; scope.launch { ApiClient.confirmPayment(id).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = p.paymentId; scope.launch { ApiClient.rejectPayment(id).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, actionErrMsg, Toast.LENGTH_SHORT).show() } } }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                             }
                         }
                     }
@@ -1072,6 +1719,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     val acceptedMsg = appText("Поездка создана. Перезвоните пассажиру и водителю.", "Сәфәр булдырылды. Пассажирға һәм водителгә шылтыратығыҙ.")
     val noResp = appText("Откликов нет или заявка не найдена", "Яуап юҡ йәки заявка табылманы")
+    val acceptErr = appText("Не получилось принять отклик. Проверь сеть и повтори.", "Яуапты алып булманы. Сетте тикшереп ҡабатла.")
     fun load() {
         val id = reqId.toIntOrNull() ?: return
         loading = true
@@ -1092,7 +1740,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
                 }
             }
             if (loading) item { Text(appText("Загрузка…", "Йөкләнә…"), color = CanonMuted) }
-            items(resps.size) { i ->
+            items(resps.size, key = { resps[it].id }) { i ->
                 val r = resps[i]
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1111,7 +1759,7 @@ internal fun AdminResponsesScreen(onBack: () -> Unit) {
                             Button(
                                 onClick = {
                                     val id = r.id
-                                    scope.launch { ApiClient.acceptResponse(id).onSuccess { Toast.makeText(ctx, acceptedMsg, Toast.LENGTH_LONG).show(); load() } }
+                                    scope.launch { ApiClient.acceptResponse(id).onSuccess { Toast.makeText(ctx, acceptedMsg, Toast.LENGTH_LONG).show(); load() }.onFailure { Toast.makeText(ctx, acceptErr, Toast.LENGTH_SHORT).show() } }
                                 },
                                 modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
@@ -1199,14 +1847,14 @@ internal fun BlocklistContent(
                     }
                 }
             } else {
-                items(blocks.size) { i ->
+                items(blocks.size, key = { blocks[it].blockedUserId }) { i ->
                     val b = blocks[i]
                     PersonRow(b.name, appText("Разблокировать", "Блокты алыу"), danger = false) { onUnblock(b.blockedUserId) }
                 }
             }
             if (addable.isNotEmpty()) {
                 item { Text(appText("Ваши попутчики", "Юлдаштарығыҙ"), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp)) }
-                items(addable.size) { i ->
+                items(addable.size, key = { addable[it].id }) { i ->
                     val p = addable[i]
                     PersonRow(p.name, appText("Заблокировать", "Блоклау"), danger = true) { onBlock(p.id) }
                 }
@@ -1215,7 +1863,7 @@ internal fun BlocklistContent(
     }
 }
 
-/** Пожаловаться на попутчика (с кем была поездка) → POST /reports. */
+/** Пожаловаться на попутчика (с кем была поездка) → POST /reports (категория §9 + детали). */
 @Composable
 internal fun ReportScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -1224,36 +1872,25 @@ internal fun ReportScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var target by remember { mutableStateOf<com.yuldash.app.data.ReportableUserDto?>(null) }
-    var reason by remember { mutableStateOf("") }
-    val sentMsg = appText("Жалоба отправлена. Спасибо.", "Ялыу ебәрелде. Рәхмәт.")
+    val sentMsg = appText("Жалоба отправлена. Спасибо, разберёмся.", "Ялыу ебәрелде. Рәхмәт, тикшерербеҙ.")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
     val errMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшерегеҙ.")
     fun reload() { loading = true; error = null; scope.launch { ApiClient.getReportableUsers().onSuccess { partners = it }.onFailure { error = loadErr }; loading = false } }
     LaunchedEffect(Unit) { reload() }
     target?.let { t ->
-        AlertDialog(
-            onDismissRequest = { target = null },
-            containerColor = CanonSurface,
-            title = { Text(appText("Жалоба на", "Ялыу:") + " ${t.name}", color = CanonText, fontWeight = FontWeight.Black) },
-            text = {
-                OutlinedTextField(
-                    value = reason, onValueChange = { reason = it },
-                    placeholder = { Text(appText("Что случилось?", "Ни булды?")) },
-                    modifier = Modifier.fillMaxWidth(), minLines = 2
-                )
+        ReportCategoryDialog(
+            title = appText("Жалоба на", "Ялыу:") + " ${t.name}",
+            categories = reportCategoriesAll(),
+            onDismiss = { target = null },
+            onSend = { category, details ->
+                val id = t.id
+                scope.launch {
+                    ApiClient.reportUser(targetUserId = id, reason = details, category = category)
+                        .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
+                }
+                target = null
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    val r = reason.trim(); val id = t.id
-                    scope.launch {
-                        ApiClient.reportUser(id, r)
-                            .onSuccess { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() }
-                            .onFailure { Toast.makeText(ctx, errMsg, Toast.LENGTH_SHORT).show() }
-                    }
-                    target = null; reason = ""
-                }) { Text(appText("Отправить", "Ебәреү"), color = CanonRed, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = { TextButton(onClick = { target = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Пожаловаться", "Ялыу"), onBack) }) { padding ->
@@ -1262,10 +1899,126 @@ internal fun ReportScreen(onBack: () -> Unit) {
             error = error,
             partners = partners,
             onRetry = { reload() },
-            onSelect = { p -> target = p; reason = "" },
+            onSelect = { p -> target = p },
             modifier = Modifier.padding(padding),
         )
     }
+}
+
+// ------------------------------ Категории жалоб (§9 Качество) ------------------------------
+/** Категория жалобы для UI: id — как на сервере (закрытый перечень), названия двуязычные. */
+internal data class ReportCategoryUi(val id: String, val icon: ImageVector, val ru: String, val ba: String)
+
+/** Жалобы НА ВОДИТЕЛЯ (пассажир жалуется). */
+internal fun reportCategoriesDriver(): List<ReportCategoryUi> = listOf(
+    ReportCategoryUi("rude", Icons.Default.MoodBad, "Нахамил", "Тупаҫланды"),
+    ReportCategoryUi("kicked_out", Icons.Default.PersonOff, "Высадил в пути", "Юлда төшөрөп ҡалдырҙы"),
+    ReportCategoryUi("dangerous_driving", Icons.Default.Speed, "Опасное вождение", "Хәүефле йөрөтөү"),
+    ReportCategoryUi("price_fraud", Icons.Default.Payments, "Обман с ценой", "Хаҡ менән алдау"),
+    ReportCategoryUi("dirty_car", Icons.Default.CleaningServices, "Грязная машина", "Бысраҡ машина"),
+    ReportCategoryUi("late", Icons.Default.Schedule, "Опоздал", "Һуңланы"),
+    ReportCategoryUi("safety_threat", Icons.Default.Warning, "Угроза безопасности", "Хәүефһеҙлеккә янау"),
+    ReportCategoryUi("other", Icons.Default.QuestionMark, "Другое", "Башҡа"),
+)
+
+/** Жалобы НА ПАССАЖИРА (водитель жалуется). */
+internal fun reportCategoriesPassenger(): List<ReportCategoryUi> = listOf(
+    ReportCategoryUi("rude", Icons.Default.MoodBad, "Нахамил", "Тупаҫланды"),
+    ReportCategoryUi("no_show", Icons.Default.EventBusy, "Не пришёл к машине", "Машинаға килмәне"),
+    ReportCategoryUi("damage", Icons.Default.Build, "Испортил машину", "Машинаны боҙҙо"),
+    ReportCategoryUi("unpaid", Icons.Default.MoneyOff, "Не заплатил", "Түләмәне"),
+    ReportCategoryUi("safety_threat", Icons.Default.Warning, "Небезопасное поведение", "Хәүефле үҙ-үҙен тотоу"),
+    ReportCategoryUi("other", Icons.Default.QuestionMark, "Другое", "Башҡа"),
+)
+
+/** Полный перечень (когда роль цели неизвестна — общий экран «Пожаловаться»). */
+internal fun reportCategoriesAll(): List<ReportCategoryUi> {
+    val driver = reportCategoriesDriver()
+    val ids = driver.map { it.id }.toSet()
+    // «Другое» — всегда последним.
+    return driver.dropLast(1) + reportCategoriesPassenger().filter { it.id !in ids } + driver.last()
+}
+
+/**
+ * Диалог жалобы: категории из перечня §9 (иконка + двуязычное название, тач-цель 48dp),
+ * поле деталей («Другое» — обязательно опиши) и честная строка «жалоба анонимна».
+ * Тёплый тон: жалоба — не донос, а способ сделать сервис безопаснее.
+ */
+@Composable
+internal fun ReportCategoryDialog(
+    title: String,
+    categories: List<ReportCategoryUi>,
+    onDismiss: () -> Unit,
+    onSend: (category: String, details: String) -> Unit,
+) {
+    var selected by remember { mutableStateOf<String?>(null) }
+    var details by remember { mutableStateOf("") }
+    val canSend = selected != null && (selected != "other" || details.isNotBlank())
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CanonSurface,
+        title = { Text(title, color = CanonText, fontWeight = FontWeight.Black) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    appText("Что случилось? Выбери категорию:", "Ни булды? Категорияны һайла:"),
+                    color = CanonMuted, fontSize = 13.sp,
+                )
+                Column(
+                    Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    categories.forEach { c ->
+                        val active = selected == c.id
+                        val tint by animateColorAsState(if (active) CanonGreen2 else CanonMuted, label = "repCat")
+                        Surface(
+                            onClick = { selected = c.id },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (active) CanonGreen2.copy(alpha = 0.10f) else Color.Transparent,
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(c.icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    appText(c.ru, c.ba), color = CanonText, fontSize = 15.sp,
+                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (active) Icon(Icons.Default.CheckCircle, contentDescription = appText("Выбрано", "Һайланған"), tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+                AnimatedVisibility(selected != null) {
+                    OutlinedTextField(
+                        value = details, onValueChange = { details = it },
+                        placeholder = {
+                            Text(
+                                if (selected == "other") appText("Опиши, что случилось", "Ни булғанын яҙ")
+                                else appText("Детали (необязательно)", "Ентекләп (мотлаҡ түгел)")
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(), minLines = 2,
+                    )
+                }
+                Text(
+                    appText("Жалоба анонимна: человек не узнает, что она от тебя. Разбирает живой человек.",
+                        "Ялыу аноним: кеше уның һинән икәнен белмәйәсәк. Тере кеше тикшерә."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = canSend,
+                onClick = { onSend(selected ?: "other", details.trim()) },
+            ) { Text(appText("Отправить", "Ебәреү"), color = if (canSend) CanonRed else CanonMuted, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+    )
 }
 
 /**
@@ -1303,7 +2056,7 @@ internal fun ReportListContent(
                 }
             }
         } else {
-            items(partners.size) { i ->
+            items(partners.size, key = { partners[it].id }) { i ->
                 val p = partners[i]
                 PersonRow(p.name, appText("Пожаловаться", "Ялыу"), danger = true) { onSelect(p) }
             }
@@ -1318,12 +2071,20 @@ internal fun HelpScreen(
     onBack: () -> Unit,
     onSelectTab: (HomeTab) -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
-    onAdClick: (PartnerAd) -> Unit
+    onAdClick: (PartnerAd) -> Unit,
+    onSupportChat: () -> Unit = {},   // внутренний чат поддержки Юлдаш (замена ссылки в Telegram)
 ) {
+    // Бейдж непрочитанного на входе «Поддержка Юлдаш» (best-effort: нет сессии/сети → просто 0).
+    var supportUnread by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        if (ApiClient.isLoggedIn()) ApiClient.getSupportTickets().onSuccess { supportUnread = it.unread }
+    }
     val usefulAd = ads.forPlacement(AdPlacement.Help).firstOrNull { it.category == "В больницу" }
         ?: ads.forPlacement(AdPlacement.Help).firstOrNull { it.city == "Баймаҡ" }
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     val supportSent = appText("Заявка отправлена — мы свяжемся с вами.", "Заявка ебәрелде — һеҙҙең менән бәйләнешербеҙ.")
+    val supportErr = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Сетте тикшереп ҡабатла.")
     var helpQuery by remember { mutableStateOf("") }
     // FAQ строим в composable-контексте (appText), не внутри LazyColumn-лямбды.
     val faq = listOf(
@@ -1371,14 +2132,42 @@ internal fun HelpScreen(
             } else {
                 items(faqFiltered, key = { it.second }) { f -> ExpandableHelpRow(f.first, f.second, f.third) }
             }
+            // Прямо под FAQ — тёплое приглашение написать в поддержку, если ответа не нашлось.
+            item {
+                Card(
+                    onClick = onSupportChat,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = CanonMint),
+                    shape = CanonItemShape,
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.HeadsetMic, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(appText("Не нашёл ответ?", "Яуап тапманыңмы?"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                            Text(appText("Напиши в поддержку — поможем", "Ярҙамға яҙ — ярҙам итербеҙ"), color = CanonGreen2, fontSize = 13.sp)
+                        }
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonGreen2)
+                    }
+                }
+            }
             item { Text(appText("Связаться с поддержкой", "Ярдам менән бәйләнеү"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 17.sp) }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Default.ChatBubble, appText("Связаться с поддержкой", "Ярҙамға яҙыу"), appText("Оставьте заявку — мы перезвоним", "Заявка ҡалдырығыҙ — шылтыратырбыҙ"), onClick = {
-                        ApiClient.fireRequestCallback("Поддержка из раздела «Помощь»")
-                        Toast.makeText(ctx, supportSent, Toast.LENGTH_SHORT).show()
+                    // Основной способ — внутренний чат поддержки Юлдаш (переписка сохраняется, ответы приходят сюда же).
+                    SettingsNavRow(Icons.Default.HeadsetMic, appText("Поддержка Юлдаш", "Юлдаш ярҙамы"), appText("Написать нам в приложении — ответим здесь", "Ҡушымтала беҙгә яҙ — ошонда яуап бирербеҙ"), onClick = onSupportChat, badge = supportUnread)
+                    SettingsNavRow(Icons.Default.ChatBubble, appText("Попросить звонок", "Шылтыратыу һорау"), appText("Оставьте заявку — мы перезвоним", "Заявка ҡалдырығыҙ — шылтыратырбыҙ"), onClick = {
+                        // Ждём результат: тост «отправлено» — только при успехе, иначе честная ошибка
+                        // (раньше fire-and-forget + тост ДО результата → при офлайне заявка терялась молча).
+                        scope.launch {
+                            ApiClient.requestCallback("Поддержка из раздела «Помощь»")
+                                .onSuccess { Toast.makeText(ctx, supportSent, Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(ctx, supportErr, Toast.LENGTH_SHORT).show() }
+                        }
                     })
-                    SettingsNavRow(Icons.Default.HeadsetMic, appText("Написать в Telegram", "Telegram-ға яҙыу"), appText("Открыть чат поддержки Юлдаш", "Юлдаш ярҙам чатын асыу"), onClick = {
+                    // Доп. вариант — Telegram (кому привычнее). Основной путь — внутренний чат выше.
+                    SettingsNavRow(Icons.Default.Send, appText("Написать в Telegram", "Telegram-ға яҙыу"), appText("Дополнительно — чат в Telegram", "Өҫтәмә — Telegram чаты"), onClick = {
                         runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/bairas_ntv")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                     })
                 }

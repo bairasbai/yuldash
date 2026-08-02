@@ -14,18 +14,22 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
 from .config import settings
 from .db import engine, init_db
+from .digest import DailyDigestMiddleware
 from .middleware import (
     AccessLogMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware,
     unhandled_exception_handler,
 )
+from .observability import init_sentry
 from .routers import all_routers
 from .routers.health import API_VERSION
-from .services import MEDIA_DIR, init_chat_redis, seed_demo
+from .services import MEDIA_DIR, init_chat_redis, seed_demo, seed_pickup_points
+from .storage import StorageError, get_storage
 
 API_V1_PREFIX = "/api/v1"
 
@@ -37,26 +41,71 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         if settings.seed_demo:
             seed_demo(session)
+            from .routers.medical import seed_medical_partners  # F22: справочник клиник (идемпотентно)
+            seed_medical_partners(session)
+        from .instant_service import seed_tariffs
+        seed_tariffs(session)   # тарифы «Быстрого заказа» нужны и в проде (не под seed_demo)
+        from .geo import seed_settlements, seed_villages
+        seed_settlements(session)   # справочник НП (география, волна 2) — тоже нужен в проде
+        seed_villages(session)      # деревни РБ из app/data/villages_rb.json (пустой → no-op)
+        # Ориентиры точек сбора (F14) — публичный справочник, нужен и на проде
+        # (не под флагом SEED_DEMO). Идемпотентно: повторный старт не дублирует.
+        seed_pickup_points(session)
     await init_chat_redis()   # WS pub/sub между воркерами (если есть Redis), иначе локально
     yield
+    # H4: аккуратная остановка на SIGTERM/редеплое — снять pub/sub задачу, закрыть Redis и пул БД
+    # (иначе на каждом рестарте течём соединениями при небольшом pool_size).
+    try:
+        from .services import close_chat_redis
+        await close_chat_redis()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        engine.dispose()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Yuldash API", version=API_VERSION, lifespan=lifespan)
+    # Sentry — до создания приложения (чтобы перехват стоял с первого запроса каждого
+    # воркера). Без SENTRY_DSN это полный no-op — прод работает как раньше.
+    init_sentry()
+    # В проде прячем интерактивную схему (/docs, /redoc, /openapi.json): она раскрывает
+    # карту всех приватных admin/payment/moderation-эндпоинтов. В dev — доступна для удобства.
+    doc_urls = {"docs_url": None, "redoc_url": None, "openapi_url": None} if settings.is_prod else {}
+    app = FastAPI(title="Yuldash API", version=API_VERSION, lifespan=lifespan, **doc_urls)
     # Порядок: последний add_middleware — внешний (выполняется первым).
     # Хотим: лимит запросов отсекает раньше всего → добавляем его последним.
+    app.add_middleware(DailyDigestMiddleware)   # дневная сводка админу (B9b-3): дешёвый гейт, отправка в фоне
     app.add_middleware(AccessLogMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
-        allow_methods=["GET", "POST", "OPTIONS"],   # API использует только их
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],   # DELETE — админ-разбан устройства
         allow_headers=["Authorization", "Content-Type"],
     )
     app.add_middleware(RateLimitMiddleware)
     app.add_exception_handler(Exception, unhandled_exception_handler)
-    # Медиа: голосовые — публично; документы водителя отдаются отдельно (/secure/docs, см. drivers.py).
-    app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+
+    # Хранилище медиа недоступно (S3 отвалился) → мягкая двуязычная 503, а не 500 «краш».
+    async def _storage_unavailable(request, exc):   # noqa: ANN001
+        return JSONResponse(
+            status_code=503,
+            content={"detail": {"ru": "Не удалось загрузить файл. Попробуй ещё раз.",
+                                 "ba": "Файлды йөкләп булманы. Тағы бер тапҡыр ҡабатла."}},
+        )
+    app.add_exception_handler(StorageError, _storage_unavailable)
+    # Медиа: голосовые/фото чата — публично; документы водителя отдаются отдельно (/secure/docs, см. drivers.py).
+    # Локально — раздаём с диска (StaticFiles). В S3-режиме файлов на диске нет:
+    # тот же путь /media/... редиректит на подписанный (presigned) URL объекта.
+    storage = get_storage()
+    if storage.is_remote:
+        @app.get("/media/{path:path}", name="media")
+        def media_redirect(path: str):
+            return RedirectResponse(storage.url(path))
+    else:
+        app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
     # Каждый роутер — на корень (совместимость) и под /api/v1 (версионирование).
     for r in all_routers:
         app.include_router(r)

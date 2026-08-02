@@ -1,0 +1,246 @@
+"""8-часовой лимит смены такси + отдых водителя (волна 2, §8 «Отдых водителя»).
+
+Суть: безопасность = продукт. Водитель, отработавший taxi_shift_limit_hours (8ч) на линии
+ТАКСИ за местный день, отправляется отдыхать — гейт (в стиле долгового, app/debt.py)
+закрывает presence/offer/accept до разблокировки. АКТИВНЫЙ заказ не рубим: переходы
+arrived/onboard/done текущего заказа работают (они и не ходят через водительский гейт).
+
+Учёт: на каждом POST /instant/presence прибавляем интервал от прошлого heartbeat с кэпом
+workday_step_cap_sec (редкие пинги не накручивают часы). Считается ТОЛЬКО такси-время —
+попутка (Ride/Booking) presence не шлёт.
+
+Разблокировка (все условия сразу): наступил СЛЕДУЮЩИЙ местный день И местное время
+≥ rest_unlock_hour (06:00) И прошло ≥ rest_hours (8ч) от последнего heartbeat дня лимита.
+Часовой пояс — конфиг local_tz_offset_hours (Уфа UTC+5), БД везде наивный UTC (timeutil).
+
+«Один попутчик домой»: во время блока водитель может опубликовать ОДНУ попутку
+(смена кончилась в другом городе — машина всё равно едет назад). Вторая публикация или
+отклик на заявку до разблокировки → мягкий 403. ВНЕ блока попутка не ограничена вообще.
+
+Вежливость (≤2 пуша за период отдыха, дедуп флагами): «хорошо поработал» при лимите +
+зимней ночью (ноя–мар, 20:00–07:00 местного) совет про тепло и заряд. Плюс предупреждения
+об остатке ≤60 и ≤15 минут — по одному разу за смену.
+"""
+from datetime import date as date_type, datetime, time as time_type, timedelta
+from typing import Optional
+
+from fastapi import HTTPException
+from sqlmodel import Session, select
+
+from .config import settings
+from .models import TaxiWorkDay
+from .services import send_push
+from .timeutil import utcnow
+
+
+# ------------------------------ местное время ------------------------------
+def _tz() -> timedelta:
+    return timedelta(hours=settings.local_tz_offset_hours)
+
+
+def local_now(now: Optional[datetime] = None) -> datetime:
+    """Местное «сейчас» (наивное): UTC + local_tz_offset_hours."""
+    return (now or utcnow()) + _tz()
+
+
+def local_day(now: Optional[datetime] = None) -> date_type:
+    """Местный календарный день — граница смены проходит по местной полуночи."""
+    return local_now(now).date()
+
+
+def shift_limit_sec() -> int:
+    return settings.taxi_shift_limit_hours * 3600
+
+
+def is_winter_night(now: Optional[datetime] = None) -> bool:
+    """Зимняя ночь по-местному: месяц ноя–мар, 20:00–07:00."""
+    ln = local_now(now)
+    return (ln.month >= 11 or ln.month <= 3) and (ln.hour >= 20 or ln.hour < 7)
+
+
+# ------------------------------ сообщения (RU + черновой BA, финал — за Александром) ------------------------------
+def rest_block_message() -> str:
+    h = settings.taxi_shift_limit_hours
+    u = settings.rest_unlock_hour
+    return (f"Ты сегодня за рулём {h} часов — отдохни 🌙 Завтра с {u} утра снова на линию."
+            f" · Һин бөгөн {h} сәғәт руль артында — ял ит 🌙 Иртәгә иртәнге {u}-нан йәнә линияға.")
+
+
+def return_ride_message() -> str:
+    return ("Возьми одного попутчика домой и отдохни 🌙 Завтра попутка снова без ограничений."
+            " · Бер юлдашты өйгә алып ҡайт та ял ит 🌙 Иртәгә юлдаш йәнә сикләүһеҙ.")
+
+
+# ------------------------------ строки учёта ------------------------------
+def _get_day(session: Session, driver_id: int, day: date_type) -> Optional[TaxiWorkDay]:
+    return session.exec(
+        select(TaxiWorkDay).where(TaxiWorkDay.driver_id == driver_id, TaxiWorkDay.day == day)
+    ).first()
+
+
+def _get_or_create_today(session: Session, driver_id: int, now: datetime) -> TaxiWorkDay:
+    day = local_day(now)
+    wd = _get_day(session, driver_id, day)
+    if wd is not None:
+        return wd
+    wd = TaxiWorkDay(driver_id=driver_id, day=day)
+    session.add(wd)
+    try:
+        session.commit()
+    except Exception:  # noqa: BLE001 — гонка двух heartbeat на unique(driver_id, day)
+        session.rollback()
+        wd = _get_day(session, driver_id, day)
+        if wd is None:
+            raise
+        return wd
+    session.refresh(wd)
+    return wd
+
+
+def _last_limited(session: Session, driver_id: int) -> Optional[TaxiWorkDay]:
+    """Последний день, в который водитель упёрся в лимит (кандидат на действующий блок)."""
+    return session.exec(
+        select(TaxiWorkDay).where(
+            TaxiWorkDay.driver_id == driver_id,
+            TaxiWorkDay.limit_reached_at.is_not(None),   # noqa: E711
+        ).order_by(TaxiWorkDay.day.desc())
+    ).first()
+
+
+# ------------------------------ блок / разблокировка ------------------------------
+def unlock_at(wd: TaxiWorkDay) -> datetime:
+    """Момент снятия блока (наивный UTC): max(следующий местный день rest_unlock_hour;
+    последний heartbeat дня лимита + rest_hours). Так выполняются все три условия §8:
+    следующий день, ≥06:00 местного, ≥8ч отдыха."""
+    morning_local = datetime.combine(wd.day + timedelta(days=1), time_type(hour=settings.rest_unlock_hour))
+    morning_utc = morning_local - _tz()
+    rest_from = wd.last_heartbeat_at or wd.limit_reached_at or morning_utc
+    return max(morning_utc, rest_from + timedelta(hours=settings.rest_hours))
+
+
+def blocking_workday(session: Session, driver_id: int, now: Optional[datetime] = None) -> Optional[TaxiWorkDay]:
+    """Действующий блок отдыха: строка дня лимита, пока now < unlock_at. Нет блока → None."""
+    now = now or utcnow()
+    wd = _last_limited(session, driver_id)
+    if wd is None:
+        return None
+    return wd if now < unlock_at(wd) else None
+
+
+def guard_taxi_rested(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
+    """Гейт такси (в стиле долгового): блок отдыха → 403 с тёплым текстом.
+    Вешается на presence/offer/accept; переходы активного заказа НЕ трогает."""
+    now = now or utcnow()
+    wd = blocking_workday(session, driver_id, now)
+    if wd is None:
+        return
+    _maybe_winter_advice(session, driver_id, wd, now)
+    raise HTTPException(403, rest_block_message())
+
+
+# ------------------------------ вежливые пуши (дедуп флагами) ------------------------------
+def _maybe_winter_advice(session: Session, driver_id: int, wd: TaxiWorkDay, now: datetime) -> None:
+    """Блок зимней ночью → один (дедуп) совет про тепло и заряд. Коммитим флаг ДО пуша."""
+    if not is_winter_night(now) or wd.winter_push_sent:
+        return
+    wd.winter_push_sent = True
+    session.add(wd)
+    session.commit()
+    send_push(session, driver_id, "Береги себя ❄️",
+              "Зимняя ночь — прогрей машину, проверь заряд телефона и одевайся теплее."
+              " · Ҡышҡы төн — машинаңды йылыт, телефондың зарядын тикшер, йылыраҡ кейен.")
+
+
+def _push_limit_reached(session: Session, driver_id: int, wd: TaxiWorkDay, now: datetime) -> None:
+    h = settings.taxi_shift_limit_hours
+    u = settings.rest_unlock_hour
+    send_push(session, driver_id, "Хорошо поработал 👏",
+              f"{h} часов на линии позади. Отдохни — завтра с {u} утра снова в путь 🌙"
+              f" · {h} сәғәт линияла үтте. Ял ит — иртәгә иртәнге {u}-нан йәнә юлға 🌙")
+    _maybe_winter_advice(session, driver_id, wd, now)
+
+
+def _maybe_warn(session: Session, driver_id: int, wd: TaxiWorkDay, remaining_sec: int) -> None:
+    """Предупреждения об остатке смены: ≤60 мин и ≤15 мин, по одному разу (флаги-дедуп).
+    Флаги ставит вызывающий record_heartbeat (коммит общий) — тут только отправка."""
+    if remaining_sec <= 15 * 60 and not wd.warned_15:
+        wd.warned_15 = True
+        wd.warned_60 = True          # часовое уже неактуально — не шлём два подряд
+        send_push(session, driver_id, "Осталось 15 минут смены",
+                  "Скоро отдых — спокойно заверши дела на линии 🌙"
+                  " · Оҙаҡламай ял — линиялағы эштәреңде тыныс ҡына тамамла 🌙")
+    elif remaining_sec <= 60 * 60 and not wd.warned_60:
+        wd.warned_60 = True
+        send_push(session, driver_id, "Остался час смены",
+                  "Через час — заслуженный отдых. Планируй последние заказы 🌙"
+                  " · Бер сәғәттән — лайыҡлы ял. Һуңғы заказдарҙы планлаштыр 🌙")
+
+
+# ------------------------------ учёт heartbeat ------------------------------
+def record_heartbeat(session: Session, driver_id: int, now: Optional[datetime] = None) -> TaxiWorkDay:
+    """Учесть presence-heartbeat такси: +интервал от прошлого пинга (кэп
+    workday_step_cap_sec — редкие heartbeat не накручивают). Первый пинг дня время не даёт.
+    Достигли лимита → limit_reached_at + пуш «хорошо поработал» (один раз)."""
+    now = now or utcnow()
+    wd = _get_or_create_today(session, driver_id, now)
+    if wd.last_heartbeat_at is not None:
+        step = (now - wd.last_heartbeat_at).total_seconds()
+        if step > 0:
+            wd.seconds_online += int(min(step, settings.workday_step_cap_sec))
+    wd.last_heartbeat_at = now
+    remaining = shift_limit_sec() - wd.seconds_online
+    if remaining <= 0 and wd.limit_reached_at is None:
+        wd.limit_reached_at = now
+        session.add(wd)
+        session.commit()
+        _push_limit_reached(session, driver_id, wd, now)
+    else:
+        _maybe_warn(session, driver_id, wd, remaining)
+        session.add(wd)
+        session.commit()
+    session.refresh(wd)
+    return wd
+
+
+# ------------------------------ «один попутчик домой» ------------------------------
+def guard_publish_ride(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
+    """POST /rides во время блока отдыха: первая публикация — «один попутчик домой»
+    (пропускаем и помечаем return_ride_used; флаг закоммитит сам эндпоинт вместе с
+    поездкой — не съедаем попытку, если публикация упала). Вторая → мягкий 403.
+    ВНЕ блока попутка не ограничена вообще — обычное поведение."""
+    wd = blocking_workday(session, driver_id, now)
+    if wd is None:
+        return
+    if not wd.return_ride_used:
+        wd.return_ride_used = True
+        session.add(wd)
+        return
+    raise HTTPException(403, return_ride_message())
+
+
+def guard_respond_request(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
+    """Отклик на заявку пассажира во время блока отдыха → мягкий 403 («домой — один
+    попутчик из своей публикации, а не новые обязательства»). Вне блока — без ограничений."""
+    if blocking_workday(session, driver_id, now) is not None:
+        raise HTTPException(403, return_ride_message())
+
+
+# ------------------------------ сводка водителю ------------------------------
+def summary(session: Session, driver_id: int, now: Optional[datetime] = None) -> dict:
+    """GET /instant/workday: прогресс смены для кабинета таксиста. Во время блока
+    показываем день лимита (там же return_ride_used), иначе — сегодняшний местный день."""
+    now = now or utcnow()
+    blocked_wd = blocking_workday(session, driver_id, now)
+    wd = blocked_wd or _get_day(session, driver_id, local_day(now))
+    seconds = wd.seconds_online if wd else 0
+    limit = shift_limit_sec()
+    return {
+        "day": (wd.day if wd else local_day(now)).isoformat(),
+        "seconds_online": seconds,
+        "limit_sec": limit,
+        "remaining_sec": max(0, limit - seconds),
+        "limit_hours": settings.taxi_shift_limit_hours,
+        "blocked": blocked_wd is not None,
+        "unlock_at": unlock_at(blocked_wd).isoformat() if blocked_wd else None,
+        "return_ride_used": bool(blocked_wd.return_ride_used) if blocked_wd else False,
+    }

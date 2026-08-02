@@ -3,6 +3,7 @@ package com.yuldash.app
 // Экран «Создать поездку» (водитель публикует рейс). Вынесено из MainActivity (Фаза 2).
 // Импорты скопированы целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -107,6 +108,8 @@ import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
@@ -135,6 +138,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -228,18 +232,22 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.PickupPointDto
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.ConversationDto
 import com.yuldash.app.data.PopularRouteDto
+import com.yuldash.app.data.SettlementRouteDto
+import com.yuldash.app.data.PriceHintDto
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import com.yuldash.app.data.FeedDto
 import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
@@ -247,6 +255,7 @@ import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 // Диапазон цены поездки (₽): не бесплатно, но и не абсурд. Чистая константа → используется и в
 // хелпере валидации, и в UI-подсказке. Меняется в одном месте.
@@ -266,10 +275,11 @@ internal fun createRideValid(from: String, to: String, price: String): Boolean {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
+internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, prefillDate: String? = null) {
     var from by remember { mutableStateOf("") }
     var to by remember { mutableStateOf("") }
-    var dateTime by remember { mutableStateOf("") }
+    // F15: если открыли из баннера «на праздник» — дата события уже стоит (можно поменять пикером).
+    var dateTime by remember { mutableStateOf(prefillDate.orEmpty()) }
     var seats by remember { mutableStateOf("2") }
     var price by remember { mutableStateOf("300") }
     var comment by remember { mutableStateOf("") }
@@ -279,23 +289,37 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
     var smoking by remember { mutableStateOf(false) }
     var baggage by remember { mutableStateOf(false) }
     var airConditioner by remember { mutableStateOf(false) }
+    var onlyTrusted by remember { mutableStateOf(false) }   // «только для своих» (L3)
+    var quiet by remember { mutableStateOf(false) }
+    var waypoints by remember { mutableStateOf(listOf<String>()) }
     var recurrence by remember { mutableStateOf("none") }
     var category by remember { mutableStateOf("regular") }
+    var partnerId by remember { mutableStateOf<Int?>(null) }   // F22: клиника-назначение (для category=hospital)
+    var partners by remember { mutableStateOf<List<com.yuldash.app.data.MedicalPartnerDto>>(emptyList()) }
+    LaunchedEffect(Unit) { ApiClient.getMedicalPartners().onSuccess { partners = it } }   // справочник клиник (тихо; форма работает и без него)
     var receiverName by remember { mutableStateOf("") }   // посылка: кому отдать
     var parcelSize by remember { mutableStateOf("") }     // посылка: габарит/вес
     var pickup by remember { mutableStateOf("") }
     var pickupLat by remember { mutableStateOf<Double?>(null) }
     var pickupLng by remember { mutableStateOf<Double?>(null) }
+    var pickupPointId by remember { mutableStateOf<Int?>(null) }   // F14: id выбранной точки справочника (null = ручной ввод/карта)
+    val isBa = LocalAppLanguage.current == AppLanguage.Ba
     var showPicker by remember { mutableStateOf(false) }
-    var priceHint by remember { mutableStateOf(0) }
+    // Подсказка цены + честный расчёт бензина по маршруту (аддитивные поля сервера).
+    var priceHintDto by remember { mutableStateOf<PriceHintDto?>(null) }
+    val priceHint = priceHintDto?.takeIf { it.count > 0 }?.avg ?: 0
     var publishing by remember { mutableStateOf(false) }   // ждём ответ сервера, блок двойного нажатия
     var publishError by remember { mutableStateOf<String?>(null) }
     val publishScope = rememberCoroutineScope()
+    // Популярные направления из справочника географии — чипы над формой (тап заполняет оба поля).
+    // Ошибка сети → чипов просто нет, форма работает как раньше.
+    var geoRoutes by remember { mutableStateOf<List<SettlementRouteDto>>(emptyList()) }
+    LaunchedEffect(Unit) { ApiClient.getSettlementPopularRoutes().onSuccess { geoRoutes = it } }
     LaunchedEffect(from, to) {
-        priceHint = if (from.isNotBlank() && to.isNotBlank()) {
+        priceHintDto = if (from.isNotBlank() && to.isNotBlank()) {
             delay(450)
-            ApiClient.getPriceHint(from.trim(), to.trim()).getOrNull()?.takeIf { it.count > 0 }?.avg ?: 0
-        } else 0
+            ApiClient.getPriceHint(from.trim(), to.trim()).getOrNull()
+        } else null
     }
     val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
     val defaultCar = appText("Моя машина", "Минең машина")
@@ -314,19 +338,24 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             pickup = pickup, pinned = pickupLat != null,
             womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
             baggage = baggage, airConditioner = airConditioner, smoking = smoking,
-            priceHint = priceHint, loading = publishing, error = publishError,
+            onlyTrusted = onlyTrusted, quiet = quiet, waypoints = waypoints,
+            priceHint = priceHint,
+            fuelDistanceKm = priceHintDto?.distanceKm, fuelEstimateKop = priceHintDto?.fuelEstimateKop,
+            loading = publishing, error = publishError,
             onFromChange = { from = it }, onToChange = { to = it },
             onSeatsChange = { seats = it.filter(Char::isDigit) },
             onPriceChange = { price = it.filter(Char::isDigit) },
             onCommentChange = { comment = it },
             onSelectType = { category = it }, onSelectRecurrence = { recurrence = it },
+            partners = partners, selectedPartnerId = partnerId, onSelectPartner = { partnerId = it },
             onReceiverNameChange = { receiverName = it }, onParcelSizeChange = { parcelSize = it },
-            onPickupChange = { pickup = it }, onOpenPicker = { showPicker = true },
+            onPickupChange = { pickup = it; pickupPointId = null }, onOpenPicker = { showPicker = true },
             onOpenDatePicker = { openDateTimePicker(ctxDt, "ru") { dateTime = it } },
             onUsePriceHint = { price = priceHint.toString() },
             onWomenOnly = { womenOnly = it }, onChildSeat = { childSeat = it },
             onPetsAllowed = { petsAllowed = it }, onBaggage = { baggage = it },
             onAirConditioner = { airConditioner = it }, onSmoking = { smoking = it },
+            onOnlyTrusted = { onlyTrusted = it }, onQuiet = { quiet = it }, onWaypointsChange = { waypoints = it },
             onPublish = {
                 if (publishing) return@CreateRideFormContent
                 val fromVal = from.ifBlank { "Баймаҡ" }
@@ -347,13 +376,14 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
                     car = comment.ifBlank { defaultCar }, carBa = comment.ifBlank { defaultCar },
                     price = priceVal, seats = seatsVal, rating = 5.0, verified = false, boosted = false,
                     petsAllowed = petsAllowed, childSeat = childSeat, womenOnly = womenOnly,
-                    smoking = smoking, baggage = baggage, airConditioner = airConditioner,
+                    smoking = smoking, baggage = baggage, airConditioner = airConditioner, quiet = quiet,
+                    waypoints = waypoints.filter { it.isNotBlank() },
                 )
                 publishError = null
                 publishing = true
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, receiverName.trim(), parcelSize.trim())
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "))
                         .onSuccess { publishing = false; onPublish(ride) }
                         .onFailure { publishing = false; publishError = errPublish }
                 }
@@ -362,13 +392,20 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit) {
             // «Умные» поля с собственными эффектами (гео-подсказки) — слотами, чтобы Content остался чистым.
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
             toField = { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
+            routeChips = { PopularRouteChips(geoRoutes) { f, t -> from = f; to = t } },
+            pickupChips = {
+                PickupSuggestionChips(city = from, selectedId = pickupPointId) { p ->
+                    pickup = if (isBa && p.titleBa.isNotBlank()) p.titleBa else p.titleRu
+                    pickupLat = p.lat; pickupLng = p.lng; pickupPointId = p.id
+                }
+            },
             modifier = Modifier.padding(padding),
         )
     }
         if (showPicker) {
             PickupPickerOverlay(
                 initial = pickupLat?.let { la -> pickupLng?.let { ln -> Point(la, ln) } },
-                onConfirm = { la, ln -> pickupLat = la; pickupLng = ln; if (pickup.isBlank()) pickup = dropPinLabel; showPicker = false },
+                onConfirm = { la, ln -> pickupLat = la; pickupLng = ln; pickupPointId = null; if (pickup.isBlank()) pickup = dropPinLabel; showPicker = false },
                 onDismiss = { showPicker = false }
             )
         }
@@ -401,8 +438,13 @@ internal fun CreateRideFormContent(
     petsAllowed: Boolean,
     baggage: Boolean,
     airConditioner: Boolean,
+    quiet: Boolean,
+    waypoints: List<String>,
     smoking: Boolean,
+    onlyTrusted: Boolean,
     priceHint: Int,
+    fuelDistanceKm: Float? = null,
+    fuelEstimateKop: Int? = null,
     loading: Boolean,
     error: String?,
     onFromChange: (String) -> Unit,
@@ -423,14 +465,23 @@ internal fun CreateRideFormContent(
     onPetsAllowed: (Boolean) -> Unit,
     onBaggage: (Boolean) -> Unit,
     onAirConditioner: (Boolean) -> Unit,
+    onQuiet: (Boolean) -> Unit,
+    onWaypointsChange: (List<String>) -> Unit,
     onSmoking: (Boolean) -> Unit,
+    onOnlyTrusted: (Boolean) -> Unit,
     onPublish: () -> Unit,
     onCancel: () -> Unit,
+    partners: List<com.yuldash.app.data.MedicalPartnerDto> = emptyList(),  // F22: клиники-партнёры
+    selectedPartnerId: Int? = null,
+    onSelectPartner: (Int?) -> Unit = {},
     fromField: (@Composable () -> Unit)? = null,
     toField: (@Composable () -> Unit)? = null,
+    routeChips: (@Composable () -> Unit)? = null,
+    pickupChips: (@Composable () -> Unit)? = null,   // F14: подсказки точек сбора (умный слот)
     modifier: Modifier = Modifier,
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
+    val isHospital = typeKey == "hospital"
     LazyColumn(
         modifier = modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -439,6 +490,8 @@ internal fun CreateRideFormContent(
             Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Black)
             Text(appText("Укажите путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәтегеҙ. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        // Чипы популярных направлений (слот): тап заполняет «откуда/куда». Пустой список — ничего не рисует.
+        routeChips?.let { chips -> item { chips() } }
         // Поля адреса: если слот дан (реальный экран с гео-подсказками) — рисуем его; иначе (тест/фолбэк) —
         // простое поле с тем же поведением ввода. Оба варианта поведенчески идентичны для пользователя.
         item {
@@ -460,11 +513,49 @@ internal fun CreateRideFormContent(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                val rideTypeKeys = remember { listOf("regular", "parcel", "cargo", "urgent") }
+                val rideTypeKeys = remember { listOf("regular", "parcel", "cargo", "urgent", "hospital") }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(rideTypeKeys, key = { it }) { key ->
                         val (icon, ru, ba) = rideTypeMeta(key)
                         RideTypeChip(icon = icon, ru = ru, ba = ba, selected = typeKey == key) { onSelectType(key) }
+                    }
+                }
+            }
+        }
+        // F22: выбор клиники-назначения (только для типа «В больницу»). Деликатно — это логистика:
+        // куда едешь, чтобы пассажиры из района могли подсесть. Без мед.данных.
+        if (isHospital) {
+            item {
+                Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LocalHospital, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(appText("Клиника назначения", "Билдәләнгән клиника"), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                        }
+                        Text(
+                            appText("Выбери, к какой клинике едешь — попутчики к ней смогут подсесть. Это просто точка назначения.",
+                                "Ҡайһы клиникаға бараһың — юлдаштар ҡушыла алһын. Был бары тик билдәләнгән нөктә."),
+                            color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                        )
+                        when {
+                            partners.isEmpty() -> Text(appText("Список клиник загружается…", "Клиникалар исемлеге йөкләнә…"), color = CanonMuted, fontSize = 12.sp)
+                            else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(partners, key = { it.id }) { p ->
+                                    FilledTonalButton(
+                                        onClick = { onSelectPartner(if (selectedPartnerId == p.id) null else p.id) },
+                                        shape = RoundedCornerShape(14.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                            containerColor = if (selectedPartnerId == p.id) CanonMint else CanonBg,
+                                            contentColor = if (selectedPartnerId == p.id) CanonGreen2 else CanonText,
+                                        ),
+                                    ) {
+                                        Text("${p.name} · ${p.city}", fontSize = 13.sp, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -520,11 +611,21 @@ internal fun CreateRideFormContent(
                 if (priceHint > 0) {
                     PriceHintChip(price = priceHint) { onUsePriceHint() }
                 }
+                // Честно про бензин: примерная длина маршрута + расход и по-соседски справедливый сплит.
+                val fuelKop = fuelEstimateKop
+                if (fuelKop != null && fuelKop > 0) {
+                    val fuelRub = (fuelKop / 100.0).roundToInt()
+                    val seatsInt = (seats.toIntOrNull() ?: 0).coerceAtLeast(1)
+                    val perPerson = (fuelRub.toDouble() / seatsInt).roundToInt().coerceAtLeast(1)
+                    val km = fuelDistanceKm?.let { it.roundToInt() } ?: 0
+                    FuelHintBlock(km = km, fuelRub = fuelRub, perPerson = perPerson, seats = seatsInt)
+                }
                 Text(appText("Цену ставишь ты. Оплата — напрямую тебе после поездки. Юлдаш комиссию не берёт.", "Хаҡты үҙең ҡуяһың. Түләү — сәфәрҙән һуң тура һиңә. Юлдаш комиссия алмай."), color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
             }
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                pickupChips?.invoke()   // F14: чипы «частые точки сбора» для выбранного города (если есть)
                 OutlinedTextField(
                     value = pickup,
                     onValueChange = onPickupChange,
@@ -584,15 +685,68 @@ internal fun CreateRideFormContent(
             }
         }
         item {
+            // Остановки по пути (несколько точек): A → точки → B. Заезды по дороге, чтобы
+            // попутчики с этих мест могли найти поездку. До 4 остановок.
+            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(painterResource(R.drawable.yu_multi_stop), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(appText("Остановки по пути", "Юл буйындағы туҡталыштар"), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
+                    }
+                    Text(
+                        appText("Куда заезжаешь по дороге — так тебя найдут попутчики с этих мест.", "Юлда ҡайҙа туҡтайһың — шул урындарҙан юлдаштар һине табыр."),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 14.dp),
+                    )
+                    waypoints.forEachIndexed { i, wp ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = wp,
+                                onValueChange = { v -> onWaypointsChange(waypoints.toMutableList().also { it[i] = v.take(80) }) },
+                                placeholder = { Text(appText("Например, Темясово", "Мәҫәлән, Темәс")) },
+                                singleLine = true, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp),
+                            )
+                            IconButton(onClick = { onWaypointsChange(waypoints.toMutableList().also { it.removeAt(i) }) }, modifier = Modifier.size(48.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = appText("Убрать остановку", "Туҡталышты алып ташлау"), tint = CanonMuted)
+                            }
+                        }
+                    }
+                    if (waypoints.size < 4) {
+                        TextButton(onClick = { onWaypointsChange(waypoints + "") }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(appText("Добавить остановку", "Туҡталыш өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+        item {
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
                 Column(Modifier.padding(vertical = 6.dp)) {
                     Text(appText("Условия поездки", "Сәфәр шарттары"), modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Black, color = CanonText, fontSize = 16.sp)
-                    PrefToggleRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ өсөн"), womenOnly) { onWomenOnly(it) }
-                    PrefToggleRow(Icons.Default.ChildCare, appText("Детское кресло / бустер", "Балалар ултырғысы / бустер"), childSeat) { onChildSeat(it) }
-                    PrefToggleRow(Icons.Default.Pets, appText("Можно с животным", "Хайуан менән"), petsAllowed) { onPetsAllowed(it) }
-                    PrefToggleRow(Icons.Default.Luggage, appText("Есть место под багаж", "Багаж урыны бар"), baggage) { onBaggage(it) }
-                    PrefToggleRow(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), airConditioner) { onAirConditioner(it) }
+                    PrefToggleRow(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ өсөн"), womenOnly) { onWomenOnly(it) }
+                    PrefToggleRow(R.drawable.yu_child_seat, appText("Детское кресло / бустер", "Балалар ултырғысы / бустер"), childSeat) { onChildSeat(it) }
+                    PrefToggleRow(R.drawable.yu_pet, appText("Можно с животным", "Хайуан менән"), petsAllowed) { onPetsAllowed(it) }
+                    PrefToggleRow(R.drawable.yu_luggage, appText("Есть место под багаж", "Багаж урыны бар"), baggage) { onBaggage(it) }
+                    PrefToggleRow(R.drawable.yu_ac, appText("Кондиционер", "Кондиционер"), airConditioner) { onAirConditioner(it) }
+                    PrefToggleRow(R.drawable.yu_quiet, appText("Тихая поездка", "Тыныс сәфәр"), quiet) { onQuiet(it) }
                     PrefToggleRow(Icons.Default.SmokingRooms, appText("Можно курить", "Тартырға ярай"), smoking) { onSmoking(it) }
+                }
+            }
+        }
+        item {
+            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    PrefToggleRow(Icons.Default.Groups, appText("Только для своих", "Тик үҙебеҙҙекеләр өсөн"), onlyTrusted) { onOnlyTrusted(it) }
+                    Text(
+                        appText(
+                            "Поездку увидят и возьмут только проверенные «свои» (уровень «Свой»).",
+                            "Сәфәрҙе тик тикшерелгән «үҙебеҙҙекеләр» (Үҙебеҙҙеке кимәле) күрер һәм алыр.",
+                        ),
+                        modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 8.dp),
+                        color = CanonMuted, fontSize = 13.sp, lineHeight = 17.sp,
+                    )
                 }
             }
         }
@@ -686,18 +840,147 @@ internal fun RideTypeChip(icon: ImageVector, ru: String, ba: String, selected: B
     }
 }
 
+/**
+ * Чипы популярных направлений (из справочника /settlements/popular-routes): тап заполняет
+ * «откуда» и «куда» разом. Имена — на текущем языке (BA, если есть перевод). Пустой список —
+ * ничего не рисуем (ошибка сети/нет данных); появление — мягкое (fade + разворот).
+ */
+@Composable
+internal fun PopularRouteChips(routes: List<SettlementRouteDto>, onPick: (String, String) -> Unit) {
+    val language = LocalAppLanguage.current
+    AnimatedVisibility(
+        visible = routes.isNotEmpty(),
+        enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+        exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(appText("Популярные направления", "Популяр йүнәлештәр"), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CanonText)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(routes, key = { "${it.from.id}-${it.to.id}" }) { r ->
+                    val f = settlementTitleFor(language, r.from)
+                    val t = settlementTitleFor(language, r.to)
+                    FilledTonalButton(
+                        onClick = { onPick(f, t) },
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.heightIn(min = 48.dp),   // тач-цель ≥48dp
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
+                    ) {
+                        Icon(painterResource(R.drawable.yu_route), contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("$f → $t", fontSize = 13.sp, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Чистая подсказка цены: «обычно по маршруту ~N ₽ · нажми, чтобы подставить». Значение приходит
 // параметром (считается выше через API), клик подставляет цену. Без состояния/сети → покрыт Robolectric.
 @Composable
 internal fun PriceHintChip(price: Int, onClick: () -> Unit) {
     Surface(
         color = CanonMint, shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier.minimumInteractiveComponentSize().clickable { onClick() }
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.TrendingUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text(appText("Обычно по маршруту ~$price ₽ · нажми, чтобы подставить", "Был юл буйынса ғәҙәттә ~$price ₽ · ҡуйыр өсөн баҫ"), color = CanonGreen2, fontSize = 12.sp, lineHeight = 16.sp)
+        }
+    }
+}
+
+/**
+ * Честный бензин по маршруту: примерная длина + оценка топлива (с сервера) + мягкий по-соседски
+ * справедливый сплит «≈ N ₽ с человека». Только информирует — цену водитель ставит сам.
+ * Данные приходят параметрами (сервер), поля отсутствуют → блок не рисуется (гейт выше).
+ */
+@Composable
+internal fun FuelHintBlock(km: Int, fuelRub: Int, perPerson: Int, seats: Int) {
+    Surface(color = CanonSurface, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CanonBorder)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Top) {
+            Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    if (km > 0) appText("≈ $km км · бензин ≈ $fuelRub ₽", "≈ $km км · бензин ≈ $fuelRub ₽")
+                    else appText("Бензин на маршрут ≈ $fuelRub ₽", "Юлға бензин ≈ $fuelRub ₽"),
+                    color = CanonText, fontSize = 13.sp, fontWeight = FontWeight.Bold, lineHeight = 17.sp,
+                )
+                Text(
+                    appText("По-соседски: ≈ $perPerson ₽ с человека, если разделить на $seats.", "Күршеләрсә: бүлешһәгеҙ, ≈ $perPerson ₽ бер кешенән ($seats кешегә)."),
+                    color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * F14 · Подсказки точек сбора по ориентирам города/села («у мечети», «у Магнита», «автовокзал»).
+ * РБ-фишка: в сёлах адресов нет — «встретимся у мечети» понятнее координат. Сам грузит справочник
+ * для [city] (публичный, без токена); тап по чипу отдаёт выбранную точку через [onSelect] (координаты
+ * подставятся вместо ручного тыка в карту). Пусто/нет сети → ничего не показываем, ручной выбор остаётся.
+ */
+@Composable
+internal fun PickupSuggestionChips(
+    city: String,
+    selectedId: Int?,
+    onSelect: (PickupPointDto) -> Unit,
+) {
+    val isBa = LocalAppLanguage.current == AppLanguage.Ba
+    var points by remember { mutableStateOf<List<PickupPointDto>>(emptyList()) }
+    // Дебаунс: город печатают по буквам — не дёргаем сервер на каждый символ.
+    LaunchedEffect(city) {
+        val c = city.trim()
+        if (c.isBlank()) { points = emptyList(); return@LaunchedEffect }
+        delay(350)
+        points = ApiClient.getPickupPoints(c).getOrNull().orEmpty()
+    }
+    AnimatedVisibility(visible = points.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                appText("Частые точки сбора рядом", "Яҡындағы йыш осрашыу нөктәләре"),
+                fontSize = 13.sp, fontWeight = FontWeight.Medium, color = CanonMuted
+            )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(points, key = { it.id }) { p ->
+                    val selected = p.id == selectedId
+                    val title = if (isBa && p.titleBa.isNotBlank()) p.titleBa else p.titleRu
+                    Surface(
+                        color = if (selected) CanonMint else CanonSurface,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .heightIn(min = 40.dp)
+                            .border(
+                                BorderStroke(1.dp, if (selected) CanonGreen2 else CanonBorder),
+                                RoundedCornerShape(14.dp)
+                            )
+                            .clickable { onSelect(p) }
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                if (selected) Icons.Default.CheckCircle else Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = if (selected) CanonGreen2 else CanonMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                title,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                color = if (selected) CanonGreen2 else CanonText
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ package com.yuldash.app
 // Корень навигации: YuldashApp (when(screen)) + HomeScreen (Scaffold+вкладки) + нижнее меню.
 // Вынесено из MainActivity (Фаза 3). Импорты целиком — лишние = варнинги.
 
+import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -234,7 +235,6 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -272,6 +272,7 @@ internal fun YuldashApp() {
     val rides = vm.rides
     val trustedContacts = vm.trustedContacts
     val localRequests = vm.localRequests
+    var requestsLoading by remember { mutableStateOf(true) }   // скелетон «Моих заявок» до первой загрузки
     val appScope = rememberCoroutineScope()
     var activeBookingId by vm.activeBookingId
     var activeTrip by vm.activeTrip   // подтверждённая поездка → маршрут на карте; исчезает при завершении
@@ -299,21 +300,138 @@ internal fun YuldashApp() {
     // screen/language/startHomeTab переживают и смерть процесса (persistNav в SavedStateHandle, ниже).
     var screen by vm.screen
     var language by vm.language
+    // SharedPreferences — источник языка для настоящего холодного старта, когда SavedStateHandle пуст.
+    // Пока гидратация не закончилась, не пишем дефолтный RU обратно на диск и сервер.
+    val persistedLanguage = remember(context) { AppPrefs.language(context) }
+    var languagePersistenceReady by remember { mutableStateOf(false) }
+    LaunchedEffect(persistedLanguage) {
+        vm.restorePersistedLanguage(persistedLanguage)
+        languagePersistenceReady = true
+    }
+    // Сессия протухла на сервере (refresh мёртв) → не оставляем пустые экраны: говорим и уводим на вход.
+    val sessionExpiredMsg = appText("Сессия истекла. Войди снова.", "Сессия тамамланды. Ҡабат кер.")
+    LaunchedEffect(Unit) {
+        ApiClient.sessionExpired.collect { expired ->
+            if (expired) {
+                Toast.makeText(context, sessionExpiredMsg, Toast.LENGTH_LONG).show()
+                screen = Screen.Login
+                ApiClient.sessionExpired.value = false
+            }
+        }
+    }
     var selectedRide by vm.selectedRide
     var startHomeTab by vm.startHomeTab
     var callbackRequested by vm.callbackRequested
     var responsesRequestId by vm.responsesRequestId   // какую заявку открыть в «Откликах»
+    var driverProfileId by rememberSaveable { mutableStateOf(0) }   // чей публичный профиль открыть (0 = никакой)
     var createRideReturnScreen by rememberSaveable { mutableStateOf(Screen.Home) }
     var createRideReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Request) }
+    var createRidePrefillDate by rememberSaveable { mutableStateOf<String?>(null) }   // F15: дата-шаблон праздника для формы поездки
     var trustedContactsReturnScreen by rememberSaveable { mutableStateOf(Screen.SimpleMode) }
     var trustedContactsReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Profile) }
     var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
+    var instantTripOrderId by rememberSaveable { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
+    var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
+    var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
+    var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
+    var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
+    var incidentId by rememberSaveable { mutableStateOf(0) }           // «Справедливость»: id открытого спора
+    var supportTicketId by rememberSaveable { mutableStateOf(0) }      // Поддержка: id открытого обращения (deep-link/список)
+    // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
+    var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
+    var routeWatchPrefillTo by rememberSaveable { mutableStateOf("") }
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
-    LaunchedEffect(Unit) { ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" } }
+    // Версия сессии: инкрементится при входе (onContinue), чтобы user-специфичные загрузки
+    // (роль/мои заявки/доверенные контакты) перечитались ПОСЛЕ логина, а не только один раз на Splash
+    // (иначе после входа в этой же сессии эти данные оставались пустыми до перезапуска приложения).
+    var sessionVersion by remember { mutableStateOf(0) }
+    LaunchedEffect(sessionVersion) {
+        ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" }
+        // Язык на сервер и после входа: LaunchedEffect(language) отработал ещё до логина,
+        // когда слать было некому — иначе пуши остались бы русскими до смены языка вручную.
+        if (languagePersistenceReady) {
+            ApiClient.fireUpdateLanguage(if (language == AppLanguage.Ba) "ba" else "ru")
+        }
+    }
     // Android 13+ требует РАНТАЙМ-разрешение на уведомления — без него пуши тихо не показываются
     // (FCM настроен end-to-end, но без этого запроса доставка на новых телефонах = no-op).
     // Просим один раз, когда пользователь уже в приложении (не на онбординге/входе).
+    // Язык дублируем на диск (AppPrefs): FCM и фоновые сервисы живут вне Compose и берут его оттуда.
+    LaunchedEffect(language, languagePersistenceReady) {
+        if (!languagePersistenceReady) return@LaunchedEffect
+        AppPrefs.setLanguage(context, language)
+        // И на сервер: пуши приходят на языке пользователя. Поле сервер принимал давно,
+        // но клиент его не слал — башкироязычный получал русские уведомления.
+        ApiClient.fireUpdateLanguage(if (language == AppLanguage.Ba) "ba" else "ru")
+    }
+    // Полноэкранный оффер такси (B7a-2): тап/фуллскрин уведомления «Новый заказ» → MainActivity
+    // ставит NavSignals → открываем кабинет водителя (там InstantOfferOverlay). Ждём, пока сплэш
+    // отработает (он перезаписал бы screen), и не дёргаем навигацию на входе/онбординге.
+    val wantDriverCabinet by NavSignals.openDriverCabinet
+    LaunchedEffect(wantDriverCabinet, screen) {
+        if (!wantDriverCabinet) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        NavSignals.openDriverCabinet.value = false
+        if (ApiClient.isLoggedIn() && screen != Screen.InstantDriverTrip) screen = Screen.DriverCabinet
+    }
+    // Кнопки «Написать»/SOS живут глубоко в экранах такси (в т.ч. встроенных в главную) —
+    // навигация через NavSignals (паттерн openDriverCabinet), без колбэков через все слои.
+    val wantInstantChat by NavSignals.openInstantChat
+    LaunchedEffect(wantInstantChat, screen) {
+        if (wantInstantChat <= 0) return@LaunchedEffect
+        // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал
+        // уже погашен (value=0) и тап по пушу «Написать» на холодном старте потерялся бы.
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (ApiClient.isLoggedIn()) {
+            instantChatOrderId = wantInstantChat
+            NavSignals.openInstantChat.value = 0
+            screen = Screen.InstantChat
+        }
+    }
+    // Чек за такси-поездку: кнопка в финальной карточке заказа (и у пассажира, и у водителя).
+    val wantTaxiReceipt by NavSignals.openTaxiReceipt
+    LaunchedEffect(wantTaxiReceipt, screen) {
+        if (wantTaxiReceipt <= 0) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (ApiClient.isLoggedIn()) {
+            taxiReceiptOrderId = wantTaxiReceipt
+            NavSignals.openTaxiReceipt.value = 0
+            screen = Screen.TaxiReceipt
+        }
+    }
+    val wantSosForOrder by NavSignals.openSosForOrder
+    LaunchedEffect(wantSosForOrder, screen) {
+        if (wantSosForOrder <= 0) return@LaunchedEffect
+        // P3: тот же guard — тап по пушу SOS на холодном старте не должен теряться под сплэшем.
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        sosOrderId = wantSosForOrder
+        NavSignals.openSosForOrder.value = 0
+        screen = Screen.Sos
+    }
+    // Пуш о ходе такси-заказа (B9b-2): тап по «Водитель найден / Машина на месте / …» →
+    // экран заказа пассажира (сам подхватывает активный заказ). Ждём, пока сплэш отработает.
+    val wantInstantOrder by NavSignals.openInstantOrder
+    LaunchedEffect(wantInstantOrder, screen) {
+        if (!wantInstantOrder) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        NavSignals.openInstantOrder.value = false
+        if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder
+    }
+    // Force-update (B9b-1): при старте ПАРАЛЛЕЛЬНО обычному запуску спрашиваем /version/min.
+    // versionCode < min с сервера → блокирующий экран «Обнови Юлдаш» (ниже, поверх всего).
+    // Офлайн / ошибка ручки / min=0 → НИЧЕГО не блокируем, приложение стартует как обычно.
+    var forceUpdateRequired by rememberSaveable { mutableStateOf(false) }
+    var forceUpdateStoreUrl by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        ApiClient.minAppVersion().onSuccess { o ->
+            val min = o.optInt("min_version_code", 0)
+            if (min > 0 && BuildConfig.VERSION_CODE < min) {
+                forceUpdateStoreUrl = o.optString("store_url", "")
+                forceUpdateRequired = true
+            }
+        }
+    }
     val notifPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var notifAsked by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(screen) {
@@ -325,14 +443,31 @@ internal fun YuldashApp() {
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+    // F16 deep-link: пришли по ссылке yulbash.ru/r/{id} → тянем публичную витрину поездки
+    // и открываем её карточку в приложении. Не нашлась/ошибка сети → тихо остаёмся где были
+    // (ссылка всё равно открыла приложение). Реагируем и на холодный старт, и на новую ссылку.
+    LaunchedEffect(DeepLink.pendingRideId.value) {
+        val rideId = DeepLink.pendingRideId.value ?: return@LaunchedEffect
+        DeepLink.pendingRideId.value = null   // одноразово — не переоткрываем при рекомпозиции
+        ApiClient.getRide(rideId).onSuccess { dto ->
+            selectedRide = dto.toUiRide()
+            activeBookingId = null
+            selectedBookingStatus = ""
+            screen = Screen.Booking
+        }
+    }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by vm.partnerAds
     // Объявление, открытое в редакторе кабинета партнёра (null = создание нового).
     var adEditorTarget by remember { mutableStateOf<com.yuldash.app.data.MyAdDto?>(null) }
     LaunchedEffect(Unit) {
         ApiClient.getAds().onSuccess { srv ->
+            // Сервер ОТВЕТИЛ (пусть даже пусто) → показываем именно его данные, а не демо.
+            // Пустой ответ = нет рекламы, а не «оставить демо-аптеку с фейк-номером» (иначе при
+            // живом пустом сервере кнопка «Позвонить» набирала бы демо +7 927 000-12-12).
+            // Демо остаётся только как офлайн-фолбэк (стартовое значение vm.partnerAds при сбое сети).
             val tmpl = demoPartnerAds.firstOrNull()
-            if (srv.isNotEmpty() && tmpl != null) partnerAds = srv.map { a ->
+            partnerAds = if (srv.isEmpty() || tmpl == null) emptyList() else srv.map { a ->
                 // Шаблон даёт ТОЛЬКО оформление (иконка/места/категория). Все данные партнёра — с сервера.
                 // КРИТИЧНО: contact/mapPoint/имя/адрес НЕ наследуем от демо (иначе клик звонил на демо-номер).
                 tmpl.copy(
@@ -351,7 +486,10 @@ internal fun YuldashApp() {
     }
     val adStats = vm.adStats   // SnapshotStateMap: мутируем одну запись вместо копии всей карты на событие
     // Сохраняем survival-состояние в SavedStateHandle при изменении → переживает смерть процесса.
-    LaunchedEffect(screen, language, startHomeTab) { vm.persistNav() }
+    // activeBookingId в ключах: смена активной брони тоже должна попасть в handle (H1).
+    LaunchedEffect(screen, language, startHomeTab, activeBookingId, languagePersistenceReady) {
+        if (languagePersistenceReady) vm.persistNav()
+    }
 
     // Лёгкий back-stack: трейл экранов, чтобы аппаратная «Назад» возвращалась по нему, а не прыгала на Home.
     val navHistory = vm.navHistory
@@ -361,17 +499,61 @@ internal fun YuldashApp() {
         // Intro тоже транзитный (брендовое интро первого запуска) — иначе «Назад» из кабинета водителя
         // на first-run проваливал обратно на экран Intro (Intro→Onboarding пушил Intro в историю).
         val transient = navPrev == Screen.Splash || navPrev == Screen.Login || navPrev == Screen.Onboarding || navPrev == Screen.Intro
-        if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)   // forward → запоминаем, откуда пришли
+        if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)   // forward → запоминаем, откуда пришли (Intro/Splash/Login/Onboarding — не в трейл)
         navPopping = false
         navPrev = screen
     }
 
-    // После kill/restore: screen сохранён, но транзитные selectedRide/activeBookingId — нет.
-    // Если восстановились на экране брони/активной поездки без данных → на Home (без краша/пустоты).
+    // H1 — активная поездка выживает после kill процесса. screen и activeBookingId переживают смерть
+    // процесса (SavedStateHandle), но объекты Ride (selectedRide/activeTrip) — нет. Если восстановились
+    // на брони/активной поездке без объектов → по сохранённому activeBookingId дочитываем бронь с сервера
+    // и восстанавливаем поездку (маршрут на карте, гейт live-гео, back-навигацию). Экран ActiveTrip сам
+    // грузит код посадки/трекинг по bookingId, так что до ответа сервера он не пустует.
+    // Не нашлась активная бронь / нет сети → мягко уходим на Home (прежнее поведение, без краша).
     LaunchedEffect(Unit) {
-        if ((screen == Screen.Booking || screen == Screen.ActiveTrip) && selectedRide == null && activeBookingId == null) {
-            screen = Screen.Home
+        if ((screen == Screen.Booking || screen == Screen.ActiveTrip) && selectedRide == null && activeTrip == null) {
+            val bid = activeBookingId
+            var restored = false
+            if (bid != null) {
+                ApiClient.getMyBookingsDetailed().onSuccess { list ->
+                    val b = list.firstOrNull { it.id == bid }
+                    if (b != null) {
+                        // Сводку с сервера дополняем feed-поездкой по ride_id (как экран «Мои поездки»).
+                        val feed = rides.firstOrNull { it.id == b.rideId.toString() }
+                        val restoredRide = Ride(
+                            id = b.id.toString(),
+                            from = b.fromCity.ifBlank { feed?.from ?: "" },
+                            to = b.toCity.ifBlank { feed?.to ?: "" },
+                            time = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.time ?: ""),
+                            timeBa = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.timeBa ?: feed?.time ?: ""),
+                            driver = b.driverName.ifBlank { feed?.driver ?: "" },
+                            car = feed?.car ?: "",
+                            carBa = feed?.carBa ?: feed?.car ?: "",
+                            price = if (b.price > 0) b.price else (feed?.price ?: 0),
+                            seats = b.seats,
+                            rating = feed?.rating ?: 0.0,
+                            verified = b.driverVerified || (feed?.verified ?: false),
+                            boosted = false,
+                        )
+                        selectedRide = restoredRide
+                        selectedBookingStatus = b.status
+                        // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
+                        activeTrip = if (bookingStatusAllowsActiveTrip(b.status)) restoredRide else null
+                        // Бронь уже не активна (напр. завершена/отменена) → показываем детали, а не экран поездки.
+                        if (screen == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
+                        restored = true
+                    }
+                }
+            }
+            if (!restored) screen = Screen.Home
         }
+    }
+
+    // M4 — разгружаем очередь исходящих (TripPass Outbox) на СТАРТЕ приложения, а не только на экране
+    // поездки: накопленные «сел/доехал»/сообщения уйдут, даже если пользователь не открывал ActiveTrip.
+    // Переиспользуем ту же Outbox.flush (Mutex/FIFO) — второго параллельного отправителя не создаём.
+    LaunchedEffect(Unit) {
+        if (com.yuldash.app.data.Outbox.hasPending(context)) com.yuldash.app.data.Outbox.flush(context)
     }
 
     fun finishOnboarding(role: RideRole) {
@@ -382,6 +564,10 @@ internal fun YuldashApp() {
         screen = Screen.Login
     }
 
+    fun openSos(orderId: Int = 0) {
+        sosOrderId = orderId   // контекст такси-заказа (0 = обычный SOS) — не даём протечь старому
+        screen = Screen.Sos
+    }
     fun openHome(tab: HomeTab = HomeTab.Map) {
         navHistory.clear()          // Home = корень: сбрасываем трейл, чтобы «Назад» не возвращал в завершённые под-потоки
         navPopping = true           // сам переход-на-Home в историю не пишем
@@ -395,9 +581,10 @@ internal fun YuldashApp() {
         if (prev != null && prev != screen && prev != Screen.Home) { navPopping = true; screen = prev }
         else openHome(startHomeTab)
     }
-    fun openCreateRide(returnScreen: Screen = Screen.Home, returnHomeTab: HomeTab = HomeTab.Request) {
+    fun openCreateRide(returnScreen: Screen = Screen.Home, returnHomeTab: HomeTab = HomeTab.Request, prefillDate: String? = null) {
         createRideReturnScreen = returnScreen
         createRideReturnHomeTab = returnHomeTab
+        createRidePrefillDate = prefillDate   // null для обычного создания → форма как раньше
         screen = Screen.CreateRide
     }
     fun closeCreateRide() {
@@ -412,7 +599,11 @@ internal fun YuldashApp() {
         if (trustedContactsReturnScreen == Screen.Home) openHome(trustedContactsReturnHomeTab) else screen = trustedContactsReturnScreen
     }
 
+    // Один показ на объявление за сессию: карточка в LazyColumn пересоздаётся при скролле
+    // (item ушёл за экран и вернулся) → LaunchedEffect(ad.id) срабатывал повторно и накручивал статистику.
+    val countedImpressions = remember { mutableSetOf<String>() }
     fun trackAdImpression(ad: PartnerAd) {
+        if (!countedImpressions.add(ad.id)) return   // уже засчитали → не шлём повторный impression при скролле
         val current = adStats[ad.id] ?: AdStats()
         adStats[ad.id] = current.copy(impressions = current.impressions + 1)
         ApiClient.fireAdEvent(ad.id, "impression")   // реальный показ на сервер
@@ -430,10 +621,12 @@ internal fun YuldashApp() {
     // Сервер недоступен (ТСПУ/офлайн) → остаются демо, экран не пустеет.
     LaunchedEffect(Unit) {
         ApiClient.getRides().onSuccess { dtos ->
-            if (dtos.isNotEmpty()) {
-                rides.clear()
-                rides.addAll(
-                    dtos.map { d ->
+            // Сервер ОТВЕТИЛ → показываем ровно его список. Пусто = пусто (честный empty-state),
+            // а не «оставить демо с числовыми id 1..3», которые book() принял бы за реальные
+            // серверные поездки и создал бронь на чужую поездку id=1.
+            rides.clear()
+            rides.addAll(
+                dtos.map { d ->
                         Ride(
                             id = d.id.toString(),
                             from = d.fromCity,
@@ -442,6 +635,7 @@ internal fun YuldashApp() {
                             driver = d.driverName,
                             driverAvatar = d.driverAvatar,
                             driverOnline = d.driverOnline,
+                            driverIsWoman = d.driverIsWoman,
                             car = d.driverCar,
                             price = d.price,
                             seats = d.seatsLeft,
@@ -454,20 +648,37 @@ internal fun YuldashApp() {
                             smoking = d.smoking,
                             baggage = d.baggage,
                             airConditioner = d.airConditioner,
+                            quiet = d.quiet,
+                            waypoints = d.waypoints,
                             pickup = d.pickup,
                             pickupLat = d.pickupLat,
                             pickupLng = d.pickupLng,
                         )
                     }
                 )
-            }
         }
     }
-    CompositionLocalProvider(LocalAppLanguage provides language) {
+    // Открыть публичный профиль водителя из любой карточки поездки (без протаскивания колбэков).
+    // Трейл «Назад» ведётся авто-эффектом LaunchedEffect(screen) — ручной push не нужен.
+    val openDriverProfile: (Int) -> Unit = { id ->
+        if (id > 0) { driverProfileId = id; screen = Screen.DriverProfile }
+    }
+    // Синхронизируем язык сообщений об ошибке в слое данных (ApiClient — не Composable,
+    // appText недоступен). Иначе башкир видел бы серверные/клиентские ошибки по-русски.
+    LaunchedEffect(language) { ApiClient.setUiLanguageBashkir(language == AppLanguage.Ba) }
+    CompositionLocalProvider(LocalAppLanguage provides language, LocalOpenDriverProfile provides openDriverProfile) {
+        // Force-update (B9b-1): версия ниже минимальной → блокирующий экран вместо всего приложения.
+        // Не экран навигации (enum Screen) намеренно: из него нельзя выйти «Назад» — только обновиться.
+        if (forceUpdateRequired) {
+            ForceUpdateScreen(storeUrl = forceUpdateStoreUrl)
+            return@CompositionLocalProvider
+        }
         // Мои заявки — с сервера (после входа). Точное время в Фазе 1 не храним.
         val reqWaitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
         val reqByAgreement = appText("по договорённости", "килешеү буйынса")
-        LaunchedEffect(Unit) {
+        val passengerSelf = appText("Я", "Мин")   // BA-draft: «Мин» — на проверку носителю
+        LaunchedEffect(sessionVersion) {
+            requestsLoading = true
             ApiClient.getMyRequests().onSuccess { reqs ->
                 localRequests.clear()
                 localRequests.addAll(
@@ -479,7 +690,7 @@ internal fun YuldashApp() {
                             route = "${r.fromCity} → ${r.toCity}",
                             // Показываем выбранное время (если пассажир его задал), иначе «по договорённости».
                             time = r.desiredAt?.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: reqByAgreement,
-                            passenger = r.forRelativeName ?: ApiClient.cachedName() ?: "Я",
+                            passenger = r.forRelativeName ?: ApiClient.cachedName() ?: passengerSelf,
                             status = reqWaitingStatus,
                             price = r.maxPrice,
                             trustedContact = r.comment.ifBlank { null },
@@ -488,17 +699,18 @@ internal fun YuldashApp() {
                     }
                 )
             }
+            requestsLoading = false
         }
-        // Доверенные контакты — с сервера (после входа).
-        LaunchedEffect(Unit) {
+        // Доверенные контакты — с сервера (после входа). Перечитываем и при смене sessionVersion (после логина).
+        LaunchedEffect(sessionVersion) {
             ApiClient.getContacts().onSuccess { list ->
-                if (list.isNotEmpty()) {
-                    trustedContacts.clear()
-                    trustedContacts.addAll(list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) })
-                }
+                // Чистим БЕЗУСЛОВНО: у нового вошедшего (после logout на общем устройстве) может быть
+                // 0 контактов — тогда без clear() остались бы видны контакты (имена+телефоны) прошлого юзера.
+                trustedContacts.clear()
+                trustedContacts.addAll(list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) })
             }
         }
-        BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash) {
+        BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash && screen != Screen.Intro) {
             goBack()   // единый пошаговый возврат по трейлу — та же логика, что верхняя стрелка «Назад»
         }
         AnimatedContent(
@@ -517,7 +729,7 @@ internal fun YuldashApp() {
             Screen.Splash -> {
                 // Зелёный «мост» — продолжение СИСТЕМНОГО сплэша, БЕЗ повторной анимации лого.
                 // Это убирает «дубль» (раньше Compose-сплэш заново анимировал то же лого поверх системного).
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0B6B3A), Color(0xFF073F25)))))
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark))))
                 // Первый запуск → брендовое интро; повтор → быстро в приложение (без второго лого).
                 LaunchedEffect(Unit) { delay(if (splashTarget == Screen.Intro) 60 else 140); screen = splashTarget }
             }
@@ -525,7 +737,16 @@ internal fun YuldashApp() {
             Screen.Onboarding -> OnboardingScreen(
                 onFinish = ::finishOnboarding,
                 language = language,
-                onSelectLanguage = { language = it }
+                onSelectLanguage = { language = it },
+                onSimpleMode = {
+                    // Онбординг пройден + запоминаем выбор простого режима (те же prefs, без новых сущностей).
+                    prefs.edit()
+                        .putBoolean("onboarding_completed", true)
+                        .putBoolean("simple_mode_opted_in", true)
+                        .apply()
+                    Analytics.log("onboarding_simple_mode")
+                    screen = Screen.SimpleMode
+                }
             )
             Screen.Login -> {
                 LoginScreen(
@@ -534,6 +755,7 @@ internal fun YuldashApp() {
                         language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                     },
                     onContinue = {
+                        sessionVersion++   // вход завершён → перечитать роль/мои заявки/контакты под новым токеном
                         if (prefs.getString("preferred_role", "") == RideRole.Driver.name) {
                             startHomeTab = HomeTab.Profile   // назад из кабинета водителя → профиль
                             screen = Screen.DriverCabinet     // выбрал «Я водитель» → сразу в кабинет (проверка/публикация)
@@ -545,14 +767,22 @@ internal fun YuldashApp() {
                 rides = rides,
                 activeTrip = activeTrip,
                 requests = localRequests,
+                requestsLoading = requestsLoading,
                 ads = partnerAds,
                 adStats = adStats,
                 voiceMessages = voiceMessages,
                 initialTab = startHomeTab,
                 onTabChange = { startHomeTab = it },   // «Назад» с под-экранов вернётся на активную вкладку Home
                 onCreateRide = { openCreateRide(returnScreen = Screen.Home, returnHomeTab = HomeTab.Request) },
+                onSeasonalPublish = { date -> openCreateRide(returnScreen = Screen.Home, returnHomeTab = HomeTab.Request, prefillDate = date) },   // F15: дата праздника уже в форме
                 onCreateRequest = { screen = Screen.CreateRequest },
                 onSupport = { screen = Screen.Support },
+                onMyStats = { screen = Screen.MyStats },
+                onCoupons = { screen = Screen.Coupons },
+                onPromo = { screen = Screen.PromoCode },
+                onParcels = { screen = Screen.Parcels },
+                onCourier = { screen = Screen.Courier },
+                onPartnerCabinet = { screen = Screen.PartnerCabinet },
                 onReview = { screen = Screen.AppReview },
                 onAdminReviews = { screen = Screen.AdminReviews },
                 onAdminAds = { screen = Screen.AdminAds },
@@ -576,17 +806,23 @@ internal fun YuldashApp() {
                 },
                 onOpenActiveTrip = { ride, status ->
                     selectedRide = ride
-                    activeTrip = null
+                    // Живое гео гейтится на activeTrip != null (см. эффект TripLocationService выше):
+                    // для подтверждённой поездки, открытой из списка, ставим activeTrip = ride, иначе
+                    // сервис заглохнет и попутчик не увидит позицию. Для неактивной брони — null (как было).
+                    activeTrip = if (bookingStatusAllowsActiveTrip(status)) ride else null
                     activeBookingId = ride.id.toIntOrNull()
                     selectedBookingStatus = status
                     screen = if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.Booking
                 },
                 onShareRide = { ride ->
                     val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time
+                    // Красивая расшариваемая ссылка: откроется в приложении (deep-link) либо покажет
+                    // веб-превью с OG-карточкой в WhatsApp/Telegram. Хост — из конфига, не localhost.
+                    val link = "${BuildConfig.YULDASH_WEB_BASE_URL.trimEnd('/')}/r/${ride.id}"
                     val shareText = if (language == AppLanguage.Ba) {
-                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, йөрөтөүсе ${ride.driver}, ${ride.price} ₽, буш урын: ${ride.seats}."
+                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, йөрөтөүсе ${ride.driver}, ${ride.price} ₽, буш урын: ${ride.seats}.\n$link"
                     } else {
-                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, водитель ${ride.driver}, ${ride.price} ₽, свободно ${ride.seats} места."
+                        "Юлдаш: ${ride.from} → ${ride.to}, $rideTime, водитель ${ride.driver}, ${ride.price} ₽, свободно ${ride.seats} места.\n$link"
                     }
                     shareRide(
                         context = context,
@@ -600,9 +836,16 @@ internal fun YuldashApp() {
                     voiceMessages.add(0, message)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Тауыш хәбәре ебәрелде" else "Голосовое отправлено", Toast.LENGTH_SHORT).show()
                 },
-                onSos = { screen = Screen.Sos },
+                onSos = { openSos() },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
+                onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
+                onOpenScheduled = { screen = Screen.ScheduledOrders },
                 onNotifications = { screen = Screen.Notifications },
+                onRouteWatch = { from, to ->
+                    routeWatchPrefillFrom = from ?: ""
+                    routeWatchPrefillTo = to ?: ""
+                    screen = Screen.RouteWatches
+                },
                 onOpenChat = { bid, peer, route ->
                     val parts = route.split("→").map { it.trim() }
                     selectedRide = Ride(id = bid.toString(), from = parts.getOrElse(0) { "" }, to = parts.getOrElse(1) { "" }, time = "", driver = peer, car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
@@ -625,12 +868,33 @@ internal fun YuldashApp() {
                             }
                     }
                 },
+                onEditRequest = { id, from, to, price, comment ->
+                    // F3: правка заявки. Успех — оптимистично обновляем карточку; сбой — серверная причина.
+                    appScope.launch {
+                        ApiClient.editRequest(id, fromCity = from, toCity = to, maxPrice = price, comment = comment)
+                            .onSuccess {
+                                val idx = localRequests.indexOfFirst { it.serverId == id }
+                                if (idx >= 0) {
+                                    val r = localRequests[idx]
+                                    localRequests[idx] = r.copy(route = "$from → $to", price = price, trustedContact = comment.ifBlank { null })
+                                }
+                                Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка үҙгәртелде" else "Заявка обновлена", Toast.LENGTH_SHORT).show()
+                            }
+                            .onFailure { e ->
+                                Toast.makeText(context, (e as? com.yuldash.app.data.ApiException)?.message ?: if (language == AppLanguage.Ba) "Булманы. Ҡабатла" else "Не получилось. Повтори", Toast.LENGTH_LONG).show()
+                            }
+                    }
+                },
                 onSafety = { screen = Screen.Safety },
                 onSettings = { screen = Screen.Settings },
                 onPrivacy = { screen = Screen.Privacy },
+                onTrust = { if (ApiClient.isLoggedIn()) screen = Screen.Trust else screen = Screen.Login },
+                onFairness = { if (ApiClient.isLoggedIn()) screen = Screen.FairnessCenter else screen = Screen.Login },
+                onConsents = { if (ApiClient.isLoggedIn()) screen = Screen.Consents else screen = Screen.Login },
                 onHelp = { screen = Screen.Help },
                 onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
                 onDriverCabinet = { prefs.edit().putString("preferred_role", RideRole.Driver.name).apply(); screen = Screen.DriverCabinet },
+                onClinicRides = { screen = Screen.ClinicRides },
                 onSimpleMode = { screen = Screen.SimpleMode },
                 onTrustedContacts = { openTrustedContacts(returnScreen = Screen.Home, returnHomeTab = HomeTab.Profile) },
                 onCallbackHelp = { screen = Screen.CallbackHelp },
@@ -641,11 +905,14 @@ internal fun YuldashApp() {
                 onAccountDeleted = {
                     TripLocationService.stop(context)   // приватность: глушим live-GPS
                     vm.clearUserData()                  // чистим PII из памяти (сервер уже удалил аккаунт)
+                    isAdmin = false
                     startHomeTab = HomeTab.Map
                     screen = Screen.Login
-                }
+                },
+                onInstantLogin = { screen = Screen.Login }   // такси требует входа → на экран входа
             )
             Screen.CreateRide -> CreateRideScreen(
+                prefillDate = createRidePrefillDate,   // F15: если пришли из баннера — дата праздника уже стоит
                 onBack = { goBack() },
                 onPublish = { ride ->
                     rides.add(0, ride)
@@ -674,7 +941,7 @@ internal fun YuldashApp() {
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
                 canOpenActiveTrip = activeBookingId == null || bookingStatusAllowsActiveTrip(selectedBookingStatus),
-                onConfirmRide = {
+                onConfirmRide = { payMethod, payAmount ->
                     if (activeBookingId != null) {
                         activeTrip = selectedRide
                         screen = Screen.ActiveTrip
@@ -682,7 +949,7 @@ internal fun YuldashApp() {
                         val rid = selectedRide?.id?.toIntOrNull()
                         if (rid != null) {
                             appScope.launch {
-                                ApiClient.book(rid, 1)
+                                ApiClient.book(rid, 1, payMethod, payAmount)
                                     .onSuccess { bid -> activeBookingId = bid; selectedBookingStatus = "confirmed"; activeTrip = selectedRide; screen = Screen.ActiveTrip }
                                     .onFailure { Toast.makeText(context, if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори.", Toast.LENGTH_SHORT).show() }
                             }
@@ -696,11 +963,14 @@ internal fun YuldashApp() {
                 bookingId = activeBookingId,
                 onBack = { goBack() },
                 onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
-                onSos = { screen = Screen.Sos }
+                onSos = { openSos() },
+                onSupport = { screen = Screen.Support },
+                onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt }
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },
-                onLoginRequired = { screen = Screen.Login }
+                onLoginRequired = { screen = Screen.Login },
+                orderId = sosOrderId.takeIf { it > 0 }   // контекст такси-заказа (B7b-2); 0 = обычный SOS
             )
             Screen.VerifyDriver -> VerifyDriverScreen(
                 onBack = { goBack() },
@@ -708,18 +978,36 @@ internal fun YuldashApp() {
             )
             Screen.Notifications -> NotificationsScreen(
                 onBack = { goBack() },
-                onSelectTab = { tab -> openHome(tab) }
+                onSelectTab = { tab -> openHome(tab) },
+                // Deep-link: тап по брони/поездке/сообщению → детали брони (BookingScreen сам грузит их по id).
+                onOpenBooking = { bid ->
+                    selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
+                    activeBookingId = bid
+                    selectedBookingStatus = ""
+                    screen = Screen.Booking
+                },
+                // Тап по «отклик на заявку» → экран откликов этой заявки.
+                onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses },
+                onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
+                // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).
+                onOpenSupport = { tid -> supportTicketId = tid; screen = Screen.SupportTicket }
+            )
+            Screen.RouteWatches -> RouteWatchesScreen(
+                onBack = { goBack() },
+                prefillFrom = routeWatchPrefillFrom,
+                prefillTo = routeWatchPrefillTo,
             )
             Screen.Privacy -> PrivacyScreen(onBack = { goBack() })
             Screen.Rules -> RulesScreen(onBack = { goBack() })
-            Screen.PaymentInfo -> PaymentInfoScreen(onBack = { goBack() })
+            Screen.PaymentInfo -> PaymentInfoScreen(onBack = { goBack() }, onOpenPricing = { screen = Screen.PricingInfo })
+            Screen.PricingInfo -> PricingInfoScreen(onBack = { goBack() })
             Screen.Blocklist -> BlocklistScreen(onBack = { goBack() })
             Screen.Report -> ReportScreen(onBack = { goBack() })
             Screen.Filters -> FiltersScreen(onBack = { goBack() })
             Screen.Safety -> SafetyScreen(
                 onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) },
-                onSos = { screen = Screen.Sos },
+                onSos = { openSos() },
                 onShareTrip = { openTrustedContacts(returnScreen = Screen.Safety) },
                 onRules = { screen = Screen.Rules },
                 onBlocklist = { screen = Screen.Blocklist },
@@ -732,6 +1020,7 @@ internal fun YuldashApp() {
                     language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                 },
                 onPrivacy = { screen = Screen.Privacy },
+                onConsents = { screen = Screen.Consents },
                 onPayments = { screen = Screen.PaymentInfo },
                 onFilters = { screen = Screen.Filters },
                 isAdmin = isAdmin,
@@ -750,8 +1039,20 @@ internal fun YuldashApp() {
                 onAds = { screen = Screen.AdsCabinet },
                 onDrivers = { screen = Screen.AdminDrivers },
                 onReports = { screen = Screen.AdminReports },
-                onPaymentRequests = { screen = Screen.AdminPaymentRequests }
+                onPaymentRequests = { screen = Screen.AdminPaymentRequests },
+                onTaxi = { screen = Screen.AdminTaxi },
+                onWaitlist = { screen = Screen.AdminWaitlist },
+                onTaxiPulse = { screen = Screen.AdminTaxiPulse },
+                onPartners = { screen = Screen.AdminPartners },
+                onPromoAdmin = { screen = Screen.AdminPromo },
+                onParcelsAdmin = { screen = Screen.AdminParcels },
+                onCourierAdmin = { screen = Screen.AdminCourier },
+                onIncomeCalc = { screen = Screen.IncomeCalculator },
+                onSosFeed = { screen = Screen.AdminSos },
+                onIncidents = { screen = Screen.AdminIncidents },
+                onRatings = { screen = Screen.AdminRatings },
             )
+            Screen.IncomeCalculator -> IncomeCalculatorScreen(onBack = { goBack() })
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
             Screen.AdminReports -> AdminReportsScreen(onBack = { goBack() })
             Screen.AdminPaymentRequests -> AdminPaymentRequestsScreen(onBack = { goBack() })
@@ -763,7 +1064,8 @@ internal fun YuldashApp() {
                 onBack = { goBack() },
                 onSelectTab = { tab -> openHome(tab) },
                 onAdImpression = ::trackAdImpression,
-                onAdClick = ::trackAdClick
+                onAdClick = ::trackAdClick,
+                onSupportChat = { if (ApiClient.isLoggedIn()) screen = Screen.SupportTickets else screen = Screen.Login }
             )
             Screen.PassengerCabinet -> PassengerCabinetScreen(
                 rides = rides,
@@ -778,6 +1080,10 @@ internal fun YuldashApp() {
                 },
                 onFindRide = { openHome(HomeTab.Map) },
                 onCreateRequest = { screen = Screen.CreateRequest },
+                onInstantOrder = { if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder else screen = Screen.Login },
+                onScheduledOrders = { if (ApiClient.isLoggedIn()) screen = Screen.ScheduledOrders else screen = Screen.Login },
+                onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
+                onSavedPlaces = { if (ApiClient.isLoggedIn()) screen = Screen.SavedPlaces else screen = Screen.Login },
                 onSafety = { screen = Screen.Safety }
             )
             Screen.DriverCabinet -> DriverCabinetScreen(
@@ -786,9 +1092,57 @@ internal fun YuldashApp() {
                 onCreateRide = { openCreateRide(returnScreen = Screen.DriverCabinet) },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onBoost = { screen = Screen.Boost },
-                onRequestsFeed = { screen = Screen.RequestsFeed }
+                onRequestsFeed = { screen = Screen.RequestsFeed },
+                onInstantTrip = { id -> instantTripOrderId = id; screen = Screen.InstantDriverTrip },
+                onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
+                onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
+                onEarnings = { if (ApiClient.isLoggedIn()) screen = Screen.DriverEarnings else screen = Screen.Login },
+                onTaxiRides = { if (ApiClient.isLoggedIn()) screen = Screen.DriverTaxiRides else screen = Screen.Login },
+                onTaxiDocs = { if (ApiClient.isLoggedIn()) screen = Screen.TaxiDocuments else screen = Screen.Login },
+                onPretrip = { if (ApiClient.isLoggedIn()) screen = Screen.PretripCheck else screen = Screen.Login },
+                onMyResponses = { if (ApiClient.isLoggedIn()) screen = Screen.DriverResponses else screen = Screen.Login },
             )
+            Screen.InstantOrder -> InstantOrderScreen(
+                onBack = { goBack() },
+                onLoginRequired = { screen = Screen.Login },
+                onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
+                onOpenScheduled = { screen = Screen.ScheduledOrders }
+            )
+            Screen.ScheduledOrders -> ScheduledOrdersScreen(
+                onBack = { goBack() },
+                // Активировал предзаказ → в обычный экран заказа: он восстановит заказ в поиске.
+                onActivated = { screen = Screen.InstantOrder }
+            )
+            Screen.SupportTickets -> SupportTicketsScreen(
+                onBack = { goBack() },
+                onOpenTicket = { tid -> supportTicketId = tid; screen = Screen.SupportTicket }
+            )
+            Screen.SupportTicket -> SupportTicketScreen(
+                ticketId = supportTicketId,
+                onBack = { goBack() }
+            )
+            Screen.InstantDriverTrip -> InstantDriverTripScreen(
+                orderId = instantTripOrderId,
+                onBack = { goBack() },
+                onFinished = { screen = Screen.DriverCabinet }
+            )
+            Screen.InstantChat -> InstantChatScreen(
+                orderId = instantChatOrderId,
+                onBack = { goBack() }
+            )
+            Screen.TaxiOnboarding -> TaxiOnboardingScreen(
+                onBack = { goBack() },
+                onOpenDriverCabinet = { screen = Screen.DriverCabinet }
+            )
+            Screen.AdminTaxi -> AdminTaxiScreen(onBack = { goBack() })
+            Screen.AdminWaitlist -> AdminWaitlistScreen(onBack = { goBack() })
+            Screen.AdminTaxiPulse -> AdminTaxiPulseScreen(onBack = { goBack() })
             Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
+            Screen.DriverResponses -> DriverResponsesScreen(
+                onBack = { goBack() },
+                // Согласился на встречную цену → сразу в поездку, как при обычном accept у пассажира.
+                onOpenTrip = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip },
+            )
             Screen.RequestResponses -> ResponsesScreen(
                 requestId = responsesRequestId,
                 onBack = { goBack() },
@@ -812,7 +1166,7 @@ internal fun YuldashApp() {
                 onTrustedContacts = { if (ApiClient.isLoggedIn()) openTrustedContacts(returnScreen = Screen.SimpleMode) else screen = Screen.Login },
                 onRepeatTrip = { if (ApiClient.isLoggedIn()) screen = Screen.RepeatTrip else screen = Screen.Login },
                 onCallbackHelp = { if (ApiClient.isLoggedIn()) screen = Screen.CallbackHelp else screen = Screen.Login },
-                onSos = { screen = Screen.Sos },
+                onSos = { openSos() },
                 onChat = { if (ApiClient.isLoggedIn()) openHome(HomeTab.Chat) else screen = Screen.Login }
             )
             Screen.VoiceRequest -> VoiceRequestScreen(
@@ -876,9 +1230,71 @@ internal fun YuldashApp() {
                     }
                 }
             )
+            Screen.MyStats -> MyStatsScreen(onBack = { goBack() })
+            Screen.Wallet -> WalletScreen(onBack = { goBack() })
+            Screen.DriverEarnings -> DriverEarningsScreen(onBack = { goBack() })
+            Screen.SavedPlaces -> SavedPlacesScreen(onBack = { goBack() })
+            Screen.TripReceipt -> TripReceiptScreen(bookingId = receiptBookingId, onBack = { goBack() })
+            Screen.TaxiReceipt -> TaxiReceiptScreen(
+                orderId = taxiReceiptOrderId,
+                onBack = { goBack() },
+                // «Забыл вещь» открыл чат заказа на 48 часов → ведём прямо туда.
+                onOpenChat = { id -> instantChatOrderId = id; screen = Screen.InstantChat },
+            )
+            Screen.DriverTaxiRides -> DriverTaxiRidesScreen(
+                onBack = { goBack() },
+                onOpenReceipt = { id -> taxiReceiptOrderId = id; screen = Screen.TaxiReceipt },
+            )
+            Screen.AdminSos -> AdminSosScreen(onBack = { goBack() })
+            Screen.TaxiDocuments -> TaxiDocumentsScreen(onBack = { goBack() })
+            Screen.PretripCheck -> PretripCheckScreen(onBack = { goBack() })
+            Screen.FairnessCenter -> FairnessCenterScreen(
+                onBack = { goBack() },
+                onOpenIncident = { id -> incidentId = id; screen = Screen.IncidentDetail },
+            )
+            Screen.IncidentDetail -> IncidentDetailScreen(incidentId = incidentId, onBack = { goBack() })
+            Screen.AdminIncidents -> AdminIncidentsScreen(onBack = { goBack() })
+            Screen.AdminRatings -> AdminRatingsScreen(onBack = { goBack() })
+            Screen.CourierEarnings -> CourierEarningsScreen(onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
+            Screen.DriverProfile -> DriverProfileScreen(driverId = driverProfileId, onBack = { goBack() })
+            Screen.Trust -> TrustScreen(
+                onBack = { goBack() },
+                onOpenInvites = { screen = Screen.Invites },
+                onOpenConsents = { screen = Screen.Consents },
+                onEditProfile = { openHome(HomeTab.Profile) },   // L0→L1: имя и фото в профиле
+                onVerify = { screen = Screen.VerifyDriver },     // L1→L2: проверка документов
+            )
+            Screen.Invites -> InvitesScreen(onBack = { goBack() })
+            Screen.Consents -> ConsentsScreen(onBack = { goBack() })
+            Screen.ClinicRides -> ClinicRidesScreen(
+                onBack = { goBack() },
+                onBookRide = { ride ->
+                    selectedRide = ride
+                    activeBookingId = null
+                    selectedBookingStatus = ""
+                    screen = Screen.Booking
+                }
+            )
+            Screen.Coupons -> CouponsScreen(onBack = { goBack() })
+            Screen.PartnerCabinet -> PartnerCabinetScreen(onBack = { goBack() })
+            Screen.AdminPartners -> AdminPartnersScreen(onBack = { goBack() })
+            Screen.PromoCode -> PromoCodeScreen(onBack = { goBack() })
+            Screen.AdminPromo -> AdminPromoScreen(onBack = { goBack() })
+            Screen.Parcels -> ParcelsScreen(onBack = { goBack() })
+            Screen.AdminParcels -> AdminParcelsScreen(onBack = { goBack() })
+            Screen.CourierOnboarding -> CourierOnboardingScreen(
+                onBack = { goBack() },
+                onOpenCourier = { screen = Screen.Courier },
+            )
+            Screen.Courier -> CourierScreen(
+                onBack = { goBack() },
+                onBecomeCourier = { screen = Screen.CourierOnboarding },
+                onEarnings = { screen = Screen.CourierEarnings },
+            )
+            Screen.AdminCourier -> AdminCourierScreen(onBack = { goBack() })
         }
         }
     }
@@ -893,7 +1309,12 @@ internal fun shareRide(context: android.content.Context, text: String, chooserTi
 }
 
 @Composable
-private fun OnboardingScreen(onFinish: (RideRole) -> Unit, language: AppLanguage, onSelectLanguage: (AppLanguage) -> Unit) {
+private fun OnboardingScreen(
+    onFinish: (RideRole) -> Unit,
+    language: AppLanguage,
+    onSelectLanguage: (AppLanguage) -> Unit,
+    onSimpleMode: () -> Unit
+) {
     // Слайды и воронка-эффект живут в обёртке (side-effect), вся разметка — в чистом OnboardingContent.
     val slides = remember { onboardingSlides() }
     LaunchedEffect(Unit) { Analytics.log("onboarding_start") }   // воронка: начало онбординга (с этим виден отвал внутри онбординга)
@@ -902,6 +1323,7 @@ private fun OnboardingScreen(onFinish: (RideRole) -> Unit, language: AppLanguage
         language = language,
         onSelectLanguage = onSelectLanguage,
         onFinish = onFinish,
+        onSimpleMode = onSimpleMode,
     )
 }
 
@@ -916,6 +1338,7 @@ internal fun OnboardingContent(
     onSelectLanguage: (AppLanguage) -> Unit,
     onFinish: (RideRole) -> Unit,
     modifier: Modifier = Modifier,
+    onSimpleMode: () -> Unit = {},
 ) {
     val pagerState = rememberPagerState(pageCount = { slides.size })
     val scope = rememberCoroutineScope()
@@ -981,6 +1404,11 @@ internal fun OnboardingContent(
                                     selected = role,
                                     onSelect = { role = it }
                                 )
+                            }
+                        }
+                        item {
+                            Box(Modifier.onbAppear(3, played)) {
+                                OnboardingSimpleModeCard(onEnable = onSimpleMode)
                             }
                         }
                     } else {
@@ -1073,9 +1501,11 @@ internal fun OnboardingLangChip(text: String, active: Boolean, onClick: () -> Un
             .clip(RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
             .background(if (active) CanonGreen2 else Color.Transparent)
-            .padding(horizontal = 11.dp, vertical = 4.dp)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 11.sp, fontWeight = FontWeight.Black)
+        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Black)
     }
 }
 
@@ -1239,6 +1669,73 @@ internal fun OnboardingRoleChooser(selected: RideRole, onSelect: (RideRole) -> U
             onClick = { onSelect(RideRole.Driver) }
         )
         OnboardingTrustStrip()
+    }
+}
+
+/**
+ * Мягкое предложение простого режима в онбординге (рядом с выбором роли).
+ * Крупная кнопка ведёт в SimpleModeScreen / включает режим; «Не сейчас» — прячет карточку.
+ * Тёплый тон, всё двуязычно; вход в простой режим также остаётся в профиле.
+ */
+@Composable
+internal fun OnboardingSimpleModeCard(onEnable: () -> Unit) {
+    var dismissed by rememberSaveable { mutableStateOf(false) }
+    if (!dismissed) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CanonMint),
+            shape = CanonItemShape,
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(46.dp).background(CanonSurface, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.VolumeUp, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        appText("Тебе удобнее крупные кнопки и голосовой заказ?", "Һиңә эре төймәләр һәм тауыш менән заказ уңайлыраҡмы?"),
+                        modifier = Modifier.weight(1f),
+                        color = CanonText,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 17.sp,
+                        lineHeight = 21.sp
+                    )
+                }
+                Text(
+                    appText(
+                        "Простой режим — большие кнопки, меньше шагов и заказ голосом. Включить можно и позже в профиле.",
+                        "Ябай режим — эре төймәләр, аҙыраҡ аҙым һәм тауыш менән заказ. Һуңынан профилдә лә тоҡандырып була."
+                    ),
+                    color = CanonText.copy(alpha = 0.82f),
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp
+                )
+                Button(
+                    onClick = onEnable,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                ) {
+                    Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        appText("Включить простой режим", "Ябай режимды тоҡандырыу"),
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 16.sp
+                    )
+                }
+                TextButton(
+                    onClick = { dismissed = true },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text(appText("Не сейчас", "Хәҙер түгел"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+            }
+        }
     }
 }
 
@@ -1427,6 +1924,7 @@ internal fun HomeScreen(
     rides: List<Ride>,
     activeTrip: Ride?,
     requests: List<LocalRequest>,
+    requestsLoading: Boolean = false,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
     voiceMessages: List<LocalVoiceMessage>,
@@ -1446,24 +1944,40 @@ internal fun HomeScreen(
     onSos: () -> Unit,
     onVerifyDriver: () -> Unit,
     onNotifications: () -> Unit,
+    onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13: открыть «Мои подписки» (опц. с маршрутом)
     onOpenChat: (Int, String, String) -> Unit,
     onOpenResponses: (Int) -> Unit = {},
     onCancelRequest: (Int) -> Unit = {},
+    onEditRequest: (Int, String, String, Int, String) -> Unit = { _, _, _, _, _ -> },   // F3: правка заявки
     onSafety: () -> Unit,
     onSettings: () -> Unit,
     onPrivacy: () -> Unit,
+    onTrust: () -> Unit,
+    onConsents: () -> Unit,
     onHelp: () -> Unit,
     onReview: () -> Unit,
     onAdminReviews: () -> Unit,
     onAdminAds: () -> Unit,
     onPassengerCabinet: () -> Unit,
     onDriverCabinet: () -> Unit,
+    onClinicRides: () -> Unit,   // F22: раздел «Поездки к клинике»
     onSimpleMode: () -> Unit,
     onTrustedContacts: () -> Unit,
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
+    onFairness: () -> Unit = {},   // «Центр справедливости» — вход из профиля
+    onMyStats: () -> Unit = {},
+    onCoupons: () -> Unit = {},
+    onPartnerCabinet: () -> Unit = {},
+    onPromo: () -> Unit = {},
+    onParcels: () -> Unit = {},
+    onCourier: () -> Unit = {},
     onToggleLanguage: () -> Unit,
     onAccountDeleted: () -> Unit = {},
+    onInstantLogin: () -> Unit = {},
+    onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» водитель уходит в онбординг
+    onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан из встроенного такси → «Мои предзаказы»
+    onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
     onTabChange: (HomeTab) -> Unit = {}
 ) {
     var ridesPresetTo by remember { mutableStateOf("") }
@@ -1478,7 +1992,7 @@ internal fun HomeScreen(
                 selectTab(HomeTab.Rides)
             }
             when (tab) {
-                HomeTab.Map -> MapScreen(
+                HomeTab.Map -> PassengerModeHome(
                     rides = rides,
                     activeTrip = activeTrip,
                     ads = ads,
@@ -1490,7 +2004,13 @@ internal fun HomeScreen(
                     onSos = onSos,
                     onOpenPopular = { route -> openRides(to = route.to, today = true) },
                     onDriver = onCreateRide,
-                    onBoost = onBoost
+                    onBoost = onBoost,
+                    onInstantLogin = onInstantLogin,
+                    onTaxiOnboarding = onTaxiOnboarding,
+                    onClinicRides = onClinicRides,
+                    onRouteWatch = onRouteWatch,
+                    onOpenScheduled = onOpenScheduled,
+                    onSeasonalPublish = onSeasonalPublish,   // F15: баннер «на праздник» → создать поездку (с датой-шаблоном)
                 )
                 HomeTab.Rides -> RidesScreen(
                     rides = rides,
@@ -1512,7 +2032,10 @@ internal fun HomeScreen(
                     requests = requests,
                     onCreateNew = onCreateRequest,
                     onViewResponses = onOpenResponses,   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
-                    onCancel = onCancelRequest
+                    onCancel = onCancelRequest,
+                    loading = requestsLoading,
+                    onEditRequest = onEditRequest,
+                    onOpenRide = { dto -> onBookRide(dto.toUiRide()) }   // авто-подбор → открыть бронь поездки
                 )
                 HomeTab.Chat -> ChatScreen(
                     voiceMessages = voiceMessages,
@@ -1529,6 +2052,8 @@ internal fun HomeScreen(
                     onSafety = onSafety,
                     onSettings = onSettings,
                     onPrivacy = onPrivacy,
+                    onTrust = onTrust,
+                    onConsents = onConsents,
                     onHelp = onHelp,
                     onReview = onReview,
                     onAdminReviews = onAdminReviews,
@@ -1539,6 +2064,13 @@ internal fun HomeScreen(
                     onTrustedContacts = onTrustedContacts,
                     onCallbackHelp = onCallbackHelp,
                     onAdsCabinet = onAdsCabinet,
+                    onFairness = onFairness,
+                    onMyStats = onMyStats,
+                    onCoupons = onCoupons,
+                    onPromo = onPromo,
+                    onParcels = onParcels,
+                    onCourier = onCourier,
+                    onPartnerCabinet = onPartnerCabinet,
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,
                     onAdImpression = onAdImpression,
@@ -1614,31 +2146,31 @@ internal fun YuldashBottomBar(
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Map,
                 label = appText("Карта", "Карта"),
-                icon = Icons.Default.Map,
+                iconRes = R.drawable.yu_map_tab,
                 onClick = { onSelect(HomeTab.Map) }
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Rides,
                 label = appText("Поездки", "Сәфәрҙәр"),
-                icon = Icons.Default.ListAlt,
+                iconRes = R.drawable.yu_trip_list,
                 onClick = { onSelect(HomeTab.Rides) }
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Request,
                 label = appText("Заявка", "Заявка"),
-                icon = Icons.Default.AddBox,
+                iconRes = R.drawable.yu_request_add,
                 onClick = { onSelect(HomeTab.Request) }
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Chat,
                 label = appText("Чат", "Чат"),
-                icon = Icons.Default.ChatBubble,
+                iconRes = R.drawable.yu_chat,
                 onClick = { onSelect(HomeTab.Chat) }
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Profile,
                 label = appText("Профиль", "Профиль"),
-                icon = Icons.Default.Person,
+                iconRes = R.drawable.yu_profile,
                 onClick = { onSelect(HomeTab.Profile) }
             )
         }
@@ -1649,12 +2181,12 @@ internal fun YuldashBottomBar(
 private fun RowScope.YuldashBottomItem(
     selected: Boolean,
     label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconRes: Int,
     onClick: () -> Unit
 ) {
     val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(280), label = "navPill")
     val iconTint by animateColorAsState(if (selected) CanonText else CanonMuted, tween(280), label = "navTint")
-    val labelColor by animateColorAsState(if (selected) Color(0xFFD29400) else CanonMuted, tween(280), label = "navLabel")
+    val labelColor by animateColorAsState(if (selected) CanonGold else CanonMutedStrong, tween(280), label = "navLabel")
     val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, tween(280), label = "navScale")
     val interaction = remember { MutableInteractionSource() }
     Column(
@@ -1670,7 +2202,7 @@ private fun RowScope.YuldashBottomItem(
             shape = RoundedCornerShape(18.dp)
         ) {
             Icon(
-                icon,
+                painterResource(iconRes),
                 contentDescription = label,
                 modifier = Modifier
                     .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -1682,7 +2214,7 @@ private fun RowScope.YuldashBottomItem(
         Text(
             text = label,
             color = labelColor,
-            fontSize = 9.sp,
+            fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.Black else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

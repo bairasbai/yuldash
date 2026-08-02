@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.yuldash.app",
+      "sha256_cert_fingerprints": [
+        "ЗАМЕНИ_НА_SHA256_ОТПЕЧАТОК_ТВОЕГО_KEYSTORE"
+      ]
+    }
+  }
+]

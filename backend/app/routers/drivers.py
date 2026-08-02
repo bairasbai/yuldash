@@ -3,18 +3,21 @@
 import json
 import os
 import uuid
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import DriverProfile, User, UserRole
+from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
 from ..security import current_user
-from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url
+from ..services import DOC_DIR, enforce_upload_quota, notify_admin_telegram, read_upload, secure_docs_url, user_rating
+from ..storage import get_storage
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["drivers"])
@@ -70,6 +73,31 @@ def driver_online(body: OnlineIn, user: User = Depends(current_user), session: S
     return dp
 
 
+_ALLOWED_GENDERS = ("", "female", "male")
+
+
+class GenderIn(BaseModel):
+    # "" — снять/не указывать (opt-out), female / male. Пол — деликатное поле,
+    # меняет его только сам водитель.
+    gender: str = ""
+
+
+@router.post("/driver/gender", response_model=DriverProfile)
+def set_driver_gender(body: GenderIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """F9 «Женщинам — водитель-женщина»: водитель по желанию (opt-in) указывает пол.
+    Публично раскрывается только полезный сигнал «женщина за рулём» (female);
+    male/пусто наружу не выпячиваются (см. schemas.RideOut.driver_is_woman)."""
+    g = (body.gender or "").strip().lower()
+    if g not in _ALLOWED_GENDERS:
+        raise HTTPException(400, "Недопустимое значение пола")
+    dp = _get_or_create_profile(session, user.id)
+    dp.gender = g
+    session.add(dp)
+    session.commit()
+    session.refresh(dp)
+    return dp
+
+
 @router.post("/upload/photo")
 async def upload_photo(request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Загрузка фото документа/авто (multipart `file` ИЛИ base64 — обратная совместимость со
@@ -77,31 +105,36 @@ async def upload_photo(request: Request, user: User = Depends(current_user), ses
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
     name = f"{user.id}_{uuid.uuid4().hex}.{ext}"
-    with open(os.path.join(DOC_DIR, name), "wb") as f:
-        f.write(data)
+    # синхронный save() в async-хендлере → threadpool, чтобы заливка/зависший S3 не морозил event-loop.
+    await run_in_threadpool(get_storage().save, f"docs/{name}", data)
     return {"url": secure_docs_url(name)}
 
 
 @router.get("/secure/docs/{name}")
 def secure_doc(name: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Отдать фото документа водителя. Доступ: админ ИЛИ владелец этого документа."""
+    """Отдать фото документа водителя. Доступ: админ ИЛИ владелец этого документа.
+
+    URL стабильный (/secure/docs/{name}) — авторизацию всегда делает приложение (152-ФЗ).
+    Локально отдаём файл; в S3-режиме после проверки доступа редиректим на подписанный URL."""
     safe = os.path.basename(name)   # защита от path traversal
     if user.role != UserRole.admin:
         prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)).first()
         if not _is_owned_doc_name(safe, user.id, prof):
             raise HTTPException(403, "Нет доступа к документу")
-    path = os.path.join(DOC_DIR, safe)
-    if not os.path.isfile(path):
+    storage = get_storage()
+    if not storage.exists(f"docs/{safe}"):
         raise HTTPException(404, "Файл не найден")
-    return FileResponse(path)
+    if storage.is_remote:
+        return RedirectResponse(storage.url(f"docs/{safe}"))
+    return FileResponse(os.path.join(DOC_DIR, safe))
 
 
 class DriverProfileIn(BaseModel):
-    car_make: str = ""
-    car_model: str = ""
-    car_color: str = ""
-    car_plate: str = ""
-    seats: int = 4
+    car_make: str = Field("", max_length=60)
+    car_model: str = Field("", max_length=60)
+    car_color: str = Field("", max_length=40)
+    car_plate: str = Field("", max_length=16)
+    seats: int = Field(4, ge=1, le=8)   # мест в машине — реальный диапазон (было: примут −5 и 9999)
 
 
 def _get_or_create_profile(session: Session, user_id: int) -> DriverProfile:
@@ -217,10 +250,87 @@ def driver_status(user: User = Depends(current_user), session: Session = Depends
         "license_url": dp.license_url if dp else "",
         "car_photo_url": dp.car_photo_url if dp else "",
         "online": dp.online if dp else False,
+        "gender": dp.gender if dp else "",   # виден только самому водителю (свой профиль)
         "autocheck_result": dp.autocheck_result if dp else "",
         "autocheck_score": dp.autocheck_score if dp else 0.0,
         "autocheck_data": dp.autocheck_data if dp else "",
     }
+
+
+# ----------------------------- Публичный профиль водителя -----------------------------
+class PublicReviewOut(BaseModel):
+    author: str                              # имя автора (без телефона/ПДн)
+    stars: int
+    text: str
+    created_at: datetime
+
+
+class DriverPublicOut(BaseModel):
+    """Публичная витрина водителя (тапом с карточки поездки). БЕЗ ПДн: без телефона.
+    Доверие «между своими»: стаж, поездки, средний рейтинг, отзывы прошедшие модерацию, бейдж."""
+    id: int
+    name: str
+    avatar_url: str = ""
+    verified: bool = False                   # бейдж «Проверен»
+    joined_at: datetime                      # дата регистрации → стаж в Юлдаше
+    days_in_service: int = 0                 # стаж в днях (клиент покажет «X лет/мес» на 2 языках)
+    trips_count: int = 0                     # число завершённых поездок как водитель
+    car: str = ""                            # марка+модель (без госномера — не публично)
+    rating: Optional[float] = None           # средний рейтинг (None если оценок нет)
+    rating_count: int = 0
+    reviews: List[PublicReviewOut] = []      # последние отзывы, прошедшие модерацию
+
+
+@router.get("/drivers/{driver_id}/public", response_model=DriverPublicOut)
+def driver_public(driver_id: int, limit: int = 5, session: Session = Depends(get_session)):
+    """Публичные данные водителя + агрегаты + последние модерированные текстовые отзывы.
+    Без auth и без ПДн (телефон/точные координаты не отдаём) — открывается тапом с карточки."""
+    limit = max(1, min(20, limit))
+    u = session.get(User, driver_id)
+    if not u:
+        raise HTTPException(404, "Пользователь не найден")
+    dp = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
+
+    # Завершённые поездки как водитель: брони со статусом done по его поездкам.
+    ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == driver_id)).all())
+    trips_done = 0
+    if ride_ids:
+        trips_done = len(session.exec(
+            select(Booking.id).where(Booking.ride_id.in_(ride_ids), Booking.status == BookingStatus.done)
+        ).all())
+
+    avg, cnt = user_rating(session, driver_id)
+
+    # Последние текстовые отзывы, прошедшие модерацию (text_published=True), новые сверху.
+    rows = session.exec(
+        select(Rating)
+        .where(Rating.ratee_id == driver_id, Rating.text_published == True, Rating.text != "")  # noqa: E712
+        .order_by(Rating.created_at.desc())
+        .limit(limit)
+    ).all()
+    author_ids = {r.rater_id for r in rows}
+    authors = {a.id: a for a in session.exec(select(User).where(User.id.in_(author_ids))).all()} if author_ids else {}
+    reviews = [
+        PublicReviewOut(
+            author=((authors.get(r.rater_id).name if authors.get(r.rater_id) else "") or "Аноним"),
+            stars=r.stars, text=r.text, created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+    joined = u.created_at
+    now = utcnow()
+    # created_at и utcnow() оба наивные UTC → вычитание безопасно.
+    days = max(0, (now - joined).days) if joined else 0
+    car = " ".join(x for x in [dp.car_make, dp.car_model] if x).strip() if dp else ""
+
+    return DriverPublicOut(
+        id=u.id, name=(u.name or "Водитель"), avatar_url=u.avatar_url or "",
+        verified=u.verified, joined_at=joined, days_in_service=days,
+        trips_count=trips_done, car=car,
+        rating=(round(avg, 1) if cnt > 0 else None), rating_count=cnt,
+        reviews=reviews,
+    )
 
 
 class PendingDriverOut(BaseModel):

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Кэш-папка приложения: сюда пишем PNG статистики «Мой Юлдаш» перед шерингом. -->
+    <cache-path name="shared" path="shared/" />
+</paths>

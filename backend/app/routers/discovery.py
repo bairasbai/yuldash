@@ -2,20 +2,21 @@
 прокси геокодера, партнёрская реклама + её статистика, загрузка голосовых."""
 from collections import Counter
 from datetime import timedelta
-import os
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
+from starlette.concurrency import run_in_threadpool
 from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
-from ..models import AdEvent, AppReview, Booking, Payment, Ride, User, UserRole
+from ..models import AppReview, Booking, Payment, Ride, User
 from ..security import current_user
 from ..services import (
-    CHAT_DIR, VOICE_DIR, cache_get_json, cache_set_json,
-    enforce_upload_quota, public_media_url, read_upload,
+    cache_get_json, cache_set_json,
+    enforce_upload_quota, public_media_url, read_upload, secure_evidence_url,
 )
+from ..storage import get_storage
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["discovery"])
@@ -129,9 +130,10 @@ def my_routes(user: User = Depends(current_user), session: Session = Depends(get
 
 
 @router.get("/geocode")
-def geocode(q: str = ""):
+def geocode(q: str = "", user: User = Depends(current_user)):
     """Прокси Яндекс.Геокодера: ключ живёт на сервере, не в APK (раньше клиент слал ключ в URL).
-    Отдаём упрощённый список адресов для подсказок «Откуда/Куда»."""
+    Отдаём упрощённый список адресов для подсказок «Откуда/Куда». Требуем авторизацию —
+    иначе аноним уникальными запросами жжёт бесплатную квоту Яндекса (~1000/день) и подсказки лягут."""
     key = settings.yandex_geocoder_key
     query = (q or "").strip()
     if not key or len(query) < 2:
@@ -175,8 +177,9 @@ async def upload_voice(request: Request, user: User = Depends(current_user), ses
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.audio_ext_set, "m4a", "аудио")
     name = f"{uuid.uuid4().hex}.{ext}"
-    with open(os.path.join(VOICE_DIR, name), "wb") as f:
-        f.write(data)
+    # save() синхронный (диск/boto3.put_object) → в async-хендлере оборачиваем в threadpool,
+    # иначе заливка МБ (или зависший S3) морозит event-loop воркера (все запросы+WS встают).
+    await run_in_threadpool(get_storage().save, f"voice/{name}", data)
     return {"url": public_media_url(f"voice/{name}")}
 
 
@@ -187,6 +190,17 @@ async def upload_chat_photo(request: Request, user: User = Depends(current_user)
     enforce_upload_quota(session, user.id)
     data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
     name = f"{uuid.uuid4().hex}.{ext}"
-    with open(os.path.join(CHAT_DIR, name), "wb") as f:
-        f.write(data)
+    await run_in_threadpool(get_storage().save, f"chat/{name}", data)   # см. upload_voice
     return {"url": public_media_url(f"chat/{name}")}
+
+
+@router.post("/upload/evidence")
+async def upload_evidence(request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Фото-доказательство спора (порт из pr88) → ПРИВАТНАЯ область evidence/ (не в /media!).
+    На фото лица/номера/травмы — отдаёт только /secure/evidence/{name} участникам спора и админу.
+    URL из ответа прикладывается к POST /incidents (evidence_urls) или /respond."""
+    enforce_upload_quota(session, user.id)
+    data, ext = await read_upload(request, settings.image_ext_set, "jpg", "фото", sniff_image=True)
+    name = f"{uuid.uuid4().hex}.{ext}"
+    await run_in_threadpool(get_storage().save, f"evidence/{name}", data)
+    return {"url": secure_evidence_url(name)}

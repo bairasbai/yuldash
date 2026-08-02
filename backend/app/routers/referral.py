@@ -1,18 +1,106 @@
 """Реферал «позови своего»: свой код, кто пригласил, бонусы (1 бонус = 1 бесплатное поднятие).
 Виральность в тесной общине: пригласил соседа → оба получают бонус."""
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import User
+from ..models import (
+    Booking, BookingStatus, InstantOrder, InstantOrderStatus, ReferralBonus, Ride, User,
+)
 from ..security import current_user, gen_referral_code
+from ..timeutil import utcnow
 
 router = APIRouter(tags=["referral"])
 
 # Потолок реферальных бонусов на пользователя (анти-накрутка: два аккаунта взаимно редимят
 # через новые регистрации → иначе бесконечные бесплатные поднятия). Хватает на реальную виральность.
 MAX_REFERRAL_CREDITS = 20
+
+# --- B8-4: водительский бонус пригласившему — только за НАСТОЯЩЕГО водителя ---
+# Анти-накрутка фейк-поездками (пара аккаунтов гоняет done туда-сюда): бонус выдаётся,
+# когда приглашённый сделал ≥3 «живых» done-поездок с ≥3 РАЗНЫМИ пассажирами.
+# «Живая» — есть реальное движение по имеющимся данным: такси — дистанция трека > 1 км
+# ИЛИ длительность (onboard→done) > 5 мин; попутка — маршрут поездки длиннее 1 км.
+DRIVER_BONUS_MIN_TRIPS = 3
+DRIVER_BONUS_MIN_PASSENGERS = 3
+DRIVER_BONUS_MONTHLY_CAP = 5        # ≤5 водительских бонусов на пригласившего в календарный месяц
+LIVE_TRIP_MIN_KM = 1.0
+LIVE_TRIP_MIN_MINUTES = 5
+
+
+def _live_driver_trips(session: Session, driver_id: int) -> tuple[int, set]:
+    """Сколько «живых» done-поездок у водителя и с какими пассажирами (такси + попутка)."""
+    from ..services import haversine_km   # локальный импорт: без циклов на старте
+    live = 0
+    passengers: set = set()
+    orders = session.exec(select(InstantOrder).where(
+        InstantOrder.driver_id == driver_id, InstantOrder.status == InstantOrderStatus.done,
+    )).all()
+    for o in orders:
+        long_enough = (o.onboard_at is not None and o.done_at is not None
+                       and o.done_at - o.onboard_at > timedelta(minutes=LIVE_TRIP_MIN_MINUTES))
+        if o.distance_km > LIVE_TRIP_MIN_KM or long_enough:
+            live += 1
+            passengers.add(o.passenger_id)
+    rides = {r.id: r for r in session.exec(select(Ride).where(Ride.driver_id == driver_id)).all()}
+    if rides:
+        bookings = session.exec(select(Booking).where(
+            Booking.ride_id.in_(list(rides)), Booking.status == BookingStatus.done,
+        )).all()
+        for b in bookings:
+            r = rides.get(b.ride_id)
+            if (r and None not in (r.from_lat, r.from_lng, r.to_lat, r.to_lng)
+                    and haversine_km(r.from_lat, r.from_lng, r.to_lat, r.to_lng) > LIVE_TRIP_MIN_KM):
+                live += 1
+                passengers.add(b.passenger_id)
+    return live, passengers
+
+
+def reward_driver_referral(session: Session, driver_id: int | None) -> bool:
+    """Выдать пригласившему бонус за «раскатавшегося» приглашённого водителя (B8-4).
+
+    Зовётся после каждого done (такси и попутка) — дёшево и идемпотентно:
+    один бонус на приглашённого (unique) + месячный кэп на пригласившего.
+    Накрутка той же парой пассажир↔водитель не проходит (нужны ≥3 РАЗНЫХ пассажира)."""
+    if driver_id is None:
+        return False
+    driver = session.get(User, driver_id)
+    if not driver or driver.referred_by is None:
+        return False
+    referrer = session.get(User, driver.referred_by)
+    if not referrer:
+        return False
+    already = session.exec(select(ReferralBonus).where(
+        ReferralBonus.invited_user_id == driver_id, ReferralBonus.kind == "driver",
+    )).first()
+    if already:
+        return False
+    now = utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    granted_this_month = len(session.exec(select(ReferralBonus.id).where(
+        ReferralBonus.referrer_id == referrer.id,
+        ReferralBonus.kind == "driver",
+        ReferralBonus.created_at >= month_start,
+    )).all())
+    if granted_this_month >= DRIVER_BONUS_MONTHLY_CAP:
+        return False
+    live, passengers = _live_driver_trips(session, driver_id)
+    if live < DRIVER_BONUS_MIN_TRIPS or len(passengers) < DRIVER_BONUS_MIN_PASSENGERS:
+        return False
+    referrer.referral_credits = min(referrer.referral_credits + 1, MAX_REFERRAL_CREDITS)
+    session.add(referrer)
+    session.add(ReferralBonus(referrer_id=referrer.id, invited_user_id=driver_id, kind="driver"))
+    session.commit()
+    from ..services import send_push   # локальный импорт: тесты патчат services
+    send_push(
+        session, referrer.id, "Бонус за друга 🎉",
+        "Твой приглашённый водитель раскатался — держи бесплатное поднятие поездки!"
+        " · Саҡырған водителең ысынлап йөрөй башланы — бушлай күтәреү ал!",
+    )
+    return True
 
 
 def _ensure_code(session: Session, user: User) -> str:
@@ -48,12 +136,15 @@ class RedeemIn(BaseModel):
 
 @router.post("/referral/redeem")
 def referral_redeem(body: RedeemIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    # Row-lock себя: параллельные redeem двух кодов иначе оба проходят проверку referred_by is None
+    # → двойной бонус себе + кредит двум реферерам (read-modify-write без лока).
+    user = session.exec(select(User).where(User.id == user.id).with_for_update()).one()
     if user.referred_by is not None:
         raise HTTPException(400, "Код уже введён")
     code = body.code.strip().upper()
     if not code:
         raise HTTPException(400, "Нужен код")
-    referrer = session.exec(select(User).where(User.referral_code == code)).first()
+    referrer = session.exec(select(User).where(User.referral_code == code).with_for_update()).first()
     if not referrer or referrer.id == user.id:
         raise HTTPException(400, "Код не найден")
     # Награда обоим: по 1 бонусу (бесплатное поднятие поездки), но с потолком на пользователя

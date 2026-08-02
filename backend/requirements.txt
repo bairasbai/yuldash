@@ -10,3 +10,7 @@ firebase-admin>=6.5
 alembic>=1.13
 redis>=5.0
 gunicorn>=21.2
+fakeredis>=2.20   # тест-only: presence/matcher быстрого заказа гоняются на in-memory Redis
+# Наблюдаемость: сбор ошибок/трейсбеков. Активен только при заданном SENTRY_DSN (иначе no-op).
+sentry-sdk[fastapi]>=2.0
+boto3>=1.34       # медиа в S3-совместимом хранилище (Timeweb/VK Cloud/Selectel). Импортируется ЛЕНИВО — без S3-конфига на рантайме не нужен.

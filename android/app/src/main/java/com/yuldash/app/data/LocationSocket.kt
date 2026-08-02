@@ -29,8 +29,13 @@ class LocationSocket(
     @Volatile private var attempt = 0
     @Volatile private var softAttempt = 0        // мягкий ретрай «поездка не активна» — с потолком MAX_SOFT_ATTEMPTS
 
+    // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
+    // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.
+    private val netListener = NetworkMonitor.Listener {
+        if (!closed) { attempt = 0; openSocket() }
+    }
+
     companion object {
-        private const val MAX_ATTEMPTS = 10
         private const val MAX_DELAY_SEC = 30L
         private const val SOFT_RETRY_SEC = 15L   // ретрай «поездка ещё не активна»
         private const val MAX_SOFT_ATTEMPTS = 40 // ~10 мин по 15с — потолок мягкого ретрая (не долбим сервер вечно, если поездка так и не стала активной)
@@ -44,7 +49,7 @@ class LocationSocket(
         }
     }
 
-    fun connect() { closed = false; attempt = 0; softAttempt = 0; openSocket() }
+    fun connect() { closed = false; attempt = 0; softAttempt = 0; NetworkMonitor.subscribe(netListener); openSocket() }
 
     @Synchronized
     private fun openSocket() {
@@ -76,6 +81,11 @@ class LocationSocket(
                         }
                     }
                 }
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    // Отвечаем на серверный graceful-close (деплой/рестарт) → onClosed гарантированно придёт
+                    // и отработает реконнект. Без этого handshake не завершается до TCP-таймаута — стрим тихо умирает.
+                    webSocket.close(code, null)
+                }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     onConnected(false)
                     // Поездка ещё не активна (бронь pending/подтверждается) — сервер закрывает 1008 "Trip not active".
@@ -94,7 +104,11 @@ class LocationSocket(
     }
 
     private fun scheduleReconnect() {
-        if (closed || attempt >= MAX_ATTEMPTS) return
+        // M3: пока поездка активна (владелец-сервис не звал close() → closed=false) — НЕ сдаёмся.
+        // Раньше после ~10 попыток (≈3 мин) стрим гас до конца поездки на трассах без связи, и никто не будил.
+        // Владелец закрывает сокет по завершении поездки (closed=true) → бесконечного цикла нет.
+        // Backoff с 30с-cap сохранён: на «мёртвой зоне» пробуем раз в 30с (экономно), сеть вернулась — подхватим за ≤30с.
+        if (closed) return
         attempt++
         val delay = minOf(MAX_DELAY_SEC, 1L shl minOf(attempt - 1, 5))   // 1,2,4,8,16,30… cap 30
         scheduler.schedule({ openSocket() }, delay, TimeUnit.SECONDS)
@@ -118,6 +132,7 @@ class LocationSocket(
 
     fun close() {
         closed = true
+        NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
         ws?.close(1000, null)
         ws = null
     }

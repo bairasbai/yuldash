@@ -4,15 +4,18 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.yuldash.app.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
@@ -38,8 +41,55 @@ object ApiClient {
     @Volatile private var token: String? = null
     @Volatile private var refreshToken: String? = null
     @Volatile private var userName: String? = null
+    @Volatile private var userRole: String? = null
+
+    // Анти-фрод (B8-1): стабильный идентификатор устройства (ANDROID_ID из Settings.Secure).
+    // Уходит заголовком X-Device-Id со ВСЕМИ запросами: сервер ловит обход бана новым номером
+    // и сигналит о входе с нового устройства. Никогда не логируем и не показываем в UI.
+    @Volatile private var deviceId: String? = null
     private val refreshMutex = Mutex()   // не даём нескольким 401 рефрешить одновременно
+    // Язык интерфейса для сообщений об ошибке. ApiClient — не Composable (appText недоступен),
+    // поэтому язык синхронизируем из UI при переключении (YuldashApp). Иначе башкир видел бы
+    // серверные/клиентские ошибки по-русски.
+    @Volatile private var langBa = false
+    /** Синхронизировать язык ошибок с UI (зовётся при смене языка). */
+    fun setUiLanguageBashkir(ba: Boolean) { langBa = ba }
+
+    /** Понятная общая ошибка по HTTP-коду (двуязычно) — когда сервер не дал перевод. */
+    private fun genericByStatus(status: Int, ba: Boolean): String = when (status) {
+        400, 422 -> if (ba) "Мәғлүмәттә хата. Тикшереп ҡабатла." else "Проверь введённые данные и повтори."
+        401 -> if (ba) "Сессия бөттө. Яңынан ин." else "Сессия истекла. Войди заново."
+        403 -> if (ba) "Был эшкә рөхсәт юҡ." else "Нет доступа к этому действию."
+        404 -> if (ba) "Табылманы." else "Не найдено."
+        409 -> if (ba) "Хәл үҙгәргән — экранды яңырт." else "Уже изменилось — обнови экран."
+        429 -> if (ba) "Артыҡ йыш. Бер аҙ көт." else "Слишком часто — подожди немного."
+        in 500..599 -> if (ba) "Сервер хатаһы. Аҙаҡ ҡабатла." else "Ошибка сервера. Попробуй позже."
+        else -> if (ba) "Булманы. Ҡабатла." else "Не получилось. Повтори."
+    }
+
+    /** Разобрать тело ошибки в сообщение по текущему языку.
+     *  detail={ru,ba} → берём по языку; строка → русскому как есть, башкиру — общий по коду;
+     *  список (валидация FastAPI) / пусто → общий по коду. Русский флоу не меняется. */
+    private fun errorMessage(status: Int, text: String): String {
+        val detail = runCatching { JSONObject(text).opt("detail") }.getOrNull()
+        when (detail) {
+            is JSONObject -> {
+                val ru = detail.optString("ru"); val ba = detail.optString("ba")
+                if (ru.isNotBlank() || ba.isNotBlank())
+                    return if (langBa && ba.isNotBlank()) ba else if (ru.isNotBlank()) ru else genericByStatus(status, langBa)
+            }
+            is String -> if (detail.isNotBlank())
+                return if (langBa) genericByStatus(status, true) else detail
+        }
+        return genericByStatus(status, langBa)
+    }
+
     @Volatile private var prefs: android.content.SharedPreferences? = null
+
+    /** true → Android Keystore недоступен и токены лежат в НЕзашифрованных prefs.
+     *  Диагностика: устанавливается в [init], дублируется предупреждением в Sentry. */
+    @Volatile internal var secureStorageUnavailable: Boolean = false
+        private set
 
     // Долгоживущий scope для POST'ов «отправил и забыл». НЕ привязан к экрану —
     // переживает навигацию (scope экрана отменяется при уходе и обрывает запрос).
@@ -54,9 +104,9 @@ object ApiClient {
         petsAllowed: Boolean = false, childSeat: Boolean = false, womenOnly: Boolean = false,
         smoking: Boolean = false, baggage: Boolean = false, airConditioner: Boolean = false,
         recurrence: String = "none", category: String = "regular", pickup: String = "",
-        pickupLat: Double? = null, pickupLng: Double? = null,
+        pickupLat: Double? = null, pickupLng: Double? = null, onlyTrusted: Boolean = false,
     ) {
-        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup, pickupLat, pickupLng) }
+        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup, pickupLat, pickupLng, onlyTrusted = onlyTrusted) }
     }
 
     fun fireAddContact(name: String, relation: String, phone: String, notifyByDefault: Boolean) {
@@ -65,6 +115,13 @@ object ApiClient {
 
     fun fireRequestCallback(note: String) {
         bg.launch { requestCallback(note) }
+    }
+
+    /** Best-effort: наполнить «Недавние» точкой назначения после создания заказа/заявки.
+     *  На долгоживущем scope — переживает уход с экрана, заказ не блокирует. */
+    fun fireAddRecentPlace(address: String, lat: Double, lng: Double) {
+        if (address.isBlank()) return
+        bg.launch { addRecentPlace(address, lat, lng) }
     }
 
     fun fireUpdateName(name: String) {
@@ -86,6 +143,12 @@ object ApiClient {
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) {
         val app = context.applicationContext
+        // Анти-фрод (B8-1): ANDROID_ID стабилен на устройстве (сбрасывается только factory reset).
+        deviceId = runCatching {
+            android.provider.Settings.Secure.getString(
+                app.contentResolver, android.provider.Settings.Secure.ANDROID_ID,
+            )
+        }.getOrNull()?.takeIf { it.isNotBlank() }
         // Шифрованное хранилище токена (через Android Keystore). Если на устройстве недоступно —
         // не ломаем вход, мягко падаем на обычные prefs.
         val secure = runCatching {
@@ -110,17 +173,37 @@ object ApiClient {
                 .apply()
             plain.edit().remove("token").remove("refresh_token").remove("user_name").apply()
         }
+        // Keystore недоступен (бывает на «кривых» прошивках) → токены легли бы в ОТКРЫТЫЙ xml,
+        // и раньше это происходило совершенно молча. Вход не ломаем (иначе человек не войдёт
+        // вообще), но факт делаем видимым: флаг + сигнал в Sentry без единого байта PII.
+        secureStorageUnavailable = secure == null
+        if (secure == null) {
+            runCatching {
+                io.sentry.Sentry.captureMessage(
+                    "Secure token storage unavailable — falling back to plaintext prefs",
+                    io.sentry.SentryLevel.WARNING,
+                )
+            }
+        }
         val p = secure ?: plain
         prefs = p
         token = p.getString("token", null)
         refreshToken = p.getString("refresh_token", null)
         userName = p.getString("user_name", null)
+        userRole = p.getString("user_role", null)
         // Прогрев кеша статики из prefs → цены пакетов/буста видны мгновенно на холодном старте (сеть освежит по TTL).
         seedStatic("ad-packages", ::parseAdPackages)
         seedStatic("boost-plans", ::parseBoostPlans)
+        // F11: локальные хранилища офлайн-паспорта поездки и очереди исходящих действий.
+        TripPassStore.init(app)
+        Outbox.init(app)
     }
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
+
+    // Сессия протухла (refresh-токен мёртв) → UI покажет «войди снова» и уйдёт на Login.
+    // Иначе экраны молча деградируют в «пусто». Ставится в 401-ветке ниже, гасится в UI после показа.
+    val sessionExpired = kotlinx.coroutines.flow.MutableStateFlow(false)
 
     /** Токен (тот же JWT) для WebSocket-чата. */
     internal fun currentToken(): String? = token
@@ -153,6 +236,16 @@ object ApiClient {
 
     /** Имя вошедшего клиента (для приветствия и профиля). null → не вошёл (демо). */
     fun cachedName(): String? = userName?.takeIf { it.isNotBlank() }
+
+    /** Роль вошедшего клиента (passenger/driver/admin) — для честной подписи в профиле. null → неизвестна. */
+    fun cachedRole(): String? = userRole?.takeIf { it.isNotBlank() }
+
+    /** Кеш роли из /me — чтобы статичные баннеры показывали настоящую роль без своего запроса. */
+    fun saveRole(r: String) {
+        if (r.isBlank()) return
+        userRole = r
+        prefs?.edit()?.putString("user_role", r)?.apply()
+    }
 
     // ---------- Кеш GET-ответов (TTL) ----------
     // Статику/редкие данные не дёргаем на каждом открытии экрана и в поллинге. Живое (поездки/near/
@@ -212,22 +305,36 @@ object ApiClient {
         // Серверный выход: помечаем токен недействительным на сервере (logout со всех устройств,
         // ревокация при потере телефона). Токен захватываем в local val — иначе гонка с очисткой ниже.
         val t = token
+        val push = prefs?.getString("push_token", null)
         if (!t.isNullOrBlank()) {
             bg.launch {
-                runCatching {
-                    val conn = (URL("$BASE/auth/logout").openConnection() as HttpURLConnection).apply {
-                        requestMethod = "POST"
-                        connectTimeout = 15000
-                        readTimeout = 15000
-                        setRequestProperty("Authorization", "Bearer $t")
-                    }
-                    conn.responseCode
-                    conn.disconnect()
-                }
+                // Сперва отвязать устройство от пушей, потом гасить токен: после /auth/logout
+                // тот же Bearer уже невалиден и /push/unregister вернёт 401.
+                // Иначе на общем телефоне вышедший продолжал получать чужие пуши (брони/чат/SOS).
+                if (!push.isNullOrBlank()) runCatching { postWithToken("/push/unregister", JSONObject().put("token", push), t) }
+                runCatching { postWithToken("/auth/logout", null, t) }
             }
         }
         // Локальная очистка — синхронно, чтобы UI сразу видел «вышел».
         clearLocalSession()
+    }
+
+    /** POST конкретным токеном, минуя общий [call] (нужен для выхода: сессия уже стирается локально). */
+    private fun postWithToken(path: String, body: JSONObject?, bearer: String) {
+        val conn = (URL("$BASE$path").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15000
+            readTimeout = 15000
+            deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
+            setRequestProperty("Authorization", "Bearer $bearer")
+            if (body != null) {
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                doOutput = true
+                outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            }
+        }
+        conn.responseCode
+        conn.disconnect()
     }
 
     /** Локальная очистка сессии (токены, имя, кеши). Реюз: logout + deleteAccount. */
@@ -235,10 +342,20 @@ object ApiClient {
         token = null
         refreshToken = null
         userName = null
+        userRole = null
         cachedUserId = null
         cachedUserIdForToken = null
         respCache.clear()   // сброс кеша ответов (иначе следующий юзер увидит чужой /me/referral/contacts)
-        prefs?.edit()?.remove("token")?.remove("refresh_token")?.remove("user_name")?.apply()
+        // Диск тоже чистим, иначе следующий пользователь телефона получает чужое наследство:
+        //  • push_token — чтобы не зарегистрировать устройство прошлого владельца заново;
+        //  • паспорта поездок — там ИМЯ И ТЕЛЕФОН пассажиров (чужие ПДн на диске, 152-ФЗ);
+        //  • очередь исходящих — иначе сообщения прошлого юзера уйдут ОТ НОВОГО аккаунта.
+        prefs?.edit()
+            ?.remove("token")?.remove("refresh_token")?.remove("user_name")?.remove("user_role")
+            ?.remove("push_token")
+            ?.apply()
+        TripPassStore.clearAll()
+        Outbox.clearAll()
     }
 
     /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).
@@ -280,7 +397,13 @@ object ApiClient {
         ).onSuccess { obj ->
             obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
             obj.optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
-            saveName(obj.optString("name").ifBlank { name })
+            // V12: чистим сессионные кеши на ЛОГИНЕ (не только на логауте) — иначе me/contacts/referral
+            // могут до TTL отдать данные прошлого аккаунта, если logout не отработал (edge: 401 при пустом refresh).
+            respCache.clear(); cachedUserId = null; cachedUserIdForToken = null
+            // Имя сервер кладёт в user.name (не в корень) — читаем оттуда, иначе фолбэк на введённое.
+            val serverName = obj.optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }
+            saveName(serverName ?: name)
+            registerCurrentPushToken()   // SMS-вход тоже регистрирует устройство для push (иначе пуши не идут до перезапуска)
             Analytics.log("login", mapOf("method" to "sms"))
         }
 
@@ -291,6 +414,23 @@ object ApiClient {
     /** Сохранить аватар (публичный URL из uploadChatPhoto). */
     suspend fun updateAvatar(url: String): Result<Unit> =
         call("POST", "/me/update", JSONObject().put("avatar_url", url), auth = true).onSuccess { invalidate("me") }.map { }
+
+    /** Сохранить родной город (name_ru из справочника; пустая строка сбрасывает). */
+    suspend fun updateCity(city: String): Result<Unit> =
+        call("POST", "/me/update", JSONObject().put("city", city.trim()), auth = true).onSuccess { invalidate("me") }.map { }
+
+    /**
+     * Язык интерфейса на сервер («ru» | «ba») — чтобы ПУШИ приходили на языке человека.
+     * Сервер это поле давно принимает и умеет выбирать RU/BA, но клиент его никогда не слал:
+     * башкироязычный пользователь получал русские уведомления (аудит 2026-07-26).
+     * Fire-and-forget: переключение языка — мгновенное действие в UI, ждать сеть незачем.
+     */
+    fun fireUpdateLanguage(lang: String) {
+        val code = lang.trim().lowercase().take(2)
+        if (code != "ru" && code != "ba") return
+        if (!isLoggedIn()) return
+        bg.launch { call("POST", "/me/update", JSONObject().put("language", code), auth = true).onSuccess { invalidate("me") } }
+    }
 
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
     // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
@@ -316,10 +456,17 @@ object ApiClient {
             auth = false,
         ).onSuccess { it.applyAuth(); Analytics.log("login", mapOf("method" to "telegram")) }
 
+    /** Минимальная поддерживаемая версия приложения (force-update, B9b-1). Без авторизации.
+     *  min_version_code=0 → проверка выключена. Ошибка/офлайн → вызывающий НЕ блокирует. */
+    suspend fun minAppVersion(): Result<JSONObject> = call("GET", "/version/min", null, auth = false)
+
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = cachedGet("me", TTL_PERSONAL) {
         call("GET", "/me", null, auth = true)
-            .onSuccess { o -> o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName) }
+            .onSuccess { o ->
+                o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName)
+                o.optString("role").takeIf { it.isNotBlank() }?.let(::saveRole)
+            }
     }
 
     // ---------- Поездки ----------
@@ -331,6 +478,10 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
         }
+
+    /** Одна поездка по id — публичная витрина (без ПДн). Для deep-link yulbash.ru/r/{id}. */
+    suspend fun getRide(id: Int): Result<RideDto> =
+        call("GET", "/rides/$id", null, auth = true).map { it.toRideDto() }
 
     /**
      * Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).
@@ -365,6 +516,7 @@ object ApiClient {
         lng: Double? = null,
         radiusKm: Double? = null,
         limit: Int,
+        date: String? = null,   // F4: «когда едем» — YYYY-MM-DD, только поездки этого дня
     ): Result<NearbyPage> {
         val params = buildList {
             fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
@@ -372,6 +524,7 @@ object ApiClient {
             lat?.let { add("lat=$it") }
             lng?.let { add("lng=$it") }
             radiusKm?.let { add("radius_km=$it") }
+            date?.takeIf { it.isNotBlank() }?.let { add("date=$it") }
             add("limit=$limit")
         }
         val path = "/rides/near?" + params.joinToString("&")
@@ -407,10 +560,27 @@ object ApiClient {
             toCity.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
         }
         val path = "/rides/price_hint" + if (params.isEmpty()) "" else "?" + params.joinToString("&")
-        return call("GET", path, null, auth = false).map { PriceHintDto(it.optInt("avg"), it.optInt("count")) }
+        return call("GET", path, null, auth = false).map {
+            val dist = if (it.has("distance_km") && !it.isNull("distance_km")) it.optDouble("distance_km").toFloat() else null
+            val fuel = if (it.has("fuel_estimate_kop") && !it.isNull("fuel_estimate_kop")) it.optInt("fuel_estimate_kop") else null
+            PriceHintDto(it.optInt("avg"), it.optInt("count"), dist, fuel)
+        }
     }
 
     private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
+
+    /**
+     * F14: подсказки точек сбора по ориентирам города/села («у мечети», «автовокзал»).
+     * Публичный справочник — auth не нужен. Пусто → показываем ручной выбор на карте.
+     */
+    suspend fun getPickupPoints(city: String): Result<List<PickupPointDto>> {
+        if (city.isBlank()) return Result.success(emptyList())
+        val path = "/pickup-points?city=" + enc(city.trim())
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toPickupPointDto() }
+        }
+    }
 
     /** Опубликовать поездку (текущий пользователь = водитель). depart_at — ISO-строка. */
     suspend fun publishRide(
@@ -431,8 +601,13 @@ object ApiClient {
         pickup: String = "",
         pickupLat: Double? = null,
         pickupLng: Double? = null,
+        onlyTrusted: Boolean = false,   // «только для своих» — поездку видят/берут лишь L3
         receiverName: String = "",   // посылка: кому отдать
         parcelSize: String = "",     // посылка: габарит/вес
+        pickupPointId: Int? = null,  // F14: выбрана известная точка сбора из справочника → привязать
+        partnerId: Int? = null,      // F22: клиника-назначение (category=hospital)
+        quiet: Boolean = false,      // тихая поездка (в конце — чтобы не сдвигать позиционные вызовы)
+        waypoints: String = "",     // остановки по пути (названия через " | ")
     ): Result<Unit> = call(
         "POST", "/rides",
         JSONObject()
@@ -449,21 +624,69 @@ object ApiClient {
             .put("smoking", smoking)
             .put("baggage", baggage)
             .put("air_conditioner", airConditioner)
+            .put("quiet", quiet)
+            .put("waypoints", waypoints)
             .put("recurrence", recurrence)
             .put("pickup", pickup)
             .put("pickup_lat", pickupLat ?: JSONObject.NULL)
             .put("pickup_lng", pickupLng ?: JSONObject.NULL)
+            .put("only_trusted", onlyTrusted)
+            .put("pickup_point_id", pickupPointId ?: JSONObject.NULL)
             .put("receiver_name", receiverName)
-            .put("parcel_size", parcelSize),
+            .put("parcel_size", parcelSize)
+            .put("partner_id", partnerId ?: JSONObject.NULL),
         auth = true,
     ).map { }.onSuccess { Analytics.log("publish_ride") }
 
-    /** Забронировать поездку. Возвращает id брони. */
-    suspend fun book(rideId: Int, seats: Int): Result<Int> = call(
+    // ---------- F22: клиники-партнёры (медцентры) ----------
+
+    /** Справочник клиник-партнёров (только активные). Опц. фильтр по городу. Публичные данные. */
+    suspend fun getMedicalPartners(city: String? = null): Result<List<MedicalPartnerDto>> {
+        val path = "/medical-partners" + (city?.takeIf { it.isNotBlank() }?.let { "?city=" + enc(it) } ?: "")
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toMedicalPartnerDto() }
+        }
+    }
+
+    /** Поездки «к этой клинике» — активные попутки с клиникой-назначением. Витрина публичная (без телефона). */
+    suspend fun getRidesToPartner(partnerId: Int): Result<List<RideDto>> =
+        call("GET", "/medical-partners/$partnerId/rides", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
+        }
+
+    // ---------- F15: сезонные события (баннер «на праздник») ----------
+
+    /** Актуальные сезонные события для баннера на карте (публично). days — окно вперёд (по умолч. 21). */
+    suspend fun getSeasonalEvents(days: Int? = null): Result<List<SeasonalEventDto>> {
+        val path = "/seasonal-events" + (days?.let { "?days=$it" } ?: "")
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toSeasonalEventDto() }
+        }
+    }
+
+    /** Забронировать поездку. Возвращает id брони.
+     * payMethod/payAmount — договорённость об оплате (ЗАПИСЬ, не платёж): как решили платить.
+     * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
+    suspend fun book(rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null): Result<Int> = call(
         "POST", "/bookings",
-        JSONObject().put("ride_id", rideId).put("seats", seats),
+        JSONObject().put("ride_id", rideId).put("seats", seats)
+            .put("pay_method", payMethod)
+            .put("pay_amount", payAmount ?: JSONObject.NULL),
         auth = true,
     ).map { it.optInt("id") }.onSuccess { Analytics.log("booking") }
+
+    /** Поправить договорённость об оплате брони (может любая сторона — пассажир/водитель).
+     * Это ЗАПИСЬ «как договорились платить», а не платёж. */
+    suspend fun setPayAgreement(bookingId: Int, payMethod: String? = null, payAmount: Int? = null): Result<Unit> = call(
+        "POST", "/bookings/$bookingId/pay-agreement",
+        JSONObject()
+            .put("pay_method", payMethod ?: JSONObject.NULL)
+            .put("pay_amount", payAmount ?: JSONObject.NULL),
+        auth = true,
+    ).map { }
 
     /** Приватные детали брони: телефон и точная встреча открываются только после подтверждения. */
     suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =
@@ -479,6 +702,8 @@ object ApiClient {
                 departAt = o.optString("depart_at"),
                 seats = o.optInt("seats", 1),
                 price = o.optInt("price"),
+                payMethod = o.optString("pay_method", "negotiate"),
+                payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
                 driverName = o.optString("driver_name"),
                 driverVerified = o.optBoolean("driver_verified"),
                 driverPhone = o.optString("driver_phone"),
@@ -516,6 +741,8 @@ object ApiClient {
         nonSmoking: Boolean = false,
         airConditioner: Boolean = false,
         baggage: Boolean = false,
+        onlyTrusted: Boolean = false,   // «только для своих» — заявку видят/берут лишь L3
+        pickupPointId: Int? = null,   // F14: выбрана точка сбора из подсказок (пополняет справочник)
     ): Result<Int> = call(
         "POST", "/requests",
         JSONObject()
@@ -532,8 +759,10 @@ object ApiClient {
             .put("non_smoking", nonSmoking)
             .put("air_conditioner", airConditioner)
             .put("max_price", maxPrice)
+            .put("only_trusted", onlyTrusted)
             .put("comment", comment)
             .put("assisted", assisted)
+            .put("pickup_point_id", pickupPointId ?: JSONObject.NULL)
             .apply {
                 voiceUrl?.takeIf { it.isNotBlank() }?.let { put("voice_url", it) }
                 transcript?.takeIf { it.isNotBlank() }?.let { put("transcript", it) }
@@ -565,6 +794,73 @@ object ApiClient {
             }
         }
 
+    // ---------- Доверие «между своими» (уровни L0–L3, инвайты, согласия) ----------
+
+    private fun JSONObject.toBilingual(): Bilingual = Bilingual(optString("ru"), optString("ba"))
+
+    private fun JSONArray?.toBenefits(): List<Bilingual> {
+        val arr = this ?: return emptyList()
+        return (0 until arr.length()).map { arr.getJSONObject(it).toBilingual() }
+    }
+
+    /** Мой уровень доверия + что даёт следующий (только про себя, 152-ФЗ). */
+    suspend fun getMyTrust(): Result<TrustSummaryDto> =
+        call("GET", "/me/trust", null, auth = true).map { o ->
+            val nextObj = o.optJSONObject("next")
+            TrustSummaryDto(
+                level = o.optInt("level"),
+                title = (o.optJSONObject("title") ?: JSONObject()).toBilingual(),
+                benefits = o.optJSONArray("benefits").toBenefits(),
+                isInsider = o.optBoolean("is_insider"),
+                invitedBy = if (o.isNull("invited_by")) null else o.optInt("invited_by"),
+                canInvite = o.optBoolean("can_invite"),
+                next = nextObj?.let {
+                    TrustNextDto(
+                        level = it.optInt("level"),
+                        title = (it.optJSONObject("title") ?: JSONObject()).toBilingual(),
+                        how = (it.optJSONObject("how") ?: JSONObject()).toBilingual(),
+                        benefits = it.optJSONArray("benefits").toBenefits(),
+                    )
+                },
+            )
+        }
+
+    /** Создать пригласительный код в круг «своих» (может только L2+). */
+    suspend fun createInvite(): Result<InviteDto> =
+        call("POST", "/invites", JSONObject(), auth = true).map { it.toInviteDto() }
+
+    /** Мои пригласительные коды (только свои). */
+    suspend fun getMyInvites(): Result<List<InviteDto>> =
+        call("GET", "/invites/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toInviteDto() }
+        }
+
+    private fun JSONObject.toInviteDto() =
+        InviteDto(code = optString("code"), usesLeft = optInt("uses_left"), createdAt = optString("created_at"))
+
+    /** Активировать код → стать «своим» (L3). Возвращает новый уровень. */
+    suspend fun redeemInvite(code: String): Result<Int> =
+        call("POST", "/invites/redeem", JSONObject().put("code", code.trim().uppercase()), auth = true)
+            .map { it.optInt("level") }
+            .onSuccess { Analytics.log("trust_redeem_invite") }
+
+    /** Мои зафиксированные согласия (оферта/политика/гео). */
+    suspend fun getConsents(): Result<List<ConsentDto>> =
+        call("GET", "/me/consents", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                ConsentDto(kind = o.optString("kind"), grantedAt = o.optString("granted_at"))
+            }
+        }
+
+    /** Зафиксировать согласие (идемпотентно, время первого не перезаписывается). */
+    suspend fun setConsent(kind: String): Result<ConsentDto> =
+        call("POST", "/me/consents", JSONObject().put("kind", kind), auth = true).map { o ->
+            ConsentDto(kind = o.optString("kind"), grantedAt = o.optString("granted_at"))
+        }
+
     // ---------- Доверенные контакты / SOS ----------
 
     suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean): Result<Unit> =
@@ -590,16 +886,94 @@ object ApiClient {
         }
     }
 
-    suspend fun sos(category: String, note: String): Result<Unit> =
-        call("POST", "/sos", JSONObject().put("category", category).put("note", note), auth = true).map { }.onSuccess { Analytics.log("sos") }
+    /** SOS. orderId — контекст такси-заказа (B7b-2): админ увидит маршрут и вторую сторону. */
+    suspend fun sos(category: String, note: String, orderId: Int? = null): Result<Unit> {
+        val body = JSONObject().put("category", category).put("note", note)
+        if (orderId != null) body.put("order_id", orderId)
+        return call("POST", "/sos", body, auth = true).map { }.onSuccess { Analytics.log("sos") }
+    }
+
+    /** «Поделиться поездкой» из такси-заказа (B7b-2): близкий получит SMS о маршруте и статусах.
+     *  B7c: сервер возвращает token live-ссылки — отдаём готовый URL (null на старом сервере). */
+    suspend fun shareInstantTrip(orderId: Int, contactId: Int): Result<TripShareDto?> =
+        call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true)
+            .map { parseTripShare(it) }
+            .onSuccess { Analytics.log("instant_share_trip") }
+
+    /** Live-ссылка близкого (B7c) из ответа share: {token} → "$BASE/t/{token}".
+     *  База — тот же хост, что API (прод: https://yulbash.ru). Токена нет (старый сервер) → null. */
+    private fun liveLinkOrNull(j: JSONObject): String? =
+        j.optString("token", "").takeIf { it.isNotBlank() }?.let { "$BASE/t/$it" }
+
+    /** F12 «Застрял на трассе»: координаты уходят доверенным контактам + запись в SOS-ленту админа.
+     *  Уровень мягче паники SOS. Координаты необязательны (шлём хотя бы сигнал о помощи). */
+    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<Unit> {
+        val body = JSONObject().put("note", note)
+        if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
+        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { }.onSuccess { Analytics.log("roadside_help") }
+    }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
     suspend fun requestCallback(note: String): Result<Unit> =
         call("POST", "/callback", JSONObject().put("note", note), auth = true).map { }.onSuccess { Analytics.log("callback_request") }
 
+    /** F12 «Зимний протокол»: арм авто-проверки «доехал?». Идемпотентна — сервер сам решает
+     *  (too_early / check_sent / waiting / escalated). Возвращает поле state. Клиент зовёт,
+     *  когда его ETA+буфер истёк, а поездка ещё активна. */
+    suspend fun winterCheck(bookingId: Int): Result<String> =
+        call("POST", "/bookings/$bookingId/winter-check", JSONObject(), auth = true)
+            .map { it.optString("state") }.onSuccess { Analytics.log("winter_check") }
+
+    /** F12: участник ответил «всё в порядке» на проверку «доехал?» — гасит эскалацию доверенным. */
+    suspend fun winterCheckOk(bookingId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/winter-check/ok", JSONObject(), auth = true).map { }
+            .onSuccess { Analytics.log("winter_check_ok") }
+
     // ---------- Жалобы и чёрный список ----------
-    suspend fun reportUser(targetUserId: Int, reason: String): Result<Unit> =
-        call("POST", "/reports", JSONObject().put("target_user_id", targetUserId).put("reason", reason), auth = true).map { }
+    /** Пожаловаться (§9 Качество). category — из закрытого перечня (см. ReportCategoryUi);
+     *  привязка к заказу/брони (orderId/bookingId) — сервер сам проверит участие и вычислит цель.
+     *  Жалоба анонимна: цель НИКОГДА не видит автора. */
+    suspend fun reportUser(
+        targetUserId: Int? = null, reason: String = "", category: String = "other",
+        orderId: Int? = null, bookingId: Int? = null,
+    ): Result<Unit> {
+        val body = JSONObject().put("reason", reason).put("category", category)
+        if (targetUserId != null) body.put("target_user_id", targetUserId)
+        if (orderId != null) body.put("order_id", orderId)
+        if (bookingId != null) body.put("booking_id", bookingId)
+        return call("POST", "/reports", body, auth = true).map { }
+            .onSuccess { Analytics.log("report_create") }
+    }
+
+    /** Мои активные ограничения (§9, право объяснения): пауза такси/заказов — что, до когда,
+     *  «попутка работает». Автор жалобы НЕ раскрывается. Пусто → items=[]. */
+    suspend fun getMyRestrictions(): Result<RestrictionsDto> =
+        call("GET", "/me/restrictions", null, auth = true).map { o ->
+            val arr = o.optJSONArray("items") ?: JSONArray()
+            RestrictionsDto(
+                items = (0 until arr.length()).map { i ->
+                    val it = arr.getJSONObject(i)
+                    RestrictionDto(
+                        kind = it.optString("kind"),
+                        reason = it.optString("reason"),
+                        category = it.optString("category"),
+                        categoryRu = it.optString("category_ru"),
+                        categoryBa = it.optString("category_ba"),
+                        until = if (it.isNull("until")) null else it.optString("until"),
+                        titleRu = it.optString("title_ru"), titleBa = it.optString("title_ba"),
+                        noteRu = it.optString("note_ru"), noteBa = it.optString("note_ba"),
+                    )
+                },
+                supportRu = o.optString("support_ru"),
+                supportBa = o.optString("support_ba"),
+            )
+        }
+
+    /** Оценить вторую сторону завершённого быстрого заказа (1..5). Оценка анонимна —
+     *  в рейтинг идёт только агрегат, «кто поставил» не раскрывается. */
+    suspend fun rateInstantOrder(orderId: Int, stars: Int): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/rate", JSONObject().put("stars", stars), auth = true).map { }
+            .onSuccess { Analytics.log("instant_order_rate") }
 
     suspend fun blockUser(userId: Int): Result<Unit> =
         call("POST", "/blocks", JSONObject().put("blocked_user_id", userId), auth = true).map { }
@@ -621,7 +995,7 @@ object ApiClient {
                 val o = arr.getJSONObject(i)
                 val pa = o.optJSONArray("prefs")
                 val prefs = if (pa != null) (0 until pa.length()).map { pa.optString(it) } else emptyList()
-                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"), prefs)
+                RequestFeedDto(o.optInt("id"), o.optString("passenger_name"), o.optString("from_city"), o.optString("to_city"), o.optInt("seats"), o.optString("comment"), o.optBoolean("responded"), o.optString("passenger_avatar"), prefs, if (o.isNull("my_response_id")) null else o.optInt("my_response_id"))
             }
         }
 
@@ -632,18 +1006,81 @@ object ApiClient {
     suspend fun cancelRequest(requestId: Int): Result<Unit> =
         call("POST", "/requests/$requestId/cancel", null, auth = true).map { }.onSuccess { Analytics.log("cancel_request") }
 
+    /** F3: правка своей активной заявки (по образцу editRide). POST-алиас /edit — HttpURLConnection не умеет PATCH.
+     *  Шлём только непустые поля (null = не менять). Смена города → сервер перегеокодит концы. */
+    suspend fun editRequest(
+        requestId: Int,
+        fromCity: String? = null,
+        toCity: String? = null,
+        maxPrice: Int? = null,
+        comment: String? = null,
+        seats: Int? = null,
+        desiredAt: String? = null,   // ISO "yyyy-MM-dd'T'HH:mm:ss"
+    ): Result<Unit> {
+        val body = JSONObject()
+        fromCity?.takeIf { it.isNotBlank() }?.let { body.put("from_city", it) }
+        toCity?.takeIf { it.isNotBlank() }?.let { body.put("to_city", it) }
+        maxPrice?.let { body.put("max_price", it) }
+        comment?.let { body.put("comment", it) }
+        seats?.let { body.put("seats", it) }
+        desiredAt?.takeIf { it.isNotBlank() }?.let { body.put("desired_at", it) }
+        return call("POST", "/requests/$requestId/edit", body, auth = true).map { }.onSuccess { Analytics.log("edit_request") }
+    }
+
+    /** F: авто-подбор попуток под заявку пассажира (GET /match/rides?request_id=). Только владелец заявки.
+     *  Возврат — публичная витрина поездок (без ПДн до брони), совпадающих по маршруту/местам/категории. */
+    suspend fun matchRides(requestId: Int): Result<List<RideDto>> =
+        call("GET", "/match/rides?request_id=$requestId", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
+        }
+
     suspend fun getRequestResponses(requestId: Int): Result<List<ResponseDto>> =
         call("GET", "/requests/$requestId/responses", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                ResponseDto(o.optInt("id"), o.optInt("driver_id"), o.optString("driver_name"), if (o.isNull("driver_rating")) null else o.optDouble("driver_rating"), o.optInt("price"), o.optString("comment"), o.optString("status"), o.optString("driver_avatar"))
-            }
+            (0 until arr.length()).map { arr.getJSONObject(it).toResponseDto() }
         }
 
-    /** Пассажир принимает отклик → возвращает booking_id (переход в активную поездку). */
+    /** Водитель: мои отклики — где я предложил цену и где мне ответили встречной.
+     *  Без этого списка второй круг торга не работал бы: встречную цену водитель видел бы
+     *  только в пуше и, пропустив его, терял бы сделку. */
+    suspend fun getMyResponses(): Result<List<ResponseDto>> =
+        call("GET", "/responses/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toResponseDto() }
+        }
+
+    /** Встречная цена: «а за 400 поедешь?». Ходят по очереди, обе стороны, лимит — 3 хода на брата.
+     *  409 — сейчас ход другой стороны или торг исчерпан (текст ошибки двуязычный, показываем как есть). */
+    suspend fun counterOffer(responseId: Int, price: Int, comment: String = ""): Result<Unit> =
+        call("POST", "/responses/$responseId/counter",
+            JSONObject().put("price", price).put("comment", comment), auth = true)
+            .map { }.onSuccess { Analytics.log("bargain_counter") }
+
+    /** Закончить торг без сделки. Заявка остаётся активной — другие водители продолжают откликаться. */
+    suspend fun declineResponse(responseId: Int): Result<Unit> =
+        call("POST", "/responses/$responseId/decline", JSONObject(), auth = true)
+            .map { }.onSuccess { Analytics.log("bargain_decline") }
+
+    /** Принять цену, которая сейчас на столе → booking_id. Принимает тот, чей ход. */
     suspend fun acceptResponse(responseId: Int): Result<Int> =
         call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }.onSuccess { Analytics.log("accept_response") }
+
+    private fun JSONObject.toResponseDto() = ResponseDto(
+        id = optInt("id"), driverId = optInt("driver_id"), driverName = optString("driver_name"),
+        driverRating = if (isNull("driver_rating")) null else optDouble("driver_rating"),
+        price = optInt("price"), comment = optString("comment"), status = optString("status"),
+        driverAvatar = optString("driver_avatar"),
+        currentPrice = optInt("current_price"),
+        lastOfferBy = optString("last_offer_by").ifBlank { "driver" },
+        bargainRounds = optInt("bargain_rounds"),
+        canCounter = optBoolean("can_counter"), canAccept = optBoolean("can_accept"),
+        bargainHistory = optString("bargain_history"),
+    )
+
+    /** Водитель отзывает свой отклик — пока пассажир его не принял (после accept сервер вернёт 409). */
+    suspend fun deleteResponse(responseId: Int): Result<Unit> =
+        call("DELETE", "/responses/$responseId", null, auth = true).map { }.onSuccess { Analytics.log("withdraw_response") }
 
     // ---------- Админ: модерация водителей + жалобы ----------
     suspend fun getPendingDrivers(): Result<List<PendingDriverDto>> =
@@ -664,9 +1101,34 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                AdminReportDto(o.optInt("id"), o.optString("reporter_name"), o.optString("target_name"), o.optString("target_phone"), o.optString("reason"), o.optString("created_at"))
+                AdminReportDto(
+                    o.optInt("id"), o.optString("reporter_name"), o.optString("target_name"),
+                    o.optString("target_phone"), o.optString("reason"), o.optString("created_at"),
+                    category = o.optString("category", "other"),
+                    status = o.optString("status", "new"),
+                    resolution = if (o.isNull("resolution")) "" else o.optString("resolution"),
+                    targetUserId = o.optInt("target_user_id"),
+                )
             }
         }
+
+    /** Админ: жалоба подтверждена (resolved). keepPause — для тяжёлой категории:
+     *  оставить паузу такси (таймерную) или снять. Лестница §9 дальше считается сервером. */
+    suspend fun adminResolveReport(id: Int, resolution: String, keepPause: Boolean = false): Result<Unit> =
+        call("POST", "/admin/reports/$id/resolve",
+            JSONObject().put("resolution", resolution).put("keep_pause", keepPause), auth = true).map { }
+
+    /** Админ: жалоба отклонена (не подтвердилась) — пауза разбора снимается. */
+    suspend fun adminRejectReport(id: Int): Result<Unit> =
+        call("POST", "/admin/reports/$id/reject", JSONObject(), auth = true).map { }
+
+    /** Админ: пауза такси водителю на N часов (продлевает). Попутка работает. */
+    suspend fun adminQualityPause(userId: Int, hours: Int): Result<Unit> =
+        call("POST", "/admin/quality/$userId/pause", JSONObject().put("hours", hours), auth = true).map { }
+
+    /** Админ: снять паузу такси (разбор закончен / поставлено ошибочно). */
+    suspend fun adminQualityUnpause(userId: Int): Result<Unit> =
+        call("POST", "/admin/quality/$userId/unpause", JSONObject(), auth = true).map { }
 
     /** Админ создаёт заявку ЗА пользователя по телефону (после звонка «перезвоните мне»). */
     suspend fun adminRequestForPhone(phone: String, name: String, fromCity: String, toCity: String, seats: Int, comment: String): Result<Unit> =
@@ -788,6 +1250,18 @@ object ApiClient {
             }
         }
 
+    // ---------- Чат такси-заказа (B7b-1): та же механика, привязка к order_id ----------
+    /** История чата заказа. После done/отмены сервер отдаёт read-only историю. */
+    suspend fun getOrderMessages(orderId: Int): Result<List<MessageDto>> =
+        call("GET", "/instant/orders/$orderId/messages", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> parseMessageDto(arr.getJSONObject(i)) }
+        }
+
+    /** Отправить текст в чат заказа (REST-фолбэк, когда WS лежит). */
+    suspend fun sendOrderMessage(orderId: Int, text: String): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/messages", JSONObject().put("text", text), auth = true).map { }
+
     // Голосовое: загрузить аудио (multipart) → URL, затем отправить сообщение со ссылкой.
     suspend fun uploadVoice(bytes: ByteArray): Result<String> =
         callMultipart("/voice", bytes, "m4a", "voice.m4a").map { it.optString("url") }
@@ -839,6 +1313,7 @@ object ApiClient {
                 licenseUrl = o.optString("license_url"),
                 carPhotoUrl = o.optString("car_photo_url"),
                 online = o.optBoolean("online"),
+                gender = o.optString("gender"),
                 autocheckResult = o.optString("autocheck_result"),
                 autocheckData = o.optString("autocheck_data"),
             )
@@ -847,6 +1322,11 @@ object ApiClient {
     /** Водитель: я на линии (доступен сейчас) / не на линии. */
     suspend fun setOnline(online: Boolean): Result<Unit> =
         call("POST", "/driver/online", JSONObject().put("online", online), auth = true).map { }
+
+    /** F9: водитель по желанию (opt-in) указывает пол ("" снять / "female" / "male").
+     *  Наружу раскрывается только сигнал «женщина за рулём» (driverIsWoman). */
+    suspend fun setDriverGender(gender: String): Result<Unit> =
+        call("POST", "/driver/gender", JSONObject().put("gender", gender), auth = true).map { }
 
     /** Брони на поездки водителя — чтобы оценить пассажиров. */
     suspend fun getDriverBookings(): Result<List<DriverBookingDto>> =
@@ -860,9 +1340,49 @@ object ApiClient {
                     passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
                     route = o.optString("route"),
                     status = o.optString("status"),
+                    myStars = o.optInt("my_stars"),
                 )
             }
         }
+
+    // --- F17: постоянные (регулярные) маршруты водителя ---
+    private fun JSONObject.toDriverScheduleDto() = DriverScheduleDto(
+        id = optInt("id"),
+        driverId = optInt("driver_id"),
+        fromCity = optString("from_city"),
+        toCity = optString("to_city"),
+        weekdays = optString("weekdays"),
+        time = optString("time"),
+        comment = optString("comment"),
+        active = optBoolean("active", true),
+    )
+
+    /** Создать своё расписание (маршрут + дни недели CSV ISO 1..7 + время ЧЧ:ММ). */
+    suspend fun createDriverSchedule(fromCity: String, toCity: String, weekdays: String, time: String, comment: String = ""): Result<DriverScheduleDto> =
+        call(
+            "POST", "/driver/schedule",
+            JSONObject().put("from_city", fromCity).put("to_city", toCity)
+                .put("weekdays", weekdays).put("time", time).put("comment", comment),
+            auth = true,
+        ).map { it.toDriverScheduleDto() }
+
+    /** Мои регулярные маршруты (все, включая скрытые). */
+    suspend fun getMyDriverSchedules(): Result<List<DriverScheduleDto>> =
+        call("GET", "/driver/schedule", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> arr.getJSONObject(i).toDriverScheduleDto() }
+        }
+
+    /** Публичные регулярные маршруты водителя (для профиля/поиска, без auth). */
+    suspend fun getPublicDriverSchedules(driverId: Int): Result<List<DriverScheduleDto>> =
+        call("GET", "/drivers/$driverId/schedule", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i -> arr.getJSONObject(i).toDriverScheduleDto() }
+        }
+
+    /** Удалить своё расписание. */
+    suspend fun deleteDriverSchedule(scheduleId: Int): Result<Unit> =
+        call("DELETE", "/driver/schedule/$scheduleId", null, auth = true).map { }
 
     // Инбокс: брони с сообщениями (как пассажир и как водитель).
     suspend fun getConversations(): Result<List<ConversationDto>> =
@@ -870,7 +1390,7 @@ object ApiClient {
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"), o.optString("peer_avatar"), o.optString("depart_at").ifBlank { null })
+                ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"), o.optString("peer_avatar"), o.optString("depart_at").ifBlank { null }, o.optBoolean("peer_verified"))
             }
         }
 
@@ -914,15 +1434,131 @@ object ApiClient {
         }
     }
 
-    // Лента событий (входящие сообщения по броням).
-    suspend fun getNotifications(): Result<List<NotifDto>> =
+    // Центр уведомлений: типизированная лента (непрочитанные сверху) + счётчик для бейджа.
+    suspend fun getNotifications(): Result<NotifFeed> =
         call("GET", "/notifications", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            val items = (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                NotifDto(
+                    id = o.optInt("id"),
+                    type = o.optString("type"),
+                    titleRu = o.optString("title_ru"), titleBa = o.optString("title_ba"),
+                    bodyRu = o.optString("body_ru"), bodyBa = o.optString("body_ba"),
+                    refKind = o.optString("ref_kind"),
+                    refId = if (o.isNull("ref_id")) null else o.optInt("ref_id"),
+                    read = o.optBoolean("read"),
+                    createdAt = o.optString("created_at"),
+                )
+            }
+            NotifFeed(unread = obj.optInt("unread"), items = items)
+        }
+
+    /** Пометить уведомление(я) прочитанным: id=конкретное, null=все. Возврат — актуальный unread. */
+    suspend fun markNotificationsRead(id: Int? = null): Result<Int> {
+        val body = JSONObject()
+        if (id != null) body.put("id", id) else body.put("all", true)
+        return call("POST", "/notifications/read", body, auth = true).map { it.optInt("unread") }
+    }
+
+    // ---------- Поддержка Юлдаш (обращения в поддержку, тикеты) ----------
+    private fun JSONObject.toSupportMessageDto() = SupportMessageDto(
+        id = optInt("id"),
+        sender = optString("sender"),          // user | admin
+        body = optString("body"),
+        createdAt = optString("created_at"),
+    )
+
+    private fun JSONObject.toSupportTicketDto() = SupportTicketDto(
+        id = optInt("id"),
+        subject = optString("subject"),
+        status = optString("status"),          // open | closed
+        createdAt = optString("created_at"),
+        updatedAt = optString("updated_at"),
+        messages = (optJSONArray("messages") ?: JSONArray()).let { a ->
+            (0 until a.length()).map { a.getJSONObject(it).toSupportMessageDto() }
+        },
+    )
+
+    /** Список моих обращений + счётчик непрочитанного (бейдж). */
+    suspend fun getSupportTickets(): Result<SupportListDto> =
+        call("GET", "/support/tickets", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            SupportListDto(
+                unread = obj.optInt("unread"),
+                items = (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    SupportTicketRowDto(
+                        id = o.optInt("id"),
+                        subject = o.optString("subject"),
+                        status = o.optString("status"),
+                        lastMessage = o.optString("last_message"),
+                        lastSender = o.optString("last_sender"),
+                        unread = o.optBoolean("unread"),
+                        createdAt = o.optString("created_at"),
+                        updatedAt = o.optString("updated_at"),
+                    )
+                },
+            )
+        }
+
+    /** Один тред обращения (сообщения user/admin). Чужой → 404 (ApiException). */
+    suspend fun getSupportTicket(id: Int): Result<SupportTicketDto> =
+        call("GET", "/support/tickets/$id", null, auth = true).map { it.toSupportTicketDto() }
+
+    /** Создать обращение: тема (опц.) + текст. Возврат — созданный тред. */
+    suspend fun createSupportTicket(subject: String?, body: String): Result<SupportTicketDto> {
+        val json = JSONObject().put("body", body)
+        if (!subject.isNullOrBlank()) json.put("subject", subject)
+        return call("POST", "/support/tickets", json, auth = true).map { it.toSupportTicketDto() }
+            .onSuccess { Analytics.log("support_ticket_create") }
+    }
+
+    /** Дописать сообщение в тред. На закрытый тикет — сервер переоткрывает. */
+    suspend fun postSupportMessage(id: Int, body: String): Result<SupportMessageDto> =
+        call("POST", "/support/tickets/$id/messages", JSONObject().put("body", body), auth = true)
+            .map { it.toSupportMessageDto() }
+
+    /** Закрыть обращение (пользователь). */
+    suspend fun closeSupportTicket(id: Int): Result<Unit> =
+        call("POST", "/support/tickets/$id/close", JSONObject(), auth = true).map { }
+
+    // ---------- Подписка на маршрут «карауль поездку» (F13) ----------
+    /** Подписаться на маршрут: как только появится подходящая поездка — придёт уведомление. */
+    suspend fun createRouteWatch(
+        fromCity: String,
+        toCity: String,
+        direction: String = "forward",     // forward | both (туда-обратно)
+        watchDate: String? = null,         // ISO "yyyy-MM-dd'T'HH:mm:ss" — опц. конкретный день
+    ): Result<Int> = call(
+        "POST", "/route-watch",
+        JSONObject()
+            .put("from_city", fromCity)
+            .put("to_city", toCity)
+            .put("direction", direction)
+            .apply { watchDate?.takeIf { it.isNotBlank() }?.let { put("watch_date", it) } },
+        auth = true,
+    ).map { it.optInt("id") }.onSuccess { Analytics.log("route_watch_create") }
+
+    /** Мои активные подписки на маршрут (непротухшие). */
+    suspend fun getRouteWatches(): Result<List<RouteWatchDto>> =
+        call("GET", "/route-watch", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                NotifDto(o.optString("title"), o.optString("text"))
+                RouteWatchDto(
+                    id = o.optInt("id"),
+                    fromCity = o.optString("from_city"),
+                    toCity = o.optString("to_city"),
+                    direction = o.optString("direction").ifBlank { "forward" },
+                    watchDate = o.optString("watch_date").ifBlank { null },
+                )
             }
         }
+
+    /** Отписаться от маршрута. */
+    suspend fun deleteRouteWatch(id: Int): Result<Unit> =
+        call("DELETE", "/route-watch/$id", null, auth = true).map { }
 
     // Партнёрская реклама — сервер-управляемая.
     suspend fun getAds(): Result<List<AdDto>> =
@@ -1066,6 +1702,26 @@ object ApiClient {
             (0 until arr.length()).map { i -> parseMyAd(arr.getJSONObject(i)) }
         }
 
+    /** Статистика по моим объявлениям (показы/клики/CTR/остаток срока). Приватность: только владелец (IDOR закрыт на сервере). */
+    suspend fun getMyAdsStats(): Result<Map<String, MyAdStatsDto>> =
+        call("GET", "/ads/mine/stats", null, auth = true).map { o ->
+            val arr = o.optJSONArray("items") ?: JSONArray()
+            val out = mutableMapOf<String, MyAdStatsDto>()
+            for (i in 0 until arr.length()) {
+                val s = arr.getJSONObject(i)
+                val id = s.optString("ad_id")
+                out[id] = MyAdStatsDto(
+                    adId = id,
+                    impressions = s.optInt("impressions"),
+                    clicks = s.optInt("clicks"),
+                    ctr = s.optDouble("ctr", 0.0),
+                    daysLeft = if (s.isNull("days_left")) null else s.optInt("days_left"),
+                    endsAt = s.optString("ends_at").ifBlank { null },
+                )
+            }
+            out
+        }
+
     /** Создать своё объявление (черновик). */
     suspend fun createMyAd(title: String, text: String, button: String, target: String, pkg: String, cities: String): Result<MyAdDto> =
         call("POST", "/ads", JSONObject().put("title", title).put("text", text).put("button", button)
@@ -1086,20 +1742,90 @@ object ApiClient {
 
     // ---------- Активная поездка: поделиться / статус ----------
 
-    suspend fun shareTrip(bookingId: Int, contactId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/share", JSONObject().put("contact_id", contactId), auth = true).map { }
+    /** Поделиться бронью попутки. B7c: возвращает шаринг (id для отзыва + live-ссылка близкого). */
+    suspend fun shareTrip(bookingId: Int, contactId: Int): Result<TripShareDto?> =
+        call("POST", "/bookings/$bookingId/share", JSONObject().put("contact_id", contactId), auth = true)
+            .map { parseTripShare(it) }
+
+    /** Отозвать шаринг брони (B7c): live-токен «сгорает», SMS-статусы контакту прекращаются. Приватность. */
+    suspend fun revokeBookingShare(bookingId: Int, shareId: Int): Result<Unit> =
+        call("DELETE", "/bookings/$bookingId/share/$shareId", null, auth = true).map { }
+            .onSuccess { Analytics.log("revoke_share") }
+
+    /** Активные шаринги такси-заказа (пассажиру — «уже поделился с …» + отозвать). */
+    suspend fun getInstantShares(orderId: Int): Result<List<TripShareDto>> =
+        call("GET", "/instant/orders/$orderId/shares", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).mapNotNull { parseTripShare(arr.getJSONObject(it)) }
+        }
+
+    /** Отозвать шаринг такси-заказа (B7c). */
+    suspend fun revokeInstantShare(orderId: Int, shareId: Int): Result<Unit> =
+        call("DELETE", "/instant/orders/$orderId/share/$shareId", null, auth = true).map { }
+            .onSuccess { Analytics.log("revoke_share") }
+
+    /** Разбор TripShare с сервера → id/contact_id/token + готовый live-URL (или null, старый сервер). */
+    private fun parseTripShare(j: JSONObject): TripShareDto? {
+        val id = j.optInt("id", 0)
+        if (id == 0) return null
+        return TripShareDto(
+            id = id,
+            contactId = j.optInt("contact_id", 0),
+            link = liveLinkOrNull(j),
+        )
+    }
 
     suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
 
-    /** Оценить вторую сторону поездки (1..5 звёзд). Пассажир → водитель, водитель → пассажир. */
-    suspend fun rateBooking(bookingId: Int, stars: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/rate", JSONObject().put("stars", stars), auth = true).map { }
+    /** Оценить вторую сторону поездки (1..5 звёзд) + опц. текстовый отзыв (≤500, идёт на модерацию). */
+    suspend fun rateBooking(bookingId: Int, stars: Int, text: String = ""): Result<Unit> =
+        call("POST", "/bookings/$bookingId/rate",
+            JSONObject().put("stars", stars).apply { text.trim().take(500).let { if (it.isNotBlank()) put("text", it) } },
+            auth = true).map { }
 
-    /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку. */
-    suspend fun cancelBooking(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/cancel", null, auth = true).map { }
+    /** Публичный профиль водителя: стаж, поездки, средний рейтинг, отзывы (после модерации). Без ПДн. */
+    suspend fun getDriverPublic(driverId: Int): Result<DriverPublicDto> =
+        call("GET", "/drivers/$driverId/public", null, auth = false).map { o ->
+            val revArr = o.optJSONArray("reviews") ?: JSONArray()
+            DriverPublicDto(
+                id = o.optInt("id"),
+                name = o.optString("name"),
+                avatarUrl = o.optString("avatar_url"),
+                verified = o.optBoolean("verified"),
+                daysInService = o.optInt("days_in_service"),
+                tripsCount = o.optInt("trips_count"),
+                car = o.optString("car"),
+                rating = if (o.isNull("rating")) null else o.optDouble("rating"),
+                ratingCount = o.optInt("rating_count"),
+                reviews = (0 until revArr.length()).map { i ->
+                    val r = revArr.getJSONObject(i)
+                    PublicReviewDto(
+                        author = r.optString("author").ifBlank { "Аноним" },
+                        stars = r.optInt("stars"),
+                        text = r.optString("text"),
+                        createdAt = r.optString("created_at"),
+                    )
+                },
+            )
+        }
+
+    /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку.
+     *  Возврат: contact_then_cancel (B8-8) — отмена после открытия телефона/чата →
+     *  UI показывает мягкий баннер «заверши поездку в приложении». */
+    suspend fun cancelBooking(bookingId: Int, reason: String = ""): Result<Boolean> =
+        call("POST", "/bookings/$bookingId/cancel", JSONObject().put("reason", reason), auth = true)
+            .map { it.optBoolean("contact_then_cancel") }
             .onSuccess { Analytics.log("booking_cancel") }
+
+    // Водитель отмечает неявку пассажира (no-show): бронь снимается, места возвращаются.
+    suspend fun markNoShow(bookingId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true).map { }
+            .onSuccess { Analytics.log("booking_no_show") }
+
+    /** F2: водитель подтверждает бронь → пассажиру открываются телефон/точка сбора, приходит push. */
+    suspend fun confirmBooking(bookingId: Int): Result<Unit> =
+        call("POST", "/bookings/$bookingId/confirm", JSONObject(), auth = true).map { }
 
     // ---------- Boost (поднятие объявления, оплата) ----------
 
@@ -1113,11 +1839,32 @@ object ApiClient {
     }
 
     /** Мои активные поездки (для выбора, какую поднять). */
-    suspend fun getDriverRides(): Result<List<RideDto>> =
-        call("GET", "/driver/rides", null, auth = true).map { obj ->
+    /** Поездки водителя. status=null/"active" — активные (как раньше, для Boost);
+     *  "done"/"cancelled"/"all" — для раздела «Архив» в кабинете. */
+    suspend fun getDriverRides(status: String? = null): Result<List<RideDto>> {
+        val q = if (status.isNullOrBlank()) "" else "?status=$status"
+        return call("GET", "/driver/rides$q", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
         }
+    }
+
+    /** F1: снять поездку (сломался/передумал). Сервер каскадно отменяет брони и шлёт пуши пассажирам. */
+    suspend fun cancelRide(rideId: Int): Result<Unit> =
+        call("POST", "/rides/$rideId/cancel", JSONObject(), auth = true).map { }
+
+    /** F1: завершить рейс целиком (поездка → done, подтверждённые брони → done). */
+    suspend fun completeRide(rideId: Int): Result<Unit> =
+        call("POST", "/rides/$rideId/complete", JSONObject(), auth = true).map { }
+
+    /** F3: правка своей поездки (null = поле не менять). POST-алиас /edit: HttpURLConnection не умеет PATCH.
+     *  С активными бронями сервер разрешит только комментарий и цену ВНИЗ (иначе 409 с понятным текстом). */
+    suspend fun editRide(rideId: Int, price: Int? = null, comment: String? = null): Result<Unit> {
+        val body = JSONObject()
+        price?.let { body.put("price", it) }
+        comment?.let { body.put("comment", it) }
+        return call("POST", "/rides/$rideId/edit", body, auth = true).map { }
+    }
 
     /** Создать платёж за поднятие поездки. Возврат: статус + реквизиты СБП / ссылка ЮKassa. */
     suspend fun createBoost(rideId: Int, tier: String): Result<BoostResultDto> =
@@ -1132,6 +1879,36 @@ object ApiClient {
                 payeePhone = payee?.optString("phone")?.ifBlank { null },
                 payeeBank = payee?.optString("bank")?.ifBlank { null },
                 payeeName = payee?.optString("name")?.ifBlank { null },
+            )
+        }
+
+    /**
+     * «Поддержать Юлдаш» — добровольная поддержка платформы (доход платформы, НЕ водителю).
+     * Деньги в копейках (int). Карта/СБП через ту же ЮKassa-инфру; без ключей — СБП-фолбэк
+     * (реквизиты в ответе, как у boost/доната). confirmationUrl != null → открыть оплату картой.
+     */
+    suspend fun supportDonate(amountKop: Int): Result<BoostResultDto> =
+        call("POST", "/support/donate", JSONObject().put("amount_kop", amountKop), auth = true).map { o ->
+            val payee = o.optJSONObject("payee")
+            BoostResultDto(
+                status = o.optString("status"), method = o.optString("method"),
+                paymentId = o.optInt("payment_id"), amount = o.optInt("amount"),
+                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
+                payeePhone = payee?.optString("phone")?.ifBlank { null },
+                payeeBank = payee?.optString("bank")?.ifBlank { null },
+                payeeName = payee?.optString("name")?.ifBlank { null },
+            )
+        }
+
+    /** Статус СВОЕГО платежа — клиент поллит после возврата из браузера ЮKassa (ON_RESUME экрана).
+     *  Сервер при pending+yookassa сам перепроверяет оплату у ЮKassa и активирует boost (go-live). */
+    suspend fun getPaymentStatus(paymentId: Int): Result<PaymentStatusDto> =
+        call("GET", "/payments/$paymentId/status", null, auth = true).map { o ->
+            PaymentStatusDto(
+                paymentId = o.optInt("payment_id"),
+                status = o.optString("status"),
+                purpose = o.optString("purpose"),
+                boostedUntil = o.optString("boosted_until").ifBlank { null },
             )
         }
 
@@ -1176,6 +1953,543 @@ object ApiClient {
             PaymentsSummaryDto(d.optInt("count"), d.optInt("sum_rub"), b.optInt("count"), b.optInt("sum_rub"))
         }
 
+    // ---------- Долг по комиссии за такси (Модель А «на доверии») ----------
+    /** Долг водителя: сколько должен, до какой даты, реквизиты СБП Александра, блок такси. По своему токену. */
+    suspend fun getDriverDebt(): Result<DriverDebtDto> =
+        call("GET", "/driver/debt", null, auth = true).map { o ->
+            val sbp = o.optJSONObject("sbp") ?: JSONObject()
+            val wk = o.optJSONArray("weeks") ?: JSONArray()
+            DriverDebtDto(
+                unpaidKop = o.optInt("unpaid_kop"), pendingKop = o.optInt("pending_kop"),
+                dueAt = o.optString("due_at").ifBlank { null },
+                overdue = o.optBoolean("overdue"), blocked = o.optBoolean("blocked"),
+                blockReason = o.optString("block_reason").ifBlank { null },
+                thresholdKop = o.optInt("threshold_kop"),
+                sbpPhone = sbp.optString("phone"), sbpName = sbp.optString("name"),
+                weeks = (0 until wk.length()).map { i ->
+                    val w = wk.getJSONObject(i)
+                    DebtWeekDto(w.optString("week"), w.optInt("amount_kop"), w.optString("status"))
+                },
+            )
+        }
+
+    /** Оплата долга: yookassa → оплата картой (confirmationUrl), иначе СБП «на доверии» (pending). */
+    suspend fun declareDebtPaid(): Result<DebtPayResultDto> =
+        call("POST", "/driver/debt/paid", JSONObject(), auth = true).map { o ->
+            DebtPayResultDto(
+                method = o.optString("method", "sbp_manual"),
+                status = o.optString("status", "pending"),
+                paymentId = o.optInt("payment_id"),
+                pendingKop = o.optInt("pending_kop"),
+                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
+            )
+        }
+
+    /** Админ: долги на подтверждении (сгруппированы по водителю). */
+    suspend fun getAdminDebts(): Result<List<AdminDebtDto>> =
+        call("GET", "/admin/debts", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                val wk = o.optJSONArray("weeks") ?: JSONArray()
+                AdminDebtDto(
+                    debtId = o.optInt("debt_id"), driverId = o.optInt("driver_id"),
+                    driverName = o.optString("driver_name"), driverPhone = o.optString("driver_phone"),
+                    amount = o.optInt("amount"),
+                    weeks = (0 until wk.length()).map { j -> wk.optString(j) },
+                )
+            }
+        }
+
+    suspend fun confirmDebt(debtId: Int): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/confirm", JSONObject(), auth = true).map { }
+
+    suspend fun rejectDebt(debtId: Int): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/reject", JSONObject(), auth = true).map { }
+
+    // ---------- Быстрый заказ (такси-режим, Фаза 2) ----------
+    // Отдельный поток от плановых поездок (Ride/Booking) — те не трогаем. Приватность: телефоны/имя
+    // стороны сервер отдаёт пустыми до accept. Координаты heartbeat НЕ логируем.
+
+    private fun instantBody(
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        fromText: String, toText: String, category: String,
+    ): JSONObject = JSONObject()
+        .put("from_lat", fromLat).put("from_lng", fromLng)
+        .put("to_lat", toLat).put("to_lng", toLng)
+        .put("from_text", fromText).put("to_text", toText)
+        .put("category", category)
+
+    /** Водитель «на линии» шлёт координаты (heartbeat ~раз в 12с) → Redis GEO. Координаты не логируем.
+     *  ok=false, если Redis на сервере недоступен (заказ тогда «рядом никого», но запрос не падает). */
+    /** «Пульс такси» (B7b-3, только админ): на линии, активные заказы, счётчики дня, по городам. */
+    suspend fun getTaxiPulse(): Result<TaxiPulseDto> =
+        call("GET", "/admin/taxi/pulse", null, auth = true).map { o ->
+            val arr = o.optJSONArray("by_city") ?: JSONArray()
+            TaxiPulseDto(
+                driversOnline = o.optInt("drivers_online"),
+                ordersActive = o.optInt("orders_active"),
+                ordersToday = o.optInt("orders_today"),
+                doneToday = o.optInt("done_today"),
+                cancelledToday = o.optInt("cancelled_today"),
+                noShowToday = o.optInt("no_show_today"),
+                avgSearchSec = if (o.isNull("avg_search_sec_today")) null else o.optDouble("avg_search_sec_today"),
+                byCity = (0 until arr.length()).map { i ->
+                    val c = arr.getJSONObject(i)
+                    TaxiPulseCityDto(c.optString("city"), c.optInt("online"), c.optInt("active"))
+                },
+            )
+        }
+
+    suspend fun instantPresence(lat: Double, lng: Double): Result<Boolean> =
+        call("POST", "/instant/presence", JSONObject().put("lat", lat).put("lng", lng), auth = true).map { it.optBoolean("ok") }
+
+    /** Fire-and-forget heartbeat (для таймера presence — не ждём ответа, не роняем экран при сбое сети). */
+    fun fireInstantPresence(lat: Double, lng: Double) {
+        bg.launch { call("POST", "/instant/presence", JSONObject().put("lat", lat).put("lng", lng), auth = true) }
+    }
+
+    /**
+     * Карта спроса для водителя — «где сейчас ищут». Анонимно: сервер отдаёт только агрегированные
+     * зоны (координаты + вес + число заявок), без личности пассажиров. city — необязательный фильтр.
+     */
+    suspend fun getInstantDemand(city: String? = null): Result<InstantDemandDto> {
+        val path = "/instant/demand" + (city?.takeIf { it.isNotBlank() }?.let { "?city=" + enc(it) } ?: "")
+        return call("GET", path, null, auth = true).map { o ->
+            val arr = o.optJSONArray("zones") ?: JSONArray()
+            InstantDemandDto(
+                zones = (0 until arr.length()).map { i ->
+                    val z = arr.getJSONObject(i)
+                    DemandZoneDto(
+                        lat = z.optDouble("lat", 0.0),
+                        lng = z.optDouble("lng", 0.0),
+                        weight = z.optDouble("weight", 0.0),
+                        requests = z.optInt("requests", 0),
+                    )
+                }.sortedByDescending { it.weight },
+                updatedAt = o.optString("updated_at"),
+            )
+        }
+    }
+
+    /** Оценка цены ДО заказа. Сервер считает сам (клиенту не верит) — поля цены в запросе нет. */
+    suspend fun instantEstimate(
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        fromText: String = "", toText: String = "", category: String = "standard",
+    ): Result<InstantEstimateDto> =
+        call("POST", "/instant/estimate", instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category), auth = true).map { o ->
+            val note = o.optJSONObject("surge_note")
+            val optArr = o.optJSONArray("options") ?: JSONArray()
+            val factorArr = o.optJSONArray("price_factors") ?: JSONArray()
+            InstantEstimateDto(
+                price = o.optInt("price"),
+                distanceKm = o.optDouble("distance_km", 0.0),
+                etaMin = o.optDouble("eta_min", 0.0),
+                pickupEtaMin = if (o.isNull("pickup_eta_min")) null else o.optInt("pickup_eta_min"),
+                zone = o.optString("zone"),
+                category = o.optString("category", category),
+                tariffId = o.optInt("tariff_id"),
+                surgeK = o.optDouble("surge_k", 1.0),
+                surgeNoteRu = note?.optString("ru") ?: "",
+                surgeNoteBa = note?.optString("ba") ?: "",
+                options = (0 until optArr.length()).map { i ->
+                    val c = optArr.getJSONObject(i)
+                    InstantClassOption(category = c.optString("category"), price = c.optInt("price"))
+                },
+                basePrice = o.optInt("base_price"),
+                dynamicK = o.optDouble("dynamic_k", 1.0),
+                pricingCapK = o.optDouble("pricing_cap_k", 1.5),
+                pricingVersion = o.optString("pricing_version", "v1"),
+                routeSource = o.optString("route_source", "fallback"),
+                trafficType = o.optString("traffic_type", "unknown"),
+                trafficK = o.optDouble("traffic_k", 1.0),
+                pickupK = o.optDouble("pickup_k", 1.0),
+                weatherK = o.optDouble("weather_k", 1.0),
+                weatherCode = o.optString("weather_code"),
+                hasTolls = o.optBoolean("has_tolls"),
+                priceFactors = (0 until factorArr.length()).mapNotNull { i ->
+                    factorArr.optJSONObject(i)?.let { p ->
+                        InstantPriceFactorDto(
+                            code = p.optString("code"),
+                            kind = p.optString("kind"),
+                            k = p.optDouble("k", 1.0),
+                            active = p.optBoolean("active"),
+                            titleRu = p.optString("title_ru"),
+                            titleBa = p.optString("title_ba"),
+                            descriptionRu = p.optString("description_ru"),
+                            descriptionBa = p.optString("description_ba"),
+                        )
+                    }
+                },
+            )
+        }
+
+    /** Создать быстрый заказ → сервер считает цену и ищет водителя (сразу offered | expired).
+     *
+     *  comment/entrance — «как меня найти» (в селе «Ленина 12» это пять домов без табличек,
+     *  а чат открывается только ПОСЛЕ принятия заказа). forName/forPhone — заказ ДЛЯ ДРУГОГО
+     *  человека: сын из Уфы вызывает такси маме в Баймаке, водитель должен звонить маме. */
+    suspend fun createInstantOrder(
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        fromText: String = "", toText: String = "", category: String = "standard",
+        comment: String = "", entrance: String = "", forName: String = "", forPhone: String = "",
+    ): Result<InstantOrderDto> {
+        val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category)
+        // Пустые поля не шлём: сервер их и так примет, но лишний шум в теле запроса ни к чему.
+        if (comment.isNotBlank()) body.put("comment", comment.take(300))
+        if (entrance.isNotBlank()) body.put("entrance", entrance.take(60))
+        if (forName.isNotBlank()) body.put("for_name", forName.take(120))
+        if (forPhone.isNotBlank()) body.put("for_phone", forPhone.take(32))
+        return call("POST", "/instant/orders", body, auth = true)
+            .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
+    }
+
+    /** Мои быстрые заказы (свежие сверху) — восстановить активный заказ при возврате на экран. */
+    suspend fun getMyInstantOrders(limit: Int = 5): Result<List<InstantOrderDto>> =
+        call("GET", "/instant/orders/mine?limit=$limit", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toInstantOrderDto() }
+        }
+
+    /** Детали заказа: пассажир поллит статус (searching→offered→accepted→arriving→onboard→done). */
+    suspend fun getInstantOrder(id: Int): Result<InstantOrderDto> =
+        call("GET", "/instant/orders/$id", null, auth = true).map { it.toInstantOrderDto() }
+
+    /** Активный оффер для водителя (поллинг-фолбэк к пушу). null = нет входящего заказа. */
+    suspend fun getDriverOffer(): Result<InstantOrderDto?> =
+        call("GET", "/instant/driver/offer", null, auth = true).map { o ->
+            if (o.isNull("offer")) null else o.optJSONObject("offer")?.toInstantOrderDto()
+        }
+
+    /** Водитель принимает оффер. Гонка/протух → 409 (ApiException) — экран покажет «оффер ушёл». */
+    suspend fun instantAccept(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/accept", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+            .onSuccess { Analytics.log("instant_order_accept") }
+
+    /** Водитель пропускает оффер → matcher предлагает следующему. */
+    suspend fun instantDecline(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/decline", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+
+    /** Водитель поехал к пассажиру: accepted → arriving. */
+    suspend fun instantArrived(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/arrived", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+
+    /** Пассажир сел: arriving → onboard. */
+    suspend fun instantOnboard(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/onboard", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+
+    /** Поездка завершена: onboard → done. */
+    suspend fun instantDone(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/done", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+
+    /** Отмена заказа (пассажир до посадки / водитель после accept). Причина опциональна. */
+    suspend fun instantCancel(id: Int, reason: String = ""): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true).map { it.toInstantOrderDto() }
+            .onSuccess { Analytics.log("instant_order_cancel") }
+
+    // ---------- Предзаказ такси «на время» (scheduled) ----------
+    /** Создать предзаказ на будущее время: тело как у обычного заказа + scheduledAt (ISO). Статус scheduled. */
+    suspend fun scheduleInstantOrder(
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        scheduledAt: String, fromText: String = "", toText: String = "", category: String = "standard",
+    ): Result<InstantOrderDto> =
+        call(
+            "POST", "/instant/schedule",
+            instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category).put("scheduled_at", scheduledAt),
+            auth = true,
+        ).map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_schedule") }
+
+    /** Мои предзаказы: ещё ждут (scheduled) + только что активированные ко времени (activated). */
+    suspend fun getScheduledOrders(): Result<ScheduledOrdersDto> =
+        call("GET", "/instant/scheduled", null, auth = true).map { obj ->
+            fun arr(key: String) = (obj.optJSONArray(key) ?: JSONArray()).let { a ->
+                (0 until a.length()).map { a.getJSONObject(it).toInstantOrderDto() }
+            }
+            ScheduledOrdersDto(scheduled = arr("scheduled"), activated = arr("activated"))
+        }
+
+    /** Активировать предзаказ вручную → перевод в поиск (цена пересчитывается на сервере). */
+    suspend fun activateScheduledOrder(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/scheduled/$id/activate", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+            .onSuccess { Analytics.log("instant_schedule_activate") }
+
+    /** Отменить предзаказ. */
+    suspend fun cancelScheduledOrder(id: Int): Result<InstantOrderDto> =
+        call("POST", "/instant/scheduled/$id/cancel", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+
+    // ---------- Такси-гейт + онбординг таксиста (580-ФЗ) ----------
+    // Пассажирский гейт: доступно ли такси в его точке. Водительский гейт: заявка «Стать таксистом»
+    // (самозанятость/разрешение/ОСАГО, возраст 20+, стаж 2+) → модерация админом → выход на линию.
+
+    /** Доступно ли такси в точке (глобальный флаг + города). message — тёплый текст заглушки RU/BA. */
+    suspend fun getTaxiAvailability(lat: Double, lng: Double): Result<TaxiAvailabilityDto> =
+        call("GET", "/instant/availability?lat=$lat&lng=$lng", null, auth = true).map { o ->
+            val msg = o.optJSONObject("message") ?: JSONObject()
+            TaxiAvailabilityDto(
+                enabled = o.optBoolean("enabled"),
+                reason = o.optString("reason"),
+                messageRu = msg.optString("ru"),
+                messageBa = msg.optString("ba"),
+                city = o.optNullableString("city") ?: "",
+            )
+        }
+
+    /** Подать заявку «Стать таксистом» (580-ФЗ). Повторная подача после reject — тот же метод (заявка снова pending).
+     *  Сервер валидирует возраст 20+/стаж 3+/ИНН 10–12 цифр и сроки документов → 400 с текстом (покажем как есть).
+     *  Даты (YYYY-MM-DD, пустая строка = не указана) нужны, чтобы допуск истекал вместе с документом,
+     *  а не жил вечно: одобрили в июле — возит с просроченным ОСАГО в декабре (аудит 2026-07-26). */
+    suspend fun applyTaxi(
+        inn: String, permitNumber: String, birthDate: String, licenseSinceYear: Int,
+        permitPhotoUrl: String, osagoUrl: String,
+        selfieUrl: String, criminalRecordUrl: String, carClass: String = "economy",
+        osagoUntil: String = "", permitUntil: String = "", inspectionUntil: String = "",
+    ): Result<TaxiApplicationDto> {
+        val body = JSONObject()
+            .put("inn", inn).put("permit_number", permitNumber)
+            .put("birth_date", birthDate).put("license_since_year", licenseSinceYear)
+            .put("permit_photo_url", permitPhotoUrl).put("osago_url", osagoUrl)
+            .put("selfie_url", selfieUrl).put("criminal_record_url", criminalRecordUrl)
+            .put("car_class", carClass)   // §6: заявленный класс, админ подтверждает при approve
+        if (osagoUntil.isNotBlank()) body.put("osago_until", osagoUntil)
+        if (permitUntil.isNotBlank()) body.put("permit_until", permitUntil)
+        if (inspectionUntil.isNotBlank()) body.put("inspection_until", inspectionUntil)
+        return call("POST", "/taxi/apply", body, auth = true)
+            .map { it.toTaxiApplicationDto() }.onSuccess { Analytics.log("taxi_apply") }
+    }
+
+    /** Обновить сроки документов БЕЗ пере-подачи заявки (продлил ОСАГО — не теряй допуск).
+     *  Пустая строка = поле не трогаем. Все даты снова в будущем → допуск возвращается сразу. */
+    suspend fun updateTaxiDocuments(
+        osagoUntil: String = "", permitUntil: String = "", inspectionUntil: String = "",
+        osagoUrl: String = "", permitPhotoUrl: String = "",
+    ): Result<TaxiApplicationDto> {
+        val body = JSONObject()
+        if (osagoUntil.isNotBlank()) body.put("osago_until", osagoUntil)
+        if (permitUntil.isNotBlank()) body.put("permit_until", permitUntil)
+        if (inspectionUntil.isNotBlank()) body.put("inspection_until", inspectionUntil)
+        if (osagoUrl.isNotBlank()) body.put("osago_url", osagoUrl)
+        if (permitPhotoUrl.isNotBlank()) body.put("permit_photo_url", permitPhotoUrl)
+        return call("POST", "/taxi/documents", body, auth = true).map { it.toTaxiApplicationDto() }
+    }
+
+    /** Предрейсовое подтверждение на сегодня (580-ФЗ, честный минимум): подтверждал ли уже. */
+    suspend fun getPretrip(): Result<PretripDto> =
+        call("GET", "/taxi/pretrip", null, auth = true).map { o ->
+            PretripDto(
+                required = o.optBoolean("required"),
+                confirmed = o.optBoolean("confirmed"),
+                day = o.optString("day"),
+                confirmedAt = if (o.isNull("confirmed_at")) null else o.optString("confirmed_at").ifBlank { null },
+                note = o.optString("note"),
+            )
+        }
+
+    /** Подтвердить готовность на сегодня. Все три пункта обязательны — сервер иначе даёт 400. */
+    suspend fun confirmPretrip(note: String = ""): Result<PretripDto> =
+        call(
+            "POST", "/taxi/pretrip",
+            JSONObject().put("health_ok", true).put("car_ok", true).put("no_alcohol", true)
+                .put("note", note.take(300)),
+            auth = true,
+        ).map { o ->
+            PretripDto(
+                required = o.optBoolean("required"),
+                confirmed = o.optBoolean("confirmed"),
+                day = o.optString("day"),
+                confirmedAt = if (o.isNull("confirmed_at")) null else o.optString("confirmed_at").ifBlank { null },
+                note = o.optString("note"),
+            )
+        }
+
+    /** Моя заявка таксиста. Не подавал → failure с ApiException(404) — экран трактует как «нет заявки». */
+    suspend fun getMyTaxiApplication(): Result<TaxiApplicationDto> =
+        call("GET", "/taxi/application", null, auth = true).map { it.toTaxiApplicationDto() }
+
+    /** Админ: заявки таксистов. status: pending | approved | rejected | all. */
+    suspend fun adminTaxiApplications(status: String = "pending"): Result<List<TaxiApplicationDto>> =
+        call("GET", "/admin/taxi-applications?status=$status", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toTaxiApplicationDto() }
+        }
+
+    suspend fun adminApproveTaxiApplication(id: Int): Result<Unit> =
+        call("POST", "/admin/taxi-applications/$id/approve", JSONObject(), auth = true).map { }
+
+    suspend fun adminRejectTaxiApplication(id: Int, comment: String): Result<Unit> =
+        call("POST", "/admin/taxi-applications/$id/reject", JSONObject().put("comment", comment), auth = true).map { }
+
+    /** Админ: города, где включено такси. */
+    suspend fun adminTaxiCities(): Result<List<TaxiCityDto>> =
+        call("GET", "/admin/taxi-cities", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                TaxiCityDto(o.optInt("id"), o.optString("city"), o.optBoolean("enabled"))
+            }
+        }
+
+    /** Админ: добавить город такси (или обновить enabled существующего — сервер делает upsert по названию). */
+    suspend fun adminAddTaxiCity(city: String, enabled: Boolean): Result<TaxiCityDto> =
+        call("POST", "/admin/taxi-cities", JSONObject().put("city", city).put("enabled", enabled), auth = true).map { o ->
+            TaxiCityDto(o.optInt("id"), o.optString("city"), o.optBoolean("enabled"))
+        }
+
+    suspend fun adminDeleteTaxiCity(id: Int): Result<Unit> =
+        call("DELETE", "/admin/taxi-cities/$id", null, auth = true).map { }
+
+    // ---------- Ранний доступ / лист ожидания (волна 2, §11 «Запуск») ----------
+
+    /** Оставить номер в листе ожидания («сообщим, когда включим»). ПУБЛИЧНЫЙ — работает и без входа.
+     *  Повторная подача того же номера обновляет город/роль на сервере (дублей не будет).
+     *  role: passenger | driver. Город пустой → не отправляем (не затираем известный на сервере). */
+    suspend fun joinWaitlist(phone: String, city: String, role: String): Result<Unit> =
+        call(
+            "POST", "/waitlist",
+            JSONObject().put("phone", phone).put("role", role)
+                .apply { if (city.isNotBlank()) put("city", city) },
+            auth = false,
+        ).map { }.onSuccess { Analytics.log("waitlist_join") }
+
+    /** Админ: лист ожидания — счётчики (по всей базе) + записи (по фильтрам).
+     *  city/role пустые = без фильтра; invited: null = все, true/false = позваны/ждут. */
+    suspend fun getAdminWaitlist(city: String = "", role: String = "", invited: Boolean? = null): Result<AdminWaitlistDto> {
+        val q = buildList {
+            if (city.isNotBlank()) add("city=${enc(city)}")
+            if (role.isNotBlank()) add("role=$role")
+            if (invited != null) add("invited=$invited")
+        }.joinToString("&")
+        return call("GET", "/admin/waitlist" + (if (q.isBlank()) "" else "?$q"), null, auth = true).map { o ->
+            val cityArr = o.optJSONArray("by_city") ?: JSONArray()
+            val roles = o.optJSONObject("by_role") ?: JSONObject()
+            val itemsArr = o.optJSONArray("items") ?: JSONArray()
+            AdminWaitlistDto(
+                total = o.optInt("total"),
+                invited = o.optInt("invited"),
+                byCity = (0 until cityArr.length()).map { i ->
+                    val c = cityArr.getJSONObject(i)
+                    c.optString("city") to c.optInt("count")
+                },
+                passengers = roles.optInt("passenger"),
+                drivers = roles.optInt("driver"),
+                items = (0 until itemsArr.length()).map { i ->
+                    val e = itemsArr.getJSONObject(i)
+                    WaitlistEntryDto(
+                        id = e.optInt("id"),
+                        phone = e.optString("phone"),
+                        city = e.optString("city"),
+                        role = e.optString("role"),
+                        createdAt = e.optString("created_at"),
+                        invitedAt = e.optNullableString("invited_at"),
+                    )
+                },
+            )
+        }
+    }
+
+    /** Админ: пометить волну — проставить invited_at выбранным (рассылку админ делает сам).
+     *  Возвращает, сколько записей реально помечено (уже позванные не перетираются). */
+    suspend fun adminWaitlistInvite(ids: List<Int>): Result<Int> =
+        call("POST", "/admin/waitlist/invite", JSONObject().put("ids", JSONArray(ids)), auth = true)
+            .map { it.optInt("invited") }
+
+    // ---------- География: справочник НП + зона работы таксиста (волна 2) ----------
+    // Справочник публичный (общеизвестные города, не перс.данные) — auth не нужен.
+
+    /** Автоподсказки городов/райцентров: префиксный поиск по русскому И башкирскому имени. */
+    suspend fun searchSettlements(q: String, limit: Int = 10): Result<List<SettlementDto>> =
+        call("GET", "/settlements?q=${enc(q)}&limit=$limit", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toSettlementDto() }
+        }
+
+    /** Пресеты популярных межгород-маршрутов (Сибай–Магнитогорск, Баймак–Уфа…) — чипы в UI.
+     *  Не путать с getPopularRoutes() (/popular-routes — живая статистика реальных поездок). */
+    suspend fun getSettlementPopularRoutes(): Result<List<SettlementRouteDto>> = cachedGet("settlement-popular-routes", TTL_SLOW) {
+        call("GET", "/settlements/popular-routes", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("routes") ?: JSONArray()
+            // V6: битый элемент (нет объекта from/to) пропускаем, а не роняем весь экран —
+            // getJSONObject кидал бы исключение мимо Result (в .map), краша вызывающий экран.
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val f = o.optJSONObject("from") ?: return@mapNotNull null
+                val t = o.optJSONObject("to") ?: return@mapNotNull null
+                SettlementRouteDto(from = f.toSettlementDto(), to = t.toSettlementDto())
+            }
+        }
+    }
+
+    /** Текущая зона работы таксиста (город / межгород / соседний регион). */
+    suspend fun getInstantZone(): Result<InstantZoneDto> =
+        call("GET", "/instant/zone", null, auth = true).map { it.toInstantZoneDto() }
+
+    /** Выбор зоны работы: city (+work_city) | intercity (+опц. направление) | region.
+     *  Только водитель с одобренной заявкой таксиста (сервер вернёт 403/409 понятной строкой). */
+    suspend fun setInstantZone(workZone: String, workCity: String? = null, workDirectionId: Int? = null): Result<InstantZoneDto> =
+        call(
+            "POST", "/instant/zone",
+            JSONObject()
+                .put("work_zone", workZone)
+                .put("work_city", workCity ?: JSONObject.NULL)
+                .put("work_direction_id", workDirectionId ?: JSONObject.NULL),
+            auth = true,
+        ).map { it.toInstantZoneDto() }.onSuccess { Analytics.log("instant_zone_set") }
+
+    /** Сводка смены таксиста (волна 2, §8 Отдых): сколько на линии, осталось, блок отдыха,
+     *  когда разблокировка, использован ли «один попутчик домой». */
+    /** Свободные машины «на линии» рядом (анонимные точки + ≈ETA) — для карты такси. Без личности. */
+    suspend fun getNearbyDrivers(lat: Double, lng: Double): Result<List<NearbyDriverDto>> =
+        call("GET", "/instant/nearby-drivers?lat=$lat&lng=$lng", null, auth = true).map { o ->
+            val arr = o.optJSONArray("drivers") ?: org.json.JSONArray()
+            (0 until arr.length()).map { i ->
+                val d = arr.getJSONObject(i)
+                NearbyDriverDto(d.optDouble("lat"), d.optDouble("lng"), d.optInt("eta_min", 1))
+            }
+        }
+
+    suspend fun getTaxiWorkday(): Result<TaxiWorkdayDto> =
+        call("GET", "/instant/workday", null, auth = true).map { o ->
+            TaxiWorkdayDto(
+                day = o.optString("day"),
+                secondsOnline = o.optInt("seconds_online"),
+                limitSec = o.optInt("limit_sec"),
+                remainingSec = o.optInt("remaining_sec"),
+                limitHours = o.optInt("limit_hours", 8),
+                blocked = o.optBoolean("blocked"),
+                unlockAt = o.optString("unlock_at").ifBlank { null },
+                returnRideUsed = o.optBoolean("return_ride_used"),
+                earningsToday = o.optInt("earnings_today"),
+                grossTodayKop = o.optInt("gross_today_kop", o.optInt("earnings_today") * 100),
+                feeTodayKop = o.optInt("fee_today_kop"),
+                netTodayKop = o.optInt("net_today_kop", o.optInt("earnings_today") * 100),
+                ordersToday = o.optInt("orders_today"),
+                feePercent = o.optDouble("fee_percent", 0.0),
+                tenureDays = o.optInt("tenure_days"),
+                feeTiers = o.optJSONArray("fee_tiers")?.let { a -> (0 until a.length()).map { a.optDouble(it) } } ?: emptyList(),
+                feeTierDays = o.optJSONArray("fee_tier_days")?.let { a -> (0 until a.length()).map { a.optInt(it) } } ?: emptyList(),
+                feeNextPercent = if (o.isNull("fee_next_percent")) null else o.optDouble("fee_next_percent"),
+                feeDaysToNext = if (o.isNull("fee_days_to_next")) null else o.optInt("fee_days_to_next"),
+            )
+        }
+
+    /** F18: личная статистика попутчика (км/поездки/₽/CO₂/звание). */
+    suspend fun getMyStats(): Result<MyStatsDto> =
+        call("GET", "/me/stats", null, auth = true).map { o ->
+            val rank = o.optJSONObject("rank") ?: JSONObject()
+            MyStatsDto(
+                trips = o.optInt("trips"),
+                km = o.optDouble("km", 0.0),
+                savedRub = o.optInt("saved_rub"),
+                co2SavedKg = o.optDouble("co2_saved_kg", 0.0),
+                rankLevel = rank.optInt("level"),
+                rankTitleRu = rank.optString("title_ru"),
+                rankTitleBa = rank.optString("title_ba"),
+                nextTitleRu = if (rank.isNull("next_title_ru")) null else rank.optString("next_title_ru"),
+                nextTitleBa = if (rank.isNull("next_title_ba")) null else rank.optString("next_title_ba"),
+                nextAt = if (rank.isNull("next_at")) null else rank.optInt("next_at"),
+                toNext = rank.optInt("to_next"),
+            )
+        }
+
     // ---------- Базовый вызов ----------
 
     private suspend fun call(
@@ -1184,49 +2498,74 @@ object ApiClient {
         body: JSONObject?,
         auth: Boolean,
         isRetry: Boolean = false,        // повтор после обновления access-токена (чтобы не зациклиться)
+        retryOnNetwork: Boolean = true,  // M5: повторять транзитные обрывы связи с backoff (по умолчанию вкл.)
     ): Result<JSONObject> = withContext(Dispatchers.IO) {
         val usedToken = if (auth) token else null
-        var conn: HttpURLConnection? = null
-        try {
-            conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 15000
-                readTimeout = 15000
-                setRequestProperty("Accept", "application/json")
-                if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
-                if (body != null) {
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                    OutputStreamWriter(outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+        // M5: паузы backoff между попытками ТОЛЬКО при сетевом обрыве ДО получения ответа.
+        // Повторяем лишь IOException/SocketTimeout (соединение не удалось/упало до ответа); ответ
+        // с HTTP-кодом (4xx/5xx) — это ApiException и НЕ повторяется, отмена корутины пробрасывается.
+        // Идемпотентность: даже POST безопасен — повтор идёт лишь когда ответ не получен вовсе,
+        // значит сервер запрос не обработал → дубля на бэкенде не будет. Флаг retryOnNetwork=false
+        // выключает ретрай точечно (например для заведомо неидемпотентных операций).
+        val backoff = if (retryOnNetwork) longArrayOf(400L, 900L) else LongArray(0)
+        var attempt = 0
+        while (true) {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+                    requestMethod = method
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    setRequestProperty("Accept", "application/json")
+                    deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
+                    if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
+                    if (body != null) {
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json")
+                        OutputStreamWriter(outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+                    }
                 }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                return@withContext if (code in 200..299) {
+                    val obj = when {
+                        text.isBlank() -> JSONObject()
+                        text.trimStart().startsWith("[") -> JSONObject().put("items", JSONArray(text))
+                        else -> JSONObject(text)
+                    }
+                    Result.success(obj)
+                } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
+                    // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
+                    conn.disconnect(); conn = null
+                    if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
+                    else {
+                        logout()   // refresh мёртв → чистим локальную сессию, иначе isLoggedIn() врёт true и юзер «залипает» с 401 на каждом запросе
+                        sessionExpired.value = true   // сигнал UI: показать «войди снова» и уйти на Login (не молчать пустыми экранами)
+                        Result.failure(ApiException(401, genericByStatus(401, langBa)))
+                    }
+                } else {
+                    Result.failure(ApiException(code, errorMessage(code, text)))
+                }
+            } catch (ce: CancellationException) {
+                throw ce   // отмена корутины — не глотаем и не повторяем, пробрасываем дальше
+            } catch (e: IOException) {
+                // Обрыв связи ДО получения ответа (вкл. SocketTimeoutException).
+                // Есть ещё попытки → закрываем соединение, ждём backoff и повторяем.
+                if (attempt < backoff.size) {
+                    conn?.disconnect(); conn = null
+                    delay(backoff[attempt]); attempt++
+                    continue
+                }
+                return@withContext Result.failure(e)
+            } catch (e: Exception) {
+                return@withContext Result.failure(e)
+            } finally {
+                conn?.disconnect()
             }
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (code in 200..299) {
-                val obj = when {
-                    text.isBlank() -> JSONObject()
-                    text.trimStart().startsWith("[") -> JSONObject().put("items", JSONArray(text))
-                    else -> JSONObject(text)
-                }
-                Result.success(obj)
-            } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
-                // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
-                conn.disconnect(); conn = null
-                if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
-                else {
-                    logout()   // refresh мёртв → чистим локальную сессию, иначе isLoggedIn() врёт true и юзер «залипает» с 401 на каждом запросе
-                    Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
-                }
-            } else {
-                val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
-                Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)"))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        } finally {
-            conn?.disconnect()
         }
+        @Suppress("UNREACHABLE_CODE")
+        Result.failure(IllegalStateException("call() loop exited unexpectedly"))
     }
 
     /** Загрузка файла через multipart/form-data (поле `file` + `ext`). В отличие от base64-JSON
@@ -1250,6 +2589,7 @@ object ApiClient {
                 readTimeout = 30000
                 doOutput = true
                 setRequestProperty("Accept", "application/json")
+                deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
                 usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
                 setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
             }
@@ -1271,10 +2611,9 @@ object ApiClient {
             } else if (code == 401 && !isRetry && !refreshToken.isNullOrBlank()) {
                 conn.disconnect(); conn = null
                 if (tryRefresh(usedToken)) callMultipart(path, fileBytes, ext, filename, isRetry = true)
-                else Result.failure(ApiException(401, "Сессия истекла. Войди заново."))
+                else Result.failure(ApiException(401, genericByStatus(401, langBa)))
             } else {
-                val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
-                Result.failure(ApiException(code, detail?.takeIf { it.isNotBlank() } ?: "Ошибка сервера ($code)"))
+                Result.failure(ApiException(code, errorMessage(code, text)))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -1295,18 +2634,1683 @@ object ApiClient {
             }
             .isSuccess
     }
+
+    // ═══════════ M1: Купонный маркетплейс «Скидки по пути» + кабинет партнёра ═══════════
+    // Витрина скидок от местных заведений вдоль маршрута. Клиент активирует → получает код →
+    // показывает в заведении → партнёр гасит код. Оплата подписки партнёра «на доверии» (СБП).
+
+    private fun strList(o: JSONObject, key: String): List<String> {
+        val a = o.optJSONArray(key) ?: return emptyList()
+        return (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() }
+    }
+    private fun nStr(o: JSONObject, key: String): String? =
+        if (o.isNull(key)) null else o.optString(key).takeIf { it.isNotBlank() }
+    private fun nInt(o: JSONObject, key: String): Int? = if (o.isNull(key)) null else o.optInt(key)
+    private fun nDbl(o: JSONObject, key: String): Double? = if (o.isNull(key)) null else o.optDouble(key)
+
+    private fun parseCouponPartner(o: JSONObject) = CouponPartnerDto(
+        id = o.optInt("id"), name = o.optString("name"), category = o.optString("category"),
+        city = o.optString("city"), address = o.optString("address"),
+        lat = nDbl(o, "lat"), lng = nDbl(o, "lng"), phone = o.optString("phone"),
+    )
+    private fun parseCoupon(o: JSONObject) = CouponDto(
+        id = o.optInt("id"),
+        partner = o.optJSONObject("partner")?.let { parseCouponPartner(it) }
+            ?: CouponPartnerDto(0, "", "", ""),
+        title = o.optString("title"), description = o.optString("description"),
+        discountText = o.optString("discount_text"), city = o.optString("city"),
+        routeHint = strList(o, "route_hint"),
+        validFrom = nStr(o, "valid_from"), validUntil = nStr(o, "valid_until"),
+        limitTotal = o.optInt("limit_total"), limitPerUser = o.optInt("limit_per_user"),
+        redeemedCount = o.optInt("redeemed_count"), remaining = nInt(o, "remaining"),
+        premium = o.optBoolean("premium"), status = o.optString("status", "active"),
+    )
+    private fun parsePartner(o: JSONObject) = PartnerDto(
+        id = o.optInt("id"), name = o.optString("name"), category = o.optString("category"),
+        city = o.optString("city"), address = o.optString("address"), phone = o.optString("phone"),
+        description = o.optString("description"), lat = nDbl(o, "lat"), lng = nDbl(o, "lng"),
+        status = o.optString("status", "pending"), rejectReason = o.optString("reject_reason"),
+        subscriptionPlan = o.optString("subscription_plan"), subscriptionUntil = nStr(o, "subscription_until"),
+        subscriptionActive = o.optBoolean("subscription_active"), hasPremium = o.optBoolean("has_premium"),
+        createdAt = o.optString("created_at"),
+    )
+    private fun parsePartnerCoupon(o: JSONObject) = PartnerCouponDto(
+        id = o.optInt("id"), partnerId = o.optInt("partner_id"),
+        title = o.optString("title"), description = o.optString("description"),
+        discountText = o.optString("discount_text"), city = o.optString("city"),
+        routeHint = strList(o, "route_hint"), validFrom = nStr(o, "valid_from"), validUntil = nStr(o, "valid_until"),
+        limitTotal = o.optInt("limit_total"), limitPerUser = o.optInt("limit_per_user"),
+        redeemedCount = o.optInt("redeemed_count"), activations = o.optInt("activations"),
+        premium = o.optBoolean("premium"), status = o.optString("status", "draft"),
+        createdAt = o.optString("created_at"),
+    )
+
+    /** Витрина купонов (публичная). Опц. фильтр по городу и по маршруту (from-to или город). */
+    suspend fun getCoupons(city: String? = null, route: String? = null): Result<List<CouponDto>> {
+        val q = buildList {
+            city?.takeIf { it.isNotBlank() }?.let { add("city=" + enc(it)) }
+            route?.takeIf { it.isNotBlank() }?.let { add("route=" + enc(it)) }
+        }.joinToString("&")
+        val path = "/coupons" + if (q.isNotBlank()) "?$q" else ""
+        return call("GET", path, null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseCoupon(arr.getJSONObject(it)) }
+        }
+    }
+
+    /** Один купон (публичный). 404 если недоступен. */
+    suspend fun getCoupon(id: Int): Result<CouponDto> =
+        call("GET", "/coupons/$id", null, auth = false).map { parseCoupon(it) }
+
+    /** Активировать купон → получить код для показа в заведении. */
+    suspend fun activateCoupon(id: Int): Result<ActivatedCouponDto> =
+        call("POST", "/coupons/$id/activate", null, auth = true).map { o ->
+            ActivatedCouponDto(
+                code = o.optString("code"), status = o.optString("status", "reserved"),
+                reservedAt = o.optString("reserved_at"),
+                coupon = o.optJSONObject("coupon")?.let { parseCoupon(it) } ?: CouponDto.empty(),
+            )
+        }.onSuccess { Analytics.log("coupon_activate") }
+
+    /** Мои активированные купоны (все статусы). */
+    suspend fun getMyCoupons(): Result<List<MyCouponDto>> =
+        call("GET", "/my/coupons", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                MyCouponDto(
+                    code = o.optString("code"), status = o.optString("status", "reserved"),
+                    reservedAt = o.optString("reserved_at"), redeemedAt = nStr(o, "redeemed_at"),
+                    coupon = o.optJSONObject("coupon")?.let { parseCoupon(it) } ?: CouponDto.empty(),
+                )
+            }
+        }
+
+    /** Тарифы подписки партнёра (публичные). */
+    suspend fun getPartnerPlans(): Result<List<PartnerPlanDto>> =
+        call("GET", "/partner/plans", null, auth = false).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                PartnerPlanDto(
+                    code = o.optString("code"), title = o.optString("title"), titleBa = o.optString("title_ba"),
+                    amountKop = o.optInt("amount_kop"), periodDays = o.optInt("period_days"),
+                    premium = o.optBoolean("premium"),
+                )
+            }
+        }
+
+    /** Зарегистрировать свой бизнес. 409 — уже есть, 422 — данные. */
+    suspend fun createPartner(
+        name: String, category: String, city: String, address: String,
+        phone: String, description: String, lat: Double? = null, lng: Double? = null,
+    ): Result<PartnerDto> = call(
+        "POST", "/partner",
+        JSONObject().put("name", name).put("category", category).put("city", city)
+            .put("address", address).put("phone", phone).put("description", description)
+            .put("lat", lat ?: JSONObject.NULL).put("lng", lng ?: JSONObject.NULL),
+        auth = true,
+    ).map { parsePartner(it) }.onSuccess { Analytics.log("partner_create") }
+
+    /** Мой бизнес + выписка (сколько погашено, к оплате). partner==null → бизнеса ещё нет. */
+    suspend fun getPartnerMe(): Result<PartnerMeDto> =
+        call("GET", "/partner/me", null, auth = true).map { o ->
+            val p = o.optJSONObject("partner")?.takeIf { !o.isNull("partner") }?.let { parsePartner(it) }
+            val s = o.optJSONObject("statement")?.let {
+                StatementDto(it.optInt("redeemed_total"), it.optInt("fee_per_redemption_kop"), it.optInt("amount_kop"))
+            }
+            PartnerMeDto(partner = p, statement = s)
+        }
+
+    /** Обновить свой бизнес (после отклонения — правка и повторная отправка). */
+    suspend fun updatePartner(
+        id: Int, name: String, category: String, city: String, address: String,
+        phone: String, description: String, lat: Double? = null, lng: Double? = null,
+    ): Result<PartnerDto> = call(
+        "POST", "/partner/$id",
+        JSONObject().put("name", name).put("category", category).put("city", city)
+            .put("address", address).put("phone", phone).put("description", description)
+            .put("lat", lat ?: JSONObject.NULL).put("lng", lng ?: JSONObject.NULL),
+        auth = true,
+    ).map { parsePartner(it) }
+
+    /** Оформить подписку по тарифу → реквизиты «на доверии» (СБП). 409 — на проверке, 422 — тариф. */
+    suspend fun subscribePartner(plan: String): Result<PartnerSubscribeDto> =
+        call("POST", "/partner/subscribe", JSONObject().put("plan", plan), auth = true).map { o ->
+            PartnerSubscribeDto(
+                paymentId = o.optInt("payment_id"), amountKop = o.optInt("amount_kop"),
+                plan = o.optString("plan"), status = o.optString("status", "pending"),
+            )
+        }.onSuccess { Analytics.log("partner_subscribe") }
+
+    /** Мои купоны (кабинет партнёра). */
+    suspend fun getPartnerCoupons(): Result<List<PartnerCouponDto>> =
+        call("GET", "/partner/coupons", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parsePartnerCoupon(arr.getJSONObject(it)) }
+        }
+
+    /** Создать купон (кабинет партнёра). */
+    suspend fun createPartnerCoupon(
+        title: String, description: String, discountText: String, city: String,
+        routeHint: List<String>, limitTotal: Int, limitPerUser: Int, premium: Boolean,
+        validFrom: String? = null, validUntil: String? = null,
+    ): Result<PartnerCouponDto> = call(
+        "POST", "/partner/coupons", couponBody(title, description, discountText, city, routeHint, limitTotal, limitPerUser, premium, validFrom, validUntil),
+        auth = true,
+    ).map { parsePartnerCoupon(it) }.onSuccess { Analytics.log("partner_coupon_create") }
+
+    /** Редактировать купон. */
+    suspend fun updatePartnerCoupon(
+        id: Int, title: String, description: String, discountText: String, city: String,
+        routeHint: List<String>, limitTotal: Int, limitPerUser: Int, premium: Boolean,
+        validFrom: String? = null, validUntil: String? = null,
+    ): Result<PartnerCouponDto> = call(
+        "POST", "/partner/coupons/$id", couponBody(title, description, discountText, city, routeHint, limitTotal, limitPerUser, premium, validFrom, validUntil),
+        auth = true,
+    ).map { parsePartnerCoupon(it) }
+
+    private fun couponBody(
+        title: String, description: String, discountText: String, city: String,
+        routeHint: List<String>, limitTotal: Int, limitPerUser: Int, premium: Boolean,
+        validFrom: String?, validUntil: String?,
+    ) = JSONObject()
+        .put("title", title).put("description", description).put("discount_text", discountText)
+        .put("city", city).put("route_hint", JSONArray(routeHint))
+        .put("limit_total", limitTotal).put("limit_per_user", limitPerUser).put("premium", premium)
+        .put("valid_from", validFrom ?: JSONObject.NULL).put("valid_until", validUntil ?: JSONObject.NULL)
+
+    /** Сменить статус купона: draft|active|paused|archived. */
+    suspend fun setPartnerCouponStatus(id: Int, status: String): Result<Unit> =
+        call("POST", "/partner/coupons/$id/status", JSONObject().put("status", status), auth = true).map { }
+
+    /** Статистика купона: активации, погашения, к оплате. */
+    suspend fun getPartnerCouponStats(id: Int): Result<CouponStatDto> =
+        call("GET", "/partner/coupons/$id/stats", null, auth = true).map { o ->
+            CouponStatDto(
+                couponId = o.optInt("coupon_id"), title = o.optString("title"), status = o.optString("status"),
+                activations = o.optInt("activations"), redeemed = o.optInt("redeemed"),
+                feePerRedemptionKop = o.optInt("fee_per_redemption_kop"), amountKop = o.optInt("amount_kop"),
+            )
+        }
+
+    /** Погасить код клиента (партнёр). 404 — не найден/чужой, 409 — уже погашён/не действует. */
+    suspend fun redeemCoupon(code: String): Result<RedeemResultDto> =
+        call("POST", "/coupons/redeem", JSONObject().put("code", code), auth = true).map { o ->
+            RedeemResultDto(
+                couponTitle = o.optString("coupon_title"), discountText = o.optString("discount_text"),
+                customerName = o.optString("customer_name"),
+            )
+        }.onSuccess { Analytics.log("coupon_redeem") }
+
+    /** Админ: все бизнесы-партнёры для модерации. */
+    suspend fun getAdminPartners(): Result<List<AdminPartnerDto>> =
+        call("GET", "/admin/partners", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                AdminPartnerDto(
+                    id = o.optInt("id"), ownerId = o.optInt("owner_id"), name = o.optString("name"),
+                    category = o.optString("category"), city = o.optString("city"), address = o.optString("address"),
+                    phone = o.optString("phone"), description = o.optString("description"),
+                    status = o.optString("status", "pending"), rejectReason = o.optString("reject_reason"),
+                    subscriptionPlan = o.optString("subscription_plan"), subscriptionUntil = nStr(o, "subscription_until"),
+                    subscriptionActive = o.optBoolean("subscription_active"), createdAt = o.optString("created_at"),
+                    reviewedAt = nStr(o, "reviewed_at"),
+                )
+            }
+        }
+
+    /** Админ: одобрить бизнес-партнёра (→active). */
+    suspend fun approvePartner(id: Int): Result<Unit> =
+        call("POST", "/admin/partners/$id/approve", null, auth = true).map { }
+
+    /** Админ: отклонить бизнес-партнёра с причиной. */
+    suspend fun rejectPartner(id: Int, reason: String): Result<Unit> =
+        call("POST", "/admin/partners/$id/reject", JSONObject().put("reason", reason), auth = true).map { }
+
+    // ═══════════ M2: Промокоды и кампании ═══════════
+
+    /** Применить промокод. 404 не найден, 422 срок истёк, 409 (уже активировал / свой код / исчерпан). */
+    suspend fun applyPromo(code: String): Result<PromoApplyResultDto> =
+        call("POST", "/promo/apply", JSONObject().put("code", code.trim().uppercase()), auth = true).map { o ->
+            PromoApplyResultDto(
+                ok = o.optBoolean("ok", true), kind = o.optString("kind"),
+                perkValue = o.optInt("perk_value"),
+                messageRu = o.optString("message_ru"), messageBa = o.optString("message_ba"),
+            )
+        }.onSuccess { Analytics.log("promo_apply") }
+
+    /** Мой активированный промокод (один на аккаунт) или null, если ещё не вводил. */
+    suspend fun getMyPromo(): Result<MyPromoDto?> =
+        call("GET", "/promo/mine", null, auth = true).map { o ->
+            val p = o.optJSONObject("promo") ?: return@map null
+            MyPromoDto(
+                code = p.optString("code"), title = p.optString("title"),
+                kind = p.optString("kind"), perkValue = p.optInt("perk_value"),
+                redeemedAt = nStr(o, "redeemed_at"),
+            )
+        }
+
+    /** Статистика по коду (для владельца/админа): воронка applied → active. */
+    suspend fun getPromoStats(code: String): Result<PromoStatDto> =
+        call("GET", "/promo/${enc(code.trim().uppercase())}/stats", null, auth = true).map { o ->
+            PromoStatDto(
+                code = o.optString("code"), title = o.optString("title"),
+                campaign = o.optString("campaign"),
+                applied = o.optInt("applied"), active = o.optInt("active"),
+            )
+        }
+
+    private fun parseAdminPromo(o: JSONObject) = AdminPromoDto(
+        id = o.optInt("id"), code = o.optString("code"), title = o.optString("title"),
+        description = o.optString("description"), ownerId = if (o.isNull("owner_id")) null else o.optInt("owner_id"),
+        campaign = o.optString("campaign"), kind = o.optString("kind"), perkValue = o.optInt("perk_value"),
+        limitTotal = o.optInt("limit_total"), limitPerUser = o.optInt("limit_per_user"),
+        redeemedCount = o.optInt("redeemed_count"), applied = o.optInt("applied"), active = o.optInt("active"),
+        validFrom = nStr(o, "valid_from"), validUntil = nStr(o, "valid_until"),
+        activeFlag = o.optBoolean("active_flag", true), createdAt = o.optString("created_at"),
+    )
+
+    /** Админ: список всех промокодов/кампаний со счётчиками. */
+    suspend fun adminListPromo(): Result<List<AdminPromoDto>> =
+        call("GET", "/admin/promo", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseAdminPromo(arr.getJSONObject(it)) }
+        }
+
+    /** Админ: создать промокод/кампанию. 409 — дубль кода. */
+    suspend fun adminCreatePromo(
+        code: String, title: String, description: String, campaign: String,
+        kind: String, perkValue: Int, limitTotal: Int, limitPerUser: Int,
+        ownerPhone: String? = null, validFrom: String? = null, validUntil: String? = null,
+    ): Result<AdminPromoDto> {
+        val body = JSONObject()
+            .put("code", code.trim().uppercase())
+            .put("title", title.trim())
+            .put("description", description.trim())
+            .put("campaign", campaign.trim())
+            .put("kind", kind)
+            .put("perk_value", perkValue)
+            .put("limit_total", limitTotal)
+            .put("limit_per_user", limitPerUser)
+        ownerPhone?.takeIf { it.isNotBlank() }?.let { body.put("owner_phone", it.trim()) }
+        validFrom?.takeIf { it.isNotBlank() }?.let { body.put("valid_from", it) }
+        validUntil?.takeIf { it.isNotBlank() }?.let { body.put("valid_until", it) }
+        return call("POST", "/admin/promo", body, auth = true).map { parseAdminPromo(it) }
+            .onSuccess { Analytics.log("promo_create") }
+    }
+
+    /** Админ: включить/выключить кампанию. */
+    suspend fun adminSetPromoStatus(id: Int, active: Boolean): Result<Unit> =
+        call("POST", "/admin/promo/$id/status", JSONObject().put("active", active), auth = true).map { }
+
+    // ═══════════ M3: Доставка посылок (попутчик везёт бандероль) ═══════════
+    // Отправитель создаёт посылку → получает код вручения → курьер (попутный водитель) берёт,
+    // везёт, при вручении вводит код получателя. Сбор с курьера «на доверии» (fee_kop).
+
+    private fun parseParcel(o: JSONObject) = ParcelDto(
+        id = o.optInt("id"),
+        senderId = o.optInt("sender_id"),
+        courierId = nInt(o, "courier_id"),
+        fromCity = o.optString("from_city"), toCity = o.optString("to_city"),
+        fromLat = nDbl(o, "from_lat"), fromLng = nDbl(o, "from_lng"),
+        toLat = nDbl(o, "to_lat"), toLng = nDbl(o, "to_lng"),
+        size = o.optString("size"),
+        description = o.optString("description"),
+        receiverName = o.optString("receiver_name"),
+        receiverPhone = o.optString("receiver_phone"),
+        senderName = o.optString("sender_name"),
+        senderPhone = o.optString("sender_phone"),
+        feeKop = o.optInt("fee_kop"),
+        status = o.optString("status", "created"),
+        confirmCode = o.optString("confirm_code"),
+        createdAt = o.optString("created_at"),
+        acceptedAt = nStr(o, "accepted_at"),
+        deliveredAt = nStr(o, "delivered_at"),
+        courier = o.optJSONObject("courier")?.takeIf { !o.isNull("courier") }?.let {
+            ParcelCourierDto(
+                id = it.optInt("id"), name = it.optString("name"),
+                rating = if (it.isNull("rating")) null else it.optDouble("rating", 0.0),
+                ratingCount = it.optInt("rating_count"),
+                phone = it.optString("phone"),
+            )
+        },
+        deliveryType = o.optString("delivery_type", "poputka"),
+        urgency = o.optString("urgency"),
+        declaredValueKop = o.optInt("declared_value_kop"),
+        codAmountKop = o.optInt("cod_amount_kop"),
+        commissionKop = o.optInt("commission_kop"),
+        priceKop = o.optInt("price_kop"),
+        settlement = parseParcelSettlement(o.optJSONObject("settlement")),
+        returnReason = o.optString("return_reason"),
+        returnedAt = nStr(o, "returned_at"),
+        deliveryAttempts = o.optInt("delivery_attempts"),
+        cancelFeeKop = o.optInt("cancel_fee_kop"),
+    )
+
+    /** Разбор блока settlement (buy_bring): null, если сервер не прислал. */
+    private fun parseParcelSettlement(s: JSONObject?): ParcelSettlementDto? = s?.let {
+        ParcelSettlementDto(
+            goodsActualKop = it.optInt("goods_actual_kop"),
+            deliveryKop = it.optInt("delivery_kop"),
+            totalDueKop = it.optInt("total_due_kop"),
+            settled = it.optBoolean("settled"),
+        )
+    }
+
+    /** Отправитель: создать посылку. rulesAccepted обязателен (422 иначе), size обязателен. */
+    suspend fun createParcel(
+        fromCity: String, toCity: String, size: String, description: String,
+        receiverName: String, receiverPhone: String, rulesAccepted: Boolean,
+        fromLat: Double? = null, fromLng: Double? = null, toLat: Double? = null, toLng: Double? = null,
+        priceKop: Int = 0, declaredValueKop: Int = 0,
+    ): Result<ParcelDto> = call(
+        "POST", "/parcels",
+        JSONObject()
+            .put("from_city", fromCity).put("to_city", toCity)
+            .put("size", size).put("description", description)
+            .put("receiver_name", receiverName).put("receiver_phone", receiverPhone)
+            .put("rules_accepted", rulesAccepted)
+            // Сколько отправитель платит курьеру: раньше цены у «по пути» не было вообще,
+            // и курьер брал посылку вслепую. 0 = «по-соседски», это тоже честный вариант.
+            .put("price_kop", priceKop)
+            .put("declared_value_kop", declaredValueKop)
+            .put("from_lat", fromLat ?: JSONObject.NULL).put("from_lng", fromLng ?: JSONObject.NULL)
+            .put("to_lat", toLat ?: JSONObject.NULL).put("to_lng", toLng ?: JSONObject.NULL),
+        auth = true,
+    ).map { parseParcel(it) }.onSuccess { Analytics.log("parcel_create") }
+
+    /** Отправитель: мои посылки (с кодом вручения и курьером, если принята). */
+    suspend fun getMyParcels(): Result<List<ParcelDto>> =
+        call("GET", "/parcels/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
+        }
+
+    /** Отправитель: отменить свою посылку. 409 — уже доставлена/отменена, 404 — чужая. */
+    suspend fun cancelParcel(id: Int): Result<Unit> =
+        call("POST", "/parcels/$id/cancel", null, auth = true).map { }
+
+    /** Курьер: доступные посылки (без телефона и кода). Опц. фильтр по городам. */
+    suspend fun getAvailableParcels(fromCity: String? = null, toCity: String? = null): Result<List<ParcelDto>> {
+        val q = buildList {
+            fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
+            toCity?.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
+        }.joinToString("&")
+        val path = "/parcels/available" + if (q.isNotBlank()) "?$q" else ""
+        return call("GET", path, null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
+        }
+    }
+
+    /** Курьер: взять посылку. 409 — своя/уже взяли. */
+    suspend fun acceptParcel(id: Int): Result<ParcelDto> =
+        call("POST", "/parcels/$id/accept", null, auth = true).map { parseParcel(it) }
+            .onSuccess { Analytics.log("parcel_accept") }
+
+    /** Курьер: сменить статус. status="in_transit" или "delivered"+code. 422 — неверный код. */
+    /** deliveryPhotoUrl — фото «отдал целой» на границе ответственности: в споре о повреждении
+     *  это единственное, что отличает слово от доказательства (поле сервер принимал, клиент не слал). */
+    suspend fun setParcelStatus(
+        id: Int, status: String, code: String? = null, deliveryPhotoUrl: String? = null,
+    ): Result<ParcelDto> {
+        val body = JSONObject().put("status", status)
+        code?.takeIf { it.isNotBlank() }?.let { body.put("code", it.trim()) }
+        deliveryPhotoUrl?.takeIf { it.isNotBlank() }?.let { body.put("delivery_photo_url", it) }
+        return call("POST", "/parcels/$id/status", body, auth = true).map { parseParcel(it) }
+            .onSuccess { Analytics.log("parcel_status_$status") }
+    }
+
+    /** Курьер: активные + короткая история завершённых доставок.
+     *  Финальная карточка не исчезает после вручения/отмены/возврата: остаются квитанция,
+     *  компенсация, оценка и спор. Сервер ограничивает историю последними 10 строками. */
+    suspend fun getCarryingParcels(): Result<List<ParcelDto>> =
+        call("GET", "/parcels/carrying?include_recent=true&recent_limit=10", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
+        }
+
+    /** Админ: все посылки + честная выписка по деньгам (дошло / должны / не выставлено). */
+    suspend fun adminListParcels(): Result<ParcelAdminListDto> =
+        call("GET", "/admin/parcels", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("parcels") ?: JSONArray()
+            val s = obj.optJSONObject("statement")
+            ParcelAdminListDto(
+                parcels = (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) },
+                statement = ParcelStatementDto(
+                    deliveredCount = s?.optInt("delivered_count") ?: 0,
+                    collectedFeeKop = s?.optInt("collected_fee_kop") ?: 0,
+                    owedCommissionKop = s?.optInt("owed_commission_kop") ?: 0,
+                    unbilledFeeKop = s?.optInt("unbilled_fee_kop") ?: 0,
+                ),
+            )
+        }
+
+    // ═══════════ C1: Курьер Юлдаша (профессиональная доставка) ═══════════
+    // Пользователь подаёт заявку «Стать курьером» (транспорт + селфи) → админ одобряет →
+    // курьер выходит «на линию» (город/межгород/регион), берёт заказы, доставляет по коду.
+    // Отправитель заказывает курьера/«купи и привези» — сервер считает цену (комиссия 8% прозрачно).
+
+    private fun parseCourierApp(o: JSONObject) = CourierApplicationDto(
+        id = o.optInt("id"),
+        transport = o.optString("transport"),
+        status = o.optString("status", "pending"),
+        selfieUrl = o.optString("selfie_url"),
+        fullName = o.optString("full_name"),
+        carPlate = o.optString("car_plate"),
+        rulesAccepted = o.optBoolean("rules_accepted"),
+        invitedBy = nStr(o, "invited_by"),
+        rejectReason = o.optString("reject_reason"),
+        createdAt = o.optString("created_at"),
+        reviewedAt = nStr(o, "reviewed_at"),
+        userId = o.optInt("user_id"),
+        name = o.optString("name"),
+        phone = o.optString("phone"),
+    )
+
+    /** Подать заявку «Стать курьером». transport: car|cargo. 422 — транспорт/селфи, 409 — заявка уже на рассмотрении. */
+    suspend fun applyCourier(
+        transport: String, selfieUrl: String,
+        fullName: String = "", carPlate: String = "", rulesAccepted: Boolean = false,
+    ): Result<CourierApplicationDto> {
+        // ФИО, госномер и согласие: мы доверяем курьеру чужую посылку — знать о нём хотя бы
+        // столько же, сколько о попутчике, это минимум (аудит 2026-07-26).
+        val body = JSONObject().put("transport", transport).put("selfie_url", selfieUrl)
+        if (fullName.isNotBlank()) body.put("full_name", fullName.take(120))
+        if (carPlate.isNotBlank()) body.put("car_plate", carPlate.take(16))
+        if (rulesAccepted) body.put("rules_accepted", true)
+        return call("POST", "/courier/apply", body, auth = true)
+            .map { parseCourierApp(it) }.onSuccess { Analytics.log("courier_apply") }
+    }
+
+    /** Заработок курьера за период (week|month|all): чистыми, комиссия, доставок, по дням.
+     *  Раньше курьер видел только «должен Юлдашу столько-то» — работа выглядела сплошным долгом. */
+    suspend fun getCourierEarnings(period: String = "week"): Result<CourierEarningsDto> =
+        call("GET", "/courier/earnings?period=$period", null, auth = true).map { o ->
+            val arr = o.optJSONArray("by_day") ?: JSONArray()
+            CourierEarningsDto(
+                period = o.optString("period"),
+                netKop = o.optInt("net_kop"),
+                commissionKop = o.optInt("commission_kop"),
+                deliveries = o.optInt("deliveries"),
+                byDay = (0 until arr.length()).map { i ->
+                    val d = arr.getJSONObject(i)
+                    CourierEarningsDayDto(
+                        date = d.optString("date"),
+                        netKop = d.optInt("net_kop"),
+                        deliveries = d.optInt("deliveries"),
+                    )
+                },
+            )
+        }
+
+    /** Моя заявка курьера. Ответ: {application: {...}|null}. null — ещё не подавал. */
+    suspend fun getCourierApplication(): Result<CourierApplicationDto?> =
+        call("GET", "/courier/application", null, auth = true).map { o ->
+            if (o.isNull("application")) null else o.optJSONObject("application")?.let { parseCourierApp(it) }
+        }
+
+    /** Курьер: выйти «на линию». zone: city|intercity|region. */
+    suspend fun courierOnline(zone: String, workCity: String? = null, workDirectionId: Int? = null): Result<Unit> {
+        val body = JSONObject().put("zone", zone)
+        workCity?.takeIf { it.isNotBlank() }?.let { body.put("work_city", it) }
+        workDirectionId?.let { body.put("work_direction_id", it) }
+        return call("POST", "/courier/online", body, auth = true).map { }.onSuccess { Analytics.log("courier_online") }
+    }
+
+    /** Курьер: уйти с линии. */
+    suspend fun courierOffline(): Result<Unit> =
+        call("POST", "/courier/offline", JSONObject(), auth = true).map { }.onSuccess { Analytics.log("courier_offline") }
+
+    /** Курьер: доступные заказы (без телефона/кода получателя). Опц. фильтр по городам. */
+    suspend fun getCourierAvailable(fromCity: String? = null, toCity: String? = null): Result<List<ParcelDto>> {
+        val q = buildList {
+            fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
+            toCity?.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
+        }.joinToString("&")
+        val path = "/courier/available" + if (q.isNotBlank()) "?$q" else ""
+        return call("GET", path, null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
+        }
+    }
+
+    /** Оценка стоимости доставки курьером. urgency: bypath|now. */
+    suspend fun courierEstimate(
+        fromLat: Double,
+        fromLng: Double,
+        toLat: Double,
+        toLng: Double,
+        size: String,
+        urgency: String,
+        deliveryType: String = "courier",
+    ): Result<CourierEstimateDto> {
+        val q = "from_lat=$fromLat&from_lng=$fromLng&to_lat=$toLat&to_lng=$toLng" +
+            "&size=${enc(size)}&urgency=${enc(urgency)}&delivery_type=${enc(deliveryType)}"
+        return call("GET", "/courier/estimate?$q", null, auth = true).map { o ->
+            val b = o.optJSONObject("breakdown") ?: JSONObject()
+            CourierEstimateDto(
+                priceKop = o.optInt("price_kop"),
+                commissionKop = o.optInt("commission_kop"),
+                distanceKm = o.optDouble("distance_km", 0.0),
+                breakdown = CourierEstimateBreakdown(
+                    baseKop = b.optInt("base_kop"), distanceKop = b.optInt("distance_kop"),
+                    sizeKop = b.optInt("size_kop"), urgencyKop = b.optInt("urgency_kop"),
+                    commissionPercent = b.optDouble("commission_percent", 0.0),
+                    commissionMinKop = b.optInt("commission_min_kop"),
+                    commissionEstimated = b.optBoolean("commission_estimated", false),
+                ),
+            )
+        }
+    }
+
+    /** Отправитель: заказать курьера / «купи и привези». deliveryType: courier|buy_bring, urgency: bypath|now.
+     *  422 — «Сумма покупки слишком большая (лимит 5000 ₽)» / rules_accepted / размер / тип. 403 — курьер выключен. */
+    suspend fun createCourierOrder(
+        fromCity: String, toCity: String,
+        fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
+        size: String, description: String, receiverName: String, receiverPhone: String, rulesAccepted: Boolean,
+        deliveryType: String, urgency: String,
+        declaredValueKop: Int? = null, codAmountKop: Int? = null, shoppingList: String? = null,
+    ): Result<ParcelDto> {
+        val body = JSONObject()
+            .put("from_city", fromCity).put("to_city", toCity)
+            .put("from_lat", fromLat).put("from_lng", fromLng)
+            .put("to_lat", toLat).put("to_lng", toLng)
+            .put("size", size).put("description", description)
+            .put("receiver_name", receiverName).put("receiver_phone", receiverPhone)
+            .put("rules_accepted", rulesAccepted)
+            .put("delivery_type", deliveryType).put("urgency", urgency)
+        declaredValueKop?.let { body.put("declared_value_kop", it) }
+        codAmountKop?.let { body.put("cod_amount_kop", it) }
+        shoppingList?.takeIf { it.isNotBlank() }?.let { body.put("shopping_list", it) }
+        return call("POST", "/courier/orders", body, auth = true).map { parseParcel(it) }
+            .onSuccess { Analytics.log("courier_order_$deliveryType") }
+    }
+
+    /** Курьер (buy_bring): указать фактическую стоимость купленного товара. actualKop — в копейках.
+     *  Ответ: {id, settlement:{...}}. 404 — чужой, 409 — не buy_bring/уже завершён,
+     *  422 — «Укажи стоимость покупки»/«Сумма покупки слишком большая (лимит 5000 ₽)». */
+    suspend fun setGoodsCost(id: Int, actualKop: Int): Result<ParcelSettlementDto> =
+        call("POST", "/courier/orders/$id/goods-cost", JSONObject().put("actual_kop", actualKop), auth = true)
+            .map { parseParcelSettlement(it.optJSONObject("settlement")) ?: ParcelSettlementDto(actualKop, 0, actualKop, false) }
+            .onSuccess { Analytics.log("courier_goods_cost") }
+
+    /** Открыть спор по заказу (отправитель или курьер) с классификацией и приватными фото. */
+    suspend fun disputeParcel(
+        id: Int,
+        reason: String,
+        type: String,
+        evidenceUrls: List<String>,
+    ): Result<Unit> {
+        val safeEvidence = evidenceUrls
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(3)
+        val body = JSONObject()
+            .put("reason", reason.trim().take(1000))
+            .put("type", type.trim().take(32))
+            .put("evidence_urls", JSONArray(safeEvidence))
+        return call("POST", "/parcels/$id/dispute", body, auth = true).map { }
+            .onSuccess { Analytics.log("parcel_dispute") }
+    }
+
+    /** Кабинет курьера: заявка + профиль (если одобрен) + выписка (доставлено/сбор). */
+    suspend fun getCourierMe(): Result<CourierMeDto> =
+        call("GET", "/courier/me", null, auth = true).map { o ->
+            val app = if (o.isNull("application")) null else o.optJSONObject("application")?.let { parseCourierApp(it) }
+            val p = if (o.isNull("profile")) null else o.optJSONObject("profile")
+            val profile = p?.let {
+                CourierProfileDto(
+                    id = it.optInt("id"), online = it.optBoolean("online"),
+                    carClass = it.optString("car_class"), zone = it.optString("zone"),
+                    workCity = nStr(it, "work_city"), workDirectionId = nInt(it, "work_direction_id"),
+                    updatedAt = it.optString("updated_at"),
+                )
+            }
+            val s = o.optJSONObject("statement")
+            val r = o.optJSONObject("rating")
+            CourierMeDto(
+                application = app, profile = profile,
+                statement = CourierStatementDto(
+                    deliveredCount = s?.optInt("delivered_count") ?: 0,
+                    commissionEarnedKop = s?.optInt("commission_earned_kop") ?: 0,
+                    commissionOwedKop = s?.optInt("commission_owed_kop") ?: 0,
+                    commissionPaidKop = s?.optInt("commission_paid_kop") ?: 0,
+                    commissionKop = s?.optInt("commission_kop") ?: 0,
+                    currentFeePercent = s?.optDouble("current_fee_percent", 0.0) ?: 0.0,
+                    feeTier = s?.optString("fee_tier") ?: "",
+                    commissionMinKop = s?.optInt("commission_min_kop") ?: 0,
+                ),
+                rating = CourierRatingDto(
+                    avg = r?.let { if (it.isNull("avg")) null else it.optDouble("avg") },
+                    count = r?.optInt("count") ?: 0,
+                ),
+                pausedUntil = nStr(o, "paused_until"),
+            )
+        }
+
+    /** C3: оценить доставку (обе стороны, ПОСЛЕ вручения). Ответ — новый рейтинг оценённого. */
+    suspend fun rateParcel(id: Int, stars: Int, text: String? = null): Result<RateResultDto> {
+        val body = JSONObject().put("stars", stars)
+        if (!text.isNullOrBlank()) body.put("text", text.trim())
+        return call("POST", "/parcels/$id/rate", body, auth = true).map {
+            RateResultDto(
+                rateeId = it.optInt("ratee_id"),
+                rating = it.optDouble("rating", 0.0),
+                count = it.optInt("count"),
+            )
+        }.onSuccess { Analytics.log("parcel_rate") }
+    }
+
+    /** C3: курьер оплачивает нашу комиссию (СБП «на доверии»). Идемпотентно. Ответ — реквизиты получателя. */
+    suspend fun payCommission(): Result<PayCommissionDto> =
+        call("POST", "/courier/pay-commission", JSONObject(), auth = true).map { o ->
+            val payee = o.optJSONObject("payee")
+            PayCommissionDto(
+                status = o.optString("status", "pending"),
+                paymentId = o.optInt("payment_id"),
+                amountKop = o.optInt("amount_kop"),
+                amount = o.optInt("amount"),
+                payeePhone = payee?.optString("phone") ?: "",
+                payeeBank = payee?.optString("bank") ?: "",
+                payeeName = payee?.optString("name") ?: "",
+                method = o.optString("method", "sbp_manual"),
+                confirmationUrl = o.optString("confirmation_url").ifBlank { null },
+            )
+        }.onSuccess { Analytics.log("courier_pay_commission") }
+
+    /** Админ: заявки курьеров (pending сверху решает экран). Ответ — массив application. */
+    suspend fun adminListCourierApps(): Result<List<CourierApplicationDto>> =
+        call("GET", "/admin/courier-applications", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseCourierApp(arr.getJSONObject(it)) }
+        }
+
+    suspend fun adminApproveCourier(id: Int): Result<Unit> =
+        call("POST", "/admin/courier-applications/$id/approve", JSONObject(), auth = true).map { }
+
+    suspend fun adminRejectCourier(id: Int, reason: String): Result<Unit> =
+        call("POST", "/admin/courier-applications/$id/reject", JSONObject().put("reason", reason), auth = true).map { }
+
+    // ---------- Кошелёк водителя (Деньги v1, ledger) ----------
+    // Приватность: всегда по СВОЕМУ токену — чужой кошелёк/историю не запросить (сервер фильтрует по id).
+
+    /** Баланс кошелька (сумма всех записей ledger). Копейки + рубли. */
+    suspend fun getWalletBalance(): Result<WalletBalanceDto> =
+        call("GET", "/wallet/balance", null, auth = true).map { o ->
+            WalletBalanceDto(balanceKop = o.optInt("balance_kop"), balanceRub = o.optInt("balance_rub"))
+        }
+
+    /** История операций кошелька (начисления/комиссии/выплаты). Ответ — массив (call() кладёт в "items"). */
+    suspend fun getWalletLedger(limit: Int = 50): Result<List<WalletLedgerEntryDto>> =
+        call("GET", "/wallet/ledger?limit=$limit", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                WalletLedgerEntryDto(
+                    id = o.optInt("id"),
+                    kind = o.optString("kind"),
+                    amountKop = o.optInt("amount_kop"),
+                    orderId = if (o.isNull("order_id")) null else o.optInt("order_id"),
+                    bookingId = if (o.isNull("booking_id")) null else o.optInt("booking_id"),
+                    note = o.optString("note"),
+                    createdAt = o.optString("created_at"),
+                )
+            }
+        }
+
+    // ---------- Вывод на карту (Модель Б, за флагом PAYOUTS_ENABLED) ----------
+    // Приватность: полный номер карты на сервер НЕ уходит — клиент шлёт ТОЛЬКО последние 4 цифры.
+    // enabled=false с сервера → UI рисует честную заглушку «скоро», без кнопок-обманок.
+
+    /** Статус выплат: включены ли, баланс, сохранённая карта, границы суммы. Всё — с сервера (не хардкод). */
+    suspend fun getPayoutStatus(): Result<PayoutStatusDto> =
+        call("GET", "/wallet/payout/status", null, auth = true).map { o ->
+            PayoutStatusDto(
+                enabled = o.optBoolean("enabled"),
+                balanceKop = o.optInt("balance_kop"),
+                hasRequisite = o.optBoolean("has_requisite"),
+                cardLast4 = o.optString("card_last4"),
+                minKop = o.optInt("min_kop"),
+                maxKop = o.optInt("max_kop"),
+            )
+        }
+
+    /** Сохранить карту для вывода. ВАЖНО: передаём ТОЛЬКО последние 4 цифры — полный номер
+     *  не покидает телефон (и никогда не логируется). payoutToken — токен провайдера (prod-путь). */
+    suspend fun savePayoutRequisite(cardLast4: String, payoutToken: String = ""): Result<String> =
+        call(
+            "POST", "/wallet/payout/requisite",
+            JSONObject().put("card_last4", cardLast4).put("payout_token", payoutToken),
+            auth = true,
+        ).map { it.optString("card_last4") }
+
+    /** Вывести с баланса на сохранённую карту. idempotencyKey — ОДИН на попытку (UUID с клиента):
+     *  ретрай той же попытки с тем же ключом не спишет баланс дважды (сервер вернёт status=already).
+     *  400 → ApiException с человеческим detail (мин/макс/недостаточно); 503 → выплаты ещё выключены. */
+    suspend fun requestPayout(amountKop: Int, idempotencyKey: String): Result<PayoutResultDto> =
+        call(
+            "POST", "/wallet/payout",
+            JSONObject().put("amount_kop", amountKop).put("idempotency_key", idempotencyKey),
+            auth = true,
+        ).map { o ->
+            PayoutResultDto(
+                status = o.optString("status"),
+                entryId = o.optInt("entry_id"),
+                amountKop = o.optInt("amount_kop"),
+                balanceKop = o.optInt("balance_kop"),
+            )
+        }
+
+    // ---------- Оплата завершённой поездки онлайн (ЮKassa, за флагом провайдера) ----------
+    // 503 = онлайн-оплата ещё не включена (mock в проде) → UI прячет карточку, «на доверии» остаётся.
+
+    /** Оплатить ЗАВЕРШЁННУЮ бронь плановой поездки. methodKey: cash | card | sbp. */
+    suspend fun payBooking(bookingId: Int, methodKey: String): Result<PayTripResultDto> =
+        call("POST", "/bookings/$bookingId/pay", JSONObject().put("method", methodKey), auth = true)
+            .map { it.toPayTripResult() }
+
+    /** Оплатить ЗАВЕРШЁННЫЙ быстрый заказ (такси). methodKey: cash | card | sbp. */
+    suspend fun payInstantOrder(orderId: Int, methodKey: String): Result<PayTripResultDto> =
+        call("POST", "/instant/orders/$orderId/pay", JSONObject().put("method", methodKey), auth = true)
+            .map { it.toPayTripResult() }
+
+    private fun JSONObject.toPayTripResult() = PayTripResultDto(
+        status = optString("status"),
+        method = optString("method"),
+        paymentId = if (isNull("payment_id")) null else optInt("payment_id"),
+        confirmationUrl = optString("confirmation_url").ifBlank { null },
+    )
+
+    /** История заработка водителя за период (week|month|all): суммарно + разбивка по дням.
+     *  ВАЖНО: total/sum — в РУБЛЯХ (₽, целые), НЕ в копейках (см. backend debt.py::driver_earnings). */
+    suspend fun getDriverEarnings(period: String = "week"): Result<DriverEarningsDto> =
+        call("GET", "/driver/earnings?period=$period", null, auth = true).map { o ->
+            val arr = o.optJSONArray("by_day") ?: JSONArray()
+            DriverEarningsDto(
+                period = o.optString("period", period),
+                total = o.optInt("total"),
+                trips = o.optInt("trips"),
+                byDay = (0 until arr.length()).map { i ->
+                    val d = arr.getJSONObject(i)
+                    DriverEarningsDayDto(date = d.optString("date"), sum = d.optInt("sum"), trips = d.optInt("trips"))
+                },
+            )
+        }
+
+    // ---------- Сохранённые адреса (Дом/Работа/свои) + недавние ----------
+    // Приватность: всё по СВОЕМУ токену — чужие адреса не запросить (сервер фильтрует по id).
+
+    private fun parseSavedPlace(o: JSONObject) = SavedPlaceDto(
+        id = o.optInt("id"),
+        kind = o.optString("kind"),
+        label = o.optString("label"),
+        address = o.optString("address"),
+        lat = o.optDouble("lat"),
+        lng = o.optDouble("lng"),
+        createdAt = o.optString("created_at"),
+    )
+
+    /** Сохранённые адреса (Дом/Работа/свои). Ответ — массив (call() кладёт в "items"). */
+    suspend fun getSavedPlaces(): Result<List<SavedPlaceDto>> =
+        call("GET", "/places/saved", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { parseSavedPlace(arr.getJSONObject(it)) }
+        }
+
+    /** Сохранить адрес. kind: home|work (upsert по kind) | custom (≤20). Возвращает сохранённую запись. */
+    suspend fun saveSavedPlace(kind: String, label: String, address: String, lat: Double, lng: Double): Result<SavedPlaceDto> =
+        call("POST", "/places/saved", JSONObject()
+            .put("kind", kind).put("label", label).put("address", address)
+            .put("lat", lat).put("lng", lng), auth = true).map { parseSavedPlace(it) }
+
+    /** Удалить сохранённый адрес по id (чужое/нет → 404). */
+    suspend fun deleteSavedPlace(id: Int): Result<Unit> =
+        call("DELETE", "/places/saved/$id", null, auth = true).map { }
+
+    /** Недавние адреса назначения (свежие сверху, ≤10). Ответ — массив. */
+    suspend fun getRecentPlaces(): Result<List<RecentPlaceDto>> =
+        call("GET", "/places/recent", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                RecentPlaceDto(
+                    id = o.optInt("id"),
+                    address = o.optString("address"),
+                    lat = o.optDouble("lat"),
+                    lng = o.optDouble("lng"),
+                    usedAt = o.optString("used_at"),
+                )
+            }
+        }
+
+    /** Добавить/обновить недавний адрес (дедуп по address на сервере). Best-effort — заказ не блокируем. */
+    suspend fun addRecentPlace(address: String, lat: Double, lng: Double): Result<Unit> =
+        call("POST", "/places/recent", JSONObject()
+            .put("address", address).put("lat", lat).put("lng", lng), auth = true).map { }
+
+    /** Квитанция завершённой поездки (только участник; незавершённая → 409; посторонний → 403). */
+    suspend fun getTripReceipt(bookingId: Int): Result<TripReceiptDto> =
+        call("GET", "/trips/$bookingId/receipt", null, auth = true).map { o ->
+            TripReceiptDto(
+                bookingId = o.optInt("booking_id"),
+                rideId = o.optInt("ride_id"),
+                role = o.optString("role"),
+                fromCity = o.optString("from_city"),
+                toCity = o.optString("to_city"),
+                departAt = o.optString("depart_at"),
+                seats = o.optInt("seats"),
+                amount = o.optInt("amount"),
+                payMethod = o.optString("pay_method"),
+                paid = o.optBoolean("paid"),
+                driverName = o.optString("driver_name"),
+                driverVerified = o.optBoolean("driver_verified"),
+            )
+        }
+
+    // ═══════════ Закрытие пробелов такси / курьера (аудит 2026-07-26) ═══════════
+    // Сервер уже умеет всё ниже; здесь только доступ. Все ручки идемпотентны или дают понятный
+    // 409 — экраны показывают текст ошибки как есть (он двуязычный, приходит с сервера).
+
+    /** «Застрял на трассе» в ТАКСИ-заказе: координаты доверенным + сигнал админу.
+     *  Зимний протокол работал только для попуток, хотя четыре часа трассы зимой — это такси. */
+    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<Unit> {
+        val body = JSONObject().put("note", note.take(500))
+        if (lat != null) body.put("lat", lat)
+        if (lng != null) body.put("lng", lng)
+        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { }
+    }
+
+    /** «Подожду машину» после «рядом никого»: заказ встаёт в очередь, воркер продолжит поиск. */
+    suspend fun waitForDriver(orderId: Int): Result<InstantWaitDto> =
+        call("POST", "/instant/orders/$orderId/wait", JSONObject(), auth = true).map { o ->
+            InstantWaitDto(
+                waitUntil = o.optString("wait_until"),
+                waitMinutes = o.optInt("wait_minutes"),
+                order = o.optJSONObject("order")?.toInstantOrderDto(),
+            )
+        }
+
+    /** Квитанция за такси-поездку (обе стороны, только после done). Телефонов в чеке нет. */
+    suspend fun getInstantReceipt(orderId: Int): Result<InstantReceiptDto> =
+        call("GET", "/instant/orders/$orderId/receipt", null, auth = true).map { o ->
+            InstantReceiptDto(
+                orderId = o.optInt("order_id"),
+                role = o.optString("role"),
+                fromText = o.optString("from_text"), toText = o.optString("to_text"),
+                doneAt = o.optString("done_at"),
+                distanceKm = o.optDouble("distance_km", 0.0),
+                amount = o.optInt("amount"),
+                waitingFeeKop = o.optInt("waiting_fee_kop"),
+                paymentMethod = o.optString("payment_method"),
+                paid = o.optBoolean("paid"),
+                driverName = o.optString("driver_name"),
+                driverVerified = o.optBoolean("driver_verified"),
+            )
+        }
+
+    /** Водитель: «наличные получил». Раньше отметить оплату мог только пассажир — и если он
+     *  просто закрывал приложение, заказ навсегда оставался «не оплачен». */
+    suspend fun instantCashReceived(orderId: Int): Result<String> =
+        call("POST", "/instant/orders/$orderId/cash-received", JSONObject(), auth = true)
+            .map { it.optString("status") }
+
+    /** «Я забыл вещь в машине» → чат заказа снова открыт на запись 48 часов (обеим сторонам). */
+    suspend fun instantLostItem(orderId: Int): Result<String> =
+        call("POST", "/instant/orders/$orderId/lost-item", JSONObject(), auth = true)
+            .map { it.optString("chat_open_until") }
+
+    /** Инфо для «Сказать рәхмәт» после такси-поездки (money != null → водитель оставил СБП). */
+    suspend fun getInstantTipInfo(orderId: Int): Result<TipInfoDto> =
+        call("GET", "/instant/orders/$orderId/tip", null, auth = true).map { o ->
+            val m = o.optJSONObject("money")
+            TipInfoDto(
+                driverName = o.optString("driver_name"),
+                alreadyThanked = o.optBoolean("already_thanked"),
+                sbpPhone = m?.optString("sbp")?.takeIf { it.isNotBlank() },
+            )
+        }
+
+    /** «Рәхмәт» водителю такси — тёплый жест без денег. Идемпотентно. */
+    suspend fun sayInstantThanks(orderId: Int): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/thanks", JSONObject(), auth = true).map { }
+
+    /** Мои завершённые такси-заказы с расшифровкой: цена, комиссия, чистыми (закрывает
+     *  «Юлдаш говорит 4200, я насчитал 4600 — где мои 400?»). */
+    suspend fun getDriverTaxiRides(limit: Int = 100): Result<DriverTaxiRidesDto> =
+        call("GET", "/driver/taxi-rides?limit=$limit", null, auth = true).map { o ->
+            val arr = o.optJSONArray("rides") ?: JSONArray()
+            DriverTaxiRidesDto(
+                rides = (0 until arr.length()).map { i ->
+                    val r = arr.getJSONObject(i)
+                    DriverTaxiRideDto(
+                        orderId = r.optInt("order_id"),
+                        doneAt = r.optString("done_at"),
+                        from = r.optString("from"), to = r.optString("to"),
+                        priceRub = r.optInt("price"),
+                        feeKop = r.optInt("fee_kop"),
+                        netKop = r.optInt("net_kop"),
+                        paid = r.optBoolean("paid"),
+                        paymentMethod = r.optString("payment_method"),
+                        feeStatus = r.optString("fee_status"),
+                    )
+                },
+                totalPriceRub = o.optInt("total_price"),
+                totalFeeKop = o.optInt("total_fee_kop"),
+                totalNetKop = o.optInt("total_net_kop"),
+            )
+        }
+
+    // ---------- курьер: «что-то пошло не так» ----------
+
+    /** Курьер снимает себя с заказа («не смогу везти»): посылка возвращается в общий список. */
+    suspend fun parcelRelease(parcelId: Int, reason: String = ""): Result<Unit> =
+        call("POST", "/parcels/$parcelId/release", JSONObject().put("reason", reason.take(200)), auth = true).map { }
+
+    /** Курьер везёт посылку ОБРАТНО (получателя нет / отказался / не выходит на связь). */
+    suspend fun parcelReturnStart(parcelId: Int, reason: String = ""): Result<ParcelDto> =
+        call("POST", "/parcels/$parcelId/return-start", JSONObject().put("reason", reason.take(200)), auth = true)
+            .map { parseParcel(it) }
+
+    /** Курьер вернул посылку отправителю → заказ закрыт. Комиссию за возврат не берём. */
+    suspend fun parcelReturnDone(parcelId: Int): Result<ParcelDto> =
+        call("POST", "/parcels/$parcelId/return-done", JSONObject(), auth = true).map { parseParcel(it) }
+
+    // ---------- админ: SOS, посылки, долги ----------
+
+    /** Лента сигналов SOS (open сверху). Раньше её не существовало: сигнал уходил одним
+     *  сообщением в Telegram, и если его не прочитали ночью — следа не оставалось. */
+    suspend fun adminSosList(status: String = "open", limit: Int = 100): Result<List<AdminSosDto>> =
+        call("GET", "/admin/sos?status=$status&limit=$limit", null, auth = true).map { obj ->
+            // Сервер отдаёт голый массив — call() заворачивает его в {"items": [...]}.
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                AdminSosDto(
+                    id = o.optInt("id"),
+                    status = o.optString("status"),
+                    category = o.optString("category"),
+                    note = o.optString("note"),
+                    createdAt = o.optString("created_at"),
+                    handledAt = nStr(o, "handled_at"),
+                    handledNote = o.optString("handled_note"),
+                    userId = o.optInt("user_id"),
+                    userName = o.optString("user_name"),
+                    userPhone = o.optString("user_phone"),
+                    route = o.optString("route"),
+                    orderId = nInt(o, "order_id"),
+                    bookingId = nInt(o, "booking_id"),
+                )
+            }
+        }
+
+    /** «Принял» — сигнал взят в работу: кто, когда, что сделал. */
+    suspend fun adminSosHandle(eventId: Int, note: String = ""): Result<Unit> =
+        call("POST", "/admin/sos/$eventId/handle", JSONObject().put("note", note.take(500)), auth = true).map { }
+
+    /** Админ: списать долг по-человечески (пассажир не заплатил, поездка сорвалась). */
+    suspend fun adminForgiveDebt(debtId: Int, reason: String = ""): Result<Unit> =
+        call("POST", "/admin/debts/$debtId/forgive", JSONObject().put("reason", reason.take(300)), auth = true).map { }
+
+    /** Админ: отменить посылку (курьер пропал, отправитель просит закрыть). */
+    suspend fun adminParcelCancel(parcelId: Int, reason: String = ""): Result<Unit> =
+        call("POST", "/admin/parcels/$parcelId/cancel", JSONObject().put("reason", reason.take(200)), auth = true).map { }
+
+    /** Админ: снять курьера с посылки (пропал со связи) — заказ вернётся в общий список. */
+    suspend fun adminParcelReleaseCourier(parcelId: Int, reason: String = ""): Result<Unit> =
+        call("POST", "/admin/parcels/$parcelId/release-courier", JSONObject().put("reason", reason.take(200)), auth = true).map { }
+
+    /** Мои бейджи профиля (G8): поездки, помощь посылкам, стаж, «проверен».
+     *  Бэкенд был готов давно, приложение его не звало — награда существовала только в БД. */
+    suspend fun getMyAchievements(): Result<AchievementsDto> =
+        call("GET", "/me/achievements", null, auth = true).map { o ->
+            val arr = o.optJSONArray("achievements") ?: JSONArray()
+            AchievementsDto(
+                trips = o.optInt("trips"),
+                parcelsHelped = o.optInt("parcels_helped"),
+                daysWithYuldash = o.optInt("days_with_yuldash"),
+                earnedCount = o.optInt("earned_count"),
+                items = (0 until arr.length()).map { i ->
+                    val b = arr.getJSONObject(i)
+                    AchievementDto(
+                        code = b.optString("code"),
+                        ru = b.optString("ru"),
+                        ba = b.optString("ba"),
+                        goal = b.optInt("goal"),
+                        value = b.optInt("value"),
+                        earned = b.optBoolean("earned"),
+                    )
+                },
+            )
+        }
+
+    /** Трекинг-ссылка посылки для ПОЛУЧАТЕЛЯ (он без приложения смотрит доставку в браузере).
+     *  Дедуп на сервере: повтор возвращает тот же токен — ссылка у получателя не протухает. */
+    suspend fun createParcelTrackLink(parcelId: Int): Result<ParcelTrackLinkDto> =
+        call("POST", "/parcels/$parcelId/track-link", JSONObject(), auth = true).map { o ->
+            ParcelTrackLinkDto(url = o.optString("url"), smsSent = o.optBoolean("sms_sent"))
+        }
+
+    /** Отозвать трекинг-ссылку (опечатка в номере → ссылка ушла чужому человеку). */
+    suspend fun revokeParcelTrackLink(parcelId: Int): Result<Unit> =
+        call("DELETE", "/parcels/$parcelId/track-link", null, auth = true).map { }
+
+    // ---------- Админ: модерация текстовых отзывов о поездке ----------
+    // Текст оценки публикуется в профиле ТОЛЬКО после одобрения (Rating.text_published).
+    // Очередь на сервере была, экрана не было — поэтому тексты не публиковались НИКОГДА,
+    // и в профилях висели одни звёздочки, а люди писали отзывы в пустоту (аудит 2026-07-26).
+
+    /** Тексты, ждущие модерации (свежие сверху). */
+    suspend fun adminPendingRatings(): Result<List<PendingRatingDto>> =
+        call("GET", "/admin/ratings/pending", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                PendingRatingDto(
+                    id = o.optInt("id"),
+                    author = o.optString("author"),
+                    rateeId = o.optInt("ratee_id"),
+                    ratee = o.optString("ratee"),
+                    stars = o.optInt("stars"),
+                    text = o.optString("text"),
+                    createdAt = o.optString("created_at"),
+                )
+            }
+        }
+
+    /** Одобрить текст к показу в публичном профиле (или снять с публикации). */
+    suspend fun adminPublishRating(ratingId: Int, published: Boolean = true): Result<Unit> =
+        call("POST", "/admin/ratings/$ratingId/publish", JSONObject().put("published", published), auth = true).map { }
+
+    /** «Щит рейтинга»: спорная/мстительная оценка перестаёт влиять на средний балл. */
+    suspend fun adminExcludeRating(ratingId: Int, excluded: Boolean = true): Result<Unit> =
+        call("POST", "/admin/ratings/$ratingId/exclude", JSONObject().put("excluded", excluded), auth = true).map { }
+
+    // ═══════════ «Справедливость»: двусторонние споры (due process) ═══════════
+    // Обе стороны слышимы: заявитель описывает → обвинённый объясняется → админ решает и
+    // объясняет обоим. Фото-доказательства приватны (/secure/evidence, видят только стороны и админ).
+    // Бэкенд был готов давно, но в приложении подсистемы не существовало (аудит 2026-07-26).
+
+    private fun JSONObject.toIncidentDto(): IncidentDto {
+        fun urls(key: String): List<String> =
+            optJSONArray(key)?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
+        return IncidentDto(
+            id = optInt("id"),
+            bookingId = nInt(this, "booking_id"),
+            type = optString("type"),
+            severe = optBoolean("severe"),
+            status = optString("status"),
+            reporterRole = optString("reporter_role"),
+            description = optString("description"),
+            respondentStatement = optString("respondent_statement"),
+            respondedAt = nStr(this, "responded_at"),
+            resolution = optString("resolution"),
+            fault = optString("fault"),
+            resolutionNote = optString("resolution_note"),
+            compensationKop = optInt("compensation_kop"),
+            appealText = optString("appeal_text"),
+            appealStatus = optString("appeal_status"),
+            createdAt = optString("created_at"),
+            updatedAt = optString("updated_at"),
+            resolvedAt = nStr(this, "resolved_at"),
+            myRole = optString("my_role"),
+            otherName = optString("other_name"),
+            evidenceUrls = urls("evidence_urls"),
+            respondentEvidenceUrls = urls("respondent_evidence_urls"),
+            route = nStr(this, "booking_route"),
+            // Только в админ-выдаче (у участников пусто — приватность: телефон второй стороны не отдаём).
+            reporterId = optInt("reporter_id"),
+            reporterName = optString("reporter_name"),
+            reporterPhone = optString("reporter_phone"),
+            respondentId = optInt("respondent_id"),
+            respondentName = optString("respondent_name"),
+            respondentPhone = optString("respondent_phone"),
+        )
+    }
+
+    /** Мои споры (и где я заявитель, и где обвинён) — лента «Центра справедливости». */
+    suspend fun getMyIncidents(): Result<List<IncidentDto>> =
+        call("GET", "/incidents/mine", null, auth = true).map { obj ->
+            val arr = obj.optJSONArray("items") ?: JSONArray()
+            (0 until arr.length()).map { arr.getJSONObject(it).toIncidentDto() }
+        }
+
+    /** Один спор (участник или админ). */
+    suspend fun getIncident(id: Int): Result<IncidentDto> =
+        call("GET", "/incidents/$id", null, auth = true).map { it.toIncidentDto() }
+
+    /** Открыть спор. Контекст обязателен: бронь попутки ИЛИ такси-заказ — иначе сервер даёт 400
+     *  (без привязки к общей поездке спор стал бы каналом харассмента). */
+    suspend fun fileIncident(
+        respondentId: Int, type: String, description: String,
+        bookingId: Int? = null, orderId: Int? = null, evidenceUrls: List<String> = emptyList(),
+    ): Result<IncidentDto> {
+        val body = JSONObject()
+            .put("respondent_id", respondentId)
+            .put("type", type)
+            .put("description", description.take(2000))
+        if (bookingId != null) body.put("booking_id", bookingId)
+        if (orderId != null) body.put("order_id", orderId)
+        if (evidenceUrls.isNotEmpty()) body.put("evidence_urls", JSONArray(evidenceUrls))
+        return call("POST", "/incidents", body, auth = true)
+            .map { it.toIncidentDto() }.onSuccess { Analytics.log("incident_file") }
+    }
+
+    /** «Объясниться» — право на защиту второй стороны (с фото). */
+    suspend fun respondIncident(id: Int, statement: String, evidenceUrls: List<String> = emptyList()): Result<IncidentDto> {
+        val body = JSONObject().put("statement", statement.take(2000))
+        if (evidenceUrls.isNotEmpty()) body.put("evidence_urls", JSONArray(evidenceUrls))
+        return call("POST", "/incidents/$id/respond", body, auth = true).map { it.toIncidentDto() }
+    }
+
+    /** Апелляция — только на решённый спор и только один раз (сервер даёт 409 иначе). */
+    suspend fun appealIncident(id: Int, text: String): Result<IncidentDto> =
+        call("POST", "/incidents/$id/appeal", JSONObject().put("text", text.take(2000)), auth = true)
+            .map { it.toIncidentDto() }
+
+    /** «Мы решили миром» — закрывает спор без последствий. Может только заявитель и только до вердикта. */
+    suspend fun withdrawIncident(id: Int): Result<IncidentDto> =
+        call("POST", "/incidents/$id/withdraw", JSONObject(), auth = true).map { it.toIncidentDto() }
+
+    /** Моё положение: Надёжность, страйки, предупреждения, пауза, активные споры. */
+    suspend fun getMyStanding(): Result<StandingDto> =
+        call("GET", "/me/standing", null, auth = true).map { o ->
+            StandingDto(
+                standing = o.optString("standing"),
+                strikes = o.optInt("strikes"),
+                warnings = o.optInt("warnings"),
+                reliability = o.optInt("reliability"),
+                suspendedUntil = nStr(o, "suspended_until"),
+                suspendReason = o.optString("suspend_reason"),
+                ratingShield = o.optBoolean("rating_shield"),
+                activeIncidents = o.optInt("active_incidents"),
+                canAct = o.optBoolean("can_act", true),
+            )
+        }
+
+    /** Пороги лестницы — показываем ИЗ СЕРВЕРА, чтобы приложение не врало о правилах. */
+    suspend fun getSafetyPolicy(): Result<SafetyPolicyDto> =
+        call("GET", "/safety/policy", null, auth = true).map { o ->
+            SafetyPolicyDto(
+                strikesToLimit = o.optInt("strikes_to_limit", 2),
+                strikesToSuspend = o.optInt("strikes_to_suspend", 3),
+                suspend1Days = o.optInt("suspend_1_days", 3),
+                suspend2Days = o.optInt("suspend_2_days", 7),
+                suspend3Days = o.optInt("suspend_3_days", 30),
+                strikeDecayDays = o.optInt("strike_decay_days", 180),
+            )
+        }
+
+    /** Загрузить фото-доказательство → приватный URL (/secure/evidence/...). НЕ публичный /media. */
+    suspend fun uploadEvidence(bytes: ByteArray, ext: String = "jpg"): Result<String> =
+        callMultipart("/upload/evidence", bytes, ext, "evidence.$ext").map { it.optString("url") }
+
+    /** Админ: очередь споров. status: open|awaiting_response|under_review|appealed|resolved|closed. */
+    suspend fun adminIncidents(status: String? = null): Result<List<IncidentDto>> =
+        call("GET", "/admin/incidents" + (if (status.isNullOrBlank()) "" else "?status=$status"), null, auth = true)
+            .map { obj ->
+                val arr = obj.optJSONArray("items") ?: JSONArray()
+                (0 until arr.length()).map { arr.getJSONObject(it).toIncidentDto() }
+            }
+
+    /** Админ: решение по спору. resolution: dismissed|warning|strike|suspend|ban|mutual_resolved;
+     *  fault: none|reporter|respondent|both|unclear. Наказание всегда ложится на обвинённого —
+     *  сервер отвергает «вина заявителя» вместе со страйком (иначе накажем невиновного). */
+    suspend fun adminResolveIncident(
+        id: Int, resolution: String, fault: String, note: String,
+        compensationKop: Int = 0, strike: Boolean = false, suspendDays: Int? = null,
+        excludeRating: Boolean = false, shield: Boolean = false,
+    ): Result<IncidentDto> {
+        val body = JSONObject()
+            .put("resolution", resolution).put("fault", fault).put("note", note.take(2000))
+            .put("compensation_kop", compensationKop).put("strike", strike)
+            .put("exclude_rating", excludeRating).put("shield", shield)
+        if (suspendDays != null) body.put("suspend_days", suspendDays)
+        return call("POST", "/admin/incidents/$id/resolve", body, auth = true).map { it.toIncidentDto() }
+    }
+
+    /** Админ: закрыть посылку вручную (разобрали спор офлайн).
+     *  status: delivered | returned | canceled — при returned/canceled сервер обнуляет комиссию. */
+    suspend fun adminParcelClose(parcelId: Int, status: String = "returned", reason: String = ""): Result<Unit> =
+        call("POST", "/admin/parcels/$parcelId/close",
+            JSONObject().put("status", status).put("reason", reason.take(200)), auth = true).map { }
 }
 
 /** Ошибка API с кодом и понятным текстом для пользователя. */
 class ApiException(val status: Int, message: String) : Exception(message)
 
+/** Цена одного класса машины (Эконом/Комфорт) в options оценки — обе цены одним запросом. */
+data class InstantClassOption(val category: String, val price: Int)
+
+/** Один серверный фактор автоматической цены. kind: base | duration | multiplier | cap | notice. */
+data class InstantPriceFactorDto(
+    val code: String,
+    val kind: String,
+    val k: Double,
+    val active: Boolean,
+    val titleRu: String,
+    val titleBa: String,
+    val descriptionRu: String,
+    val descriptionBa: String,
+)
+
+/** Оценка цены быстрого заказа (сервер считает сам по своей формуле).
+ *  surgeK > 1.0 → час пик: плашка surgeNote (RU/BA) показывается ДО заказа, цена уже с k. */
+data class InstantEstimateDto(
+    val price: Int,
+    val distanceKm: Double,
+    val etaMin: Double,
+    // Через сколько подъедет машина. null = рядом никого / не знаем — честно молчим, а не
+    // выдумываем число. Это НЕ etaMin: тот про длительность самой поездки А→Б.
+    val pickupEtaMin: Int? = null,
+    val zone: String,
+    val category: String,
+    val tariffId: Int,
+    val surgeK: Double = 1.0,
+    val surgeNoteRu: String = "",
+    val surgeNoteBa: String = "",
+    val options: List<InstantClassOption> = emptyList(),
+    // Динамический тариф v2. Defaults сохраняют совместимость со старым сервером.
+    val basePrice: Int = 0,
+    val dynamicK: Double = 1.0,
+    val pricingCapK: Double = 1.5,
+    val pricingVersion: String = "v1",
+    val routeSource: String = "fallback",
+    val trafficType: String = "unknown",
+    val trafficK: Double = 1.0,
+    val pickupK: Double = 1.0,
+    val weatherK: Double = 1.0,
+    val weatherCode: String = "",
+    val hasTolls: Boolean = false,
+    val priceFactors: List<InstantPriceFactorDto> = emptyList(),
+)
+
+/** Быстрый заказ (такси-режим) с сервера. Имя/телефон стороны приходят пустыми до accept (приватность). */
+// «Пульс такси» (B7b-3): живая сводка для админа.
+data class TaxiPulseCityDto(val city: String, val online: Int, val active: Int)
+
+data class TaxiPulseDto(
+    val driversOnline: Int,       // живой presence (heartbeat в Redis)
+    val ordersActive: Int,        // searching/offered/accepted/arriving/onboard
+    val ordersToday: Int,
+    val doneToday: Int,
+    val cancelledToday: Int,
+    val noShowToday: Int,
+    val avgSearchSec: Double?,    // средний подбор (created→accepted) сегодня; null = не было
+    val byCity: List<TaxiPulseCityDto>,
+)
+
+data class InstantOrderDto(
+    val id: Int,
+    val status: String,           // created/searching/offered/accepted/arriving/onboard/done/cancelled/expired
+    val role: String,             // "driver" | "passenger" — чья это витрина
+    val fromLat: Double, val fromLng: Double,
+    val toLat: Double, val toLng: Double,
+    val fromText: String, val toText: String,
+    val category: String,
+    val priceEstimate: Int,
+    val priceFinal: Int?,
+    val distanceKm: Double,
+    val etaMin: Double,
+    val driverId: Int?,
+    // id пассажира — приходит ТОЛЬКО водителю и только после accept (как имя и телефон).
+    // Нужен, чтобы водитель мог открыть разбор: спор требует указать вторую сторону.
+    val passengerId: Int? = null,
+    val offerExpiresAt: String?,  // ISO — когда протухнет текущий оффер (таймер водителя ведём локально)
+    val cancelBy: String,         // "" | passenger | driver
+    val cancelReason: String,
+    val contactThenCancel: Boolean = false,  // B8-8: отмена после открытия телефона/чата → мягкий баннер
+    // Деньги-правила (волна 2 §5): сурж/ожидание/отмены. Всё считает сервер, UI только показывает.
+    val surgeK: Double,           // применённый сурж (зафиксирован при создании)
+    val waitingStartedAt: String?, // ISO UTC — водитель нажал «Я на месте» (пошло ожидание)
+    val waitingFeeKop: Int,       // платное ожидание, копейки (фиксируется на посадке)
+    val cancelFeeKop: Int,        // штраф за позднюю отмену / no-show (Модель А: фиксация, не списание)
+    val noShow: Boolean,          // «пассажир не вышел»
+    val waitFreeMin: Int,         // бесплатное ожидание, мин (конфиг сервера)
+    val waitFeeRubPerMin: Int,    // платное ожидание, ₽/мин (конфиг сервера)
+    val noShowAt: String?,        // ISO UTC — с этого момента водителю доступна «Пассажир не вышел»
+    val cancelFeeNowKop: Int,     // сколько стоила бы отмена ПРЯМО СЕЙЧАС (0 = бесплатно)
+    // Пассажир глазами водителя (B7a-4): анонимный агрегат, доступен уже в оффере.
+    val passengerRating: Double?, // null = новичок без оценок
+    val passengerTrips: Int,      // завершённые такси-заказы + брони попутки
+    // Раскрыто только после accept:
+    val driverName: String,
+    val driverCar: String,
+    val driverVerified: Boolean,
+    val driverRating: Double,
+    val driverPhone: String,      // виден пассажиру после accept
+    val passengerName: String,    // виден водителю после accept
+    val passengerPhone: String,   // виден водителю после accept
+    // Предзаказ «на время» (scheduled): ISO времени подачи. null = обычный (мгновенный) заказ.
+    val scheduledAt: String? = null,
+    // --- закрытие пробелов такси (аудит 2026-07-26). Значения по умолчанию = поведение старого
+    // сервера: клиент новее бэкенда не падает, просто не показывает новое.
+    val driverPlate: String = "",      // госномер — по нему узнают машину во дворе, «белая Гранта» не помогает
+    val comment: String = "",          // «за магазином, синие ворота» — как найти пассажира
+    val entrance: String = "",         // подъезд / квартира / этаж
+    val forOther: Boolean = false,     // заказ ДЛЯ ДРУГОГО: имя и телефон в payload — того, кого везём
+    val lostItemUntil: String? = null, // ISO — до когда чат снова открыт под «забыл вещь»
+    val thanked: Boolean = false,      // пассажир уже сказал «рәхмәт»
+    val waitUntil: String? = null,     // ISO — заказ в очереди «подожду машину», воркер продолжит поиск
+    // Серверная расшифровка денег водителя. В пассажирской витрине все поля = 0.
+    val driverGrossKop: Int = 0,
+    val driverFeeKop: Int = 0,
+    val driverNetKop: Int = 0,
+    val driverFeePercent: Double = 0.0,
+    // Часы поиска. Свой таймер на экране врёт: свернул приложение — отсчёт начался заново.
+    // createdAt — сколько человек ждёт ВСЕГО (перезапуск поиска его не сбрасывает);
+    // searchingAt — начало текущего круга подбора (у предзаказа это активация, а не бронирование).
+    val createdAt: String? = null,
+    val searchingAt: String? = null,
+) {
+    /** С какого момента честно считать «ищем уже M:SS». null = сервер старый, счётчик не показываем. */
+    val searchClockFrom: String? get() = if (scheduledAt != null) searchingAt else (createdAt ?: searchingAt)
+
+    /** Терминальный статус — заказ окончен (успех/отмена/протух). */
+    val isTerminal: Boolean get() = status == "done" || status == "cancelled" || status == "expired"
+    /**
+     * Заказ в очереди «подожду машину»: формально expired, но фоновый воркер продолжает искать.
+     * Экран и поллинг должны считать такой заказ ЖИВЫМ, иначе человек нажал «подожду» — и
+     * приложение тут же перестало следить за заказом, который вот-вот найдёт машину.
+     */
+    val isWaitingQueue: Boolean
+        get() = !waitUntil.isNullOrBlank() && status != "done" && status != "cancelled"
+    /** Предзаказ «на время», ещё не отправлен в поиск. */
+    val isScheduled: Boolean get() = status == "scheduled"
+    /** Идёт подбор водителя (машину ещё ищем). */
+    val isSearching: Boolean get() = status == "created" || status == "searching" || status == "offered"
+    /** Водитель назначен и заказ активен (телефон раскрыт). */
+    val isActive: Boolean get() = status == "accepted" || status == "arriving" || status == "onboard"
+}
+
+private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
+    id = optInt("id"),
+    status = optString("status"),
+    role = optString("role"),
+    fromLat = optDouble("from_lat", 0.0),
+    fromLng = optDouble("from_lng", 0.0),
+    toLat = optDouble("to_lat", 0.0),
+    toLng = optDouble("to_lng", 0.0),
+    fromText = optString("from_text"),
+    toText = optString("to_text"),
+    category = optString("category"),
+    priceEstimate = optInt("price_estimate"),
+    priceFinal = if (isNull("price_final")) null else optInt("price_final"),
+    distanceKm = optDouble("distance_km", 0.0),
+    etaMin = optDouble("eta_min", 0.0),
+    driverId = if (isNull("driver_id")) null else optInt("driver_id"),
+    passengerId = if (isNull("passenger_id")) null else optInt("passenger_id"),
+    offerExpiresAt = if (isNull("offer_expires_at")) null else optString("offer_expires_at").ifBlank { null },
+    cancelBy = optString("cancel_by"),
+    cancelReason = optString("cancel_reason"),
+    contactThenCancel = optBoolean("contact_then_cancel"),
+    surgeK = optDouble("surge_k", 1.0),
+    waitingStartedAt = if (isNull("waiting_started_at")) null else optString("waiting_started_at").ifBlank { null },
+    waitingFeeKop = optInt("waiting_fee_kop"),
+    cancelFeeKop = optInt("cancel_fee_kop"),
+    noShow = optBoolean("no_show"),
+    waitFreeMin = optInt("wait_free_min", 5),
+    waitFeeRubPerMin = optInt("wait_fee_rub_per_min", 5),
+    noShowAt = if (isNull("no_show_at")) null else optString("no_show_at").ifBlank { null },
+    cancelFeeNowKop = optInt("cancel_fee_now_kop"),
+    passengerRating = if (isNull("passenger_rating")) null else optDouble("passenger_rating"),
+    passengerTrips = optInt("passenger_trips"),
+    driverName = optString("driver_name"),
+    driverCar = optString("driver_car"),
+    driverVerified = optBoolean("driver_verified"),
+    driverRating = optDouble("driver_rating", 0.0),
+    driverPhone = optString("driver_phone"),
+    passengerName = optString("passenger_name"),
+    passengerPhone = optString("passenger_phone"),
+    scheduledAt = if (isNull("scheduled_at")) null else optString("scheduled_at").ifBlank { null },
+    driverPlate = optString("driver_plate"),
+    comment = optString("comment"),
+    entrance = optString("entrance"),
+    forOther = optBoolean("for_other"),
+    lostItemUntil = if (isNull("lost_item_until")) null else optString("lost_item_until").ifBlank { null },
+    thanked = optBoolean("thanked"),
+    waitUntil = if (isNull("wait_until")) null else optString("wait_until").ifBlank { null },
+    driverGrossKop = optInt("driver_gross_kop"),
+    driverFeeKop = optInt("driver_fee_kop"),
+    driverNetKop = optInt("driver_net_kop"),
+    driverFeePercent = optDouble("driver_fee_percent", 0.0),
+    createdAt = if (isNull("created_at")) null else optString("created_at").ifBlank { null },
+    searchingAt = if (isNull("searching_at")) null else optString("searching_at").ifBlank { null },
+)
+
+/** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */
+data class ScheduledOrdersDto(
+    val scheduled: List<InstantOrderDto>,
+    val activated: List<InstantOrderDto>,
+)
+
+/** Доступность такси в точке (гейт пассажира). reason: ok | global_off | city_off.
+ *  city — ближайший известный город (для предзаполнения листа ожидания); пусто = не определён. */
+data class TaxiAvailabilityDto(
+    val enabled: Boolean,
+    val reason: String,
+    val messageRu: String,
+    val messageBa: String,
+    val city: String = "",
+)
+
+/** Запись листа ожидания (админ). role: passenger | driver; invitedAt = null → ещё ждёт. */
+data class WaitlistEntryDto(
+    val id: Int,
+    val phone: String,
+    val city: String,
+    val role: String,
+    val createdAt: String,
+    val invitedAt: String?,
+)
+
+/** Лист ожидания для админа: счётчики по всей базе + записи по текущим фильтрам. */
+data class AdminWaitlistDto(
+    val total: Int,
+    val invited: Int,
+    val byCity: List<Pair<String, Int>>,   // отсортировано по убыванию на сервере
+    val passengers: Int,
+    val drivers: Int,
+    val items: List<WaitlistEntryDto>,
+)
+
+/** Заявка «Стать таксистом» (580-ФЗ). В админ-списке дополнительно приходят user_id/name/phone. */
+data class TaxiApplicationDto(
+    val id: Int,
+    val status: String,          // pending | approved | rejected
+    val inn: String,
+    val permitNumber: String,
+    val permitPhotoUrl: String,
+    val osagoUrl: String,
+    val selfieUrl: String,           // селфи с правами в руках (сверка лица) — Уровень 1
+    val criminalRecordUrl: String,   // справка о несудимости (опц.)
+    val birthDate: String,       // YYYY-MM-DD
+    val licenseSinceYear: Int,
+    // Сроки документов (580-ФЗ). null = не указан. Значения по умолчанию — на случай старого сервера.
+    val osagoUntil: String? = null,
+    val permitUntil: String? = null,
+    val inspectionUntil: String? = null,   // диагностическая карта (техосмотр)
+    val docsExpired: Boolean = false,      // допуск к такси снят до обновления документа
+    val docsMissing: List<String> = emptyList(),   // какие сроки не заполнены (модератору и водителю)
+    val docsDaysLeft: Int? = null,         // дней до ближайшего истечения (отрицательное = просрочен)
+    val comment: String,         // комментарий админа при отклонении
+    val createdAt: String,
+    val reviewedAt: String?,
+    // Только в списке админа (в личной заявке пустые):
+    val userId: Int = 0,
+    val name: String = "",
+    val phone: String = "",
+    val invitedBy: String? = null,   // «кто пригласил» (доверие между своими) — только в админ-списке
+)
+
+private fun JSONObject.toTaxiApplicationDto() = TaxiApplicationDto(
+    id = optInt("id"),
+    status = optString("status"),
+    inn = optString("inn"),
+    permitNumber = optString("permit_number"),
+    permitPhotoUrl = optString("permit_photo_url"),
+    osagoUrl = optString("osago_url"),
+    selfieUrl = optString("selfie_url"),
+    criminalRecordUrl = optString("criminal_record_url"),
+    birthDate = optString("birth_date"),
+    licenseSinceYear = optInt("license_since_year"),
+    osagoUntil = if (isNull("osago_until")) null else optString("osago_until").ifBlank { null },
+    permitUntil = if (isNull("permit_until")) null else optString("permit_until").ifBlank { null },
+    inspectionUntil = if (isNull("inspection_until")) null else optString("inspection_until").ifBlank { null },
+    docsExpired = optBoolean("docs_expired"),
+    docsMissing = optJSONArray("docs_missing")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+    docsDaysLeft = if (isNull("docs_days_left")) null else optInt("docs_days_left"),
+    comment = optString("comment"),
+    createdAt = optString("created_at"),
+    reviewedAt = if (isNull("reviewed_at")) null else optString("reviewed_at").ifBlank { null },
+    userId = optInt("user_id"),
+    name = optString("name"),
+    phone = optString("phone"),
+    invitedBy = if (isNull("invited_by")) null else optString("invited_by").ifBlank { null },
+)
+
+/** Предрейсовое подтверждение на сегодня (580-ФЗ, честный минимум — самодекларация, не медосмотр).
+ *  required=false → гейт выключен на сервере (пока не выкачено приложение с экраном). */
+data class PretripDto(
+    val required: Boolean,
+    val confirmed: Boolean,
+    val day: String,
+    val confirmedAt: String?,
+    val note: String,
+)
+
+/** Город, где включено такси (управляет админ). */
+data class TaxiCityDto(val id: Int, val city: String, val enabled: Boolean)
+
+/** Населённый пункт из справочника географии (волна 2).
+ *  kind: city (город РБ) | district_center (райцентр) | neighbor (соседний регион). */
+data class SettlementDto(
+    val id: Int,
+    val nameRu: String,
+    val nameBa: String?,      // черновой башкирский; null = показываем русское
+    val region: String,
+    val kind: String,
+    val lat: Double,
+    val lng: Double,
+)
+
+/** Зона работы таксиста: city | intercity | region; null = не выбрана (беру всё рядом). */
+data class InstantZoneDto(
+    val workZone: String?,
+    val workCity: String?,
+    val workDirectionId: Int?,
+    val workDirection: SettlementDto?,
+)
+
+/** Смена такси за местный день (волна 2, §8 Отдых): прогресс к 8-часовому лимиту и блок отдыха. */
+/** Свободная машина рядом (для карты такси): анонимная точка + ≈ETA до подачи. Без личности. */
+data class NearbyDriverDto(val lat: Double, val lng: Double, val etaMin: Int)
+
+data class TaxiWorkdayDto(
+    val day: String,                 // местный день учёта, ISO ("2026-07-10")
+    val secondsOnline: Int,          // такси-время на линии за день, секунд
+    val limitSec: Int,               // лимит смены, секунд (8ч)
+    val remainingSec: Int,           // сколько осталось до лимита, секунд
+    val limitHours: Int,             // лимит смены, часов (для текстов «из 8»)
+    val blocked: Boolean,            // отдых: такси закрыто до unlockAt
+    val unlockAt: String?,           // когда снова на линию (ISO, UTC-наивное), null если не заблокирован
+    val returnRideUsed: Boolean,     // «один попутчик домой» уже опубликован
+    // Дашборд кабинета (заработок/заказы за сегодня + ступень комиссии по стажу).
+    val earningsToday: Int = 0,      // legacy: валовая сумма за сегодня, ₽
+    val grossTodayKop: Int = 0,       // пассажиры заплатили, копейки
+    val feeTodayKop: Int = 0,         // комиссия платформы, копейки
+    val netTodayKop: Int = 0,         // чистый доход водителя, копейки
+    val ordersToday: Int = 0,        // завершённых заказов сегодня
+    val feePercent: Double = 0.0,    // текущая комиссия платформы, % (с учётом промо запуска)
+    val tenureDays: Int = 0,         // стаж таксиста, дней (с первого done-заказа) — позиция на лесенке
+    val feeTiers: List<Double> = emptyList(),      // ступени комиссии [3,5,8]
+    val feeTierDays: List<Int> = emptyList(),      // границы ступеней в днях [30,60]
+    val feeNextPercent: Double? = null,            // следующая ступень, % (null = верхняя, дальше не растёт)
+    val feeDaysToNext: Int? = null,                // через сколько дней ступень поднимется (null = верхняя)
+)
+
+/** Пресет популярного маршрута (Сибай–Магнитогорск…) — чип, заполняющий «откуда/куда». */
+data class SettlementRouteDto(val from: SettlementDto, val to: SettlementDto)
+
+private fun JSONObject.toSettlementDto() = SettlementDto(
+    id = optInt("id"),
+    nameRu = optString("name_ru"),
+    nameBa = optNullableString("name_ba"),
+    region = optString("region"),
+    kind = optString("kind"),
+    lat = optDouble("lat"),
+    lng = optDouble("lng"),
+)
+
+private fun JSONObject.toInstantZoneDto() = InstantZoneDto(
+    workZone = optNullableString("work_zone"),
+    workCity = optNullableString("work_city"),
+    workDirectionId = if (isNull("work_direction_id")) null else optInt("work_direction_id"),
+    workDirection = optJSONObject("work_direction")?.toSettlementDto(),
+)
+
 data class ReviewItem(val id: Int, val name: String, val city: String, val stars: Int, val text: String)
 
-/** Поездка с витрины сервера (бэкенд RideOut: поездка + данные водителя). */
-data class PriceHintDto(val avg: Int, val count: Int)
+/** Двуязычная пара RU/BA, как её отдаёт бэкенд доверия (title/benefit/how). */
+data class Bilingual(val ru: String, val ba: String)
+
+/** Следующий уровень доверия: что он даёт и как его получить. */
+data class TrustNextDto(val level: Int, val title: Bilingual, val how: Bilingual, val benefits: List<Bilingual>)
+
+/** Мой уровень доверия L0–L3 (GET /me/trust). */
+data class TrustSummaryDto(
+    val level: Int,
+    val title: Bilingual,
+    val benefits: List<Bilingual>,
+    val isInsider: Boolean,
+    val invitedBy: Int?,
+    val canInvite: Boolean,
+    val next: TrustNextDto?,
+)
+
+/** Пригласительный код в круг «своих». */
+data class InviteDto(val code: String, val usesLeft: Int, val createdAt: String)
+
+/** Зафиксированное согласие (152-ФЗ): вид + время. */
+data class ConsentDto(val kind: String, val grantedAt: String)
+
+/** Ориентир цены по маршруту. distanceKm/fuelEstimateKop приходят от сервера аддитивно
+ *  (могут отсутствовать у старого бэкенда → null, блок «бензин» просто не показываем). */
+data class PriceHintDto(
+    val avg: Int,
+    val count: Int,
+    val distanceKm: Float? = null,
+    val fuelEstimateKop: Int? = null,
+)
 
 /** Страница «Ближайших»: показанные + всего на маршруте (для кнопки «Показать ещё»). */
 data class NearbyPage(val items: List<RideDto>, val total: Int)
+
+/** F14: точка сбора по ориентиру (публичный справочник). titleRu/titleBa — двуязычное название. */
+data class PickupPointDto(
+    val id: Int,
+    val city: String,
+    val titleRu: String,
+    val titleBa: String,
+    val lat: Double?,
+    val lng: Double?,
+    val usageCount: Int,
+)
+
+/** JSON точки сбора с сервера → PickupPointDto. */
+private fun JSONObject.toPickupPointDto() = PickupPointDto(
+    id = optInt("id"),
+    city = optString("city"),
+    titleRu = optString("title_ru"),
+    titleBa = optString("title_ba"),
+    lat = if (isNull("lat")) null else optDouble("lat"),
+    lng = if (isNull("lng")) null else optDouble("lng"),
+    usageCount = optInt("usage_count"),
+)
 
 /** JSON поездки с сервера → RideDto. Один шов вместо копипасты в getRides/getNearbyRides.
  *  distance_km нет в /rides → isNull(...) = null; есть в /rides/near → читаем. */
@@ -1319,18 +4323,24 @@ private fun JSONObject.toRideDto() = RideDto(
     seatsLeft = optInt("seats_left"),
     price = optInt("price"),
     category = optString("category"),
+    driverId = optInt("driver_id"),
     driverName = optString("driver_name"),
     driverRating = optDouble("driver_rating", 5.0),
     driverVerified = optBoolean("driver_verified"),
     driverCar = optString("driver_car"),
     driverAvatar = optString("driver_avatar"),
     driverOnline = optBoolean("driver_online"),
+    driverTrips = optInt("driver_trips"),
+    driverSince = optString("driver_since"),
+    driverIsWoman = optBoolean("driver_is_woman"),
     petsAllowed = optBoolean("pets_allowed"),
     childSeat = optBoolean("child_seat"),
     womenOnly = optBoolean("women_only"),
     smoking = optBoolean("smoking"),
     baggage = optBoolean("baggage"),
     airConditioner = optBoolean("air_conditioner"),
+    quiet = optBoolean("quiet"),
+    waypoints = optString("waypoints").split(" | ").map { it.trim() }.filter { it.isNotBlank() },
     pickup = optString("pickup"),
     pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
     pickupLng = if (isNull("pickup_lng")) null else optDouble("pickup_lng"),
@@ -1338,6 +4348,32 @@ private fun JSONObject.toRideDto() = RideDto(
     boosted = optBoolean("boosted"),
     receiverName = optString("receiver_name"),
     parcelSize = optString("parcel_size"),
+    status = optString("status", "active"),
+    partnerId = if (isNull("partner_id")) null else optInt("partner_id"),
+)
+
+private fun JSONObject.toMedicalPartnerDto() = MedicalPartnerDto(
+    id = optInt("id"),
+    name = optString("name"),
+    city = optString("city"),
+    address = optString("address"),
+    lat = if (isNull("lat")) null else optDouble("lat"),
+    lng = if (isNull("lng")) null else optDouble("lng"),
+    description = optString("description"),
+)
+
+private fun JSONObject.toSeasonalEventDto() = SeasonalEventDto(
+    code = optString("code"),
+    nameRu = optString("name_ru"),
+    nameBa = optString("name_ba"),
+    noteRu = optString("note_ru"),
+    noteBa = optString("note_ba"),
+    emoji = optString("emoji"),
+    category = optString("category"),
+    anchor = optString("anchor"),
+    startsAt = optString("starts_at"),
+    endsAt = optString("ends_at"),
+    active = optBoolean("active", false),
 )
 
 private fun JSONObject.toRequestNearDto() = RequestNearDto(
@@ -1361,18 +4397,24 @@ data class RideDto(
     val seatsLeft: Int,
     val price: Int,
     val category: String,
+    val driverId: Int = 0,            // id водителя → публичный профиль
     val driverName: String,
     val driverRating: Double,
     val driverVerified: Boolean,
     val driverCar: String,
     val driverAvatar: String = "",
     val driverOnline: Boolean = false,
+    val driverTrips: Int = 0,         // F8: завершённых поездок водителя (бейдж «N поездок»)
+    val driverSince: String = "",     // F8: месяц регистрации "YYYY-MM" (бейдж «С нами с …»)
+    val driverIsWoman: Boolean = false,   // F9: водитель — женщина (opt-in сигнал для бейджа)
     val petsAllowed: Boolean = false,
     val childSeat: Boolean = false,
     val womenOnly: Boolean = false,
     val smoking: Boolean = false,
     val baggage: Boolean = false,
     val airConditioner: Boolean = false,
+    val quiet: Boolean = false,
+    val waypoints: List<String> = emptyList(),
     val pickup: String = "",          // где водитель забирает (точка сбора)
     val pickupLat: Double? = null,    // координаты точки сбора (пин на карте)
     val pickupLng: Double? = null,
@@ -1380,6 +4422,58 @@ data class RideDto(
     val boosted: Boolean = false,     // активный Boost (подсветка/бейдж)
     val receiverName: String = "",    // посылка: кому отдать
     val parcelSize: String = "",      // посылка: габарит/вес
+    val status: String = "active",    // active / done / cancelled (для раздела «Архив»)
+    val partnerId: Int? = null,       // F22: клиника-назначение (для category=hospital)
+)
+
+/** F22: клиника-партнёр (медцентр) — точка назначения поездки «в больницу». Только логистика,
+ *  публичные данные организации. Никаких мед.данных пациента. */
+data class MedicalPartnerDto(
+    val id: Int,
+    val name: String,
+    val city: String,
+    val address: String = "",
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val description: String = "",
+)
+
+/** F15: сезонное событие для баннера на карте. Даты считает сервер (авто-обновление по годам).
+ *  active=true — праздник уже идёт; иначе «скоро». anchor — главный день (ISO). */
+data class SeasonalEventDto(
+    val code: String,
+    val nameRu: String,
+    val nameBa: String,
+    val noteRu: String = "",
+    val noteBa: String = "",
+    val emoji: String = "",
+    val category: String = "",
+    val anchor: String = "",
+    val startsAt: String = "",
+    val endsAt: String = "",
+    val active: Boolean = false,
+)
+
+/** Публичный профиль водителя (без ПДн: без телефона). Тапом с карточки поездки. */
+data class DriverPublicDto(
+    val id: Int,
+    val name: String,
+    val avatarUrl: String,
+    val verified: Boolean,
+    val daysInService: Int,       // стаж в Юлдаше в днях (клиент форматирует в «X лет/мес»)
+    val tripsCount: Int,          // завершённых поездок как водитель
+    val car: String,              // марка+модель (без госномера)
+    val rating: Double?,          // средний рейтинг (null — оценок ещё нет)
+    val ratingCount: Int,
+    val reviews: List<PublicReviewDto>,
+)
+
+/** Один текстовый отзыв в публичном профиле (прошёл модерацию). */
+data class PublicReviewDto(
+    val author: String,
+    val stars: Int,
+    val text: String,
+    val createdAt: String,
 )
 
 /** Заявка пассажира рядом (/requests/near) — для маркера «ищет попутку» на карте. Без телефона. */
@@ -1410,8 +4504,22 @@ data class DriverStatusDto(
     val licenseUrl: String,
     val carPhotoUrl: String,
     val online: Boolean = false,
+    val gender: String = "",             // "" не указан / female / male — виден только самому водителю (opt-in)
     val autocheckResult: String = "",   // "" / pass / needs_human / reject / error
     val autocheckData: String = "",      // JSON: распознанные поля + коды причин
+)
+
+/** F17 — постоянный (регулярный) маршрут водителя: «Баймаҡ→Уфа по пятницам в 8:00».
+ *  weekdays — дни недели ISO 1=Пн..7=Вс через запятую (напр. "1,3,5"). */
+data class DriverScheduleDto(
+    val id: Int,
+    val driverId: Int,
+    val fromCity: String,
+    val toCity: String,
+    val weekdays: String,
+    val time: String,
+    val comment: String = "",
+    val active: Boolean = true,
 )
 
 /** Бронь на поездку водителя — для оценки пассажира. */
@@ -1421,6 +4529,9 @@ data class DriverBookingDto(
     val passengerRating: Double?,
     val route: String,
     val status: String,
+    // Сколько звёзд водитель уже поставил по этой брони: 0 = ещё не оценивал.
+    // Без этого после перезагрузки экрана звёзды снова были пустые, и человек оценивал повторно.
+    val myStars: Int = 0,
 )
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
@@ -1453,6 +4564,8 @@ data class BookingDetailsDto(
     val departAt: String,
     val seats: Int,
     val price: Int,
+    val payMethod: String = "negotiate",   // договорённость об оплате (запись, не платёж): cash/sbp/negotiate
+    val payAmount: Int? = null,            // сумма договорённости, ₽ (опц.)
     val driverName: String,
     val driverVerified: Boolean,
     val driverPhone: String,
@@ -1486,9 +4599,49 @@ data class BlockDto(val blockedUserId: Int, val name: String)
 data class ReportableUserDto(val id: Int, val name: String)
 data class PendingDriverDto(val userId: Int, val name: String, val phone: String, val car: String, val licenseUrl: String, val carPhotoUrl: String,
     val autocheckResult: String = "", val autocheckScore: Double = 0.0, val autocheckData: String = "")
-data class AdminReportDto(val id: Int, val reporterName: String, val targetName: String, val targetPhone: String, val reason: String, val createdAt: String)
-data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList())
-data class ResponseDto(val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?, val price: Int, val comment: String, val status: String, val driverAvatar: String = "")
+data class AdminReportDto(
+    val id: Int, val reporterName: String, val targetName: String, val targetPhone: String,
+    val reason: String, val createdAt: String,
+    // §9 Качество (дефолты — совместимость со старыми вызовами/тестами).
+    val category: String = "other",      // rude|kicked_out|dangerous_driving|price_fraud|dirty_car|late|safety_threat|no_show|damage|unpaid|other
+    val status: String = "new",          // new|reviewing|resolved|rejected
+    val resolution: String = "",
+    val targetUserId: Int = 0,
+)
+
+/** Активное ограничение пользователя (§9, /me/restrictions). Тексты приходят с сервера
+ *  на двух языках — экран выбирает по LocalAppLanguage. Автор жалобы НЕ раскрывается. */
+data class RestrictionDto(
+    val kind: String,          // taxi_pause | orders_pause
+    val reason: String,        // reports | review | admin | strikes
+    val category: String = "",
+    val categoryRu: String = "", val categoryBa: String = "",
+    val until: String? = null, // ISO; null = «до разбора» (решает человек)
+    val titleRu: String = "", val titleBa: String = "",
+    val noteRu: String = "", val noteBa: String = "",
+)
+
+data class RestrictionsDto(
+    val items: List<RestrictionDto> = emptyList(),
+    val supportRu: String = "", val supportBa: String = "",
+)
+data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList(), val myResponseId: Int? = null)
+data class ResponseDto(
+    val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?,
+    val price: Int,                    // первая цена водителя (историческая)
+    val comment: String, val status: String, val driverAvatar: String = "",
+    // --- Торг о цене (второй круг). Раньше отклик был «бери или уходи». ---
+    val currentPrice: Int = 0,         // цена, которая сейчас НА СТОЛЕ
+    val lastOfferBy: String = "driver",// чей ход был последним: driver | passenger
+    val bargainRounds: Int = 0,        // сколько встречных сделано
+    val canCounter: Boolean = false,   // я могу предложить свою цену
+    val canAccept: Boolean = false,    // я могу принять то, что на столе
+    val bargainHistory: String = "",   // «d:500,p:400,d:450»
+) {
+    /** Что показывать как цену: пока торга не было — первое предложение водителя. */
+    val onTable: Int get() = if (currentPrice > 0) currentPrice else price
+    val haggled: Boolean get() = bargainRounds > 0
+}
 
 data class ContactDto(
     val id: Int,
@@ -1496,6 +4649,13 @@ data class ContactDto(
     val relation: String,
     val phone: String,
     val notifyByDefault: Boolean,
+)
+
+/** Активный шаринг поездки близкому (B7c): id для отзыва, к какому контакту, готовая live-ссылка. */
+data class TripShareDto(
+    val id: Int,
+    val contactId: Int,
+    val link: String? = null,
 )
 
 /** Сообщение чата с сервера. */
@@ -1506,6 +4666,8 @@ data class MessageDto(
     val voiceUrl: String? = null,
     val deleted: Boolean = false,
     val edited: Boolean = false,
+    val flag: String = "",           // анти-фишинг (B8-6): "warn" → плашка-предупреждение получателю
+    val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓» у сообщений админа/системы
 )
 
 internal fun parseMessageDto(o: JSONObject): MessageDto =
@@ -1516,6 +4678,8 @@ internal fun parseMessageDto(o: JSONObject): MessageDto =
         voiceUrl = o.optNullableString("voice_url"),
         deleted = o.optBoolean("deleted"),
         edited = o.optBoolean("edited"),
+        flag = o.optString("flag"),
+        fromAdmin = o.optBoolean("from_admin"),
     )
 
 private fun JSONObject.optNullableString(key: String): String? {
@@ -1538,16 +4702,75 @@ data class ConversationDto(
     val lastMessage: String,
     val peerAvatar: String = "",
     val departAt: String? = null,   // ISO времени выезда — различать треды одного маршрута
+    val peerVerified: Boolean = false,   // реальный статус проверки собеседника (с сервера)
 )
 
 data class PopularRouteDto(val from: String, val to: String, val count: Int)
+/** Зона спроса для водителя: где сейчас чаще ищут попутку. Анонимно — только агрегат, без личности. */
+data class DemandZoneDto(val lat: Double, val lng: Double, val weight: Double, val requests: Int)
+/** Ответ /instant/demand: список зон спроса + метка времени обновления. */
+data class InstantDemandDto(val zones: List<DemandZoneDto>, val updatedAt: String)
 /** Живая лента карты: счётчики поездок за период + топ-маршрут недели. */
 data class FeedDto(
     val today: Int, val week: Int, val month: Int, val year: Int,
     val drivers: Int, val topFrom: String, val topTo: String, val topCount: Int,
     val donationsTotal: Int = 0   // ₽ донатов от пользователей за всё время
 )
-data class NotifDto(val title: String, val text: String)
+/** Уведомление Центра уведомлений (типизированное, двуязычное). ref_kind/ref_id — deep-link. */
+data class NotifDto(
+    val id: Int,
+    val type: String,              // booking / ride / system / message
+    val titleRu: String, val titleBa: String,
+    val bodyRu: String, val bodyBa: String,
+    val refKind: String, val refId: Int?,
+    val read: Boolean,
+    val createdAt: String,         // ISO-8601 UTC
+)
+
+/** Лента уведомлений: непрочитанные сверху + счётчик непрочитанного (бейдж). */
+data class NotifFeed(val unread: Int, val items: List<NotifDto>)
+
+/** Одно сообщение в обращении в поддержку. sender: user | admin. */
+data class SupportMessageDto(
+    val id: Int,
+    val sender: String,
+    val body: String,
+    val createdAt: String,
+)
+
+/** Тред обращения в поддержку (список сообщений). status: open | closed. */
+data class SupportTicketDto(
+    val id: Int,
+    val subject: String,
+    val status: String,
+    val createdAt: String,
+    val updatedAt: String,
+    val messages: List<SupportMessageDto>,
+)
+
+/** Строка списка «Мои обращения»: последнее сообщение + метка непрочитанного. */
+data class SupportTicketRowDto(
+    val id: Int,
+    val subject: String,
+    val status: String,          // open | closed
+    val lastMessage: String,
+    val lastSender: String,      // user | admin
+    val unread: Boolean,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+/** Список моих обращений + счётчик непрочитанного (бейдж на входе «Поддержка»). */
+data class SupportListDto(val unread: Int, val items: List<SupportTicketRowDto>)
+
+/** Подписка на маршрут «карауль поездку» (F13). */
+data class RouteWatchDto(
+    val id: Int,
+    val fromCity: String,
+    val toCity: String,
+    val direction: String,          // forward | both
+    val watchDate: String? = null,  // ISO, если задан конкретный день
+)
 
 /** Тариф поднятия (с бэкенда /boost/plans). */
 data class BoostPlanDto(val tier: String, val title: String, val price: Int, val hours: Int)
@@ -1564,6 +4787,9 @@ data class BoostResultDto(
     val payeeName: String?,
 )
 
+/** Статус платежа для поллинга после возврата из браузера ЮKassa (go-live boost). */
+data class PaymentStatusDto(val paymentId: Int, val status: String, val purpose: String, val boostedUntil: String?)
+
 /** Заявка на оплату (буст/донат) в админ-очереди подтверждения. */
 data class PendingPaymentDto(
     val paymentId: Int, val purpose: String, val tier: String, val amount: Int,
@@ -1571,6 +4797,248 @@ data class PendingPaymentDto(
 )
 /** Счётчик подтверждённых оплат (донаты/буст) для админ-кабинета. */
 data class PaymentsSummaryDto(val donateCount: Int, val donateSum: Int, val boostCount: Int, val boostSum: Int)
+
+/** Разбивка долга по неделе (для наглядности в кабинете водителя). */
+data class DebtWeekDto(val week: String, val amountKop: Int, val status: String)
+/** Долг водителя по комиссии за такси (Модель А «на доверии»): сколько должен, срок, реквизиты СБП, блок. */
+data class DriverDebtDto(
+    val unpaidKop: Int, val pendingKop: Int, val dueAt: String?, val overdue: Boolean,
+    val blocked: Boolean, val blockReason: String?, val thresholdKop: Int,
+    val sbpPhone: String, val sbpName: String, val weeks: List<DebtWeekDto>,
+) {
+    val unpaidRub: Int get() = unpaidKop / 100
+    val pendingRub: Int get() = pendingKop / 100
+}
+/** Долг водителя в админ-очереди подтверждения (сгруппирован по водителю). */
+data class AdminDebtDto(
+    val debtId: Int, val driverId: Int, val driverName: String, val driverPhone: String,
+    val amount: Int, val weeks: List<String>,
+)
+/** Баланс кошелька водителя (GET /wallet/balance). rub = kop // 100 (считает сервер). */
+data class WalletBalanceDto(val balanceKop: Int, val balanceRub: Int)
+/** Запись истории кошелька (GET /wallet/ledger). amountKop: приход > 0, списание/комиссия < 0.
+ *  kind: earn (начисление за поездку) / fee (комиссия сервиса) / payout … note — человекочитаемо. */
+data class WalletLedgerEntryDto(
+    val id: Int,
+    val kind: String,
+    val amountKop: Int,
+    val orderId: Int?,
+    val bookingId: Int?,
+    val note: String,
+    val createdAt: String,
+)
+/** Статус выплат на карту (GET /wallet/payout/status). enabled=false → честная заглушка «скоро».
+ *  minKop/maxKop — границы одной выплаты (источник истины — сервер, клиент не хардкодит). */
+data class PayoutStatusDto(
+    val enabled: Boolean,
+    val balanceKop: Int,
+    val hasRequisite: Boolean,
+    val cardLast4: String,
+    val minKop: Int,
+    val maxKop: Int,
+)
+/** Результат вывода (POST /wallet/payout). status: ok | already (идемпотентный повтор той же попытки). */
+data class PayoutResultDto(val status: String, val entryId: Int, val amountKop: Int, val balanceKop: Int)
+/** Результат оплаты поездки (POST /bookings/{id}/pay, POST /instant/orders/{id}/pay).
+ *  status: paid (наличные) | already_paid | succeeded (mock/dev) | pending (ждём подтверждения ЮKassa).
+ *  pending + confirmationUrl → открыть браузер, потом поллить getPaymentStatus(paymentId). */
+data class PayTripResultDto(
+    val status: String,
+    val method: String,
+    val paymentId: Int?,
+    val confirmationUrl: String?,
+) {
+    val isPaid: Boolean get() = status == "paid" || status == "already_paid" || status == "succeeded"
+}
+/** День в разбивке заработка (GET /driver/earnings). sum — в ₽ (не копейки). */
+data class DriverEarningsDayDto(val date: String, val sum: Int, val trips: Int)
+/** Заработок водителя за период (GET /driver/earnings?period=week|month|all).
+ *  total/sum — в РУБЛЯХ (₽, целые): сумма цен завершённых такси-заказов. */
+data class DriverEarningsDto(
+    val period: String,
+    val total: Int,
+    val trips: Int,
+    val byDay: List<DriverEarningsDayDto>,
+)
+/** Сохранённый адрес (Дом/Работа/свой). kind: home|work|custom. */
+data class SavedPlaceDto(
+    val id: Int, val kind: String, val label: String,
+    val address: String, val lat: Double, val lng: Double, val createdAt: String,
+)
+/** Недавний адрес назначения (GET /places/recent, свежие сверху). */
+data class RecentPlaceDto(
+    val id: Int, val address: String, val lat: Double, val lng: Double, val usedAt: String,
+)
+/** Квитанция завершённой поездки (GET /trips/{booking_id}/receipt).
+ *  amount — ₽; pay_method: cash|sbp|negotiate; role — «passenger»|«driver» (чья витрина). */
+data class TripReceiptDto(
+    val bookingId: Int, val rideId: Int, val role: String,
+    val fromCity: String, val toCity: String, val departAt: String,
+    val seats: Int, val amount: Int, val payMethod: String, val paid: Boolean,
+    val driverName: String, val driverVerified: Boolean,
+)
+
+/** Ответ на «Подожду машину»: до какого времени ищем и обновлённый заказ. */
+data class InstantWaitDto(val waitUntil: String, val waitMinutes: Int, val order: InstantOrderDto?)
+
+/** Квитанция за такси-поездку (GET /instant/orders/{id}/receipt). Телефонов в чеке нет.
+ *  amount — ₽ (итог поездки), waitingFeeKop — платное ожидание, копейки. */
+data class InstantReceiptDto(
+    val orderId: Int, val role: String,
+    val fromText: String, val toText: String, val doneAt: String,
+    val distanceKm: Double, val amount: Int, val waitingFeeKop: Int,
+    val paymentMethod: String, val paid: Boolean,
+    val driverName: String, val driverVerified: Boolean,
+)
+
+/** «Сказать рәхмәт»: имя водителя, сказали ли уже, и (если включены денежные чаевые
+ *  и водитель оставил телефон) номер СБП — перевод идёт мимо платформы, «на доверии». */
+data class TipInfoDto(val driverName: String, val alreadyThanked: Boolean, val sbpPhone: String?)
+
+/** Одна завершённая такси-поездка водителя с расшифровкой денег.
+ *  feeStatus: pending | paid | declared | void | none (none = долга по заказу нет). */
+data class DriverTaxiRideDto(
+    val orderId: Int, val doneAt: String, val from: String, val to: String,
+    val priceRub: Int, val feeKop: Int, val netKop: Int,
+    val paid: Boolean, val paymentMethod: String, val feeStatus: String,
+)
+
+/** Список поездок водителя + итоги (GET /driver/taxi-rides). */
+data class DriverTaxiRidesDto(
+    val rides: List<DriverTaxiRideDto>,
+    val totalPriceRub: Int, val totalFeeKop: Int, val totalNetKop: Int,
+)
+
+/** Один бейдж профиля: earned=false → показываем прогресс value/goal, а не прячем. */
+data class AchievementDto(
+    val code: String, val ru: String, val ba: String,
+    val goal: Int, val value: Int, val earned: Boolean,
+)
+
+/** Бейджи профиля (G8). На распределение заказов не влияют — это про тепло, а не про рейтинг. */
+data class AchievementsDto(
+    val trips: Int,
+    val parcelsHelped: Int,
+    val daysWithYuldash: Int,
+    val earnedCount: Int,
+    val items: List<AchievementDto>,
+)
+
+/** Трекинг-ссылка посылки: url для получателя + ушла ли ему SMS. */
+data class ParcelTrackLinkDto(val url: String, val smsSent: Boolean)
+
+/** Текстовый отзыв о поездке, ждущий модерации. Пока не одобрен — в профиле его нет. */
+data class PendingRatingDto(
+    val id: Int,
+    val author: String,       // кто оставил (админу; в публичном профиле — тоже без телефона)
+    val rateeId: Int,         // кому адресован
+    // Имя того, О КОМ отзыв. Без него модератор читал текст вслепую: видно «вёз молча»,
+    // а чей это профиль и кому прилетит публикация — нет. Телефон не отдаём, имени хватает.
+    val ratee: String = "",
+    val stars: Int,
+    val text: String,
+    val createdAt: String,
+)
+
+/** Спор «Справедливости» (двусторонний разбор). Поля `reporterId/Name/Phone` и
+ *  `respondentId/Name/Phone` заполнены ТОЛЬКО в админ-выдаче: участникам телефон второй
+ *  стороны не отдаём — это приватность, не забывчивость.
+ *  (Здесь нельзя писать «reporter» со звёздочкой перед косой чертой: пара символов закрывает
+ *  KDoc раньше времени, и весь остаток файла компилятор читает как код.)
+ *
+ *  status: open | awaiting_response | under_review | appealed | resolved | closed
+ *  myRole: reporter (я подал) | respondent (обвинили меня) | admin
+ *  resolution: «» пока не решено; dismissed | warning | strike | suspend | ban | mutual_resolved */
+data class IncidentDto(
+    val id: Int,
+    val bookingId: Int?,
+    val type: String,
+    val severe: Boolean,          // тяжёлый тип — сразу к человеку, без ожидания объяснения
+    val status: String,
+    val reporterRole: String,     // кем был заявитель в поездке: driver | passenger
+    val description: String,
+    val respondentStatement: String,
+    val respondedAt: String?,
+    val resolution: String,
+    val fault: String,            // none | reporter | respondent | both | unclear
+    val resolutionNote: String,   // человеческое объяснение решения — видят ОБЕ стороны
+    val compensationKop: Int,
+    val appealText: String,
+    val appealStatus: String,     // «» | requested | accepted | rejected
+    val createdAt: String,
+    val updatedAt: String,
+    val resolvedAt: String?,
+    val myRole: String,
+    val otherName: String,        // имя второй стороны (без телефона)
+    val evidenceUrls: List<String>,            // фото заявителя (приватные /secure/evidence)
+    val respondentEvidenceUrls: List<String>,  // фото обвинённого
+    val route: String?,           // маршрут поездки/доставки/такси-заказа — контекст спора
+    // Только админ-выдача:
+    val reporterId: Int = 0,
+    val reporterName: String = "",
+    val reporterPhone: String = "",
+    val respondentId: Int = 0,
+    val respondentName: String = "",
+    val respondentPhone: String = "",
+) {
+    /** Спор ещё живой — по нему можно что-то сделать. */
+    val isActive: Boolean get() = status == "open" || status == "awaiting_response" ||
+        status == "under_review" || status == "appealed"
+    /** Ждём МОЕГО объяснения (меня обвинили и я ещё не ответил). */
+    val needsMyStatement: Boolean get() = myRole == "respondent" && respondentStatement.isBlank() &&
+        status != "resolved" && status != "closed"
+    /** Решение вынесено — можно обжаловать (один раз). */
+    val canAppeal: Boolean get() = status == "resolved" && appealStatus.isBlank()
+    /** «Решили миром» — только заявитель и только до вердикта. */
+    val canWithdraw: Boolean get() = myRole == "reporter" &&
+        (status == "open" || status == "awaiting_response" || status == "under_review")
+}
+
+/** Моё положение в «Справедливости»: чем выше Надёжность, тем спокойнее с тобой ехать. */
+data class StandingDto(
+    val standing: String,         // good | limited | suspended
+    val strikes: Int,
+    val warnings: Int,
+    val reliability: Int,         // 0..100 — доля поездок без срывов
+    val suspendedUntil: String?,
+    val suspendReason: String,
+    val ratingShield: Boolean,    // «щит рейтинга»: спорная оценка не входит в средний
+    val activeIncidents: Int,
+    val canAct: Boolean,          // false = пауза: новые заказы/брони временно недоступны
+)
+
+/** Пороги лестницы наказаний — берём с сервера, чтобы приложение не врало о правилах. */
+data class SafetyPolicyDto(
+    val strikesToLimit: Int,
+    val strikesToSuspend: Int,
+    val suspend1Days: Int,
+    val suspend2Days: Int,
+    val suspend3Days: Int,
+    val strikeDecayDays: Int,
+)
+
+/** Сигнал SOS в ленте админа. userPhone — чтобы реально позвонить человеку в беде.
+ *  category: medical | breakdown | other. status: open | handled. */
+data class AdminSosDto(
+    val id: Int, val status: String, val category: String, val note: String,
+    val createdAt: String, val handledAt: String?, val handledNote: String,
+    val userId: Int, val userName: String, val userPhone: String,
+    val route: String, val orderId: Int?, val bookingId: Int?,
+)
+/** F18 «Мой Юлдаш» — личная статистика попутчика (GET /me/stats). */
+data class MyStatsDto(
+    val trips: Int,            // число поездок (пассажир + водитель)
+    val km: Double,            // км, проеханные вместе
+    val savedRub: Int,         // сэкономлено ₽ (vs такси-ориентир)
+    val co2SavedKg: Double,    // сэкономлено CO₂, кг
+    val rankLevel: Int,        // уровень звания (0 = новичок)
+    val rankTitleRu: String,
+    val rankTitleBa: String,
+    val nextTitleRu: String?,  // следующее звание (null = максимум)
+    val nextTitleBa: String?,
+    val nextAt: Int?,          // при скольки поездках следующее звание
+    val toNext: Int,           // сколько поездок осталось до следующего звания
+)
 data class AdDto(
     val id: String, val title: String, val text: String, val button: String, val erid: String, val placement: String,
     val partner: String = "", val contact: String = "", val target: String = "", val image: String = "", val city: String = "",
@@ -1596,3 +5064,277 @@ data class MyAdDto(
 )
 /** Тариф размещения (из конфига сервера). */
 data class AdPackageDto(val code: String, val title: String, val titleBa: String, val amountKop: Int, val periodDays: Int)
+
+/** Статистика СВОЕГО объявления для кабинета рекламодателя: показы/клики/CTR/остаток срока. */
+data class MyAdStatsDto(
+    val adId: String, val impressions: Int, val clicks: Int, val ctr: Double,
+    val daysLeft: Int?, val endsAt: String?,
+)
+
+// ═══════════ M1: Купоны «Скидки по пути» ═══════════
+
+/** Заведение-партнёр в карточке купона (публичные данные, телефон — для навигации/связи). */
+data class CouponPartnerDto(
+    val id: Int, val name: String, val category: String, val city: String,
+    val address: String = "", val lat: Double? = null, val lng: Double? = null, val phone: String = "",
+)
+
+/** Купон в витрине «Скидки по пути». remaining!=null → показываем «осталось N». */
+data class CouponDto(
+    val id: Int, val partner: CouponPartnerDto,
+    val title: String, val description: String, val discountText: String,
+    val city: String, val routeHint: List<String>,
+    val validFrom: String?, val validUntil: String?,
+    val limitTotal: Int, val limitPerUser: Int, val redeemedCount: Int,
+    val remaining: Int?, val premium: Boolean, val status: String,
+) {
+    companion object {
+        fun empty() = CouponDto(0, CouponPartnerDto(0, "", "", ""), "", "", "", "", emptyList(), null, null, 0, 0, 0, null, false, "active")
+    }
+}
+
+/** Активированный купон = код для показа в заведении + статус. */
+data class ActivatedCouponDto(val code: String, val status: String, val reservedAt: String, val coupon: CouponDto)
+
+/** Мой купон (все статусы: reserved/redeemed/canceled/expired). */
+data class MyCouponDto(
+    val code: String, val status: String, val reservedAt: String,
+    val redeemedAt: String?, val coupon: CouponDto,
+)
+
+/** Тариф подписки партнёра. */
+data class PartnerPlanDto(
+    val code: String, val title: String, val titleBa: String,
+    val amountKop: Int, val periodDays: Int, val premium: Boolean,
+)
+
+/** Мой бизнес (кабинет партнёра). status: pending|active|paused|rejected|archived. */
+data class PartnerDto(
+    val id: Int, val name: String, val category: String, val city: String,
+    val address: String, val phone: String, val description: String,
+    val lat: Double?, val lng: Double?, val status: String,
+    val rejectReason: String, val subscriptionPlan: String,
+    val subscriptionUntil: String?, val subscriptionActive: Boolean,
+    val hasPremium: Boolean, val createdAt: String,
+)
+
+/** Выписка: сколько купонов погашено и к оплате (доход платформы за приведённых клиентов). */
+data class StatementDto(val redeemedTotal: Int, val feePerRedemptionKop: Int, val amountKop: Int)
+
+/** Ответ /partner/me: бизнес (null если ещё нет) + выписка. */
+data class PartnerMeDto(val partner: PartnerDto?, val statement: StatementDto?)
+
+/** Реквизиты оплаты подписки «на доверии» (СБП). */
+data class PartnerSubscribeDto(val paymentId: Int, val amountKop: Int, val plan: String, val status: String)
+
+/** Купон в кабинете партнёра (свой, со счётчиками активаций/погашений). */
+data class PartnerCouponDto(
+    val id: Int, val partnerId: Int, val title: String, val description: String, val discountText: String,
+    val city: String, val routeHint: List<String>, val validFrom: String?, val validUntil: String?,
+    val limitTotal: Int, val limitPerUser: Int, val redeemedCount: Int, val activations: Int,
+    val premium: Boolean, val status: String, val createdAt: String,
+)
+
+/** Статистика купона партнёра. */
+data class CouponStatDto(
+    val couponId: Int, val title: String, val status: String,
+    val activations: Int, val redeemed: Int, val feePerRedemptionKop: Int, val amountKop: Int,
+)
+
+/** Результат погашения кода клиента (партнёр видит, какую скидку дать и кому). */
+data class RedeemResultDto(val couponTitle: String, val discountText: String, val customerName: String)
+
+/** Бизнес-партнёр в админ-модерации. */
+data class AdminPartnerDto(
+    val id: Int, val ownerId: Int, val name: String, val category: String, val city: String,
+    val address: String, val phone: String, val description: String, val status: String,
+    val rejectReason: String, val subscriptionPlan: String, val subscriptionUntil: String?,
+    val subscriptionActive: Boolean, val createdAt: String, val reviewedAt: String?,
+)
+
+// ═══════════ M2: Промокоды и кампании ═══════════
+
+/** Результат применения промокода. kind: "welcome" (приветствие) | "boost" (N бесплатных поднятий). */
+data class PromoApplyResultDto(
+    val ok: Boolean, val kind: String, val perkValue: Int,
+    val messageRu: String, val messageBa: String,
+)
+
+/** Мой активированный промокод (один на аккаунт). */
+data class MyPromoDto(
+    val code: String, val title: String, val kind: String, val perkValue: Int,
+    val redeemedAt: String?,
+)
+
+/** Статистика кода: воронка applied (ввели) → active (стали активными). */
+data class PromoStatDto(
+    val code: String, val title: String, val campaign: String,
+    val applied: Int, val active: Int,
+)
+
+/** Промокод/кампания в админ-панели. active = «живые» приведённые; activeFlag = вкл/выкл кампании. */
+data class AdminPromoDto(
+    val id: Int, val code: String, val title: String, val description: String,
+    val ownerId: Int?, val campaign: String, val kind: String, val perkValue: Int,
+    val limitTotal: Int, val limitPerUser: Int, val redeemedCount: Int,
+    val applied: Int, val active: Int,
+    val validFrom: String?, val validUntil: String?, val activeFlag: Boolean, val createdAt: String,
+)
+
+// ═══════════ M3: Доставка посылок ═══════════
+
+/** Курьер, взявший посылку (виден отправителю после accept).
+ *  rating=null — у курьера пока нет оценок («новый курьер»); ratingCount — сколько оценок. */
+data class ParcelCourierDto(val id: Int, val name: String, val rating: Double?, val ratingCount: Int, val phone: String)
+
+/** Посылка. Форма зависит от роли: у отправителя есть confirmCode/receiverPhone/courier;
+ *  в списке «доступные» (курьер) телефон и код скрыты (пустые).
+ *  status: created/accepted/in_transit/delivered/canceled/returning/returned. */
+data class ParcelDto(
+    val id: Int,
+    val senderId: Int,
+    val courierId: Int?,
+    val fromCity: String, val toCity: String,
+    val fromLat: Double?, val fromLng: Double?, val toLat: Double?, val toLng: Double?,
+    val size: String,
+    val description: String,
+    val receiverName: String,
+    val receiverPhone: String,   // "" если скрыт
+    val senderName: String = "", // после accept: контакт точки забора/возврата
+    val senderPhone: String = "",// после accept; до него сервер не отдаёт
+    val feeKop: Int,
+    val status: String,
+    val confirmCode: String,     // "" если скрыт
+    val createdAt: String,
+    val acceptedAt: String?,
+    val deliveredAt: String?,
+    val courier: ParcelCourierDto?,
+    // C1: курьер Юлдаша (профессиональная доставка). Для обычной попутки deliveryType="poputka".
+    val deliveryType: String = "poputka",   // poputka | courier | buy_bring
+    val urgency: String = "",                // bypath | now (для courier/buy_bring)
+    val declaredValueKop: Int = 0,           // объявленная ценность (courier)
+    val codAmountKop: Int = 0,               // сумма выкупа товара (buy_bring)
+    val commissionKop: Int = 0,              // наш сбор (уже входит в priceKop)
+    val priceKop: Int = 0,                   // итоговая цена доставки (courier/buy_bring)
+    val settlement: ParcelSettlementDto? = null,   // C2: расчёт «купи и привези» (null для остальных типов)
+    // Возврат: сервер отдавал эти поля, но старый клиент их терял и не мог объяснить состояние.
+    val returnReason: String = "",
+    val returnedAt: String? = null,
+    val deliveryAttempts: Int = 0,
+    val cancelFeeKop: Int = 0,
+)
+
+/** C2: расчёт «купи и привези» — сколько получатель вернёт курьеру (товар + доставка).
+ *  Приходит только для deliveryType="buy_bring", иначе null. goodsActualKop=0 — курьер ещё не указал стоимость покупки. */
+data class ParcelSettlementDto(
+    val goodsActualKop: Int,   // фактическая стоимость купленного товара (0 — ещё не указана)
+    val deliveryKop: Int,      // стоимость доставки
+    val totalDueKop: Int,      // всего к оплате получателем (товар + доставка)
+    val settled: Boolean,      // расчёт закрыт (оплата получена)
+)
+
+// ═══════════ C1: Курьер Юлдаша ═══════════
+
+/** Заявка «Стать курьером». status: pending | approved | rejected. */
+/** День заработка курьера (чистыми = цена доставки минус комиссия платформы). */
+data class CourierEarningsDayDto(val date: String, val netKop: Int, val deliveries: Int)
+
+/** Заработок курьера за период. Всё в КОПЕЙКАХ (у водителя аналогичный экран — в рублях). */
+data class CourierEarningsDto(
+    val period: String,
+    val netKop: Int,
+    val commissionKop: Int,
+    val deliveries: Int,
+    val byDay: List<CourierEarningsDayDto>,
+)
+
+data class CourierApplicationDto(
+    val id: Int,
+    val transport: String,        // car | cargo
+    val status: String,           // pending | approved | rejected
+    val selfieUrl: String,
+    val fullName: String = "",    // ФИО как в документе (сверка с селфи)
+    val carPlate: String = "",    // госномер — по нему узнают машину
+    val rulesAccepted: Boolean = false,
+    val invitedBy: String?,       // «кто пригласил» (реферал, доверие между своими)
+    val rejectReason: String,     // причина отклонения (видит курьер)
+    val createdAt: String,
+    val reviewedAt: String?,
+    // Только в админ-списке (в личной заявке пустые):
+    val userId: Int = 0,
+    val name: String = "",
+    val phone: String = "",
+)
+
+/** Разбивка цены доставки курьером — показываем честно (из чего сложилась цена). */
+data class CourierEstimateBreakdown(
+    val baseKop: Int, val distanceKop: Int, val sizeKop: Int, val urgencyKop: Int, val commissionPercent: Double,
+    val commissionMinKop: Int = 0,            // пол комиссии за доставку (25 ₽)
+    val commissionEstimated: Boolean = false, // комиссия до вручения — оценка (финал после вручения)
+)
+
+/** Оценка стоимости доставки курьером (сервер считает по своей формуле). */
+data class CourierEstimateDto(
+    val priceKop: Int, val commissionKop: Int, val distanceKm: Double, val breakdown: CourierEstimateBreakdown,
+)
+
+/** Профиль курьера (режим работы). */
+data class CourierProfileDto(
+    val id: Int, val online: Boolean, val carClass: String, val zone: String,
+    val workCity: String?, val workDirectionId: Int?, val updatedAt: String,
+)
+
+/** C3: выписка курьера по нашей комиссии.
+ *  earned — всего наша комиссия за доставки; owed — к оплате сейчас; paid — уже оплачено.
+ *  commissionKop — легаси-поле (== earned), оставлено для совместимости. */
+data class CourierStatementDto(
+    val deliveredCount: Int,
+    val commissionEarnedKop: Int,
+    val commissionOwedKop: Int,
+    val commissionPaidKop: Int,
+    val commissionKop: Int,
+    val currentFeePercent: Double = 0.0,     // текущая ставка комиссии курьера, %
+    val feeTier: String = "",                // ступень: promo | tier1 | tier2 | tier3
+    val commissionMinKop: Int = 0,           // пол комиссии за доставку (25 ₽)
+)
+
+/** C3: рейтинг курьера. avg=null — пока нет оценок. */
+data class CourierRatingDto(val avg: Double?, val count: Int)
+
+/** C3: ответ /parcels/{id}/rate — новый рейтинг оценённого пользователя. */
+data class RateResultDto(val rateeId: Int, val rating: Double, val count: Int)
+
+/** C3: ответ /courier/pay-commission — заявка на оплату комиссии + реквизиты СБП. */
+data class PayCommissionDto(
+    val status: String, val paymentId: Int, val amountKop: Int, val amount: Int,
+    val payeePhone: String, val payeeBank: String, val payeeName: String,
+    val method: String = "sbp_manual",           // yookassa → оплата картой, иначе СБП «на доверии»
+    val confirmationUrl: String? = null,          // ЮKassa redirect (открыть в браузере)
+)
+
+/** Ответ на оплату долга такси: yookassa (оплата картой) или sbp_manual (перевод «на доверии»). */
+data class DebtPayResultDto(
+    val method: String, val status: String, val paymentId: Int,
+    val pendingKop: Int, val confirmationUrl: String?,
+)
+
+/** Ответ /courier/me: заявка + профиль (если одобрен) + выписка + рейтинг + пауза по качеству. */
+data class CourierMeDto(
+    val application: CourierApplicationDto?,
+    val profile: CourierProfileDto?,
+    val statement: CourierStatementDto,
+    val rating: CourierRatingDto = CourierRatingDto(null, 0),
+    val pausedUntil: String? = null,
+)
+
+/** Выписка по посылкам (админ). Три разных числа вместо одного «собрано», которое врало:
+ *  сбор «по пути» никому не выставляется, а показывался как выручка (аудит 2026-07-26). */
+data class ParcelStatementDto(
+    val deliveredCount: Int,
+    val collectedFeeKop: Int,          // деньги дошли: курьеры оплатили комиссию
+    val owedCommissionKop: Int = 0,    // начислено курьерам, ещё не оплачено (долг)
+    val unbilledFeeKop: Int = 0,       // сбор «по пути»: выставить некому — это не выручка
+)
+
+/** Ответ /admin/parcels: все посылки + выписка. */
+data class ParcelAdminListDto(val parcels: List<ParcelDto>, val statement: ParcelStatementDto)

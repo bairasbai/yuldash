@@ -63,12 +63,14 @@ class ProfileDeep3ContentTest {
         passengerRating: Double? = null,
         route: String = "Уфа → Сибай",
         status: String = "done",
+        myStars: Int = 0,
     ) = DriverBookingDto(
         bookingId = bookingId,
         passengerName = passengerName,
         passengerRating = passengerRating,
         route = route,
         status = status,
+        myStars = myStars,
     )
 
     // Хелпер: чистый Content с дефолтами, оборачиваем в провайдер языка.
@@ -78,7 +80,7 @@ class ProfileDeep3ContentTest {
         driverBookings: List<DriverBookingDto> = emptyList(),
         ratingText: String = "—",
         onToggleOnline: (Boolean) -> Unit = {},
-        onRate: (Int, Int) -> Unit = { _, _ -> },
+        onRate: (Int, Int, (Boolean) -> Unit) -> Unit = { _, _, done -> done(true) },
         onCreateRide: () -> Unit = {},
         onVerifyDriver: () -> Unit = {},
         onBoost: () -> Unit = {},
@@ -104,6 +106,16 @@ class ProfileDeep3ContentTest {
     }
 
     // --- Шапка + двуязычие ---
+
+    /** Прокрутить кабинет до строки с текстом.
+     *  Кабинет водителя вырос (появились новые строки), и часть контента уехала ниже видимой
+     *  области теста. Узел в дереве ЕСТЬ, но assertIsDisplayed проверяет попадание в окно —
+     *  поэтому без прокрутки падает «is not displayed». В этом же файле такой приём уже
+     *  используется в проходящих тестах. */
+    private fun scrollTo(text: String) {
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText(text))
+    }
 
     @Test
     fun header_russian_showsTitleAndSubtitle() {
@@ -133,7 +145,10 @@ class ProfileDeep3ContentTest {
         // online=false → клик по тумблеру должен позвать onToggleOnline(true).
         var toggledTo: Boolean? = null
         content(online = false, onToggleOnline = { toggledTo = it })
-        composeRule.onNode(isToggleable()).performClick()
+        // В кабинете водителя теперь ДВА тумблера: «на линии» и «женщина за рулём» (F9),
+        // поэтому onNode(isToggleable()) падал с «Expected exactly 1 node but found 2».
+        // Берём первый по порядку — это «на линии» (он выше по вёрстке, y≈112 против y≈304).
+        composeRule.onAllNodes(isToggleable()).onFirst().performClick()
         assertEquals(true, toggledTo)
     }
 
@@ -141,7 +156,10 @@ class ProfileDeep3ContentTest {
     fun onlineSwitch_whenOn_click_firesOnToggleFalse() {
         var toggledTo: Boolean? = null
         content(online = true, onToggleOnline = { toggledTo = it })
-        composeRule.onNode(isToggleable()).performClick()
+        // В кабинете водителя теперь ДВА тумблера: «на линии» и «женщина за рулём» (F9),
+        // поэтому onNode(isToggleable()) падал с «Expected exactly 1 node but found 2».
+        // Берём первый по порядку — это «на линии» (он выше по вёрстке, y≈112 против y≈304).
+        composeRule.onAllNodes(isToggleable()).onFirst().performClick()
         assertEquals(false, toggledTo)
     }
 
@@ -162,13 +180,16 @@ class ProfileDeep3ContentTest {
     @Test
     fun empty_noRides_showsEmptyStateWithPublishAction() {
         content(driverRides = emptyList())
+        scrollTo("Ваших маршрутов пока нет")
         composeRule.onNodeWithText("Ваших маршрутов пока нет").assertIsDisplayed()
+        scrollTo("Опубликовать маршрут")
         composeRule.onNodeWithText("Опубликовать маршрут").assertIsDisplayed()
     }
 
     @Test
     fun empty_bashkir_showsBashkirEmptyState() {
         content(driverRides = emptyList(), language = AppLanguage.Ba)
+        scrollTo("Һеҙҙең маршруттар әлегә юҡ")
         composeRule.onNodeWithText("Һеҙҙең маршруттар әлегә юҡ").assertIsDisplayed()
     }
 
@@ -176,6 +197,7 @@ class ProfileDeep3ContentTest {
     fun empty_publishClick_firesOnCreateRide() {
         var created = false
         content(driverRides = emptyList(), onCreateRide = { created = true })
+        scrollTo("Опубликовать маршрут")
         composeRule.onNodeWithText("Опубликовать маршрут").performClick()
         assertTrue(created)
     }
@@ -185,6 +207,7 @@ class ProfileDeep3ContentTest {
     @Test
     fun list_showsRideCardWithRouteAndStatus() {
         content(driverRides = listOf(ride()))
+        scrollTo("Уфа → Сибай")
         composeRule.onNodeWithText("Уфа → Сибай").assertIsDisplayed()
         composeRule.onNodeWithText("Опубликована").assertIsDisplayed()
         composeRule.onNodeWithText("2 места · 350 ₽").assertIsDisplayed()
@@ -194,6 +217,7 @@ class ProfileDeep3ContentTest {
     fun list_boostClick_firesOnBoost() {
         var boosted = false
         content(driverRides = listOf(ride()), onBoost = { boosted = true })
+        scrollTo("Поднять")
         composeRule.onNodeWithText("Поднять").performClick()
         assertTrue(boosted)
     }
@@ -201,6 +225,7 @@ class ProfileDeep3ContentTest {
     @Test
     fun list_bashkir_showsBashkirStatus() {
         content(driverRides = listOf(ride()), language = AppLanguage.Ba)
+        scrollTo("Баҫтырылды")
         composeRule.onNodeWithText("Баҫтырылды").assertIsDisplayed()
     }
 
@@ -216,20 +241,66 @@ class ProfileDeep3ContentTest {
     }
 
     @Test
-    fun bookings_starClick_firesOnRateWithBookingIdAndStars() {
-        // Клик по 4-й звезде брони 77 → onRate(77, 4).
+    fun bookings_starClickAlone_doesNotSendRating() {
+        // Промах пальцем по звезде НЕ должен уходить на сервер: раньше единица улетала
+        // мгновенно и вернуть её было нечем. Оценка отправляется только по кнопке.
+        var fired = false
+        content(
+            driverBookings = listOf(booking(bookingId = 77)),
+            onRate = { _, _, done -> fired = true; done(true) },
+        )
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
+        composeRule.onNodeWithContentDescription("4 звезды").performClick()
+        assertEquals(false, fired)
+        // Подпись под звёздами лежит ниже края экрана: узел в дереве есть, но не показан,
+        // поэтому assertIsDisplayed падал. Доскроллить до самой подписи, а не до заголовка.
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Выбрано 4 звезды — подтвердите"))
+        composeRule.onNodeWithText("Выбрано 4 звезды — подтвердите").assertIsDisplayed()
+    }
+
+    @Test
+    fun bookings_confirmButton_firesOnRateWithBookingIdAndStars() {
         var ratedBooking: Int? = null
         var ratedStars: Int? = null
         content(
             driverBookings = listOf(booking(bookingId = 77)),
-            onRate = { id, n -> ratedBooking = id; ratedStars = n },
+            onRate = { id, n, done -> ratedBooking = id; ratedStars = n; done(true) },
         )
         composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
             .performScrollToNode(hasText("Пассажиры — оцените после поездки"))
         // Звёзды помечены contentDescription "1".."5" (не text) → четвёртая = "4".
-        composeRule.onNodeWithContentDescription("4").performClick()
+        composeRule.onNodeWithContentDescription("4 звезды").performClick()
+        // Кнопка появляется через AnimatedVisibility и оказывается за нижним краем: тап по
+        // не показанному узлу молча не доходит, и onRate не срабатывал. Сначала прокрутка.
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Отправить оценку"))
+        composeRule.onNodeWithText("Отправить оценку").performClick()
         assertEquals(77, ratedBooking)
         assertEquals(4, ratedStars)
+    }
+
+    @Test
+    fun bookings_notFinishedTrip_notOfferedForRating() {
+        // Поездка ещё не состоялась — сервер оценку не примет (409). Значит и звёзд быть не должно:
+        // раньше водитель тапал и получал «Не получилось оценить» без объяснения.
+        content(driverBookings = listOf(booking(status = "confirmed")))
+        composeRule.onNodeWithText("Пассажиры — оцените после поездки").assertDoesNotExist()
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Едут с тобой"))
+        composeRule.onNodeWithText("Едут с тобой").assertIsDisplayed()
+    }
+
+    @Test
+    fun bookings_alreadyRated_showsMyStarsAndChangeButton() {
+        // После перезагрузки экрана оценка не исчезает: сервер помнит её (my_stars).
+        content(driverBookings = listOf(booking(myStars = 4)))
+        composeRule.onAllNodes(hasScrollToNodeAction()).onFirst()
+            .performScrollToNode(hasText("Вы поставили 4 звезды"))
+        composeRule.onNodeWithText("Вы поставили 4 звезды").assertIsDisplayed()
+        composeRule.onNodeWithText("Отправить оценку").assertDoesNotExist()
+        composeRule.onNodeWithText("Изменить").assertIsDisplayed()
     }
 
     @Test

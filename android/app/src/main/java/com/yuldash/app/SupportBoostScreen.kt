@@ -216,6 +216,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Circle
@@ -227,7 +230,6 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -260,8 +262,8 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun SupportScreen(onBack: () -> Unit) {
     val minAmount = 10
-    val maxAmount = 100_000
-    var selectedAmount by remember { mutableIntStateOf(30) }
+    val maxAmount = 5_000
+    var selectedAmount by remember { mutableIntStateOf(50) }
     var customMode by remember { mutableStateOf(false) }
     var customInput by remember { mutableStateOf("") }
     var completed by remember { mutableStateOf(false) }
@@ -278,7 +280,7 @@ internal fun SupportScreen(onBack: () -> Unit) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { ScreenTopBar(appText("Поддержать Юлдаш", "Юлдашҡа ярҙам итеү"), onBack) }
+        topBar = { ScreenTopBar(appText("Поддержать Юлдаш 🌱", "Юлдашҡа ярҙам итеү 🌱"), onBack) }
     ) { padding ->
         SupportContent(
             selectedAmount = selectedAmount,
@@ -302,8 +304,8 @@ internal fun SupportScreen(onBack: () -> Unit) {
                 sendError = false
             },
             onCustomInputChange = { new ->
-                // Только цифры, максимум 6 знаков (до 100 000).
-                customInput = new.filter { it.isDigit() }.take(6)
+                // Только цифры, максимум 4 знака (до 5 000 ₽).
+                customInput = new.filter { it.isDigit() }.take(4)
                 completed = false
                 sendError = false
             },
@@ -312,7 +314,8 @@ internal fun SupportScreen(onBack: () -> Unit) {
                 sending = true
                 sendError = false
                 scope.launch {
-                    ApiClient.createDonation(amount)
+                    // Новый эндпоинт добровольной поддержки: суммы в копейках (₽ · 100).
+                    ApiClient.supportDonate(amount * 100)
                         .onSuccess { donation = it; showSbp = true }
                         .onFailure { sendError = true }
                     sending = false
@@ -353,7 +356,7 @@ internal fun SupportContent(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val amounts = listOf(10, 30, 50, 100)
+    val amounts = listOf(20, 50, 100)
     val errMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     LazyColumn(
         modifier = modifier.padding(16.dp),
@@ -409,7 +412,7 @@ internal fun SupportContent(
                     isError = customInput.isNotEmpty() && !amountValid,
                     supportingText = {
                         if (customInput.isNotEmpty() && !amountValid)
-                            Text(appText("От $minAmount до 100 000 ₽", "$minAmount‑дан 100 000 ₽‑ҡа тиклем"))
+                            Text(appText("От $minAmount до 5 000 ₽", "$minAmount‑дан 5 000 ₽‑ҡа тиклем"))
                     }
                 )
             }
@@ -472,8 +475,34 @@ internal fun BoostScreen(onBack: () -> Unit) {
     var result by remember { mutableStateOf<BoostResultDto?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var credits by remember { mutableStateOf(0) }   // реферальные бонусы = бесплатные поднятия
+    // ЮKassa: платёж, который ждёт оплаты в браузере. На ON_RESUME экрана (вернулся из браузера)
+    // поллим статус — сервер перепроверяет оплату у ЮKassa и активирует boost (go-live).
+    var pendingPaymentId by remember { mutableStateOf<Int?>(null) }
+    var checkingPayment by remember { mutableStateOf(false) }
     val failText = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")  // appText @Composable → хойстим из корутины
     val freeBoostOkMsg = appText("Поездка поднята бесплатно на 24 часа", "Сәфәр 24 сәғәткә бушлай күтәрелде")
+    val notPaidYetMsg = appText("Оплата пока не подтверждена. Если уже оплатил — попробуй ещё раз.", "Түләү әле раҫланмаған. Түләгән булһаң — тағы бер тапҡыр ҡара.")
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Тихо обновляет список поездок (без спиннера всего экрана) — чтобы бейдж «поднята» подтянулся.
+    fun quietRefreshRides() {
+        scope.launch { ApiClient.getDriverRides().onSuccess { list -> rides = list } }
+    }
+
+    // Одна проверка статуса. Возврат: true, если оплата подтверждена (boost активирован).
+    suspend fun pollPaymentOnce(): Boolean {
+        val pid = pendingPaymentId ?: return false
+        var paid = false
+        ApiClient.getPaymentStatus(pid).onSuccess { st ->
+            if (st.status == "succeeded") {
+                result = result?.copy(status = "succeeded")
+                pendingPaymentId = null
+                paid = true
+                quietRefreshRides()
+            }
+        }
+        return paid
+    }
 
     fun reload() {
         loading = true; loadError = false
@@ -488,6 +517,23 @@ internal fun BoostScreen(onBack: () -> Unit) {
         }
     }
     LaunchedEffect(Unit) { reload() }
+
+    // Авто-поллинг на ON_RESUME: пока экран виден и есть неоплаченный ЮKassa-платёж — проверяем
+    // статус несколько раз. Когда пользователь ушёл в браузер оплаты, экран уходит из RESUMED и
+    // блок останавливается; вернулся — перезапускается и подхватывает результат оплаты.
+    LaunchedEffect(pendingPaymentId) {
+        if (pendingPaymentId == null) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            checkingPayment = true
+            var tries = 0
+            while (pendingPaymentId != null && tries < 6) {
+                if (pollPaymentOnce()) break
+                tries++
+                delay(2500)
+            }
+            checkingPayment = false
+        }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -521,18 +567,29 @@ internal fun BoostScreen(onBack: () -> Unit) {
             onPay = {
                 val rid = selectedRideId ?: return@BoostContent
                 val tier = selectedTier ?: return@BoostContent
-                submitting = true; error = null; result = null
+                submitting = true; error = null; result = null; pendingPaymentId = null
                 scope.launch {
                     ApiClient.createBoost(rid, tier)
                         .onSuccess { res ->
                             result = res
-                            if (res.method == "yookassa" && !res.confirmationUrl.isNullOrBlank()) {
+                            if (res.method == "yookassa" && res.status == "pending" && !res.confirmationUrl.isNullOrBlank()) {
+                                // Уходим в браузер ЮKassa; статус проверим на возврате (ON_RESUME) поллингом.
+                                pendingPaymentId = res.paymentId
                                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(res.confirmationUrl))) }
                             }
                             if (res.status == "succeeded") reload()
                         }
                         .onFailure { e -> error = (e as? ApiException)?.message ?: failText }
                     submitting = false
+                }
+            },
+            checkingPayment = checkingPayment,
+            onCheckPayment = {
+                scope.launch {
+                    checkingPayment = true
+                    val paid = pollPaymentOnce()
+                    checkingPayment = false
+                    if (!paid) Toast.makeText(context, notPaidYetMsg, Toast.LENGTH_SHORT).show()
                 }
             },
             resultSlot = { res -> BoostResultCard(res, clipboard) },
@@ -564,6 +621,8 @@ internal fun BoostContent(
     onSelectTier: (String) -> Unit,
     onBoostFree: () -> Unit,
     onPay: () -> Unit,
+    checkingPayment: Boolean = false,
+    onCheckPayment: () -> Unit = {},
     resultSlot: @Composable (BoostResultDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -631,6 +690,31 @@ internal fun BoostContent(
                     )
                 }
                 result?.let { res -> item { resultSlot(res) } }
+                // ЮKassa: платёж создан, но ещё не подтверждён → показываем «проверяем оплату» и
+                // кнопку ручной проверки (авто-поллинг идёт на ON_RESUME, кнопка — если не сработал).
+                result?.let { res ->
+                    if (res.method == "yookassa" && res.status != "succeeded") {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                if (checkingPayment) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen)
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(appText("Проверяем оплату…", "Түләүҙе тикшерәбеҙ…"),
+                                            fontSize = 14.sp, color = CanonMuted)
+                                    }
+                                }
+                                AppButton(
+                                    text = appText("Я оплатил — проверить", "Түләнем — тикшереү"),
+                                    onClick = onCheckPayment,
+                                    style = AppButtonStyle.Secondary,
+                                    icon = Icons.Default.Refresh,
+                                    enabled = !checkingPayment,
+                                )
+                            }
+                        }
+                    }
+                }
                 item {
                     Text(
                         appText("Поднятие не гарантирует бронирование и влияет только на релевантные результаты.", "Күтәреү бронде гарантияламай һәм тик тура килгән һөҙөмтәләргә генә йоғонто яһай."),
@@ -657,8 +741,7 @@ internal fun BoostRideRow(ride: RideDto, selected: Boolean, onClick: () -> Unit)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("${ride.fromCity} → ${ride.toCity}", fontWeight = FontWeight.Bold, color = CanonText)
-                Text(appText("${ride.seatsLeft} мест · ${ride.price} ₽", "${ride.seatsLeft} урын · ${ride.price} ₽"),
-                    fontSize = 13.sp, color = CanonMuted)
+                Text("${seatsText(ride.seatsLeft)} · ${ride.price} ₽", fontSize = 13.sp, color = CanonMuted)
             }
             if (ride.boosted) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

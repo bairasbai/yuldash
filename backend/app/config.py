@@ -3,6 +3,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_JWT_SECRET = "dev-secret-change-me"
 
 
+def _phone_key(phone: str) -> str:
+    """Нормализованный ключ телефона для сравнения (последние 10 цифр, без +/8/пробелов).
+    +79990001122 и 89990001122 → один ключ 9990001122."""
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
 class Settings(BaseSettings):
     """Настройки берутся из .env (см .env.example)."""
     env: str = "dev"
@@ -20,6 +27,10 @@ class Settings(BaseSettings):
     smsdar_password: str = ""           # API-ключ (password). НЕ в git — только в .env
     smsdar_sender: str = ""             # одобренный брендовый отправитель (из sms_senders, напр. Yulbash)
     yandex_geocoder_key: str = ""       # ключ Яндекс.Геокодера НА СЕРВЕРЕ (клиент ходит на /geocode, ключ не в APK)
+    # Отдельные ключи серверных API: ключи продуктов Яндекса не считаем взаимозаменяемыми.
+    # Пусто → безопасный локальный fallback, цена и заказ продолжают работать.
+    yandex_router_key: str = ""          # API Получения деталей маршрута: дороги + текущие/прогнозные пробки
+    yandex_weather_key: str = ""         # API Яндекс Погоды: фактические осадки/ветер/мороз
 
     # --- Авто-проверка водителей (OCR прав) ---
     # Снижает ручную работу: при отправке документов сервер сам читает права и
@@ -38,6 +49,40 @@ class Settings(BaseSettings):
     # отклик (рейтинг→цена) спустя короткую паузу. Работает через systemd-таймер (app/automatch.py).
     automatch_enabled: bool = True           # включить авто-подбор (заявки с приложением НЕ трогает)
     automatch_grace_sec: int = 120           # пауза после первого отклика — дать откликнуться другим, выбрать лучшего
+    # Напоминание оценить поездку: фоновая задача (app/rate_reminder.py, systemd-таймер ~раз в 30 мин)
+    # шлёт двуязычный push «оцените поездку» участникам завершённой брони, кто ещё не оценил (один раз).
+    rate_reminder_enabled: bool = True
+
+    # --- Система «Справедливость» (инциденты + лестница наказаний), см. safety_logic.py ---
+    safety_incidents_per_hour: int = 10      # анти-спам жалобами: не более N инцидентов на заявителя в час
+    safety_strikes_to_limit: int = 2         # страйков → standing=limited (ограничение)
+    safety_strikes_to_suspend: int = 3       # страйков → авто-пауза по лестнице
+    safety_suspend_1_days: int = 3           # лестница пауз §2: 1-я → 3д
+    safety_suspend_2_days: int = 7           # 2-я → 7д
+    safety_suspend_3_days: int = 30          # 3-я и далее → 30д
+    safety_strike_decay_days: int = 60       # страйки «сгорают» за N дней хорошего поведения (§4)
+    safety_reliability_window: int = 30      # «Надёжность» считаем по последним N терминальным броням
+    # SOS-контур (аудит 2026-07-26). Раньше сигнал уходил ОДНИМ сообщением в Telegram и всё:
+    # админ спит — никто не узнает. Теперь: SMS админу + повторный сигнал, если не принят.
+    sos_sms_to_admin: bool = True            # дублировать SOS на телефоны админов (SMS)
+    sos_escalate_after_min: int = 10         # не принят за N минут → повторный сигнал
+    # Фоновый воркер такси (app/taxi_worker.py) — закрывает зависшие заказы и активирует предзаказы.
+    taxi_worker_enabled: bool = True
+    order_stuck_hours: int = 6               # заказ «в пути» дольше N часов → авто-закрытие (телефон сел)
+    order_offer_stale_min: int = 3           # оффер висит дольше N минут без ответа → двигаем дальше
+    order_wait_max_min: int = 20             # сколько максимум ждём машину в очереди «рядом никого»
+    order_retry_every_min: int = 2           # как часто воркер перезапускает поиск для ждущих
+    # Сроки документов водителя (app/doc_check.py): напоминание и снятие допуска к такси.
+    docs_warn_days: int = 14                 # за сколько дней начинать напоминать
+    docs_warn_again_days: int = 3            # второе напоминание — когда осталось совсем мало
+    docs_remind_missing_days: int = 14       # как часто просить одобренного дозаполнить сроки
+    # Предрейсовое подтверждение (580-ФЗ, честный минимум): самочувствие, машина, алкоголь.
+    # ВЫКЛЮЧЕНО ПО УМОЛЧАНИЮ НАМЕРЕННО: старое приложение не умеет подтверждать готовность,
+    # и включённый гейт мгновенно оставил бы без работы ВСЕХ действующих таксистов — они
+    # физически не смогли бы выйти на линию. Включать (PRETRIP_CHECK_REQUIRED=true) после
+    # выката версии приложения с экраном подтверждения. Сам экран и ручки работают всегда.
+    pretrip_check_required: bool = False
+    safety_late_cancel_before_depart_min: int = 60  # отмена в этом окне до выезда (или после) — «поздняя»
 
     # --- Telegram-вход (бот) ---
     telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)
@@ -61,13 +106,228 @@ class Settings(BaseSettings):
     sbp_bank: str = ""                  # банк получателя (напр. Сбербанк)
     sbp_name: str = ""                  # имя получателя как в СБП (напр. Александр А.)
 
+    # --- Комиссия сервиса за поездку (Фаза 3, деньги v1). УТОЧНИТ АЛЕКСАНДР ---
+    # Процент, который платформа удерживает с оплаты поездки. При безналичной оплате
+    # (ЮKassa) в ledger водителя пишутся earn (+вся сумма) и fee (−комиссия). Баланс = earn − fee.
+    # 8% — втрое ниже Яндекса (~24–30%); меняется без пересборки (правится в .env / конфиге).
+    # Финальный процент и оферту утверждает Александр (юр.шляпа). Наличные комиссией не облагаются.
+    service_fee_percent: float = 8.0
+
+    # --- «Сказать рәхмәт» (чаевые водителю). ПО УМОЛЧАНИЮ ВЫКЛЮЧЕНО (юр.моменты) ---
+    # Бесплатное «рәхмәт» (тёплый жест после поездки, БЕЗ денег) работает всегда и флагом НЕ
+    # гейтится. ДЕНЕЖНАЯ часть — «на доверии» (пассажир переводит водителю напрямую по его СБП,
+    # платформа денег НЕ касается). Показ реквизита СБП водителя пассажиру включается только этим
+    # флагом (и только если водитель сам его указал — opt-in). Александр включит, когда решит юр.
+    tips_money_enabled: bool = False
+
+    # --- Выплаты водителям (Модель Б, Фаза 3 v2). ПО УМОЛЧАНИЮ ВЫКЛЮЧЕНО ---
+    # Модель Б: деньги пассажира идут ЧЕРЕЗ платформу (бизнес-ЮKassa Александра), платформа
+    # берёт комиссию, остальное — выплата водителю на карту (ЮKassa Payout API).
+    # Это ГОТОВНОСТЬ: код полный, но режим недоступен, пока Александр не оформит ИП +
+    # бизнес-ЮKassa + ключи выплат и не выставит PAYOUTS_ENABLED=true.
+    # Выключено → эндпоинт вывода отвечает «Выплаты скоро», Модель А (наличные/перевод) работает.
+    payouts_enabled: bool = False
+    yookassa_payout_agent_id: str = ""   # agentId «Выплат» ЮKassa (отдельный продукт). НЕ в git — в .env.
+    yookassa_payout_secret_key: str = "" # секретный ключ выплат ЮKassa (Basic-auth). НЕ в git — в .env.
+    payout_min_kop: int = 10000          # минимальный вывод: 100 ₽ (защита от копеечных выплат/комиссий)
+    payout_max_kop: int = 15_000_000     # максимальный вывод за раз: 150 000 ₽ (защита от опечатки/фрода)
+
+    # --- Комиссия «лесенкой» 3% → 5% → 8% (волна 2, §5 Деньги). Все цифры — конфиг ---
+    # Стаж таксиста считаем от ПЕРВОГО его завершённого (done) быстрого заказа:
+    # первые fee_tier1_days дней → fee_tier1_percent; до fee_tier2_days → fee_tier2_percent;
+    # дальше — service_fee_percent (8%, навсегда). Ниже всех: Яндекс 22–30%.
+    fee_tier1_percent: float = 3.0     # 1-й месяц таксиста
+    fee_tier2_percent: float = 5.0     # 2-й месяц
+    fee_tier1_days: int = 30           # граница 1-й ступени (дней стажа, включительно)
+    fee_tier2_days: int = 60           # граница 2-й ступени (дней стажа, включительно)
+    # Промо запуска «первым водителям — 0% на 3 месяца»: водитель, чья заявка таксиста
+    # одобрена ДО launch_promo_until (ISO-дата, напр. 2026-09-01), платит launch_promo_percent
+    # первые launch_promo_days дней от одобрения. Пустая дата → промо ВЫКЛЮЧЕНО (по умолчанию).
+    launch_promo_percent: float = 0.0
+    launch_promo_until: str = ""       # ISO-дата окончания набора в промо; "" = промо выкл
+    launch_promo_days: int = 90        # сколько дней промо-процент действует для попавшего
+
+    # --- Сурж (честная наценка в час пик, волна 2, §5). Потолок ×1.5, всё прозрачно ДО заказа ---
+    # k считаем по городу заказа: спрос = searching/created заказы за surge_window_min минут
+    # в радиусе surge_radius_km; предложение = живые водители рядом (Redis GEO). Ступени по
+    # спрос/предложение: <1 → 1.0; ≥1 → 1.1; ≥1.5 → 1.2; ≥2 → 1.3; ≥3 → 1.5. Без Redis → 1.0.
+    # На ПОПУТКЕ суржа НЕТ. Статичный Tariff.k остаётся аварийным множителем (по умолчанию 1.0).
+    surge_enabled: bool = True
+    surge_max_k: float = 1.5           # общий потолок: спрос × ночь × погода × дальняя подача
+    surge_window_min: int = 10         # окно спроса, минут
+    surge_radius_km: float = 7.0       # радиус «города заказа», км
+
+    # --- Отмены / ожидание / «пассажир не вышел» (структура как Яндекс, Модель А = страйки) ---
+    # Деньги НЕ двигаем (Модель А «на доверии»): платная отмена/no-show фиксируется на заказе
+    # (cancel_fee_kop = подача) и даёт пассажиру страйк; ≥strike_limit страйков за
+    # strike_window_days → пауза такси-заказов strike_pause_hours. ПОПУТКА не затрагивается.
+    cancel_free_minutes: int = 3       # бесплатная отмена N минут после принятия водителем
+    wait_free_minutes: int = 5         # бесплатное ожидание после «Я на месте», минут
+    wait_fee_rub_per_min: int = 5      # платное ожидание, ₽/мин (Яндекс +9)
+    no_show_extra_minutes: int = 3     # сверх бесплатного ожидания до кнопки «пассажир не вышел»
+    strike_limit: int = 3              # страйков за окно → пауза
+    strike_window_days: int = 7        # окно подсчёта страйков, дней
+    strike_pause_hours: int = 24       # длительность паузы такси-заказов, часов
+
+    # --- Качество: жалобы + лестница наказаний (волна 2, §9). Все цифры — конфиг ---
+    # Честно/прозрачно/анонимно; человек в контуре (разбор у админа). Такси наказываем строго,
+    # ПОПУТКА мягче (пауза — только такси), SOS/безопасность — железно (тяжёлая категория →
+    # мгновенный Telegram админу + авто-пауза такси до разбора).
+    quality_advice_rating: float = 4.8       # 🟡 ниже → мягкий пуш-совет (без наказания)
+    quality_advice_interval_days: int = 7    # дедуп совета: не чаще раза в неделю
+    matcher_low_rating: float = 4.6          # 🟠 ниже → штраф к score в matcher (реже заказы)
+    matcher_penalty_low_rating: float = 1.0  # величина штрафа к score
+    quality_pause_reports: int = 3           # 🔴 resolved-жалоб за окно → авто-пауза такси
+    quality_window_days: int = 30            # окно подсчёта resolved-жалоб, дней
+    quality_pause_hours: int = 72            # длительность авто-паузы такси, часов
+
+    # --- Долг по комиссии за ТАКСИ (Модель А «на доверии», Фаза 3). УТОЧНИТ АЛЕКСАНДР ---
+    # За завершённый такси-заказ (instant) водитель получил деньги напрямую (нал / прямой СБП),
+    # а комиссию 8% ДОЛЖЕН платформе. Раз в неделю водитель переводит долг Александру по СБП и
+    # жмёт «Я оплатил»; Александр подтверждает. Не оплатил в срок → режим ТАКСИ блокируется
+    # (ПОПУТКА — плановые поездки — НЕ блокируется). Реквизиты СБП — из .env, НЕ хардкод.
+    owner_sbp_phone: str = ""              # номер Александра для перевода долга по СБП (из .env)
+    owner_sbp_name: str = ""               # имя получателя как в СБП (напр. «Александр А.»)
+    debt_due_days: int = 7                 # срок оплаты долга с момента начисления (дней)
+    debt_block_threshold_kop: int = 100000  # порог блокировки такси: 1000 ₽ долга (в копейках)
+    # Сколько раз «слово» водителя («Я оплатил») снимает блокировку до подтверждения админом.
+    # Аудит 2026-07-26: без лимита кнопку жали бесконечно — отклонили и нажал снова, комиссию
+    # можно было не платить вообще. Доверяем, но не бесконечно: после N отказов ждём подтверждения.
+    debt_max_declares: int = 2
+    # Компенсация курьеру, если отправитель отменил доставку, когда курьер уже выехал (коп).
+    # Модель А: только фиксируем сумму в заказе, деньги идут мимо платформы («на доверии»).
+    courier_cancel_fee_kop: int = 10000    # 100 ₽
+    # Порог блокировки курьера по неоплаченной комиссии — как у такси (debt_block_threshold_kop).
+    # Раньше блокировки не было вообще: курьер мог возить месяцами и не платить ни рубля.
+    courier_debt_block_threshold_kop: int = 100000   # 1000 ₽
+    # ФИО + госномер + согласие с правилами при регистрации курьера. ВЫКЛЮЧЕНО ПО УМОЛЧАНИЮ:
+    # старое приложение этих полей не шлёт, и включённая проверка мгновенно закрыла бы
+    # регистрацию новых курьеров. Включать (COURIER_IDENTITY_REQUIRED=true) после выката
+    # приложения с расширенной формой. Поля принимаются и сохраняются в любом случае, а модератор
+    # видит пропуски в очереди заявок и может не одобрять «пустую» анкету.
+    courier_identity_required: bool = False
+    # Сервисный сбор платформы за доставку «по пути» (PARCEL_FEES 30/60/120 ₽ в parcels.py).
+    # ВЫКЛЮЧЕН ПО УМОЛЧАНИЮ и это честно, а не забывчивость: пути оплаты у него нет. Попутчик,
+    # который завёз коробку по дороге, — не курьер: кабинета и долга у него нет, выставить счёт
+    # некому. Бабушке-отправителю счёт мы тоже не выставляем. Пока сбор начислялся «в воздух»,
+    # а отчёт админа показывал его как «собрано» — цифра означала деньги, которых нет
+    # (аудит 2026-07-26). Включать (PARCEL_FEE_ENABLED=true) в тот день, когда путь оплаты
+    # появится; тариф уже лежит в PARCEL_FEES и правится там же.
+    parcel_fee_enabled: bool = False
+
+    # --- 8-часовой лимит + отдых водителя (волна 2, §8). Только ТАКСИ-время (попутка не считается) ---
+    # На линии ≥ taxi_shift_limit_hours за местный день → такси-гейт (presence/offer/accept) до
+    # разблокировки: следующий день И ≥ rest_unlock_hour местного И ≥ rest_hours от последнего
+    # heartbeat дня лимита. Активный заказ НЕ рубим — даём довезти. Часовой пояс Уфы UTC+5.
+    taxi_shift_limit_hours: int = 8        # лимит смены такси, часов
+    rest_hours: int = 8                    # минимальный отдых от последнего heartbeat, часов
+    rest_unlock_hour: int = 6              # разблокировка не раньше N:00 местного следующего дня
+    local_tz_offset_hours: int = 5         # локальный пояс (Уфа = UTC+5)
+    workday_step_cap_sec: int = 60         # кэп шага учёта на один heartbeat (редкие пинги не накручивают)
+
+    # --- Гейт такси (волна 2, 580-ФЗ). ВКЛЮЧАЕТ АЛЕКСАНДР после оформления документов ---
+    # Мастер-флаг режима такси. False → такси «Скоро» ВЕЗДЕ (пассажиру и водителю),
+    # ПОПУТКА (плановые Ride/Booking) не затрагивается. True → доступность решает список
+    # городов TaxiCity: таблица пуста → такси включено везде; есть записи → только
+    # перечисленные города (enabled=True). Радиус привязки к городу — taxi_city_radius_km.
+    taxi_enabled: bool = False
+    taxi_city_radius_km: float = 30.0      # ближе N км до известного города → считаем «в городе»
+
+    # --- Профиль «Курьер» (C1). Мастер-флаг режима курьера (как taxi_enabled) ---
+    # False → «Курьер скоро» ВЕЗДЕ (заказ курьера/выход на линию/приём courier-заказов),
+    # доставка «по пути» (M3 poputka) НЕ затрагивается. True → режим включён.
+    # Тарифы/комиссия/потолок наложки правятся в коде роутера (COURIER_* в routers/courier.py).
+    courier_enabled: bool = False
+
+    # --- «Быстрый заказ» (такси-режим, Фаза 2) ---
+    # Тариф считает СЕРВЕР. Клиенту не верим: haversine × road_k → дорожная дистанция.
+    instant_road_k: float = 1.3            # прямая → примерная длина по дорогам
+    instant_avg_speed_kmh: float = 40.0    # средняя скорость для fallback, если Routing API недоступен
+    instant_intercity_km: float = 40.0     # дистанция выше порога → зона «межгород»
+    instant_offer_ttl_sec: int = 20        # сколько водителю думать над оффером (таймер карточки)
+
+    # --- Динамический тариф v2: внешние и локальные сигналы, только на сервере ---
+    # Routing API даёт реальную длину дорог и ETA с пробками; Weather API — фактическую погоду.
+    # Любая ошибка/таймаут/429/пустой ключ → нейтральный фактор и прежний расчёт, заказ не падает.
+    # Спрос, ночь, погода и дальняя подача перемножаются ОДИН раз и вместе ограничены surge_max_k.
+    taxi_external_pricing_enabled: bool = True
+    taxi_external_timeout_sec: float = 1.5
+    taxi_avoid_tolls: bool = True          # заранее выбираем маршрут без платных дорог, если он существует
+    taxi_route_cache_sec: int = 90          # короткий кэш маршрута, координаты округлены до ~100 м
+    taxi_weather_cache_sec: int = 600       # погода меняется медленнее; ключ кэша округлён до ~1 км
+    taxi_pickup_free_min: int = 5           # до этого ETA подача не повышает коэффициент
+    taxi_pickup_full_min: int = 15          # с этого ETA применяется полный pickup-множитель
+    taxi_pickup_max_k: float = 1.12         # дальняя подача максимум +12%
+    taxi_weather_max_k: float = 1.10        # сложная погода максимум +10%
+    presence_ttl_sec: int = 60             # heartbeat координат водителя жив N сек (Redis TTL)
+    # Скоринг кандидатов matcher: чем ближе подача и выше рейтинг — тем выше в очереди.
+    instant_w_dist: float = 1.0            # вес близости подачи (1/дистанция)
+    instant_w_rating: float = 0.4          # вес рейтинга водителя
+    instant_max_offers: int = 8            # предохранитель: максимум офферов на один заказ
+    # Предзаказ «на время» (MVP): горизонт бронирования вперёд. Дальше 7 суток не принимаем.
+    scheduled_max_days: int = 7            # максимум на сколько вперёд можно оформить предзаказ
+    # --- Экран «Мой Юлдаш» (личная статистика попутчика) ---
+    # Коэффициенты — разумная прикидка для оценки экономии и эко-эффекта.
+    # ⚠️ УТОЧНИТ АЛЕКСАНДР (реальный тариф такси в Башкортостане + выброс авто).
+    stats_taxi_rub_per_km: float = 22.0     # ориентир стоимости такси, ₽/км (эконом, город/трасса; уточнит Александр)
+    stats_co2_grams_per_km: float = 170.0   # средний выброс легкового авто, г CO₂/км (уточнит Александр)
+
+    # --- «Справедливая цена»: оценка бензина на маршрут (подсказка цены водителю) ---
+    # Ориентир, уточнит Александр (реальная цена АИ-92/95 и расход конкретного авто).
+    fuel_price_rub_per_liter: float = 55.0       # цена бензина, ₽/литр (ориентир, уточнит Александр)
+    fuel_consumption_l_per_100km: float = 8.0    # расход авто, л/100 км (ориентир, уточнит Александр)
+
+    # --- Force-update (B9b-1): минимальная поддерживаемая версия приложения ---
+    # versionCode клиента < min_app_version_code → клиент показывает блокирующий экран
+    # «Обнови Юлдаш» с кнопкой в стор. 0 = проверка ВЫКЛЮЧЕНА (по умолчанию).
+    # Включается без пересборки: правится в .env на сервере.
+    min_app_version_code: int = 0
+    app_store_url: str = ""            # ссылка на стор (RuStore/Google Play) для кнопки «Обновить»
+
+    # --- Дневная сводка админу в Telegram (B9b-3) ---
+    # Без внешнего cron: первый запрос ПОСЛЕ daily_digest_hour местного времени (Уфа, UTC+5)
+    # запускает отправку; «сегодня уже отправлено» — строка-замок в БД (UNIQUE(day) решает
+    # гонку воркеров) + память процесса, чтобы не дёргать БД на каждом запросе.
+    daily_digest_enabled: bool = True
+    daily_digest_hour: int = 21        # местный час, после которого шлём сводку за день
+
+    # --- Тестовый аккаунт для модерации сторов (B9b-4) ---
+    # Google Play / RuStore просят «тестовый логин»: ревьюер входит review_phone + review_code
+    # (реальная SMS НЕ шлётся, любой другой код для этого номера НЕ работает). Аккаунт помечен
+    # is_reviewer — обычный пассажир без прав. Работает ТОЛЬКО когда заданы ОБА значения.
+    # Секреты — только в .env (НЕ в git); код нигде не логируем и не отдаём в ответах.
+    review_phone: str = ""
+    review_code: str = ""
+
+    # --- «Скидки по пути» (M1: партнёрский слой + купоны) ---
+    # Мастер-флаг раздела. False → витрина купонов и кабинет партнёра отдают «скоро»/пусто.
+    coupons_enabled: bool = True
+
     # --- Redis (масштаб) ---
     # Один URL на всё: общий rate-limit между воркерами + WS-чат pub/sub между процессами.
     # Пусто → rate-limit in-memory на воркер, WS — локальный режим (один воркер). Пример: redis://127.0.0.1:6379/0
     redis_url: str = ""
 
+    # --- Пул соединений к БД (только Postgres). Формула безопасности:
+    #   (db_pool_size + db_max_overflow) × воркеров ≤ Postgres max_connections − резерв.
+    # Прод: 5 воркеров × (8+7)=15 = 75 < 100 (дефолт PG). Меняешь число воркеров — пересчитай тут.
+    # Дальше по масштабу — PgBouncer (transaction pooling): пул перестаёт быть узким местом.
+    db_pool_size: int = 8
+    db_max_overflow: int = 7
+
+    # --- Наблюдаемость (Sentry + алерты) ---
+    # Sentry: сбор ошибок/трейсбеков. Пусто → полный no-op (ничего не инициализируется и не шлётся).
+    # DSN — секрет, только из env, НЕ в git. Пример: https://<key>@o0.ingest.sentry.io/0
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0   # доля трейсов производительности (0 → только ошибки, дёшево)
+    # Алерт в Telegram при всплеске серверных ошибок (5xx). Простой счётчик в окне + порог.
+    error_alert_threshold: int = 10          # сколько 5xx в окне, чтобы отправить один алерт
+    error_alert_window_sec: int = 300        # окно наблюдения (сек)
+    error_alert_cooldown_sec: int = 900      # не чаще одного алерта раз в N сек (анти-спам)
+
     # --- Прод-параметры ---
     media_base_url: str = "https://yulbash.ru"   # база для публичных URL медиа (фото/голос)
+    public_base_url: str = "https://yulbash.ru"  # база публичных ссылок (live-ссылка /t/{token} в SMS близкому)
     cors_origins: str = "*"                       # список origin через запятую; в проде сузить
     seed_demo: bool = True                        # демо-поездки в пустой БД (в проде выкл.)
 
@@ -80,15 +340,49 @@ class Settings(BaseSettings):
     allowed_image_ext: str = "jpg,jpeg,png,webp"  # разрешённые расширения фото
     allowed_audio_ext: str = "m4a,mp3,ogg,wav,aac"  # разрешённые расширения аудио
 
+    # --- Хранилище медиа (фото/документы/голос): диск сервера или облако S3 ---
+    # Пусто → авто: заданы бакет+ключи S3 → облако; иначе локальный диск (как раньше, полный фолбэк).
+    # Явно: STORAGE_BACKEND=local|s3. Секреты S3 (ключи/бакет/endpoint) — только .env, НЕ в git.
+    storage_backend: str = ""
+    s3_endpoint_url: str = ""       # endpoint S3-совместимого хранилища (Timeweb/VK Cloud/Selectel). Пусто → AWS.
+    s3_region: str = ""             # регион бакета (напр. ru-1). Опционально.
+    s3_bucket: str = ""             # имя бакета. НЕ в git — в .env.
+    s3_access_key: str = ""         # Access Key ID. НЕ в git — в .env.
+    s3_secret_key: str = ""         # Secret Access Key. НЕ в git — в .env.
+    s3_signed_url_ttl: int = 3600   # TTL подписанного (presigned) URL, сек (по умолч. 1 час)
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
     def is_prod(self) -> bool:
-        return self.env.lower() in ("prod", "production")
+        # V10: strip() — иначе ENV="prod " (случайный пробел) → is_prod=False → все прод-гварды
+        # молча отключаются (fail-open). Пробел/регистр не должны разоружать защиту.
+        return self.env.strip().lower() in ("prod", "production")
+
+    @property
+    def payouts_ready(self) -> bool:
+        """Реальные выплаты доступны? В dev достаточно флага (mock-выплата для теста/готовности);
+        в проде обязателен ключ выплат ЮKassa — иначе «нажали кнопку, а денег нет»."""
+        if not self.payouts_enabled:
+            return False
+        if self.is_prod:
+            return bool(self.yookassa_payout_agent_id and self.yookassa_payout_secret_key)
+        return True
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()] or ["*"]
+
+    @property
+    def storage_is_s3(self) -> bool:
+        """Использовать облако S3? Явный STORAGE_BACKEND главнее; иначе авто по наличию ключей."""
+        mode = (self.storage_backend or "").strip().lower()
+        if mode == "s3":
+            return True
+        if mode in ("local", "disk", "file"):
+            return False
+        # авто: включаем S3, только если задан минимум для работы (бакет + оба ключа)
+        return bool(self.s3_bucket and self.s3_access_key and self.s3_secret_key)
 
     @property
     def image_ext_set(self) -> set[str]:
@@ -104,11 +398,22 @@ class Settings(BaseSettings):
 
     def validate_production(self) -> None:
         """Запрещаем запускать прод с небезопасными значениями по умолчанию."""
+        # V10: fail-safe — совсем нераспознанный ENV (опечатка «production1», мусор) не должен
+        # молча уводить в dev-режим и снимать прод-гварды. Требуем явный известный ENV.
+        if self.env.strip().lower() not in ("dev", "development", "prod", "production", "test"):
+            raise RuntimeError(f"ENV нераспознан: {self.env!r} — задай dev или prod")
         if not self.is_prod:
             return
         problems: list[str] = []
-        if self.jwt_secret == DEFAULT_JWT_SECRET or len(self.jwt_secret) < 16:
-            problems.append("JWT_SECRET должен быть задан и быть длинным (>=16 символов)")
+        # Ловим не только точный дефолт, но и любой заведомо-dev секрет (напр. фолбэк из
+        # docker-compose `dev-secret-...-1234` — он длиннее 16 и раньше проскакивал гвард).
+        weak_secret = (
+            self.jwt_secret == DEFAULT_JWT_SECRET
+            or self.jwt_secret.startswith("dev-secret")
+            or len(self.jwt_secret) < 16
+        )
+        if weak_secret:
+            problems.append("JWT_SECRET должен быть задан, длинным (>=16) и не dev-дефолтом")
         # SMS — НЕобязателен: основной вход через мессенджеры (Telegram и т.п.).
         # SMS заморожен (sms_provider=mock) — это допустимо в проде. Оживить: SMS_PROVIDER=smsru + ключ.
         if self.sms_provider == "smsru" and not self.sms_ru_api_id:
@@ -120,14 +425,31 @@ class Settings(BaseSettings):
             problems.append("TELEGRAM_WEBHOOK_SECRET обязателен при заданном TELEGRAM_BOT_TOKEN")
         if self.cors_origins.strip() == "*":
             problems.append("CORS_ORIGINS не должен быть '*' в проде")
+        # seed_demo в проде насыпает фейковых водителей (+7000000000X) как реальные аккаунты в пустую БД.
+        if self.seed_demo:
+            problems.append("SEED_DEMO должен быть выключен в проде (фейковые водители в реальной БД)")
         # mock-платежи в проде = «оплата» без денег. Включён реальный приём → ключи/реквизиты обязательны.
         if self.payments_provider == "yookassa" and not (self.yookassa_shop_id and self.yookassa_secret_key):
             problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")
         if self.payments_provider == "sbp_manual" and not self.sbp_phone:
             problems.append("SBP_PHONE обязателен при PAYMENTS_PROVIDER=sbp_manual")
+        # Платёжный номер СБП раздаётся в ответе оплаты ВСЕМ вошедшим, а автоадмин выдаётся
+        # по номеру из ADMIN_PHONES → совпадение = раскрытый номер становится ключом к роли admin.
+        if self.payments_provider == "sbp_manual" and self.sbp_phone:
+            admin_keys = {_phone_key(p) for p in self.admin_phones.split(",") if p.strip()}
+            if _phone_key(self.sbp_phone) in admin_keys:
+                problems.append("SBP_PHONE не должен совпадать с ADMIN_PHONES (раскрытый платёжный номер = ключ к админке)")
+        # Выплаты включены в проде без ключей выплат ЮKassa = «нажали вывод, а денег нет».
+        if self.payouts_enabled and not (self.yookassa_payout_agent_id and self.yookassa_payout_secret_key):
+            problems.append("YOOKASSA_PAYOUT_AGENT_ID и YOOKASSA_PAYOUT_SECRET_KEY обязательны при PAYOUTS_ENABLED=true")
         # Авто-одобрять водителей без OCR нельзя — это пустит непроверенных. Нужен ключ Vision.
         if self.driver_autoapprove_enabled and not self.yandex_vision_key:
             problems.append("YANDEX_VISION_KEY обязателен при DRIVER_AUTOAPPROVE_ENABLED (нельзя авто-одобрять без OCR)")
+        # S3 включён явно, но без бакета/ключей — медиа некуда писать. Требуем полный набор.
+        if (self.storage_backend or "").strip().lower() == "s3" and not (
+            self.s3_bucket and self.s3_access_key and self.s3_secret_key
+        ):
+            problems.append("S3_BUCKET, S3_ACCESS_KEY и S3_SECRET_KEY обязательны при STORAGE_BACKEND=s3")
         if self.database_url.startswith("sqlite"):
             problems.append("DATABASE_URL не должен быть sqlite в проде")
         media_base = self.media_base_url.lower()

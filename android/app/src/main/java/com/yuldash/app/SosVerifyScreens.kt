@@ -232,7 +232,6 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -252,6 +251,21 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+// Категории сигнала «своим» — ровно те, что принимает сервер (Literal в /sos):
+// medical | breakdown | other. Больше не придумываем: неизвестную строку сервер отвергнет 422.
+internal const val SOS_CATEGORY_MEDICAL = "medical"
+internal const val SOS_CATEGORY_BREAKDOWN = "breakdown"
+internal const val SOS_CATEGORY_OTHER = "other"
+
+/** Один вариант «что случилось» для сигнала поддержке и близким. */
+internal data class SosCategoryUi(val key: String, val icon: ImageVector, val ru: String, val ba: String)
+
+internal val sosCategories = listOf(
+    SosCategoryUi(SOS_CATEGORY_MEDICAL, Icons.Default.LocalHospital, "Плохо человеку", "Кешегә насар"),
+    SosCategoryUi(SOS_CATEGORY_BREAKDOWN, Icons.Default.DirectionsCar, "Машина сломалась", "Машина ватылған"),
+    SosCategoryUi(SOS_CATEGORY_OTHER, Icons.Default.QuestionMark, "Другое", "Башҡа"),
+)
+
 // Описание одной экстренной службы для ползунков.
 internal data class SosService(
     val key: String,
@@ -262,7 +276,7 @@ internal data class SosService(
 )
 
 @Composable
-internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
+internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit, orderId: Int? = null) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -276,6 +290,9 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
         )
     }
     var description by remember { mutableStateOf("") }
+    // Тип сигнала «своим». Раньше клиент ВСЕГДА слал "other" — поле категории на сервере было,
+    // но никогда не заполнялось, и дежурный не понимал, скорую вызывать или эвакуатор.
+    var category by remember { mutableStateOf(SOS_CATEGORY_OTHER) }
 
     // Строки для Toast (вне Composable-контекста лямбд) — считаем заранее.
     val tCopied = appText("Скопировано", "Күсерелде")
@@ -331,7 +348,7 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
         else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
-    val coordsText = if (sosLat != null && sosLng != null) String.format("%.5f, %.5f", sosLat, sosLng) else null
+    val coordsText = if (sosLat != null && sosLng != null) String.format(java.util.Locale.US, "%.5f, %.5f", sosLat, sosLng) else null
 
     fun dictText(): String = buildString {
         if (description.isNotBlank()) append(description.trim())
@@ -369,7 +386,8 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
             if (coordsText != null) append("Координаты: $coordsText (https://yandex.ru/maps/?pt=$sosLng,$sosLat&z=17)")
         }.trim().ifBlank { "SOS" }
         scope.launch {
-            val r = ApiClient.sos("other", note)   // ждём сервер, НЕ fire-and-forget (кнопка безопасности)
+            // Ждём сервер, НЕ fire-and-forget (кнопка безопасности). orderId — контекст такси-заказа (B7b-2).
+            val r = ApiClient.sos(category, note, orderId)
             sending = false
             if (r.isSuccess) {
                 sent = true
@@ -385,6 +403,8 @@ internal fun SosScreen(onBack: () -> Unit, onLoginRequired: () -> Unit) {
         services = services,
         description = description,
         onDescriptionChange = { description = it },
+        category = category,
+        onCategoryChange = { category = it },
         coordsText = coordsText,
         locating = locating,
         loggedIn = loggedIn,
@@ -411,6 +431,10 @@ internal fun SosContent(
     services: List<SosService>,
     description: String,
     onDescriptionChange: (String) -> Unit,
+    // Тип сигнала «своим» (значения — как у сервера: medical | breakdown | other).
+    // Значения по умолчанию — чтобы старые вызовы/тесты собирались без правок.
+    category: String = SOS_CATEGORY_OTHER,
+    onCategoryChange: (String) -> Unit = {},
     coordsText: String?,
     locating: Boolean,
     loggedIn: Boolean,
@@ -484,7 +508,10 @@ internal fun SosContent(
                             label = svc.label.text(),
                             number = svc.number,
                             icon = svc.icon,
-                            onClick = { onDial(svc.number) }
+                            // Позвонил в скорую → сигнал «своим» уже помечен как медицинский.
+                            // Человеку в беде не до выбора категорий — угадываем за него, но видимо
+                            // (чип ниже подсветится, можно переключить).
+                            onClick = { onCategoryChange(svc.sosCategory); onDial(svc.number) }
                         )
                     }
                 }
@@ -558,11 +585,28 @@ internal fun SosContent(
                     )
                 }
             }
+            // Тип сигнала: дежурный сразу видит, скорую звать или эвакуатор. Тач-цель 48dp (§4.5) —
+            // в панике палец не целится. Горизонтальный скролл: башкирские подписи длиннее русских.
+            item {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    sosCategories.forEach { c ->
+                        NearbyFilterChip(
+                            c.icon, appText(c.ru, c.ba), category == c.key,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { onCategoryChange(c.key) }
+                    }
+                }
+            }
             if (sent) {
                 item {
                     InfoCard(
-                        title = appText("Уведомление отправлено", "Хәбәр ебәрелде"),
-                        text = appText("Доверенные контакты получат SMS, поддержка увидит сигнал с координатами.", "Ышаныслы контакттар SMS алыр, ярҙам координаталар менән сигналды күрер."),
+                        title = appText("Сигнал отправлен", "Сигнал ебәрелде"),
+                        // Честно: сигнал поддержке (Telegram) уходит всегда; SMS близким зависит от оператора и
+                        // при mock-провайдере не доходит. В экстренной ситуации не обещаем SMS — подсказываем позвонить самому.
+                        text = appText("Поддержка Юлдаш получила сигнал с твоими координатами. Не жди — если можешь, позвони 112 и близким сам.", "Юлдаш ярҙамы координаталарың менән сигнал алды. Көтмә — мөмкин булһа, 112-гә һәм яҡындарыңа үҙең шылтырат."),
                         icon = Icons.Default.Sos
                     )
                 }
@@ -665,21 +709,27 @@ internal fun VerifyDriverScreen(onBack: () -> Unit, onSelectTab: (HomeTab) -> Un
     // Строки для Toast (вне Composable-контекста лямбд) — считаем заранее.
     val tUploadFail = appText("Не удалось загрузить фото, попробуй ещё раз", "Фотоны йөкләп булманы, тағы ҡабатла")
     val tSubmitFail = appText("Не получилось отправить. Проверь сеть и повтори", "Ебәреп булманы. Сетте тикшереп ҡабатла")
+    val tStatusFail = appText("Не удалось загрузить твой статус водителя. Проверь сеть.", "Водитель статусыңды йөкләп булманы. Сетте тикшер.")
 
+    // При сетевом сбое честно предупреждаем (не молчим и не показываем пустую форму как
+    // «документы не отправлены», если статус на сервере другой). Повтор — переоткрытием экрана.
     LaunchedEffect(Unit) {
-        ApiClient.getDriverStatus().onSuccess { s ->
-            docsStatus = s.docsStatus
-            verified = s.verified
-            autocheckResult = s.autocheckResult
-            autocheckData = s.autocheckData
-            if (s.carMake.isNotBlank()) make = s.carMake
-            if (s.carModel.isNotBlank()) model = s.carModel
-            if (s.carColor.isNotBlank()) carColor = s.carColor
-            if (s.carPlate.isNotBlank()) plate = s.carPlate
-            if (s.seats > 0) seats = s.seats.toString()
-            if (s.licenseUrl.isNotBlank()) licenseUrl = s.licenseUrl
-            if (s.carPhotoUrl.isNotBlank()) carPhotoUrl = s.carPhotoUrl
-        }
+        ApiClient.getDriverStatus()
+            .onSuccess { s ->
+                docsStatus = s.docsStatus
+                verified = s.verified
+                autocheckResult = s.autocheckResult
+                autocheckData = s.autocheckData
+                if (s.carMake.isNotBlank()) make = s.carMake
+                if (s.carModel.isNotBlank()) model = s.carModel
+                if (s.carColor.isNotBlank()) carColor = s.carColor
+                if (s.carPlate.isNotBlank()) plate = s.carPlate
+                if (s.seats > 0) seats = s.seats.toString()
+                if (s.licenseUrl.isNotBlank()) licenseUrl = s.licenseUrl
+                if (s.carPhotoUrl.isNotBlank()) carPhotoUrl = s.carPhotoUrl
+            }
+            // 401 (не вошёл) — норм, показываем чистую форму. Иначе сеть упала → предупреждаем.
+            .onFailure { e -> if ((e as? com.yuldash.app.data.ApiException)?.status != 401) Toast.makeText(context, tStatusFail, Toast.LENGTH_LONG).show() }
     }
     val pickLicense = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {

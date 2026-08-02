@@ -24,6 +24,8 @@ services:
     environment:
       ENV: ${ENV:-dev}
       DATABASE_URL: postgresql://yuldash:${POSTGRES_PASSWORD:-yuldash}@db:5432/yuldash
+      # Фолбэк — только для dev. При ENV=prod validate_production() отвергает любой "dev-secret*"
+      # (даже длинный) → прод не поднимется без реального JWT_SECRET из .env.
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-please-1234}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       SEED_DEMO: ${SEED_DEMO:-true}

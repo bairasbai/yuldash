@@ -227,7 +227,6 @@ import com.yandex.mapkit.map.CameraListener
 import com.yandex.mapkit.map.CameraUpdateReason
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.NearMe
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
@@ -246,11 +245,6 @@ import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-internal val demoTrustedContacts = listOf(
-    TrustedContact("Айгуль", "Дочь", "+7 927 111-22-33", true, relationBa = "Ҡыҙы"),
-    TrustedContact("Рамиль", "Сосед", "+7 927 444-55-66", false, relationBa = "Күрше")
-)
 
 internal val demoFrequentTrips = listOf(
     FrequentTrip("В больницу", "Больницаға", "Баймаҡ", "Сибай", "завтра утром", "иртәгә иртән", "hospital"),
@@ -454,6 +448,7 @@ internal val demoRides = listOf(
         time = "Завтра, 06:00",
         timeBa = "Иртәгә, 06:00",
         driver = "Айгуль",
+        driverIsWoman = true,   // F9: демо женщины-водителя (бейдж «за рулём женщина» в офлайне)
         car = "Hyundai Solaris, серебро",
         carBa = "Hyundai Solaris, көмөш төҫ",
         price = 1400,

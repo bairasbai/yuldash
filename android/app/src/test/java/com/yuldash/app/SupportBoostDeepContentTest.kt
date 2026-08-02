@@ -189,7 +189,7 @@ class SupportBoostDeepContentTest {
         }
         composeRule.onNodeWithText("Какую поездку поднять").assertIsDisplayed()
         composeRule.onNodeWithText("Уфа → Казань").assertIsDisplayed()
-        composeRule.onNodeWithText("3 мест · 500 ₽").assertIsDisplayed()
+        composeRule.onNodeWithText("3 места · 500 ₽").assertIsDisplayed()
         composeRule.onNodeWithText("Быстрый подъём").assertIsDisplayed()
         composeRule.onNodeWithText("49 ₽").assertIsDisplayed()
     }
