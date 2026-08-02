@@ -12,6 +12,7 @@ import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
@@ -269,7 +270,9 @@ class ProfileDeep3ContentTest {
             .performScrollToNode(hasText("Вы поставили 4 звезды"))
         composeRule.onNodeWithText("Вы поставили 4 звезды").assertIsDisplayed()
         composeRule.onNodeWithText("Отправить оценку").assertDoesNotExist()
-        composeRule.onNodeWithText("Изменить").assertIsDisplayed()
+        // «Изменить» матчится дважды — на самой кнопке и на её надписи (то же удвоение узлов,
+        // что у тумблера). Проверяем, что кнопка на экране есть.
+        composeRule.onAllNodesWithText("Изменить").onFirst().assertIsDisplayed()
     }
 
     @Test

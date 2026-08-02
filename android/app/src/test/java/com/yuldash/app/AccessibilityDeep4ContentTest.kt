@@ -255,8 +255,10 @@ class AccessibilityDeep4ContentTest {
     @Test
     fun passenger_conditionsSection_showsTitleAndToggleLabels() {
         composeRule.setContent { PassengerContent() }
+        // Отдельного заголовка «Условия поездки» больше нет — блок свернули под «Дополнительно»,
+        // а что внутри, перечислено в его подписи. Проверяем подпись по вхождению и сами тумблеры.
+        composeRule.onNodeWithText("Условия поездки", substring = true).assertIsDisplayed()
         expandExtras()
-        composeRule.onNodeWithText("Условия поездки").assertIsDisplayed()
         composeRule.onNodeWithText("Только женщины").assertIsDisplayed()
         composeRule.onNodeWithText("Детское кресло").assertIsDisplayed()
         composeRule.onNodeWithText("Еду с животным").assertIsDisplayed()
@@ -268,8 +270,8 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent {
             PassengerContent(language = AppLanguage.Ba, selectedCategoryText = "Ғәҙәти")
         }
+        composeRule.onNodeWithText("Сәфәр шарттары", substring = true).assertIsDisplayed()
         expandExtras(ba = true)
-        composeRule.onNodeWithText("Сәфәр шарттары").assertIsDisplayed()
         composeRule.onNodeWithText("Тик ҡатын-ҡыҙ").assertIsDisplayed()
     }
 
