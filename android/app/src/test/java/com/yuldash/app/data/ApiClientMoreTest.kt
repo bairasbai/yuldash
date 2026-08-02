@@ -223,22 +223,31 @@ class ApiClientMoreTest {
     fun getNotifications_parsesTitleAndText() = runBlocking {
         server.enqueue(
             json(
-                """{"items":[{"title":"Новое сообщение","text":"Марат: еду"},
-                   {"title":"Бронь","text":"Место подтверждено"}]}""",
+                """{"unread":1,"items":[
+                     {"id":1,"type":"message","title_ru":"Новое сообщение","title_ba":"Яңы хәбәр",
+                      "body_ru":"Марат: еду","body_ba":"Марат: барам","ref_kind":"booking","ref_id":7,
+                      "read":false,"created_at":"2026-08-01T10:00:00"},
+                     {"id":2,"type":"booking","title_ru":"Бронь","title_ba":"Бронь",
+                      "body_ru":"Место подтверждено","body_ba":"Урын раҫланды","ref_kind":"","ref_id":null,
+                      "read":true,"created_at":"2026-08-01T09:00:00"}]}""",
             ),
         )
-        val list = ApiClient.getNotifications().getOrThrow()
-        assertEquals(2, list.size)
-        assertEquals("Новое сообщение", list[0].title)
-        assertEquals("Марат: еду", list[0].text)
-        assertEquals("Бронь", list[1].title)
+        // Лента давно приходит объектом NotifFeed (список + счётчик непрочитанного), а тексты
+        // разделены по языкам (title_ru/title_ba). Тест звал старую плоскую форму.
+        val feed = ApiClient.getNotifications().getOrThrow()
+        assertEquals(2, feed.items.size)
+        assertEquals("Новое сообщение", feed.items[0].titleRu)
+        assertEquals("Марат: еду", feed.items[0].bodyRu)
+        assertEquals("Бронь", feed.items[1].titleRu)
+        assertEquals(1, feed.unread)
+        assertEquals(false, feed.items[0].read)
         assertEquals("/notifications", server.takeRequest().path)
     }
 
     @Test
     fun getNotifications_emptyItems_returnsEmptyList() = runBlocking {
-        server.enqueue(json("""{"items":[]}"""))
-        assertTrue(ApiClient.getNotifications().getOrThrow().isEmpty())
+        server.enqueue(json("""{"unread":0,"items":[]}"""))
+        assertTrue(ApiClient.getNotifications().getOrThrow().items.isEmpty())
     }
 
     // ======================================================================

@@ -51,6 +51,9 @@ class CreateRideFormContentTest {
                 pickup = "", pinned = false,
                 womenOnly = false, childSeat = false, petsAllowed = false,
                 baggage = false, airConditioner = false, smoking = false,
+                // «Только для своих», «тихая поездка» и промежуточные остановки — параметры
+                // появились в форме позже, тесты про них не знали и перестали компилироваться.
+                onlyTrusted = false, quiet = false, waypoints = emptyList(),
                 priceHint = 0, loading = loading, error = error,
                 onFromChange = {}, onToChange = {}, onSeatsChange = {}, onPriceChange = {},
                 onCommentChange = {}, onSelectType = onSelectType, onSelectRecurrence = {},
@@ -58,6 +61,7 @@ class CreateRideFormContentTest {
                 onOpenPicker = {}, onOpenDatePicker = {}, onUsePriceHint = {},
                 onWomenOnly = {}, onChildSeat = {}, onPetsAllowed = {}, onBaggage = {},
                 onAirConditioner = {}, onSmoking = {},
+                onOnlyTrusted = {}, onQuiet = {}, onWaypointsChange = {},
                 onPublish = onPublish, onCancel = {},
             )
         }

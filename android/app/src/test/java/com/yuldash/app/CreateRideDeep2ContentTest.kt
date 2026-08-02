@@ -91,6 +91,9 @@ class CreateRideDeep2ContentTest {
                 pickup = pickup, pinned = pinned,
                 womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
                 baggage = baggage, airConditioner = airConditioner, smoking = smoking,
+                // «Только для своих», «тихая поездка» и промежуточные остановки — параметры
+                // появились в форме позже, тесты про них не знали и перестали компилироваться.
+                onlyTrusted = false, quiet = false, waypoints = emptyList(),
                 priceHint = 0, loading = loading, error = error,
                 onFromChange = {}, onToChange = {}, onSeatsChange = {}, onPriceChange = {},
                 onCommentChange = {}, onSelectType = {}, onSelectRecurrence = {},
@@ -99,6 +102,7 @@ class CreateRideDeep2ContentTest {
                 onOpenDatePicker = {}, onUsePriceHint = {},
                 onWomenOnly = onWomenOnly, onChildSeat = onChildSeat, onPetsAllowed = onPetsAllowed,
                 onBaggage = onBaggage, onAirConditioner = onAirConditioner, onSmoking = onSmoking,
+                onOnlyTrusted = {}, onQuiet = {}, onWaypointsChange = {},
                 onPublish = onPublish, onCancel = onCancel,
             )
         }
