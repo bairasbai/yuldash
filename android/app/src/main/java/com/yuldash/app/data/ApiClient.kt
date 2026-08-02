@@ -1323,6 +1323,7 @@ object ApiClient {
                     passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
                     route = o.optString("route"),
                     status = o.optString("status"),
+                    myStars = o.optInt("my_stars"),
                 )
             }
         }
@@ -4415,6 +4416,9 @@ data class DriverBookingDto(
     val passengerRating: Double?,
     val route: String,
     val status: String,
+    // Сколько звёзд водитель уже поставил по этой брони: 0 = ещё не оценивал.
+    // Без этого после перезагрузки экрана звёзды снова были пустые, и человек оценивал повторно.
+    val myStars: Int = 0,
 )
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */

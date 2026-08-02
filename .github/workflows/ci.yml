@@ -118,6 +118,15 @@ jobs:
         # безопасные дефолты (пустые ключи, push выключен), так что сборка проходит без секретов.
         run: chmod +x ./gradlew && ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
+      # Compose-тесты экранов (app/src/test) — их не компилирует ни assembleDebug, ни локальная
+      # сборка Александра, поэтому «уехавшая» сигнатура в тесте до сих пор никем не ловилась.
+      # ПОКА НЕ БЛОКИРУЮЩИЙ: в CI эти тесты не гонялись ни разу, их состояние неизвестно, и
+      # ронять релизный PR неизвестностью нельзя. Как увидим стабильно зелёный прогон —
+      # снять continue-on-error и сделать блокирующим (как сделали с android-build).
+      - name: Unit-тесты экранов (пока не блокируют)
+        continue-on-error: true
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
       # Релизная сборка с R8 (minify+shrink): ловит «в debug работало, в release упало» —
       # вырезанные R8 классы (рефлексия/JSON/MapKit). Без keystore → неподписанный APK, для проверки достаточно.
       - name: Build release (R8 minify check)

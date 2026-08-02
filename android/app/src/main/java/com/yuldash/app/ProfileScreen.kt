@@ -1417,11 +1417,20 @@ internal fun DriverCabinetScreen(
                 }
                 goOnlineConfirmed()
             },
-            onRate = { bookingId, n ->
+            onRate = { bookingId, n, onDone ->
                 rateScope.launch {
                     ApiClient.rateBooking(bookingId, n)
-                        .onSuccess { Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show() }
-                        .onFailure { Toast.makeText(ctx, rateFailMsg, Toast.LENGTH_SHORT).show() }
+                        .onSuccess {
+                            Toast.makeText(ctx, thanksMsg, Toast.LENGTH_SHORT).show()
+                            onDone(true)
+                            // Перечитываем список: сервер вернёт my_stars, и карточка покажет
+                            // «Вы поставили ★N» вместо пустых звёзд после любой перезагрузки.
+                            bookingsReload++
+                        }
+                        .onFailure {
+                            Toast.makeText(ctx, rateFailMsg, Toast.LENGTH_SHORT).show()
+                            onDone(false)
+                        }
                 }
             },
             onCreateRide = onCreateRide,
@@ -2104,6 +2113,28 @@ internal fun DriverDemandSection(online: Boolean) {
     }
 }
 
+/** Шапка карточки пассажира в кабинете водителя: буква-аватар, имя, маршрут, его рейтинг. */
+@Composable
+private fun PassengerRow(b: com.yuldash.app.data.DriverBookingDto) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
+            Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(b.passengerName, fontWeight = FontWeight.Bold, color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (b.route.isNotBlank()) {
+                Text(b.route, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        b.passengerRating?.let { r ->
+            Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(3.dp))
+            Text(String.format(java.util.Locale.US, "%.1f", r), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CanonText)
+        }
+    }
+}
+
 /**
  * Чистый рендер кабинета водителя: тумблер «на линии», метрики (маршруты/свободно/рейтинг),
  * пусто-заглушка или список опубликованных маршрутов, блок «оцените пассажиров» и нижние действия.
@@ -2120,7 +2151,9 @@ internal fun DriverCabinetContent(
     driverBookings: List<com.yuldash.app.data.DriverBookingDto>,
     ratingText: String,
     onToggleOnline: (Boolean) -> Unit,
-    onRate: (Int, Int) -> Unit,
+    // (bookingId, звёзды, обратный вызов «ушло/не ушло») — карточка должна знать исход,
+    // иначе после сбоя сети на экране остаётся оценка, которой на сервере нет.
+    onRate: (Int, Int, (Boolean) -> Unit) -> Unit,
     isWomanDriver: Boolean = false,                       // F9: opt-in «женщина за рулём»
     onToggleWoman: (Boolean) -> Unit = {},
     onCreateRide: () -> Unit,
@@ -2377,7 +2410,34 @@ internal fun DriverCabinetContent(
                 }
             }
         }
-        if (driverBookings.isNotEmpty()) {
+        // Едут прямо сейчас: подтверждённые и уже в пути. Оценивать их нельзя (поездка не
+        // состоялась — сервер вернёт 409), а вот «пассажир не вышел» нужно именно тут.
+        val ridingBookings = driverBookings.filter { it.status == "confirmed" || it.status == "onboard" }
+        if (ridingBookings.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    appText("Едут с тобой", "Һинең менән баралар"),
+                    appText(
+                        "Поездка ещё не закончилась. Оценить сможешь, когда завершишь рейс.",
+                        "Сәфәр әле тамамланманы. Рейсты тамамлағас баһалай алаһың.",
+                    ),
+                )
+            }
+            items(ridingBookings, key = { "ride-${it.bookingId}" }) { b ->
+                Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PassengerRow(b)
+                        // «Не явился» — пассажир не пришёл на посадку.
+                        NoShowButton(bookingId = b.bookingId)
+                    }
+                }
+            }
+        }
+        // Оценивать можно ТОЛЬКО завершённые поездки: раньше в списке висели брони, которые
+        // ещё не состоялись, и тап по звезде отвечал «Не получилось оценить» — сервер их
+        // не принимает (иначе рейтинг можно накрутить, не съездив).
+        val ratableBookings = driverBookings.filter { it.status == "done" }
+        if (ratableBookings.isNotEmpty()) {
             item {
                 SectionHeader(
                     appText("Пассажиры — оцените после поездки", "Пассажирҙар — сәфәрҙән һуң баһалағыҙ"),
@@ -2387,28 +2447,18 @@ internal fun DriverCabinetContent(
                     ),
                 )
             }
-            items(driverBookings, key = { it.bookingId }) { b ->
-                var stars by remember(b.bookingId) { mutableStateOf(0) }
+            items(ratableBookings, key = { it.bookingId }) { b ->
+                // Оценка ставится в ДВА шага. Раньше первое касание сразу уходило на сервер:
+                // промахнулся пальцем по первой звезде — человеку упал единицей рейтинг,
+                // и вернуть было нечем. Теперь звёзды выбираешь, потом подтверждаешь.
+                var stars by remember(b.bookingId, b.myStars) { mutableStateOf(b.myStars) }
+                var editing by remember(b.bookingId, b.myStars) { mutableStateOf(b.myStars == 0) }
+                var sending by remember(b.bookingId, b.myStars) { mutableStateOf(false) }
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PassengerRow(b)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-                                Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Black, color = CanonGreen2)
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(b.passengerName, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (b.route.isNotBlank()) Text(b.route, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            b.passengerRating?.let {
-                                Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(3.dp))
-                                Text(it.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             (1..5).forEach { n ->
-                                val starCd = starsText(n)
                                 val lit = n <= stars
                                 // Звезда «зажигается»: цвет и размер догоняют выбор — оценка
                                 // ощущается нажатием, а не молчаливой сменой картинки.
@@ -2418,25 +2468,75 @@ internal fun DriverCabinetContent(
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
-                                        .clickable {
-                                            stars = n
-                                            onRate(b.bookingId, n)
-                                        },
+                                        .then(
+                                            if (editing && !sending) Modifier.clickable { stars = n } else Modifier
+                                        ),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(
                                         Icons.Default.Star,
-                                        contentDescription = starCd,
+                                        contentDescription = starsText(n),
                                         tint = starTint,
                                         modifier = Modifier.size(34.dp).scale(starScale),
                                     )
                                 }
                             }
+                            Spacer(Modifier.weight(1f))
+                            // Уже оценил — показываем сколько и даём переставить. Сервер оценку
+                            // разрешает изменить, значит и в приложении это не тупик.
+                            if (!editing) {
+                                TextButton(
+                                    onClick = { editing = true },
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2),
+                                ) { Text(appText("Изменить", "Үҙгәртеү"), fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                            }
+                        }
+                        // Подпись под звёздами = состояние словами. Незрячим она же читает оценку.
+                        Text(
+                            when {
+                                !editing -> appText("Вы поставили ${starsText(stars)}", "Һеҙ ${starsText(stars)} ҡуйҙығыҙ")
+                                stars == 0 -> appText("Выберите оценку", "Баһа һайлағыҙ")
+                                else -> appText("Выбрано ${starsText(stars)} — подтвердите", "${starsText(stars)} һайланды — раҫлағыҙ")
+                            },
+                            color = CanonMuted, fontSize = 12.sp,
+                        )
+                        AnimatedVisibility(visible = editing && stars > 0) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = {
+                                        sending = true
+                                        onRate(b.bookingId, stars) { ok ->
+                                            sending = false
+                                            // Не ушло — возвращаем как было, чтобы на экране не
+                                            // осталась «поставленная» оценка, которой нет на сервере.
+                                            if (ok) editing = false else stars = b.myStars
+                                        }
+                                    },
+                                    enabled = !sending,
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                                ) {
+                                    Text(
+                                        if (sending) appText("Отправляем…", "Ебәрәбеҙ…")
+                                        else appText("Отправить оценку", "Баһаны ебәреү"),
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                // Отмена нужна только когда есть что отменять — уже поставленную раньше оценку.
+                                if (b.myStars > 0) {
+                                    OutlinedButton(
+                                        onClick = { stars = b.myStars; editing = false },
+                                        enabled = !sending,
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                    ) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
+                                }
+                            }
                         }
                         // B8-7: «пассажир не заплатил» одним тапом — только по завершённой поездке.
-                        if (b.status == "done") UnpaidReportButton(bookingId = b.bookingId)
-                        // «Не явился» — по подтверждённой/в-пути брони (пассажир не пришёл на посадку).
-                        if (b.status == "confirmed" || b.status == "onboard") NoShowButton(bookingId = b.bookingId)
+                        UnpaidReportButton(bookingId = b.bookingId)
                     }
                 }
             }
