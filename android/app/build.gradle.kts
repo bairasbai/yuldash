@@ -17,6 +17,17 @@ tasks.withType<Test>().configureEach {
         isIncludeNoLocationClasses = true
         excludes = listOf("jdk.internal.*")
     }
+    // Полный текст падения прямо в лог. По умолчанию Gradle пишет только «Тест X FAILED» и
+    // короткое имя исключения — по такой строке причину не понять, а HTML-отчёт в CI лежит
+    // артефактом, который ещё надо скачать. Печатаем причину сразу: время разбора → минуты
+    // вместо часов (первый же прогон в CI дал 76 падений без единого объяснения).
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStackTraces = true
+        showCauses = true
+        showExceptions = true
+    }
 }
 
 // FCM (push): google-services применяем ТОЛЬКО когда есть app/google-services.json.
