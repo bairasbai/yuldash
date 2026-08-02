@@ -209,6 +209,12 @@ private fun rememberNowMs(): State<Long> {
     return state
 }
 
+/** Секунды → «M:SS». Часы не нужны: дольше двух часов мы цифру ожидания вообще не показываем. */
+private fun mmSs(sec: Long): String {
+    val s = sec.coerceAtLeast(0)
+    return "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+}
+
 // ------------------------------ Гео: моя позиция ------------------------------
 /** Моя позиция через LocationManager (как на «Карте»). active=false → не подписываемся (экономим батарею). */
 @Composable
@@ -1694,17 +1700,27 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
         initialValue = 0.4f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse), label = "pulse",
     )
-    // Сколько человек уже смотрит на этот экран. Считаем ЛОКАЛЬНО: времени создания заказа
-    // сервер не отдаёт, а «ищем уже 3 минуты» после возврата на экран было бы враньём. Поэтому
-    // время меняет только ФОРМУЛИРОВКУ ожидания — без точных цифр, которые нечем подтвердить.
-    val startMs = remember(order.id) { System.currentTimeMillis() }
+    // Сколько человек ждёт НА САМОМ ДЕЛЕ. Точку отсчёта даёт сервер (created_at / searching_at):
+    // свой таймер обнулялся при каждом возврате на экран, и после пяти минут ожидания человек
+    // снова читал «обычно машина находится за 1–3 минуты» — это было враньём.
+    // Часы телефона могут врать, поэтому отрицательное и неправдоподобно большое (>2 ч) значение
+    // считаем негодным и откатываемся на локальный отсчёт БЕЗ цифр (см. showElapsed ниже).
+    val serverStartMs = remember(order.id, order.searchClockFrom) {
+        order.searchClockFrom?.let(::parseIsoUtcMillis)
+    }
+    val screenOpenedMs = remember(order.id) { System.currentTimeMillis() }
     val now by rememberNowMs()
-    val watchedSec = ((now - startMs) / 1000).coerceAtLeast(0)
+    val serverSec = serverStartMs?.let { (now - it) / 1000 }?.takeIf { it in 0..7_200L }
+    val watchedSec = serverSec ?: ((now - screenOpenedMs) / 1000).coerceAtLeast(0)
     val waitStage = when {
         watchedSec < 25L -> 0
         watchedSec < 70L -> 1
         else -> 2
     }
+    // Цифру показываем только когда ожидание уже затянулось: на двадцатой секунде секундомер
+    // давит, на второй минуте — наоборот, отвечает на «сколько уже?». И только когда время
+    // подтверждено сервером — выдуманных чисел на экране быть не должно.
+    val showElapsed = serverSec != null && serverSec >= 70L
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1755,6 +1771,14 @@ private fun InstantSearchingCard(order: InstantOrderDto, onCancel: () -> Unit) {
                         "Ғәҙәттәгенән оҙағыраҡ эҙләйбеҙ. Көтөргә була — тапҡас, шунда уҡ хәбәр итәбеҙ")
                 },
                 color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption, textAlign = TextAlign.Center,
+            )
+        }
+        AnimatedVisibility(visible = showElapsed, enter = fadeIn(tween(300)), exit = fadeOut(tween(160))) {
+            Text(
+                appText("Ищем уже ${mmSs(watchedSec)}", "Инде ${mmSs(watchedSec)} эҙләйбеҙ"),
+                color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp),
             )
         }
         Spacer(Modifier.height(24.dp))

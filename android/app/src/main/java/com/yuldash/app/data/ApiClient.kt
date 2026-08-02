@@ -3894,7 +3894,15 @@ data class InstantOrderDto(
     val lostItemUntil: String? = null, // ISO — до когда чат снова открыт под «забыл вещь»
     val thanked: Boolean = false,      // пассажир уже сказал «рәхмәт»
     val waitUntil: String? = null,     // ISO — заказ в очереди «подожду машину», воркер продолжит поиск
+    // Часы поиска. Свой таймер на экране врёт: свернул приложение — отсчёт начался заново.
+    // createdAt — сколько человек ждёт ВСЕГО (перезапуск поиска его не сбрасывает);
+    // searchingAt — начало текущего круга подбора (у предзаказа это активация, а не бронирование).
+    val createdAt: String? = null,
+    val searchingAt: String? = null,
 ) {
+    /** С какого момента честно считать «ищем уже M:SS». null = сервер старый, счётчик не показываем. */
+    val searchClockFrom: String? get() = if (scheduledAt != null) searchingAt else (createdAt ?: searchingAt)
+
     /** Терминальный статус — заказ окончен (успех/отмена/протух). */
     val isTerminal: Boolean get() = status == "done" || status == "cancelled" || status == "expired"
     /**
@@ -3959,6 +3967,8 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     lostItemUntil = if (isNull("lost_item_until")) null else optString("lost_item_until").ifBlank { null },
     thanked = optBoolean("thanked"),
     waitUntil = if (isNull("wait_until")) null else optString("wait_until").ifBlank { null },
+    createdAt = if (isNull("created_at")) null else optString("created_at").ifBlank { null },
+    searchingAt = if (isNull("searching_at")) null else optString("searching_at").ifBlank { null },
 )
 
 /** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */
