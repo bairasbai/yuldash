@@ -218,7 +218,7 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                     }
                     Surface(shape = RoundedCornerShape(9.dp), color = CanonTaxiBg) {
                         Text(
-                            badge, color = CanonTaxiInk, fontSize = 11.sp, fontWeight = FontWeight.Black,
+                            badge, color = CanonTaxiText, fontSize = 11.sp, fontWeight = FontWeight.Black,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
@@ -228,16 +228,18 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
             Surface(shape = CanonItemShape, color = CanonTaxiBg) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
+                        // §9: говорим по-человечески. «Коэффициент» и «сервер» — слова из кода,
+                        // пассажиру они ничего не объясняют, а на экране про деньги это важно вдвойне.
                         if (estimate.dynamicK > 1.0) appText(
-                            "Общий коэффициент ×${formatTaxiMultiplier(estimate.dynamicK)} · максимум ×${formatTaxiMultiplier(estimate.pricingCapK)}",
-                            "Дөйөм коэффициент ×${formatTaxiMultiplier(estimate.dynamicK)} · максимум ×${formatTaxiMultiplier(estimate.pricingCapK)}",
-                        ) else appText("Без динамической наценки", "Динамик өҫтәмә хаҡ юҡ"),
-                        color = CanonTaxiInk, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            "Сейчас наценка ×${formatTaxiMultiplier(estimate.dynamicK)} · выше ×${formatTaxiMultiplier(estimate.pricingCapK)} не поднимаем",
+                            "Хәҙер өҫтәмә ×${formatTaxiMultiplier(estimate.dynamicK)} · ×${formatTaxiMultiplier(estimate.pricingCapK)}-тән юғары күтәрмәйбеҙ",
+                        ) else appText("Наценки сейчас нет", "Хәҙер өҫтәмә хаҡ юҡ"),
+                        color = CanonTaxiText, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                     )
                     Text(
                         appText(
-                            "Сумму назначает сервер. Пассажир не вводит и не меняет цену.",
-                            "Хаҡты сервер билдәләй. Пассажир хаҡты индермәй һәм үҙгәртмәй.",
+                            "Цену считаем мы — по расстоянию, времени и спросу. Вручную её никто не накручивает.",
+                            "Хаҡты беҙ иҫәпләйбеҙ — ара, ваҡыт һәм һорау буйынса. Уны ҡулдан берәү ҙә арттырмай.",
                         ),
                         color = CanonMuted, fontSize = 11.sp, lineHeight = 15.sp,
                     )
@@ -2308,27 +2310,27 @@ private fun TaxiComingSoonCard(
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             appText("Стань первым таксистом города 🚖", "Ҡаланың беренсе таксисы бул 🚖"),
-                            color = CanonTaxiInk, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 21.sp,
+                            color = CanonTaxiText, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 21.sp,
                         )
                         Text(
                             appText("Первым водителям — 0% комиссии первые 3 месяца. Оставь номер как водитель, и город твой.",
                                 "Тәүге водителдәргә — тәүге 3 айҙа 0% комиссия. Номерыңды водитель итеп ҡалдыр — ҡала һинеке."),
-                            color = CanonTaxiInk, fontSize = 13.sp, lineHeight = 19.sp,
+                            color = CanonTaxiText, fontSize = 13.sp, lineHeight = 19.sp,
                         )
                         if (role != "driver") {
                             OutlinedButton(
                                 onClick = { role = "driver" },
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                 shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, CanonTaxiInk),
-                            ) { Text(appText("Хочу возить", "Йөрөтөргә теләйем"), color = CanonTaxiInk, fontWeight = FontWeight.Bold) }
+                                border = BorderStroke(1.dp, CanonTaxiText),
+                            ) { Text(appText("Хочу возить", "Йөрөтөргә теләйем"), color = CanonTaxiText, fontWeight = FontWeight.Bold) }
                         }
                         // Такси уже включено (глобально), просто не в этом городе → проверку 580-ФЗ можно пройти заранее.
                         if (availability.reason == "city_off") {
                             TextButton(onClick = onTaxiOnboarding, modifier = Modifier.fillMaxWidth().height(48.dp)) {
                                 Text(
                                     appText("Пройти проверку таксиста заранее →", "Таксист тикшереүен алдан үтергә →"),
-                                    color = CanonTaxiInk, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                                    color = CanonTaxiText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                                 )
                             }
                         }
@@ -2757,7 +2759,7 @@ internal fun InstantDriverTripScreen(orderId: Int, onBack: () -> Unit, onFinishe
                                             Surface(color = CanonTaxiBg, shape = RoundedCornerShape(8.dp)) {
                                                 Text(
                                                     appText("заказ для другого", "икенсе кеше өсөн"),
-                                                    color = CanonTaxiInk, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                                    color = CanonTaxiText, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                                                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                                 )
                                             }

@@ -121,6 +121,34 @@ def check(path: Path) -> list:
             if p and not re.fullmatch(r"\w+(\(.*\))?", p):
                 problems.append(f"{path.name}: в enum {m.group(1)} пропущена запятая: «{p[:60]}»")
 
+    # CanonTaxiInk НА CanonTaxiBg — невидимый текст в тёмной теме (контраст 1.05).
+    # Ink рассчитан на ЖЁЛТЫЙ CanonTaxi; подложка CanonTaxiBg в тёмной теме тёмно-коричневая.
+    # Ловили это уже дважды (госномер машины, потом разбор цены) — поэтому проверка, а не память.
+    # Ищем блок `{ … }`, открытый сразу после указания цвета подложки, и смотрим ink внутри.
+    for m in re.finditer(r"CanonTaxiBg", code):
+        brace = code.find("{", m.end())
+        if brace == -1 or brace - m.end() > 400:      # блок не рядом — это не контейнер
+            continue
+        depth, i = 1, brace + 1
+        while i < len(code) and depth:
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+            i += 1
+        block = code[brace:i]
+        if len(block) > 3000:                          # слишком крупный кусок — судить не беремся
+            continue
+        for ink in re.finditer(r"CanonTaxiInk", block):
+            # Внутри может лежать вложенный контейнер на ЖЁЛТОМ CanonTaxi (кружок с иконкой) —
+            # там ink как раз уместен. Смотрим назад: если ближе всего объявлен жёлтый, пропускаем.
+            near = block[max(0, ink.start() - 300):ink.start()]
+            if re.search(r"[Cc]olor = CanonTaxi\b", near):
+                continue
+            ln = code.count("\n", 0, brace + ink.start()) + 1
+            problems.append(f"{path.name}:{ln}: CanonTaxiInk на подложке CanonTaxiBg — "
+                            f"в тёмной теме контраст 1.05 (невидимо). Нужен CanonTaxiText")
+
     for text, line in lits:
         clean = re.sub(r"\$\{[^}]*\}", " ", text)          # ${переменные} — это код
         clean = re.sub(r"\$\w+", " ", clean)

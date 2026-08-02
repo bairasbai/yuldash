@@ -285,7 +285,9 @@ internal fun TaxiServiceClassTile(
                 }
                 Spacer(Modifier.weight(1f))
                 if (selected) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonTaxiInk, modifier = Modifier.size(18.dp))
+                    // CanonTaxiText, а не CanonTaxiInk: подложка выбранного тарифа (CanonTaxiBg)
+                    // в тёмной теме тёмно-коричневая, и тёмный ink на ней даёт контраст 1.05.
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.size(18.dp))
                 }
             }
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -325,7 +327,7 @@ internal fun TaxiFareSummary(
                     }
                 }
                 Surface(shape = RoundedCornerShape(18.dp), color = CanonTaxiBg) {
-                    Icon(Icons.Default.Payments, contentDescription = null, tint = CanonTaxiInk, modifier = Modifier.padding(13.dp).size(24.dp))
+                    Icon(Icons.Default.Payments, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.padding(13.dp).size(24.dp))
                 }
             }
             if (error != null) {
@@ -821,7 +823,7 @@ internal fun TaxiSearchingExperience(order: InstantOrderDto, onCancel: () -> Uni
             Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = RoundedCornerShape(18.dp), color = CanonTaxiBg) {
-                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonTaxiInk, modifier = Modifier.padding(13.dp).size(25.dp))
+                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.padding(13.dp).size(25.dp))
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
