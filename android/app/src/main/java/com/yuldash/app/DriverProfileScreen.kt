@@ -34,7 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.DriverPublicDto
 
@@ -133,14 +132,18 @@ private fun DriverHeaderCard(d: DriverPublicDto) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         d.name.ifBlank { appText("Водитель", "Водитель") },
-                        fontWeight = FontWeight.Black, fontSize = 20.sp,
+                        fontWeight = FontWeight.Black, fontSize = TaxiType.Hero, lineHeight = TaxiType.HeroLine,
                         color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     if (d.car.isNotBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(5.dp))
-                            Text(d.car, color = CanonMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                d.car, color = CanonMuted,
+                                fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }
@@ -159,7 +162,10 @@ private fun VerifiedPill() {
         ) {
             Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
-            Text(appText("Проверен", "Тикшерелгән"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(
+                appText("Проверен", "Тикшерелгән"), color = CanonGreen2, fontWeight = FontWeight.Bold,
+                fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine,
+            )
         }
     }
 }
@@ -205,10 +211,13 @@ private fun StatCell(modifier: Modifier, value: String, label: String, hint: Str
                     Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(3.dp))
                 }
-                Text(value, fontWeight = FontWeight.Black, fontSize = 19.sp, color = CanonText)
+                Text(
+                    value, fontWeight = FontWeight.Black,
+                    fontSize = TaxiType.Title, lineHeight = TaxiType.TitleLine, color = CanonText,
+                )
             }
-            Text(label, color = CanonMuted, fontSize = 12.sp)
-            if (hint != null) Text(hint, color = CanonMuted, fontSize = 12.sp)
+            Text(label, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine)
+            if (hint != null) Text(hint, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine)
         }
     }
 }
@@ -225,7 +234,11 @@ private fun DriverReviewCard(author: String, stars: Int, text: String, createdAt
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SmallAvatar("", author, 30)
                 Spacer(Modifier.width(8.dp))
-                Text(author, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    author, fontWeight = FontWeight.Bold,
+                    fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine, color = CanonText,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
                 Spacer(Modifier.weight(1f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     (1..5).forEach { n ->
@@ -238,8 +251,10 @@ private fun DriverReviewCard(author: String, stars: Int, text: String, createdAt
                     }
                 }
             }
-            Text(text, color = CanonText, fontSize = 14.sp)
-            shortDate(createdAt)?.let { Text(it, color = CanonMuted, fontSize = 11.sp) }
+            Text(text, color = CanonText, fontSize = TaxiType.Body, lineHeight = TaxiType.BodyLine)
+            shortDate(createdAt)?.let {
+                Text(it, color = CanonMuted, fontSize = TaxiType.Caption, lineHeight = TaxiType.CaptionLine)
+            }
         }
     }
 }
