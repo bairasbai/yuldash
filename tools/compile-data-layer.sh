@@ -53,12 +53,22 @@ echo "✓ слой данных компилируется ($(find out -name '*.
 
 # Экраны собрать нечем (нужен Compose с dl.google.com), но РАЗОБРАТЬ их компилятор может:
 # ошибки вида «unresolved reference» ожидаемы, а вот синтаксические — нет.
-echo "→ синтаксическая проверка всех экранов"
+#
+# Берём ВСЕ наборы исходников, а не только main. 2026-08-02 сборка упала на превью в src/debug
+# (вызов composable без нового параметра): проверялся только main, и превью с тестами оставались
+# слепой зоной — а компилирует их та же джоба, что и приложение.
+ALLSRC="$ROOT/android/app/src"
+echo "→ синтаксическая проверка всех исходников (main + debug + test)"
 JAVA_TOOL_OPTIONS="" ./kotlinc/bin/kotlinc \
   -cp "$(ls libs/*.jar | tr '\n' ':')" -jvm-target 17 -nowarn -d out-syntax \
-  $(find "$SRC" -name "*.kt") stubs/*.kt 2>&1 | grep -v "^Picked up" > syntax.log || true
+  $(find "$ALLSRC" -name "*.kt") stubs/*.kt 2>&1 | grep -v "^Picked up" > syntax.log || true
 BAD=$(grep -ci "syntax error\|Expecting\|Unexpected token" syntax.log || true)
 if [ "$BAD" -gt 0 ]; then
   echo "✗ ошибки разбора:"; grep -i "syntax error\|Expecting\|Unexpected token" syntax.log | head -20; exit 1
 fi
-echo "✓ ошибок разбора нет во всех $(find "$SRC" -name '*.kt' | wc -l) файлах"
+# Дубль импорта компилятор ловит и БЕЗ Compose — это не «unresolved reference», а честная ошибка.
+DUP=$(grep -ci "conflicting import" syntax.log || true)
+if [ "$DUP" -gt 0 ]; then
+  echo "✗ конфликтующие импорты (дубли после слияния):"; grep -i "conflicting import" syntax.log | head -20; exit 1
+fi
+echo "✓ ошибок разбора нет во всех $(find "$ALLSRC" -name '*.kt' | wc -l) файлах"

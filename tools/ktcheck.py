@@ -3,11 +3,13 @@
 
 Что ловим:
 1. Баланс {} () [] с учётом строк, шаблонов "$..." и комментариев.
-2. Иконки Icons.Default.X без импорта.
+2. Иконки Icons.Default.X без импорта (в комментариях не считаем).
 3. Блочный комментарий, закрытый посреди слова («reporter*/respondent*») — остаток файла
    уезжает в код. Реальный баг, найденный настоящим компилятором 2026-07-27.
 4. Пропущенные запятые между элементами enum (ломает сборку, глазами не видно).
 5. Смешение кириллицы и латиницы внутри одного слова (частая порча башкирских строк).
+6. Дубль импорта — conflicting import при сборке (типичный след слияния веток).
+7. CanonTaxiInk на подложке CanonTaxiBg — в тёмной теме контраст 1.05 (текст невидим).
 
 Слой данных можно проверять НАСТОЯЩИМ компилятором — см. tools/compile-data-layer.sh.
 """
@@ -91,9 +93,12 @@ def check(path: Path) -> list:
     # Путь бывает и из трёх сегментов: automirrored.filled.Send — регулярка на два сегмента
     # давала ложную тревогу на каждой зеркалящейся иконке.
     imported = set(re.findall(r"import androidx\.compose\.material\.icons\.(?:\w+\.)+(\w+)", src))
-    for m in re.finditer(r"Icons\.(?:Default|Filled|Outlined|Rounded|AutoMirrored\.Filled)\.(\w+)", src):
+    # Ищем по КОДУ, а не по исходнику: упоминание иконки в комментарии («Icons.Default.Sos сам
+    # рисует буквы SOS») импорта не требует, а раньше давало ложную тревогу — а проверка,
+    # которая регулярно врёт, перестаёт что-либо значить.
+    for m in re.finditer(r"Icons\.(?:Default|Filled|Outlined|Rounded|AutoMirrored\.Filled)\.(\w+)", code):
         if m.group(1) not in imported:
-            problems.append(f"{path.name}: иконка {m.group(1)} без импорта (строка {src.count(chr(10), 0, m.start()) + 1})")
+            problems.append(f"{path.name}: иконка {m.group(1)} без импорта (строка {code.count(chr(10), 0, m.start()) + 1})")
 
     # Преждевременно закрытый блочный комментарий. Реальный случай: в KDoc написали
     # «Поля reporter*/respondent* …» — пара символов закрыла комментарий, и весь остаток
@@ -120,6 +125,20 @@ def check(path: Path) -> list:
             p = " ".join(piece.split())
             if p and not re.fullmatch(r"\w+(\(.*\))?", p):
                 problems.append(f"{path.name}: в enum {m.group(1)} пропущена запятая: «{p[:60]}»")
+
+    # Дубль импорта: `conflicting import: imported name 'X' is ambiguous` — ошибка компиляции.
+    # Классический след слияния: обе ветки добавили одну и ту же строку в разные места блока
+    # импортов, git взял обе, и файл перестал компилироваться. Стоило круга CI 2026-08-02.
+    seen_imports = {}
+    for idx, line in enumerate(src.split("\n"), 1):
+        if not line.startswith("import ") or line.rstrip().endswith("*"):
+            continue
+        key = line.strip()
+        if key in seen_imports:
+            problems.append(f"{path.name}:{idx}: импорт продублирован (первый — строка "
+                            f"{seen_imports[key]}): «{key}» → conflicting import при сборке")
+        else:
+            seen_imports[key] = idx
 
     # CanonTaxiInk НА CanonTaxiBg — невидимый текст в тёмной теме (контраст 1.05).
     # Ink рассчитан на ЖЁЛТЫЙ CanonTaxi; подложка CanonTaxiBg в тёмной теме тёмно-коричневая.
