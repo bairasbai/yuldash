@@ -108,9 +108,45 @@ def test_expired_push_when_nobody_around(client, user_factory, fake_redis, pushe
 
 
 # ============================ Дневная сводка в Telegram (B9b-3) ============================
-# Контролируемый день в прошлом: счётчики за него полностью наши (сессионная БД общая,
-# «сегодня» засоряют соседние тесты). Местный день D → UTC-окно [D-5ч, D+19ч).
+# Местный день D → UTC-окно [D-5ч, D+19ч).
+#
+# Считаем ПРИРОСТ, а не абсолютные числа. Раньше тест брал фиксированный день в прошлом и
+# верил, что «счётчики за него полностью наши». Это оказалось календарной миной: соседние
+# тесты создают строки на `utcnow() - timedelta(days=N)`, и в день, когда сегодняшняя дата
+# минус такое N попадает в окно нашего дня, чужие строки приплюсовываются. 2026-08-02
+# «минус 200 дней» дало ровно 14.01.2026 — тест, зелёный полгода, покраснел сам по себе.
+# Разность до и после засева от этого не зависит вообще.
 DIGEST_DAY = None   # заполняется в _seed_digest_day (импорт date ниже)
+
+
+def _digest_counts(day) -> dict:
+    """Числа из текста сводки за день — чтобы сравнивать прирост, а не парсить строки в тесте."""
+    import re
+
+    from sqlmodel import Session
+
+    from app import digest
+    from app.db import engine
+    with Session(engine) as s:
+        text = digest.build_digest(s, day)
+    fields = {
+        "rides": r"поездок попутки (\d+)",
+        "bookings": r"брони (\d+)",
+        "orders": r"такси-заказов (\d+)",
+        "done": r"done (\d+)",
+        "cancelled": r"отмен (\d+)",
+        "users": r"новых пользователей (\d+)",
+        "drivers": r"водителей на линии (\d+)",
+        "fee_rub": r"выручка-комиссия ~(\d+)",
+        "reports": r"жалоб новых (\d+)",
+    }
+    out = {}
+    for key, pattern in fields.items():
+        m = re.search(pattern, text)
+        assert m, f"в сводке нет поля {key}: {text}"
+        out[key] = int(m.group(1))
+    out["_text"] = text
+    return out
 
 
 def _seed_digest_day(user_factory):
@@ -153,27 +189,29 @@ def _seed_digest_day(user_factory):
 
 
 def test_digest_counters(client, user_factory):
-    """Счётчики сводки верные: считаем ровно то, что насыпали в контролируемый день."""
+    """Счётчики сводки верные: сводка выросла ровно на то, что мы насыпали в этот день."""
     from datetime import date
 
-    from sqlmodel import Session
+    day = date(2026, 1, 15)
+    neighbour = date(2026, 1, 20)
+    before, before_neighbour = _digest_counts(day), _digest_counts(neighbour)
 
-    from app import digest
-    from app.db import engine
-    day = _seed_digest_day(user_factory)
-    with Session(engine) as s:
-        text = digest.build_digest(s, day)
-    assert "📊 Юлдаш за 15.01.2026" in text
-    assert "поездок попутки 1 (брони 1)" in text
-    assert "такси-заказов 2 (done 1, отмен 1)" in text
-    assert "новых пользователей 1" in text
-    assert "водителей на линии 1" in text
-    assert "выручка-комиссия ~123 ₽" in text
-    assert "жалоб новых 1" in text
-    # Соседний пустой день — все нули (окно дня не протекает).
-    with Session(engine) as s:
-        empty = digest.build_digest(s, date(2026, 1, 20))
-    assert "поездок попутки 0 (брони 0)" in empty and "такси-заказов 0" in empty
+    assert _seed_digest_day(user_factory) == day
+    after = _digest_counts(day)
+
+    assert "📊 Юлдаш за 15.01.2026" in after["_text"]
+    assert after["rides"] - before["rides"] == 1
+    assert after["bookings"] - before["bookings"] == 1
+    assert after["orders"] - before["orders"] == 2
+    assert after["done"] - before["done"] == 1
+    assert after["cancelled"] - before["cancelled"] == 1
+    assert after["users"] - before["users"] == 1
+    assert after["drivers"] - before["drivers"] == 1
+    assert after["fee_rub"] - before["fee_rub"] == 123
+    assert after["reports"] - before["reports"] == 1
+
+    # Окно дня не протекает: соседний день не сдвинулся ни на единицу.
+    assert _digest_counts(neighbour) == before_neighbour
 
 
 def test_digest_sent_once_per_day(client, monkeypatch):
