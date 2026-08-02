@@ -120,6 +120,7 @@ class ProfileDeep2ContentTest {
         composeRule.onNodeWithText("Найти поездку").assertIsDisplayed()
         scrollTo("Создать заявку")
         composeRule.onNodeWithText("Создать заявку").assertIsDisplayed()
+        scrollTo("Безопасность поездки")
         composeRule.onNodeWithText("Безопасность поездки").assertIsDisplayed()
     }
 
@@ -172,6 +173,7 @@ class ProfileDeep2ContentTest {
         scrollTo("2 места · 350 ₽")
         composeRule.onNodeWithText("2 места · 350 ₽").assertIsDisplayed()
         // status=pending → не активная поездка → кнопка «Подробнее».
+        scrollTo("Подробнее")
         composeRule.onNodeWithText("Подробнее").assertIsDisplayed()
     }
 

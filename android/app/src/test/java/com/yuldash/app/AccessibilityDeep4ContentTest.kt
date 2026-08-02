@@ -84,6 +84,17 @@ class AccessibilityDeep4ContentTest {
             .performScrollToNode(hasText(text))
     }
 
+    /** Раскрыть блок «Дополнительно».
+     *  Секцию условий поездки убрали под сворачиваемый блок (AccessibilityScreens.kt,
+     *  AnimatedVisibility(visible = extrasExpanded)). Пока он свёрнут, его содержимое НЕ создано:
+     *  ни заголовков, ни переключателей в дереве нет — прокрутка тут не помогает, надо раскрыть.
+     *  Прежний заголовок «Условия поездки» теперь часть подписи блока
+     *  («Условия поездки, «только для своих», комментарий»), поэтому проверяем сам заголовок. */
+    private fun expandExtras(title: String = "Дополнительно") {
+        scrollTo(title)
+        composeRule.onNodeWithText(title).performClick()
+    }
+
     @Test
     fun simpleMode_showsHeaderAndBigActions() {
         composeRule.setContent { SimpleMode() }
@@ -261,8 +272,8 @@ class AccessibilityDeep4ContentTest {
     @Test
     fun passenger_conditionsSection_showsTitleAndToggleLabels() {
         composeRule.setContent { PassengerContent() }
-        scrollTo("Условия поездки")
-        composeRule.onNodeWithText("Условия поездки").assertIsDisplayed()
+        expandExtras()
+        composeRule.onNodeWithText("Дополнительно").assertIsDisplayed()
         scrollTo("Только женщины")
         composeRule.onNodeWithText("Только женщины").assertIsDisplayed()
         scrollTo("Детское кресло")
@@ -278,8 +289,8 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent {
             PassengerContent(language = AppLanguage.Ba, selectedCategoryText = "Ғәҙәти")
         }
-        scrollTo("Сәфәр шарттары")
-        composeRule.onNodeWithText("Сәфәр шарттары").assertIsDisplayed()
+        expandExtras("Өҫтәмә")
+        composeRule.onNodeWithText("Өҫтәмә").assertIsDisplayed()
         scrollTo("Тик ҡатын-ҡыҙ")
         composeRule.onNodeWithText("Тик ҡатын-ҡыҙ").assertIsDisplayed()
     }
@@ -289,6 +300,8 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent { PassengerContent() }
         composeRule.onNodeWithText("Мест").assertIsDisplayed()
         composeRule.onNodeWithText("Цена, ₽").assertIsDisplayed()
+        // Поле комментария тоже уехало под «Дополнительно» — сперва раскрываем блок.
+        expandExtras()
         scrollTo("Комментарий")
         composeRule.onNodeWithText("Комментарий").assertIsDisplayed()
     }
@@ -325,9 +338,8 @@ class AccessibilityDeep4ContentTest {
         var toggled: Boolean? = null
         composeRule.setContent { PassengerContent(onWomenOnlyChange = { toggled = it }) }
         // Первый свитч в секции «Условия поездки» — «Только женщины» (по порядку PrefToggleRow).
-        // Секцию надо сперва проявить прокруткой: в LazyColumn её строки не созданы,
-        // пока она ниже видимой области — иначе переключателей в дереве НЕТ вообще.
-        scrollTo("Условия поездки")
+        // Переключателей в дереве нет, пока блок «Дополнительно» свёрнут — раскрываем.
+        expandExtras()
         composeRule.onAllNodes(isToggleable())[0].performClick()
         assertEquals(true, toggled)
     }
