@@ -64,6 +64,8 @@ internal val CanonMint: Color @Composable get() = if (appIsDark()) Color(0xFF0F2
 internal val CanonYellow: Color @Composable get() = if (appIsDark()) Color(0xFF4A3A14) else Color(0xFFFFE3A1)
 // Брендовое золото (как дорога на карте/лого) — заливка акцентной кнопки. Золотое в обеих темах → текст фиксированно тёмный.
 internal val CanonGold: Color @Composable get() = if (appIsDark()) Color(0xFFE8C36B) else Color(0xFFF5B301)
+// ТОЛЬКО поверх CanonGold. Цвет плоский (одинаков в обеих темах): на тёмной поверхности
+// контраст падает до 1.3 — текст исчезает. Ровно на этом уже обожглись с CanonTaxiInk.
 internal val CanonGoldInk: Color = Color(0xFF0B3D20)
 internal val CanonBg: Color @Composable get() = if (appIsDark()) Color(0xFF0F1613) else Color(0xFFFAFAF6)
 internal val CanonText: Color @Composable get() = if (appIsDark()) Color(0xFFEAF2EC) else Color(0xFF0B1F14)
@@ -86,7 +88,7 @@ internal val CanonWoman: Color @Composable get() = if (appIsDark()) Color(0xFFE3
 // Золото рейтинга (звёзды). Адаптивное: яркое золото на белой карточке давало контраст 2.08 —
 // ниже порога 3:1 для значащей графики (в выборе оценки звёзды И ЕСТЬ информация, а не украшение).
 // В светлой теме глубокая охра (3.43), в тёмной прежнее яркое золото (7.68). Проверяется
-// расчётом: tools/contrast.py.
+// расчётом: tools/contrast.py. Все 19 использований — в @Composable (tint/color), Canvas нет.
 internal val CanonStar: Color @Composable get() = if (appIsDark()) Color(0xFFE7A921) else Color(0xFFBE7D00)
 // Режимы поездки (переключатель пассажира): Такси = ЖЁЛТЫЙ (привычный цвет такси), Попутка = ЗЕЛЁНЫЙ (бренд «свои»).
 // Акцент окрашивает активный сегмент, кнопку действия и индикатор-полоску. Оба варианта — светлый/тёмный.
@@ -100,6 +102,11 @@ internal val CanonTaxiInk: Color = Color(0xFF3A2A00)                            
 internal val CanonTaxiText: Color @Composable get() = if (appIsDark()) Color(0xFFFFE3A1) else Color(0xFF3A2A00)
 internal val CanonPooling: Color @Composable get() = if (appIsDark()) Color(0xFF27A463) else Color(0xFF0B6B3A)     // акцент попутки (бренд-зелёный)
 internal val CanonPoolingBg: Color @Composable get() = if (appIsDark()) Color(0xFF0F2419) else Color(0xFFE7F5EC)   // мягкая подложка активного сегмента «Попутка»
+// Курьер = СИНИЙ. Третий режим хаба: зелёный (попутка) и жёлтый (такси) уже заняты, а синий —
+// привычный «логистический» цвет и хорошо различим с ними даже при цветовой слепоте
+// (зелёный/жёлтый путаются между собой чаще, чем с синим).
+internal val CanonCourier: Color @Composable get() = if (appIsDark()) Color(0xFF6FB4F0) else Color(0xFF1B5E9E)     // акцент курьера (текст на CanonCourierBg ≥4.5:1)
+internal val CanonCourierBg: Color @Composable get() = if (appIsDark()) Color(0xFF12283A) else Color(0xFFE4F0FA)   // мягкая подложка активного сегмента «Курьер»
 // Тонкая зелёная разделительная линия (border карточек) — была хардкод 0x1A0B6B3A в нескольких экранах.
 // Теперь адаптивна: тёмный зелёный почти невидим на тёмном фоне → в тёмной теме светлая мятная линия.
 internal val CanonHairlineGreen: Color @Composable get() = if (appIsDark()) Color(0x2E7FE3AB) else Color(0x1A0B6B3A)

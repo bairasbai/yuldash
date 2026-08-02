@@ -90,17 +90,6 @@ private fun TaxiOrderPreview() {
     }
 }
 
-@Preview(name = "Такси · поиск", widthDp = 390, heightDp = 844, showBackground = true)
-@Composable
-private fun TaxiSearchingPreview() {
-    MobilityPreviewTheme {
-        TaxiSearchingExperience(
-            order = previewInstantOrder(status = "searching"),
-            onCancel = {},
-        )
-    }
-}
-
 @Preview(
     name = "P0 · пассажир active · 320 · BA dark 1.5",
     widthDp = 320, heightDp = 640, showBackground = true,
@@ -220,6 +209,7 @@ private fun CourierWorkPreview() {
                 to = appText("Сибай", "Сибай"),
                 sizeLabel = appText("Средняя", "Уртаса"),
                 deliveryLabel = appText("Курьер", "Курьер"),
+                priceCaption = appText("Твой доход", "Һинең килем"),
                 priceLabel = "620 ₽",
                 description = appText(
                     "Документы в плотном конверте. Забрать у администратора.",
@@ -277,6 +267,7 @@ private fun CourierCarryingBashkirDarkPreview() {
                 to = appText("Улица Ленина, 32", "Ленин урамы, 32"),
                 sizeLabel = appText("Малая", "Бәләкәй"),
                 deliveryLabel = appText("В пути", "Юлда"),
+                priceCaption = appText("Твой доход", "Һинең килем"),
                 priceLabel = "480 ₽",
                 description = appText(
                     "Небольшой заказ из магазина. Позвонить у подъезда.",
@@ -327,6 +318,7 @@ private fun CourierReturningAccessibilityPreview() {
                 to = appText("ТЦ «Яшма» · Баймак", "«Яшма» сауҙа үҙәге · Баймаҡ"),
                 sizeLabel = appText("Малая", "Бәләкәй"),
                 deliveryLabel = appText("Возврат", "Кире илтеү"),
+                priceCaption = appText("Твой доход", "Һинең килем"),
                 priceLabel = "480 ₽",
                 description = appText(
                     "Получатель не смог принять заказ.",

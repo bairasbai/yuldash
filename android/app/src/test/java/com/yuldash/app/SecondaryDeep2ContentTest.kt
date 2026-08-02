@@ -119,7 +119,11 @@ class SecondaryDeep2ContentTest {
                 AdminReportsContent(loading = false, error = null, reports = listOf(report(reason = "")), onRetry = {})
             }
         }
-        composeRule.onNodeWithText("без причины").assertIsDisplayed()
+        // Текст фолбэка переписан: было «без причины», стало «без деталей» (SecondaryScreens.kt,
+        // r.reason.ifBlank { ... }). Прокрутка не нужна — в списке всего две строки, обе видны;
+        // моя прежняя правда со скроллом падала внутри самого скролла, потому что искомого
+        // узла не существовало вовсе.
+        composeRule.onNodeWithText("без деталей").assertIsDisplayed()
     }
 
     @Test

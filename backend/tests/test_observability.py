@@ -95,3 +95,31 @@ def test_error_alert_silent_below_threshold(monkeypatch):
     finally:
         settings.error_alert_threshold = saved_thr
         services.reset_error_counter()
+
+
+# ------------------- утечка токена live-ссылки в алерт -------------------
+def test_error_alert_does_not_leak_live_link_token(monkeypatch):
+    """Регресс: путь /t/{token} — секрет. Всплеск 5xx шлётся админу в Telegram
+    с «последним путём»; если туда попадёт сырой путь, ссылка на живую поездку
+    утечёт третьей стороне. Обработчик обязан отдавать замаскированный путь."""
+    import asyncio
+    from types import SimpleNamespace
+    from app.config import settings
+    from app.middleware import unhandled_exception_handler
+
+    sent: list[str] = []
+    monkeypatch.setattr(services, "notify_admin_telegram", lambda text, *a, **k: sent.append(text))
+    saved_thr = settings.error_alert_threshold
+    settings.error_alert_threshold = 1          # первый же 5xx → алерт
+    services.reset_error_counter()
+    try:
+        secret = "s3cr3t-live-token"
+        request = SimpleNamespace(method="GET", url=SimpleNamespace(path=f"/t/{secret}"))
+        asyncio.run(unhandled_exception_handler(request, RuntimeError("boom")))
+
+        assert sent, "алерт о всплеске 5xx не ушёл — тест бессмысленен"
+        assert secret not in sent[0], f"токен live-ссылки утёк в Telegram: {sent[0]}"
+        assert "/t/***" in sent[0], f"путь должен быть замаскирован, а пришло: {sent[0]}"
+    finally:
+        settings.error_alert_threshold = saved_thr
+        services.reset_error_counter()

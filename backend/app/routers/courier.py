@@ -623,7 +623,23 @@ def courier_available(from_city: Optional[str] = None, to_city: Optional[str] = 
         settlement = (session.get(Settlement, prof.work_direction_id)
                       if prof.work_direction_id else None)
         rows = [p for p in rows if _order_matches_zone(p, prof, settlement)]
-    return [parcels_mod._parcel_available(p) for p in rows]   # без телефона получателя
+    # Комиссию в списке пересчитываем под СТАЖ ЭТОГО курьера. В заказе она сохранена по дефолтной
+    # ступени (8%) — при создании курьер ещё не назначен. Курьеру на промо/tier1 показывался чужой,
+    # заниженный доход: в кабинете «ты платишь 3%», а на карточке заказа вычиталось 8%. Финальная
+    # комиссия по-прежнему считается при вручении (finalize_commission_kop) — здесь только витрина,
+    # сохранённое значение не трогаем. Процент берём один раз на тип, а не на каждую заявку.
+    now = utcnow()
+    pct_by_type = {t: courier_commission_percent(session, user.id, t, now)[0] for t in _COURIER_TYPES}
+    out = []
+    for p in rows:
+        item = parcels_mod._parcel_available(p)   # без телефона получателя
+        dtype = (getattr(p, "delivery_type", "courier") or "courier")
+        if dtype in pct_by_type:
+            item["commission_kop"] = courier_commission_kop(
+                int(getattr(p, "delivery_price_kop", 0) or 0), pct_by_type[dtype])
+            item["commission_estimated"] = True   # финал — при вручении
+        out.append(item)
+    return out
 
 
 # ---------------------------------------------------------------------------

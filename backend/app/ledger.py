@@ -208,10 +208,13 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
     if method in _CASHLESS:
         # Комиссия по фактической ставке водителя (лесенка/промо), той же, что Model-A долг,
         # который мы тут же гасим — иначе онлайн-оплата удержит плоские 8% в обход промо/лесенки.
-        # Ставку берём НА МОМЕНТ ЗАВЕРШЕНИЯ заказа (done_at), как её считал долг: оплата картой
-        # на день позже (смена ступени/конец промо) не должна менять обещанный процент.
+        # Момент фиксации ставки — created_at заказа, РОВНО как в debt.accrue_for_order: водителю
+        # в оффере показали net по ставке на момент создания, и долг считается по ней же. Раньше
+        # тут стоял done_at; после перехода долга на created_at пути разошлись — поездка через
+        # границу ступени/конец промо давала при оплате картой один процент, а в долге другой.
+        # Фолбэк done_at/сейчас — для старых заказов без created_at.
         from . import debt as _debt
-        pct = _debt.driver_fee_percent(session, order.driver_id, order.done_at)
+        pct = _debt.driver_fee_percent(session, order.driver_id, order.created_at or order.done_at)
         _post_earn_and_fee(session, order.driver_id, amount_kop,
                            order_id=order.id, note=f"Быстрый заказ #{order.id}", percent=pct)
         # Комиссия удержана в ledger fee → снимаем долг Модели А по этому заказу, иначе

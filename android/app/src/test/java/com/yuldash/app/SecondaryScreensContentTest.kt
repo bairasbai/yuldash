@@ -30,22 +30,27 @@ class SecondaryScreensContentTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    /** Уведомление-заготовка: тесту важны только заголовок, текст и «прочитано». */
-    private fun notif(titleRu: String, bodyRu: String, read: Boolean) = NotifDto(
-        id = 1, type = "message",
+    // --- NotificationRow: строка уведомления (заголовок + текст + «когда» + непрочитанное) ---
+
+    /** Собрать уведомление под текущий контракт: NotificationRow берёт DTO и сам достаёт
+     *  заголовок/текст по языку, а время считает относительно «сейчас» из createdAt. */
+    private fun notif(
+        titleRu: String,
+        bodyRu: String,
+        read: Boolean = false,
+    ) = NotifDto(
+        id = 1,
+        type = "system",
         titleRu = titleRu, titleBa = titleRu,
         bodyRu = bodyRu, bodyBa = bodyRu,
         refKind = "", refId = null,
-        read = read, createdAt = "",
+        read = read,
+        createdAt = "2026-01-01T12:30:00Z",
     )
-
-    // --- NotificationRow: строка уведомления (заголовок + текст + «когда» + непрочитанное) ---
 
     @Test
     fun notificationRow_showsTitleAndSubtitle() {
         composeRule.setContent {
-            // Строка уведомления давно берёт целый NotifDto (а не иконку/заголовок по кусочкам)
-            // и умеет открываться по нажатию. Тест звал старую сигнатуру и не компилировался.
             NotificationRow(
                 notif = notif(titleRu = "Новое сообщение", bodyRu = "Рамиль ответил на заявку", read = false),
                 onClick = {},
@@ -53,11 +58,13 @@ class SecondaryScreensContentTest {
         }
         composeRule.onNodeWithText("Новое сообщение").assertIsDisplayed()
         composeRule.onNodeWithText("Рамиль ответил на заявку").assertIsDisplayed()
+        // Время НЕ проверяем строкой: notifTimeAgo считает его относительно текущего момента
+        // («5 мин», «вчера»), поэтому фиксированный ожидаемый текст был бы ложным тестом.
     }
 
     @Test
     fun notificationRow_read_stillShowsText() {
-        // unread=false: точка непрочитанного скрыта, но текст рендерится как обычно.
+        // read=true: подложка спокойная (не мятная), но текст рендерится как обычно.
         composeRule.setContent {
             NotificationRow(
                 notif = notif(titleRu = "Заголовок", bodyRu = "Подзаголовок", read = true),

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,7 +55,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yuldash.app.data.InstantOrderDto
 
 /**
  * Общий визуальный язык режимов «Такси» и «Курьер».
@@ -275,7 +273,9 @@ internal fun TaxiServiceClassTile(
                 }
                 Spacer(Modifier.weight(1f))
                 if (selected) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonTaxiInk, modifier = Modifier.size(18.dp))
+                    // CanonTaxiText, а не CanonTaxiInk: подложка выбранного тарифа (CanonTaxiBg)
+                    // в тёмной теме тёмно-коричневая, и тёмный ink на ней даёт контраст 1.05.
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.size(18.dp))
                 }
             }
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -315,7 +315,7 @@ internal fun TaxiFareSummary(
                     }
                 }
                 Surface(shape = RoundedCornerShape(18.dp), color = CanonTaxiBg) {
-                    Icon(Icons.Default.Payments, contentDescription = null, tint = CanonTaxiInk, modifier = Modifier.padding(13.dp).size(24.dp))
+                    Icon(Icons.Default.Payments, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.padding(13.dp).size(24.dp))
                 }
             }
             if (error != null) {
@@ -566,6 +566,9 @@ internal fun CourierOfferCard(
     to: String,
     sizeLabel: String,
     deliveryLabel: String,
+    /** Подпись над суммой. Не всегда «Твой доход»: у бесплатной посылки денег нет вовсе,
+     *  и подпись про доход над словом «По-соседски» читается как обман. Решает вызывающий. */
+    priceCaption: String,
     priceLabel: String,
     description: String,
     modifier: Modifier = Modifier,
@@ -578,7 +581,7 @@ internal fun CourierOfferCard(
                     Icon(Icons.Default.Inventory2, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(appText("Твой доход", "Һинең килем"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(priceCaption, color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     Text(priceLabel, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
                 }
                 Surface(shape = RoundedCornerShape(12.dp), color = CanonGreen2.copy(alpha = 0.12f)) {
@@ -757,65 +760,4 @@ internal fun CourierDeliveryProgress(status: String, modifier: Modifier = Modifi
         modifier = modifier,
         accent = CanonGreen2,
     )
-}
-
-@Composable
-internal fun TaxiSearchingExperience(order: InstantOrderDto, onCancel: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 18.dp).navigationBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        MobilityScreenIntro(
-            mode = MobilityMode.Taxi,
-            title = appText("Ищем машину", "Машина эҙләйбеҙ"),
-            subtitle = appText("Предложение видят ближайшие проверенные водители", "Тәҡдимде яҡындағы тикшерелгән водителдәр күрә"),
-            badge = appText("в эфире", "эфирҙа"),
-        )
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CanonSurface),
-            shape = CanonCardShape,
-            border = BorderStroke(1.dp, CanonBorder),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(shape = RoundedCornerShape(18.dp), color = CanonTaxiBg) {
-                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonTaxiInk, modifier = Modifier.padding(13.dp).size(25.dp))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(appText("Цена для водителя", "Водитель өсөн хаҡ"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text("≈ ${order.priceEstimate} ₽", color = CanonText, fontSize = 26.sp, fontWeight = FontWeight.Black)
-                    }
-                    Box(Modifier.size(10.dp).background(CanonGreen2, CircleShape))
-                }
-                MobilityRouteTimeline(from = order.fromText, to = order.toText)
-                MobilityProgressRail(
-                    labels = listOf(
-                        appText("Запрос", "Һорау"),
-                        appText("Водитель", "Водитель"),
-                        appText("Подача", "Килеү"),
-                    ),
-                    currentIndex = 0,
-                    accent = CanonTaxi,
-                )
-            }
-        }
-        Surface(shape = CanonItemShape, color = CanonMint) {
-            Text(
-                appText("Можно свернуть приложение — статус заказа сохранится.", "Ҡушымтаны ябып торорға мөмкин — заказ һаҡланыр."),
-                color = CanonText,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                modifier = Modifier.padding(14.dp),
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        AppButton(
-            text = appText("Отменить заказ", "Заказды кире алыу"),
-            onClick = onCancel,
-            style = AppButtonStyle.Secondary,
-            height = 52.dp,
-        )
-    }
 }

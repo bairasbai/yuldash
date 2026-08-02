@@ -53,6 +53,9 @@ def ratio(fg: int, bg: int) -> float:
 WHITE = 0xFFFFFFFF
 # (что, на чём, порог, зачем)
 PAIRS = [
+    ("CanonCourier", "CanonCourierBg", 4.5, "текст курьера на своей подложке"),
+    ("CanonCourier", "CanonSurface", 4.5, "акцент курьера на карточке"),
+    ("CanonTaxiText", "CanonTaxiBg", 4.5, "ГОСНОМЕР машины в бейдже — пассажир сверяет авто"),
     ("CanonText", "CanonBg", 4.5, "основной текст на фоне"),
     ("CanonText", "CanonSurface", 4.5, "основной текст на карточке"),
     ("CanonMuted", "CanonBg", 4.5, "приглушённый текст на фоне"),

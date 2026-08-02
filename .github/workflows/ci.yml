@@ -101,7 +101,7 @@ jobs:
   #     build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые).
   android-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30          # первая сборка тянет зависимости — с запасом
+    timeout-minutes: 45          # две сборки + ~1100 юнит-тестов; первая сборка ещё и тянет зависимости
     defaults:
       run:
         working-directory: android
@@ -110,7 +110,15 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"     # проект собирается на JDK 17 (jvmTarget/sourceCompatibility = 17)
+          # JDK, на котором ЗАПУСКАЕТСЯ Gradle и юнит-тесты, — это НЕ то же самое, что целевой
+          # байткод: jvmTarget/sourceCompatibility остаются 17, их не трогаем.
+          # Почему 21: MapKit (com.yandex.android:maps.mobile:4.39.0-full) поставляется с
+          # байткодом новее 17, и на JDK 17 его классы не грузятся. Сборка APK это переживала
+          # (там классы не загружаются, только компилируются), а юнит-тесты — нет: 43 падения
+          # UnsupportedClassVersionError/NoClassDefFoundError, включая тесты чистой геометрии,
+          # которым MapKit нужен лишь ради типа Point. Локально Александр гоняет тесты под JBR
+          # из Android Studio (это JDK 21) — поэтому у него они шли, а в CI падали.
+          java-version: "21"
           cache: gradle          # кеш ~/.gradle → быстрее повторные сборки
       - uses: android-actions/setup-android@v3
       - name: Собрать debug APK
@@ -131,13 +139,13 @@ jobs:
   # на каждый класс и идёт минутами. Внутри android-build он съедал бюджет 30 минут у сборки APK —
   # то есть медленный тест мог уронить проверку, которая к нему отношения не имеет.
   #
-  # ПОКА НЕ БЛОКИРУЮЩАЯ: в CI эти тесты не гонялись ни разу, их состояние неизвестно, и ронять
-  # релизный PR неизвестностью нельзя. Как увидим стабильно зелёный прогон — снять
-  # continue-on-error и сделать блокирующей (тем же путём, что прошла android-build).
+  # БЛОКИРУЮЩАЯ. Заводилась как «пока не блокирующая: состояние тестов неизвестно» — это было
+  # верно ровно до того, как прогон состоялся. Он состоялся: 1103 теста зелёные на этом же дереве
+  # (run 30746442925). Оставлять continue-on-error после этого — держать декоративный гейт:
+  # он рисует галочку и пропускает регрессию (см. docs/lessons.md, «ложно-зелёный CI»).
   android-unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 45          # Robolectric медленный: свой запас, чужой сборке не мешает
-    continue-on-error: true      # ← снять, когда прогон станет стабильно зелёным
     defaults:
       run:
         working-directory: android

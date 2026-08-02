@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -149,7 +150,10 @@ class ProfileDeep4ContentTest {
         var newValue: Boolean? = null
         driverContent(online = false, onToggleOnline = { newValue = it })
         // Тумблер выключен → клик просит включить (true). Кликаем по самому Switch, не по тексту.
-        composeRule.onNode(isToggleable()).performClick()
+        // В кабинете водителя теперь ДВА тумблера: «на линии» и «женщина за рулём» (F9),
+        // поэтому onNode(isToggleable()) падал с «Expected exactly 1 node but found 2».
+        // Берём первый по порядку — это «на линии» (он выше по вёрстке, y≈112 против y≈304).
+        composeRule.onAllNodes(isToggleable()).onFirst().performClick()
         assertEquals(true, newValue)
     }
 
@@ -158,7 +162,10 @@ class ProfileDeep4ContentTest {
         var newValue: Boolean? = null
         driverContent(online = true, onToggleOnline = { newValue = it })
         // Тумблер включён → клик просит выключить (false).
-        composeRule.onNode(isToggleable()).performClick()
+        // В кабинете водителя теперь ДВА тумблера: «на линии» и «женщина за рулём» (F9),
+        // поэтому onNode(isToggleable()) падал с «Expected exactly 1 node but found 2».
+        // Берём первый по порядку — это «на линии» (он выше по вёрстке, y≈112 против y≈304).
+        composeRule.onAllNodes(isToggleable()).onFirst().performClick()
         assertEquals(false, newValue)
     }
 

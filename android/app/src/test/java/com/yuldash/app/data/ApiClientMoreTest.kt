@@ -216,38 +216,44 @@ class ApiClientMoreTest {
     }
 
     // ======================================================================
-    //  getNotifications (GET /notifications → List<NotifDto>)
+    //  getNotifications (GET /notifications → NotifFeed: unread + List<NotifDto>)
     // ======================================================================
 
     @Test
-    fun getNotifications_parsesTitleAndText() = runBlocking {
+    fun getNotifications_parsesFeedWithBilingualFields() = runBlocking {
         server.enqueue(
             json(
                 """{"unread":1,"items":[
-                     {"id":1,"type":"message","title_ru":"Новое сообщение","title_ba":"Яңы хәбәр",
-                      "body_ru":"Марат: еду","body_ba":"Марат: барам","ref_kind":"booking","ref_id":7,
-                      "read":false,"created_at":"2026-08-01T10:00:00"},
-                     {"id":2,"type":"booking","title_ru":"Бронь","title_ba":"Бронь",
-                      "body_ru":"Место подтверждено","body_ba":"Урын раҫланды","ref_kind":"","ref_id":null,
-                      "read":true,"created_at":"2026-08-01T09:00:00"}]}""",
+                     {"id":7,"type":"message","title_ru":"Новое сообщение","title_ba":"Яңы хәбәр",
+                      "body_ru":"Марат: еду","body_ba":"Марат: барам","ref_kind":"chat","ref_id":3,
+                      "read":false,"created_at":"2026-01-01T12:30:00Z"},
+                     {"id":8,"type":"booking","title_ru":"Бронь","title_ba":"Брон",
+                      "body_ru":"Место подтверждено","body_ba":"Урын раҫланды","ref_kind":"booking","ref_id":null,
+                      "read":true,"created_at":"2026-01-01T10:00:00Z"}]}""",
             ),
         )
-        // Лента давно приходит объектом NotifFeed (список + счётчик непрочитанного), а тексты
-        // разделены по языкам (title_ru/title_ba). Тест звал старую плоскую форму.
+        // Контракт сменился: getNotifications отдаёт NotifFeed (счётчик непрочитанного + items),
+        // а поля DTO двуязычные (title_ru/title_ba, body_ru/body_ba), а не title/text.
         val feed = ApiClient.getNotifications().getOrThrow()
+        assertEquals(1, feed.unread)
         assertEquals(2, feed.items.size)
         assertEquals("Новое сообщение", feed.items[0].titleRu)
+        assertEquals("Яңы хәбәр", feed.items[0].titleBa)
         assertEquals("Марат: еду", feed.items[0].bodyRu)
-        assertEquals("Бронь", feed.items[1].titleRu)
-        assertEquals(1, feed.unread)
+        assertEquals(3, feed.items[0].refId)
         assertEquals(false, feed.items[0].read)
+        assertEquals("Бронь", feed.items[1].titleRu)
+        // ref_id пришёл null → в DTO тоже null, а не 0: иначе deep-link уведёт в чужую бронь.
+        assertEquals(null, feed.items[1].refId)
         assertEquals("/notifications", server.takeRequest().path)
     }
 
     @Test
-    fun getNotifications_emptyItems_returnsEmptyList() = runBlocking {
+    fun getNotifications_emptyItems_returnsEmptyFeed() = runBlocking {
         server.enqueue(json("""{"unread":0,"items":[]}"""))
-        assertTrue(ApiClient.getNotifications().getOrThrow().items.isEmpty())
+        val feed = ApiClient.getNotifications().getOrThrow()
+        assertTrue(feed.items.isEmpty())
+        assertEquals(0, feed.unread)
     }
 
     // ======================================================================
