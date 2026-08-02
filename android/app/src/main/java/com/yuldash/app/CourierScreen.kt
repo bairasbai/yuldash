@@ -401,13 +401,18 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit
         else -> appText("По пути", "Юл ыңғайы")
     }
     val estimatedNetKop = courierNetKop(p.priceKop, p.commissionKop)
-    val priceLabel = if (p.priceKop > 0) "≈ " + kopToRub(estimatedNetKop)
+    val paid = p.priceKop > 0
+    val priceLabel = if (paid) "≈ " + kopToRub(estimatedNetKop)
     else appText("По-соседски", "Күрше хаҡы")
+    // Подпись честная: над «По-соседски» нельзя писать «Твой доход» — дохода там нет.
+    val priceCaption = if (paid) appText("Твой доход", "Һинең килем")
+    else appText("Без оплаты", "Түләүһеҙ")
     CourierOfferCard(
         from = p.fromCity,
         to = p.toCity,
         sizeLabel = parcelSizeLabel(p.size),
         deliveryLabel = deliveryLabel,
+        priceCaption = priceCaption,
         priceLabel = priceLabel,
         description = p.description,
     ) {
@@ -892,6 +897,9 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
     val st = me.statement
     val owed = st.commissionOwedKop
     val currentFeePercent = courierFeePercentText(st.currentFeePercent)
+    // Ставку показываем ТОЛЬКО когда сервер её прислал (feeTier непустой). Иначе поле по умолчанию
+    // равно 0.0, и курьеру объявлялся «сбор Юлдаша (0%)» — обещание, которого мы не давали.
+    val feeShare = if (st.feeTier.isNotBlank()) " ($currentFeePercent%)" else ""
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -1012,7 +1020,7 @@ private fun CourierCabinetTab(me: CourierMeDto, onReloadMe: () -> Unit, onEarnin
                         Text(appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
                     }
                     Text(
-                        appText("Это сбор Юлдаша ($currentFeePercent%) за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.", "Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы ($currentFeePercent%). Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш."),
+                        appText("Это сбор Юлдаша$feeShare за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.", "Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы$feeShare. Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш."),
                         color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
                     )
                     StatementRow(appText("Всего заработали мы", "Барлығы беҙ эшләнек"), kopToRub(st.commissionEarnedKop), CanonMuted)

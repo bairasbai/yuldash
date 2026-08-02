@@ -576,6 +576,9 @@ internal fun CourierOfferCard(
     to: String,
     sizeLabel: String,
     deliveryLabel: String,
+    /** Подпись над суммой. Не всегда «Твой доход»: у бесплатной посылки денег нет вовсе,
+     *  и подпись про доход над словом «По-соседски» читается как обман. Решает вызывающий. */
+    priceCaption: String,
     priceLabel: String,
     description: String,
     modifier: Modifier = Modifier,
@@ -588,7 +591,7 @@ internal fun CourierOfferCard(
                     Icon(Icons.Default.Inventory2, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(appText("Твой доход", "Һинең килем"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(priceCaption, color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     Text(priceLabel, color = CanonText, fontSize = 22.sp, fontWeight = FontWeight.Black)
                 }
                 Surface(shape = RoundedCornerShape(12.dp), color = CanonGreen2.copy(alpha = 0.12f)) {
@@ -822,7 +825,10 @@ internal fun TaxiSearchingExperience(order: InstantOrderDto, onCancel: () -> Uni
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(appText("Цена для водителя", "Водитель өсөн хаҡ"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        // Экран видит ПАССАЖИР (InstantOrderScreen), и priceEstimate — то, что заплатит он.
+                        // Подпись «Цена для водителя» здесь врала: пассажиру показывали его же сумму
+                        // как чужую. В приложении «между своими» неверная подпись над деньгами — прямой удар по доверию.
+                        Text(appText("Стоимость поездки", "Сәфәр хаҡы"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Text("≈ ${order.priceEstimate} ₽", color = CanonText, fontSize = 26.sp, fontWeight = FontWeight.Black)
                     }
                     Column(horizontalAlignment = Alignment.End) {
