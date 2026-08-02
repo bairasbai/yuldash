@@ -1,10 +1,6 @@
 package com.yuldash.app
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -19,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,11 +37,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,9 +55,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yuldash.app.data.InstantOrderDto
-import kotlinx.coroutines.delay
-import java.util.Locale
 
 /**
  * Общий визуальный язык режимов «Такси» и «Курьер».
@@ -772,106 +760,4 @@ internal fun CourierDeliveryProgress(status: String, modifier: Modifier = Modifi
         modifier = modifier,
         accent = CanonGreen2,
     )
-}
-
-/** «Живая» точка эфира: мягкий пульс (яркость + размер). Показывает, что поиск идёт прямо сейчас,
- *  а не завис — тот же сигнал, что у Uber/Яндекс Такси на экране подбора машины. */
-@Composable
-private fun LivePulseDot(color: Color, modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "livePulse")
-    val pulse by transition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "livePulseValue",
-    )
-    Box(
-        modifier
-            .size((9 + 3 * pulse).dp)
-            .background(color.copy(alpha = 0.55f + 0.45f * pulse), CircleShape),
-    )
-}
-
-@Composable
-internal fun TaxiSearchingExperience(order: InstantOrderDto, onCancel: () -> Unit) {
-    // Счётчик ожидания: человеку важно видеть, что время идёт и поиск живой. Без него минута
-    // на экране «Ищем машину» ощущается как зависание (типовая жалоба в такси-приложениях).
-    var waitedSec by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000)
-            waitedSec++
-        }
-    }
-    val waited = String.format(Locale.US, "%d:%02d", waitedSec / 60, waitedSec % 60)
-    // Строка для скринридера считается здесь: внутри Modifier.semantics {} вызывать @Composable нельзя.
-    val waitedLabel = appText("Идёт поиск, $waited", "Эҙләү бара, $waited")
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 18.dp).navigationBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        MobilityScreenIntro(
-            mode = MobilityMode.Taxi,
-            title = appText("Ищем машину", "Машина эҙләйбеҙ"),
-            subtitle = appText("Предложение видят ближайшие проверенные водители", "Тәҡдимде яҡындағы тикшерелгән водителдәр күрә"),
-            badge = appText("в эфире", "эфирҙа"),
-        )
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CanonSurface),
-            shape = CanonCardShape,
-            border = BorderStroke(1.dp, CanonBorder),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(shape = RoundedCornerShape(18.dp), color = CanonTaxiBg) {
-                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonTaxiText, modifier = Modifier.padding(13.dp).size(25.dp))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        // Экран видит ПАССАЖИР (InstantOrderScreen), и priceEstimate — то, что заплатит он.
-                        // Подпись «Цена для водителя» здесь врала: пассажиру показывали его же сумму
-                        // как чужую. В приложении «между своими» неверная подпись над деньгами — прямой удар по доверию.
-                        Text(appText("Стоимость поездки", "Сәфәр хаҡы"), color = CanonMutedStrong, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text("≈ ${order.priceEstimate} ₽", color = CanonText, fontSize = 26.sp, fontWeight = FontWeight.Black)
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        LivePulseDot(CanonGreen2)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            waited,
-                            color = CanonMutedStrong,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.semantics { contentDescription = waitedLabel },
-                        )
-                    }
-                }
-                MobilityRouteTimeline(from = order.fromText, to = order.toText)
-                MobilityProgressRail(
-                    labels = listOf(
-                        appText("Запрос", "Һорау"),
-                        appText("Водитель", "Водитель"),
-                        appText("Подача", "Килеү"),
-                    ),
-                    currentIndex = 0,
-                    accent = CanonTaxi,
-                )
-            }
-        }
-        Surface(shape = CanonItemShape, color = CanonMint) {
-            Text(
-                appText("Можно свернуть приложение — статус заказа сохранится.", "Ҡушымтаны ябып торорға мөмкин — заказ һаҡланыр."),
-                color = CanonText,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                modifier = Modifier.padding(14.dp),
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        AppButton(
-            text = appText("Отменить заказ", "Заказды кире алыу"),
-            onClick = onCancel,
-            style = AppButtonStyle.Secondary,
-            height = 52.dp,
-        )
-    }
 }

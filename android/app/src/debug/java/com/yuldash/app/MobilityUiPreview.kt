@@ -90,17 +90,6 @@ private fun TaxiOrderPreview() {
     }
 }
 
-@Preview(name = "Такси · поиск", widthDp = 390, heightDp = 844, showBackground = true)
-@Composable
-private fun TaxiSearchingPreview() {
-    MobilityPreviewTheme {
-        TaxiSearchingExperience(
-            order = previewInstantOrder(status = "searching"),
-            onCancel = {},
-        )
-    }
-}
-
 @Preview(
     name = "P0 · пассажир active · 320 · BA dark 1.5",
     widthDp = 320, heightDp = 640, showBackground = true,
