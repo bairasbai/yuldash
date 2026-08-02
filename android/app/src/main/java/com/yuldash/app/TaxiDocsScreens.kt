@@ -1,16 +1,30 @@
 package com.yuldash.app
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,12 +32,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -40,6 +59,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.TaxiApplicationDto
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /*
@@ -70,6 +93,42 @@ import kotlinx.coroutines.launch
 // Сколько дней до истечения считаем тревогой (совпадает с docs_warn_days на сервере).
 private const val DOCS_WARN_DAYS = 14
 
+/*
+ * ── Сетка ──────────────────────────────────────────────────────────────────
+ * Все отступы этих двух экранов берутся ТОЛЬКО отсюда и кратны 4dp — тогда
+ * вертикальный ритм ровный, а не «на глаз» (было вперемешку 10/14/18/22dp).
+ */
+private val ScreenPad = 16.dp   // боковые поля экрана
+private val CardPad = 20.dp     // внутри крупной карточки-шапки
+private val CardPadLg = 24.dp   // внутри «праздничной» карточки (готовность подтверждена)
+private val ItemPad = 16.dp     // внутри строки-карточки
+private val GapXs = 4.dp        // заголовок ↔ подпись
+private val GapS = 8.dp         // мелкий зазор
+private val GapM = 12.dp        // между карточками и блоками внутри карточки
+private val GapL = 16.dp        // иконка-кружок ↔ текст в шапке
+private val BottomPad = 32.dp   // воздух под последним элементом списка
+
+/*
+ * ── Типографика ────────────────────────────────────────────────────────────
+ * Ровно четыре размера, у каждого одна роль. Больше не заводим: экран
+ * законный и скучный, читаться должен по иерархии, а не по разнобою кеглей.
+ */
+private val TitleSize = 18.sp   // заголовок карточки (один на карточку)
+private val BodySize = 15.sp    // название документа/пункта и значение (дата)
+private val SubSize = 13.sp     // пояснение под заголовком, текст плашек
+private val CapSize = 12.sp     // служебное: подпись секции, пилюля, сноска, счётчик
+private val TitleLead = 24.sp
+private val BodyLead = 20.sp
+private val SubLead = 18.sp
+private val CapLead = 16.sp
+
+/*
+ * ── contentDescription ─────────────────────────────────────────────────────
+ * Озвучиваем только те иконки, которые НЕСУТ смысл сами (галочка «отмечено»,
+ * состояние поля даты, значок ошибки). Иконки, чей смысл слово в слово написан
+ * рядом текстом, помечены null — иначе TalkBack читает одно и то же дважды.
+ */
+
 // ─────────────────────────── Документы и сроки ───────────────────────────
 
 @Composable
@@ -88,6 +147,16 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
 
     val savedMsg = appText("Дата сохранена", "Дата һаҡланды")
     val errFallback = appText("Не получилось сохранить. Проверь сеть.", "Һаҡлап булманы. Селтәрҙе тикшер.")
+
+    // «Дата сохранена» висела до ухода с экрана. Через минуту водитель менял ДРУГУЮ дату, а
+    // старая зелёная плашка всё ещё стояла рядом — и читалась как «и эта сохранена тоже».
+    // Успех сам уходит через 3,5 секунды. Ошибку не прячем: по ней человеку надо что-то сделать.
+    LaunchedEffect(msg) {
+        if (msg != null) {
+            delay(3_500)
+            msg = null
+        }
+    }
 
     LaunchedEffect(reload) {
         loading = true; error = false
@@ -117,70 +186,81 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
         topBar = { ScreenTopBar(appText("Документы и сроки", "Документтар һәм ваҡыттар"), onBack) },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
+            modifier = Modifier.padding(padding).padding(horizontal = ScreenPad),
+            verticalArrangement = Arrangement.spacedBy(GapM),
+            contentPadding = PaddingValues(top = GapS, bottom = BottomPad),
         ) {
             val a = app
             when {
-                loading && a == null -> item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 2) } } }
-                error && a == null -> item { AppErrorState(onRetry = { reload++ }) }
-                a == null -> item {
-                    AppEmptyState(
-                        title = appText("Заявка не подана", "Заявка бирелмәгән"),
-                        text = appText(
-                            "Сроки документов появятся здесь, когда ты подашь заявку таксиста.",
-                            "Документ ваҡыттары такси заявкаһын биргәс бында күренәсәк.",
-                        ),
-                        icon = Icons.Default.Description,
-                    )
+                loading && a == null -> item(key = "skeleton") { TaxiDocsSkeleton() }
+                error && a == null -> item(key = "error") {
+                    Box(Modifier.appearIn(0)) { AppErrorState(onRetry = { reload++ }) }
+                }
+                a == null -> item(key = "empty") {
+                    Box(Modifier.appearIn(0)) {
+                        AppEmptyState(
+                            title = appText("Заявка не подана", "Заявка бирелмәгән"),
+                            text = appText(
+                                "Сроки документов появятся здесь, когда ты подашь заявку таксиста.",
+                                "Документ ваҡыттары такси заявкаһын биргәс бында күренәсәк.",
+                            ),
+                            icon = Icons.Default.Description,
+                            actionLabel = appText("Вернуться назад", "Кире ҡайтыу"),
+                            onAction = onBack,
+                        )
+                    }
                 }
                 else -> {
-                    item { TaxiDocsHeader(a) }
-                    item {
-                        TaxiDocRow(
-                            icon = Icons.Default.Shield,
-                            title = appText("ОСАГО", "ОСАГО"),
-                            hint = appText("Страховка — без неё при ДТП платить некому", "Страховка — ДТП булһа түләүсе булмай"),
-                            iso = a.osagoUntil, busy = busy, lang = lang, ctx = ctx,
-                            onPicked = { save("osago", it) },
-                        )
+                    // Шапка и ответ на действие — одним блоком: плашка «сохранено/не вышло»
+                    // раскрывается прямо под статусом, где взгляд уже находится, и не оставляет
+                    // после себя пустой дыры в ритме списка, когда её нет.
+                    item(key = "hero") {
+                        Column(Modifier.appearIn(0)) {
+                            TaxiDocsHeader(a)
+                            InlineNotice(text = errText ?: msg, ok = errText == null)
+                        }
                     }
-                    item {
-                        TaxiDocRow(
-                            icon = Icons.Default.Description,
-                            title = appText("Разрешение на такси", "Такси рөхсәте"),
-                            hint = appText("Номер в реестре перевозчиков", "Йөрөтөүселәр реестрындағы номер"),
-                            iso = a.permitUntil, busy = busy, lang = lang, ctx = ctx,
-                            onPicked = { save("permit", it) },
-                        )
+                    item(key = "label") { SmallSectionLabel(appText("ДОКУМЕНТЫ", "ДОКУМЕНТТАР")) }
+                    item(key = "osago") {
+                        Box(Modifier.appearIn(1)) {
+                            TaxiDocRow(
+                                icon = Icons.Default.Shield,
+                                title = appText("ОСАГО", "ОСАГО"),
+                                hint = appText("Страховка — без неё при ДТП платить некому", "Страховка — ДТП булһа түләүсе булмай"),
+                                iso = a.osagoUntil, busy = busy, lang = lang, ctx = ctx,
+                                onPicked = { save("osago", it) },
+                            )
+                        }
                     }
-                    item {
-                        TaxiDocRow(
-                            icon = Icons.Default.DirectionsCar,
-                            title = appText("Диагностическая карта", "Диагностика картаһы"),
-                            hint = appText("Техосмотр машины", "Машинаның техник ҡарауы"),
-                            iso = a.inspectionUntil, busy = busy, lang = lang, ctx = ctx,
-                            onPicked = { save("inspection", it) },
-                        )
+                    item(key = "permit") {
+                        Box(Modifier.appearIn(2)) {
+                            TaxiDocRow(
+                                icon = Icons.Default.Description,
+                                title = appText("Разрешение на такси", "Такси рөхсәте"),
+                                hint = appText("Номер в реестре перевозчиков", "Йөрөтөүселәр реестрындағы номер"),
+                                iso = a.permitUntil, busy = busy, lang = lang, ctx = ctx,
+                                onPicked = { save("permit", it) },
+                            )
+                        }
                     }
-                    item {
-                        Text(
+                    item(key = "inspection") {
+                        Box(Modifier.appearIn(3)) {
+                            TaxiDocRow(
+                                icon = Icons.Default.DirectionsCar,
+                                title = appText("Диагностическая карта", "Диагностика картаһы"),
+                                hint = appText("Техосмотр машины", "Машинаның техник ҡарауы"),
+                                iso = a.inspectionUntil, busy = busy, lang = lang, ctx = ctx,
+                                onPicked = { save("inspection", it) },
+                            )
+                        }
+                    }
+                    item(key = "footnote") {
+                        FootnoteRow(
                             appText(
                                 "Мы напомним за две недели и ещё раз за три дня. Если срок всё же выйдет — такси встанет на паузу, а попутки продолжат работать. Обновишь дату — допуск вернётся сразу.",
                                 "Ике аҙна алдан һәм тағы өс көн ҡалғас иҫкә төшөрәбеҙ. Ваҡыт үтһә — такси паузаға китә, ә юлдаш сәфәрҙәре эшләй бирә. Датаны яңыртҡас — рөхсәт шунда уҡ ҡайта.",
-                            ),
-                            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                            )
                         )
-                    }
-                    msg?.let { item { Text(it, color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold) } }
-                    errText?.let {
-                        item {
-                            Surface(color = CanonDangerBg, shape = CanonItemShape) {
-                                Text(it, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp,
-                                    modifier = Modifier.fillMaxWidth().padding(14.dp))
-                            }
-                        }
                     }
                 }
             }
@@ -188,48 +268,155 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit) {
     }
 }
 
-/** Шапка: общее состояние допуска. Просрочено — красная, скоро — жёлтая, всё хорошо — зелёная. */
+/** Скелетон в форме будущего экрана: шапка + три строки документов (не голый спиннер). */
+@Composable
+private fun TaxiDocsSkeleton() {
+    Column(verticalArrangement = Arrangement.spacedBy(GapM)) {
+        SkeletonCard(lines = 1)
+        repeat(3) { SkeletonCard(lines = 2) }
+    }
+}
+
+/** Тихая подпись-разделитель секции. Заглавные буквы + разрядка — держит структуру без лишней карточки. */
+@Composable
+private fun SmallSectionLabel(text: String) {
+    Text(
+        text,
+        color = CanonMuted,
+        fontSize = CapSize,
+        lineHeight = CapLead,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.8.sp,
+        modifier = Modifier.padding(start = GapXs, top = GapXs),
+    )
+}
+
+/** Сноска: значок «инфо» + спокойный поясняющий текст. Не карточка — чтобы не спорила с контентом. */
+@Composable
+private fun FootnoteRow(text: String) {
+    Row(Modifier.padding(horizontal = GapXs, vertical = GapXs), verticalAlignment = Alignment.Top) {
+        Icon(Icons.Default.Info, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(GapS))
+        Text(text, color = CanonMuted, fontSize = CapSize, lineHeight = SubLead)
+    }
+}
+
+/** Что показывала плашка в последний раз. Обычный объект, не state: обновлять его
+ *  во время композиции безопасно — лишней перерисовки не вызывает. */
+private class NoticeMemo(var text: String = "", var ok: Boolean = true)
+
+/**
+ * Плашка-ответ на действие: получилось (зелёная) или нет (красная).
+ * [text] = null → плашки нет и она не занимает места; появление/скрытие — мягкое.
+ */
+@Composable
+private fun InlineNotice(text: String?, ok: Boolean) {
+    // Последнее показанное помним: иначе за время сворачивания плашка мигнёт пустой.
+    val memo = remember { NoticeMemo() }
+    if (text != null) {
+        memo.text = text
+        memo.ok = ok
+    }
+    val shownText = memo.text
+    val shownOk = memo.ok
+    AnimatedVisibility(
+        visible = text != null,
+        enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+        exit = fadeOut(tween(140)) + shrinkVertically(tween(140)),
+    ) {
+        Surface(
+            color = if (shownOk) CanonMint else CanonDangerBg,
+            shape = CanonItemShape,
+            border = BorderStroke(1.dp, if (shownOk) CanonHairlineGreen else CanonDangerBorder),
+            modifier = Modifier.fillMaxWidth().padding(top = GapM),
+        ) {
+            Row(Modifier.padding(ItemPad), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (shownOk) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
+                    contentDescription = if (shownOk) appText("Готово", "Әҙер") else appText("Ошибка", "Хата"),
+                    tint = if (shownOk) CanonGreen2 else CanonRed,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(GapM))
+                Text(
+                    shownText,
+                    color = if (shownOk) CanonGreen2 else CanonRed,
+                    fontSize = SubSize, lineHeight = SubLead, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/** Шапка: общее состояние допуска. Просрочено — красная, скоро/не указано — жёлтая, всё хорошо — зелёная. */
 @Composable
 private fun TaxiDocsHeader(a: TaxiApplicationDto) {
     val left = a.docsDaysLeft
     val expired = a.docsExpired || (left != null && left < 0)
     val soon = !expired && left != null && left <= DOCS_WARN_DAYS
-    val bg = when { expired -> CanonDangerBg; soon -> CanonWarnBg; else -> CanonMint }
-    val fg = when { expired -> CanonRed; soon -> CanonWarn; else -> CanonGreen2 }
+    // Сроки не заполнены — это тоже «нужно внимание». Раньше сюда падала зелёная галочка,
+    // и картинка спорила с подписью «Укажи сроки документов».
+    val attention = !expired && !soon && a.docsMissing.isNotEmpty()
+    // Цвет статуса анимируем: продлил документ — шапка сама переезжает из красной в зелёную.
+    val bg by animateColorAsState(
+        when { expired -> CanonDangerBg; soon || attention -> CanonWarnBg; else -> CanonMint },
+        tween(320), label = "docsHeroBg",
+    )
+    val fg by animateColorAsState(
+        when { expired -> CanonRed; soon || attention -> CanonWarn; else -> CanonGreen2 },
+        tween(320), label = "docsHeroFg",
+    )
+    val icon = when {
+        expired -> Icons.Default.ErrorOutline
+        soon || attention -> Icons.Default.Schedule
+        else -> Icons.Default.CheckCircle
+    }
+    val title = when {
+        expired -> appText("Такси на паузе", "Такси паузала")
+        soon -> appText("Скоро истекает документ", "Документ ваҡыты бөтә")
+        attention -> appText("Укажи сроки документов", "Документ ваҡыттарын күрһәт")
+        else -> appText("Документы в порядке", "Документтар тәртиптә")
+    }
+    val subtitle = when {
+        expired -> appText("Обнови дату — вернём допуск сразу. Попутки работают.", "Датаны яңырт — рөхсәтте шунда уҡ ҡайтарабыҙ. Юлдаш сәфәрҙәре эшләй.")
+        soon && left != null -> appText("Осталось $left дн. — лучше продлить заранее", "$left көн ҡалды — алдан оҙайтҡан яҡшыраҡ")
+        attention -> appText("Так мы предупредим заранее, а не по факту", "Шунда алдан иҫкәртәбеҙ, эш үткәс түгел")
+        else -> appText("Спасибо, что держишь их актуальными", "Уларҙы яңы килеш тотҡаның өсөн рәхмәт")
+    }
     AppCard {
-        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(CardPad), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = bg, shape = CircleShape) {
-                Icon(
-                    if (expired) Icons.Default.RadioButtonUnchecked else Icons.Default.CheckCircle,
-                    contentDescription = null, tint = fg, modifier = Modifier.padding(12.dp).size(22.dp),
-                )
+                // Смысл иконки слово в слово написан рядом (заголовок) → не озвучиваем дважды.
+                Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.padding(GapM).size(24.dp))
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    when {
-                        expired -> appText("Такси на паузе", "Такси паузала")
-                        soon -> appText("Скоро истекает документ", "Документ ваҡыты бөтә")
-                        a.docsMissing.isNotEmpty() -> appText("Укажи сроки документов", "Документ ваҡыттарын күрһәт")
-                        else -> appText("Документы в порядке", "Документтар тәртиптә")
-                    },
-                    color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp,
-                )
-                Text(
-                    when {
-                        expired -> appText("Обнови дату — вернём допуск сразу. Попутки работают.", "Датаны яңырт — рөхсәтте шунда уҡ ҡайтарабыҙ. Юлдаш сәфәрҙәре эшләй.")
-                        soon && left != null -> appText("Осталось $left дн. — лучше продлить заранее", "$left көн ҡалды — алдан оҙайтҡан яҡшыраҡ")
-                        a.docsMissing.isNotEmpty() -> appText("Так мы предупредим заранее, а не по факту", "Шунда алдан иҫкәртәбеҙ, эш үткәс түгел")
-                        else -> appText("Спасибо, что держишь их актуальными", "Уларҙы яңы килеш тотҡаның өсөн рәхмәт")
-                    },
-                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
-                )
+            Spacer(Modifier.width(GapL))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GapXs)) {
+                AnimatedContent(
+                    targetState = title,
+                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                    label = "docsHeroTitle",
+                ) { t ->
+                    Text(t, color = CanonText, fontWeight = FontWeight.Black, fontSize = TitleSize, lineHeight = TitleLead)
+                }
+                AnimatedContent(
+                    targetState = subtitle,
+                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                    label = "docsHeroSubtitle",
+                ) { s ->
+                    Text(s, color = CanonMuted, fontSize = SubSize, lineHeight = SubLead)
+                }
             }
         }
     }
 }
 
-/** Одна строка документа: срок + кнопка выбора даты в календаре. */
+/**
+ * Одна строка документа: название, срок и состояние.
+ * Вся карточка — цель нажатия (открывает календарь), поэтому три громоздкие кнопки ушли,
+ * и все документы теперь видно разом, без прокрутки. Статус вынесен в короткую пилюлю,
+ * а строка даты осталась нейтральной («до …») — одно и то же не написано дважды.
+ */
 @Composable
 private fun TaxiDocRow(
     icon: ImageVector,
@@ -242,44 +429,80 @@ private fun TaxiDocRow(
     onPicked: (String) -> Unit,
 ) {
     val left = daysUntilIso(iso)
+    val missing = iso.isNullOrBlank()
     val expired = left != null && left < 0
     val soon = left != null && left in 0..DOCS_WARN_DAYS
-    AppCard(shape = CanonItemShape) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // Смена статуса после продления — переездом цвета, а не рывком.
+    val accent by animateColorAsState(
+        when { expired -> CanonRed; soon -> CanonWarn; missing -> CanonMuted; else -> CanonGreen2 },
+        tween(320), label = "docAccent",
+    )
+    val accentBg by animateColorAsState(
+        when { expired -> CanonDangerBg; soon -> CanonWarnBg; missing -> CanonBg; else -> CanonMint },
+        tween(320), label = "docAccentBg",
+    )
+    // Пока идёт сохранение — карточки приглушены и не ловят нажатия (раньше просто гасли кнопки).
+    val dim by animateFloatAsState(if (busy) 0.55f else 1f, tween(200), label = "docBusy")
+    val dateText = shortDate(iso) ?: iso.orEmpty()
+    val dateLine = if (missing) appText("Дата не указана", "Дата күрһәтелмәгән") else appText("до $dateText", "$dateText тиклем")
+    val action = if (missing) appText("Указать", "Күрһәтеү") else appText("Изменить", "Үҙгәртеү")
+    // Пилюля коротка намеренно: длинный башкирский тут сжал бы название документа.
+    val pill = when {
+        expired -> appText("Истёк", "Үткән")
+        left != null -> appText("$left дн.", "$left көн")
+        else -> ""
+    }
+
+    AppCard(
+        modifier = Modifier.alpha(dim),
+        shape = CanonItemShape,
+        onClick = { if (!busy) openFutureDatePicker(ctx, if (lang == AppLanguage.Ba) "ba" else "ru", onPicked) },
+    ) {
+        Column(Modifier.padding(ItemPad), verticalArrangement = Arrangement.spacedBy(GapM)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    color = when { expired -> CanonDangerBg; soon -> CanonWarnBg; else -> CanonMint },
-                    shape = CircleShape,
-                ) {
-                    Icon(
-                        icon, contentDescription = null,
-                        tint = when { expired -> CanonRed; soon -> CanonWarn; else -> CanonGreen2 },
-                        modifier = Modifier.padding(10.dp).size(18.dp),
-                    )
+                Surface(color = accentBg, shape = CircleShape) {
+                    // Название документа написано рядом — иконка тут украшение, озвучивать нечего.
+                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.padding(GapM).size(20.dp))
                 }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text(hint, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+                Spacer(Modifier.width(GapM))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GapXs)) {
+                    Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = BodySize, lineHeight = BodyLead)
+                    Text(hint, color = CanonMuted, fontSize = SubSize, lineHeight = SubLead)
+                }
+                AnimatedVisibility(
+                    visible = expired || soon,
+                    enter = fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.8f),
+                    exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.8f),
+                ) {
+                    DocStatusPill(text = pill, fg = accent, bg = accentBg)
                 }
             }
-            Text(
-                when {
-                    iso.isNullOrBlank() -> appText("Срок не указан", "Ваҡыт күрһәтелмәгән")
-                    expired -> appText("Истёк ", "Ваҡыты үткән ") + (shortDate(iso) ?: iso)
-                    else -> appText("Действует до ", "Ғәмәлдә ") + (shortDate(iso) ?: iso)
-                },
-                color = when { expired -> CanonRed; soon -> CanonWarn; iso.isNullOrBlank() -> CanonMuted; else -> CanonText },
-                fontSize = 15.sp, fontWeight = FontWeight.Bold,
-            )
-            AppButton(
-                text = if (iso.isNullOrBlank()) appText("Указать дату", "Датаны күрһәтеү")
-                else appText("Изменить дату", "Датаны үҙгәртеү"),
-                onClick = { openFutureDatePicker(ctx, if (lang == AppLanguage.Ba) "ba" else "ru", onPicked) },
-                style = AppButtonStyle.Secondary,
-                enabled = !busy,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AnimatedContent(
+                    targetState = dateLine,
+                    transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) },
+                    label = "docDate",
+                    modifier = Modifier.weight(1f),
+                ) { line ->
+                    Text(line, color = accent, fontSize = BodySize, lineHeight = BodyLead, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(GapS))
+                Text(action, color = CanonGreen2, fontSize = SubSize, lineHeight = SubLead, fontWeight = FontWeight.Bold)
+                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+            }
         }
+    }
+}
+
+/** Короткая пилюля статуса: «Истёк» или «14 дн.». Появляется только когда нужна реакция. */
+@Composable
+private fun DocStatusPill(text: String, fg: Color, bg: Color) {
+    Surface(color = bg, shape = CircleShape) {
+        Text(
+            text, color = fg, fontSize = CapSize, lineHeight = CapLead,
+            fontWeight = FontWeight.Bold, maxLines = 1,
+            modifier = Modifier.padding(horizontal = GapM, vertical = GapS),
+        )
     }
 }
 
@@ -292,39 +515,59 @@ internal fun TaxiDocDateField(label: String, hint: String, iso: String?, onPicke
     val ctx = LocalContext.current
     val lang = LocalAppLanguage.current
     val left = daysUntilIso(iso)
-    Surface(
-        onClick = { openFutureDatePicker(ctx, if (lang == AppLanguage.Ba) "ba" else "ru", onPicked) },
-        color = CanonSurface,
-        shape = CanonItemShape,
-        border = BorderStroke(1.dp, if (iso.isNullOrBlank()) CanonBorder else CanonGreen2),
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-    ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(label, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text(
-                    if (iso.isNullOrBlank()) hint
-                    else appText("Действует до ", "Ғәмәлдә ") + (shortDate(iso) ?: iso),
-                    color = if (iso.isNullOrBlank()) CanonMuted else CanonGreen2,
-                    fontSize = 13.sp, lineHeight = 17.sp,
+    val filled = !iso.isNullOrBlank()
+    val accent by animateColorAsState(if (filled) CanonGreen2 else CanonMuted, tween(240), label = "dateFieldAccent")
+    val line by animateColorAsState(if (filled) CanonGreen2 else CanonBorder, tween(240), label = "dateFieldLine")
+    // Подпись в форме уже заканчивается на «до», поэтому значение — просто дата, без повтора предлога.
+    val value = if (filled) (shortDate(iso) ?: iso.orEmpty()) else hint
+    Column {
+        Surface(
+            color = CanonSurface,
+            shape = CanonItemShape,
+            border = BorderStroke(1.dp, line),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 72.dp)
+                .bounceClick { openFutureDatePicker(ctx, if (lang == AppLanguage.Ba) "ba" else "ru", onPicked) },
+        ) {
+            Row(Modifier.padding(ItemPad), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GapXs)) {
+                    Text(label, color = CanonText, fontWeight = FontWeight.Bold, fontSize = BodySize, lineHeight = BodyLead)
+                    AnimatedContent(
+                        targetState = value,
+                        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
+                        label = "dateFieldValue",
+                    ) { v ->
+                        Text(v, color = accent, fontSize = SubSize, lineHeight = SubLead)
+                    }
+                }
+                Spacer(Modifier.width(GapM))
+                // Здесь иконка — единственный носитель состояния поля, поэтому её озвучиваем.
+                Icon(
+                    if (filled) Icons.Default.CheckCircle else Icons.Default.CalendarMonth,
+                    contentDescription = if (filled) appText("Дата указана", "Дата күрһәтелгән")
+                    else appText("Выбрать дату", "Дата һайлау"),
+                    tint = accent,
+                    modifier = Modifier.size(24.dp),
                 )
             }
-            Spacer(Modifier.width(10.dp))
-            Icon(
-                if (iso.isNullOrBlank()) Icons.Default.RadioButtonUnchecked else Icons.Default.CheckCircle,
-                contentDescription = null,
-                tint = if (iso.isNullOrBlank()) CanonMuted else CanonGreen2,
-                modifier = Modifier.size(22.dp),
-            )
         }
-    }
-    // Дата в прошлом сюда попасть не может (календарь ограничен), но если сервер уже
-    // отдал просроченную — честно подсвечиваем, а не делаем вид, что всё хорошо.
-    if (left != null && left < 0) {
-        Text(
-            appText("Срок истёк — обнови документ", "Ваҡыты үткән — документты яңырт"),
-            color = CanonRed, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, top = 4.dp),
-        )
+        // Дата в прошлом сюда попасть не может (календарь ограничен), но если сервер уже
+        // отдал просроченную — честно подсвечиваем, а не делаем вид, что всё хорошо.
+        AnimatedVisibility(
+            visible = left != null && left < 0,
+            enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+            exit = fadeOut(tween(140)) + shrinkVertically(tween(140)),
+        ) {
+            Row(Modifier.padding(start = GapXs, top = GapS), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonRed, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(GapS))
+                Text(
+                    appText("Срок истёк — обнови документ", "Ваҡыты үткән — документты яңырт"),
+                    color = CanonRed, fontSize = CapSize, lineHeight = CapLead,
+                )
+            }
+        }
     }
 }
 
@@ -380,6 +623,10 @@ internal fun PretripCheckScreen(onBack: () -> Unit, onConfirmed: () -> Unit = {}
     }
 
     val confirmed = state?.confirmed == true
+    // Обязательна отметка сегодня или нет — решает сервер (флаг pretrip_check_required).
+    // Раньше этот ответ приходил и молча выбрасывался: экран всем одинаково намекал, что
+    // без отметки на линию не пустят. Пока флаг выключен — это неправда, и врать нельзя.
+    val required = state?.required == true
     val allChecked = health && car && sober
 
     Scaffold(
@@ -387,100 +634,101 @@ internal fun PretripCheckScreen(onBack: () -> Unit, onConfirmed: () -> Unit = {}
         topBar = { ScreenTopBar(appText("Готовность к работе", "Эшкә әҙерлек"), onBack) },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
+            // imePadding: на этом экране есть поле заметки — кнопка «Подтвердить» не должна
+            // прятаться за клавиатурой (тот же приём, что в чате активной поездки).
+            modifier = Modifier.padding(padding).padding(horizontal = ScreenPad).imePadding(),
+            verticalArrangement = Arrangement.spacedBy(GapM),
+            contentPadding = PaddingValues(top = GapS, bottom = BottomPad),
         ) {
             when {
-                loading && state == null -> item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 2) } } }
-                error && state == null -> item { AppErrorState(onRetry = { reload++ }) }
-                confirmed -> item { PretripDoneCard(state?.confirmedAt) }
+                loading && state == null -> item(key = "skeleton") { PretripSkeleton() }
+                error && state == null -> item(key = "error") {
+                    Box(Modifier.appearIn(0)) { AppErrorState(onRetry = { reload++ }) }
+                }
+                confirmed -> item(key = "done") {
+                    Box(Modifier.appearIn(0)) { PretripDoneCard(state?.confirmedAt) }
+                }
                 else -> {
-                    item {
-                        AppCard {
-                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(appText("Перед выходом на линию", "Линияға сығыр алдынан"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 18.sp)
-                                Text(
-                                    appText(
-                                        "Отметь три пункта — раз в день. Это не медосмотр: врача у нас нет, и мы не будем притворяться. Это твоё слово, и оно остаётся записью — если что-то случится, будет видно, что ты подтвердил в этот день.",
-                                        "Өс пунктты билдәлә — көнөнә бер тапҡыр. Был медосмотр түгел: табибыбыҙ юҡ, һәм беҙ уны уйнап күрһәтмәйбеҙ. Был — һинең һүҙең, ул яҙма булып ҡала: берәй хәл булһа, ошо көндә нимә раҫлағаның күренәсәк.",
-                                    ),
-                                    color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
-                                )
-                            }
+                    item(key = "intro") { Box(Modifier.appearIn(0)) { PretripIntroCard(required) } }
+                    item(key = "progress") {
+                        PretripProgress(
+                            done = (if (health) 1 else 0) + (if (car) 1 else 0) + (if (sober) 1 else 0),
+                            total = 3,
+                        )
+                    }
+                    item(key = "health") {
+                        Box(Modifier.appearIn(1)) {
+                            PretripCheckItem(
+                                Icons.Default.Favorite,
+                                appText("Чувствую себя хорошо", "Үҙемде яҡшы тоям"),
+                                appText("Выспался, могу вести машину", "Йоҡлағанмын, машина йөрөтә алам"),
+                                health,
+                            ) { health = !health }
                         }
                     }
-                    item {
-                        PretripCheckItem(
-                            Icons.Default.Favorite,
-                            appText("Чувствую себя хорошо", "Үҙемде яҡшы тоям"),
-                            appText("Выспался, могу вести машину", "Йоҡлағанмын, машина йөрөтә алам"),
-                            health,
-                        ) { health = !health }
+                    item(key = "car") {
+                        Box(Modifier.appearIn(2)) {
+                            PretripCheckItem(
+                                Icons.Default.DirectionsCar,
+                                appText("Машина исправна", "Машина төҙөк"),
+                                appText("Тормоза, свет, резина, стёкла — в порядке", "Тормоз, ут, резина, быяла — тәртиптә"),
+                                car,
+                            ) { car = !car }
+                        }
                     }
-                    item {
-                        PretripCheckItem(
-                            Icons.Default.DirectionsCar,
-                            appText("Машина исправна", "Машина төҙөк"),
-                            appText("Тормоза, свет, резина, стёкла — в порядке", "Тормоз, ут, резина, быяла — тәртиптә"),
-                            car,
-                        ) { car = !car }
+                    item(key = "sober") {
+                        Box(Modifier.appearIn(3)) {
+                            PretripCheckItem(
+                                Icons.Default.Block,
+                                appText("Алкоголя не было", "Эсемлек эсмәнем"),
+                                appText("И лекарств, которые влияют на реакцию", "Реакцияға тәьҫир иткән дарыуҙар ҙа юҡ"),
+                                sober,
+                            ) { sober = !sober }
+                        }
                     }
-                    item {
-                        PretripCheckItem(
-                            Icons.Default.Block,
-                            appText("Алкоголя не было", "Эсемлек эсмәнем"),
-                            appText("И лекарств, которые влияют на реакцию", "Реакцияға тәьҫир иткән дарыуҙар ҙа юҡ"),
-                            sober,
-                        ) { sober = !sober }
-                    }
-                    item {
+                    item(key = "note") {
                         OutlinedTextField(
                             value = note,
                             onValueChange = { note = it.take(300) },
                             label = { Text(appText("Заметка (необязательно)", "Билдә (мотлаҡ түгел)")) },
                             placeholder = { Text(appText("«Заменил лампу ближнего света»", "«Яҡын ут лампаһын алмаштырҙым»")) },
+                            // Пустое поле — подсказка, начал писать — счётчик. Высота одинаковая,
+                            // поле не «прыгает» на первом же символе.
+                            supportingText = {
+                                Text(
+                                    if (note.isEmpty()) appText("Коротко, до 300 знаков", "Ҡыҫҡа, 300 билдәгә тиклем")
+                                    else "${note.length} / 300",
+                                    color = CanonMuted, fontSize = CapSize, lineHeight = CapLead,
+                                )
+                            },
                             minLines = 2,
+                            maxLines = 4,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
                         )
                     }
-                    item {
-                        AppButton(
-                            text = appText("Подтвердить готовность", "Әҙерлекте раҫлау"),
-                            onClick = {
-                                if (busy) return@AppButton
-                                busy = true; errText = null
-                                scope.launch {
-                                    ApiClient.confirmPretrip(note)
-                                        .onSuccess { state = it; onConfirmed() }
-                                        .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
-                                    busy = false
-                                }
-                            },
-                            enabled = allChecked,
-                            loading = busy,
-                            icon = Icons.Default.CheckCircle,
-                        )
-                    }
-                    if (!allChecked) {
-                        item {
-                            Text(
-                                appText(
-                                    "Если хоть один пункт не про тебя сегодня — не выезжай. Заказы подождут, здоровье нет.",
-                                    "Бөгөн пункттарҙың береһе лә тап килмәһә — сыҡма. Заказдар көтә, ә һаулыҡ көтмәй.",
-                                ),
-                                color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp, textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth(),
+                    // Кнопка, подсказка и ошибка — одним блоком: скрытые части не оставляют
+                    // после себя пустых зазоров, ритм списка не «дышит».
+                    item(key = "confirm") {
+                        Column {
+                            AppButton(
+                                text = appText("Подтвердить готовность", "Әҙерлекте раҫлау"),
+                                onClick = {
+                                    if (busy) return@AppButton
+                                    busy = true; errText = null
+                                    scope.launch {
+                                        ApiClient.confirmPretrip(note)
+                                            .onSuccess { state = it; onConfirmed() }
+                                            .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
+                                        busy = false
+                                    }
+                                },
+                                enabled = allChecked,
+                                loading = busy,
+                                icon = Icons.Default.CheckCircle,
                             )
-                        }
-                    }
-                    errText?.let {
-                        item {
-                            Surface(color = CanonDangerBg, shape = CanonItemShape) {
-                                Text(it, color = CanonRed, fontSize = 13.sp, lineHeight = 18.sp,
-                                    modifier = Modifier.fillMaxWidth().padding(14.dp))
-                            }
+                            PretripHint(visible = !allChecked)
+                            InlineNotice(text = errText, ok = false)
                         }
                     }
                 }
@@ -489,57 +737,188 @@ internal fun PretripCheckScreen(onBack: () -> Unit, onConfirmed: () -> Unit = {}
     }
 }
 
+/** Скелетон в форме будущего экрана: карточка-объяснение + три пункта. */
+@Composable
+private fun PretripSkeleton() {
+    Column(verticalArrangement = Arrangement.spacedBy(GapM)) {
+        SkeletonCard(lines = 3)
+        repeat(3) { SkeletonCard(lines = 1) }
+    }
+}
+
+/** Честное объяснение, зачем этот экран. Один заголовок — один абзац, без нравоучений.
+ *  @param required правда ли, что без отметки сегодня на линию не выпустят (решает сервер). */
+@Composable
+private fun PretripIntroCard(required: Boolean) {
+    AppCard {
+        Column(Modifier.padding(CardPad), verticalArrangement = Arrangement.spacedBy(GapS)) {
+            Text(
+                appText("Перед выходом на линию", "Линияға сығыр алдынан"),
+                color = CanonText, fontWeight = FontWeight.Black, fontSize = TitleSize, lineHeight = TitleLead,
+            )
+            Text(
+                appText(
+                    "Отметь три пункта — раз в день. Это не медосмотр: врача у нас нет, и мы не будем притворяться. Это твоё слово, и оно остаётся записью — если что-то случится, будет видно, что ты подтвердил в этот день.",
+                    "Өс пунктты билдәлә — көнөнә бер тапҡыр. Был медосмотр түгел: табибыбыҙ юҡ, һәм беҙ уны уйнап күрһәтмәйбеҙ. Был — һинең һүҙең, ул яҙма булып ҡала: берәй хәл булһа, ошо көндә нимә раҫлағаның күренәсәк.",
+                ),
+                color = CanonMuted, fontSize = SubSize, lineHeight = SubLead,
+            )
+            // Обязательно это сегодня или по желанию — человек должен знать до того, как начнёт
+            // отмечать, а не после отказа на тумблере «на линии».
+            Text(
+                if (required) appText(
+                    "Сегодня без этой отметки заказы такси брать нельзя.",
+                    "Бөгөн был билдәһеҙ такси заказдары алып булмай.",
+                ) else appText(
+                    "Пока не обязательно — но отметка сохранится и пригодится при разборе.",
+                    "Әлегә мотлаҡ түгел — әммә билдә һаҡлана һәм тикшереүҙә ярҙам итә.",
+                ),
+                color = if (required) CanonRed else CanonMuted,
+                fontSize = SubSize, lineHeight = SubLead,
+                fontWeight = if (required) FontWeight.Bold else FontWeight.Normal,
+            )
+        }
+    }
+}
+
+/** Сколько пунктов отмечено: тонкая полоска, которая доезжает до конца. Видно, что осталось. */
+@Composable
+private fun PretripProgress(done: Int, total: Int) {
+    val fraction by animateFloatAsState(
+        if (total == 0) 0f else (done.toFloat() / total).coerceIn(0f, 1f),
+        tween(320), label = "pretripProgress",
+    )
+    Column(
+        verticalArrangement = Arrangement.spacedBy(GapS),
+        modifier = Modifier.padding(start = GapXs, end = GapXs, top = GapXs),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                appText("ОТМЕЧЕНО", "БИЛДӘЛӘНГӘН"),
+                color = CanonMuted, fontSize = CapSize, lineHeight = CapLead,
+                fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
+            )
+            Spacer(Modifier.weight(1f))
+            AnimatedContent(
+                targetState = done,
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
+                label = "pretripDone",
+            ) { d ->
+                Text(
+                    "$d / $total",
+                    color = if (d == total) CanonGreen2 else CanonMuted,
+                    fontSize = CapSize, lineHeight = CapLead, fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(CanonMint)) {
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().clip(CircleShape).background(CanonGreen2))
+        }
+    }
+}
+
+/** Подсказка «не выезжай, если что-то не так» — пока отмечены не все три пункта. */
+@Composable
+private fun PretripHint(visible: Boolean) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+        exit = fadeOut(tween(140)) + shrinkVertically(tween(140)),
+    ) {
+        Text(
+            appText(
+                "Если хоть один пункт не про тебя сегодня — не выезжай. Заказы подождут, здоровье нет.",
+                "Бөгөн пункттарҙың береһе лә тап килмәһә — сыҡма. Заказдар көтә, ә һаулыҡ көтмәй.",
+            ),
+            color = CanonMuted, fontSize = CapSize, lineHeight = SubLead, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = GapM, start = GapS, end = GapS),
+        )
+    }
+}
+
+/**
+ * Пункт самодекларации. Смысловая иконка ведёт строку (как в списке документов),
+ * а состояние держит галочка справа — её и озвучиваем.
+ */
 @Composable
 private fun PretripCheckItem(icon: ImageVector, title: String, subtitle: String, checked: Boolean, onToggle: () -> Unit) {
+    val bg by animateColorAsState(if (checked) CanonMint else CanonSurface, tween(240), label = "pretripBg")
+    val line by animateColorAsState(if (checked) CanonGreen2 else CanonBorder, tween(240), label = "pretripLine")
+    val bubble by animateColorAsState(if (checked) CanonSurface else CanonMint, tween(240), label = "pretripBubble")
+    val tint by animateColorAsState(if (checked) CanonGreen2 else CanonMuted, tween(240), label = "pretripTint")
     Surface(
-        onClick = onToggle,
-        color = if (checked) CanonMint else CanonSurface,
+        color = bg,
         shape = CanonItemShape,
-        border = BorderStroke(1.dp, if (checked) CanonGreen2 else CanonBorder),
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        border = BorderStroke(1.dp, line),
+        // bounceClick — то же лёгкое сжатие под пальцем, что у карточек по всему приложению.
+        modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).bounceClick(onToggle),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (checked) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                contentDescription = null,
-                tint = if (checked) CanonGreen2 else CanonMuted,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+        Row(Modifier.padding(ItemPad), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = bubble, shape = CircleShape) {
+                // Пункт назван словами рядом — иконка тут узнаваемость, а не информация.
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.padding(GapM).size(20.dp))
             }
-            Spacer(Modifier.width(10.dp))
-            Icon(icon, contentDescription = null, tint = if (checked) CanonGreen2 else CanonMuted, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(GapM))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GapXs)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = BodySize, lineHeight = BodyLead)
+                Text(subtitle, color = CanonMuted, fontSize = SubSize, lineHeight = SubLead)
+            }
+            Spacer(Modifier.width(GapM))
+            AnimatedContent(
+                targetState = checked,
+                transitionSpec = {
+                    (fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.7f)) togetherWith
+                        (fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.7f))
+                },
+                label = "pretripCheckMark",
+            ) { on ->
+                Icon(
+                    if (on) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = if (on) appText("Отмечено", "Билдәләнгән") else appText("Не отмечено", "Билдәләнмәгән"),
+                    tint = if (on) CanonGreen2 else CanonMuted,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun PretripDoneCard(confirmedAt: String?) {
+    // Галочка «вырастает» один раз при открытии — маленькая награда за скучное обязательное действие.
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
     AppCard {
         Column(
-            Modifier.padding(22.dp),
+            Modifier.padding(CardPadLg),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(GapM),
         ) {
-            AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
+            AnimatedVisibility(
+                visible = shown,
+                enter = fadeIn(tween(360)) + scaleIn(tween(360), initialScale = 0.6f),
+                exit = fadeOut(tween(160)),
+            ) {
                 Surface(color = CanonMint, shape = CircleShape) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2,
-                        modifier = Modifier.padding(16.dp).size(30.dp))
+                    // Ровно то же написано заголовком ниже — второй раз не читаем.
+                    Icon(
+                        Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2,
+                        modifier = Modifier.padding(GapL).size(32.dp),
+                    )
                 }
             }
-            Text(appText("Готовность подтверждена", "Әҙерлек раҫланды"), color = CanonText,
-                fontWeight = FontWeight.Black, fontSize = 18.sp, textAlign = TextAlign.Center)
+            Text(
+                appText("Готовность подтверждена", "Әҙерлек раҫланды"), color = CanonText,
+                fontWeight = FontWeight.Black, fontSize = TitleSize, lineHeight = TitleLead, textAlign = TextAlign.Center,
+            )
             Text(
                 appText("Хорошей смены и лёгкой дороги 💚", "Уңышлы смена һәм еңел юл 💚"),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center,
+                color = CanonMuted, fontSize = SubSize, lineHeight = SubLead, textAlign = TextAlign.Center,
             )
             confirmedAt?.let {
                 Text(
                     appText("Отмечено: ", "Билдәләнде: ") + formatDepart(it),
-                    color = CanonMuted, fontSize = 12.sp,
+                    color = CanonMuted, fontSize = CapSize, lineHeight = CapLead, textAlign = TextAlign.Center,
                 )
             }
         }

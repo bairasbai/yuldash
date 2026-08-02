@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..errors import herr
-from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Ride, RideStatus, User
+from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Rating, Ride, RideStatus, User
 from ..safety_logic import CANCEL_REASONS, ensure_active
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, push_notification, user_rating
@@ -485,6 +485,16 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
     passengers_by_id = {
         u.id: u for u in session.exec(select(User).where(User.id.in_(passenger_ids))).all()
     } if passenger_ids else {}
+    # Что водитель уже поставил по каждой брони. Без этого список после перезагрузки снова
+    # показывал пустые звёзды по оценённым пассажирам — человек ставил оценку второй раз,
+    # не понимая, засчиталась ли первая. Одним запросом пачкой (анти-N+1).
+    my_stars = {
+        r.booking_id: r.stars
+        for r in session.exec(
+            select(Rating).where(Rating.rater_id == user.id,
+                                 Rating.booking_id.in_([b.id for b in bookings]))
+        ).all()
+    } if bookings else {}
     out: list = []
     for b in bookings:
         ride = rides_by_id.get(b.ride_id)
@@ -496,5 +506,7 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             "passenger_rating": (round(avg, 1) if cnt > 0 else None),
             "route": (f"{ride.from_city} → {ride.to_city}" if ride else ""),
             "status": b.status,
+            # 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить).
+            "my_stars": my_stars.get(b.id, 0),
         })
     return out

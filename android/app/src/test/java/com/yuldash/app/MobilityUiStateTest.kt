@@ -6,6 +6,24 @@ import org.junit.Test
 class MobilityUiStateTest {
 
     @Test
+    fun instantOfferCountdownUsesServerDeadlineAndRoundsUp() {
+        val now = java.time.Instant.parse("2026-08-02T12:00:00Z").toEpochMilli()
+
+        assertEquals(2, instantOfferSecondsLeft("2026-08-02T12:00:01.250Z", now))
+        assertEquals(1, instantOfferSecondsLeft("2026-08-02T12:00:01", now))
+        assertEquals(61_000L, instantOfferRemainingMillis("2026-08-02T14:01:01+02:00", now))
+    }
+
+    @Test
+    fun instantOfferCountdownFailsSafeForExpiredOrInvalidDeadline() {
+        val now = java.time.Instant.parse("2026-08-02T12:00:00Z").toEpochMilli()
+
+        assertEquals(0, instantOfferSecondsLeft("2026-08-02T11:59:59Z", now))
+        assertEquals(0, instantOfferSecondsLeft("not-an-iso-date", now))
+        assertEquals(0, instantOfferSecondsLeft(null, now))
+    }
+
+    @Test
     fun taxiProgressCoversEveryTripPhase() {
         assertEquals(0, taxiProgressIndex("created"))
         assertEquals(0, taxiProgressIndex("searching"))

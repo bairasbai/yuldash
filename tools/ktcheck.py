@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Статическая проверка Kotlin без компилятора (SDK в этой среде нет).
+"""Статическая проверка Kotlin без компилятора (Android SDK есть не в каждой среде).
 
 Что ловим:
 1. Баланс {} () [] с учётом строк, шаблонов "$..." и комментариев.
 2. Иконки Icons.Default.X без импорта.
-3. Смешение кириллицы и латиницы внутри одного слова (частая порча башкирских строк).
+3. Блочный комментарий, закрытый посреди слова («reporter*/respondent*») — остаток файла
+   уезжает в код. Реальный баг, найденный настоящим компилятором 2026-07-27.
+4. Пропущенные запятые между элементами enum (ломает сборку, глазами не видно).
+5. Смешение кириллицы и латиницы внутри одного слова (частая порча башкирских строк).
+
+Слой данных можно проверять НАСТОЯЩИМ компилятором — см. tools/compile-data-layer.sh.
 """
 import re
 import sys
@@ -15,8 +20,8 @@ LAT = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
 def strip_code(src: str):
-    """Убираем строки/комментарии, возвращаем (код_без_строк, список_строковых_литералов)."""
-    out, lits = [], []
+    """Убираем строки/комментарии → (код, литералы, подозрительные концы блочных комментариев)."""
+    out, lits, glued = [], [], []
     i, n = 0, len(src)
     while i < n:
         c = src[i]
@@ -48,16 +53,26 @@ def strip_code(src: str):
             out.append(" " * (j - i)); i = j
         elif src.startswith("/*", i):
             j = src.find("*/", i)
-            j = n if j == -1 else j + 2
+            if j == -1:
+                j = n
+            else:
+                # Блочный комментарий закрылся. Если пара «звёздочка-косая» приклеена к словам
+                # с обеих сторон — автор её не планировал (случай «reporter*/respondent*»):
+                # комментарий обрывается посреди фразы, и остаток файла уезжает в код.
+                before = src[j - 1] if j > i + 2 else " "
+                after = src[j + 2] if j + 2 < n else "\n"
+                if not before.isspace() and before != "*" and not after.isspace():
+                    glued.append((src.count("\n", 0, j) + 1, src[max(i, j - 14):j + 14]))
+                j += 2
             out.append(re.sub(r"[^\n]", " ", src[i:j])); i = j
         else:
             out.append(c); i += 1
-    return "".join(out), lits
+    return "".join(out), lits, glued
 
 
 def check(path: Path) -> list:
     src = path.read_text(encoding="utf-8")
-    code, lits = strip_code(src)
+    code, lits, glued = strip_code(src)
     problems = []
 
     stack = []
@@ -73,10 +88,20 @@ def check(path: Path) -> list:
     if stack:
         problems.append(f"{path.name}: не закрыт '{stack[-1][0]}' со строки {stack[-1][1]}")
 
-    imported = set(re.findall(r"import androidx\.compose\.material\.icons\.\w+\.(\w+)", src))
+    # Путь бывает и из трёх сегментов: automirrored.filled.Send — регулярка на два сегмента
+    # давала ложную тревогу на каждой зеркалящейся иконке.
+    imported = set(re.findall(r"import androidx\.compose\.material\.icons\.(?:\w+\.)+(\w+)", src))
     for m in re.finditer(r"Icons\.(?:Default|Filled|Outlined|Rounded|AutoMirrored\.Filled)\.(\w+)", src):
         if m.group(1) not in imported:
             problems.append(f"{path.name}: иконка {m.group(1)} без импорта (строка {src.count(chr(10), 0, m.start()) + 1})")
+
+    # Преждевременно закрытый блочный комментарий. Реальный случай: в KDoc написали
+    # «Поля reporter*/respondent* …» — пара символов закрыла комментарий, и весь остаток
+    # файла компилятор прочитал как код. Считаем только НАСТОЯЩИЕ блочные комментарии:
+    # в строчном «//» такая пара безвредна (проверено компилятором).
+    for line, snippet in glued:
+        problems.append(f"{path.name}:{line}: блочный комментарий закрыт посреди слова "
+                        f"(«{snippet}») — остаток файла уедет в код")
 
     # Запятые между элементами enum: пропущенная запятая — обычная опечатка при добавлении
     # экрана, и компилятор ловит её только при сборке (а её в этой среде нет).

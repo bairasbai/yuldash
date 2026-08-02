@@ -1242,6 +1242,13 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         "driver_fee_percent": driver_fee_percent,
         # Предзаказ «на время»: null у обычного заказа; iso-время подачи у scheduled.
         "scheduled_at": order.scheduled_at.isoformat() if order.scheduled_at else None,
+        # Когда заказ создан и когда пошёл поиск. Без этих двух меток экран поиска не может
+        # честно сказать «ищем уже 3:20»: после сворачивания приложения свой таймер обнуляется,
+        # и цифра была бы враньём. created_at — сколько человек ждёт ВСЕГО (перезапуск поиска
+        # из очереди «рядом никого» его не сбрасывает); searching_at — с какого момента идёт
+        # текущий круг подбора (у предзаказа «на время» это активация, а не бронирование).
+        "created_at": order.created_at.isoformat() if order.created_at else None,
+        "searching_at": order.searching_at.isoformat() if order.searching_at else None,
         "driver_id": order.driver_id,
         "offer_expires_at": order.offer_expires_at.isoformat() if order.offer_expires_at else None,
         "cancel_by": order.cancel_by,

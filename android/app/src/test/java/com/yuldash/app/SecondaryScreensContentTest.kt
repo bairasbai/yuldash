@@ -1,12 +1,10 @@
 package com.yuldash.app
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.yuldash.app.data.NotifDto
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -32,22 +30,29 @@ class SecondaryScreensContentTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    // --- NotificationRow: строка уведомления (иконка + заголовок + подзаголовок + время) ---
+    /** Уведомление-заготовка: тесту важны только заголовок, текст и «прочитано». */
+    private fun notif(titleRu: String, bodyRu: String, read: Boolean) = NotifDto(
+        id = 1, type = "message",
+        titleRu = titleRu, titleBa = titleRu,
+        bodyRu = bodyRu, bodyBa = bodyRu,
+        refKind = "", refId = null,
+        read = read, createdAt = "",
+    )
+
+    // --- NotificationRow: строка уведомления (заголовок + текст + «когда» + непрочитанное) ---
 
     @Test
     fun notificationRow_showsTitleAndSubtitle() {
         composeRule.setContent {
+            // Строка уведомления давно берёт целый NotifDto (а не иконку/заголовок по кусочкам)
+            // и умеет открываться по нажатию. Тест звал старую сигнатуру и не компилировался.
             NotificationRow(
-                icon = Icons.Default.Notifications,
-                title = "Новое сообщение",
-                subtitle = "Рамиль ответил на заявку",
-                time = "12:30",
-                unread = true,
+                notif = notif(titleRu = "Новое сообщение", bodyRu = "Рамиль ответил на заявку", read = false),
+                onClick = {},
             )
         }
         composeRule.onNodeWithText("Новое сообщение").assertIsDisplayed()
         composeRule.onNodeWithText("Рамиль ответил на заявку").assertIsDisplayed()
-        composeRule.onNodeWithText("12:30").assertIsDisplayed()
     }
 
     @Test
@@ -55,11 +60,8 @@ class SecondaryScreensContentTest {
         // unread=false: точка непрочитанного скрыта, но текст рендерится как обычно.
         composeRule.setContent {
             NotificationRow(
-                icon = Icons.Default.Notifications,
-                title = "Заголовок",
-                subtitle = "Подзаголовок",
-                time = "",
-                unread = false,
+                notif = notif(titleRu = "Заголовок", bodyRu = "Подзаголовок", read = true),
+                onClick = {},
             )
         }
         composeRule.onNodeWithText("Заголовок").assertIsDisplayed()

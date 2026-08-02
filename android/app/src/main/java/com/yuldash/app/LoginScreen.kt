@@ -11,7 +11,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.EaseOutExpo
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -37,6 +40,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -190,6 +194,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import android.Manifest
 import android.app.Activity
 import android.speech.RecognizerIntent
@@ -271,12 +276,34 @@ internal const val TAG_LOGIN_TELEGRAM_BTN = "login_telegram_btn"   // экран
 internal const val TAG_LOGIN_TG_VERIFY_BTN = "login_tg_verify_btn" // шаг Telegram-кода: «Войти»
 internal const val TAG_LOGIN_SMS_PRIMARY_BTN = "login_sms_primary_btn" // SMS-форма (заморожена): «Получить код»/«Войти»
 
+// ─────────────────────────── Типографика и сетка экрана входа ───────────────────────────
+// РОВНО ЧЕТЫРЕ размера текста, у каждого своя роль. Пятого не заводим: экран входа — первое
+// касание, разнобой кеглей читается как «самоделка». Аудитория — сёла, много пожилых, поэтому
+// нижняя ступень 14sp (а не 12sp), а основной текст крупнее обычного.
+private val LoginDisplay = 52.sp    // 1 · витрина  — только слово «Юлдаш» на геро, один раз на экране
+private val LoginTitle = 26.sp      // 2 · заголовок — «Войти в Юлдаш», слоган на геро, введённый код
+private val LoginBody = 18.sp       // 3 · основной — кнопки, поля, подписи фич, ошибки, подсказки
+private val LoginCaption = 14.sp    // 4 · сноска   — согласие, вторичные ссылки, «или», описания фич
+
+// Ритм экрана — кратно 4dp. Боковое поле одно и то же у геро и у формы: текст на фото и текст
+// в карточке стоят на одной вертикали, поэтому «шов» между ними не читается.
+private val LoginGutter = 24.dp
+
 @Composable
 internal fun LoginScreen(
     currentLanguage: AppLanguage,
     onToggleLanguage: () -> Unit,
     onContinue: () -> Unit,
 ) {
+    // Появление формы. Флаг стартует false и включается ПОСЛЕ первой композиции — иначе
+    // animate*AsState берёт цель уже на первом кадре и никакого «выезда» не будет (мёртвая анимация).
+    var appear by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appear = true }
+    val cardIn by animateFloatAsState(
+        targetValue = if (appear) 1f else 0f,
+        animationSpec = tween(560, delayMillis = 140, easing = EaseOutExpo),
+        label = "loginCardIn",
+    )
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = CanonBg
@@ -286,26 +313,33 @@ internal fun LoginScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
+            // heightIn, а не height: при системном КРУПНОМ шрифте (им пользуются пожилые) геро
+            // растёт под текст, а не режет его. Фото внутри тянется matchParentSize.
             BrandHero(
                 currentLanguage = currentLanguage,
                 onToggleLanguage = onToggleLanguage,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(700.dp)
+                    .heightIn(min = 560.dp)
             )
             // Форма «висит» над геро: поднимаем карточку на heroOverlap И на столько же ужимаем
             // её высоту в layout. Голый offset сдвигает только рисование, а layout-высоту не меняет —
             // отсюда брался пустой фон снизу (зазор при скролле в конец). Custom layout сдвигает
             // карточку вверх и одновременно укорачивает прокручиваемую высоту → дыры нет.
-            val heroOverlap = 118.dp
+            val heroOverlap = 120.dp
             Column(
-                modifier = Modifier.layout { measurable, constraints ->
-                    val placeable = measurable.measure(constraints)
-                    val dy = -heroOverlap.roundToPx()
-                    layout(placeable.width, (placeable.height + dy).coerceAtLeast(0)) {
-                        placeable.place(0, dy)
+                modifier = Modifier
+                    .graphicsLayer {
+                        alpha = cardIn
+                        translationY = (1f - cardIn) * 40.dp.toPx()   // карточка «поднимается» из-под геро
                     }
-                }
+                    .layout { measurable, constraints ->
+                        val placeable = measurable.measure(constraints)
+                        val dy = -heroOverlap.roundToPx()
+                        layout(placeable.width, (placeable.height + dy).coerceAtLeast(0)) {
+                            placeable.place(0, dy)
+                        }
+                    }
             ) {
                 LoginFormCard(
                     currentLanguage = currentLanguage,
@@ -350,10 +384,12 @@ private fun LoginFormCard(
     // Под наплывом (запуск) Telegram шлёт коды с задержкой (~30/сек на бота) → сервер
     // отвечает 409 «код ещё не пришёл». Честное сообщение, чтобы юзер не думал, что ошибся.
     val errCodeNotYet = appTextFor(currentLanguage, "Код ещё идёт от Telegram — подожди пару секунд и нажми «Войти» снова.", "Код Telegram'дан килә — бер-ике секунд көт тә «Инеү» баҫ.")
-    val errTgStart = appTextFor(currentLanguage, "Не удалось начать вход. Повтори.", "Инеүҙе башлап булманы. Ҡабатла.")
+    // Этот сбой почти всегда = нет связи (запрос к серверу вообще не ушёл). Говорим об этом прямо,
+    // а не «не удалось» — человеку в селе полезнее подсказка «проверь интернет», чем код ошибки.
+    val errTgStart = appTextFor(currentLanguage, "Не получилось связаться с сервером. Проверь интернет и повтори.", "Сервер менән бәйләнеш булманы. Интернетты тикшер ҙә ҡабатла.")
     val tgSoon = appTextFor(currentLanguage, "Вход через Telegram скоро", "Telegram аша инеү тиҙҙән")
     val errEnterPhone = appTextFor(currentLanguage, "Введите номер телефона", "Телефон номерын индерегеҙ")
-    val errSendFail = appTextFor(currentLanguage, "Не получилось отправить код. Повтори.", "Код ебәреп булманы. Ҡабатла.")
+    val errSendFail = appTextFor(currentLanguage, "Не получилось отправить код. Проверь интернет и повтори.", "Код ебәреп булманы. Интернетты тикшер ҙә ҡабатла.")
     val errEnterCode = appTextFor(currentLanguage, "Введите код из SMS", "SMS кодын индерегеҙ")
     val errBadCode = appTextFor(currentLanguage, "Неверный код", "Код дөрөҫ түгел")
 
@@ -513,15 +549,15 @@ internal fun LoginFormContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 32.dp, vertical = 32.dp),
+                .padding(horizontal = LoginGutter, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
                 text = appTextFor(currentLanguage, "Войти в Юлдаш", "Юлдашҡа инеү"),
                 color = CanonText,
-                fontSize = 32.sp,
-                lineHeight = 36.sp,
+                fontSize = LoginTitle,
+                lineHeight = 32.sp,
                 fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center
             )
@@ -532,8 +568,8 @@ internal fun LoginFormContent(
                     "Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡулланығыҙ"
                 ),
                 color = CanonMuted,
-                fontSize = 20.sp,
-                lineHeight = 26.sp,
+                fontSize = LoginBody,
+                lineHeight = 24.sp,
                 textAlign = TextAlign.Center
             )
             if (tgMode) {
@@ -541,77 +577,129 @@ internal fun LoginFormContent(
                 val errPhoneRequired = appTextFor(currentLanguage, "Для безопасности нужен номер. В Telegram нажми «📱 Поделиться номером», потом вернись и нажми «Войти».", "Хәүефһеҙлек өсөн номер кәрәк. Telegram'да «📱 Номер менән бүлешергә» баҫ, аҙаҡ кире ҡайтып «Инеү» баҫ.")
                 Text(
                     text = appTextFor(currentLanguage, "Открой Telegram, нажми «Старт» — бот пришлёт 6-значный код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот 6 һанлы код ебәрер. Шуны индер."),
-                    color = CanonMuted, fontSize = 16.sp, lineHeight = 22.sp
+                    color = CanonMuted, fontSize = LoginBody, lineHeight = 24.sp
                 )
-                if (needPhone) {
+                // Баннер «нужен номер» приходит после 403 — значит на входе его нет и появление
+                // действительно анимируется (не мёртвый AnimatedVisibility(visible = true)).
+                AnimatedVisibility(
+                    visible = needPhone,
+                    enter = fadeIn(tween(240)) + expandVertically(tween(280, easing = EaseOutExpo)),
+                    exit = fadeOut(tween(160)) + shrinkVertically(tween(200)),
+                ) {
                     Surface(color = CanonWarnBg, shape = CanonItemShape) {
-                        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Icon(Icons.Default.Shield, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(22.dp))
-                            Text(errPhoneRequired, color = CanonWarn, fontSize = 14.sp, lineHeight = 19.sp)
+                        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(Icons.Default.Shield, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(24.dp))
+                            Text(errPhoneRequired, color = CanonWarn, fontSize = LoginCaption, lineHeight = 19.sp)
                         }
                     }
                 }
+                // heightIn вместо height: при системном крупном шрифте поле растёт, а не режет текст.
                 OutlinedTextField(
                     value = name,
                     onValueChange = onNameChange,
-                    placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = 16.sp) },
+                    placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = LoginBody) },
                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted) },
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    textStyle = TextStyle(fontSize = LoginBody, color = CanonText),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp)
+                    shape = CanonItemShape
                 )
+                // Код — главное поле шага: крупно и с разрядкой, чтобы 6 цифр читались с руки.
                 OutlinedTextField(
                     value = code,
                     onValueChange = onCodeChange,
-                    placeholder = { Text(appTextFor(currentLanguage, "Код из Telegram", "Telegram коды"), fontSize = 16.sp) },
+                    placeholder = { Text(appTextFor(currentLanguage, "Код из Telegram", "Telegram коды"), fontSize = LoginBody) },
                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    textStyle = TextStyle(fontSize = LoginTitle, fontWeight = FontWeight.Black, letterSpacing = 6.sp, color = CanonText),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp)
+                    shape = CanonItemShape
                 )
-                error?.let { Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp) }
+                LoginErrorBanner(
+                    currentLanguage = currentLanguage,
+                    text = error,
+                    onRetry = onTgVerify,   // «Повторить» = та же проверка кода, что и кнопка «Войти»
+                )
                 AppButton(
                     text = appTextFor(currentLanguage, "Войти", "Инеү"),
                     loading = loading,
                     onClick = onTgVerify,
                     enabled = !loading,   // гард двойного тапа; пустой код ловит колбэк (показывает ошибку) — поведение 1:1
+                    height = 64.dp,
                     modifier = Modifier.testTag(TAG_LOGIN_TG_VERIFY_BTN),
                 )
-                TextButton(onClick = onTelegramOpen, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                LoginLoadingHint(
+                    visible = loading,
+                    text = appTextFor(currentLanguage, "Проверяем код…", "Кодты тикшерәбеҙ…"),
+                )
+                TextButton(
+                    onClick = onTelegramOpen,
+                    modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp),
+                ) {
                     Text(
                         if (needPhone) appTextFor(currentLanguage, "Открыть Telegram и поделиться номером", "Telegram'ды асып, номер менән бүлешергә")
                         else appTextFor(currentLanguage, "Открыть Telegram ещё раз", "Telegram'ды тағы асырға"),
-                        color = CanonGreen2, fontSize = 14.sp
+                        color = CanonGreen2, fontSize = LoginBody, lineHeight = 24.sp, textAlign = TextAlign.Center
                     )
                 }
-                TextButton(onClick = onBackFromTg, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                    Text(appTextFor(currentLanguage, "Назад", "Кире"), color = CanonMuted, fontSize = 14.sp)
+                TextButton(
+                    onClick = onBackFromTg,
+                    modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp),
+                ) {
+                    Text(appTextFor(currentLanguage, "Назад", "Кире"), color = CanonMuted, fontSize = LoginCaption)
                 }
             } else {
             // Подпись про «6-значный код» убрана — бейдж на геро уже это говорит (без дубля).
-            Spacer(modifier = Modifier.height(2.dp))
             // Telegram — рабочий вход (бот шлёт 6-значный код). VK/WhatsApp — «скоро».
+            // Отклик на нажатие: кнопка чуть «проседает» (0.97) и возвращается — как в iOS.
+            val tgPress = remember { MutableInteractionSource() }
+            val tgPressed by tgPress.collectIsPressedAsState()
+            val tgScale by animateFloatAsState(
+                if (tgPressed) 0.97f else 1f, tween(150, easing = EaseOutExpo), label = "tgPress",
+            )
             Button(
                 onClick = onTelegramStart,
                 enabled = !loading,   // гард двойного тапа
-                modifier = Modifier.fillMaxWidth().height(72.dp).testTag(TAG_LOGIN_TELEGRAM_BTN),
-                shape = RoundedCornerShape(18.dp),
+                interactionSource = tgPress,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 72.dp)   // растёт под крупный шрифт, не обрезая надпись
+                    .graphicsLayer { scaleX = tgScale; scaleY = tgScale }
+                    .testTag(TAG_LOGIN_TELEGRAM_BTN),
+                shape = CanonItemShape,
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
                 if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
                 } else {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
                         Spacer(Modifier.width(16.dp))
-                        Text(appTextFor(currentLanguage, "Войти через Telegram", "Telegram аша инеү"), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        Text(
+                            appTextFor(currentLanguage, "Войти через Telegram", "Telegram аша инеү"),
+                            color = Color.White, fontSize = LoginBody, lineHeight = 24.sp,
+                            fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+                        )
                     }
                 }
             }
+            LoginLoadingHint(
+                visible = loading,
+                text = appTextFor(currentLanguage, "Открываем Telegram…", "Telegram'ды асабыҙ…"),
+            )
+            // РАНЬШЕ ОШИБКИ ЗДЕСЬ НЕ БЫЛО ВИДНО: `error` на экране выбора не рисовался нигде (его показывал
+            // только SMS-блок за выключенным флагом). Упала сеть или бот не настроен — человек видел
+            // «мёртвую» кнопку и ноль объяснений. Теперь: текст + «Повторить».
+            LoginErrorBanner(
+                currentLanguage = currentLanguage,
+                // при развёрнутой SMS-форме ту же ошибку показывает она сама — не дублируем
+                text = if (BuildConfig.SMS_LOGIN_ENABLED && showPhone) null else error,
+                onRetry = onTelegramStart,
+            )
             // VK и WhatsApp убраны: VK требует ИНН (бизнес), WhatsApp — WhatsApp Business API. Оба недоступны физлицу.
             // SMS-вход ЗАМОРОЖЕН (нет юр.лица для sms.ru). Форма цела — видна только при SMS_LOGIN_ENABLED.
             if (BuildConfig.SMS_LOGIN_ENABLED) {
@@ -632,13 +720,83 @@ internal fun LoginFormContent(
                     onSmsPrimary = onSmsPrimary,
                 )
             }   // конец if (BuildConfig.SMS_LOGIN_ENABLED) — SMS-вход заморожен
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             LoginConsent(
                 currentLanguage = currentLanguage,
                 modifier = Modifier.fillMaxWidth()
             )
             }   // конец else (tgMode == false) — экран выбора входа
         }
+    }
+}
+
+/**
+ * Ошибка входа: что случилось + что делать + кнопка «Повторить». Один вид для обоих потоков.
+ *
+ * Почему так: вход — единственная дверь в приложение, и «упало молча» здесь дороже всего. Отдельной
+ * строкой даём объяснение для двух самых частых случаев у нас — нет интернета и код от бота ещё не дошёл.
+ *
+ * Анимация живая: баннера при входе в композицию нет (`text == null`), он появляется в момент ошибки.
+ * Текст держим в [shownText] — иначе на выходе баннер схлопывался бы пустым.
+ * `internal` — чтобы покрыть на JVM (Robolectric) без сети и ApiClient.
+ */
+@Composable
+internal fun LoginErrorBanner(
+    currentLanguage: AppLanguage,
+    text: String?,
+    onRetry: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    var shownText by remember { mutableStateOf(text.orEmpty()) }
+    LaunchedEffect(text) { if (text != null) shownText = text }
+    AnimatedVisibility(
+        visible = text != null,
+        enter = fadeIn(tween(240)) + expandVertically(tween(280, easing = EaseOutExpo)),
+        exit = fadeOut(tween(160)) + shrinkVertically(tween(200)),
+        modifier = modifier,
+    ) {
+        Surface(color = CanonDangerBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(
+                        Icons.Default.Info,
+                        contentDescription = appTextFor(currentLanguage, "Ошибка", "Хата"),
+                        tint = CanonRed,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Text(shownText, color = CanonRed, fontSize = LoginBody, lineHeight = 24.sp)
+                }
+                Text(
+                    text = appTextFor(
+                        currentLanguage,
+                        "Нет интернета или код ещё не пришёл? Проверь связь и нажми «Повторить».",
+                        "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатларға» баҫ.",
+                    ),
+                    color = CanonMuted, fontSize = LoginCaption, lineHeight = 19.sp,
+                )
+                if (onRetry != null) {
+                    AppButton(
+                        text = appTextFor(currentLanguage, "Повторить", "Ҡабатларға"),
+                        onClick = onRetry,
+                        style = AppButtonStyle.Secondary,
+                        icon = Icons.Default.Refresh,
+                        height = 48.dp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Подпись под кнопкой на время запроса: видно, что процесс идёт, а не «кнопка сломалась». */
+@Composable
+private fun LoginLoadingHint(visible: Boolean, text: String) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(200)) + expandVertically(tween(240, easing = EaseOutExpo)),
+        exit = fadeOut(tween(150)) + shrinkVertically(tween(180)),
+    ) {
+        Text(text, color = CanonMuted, fontSize = LoginCaption, lineHeight = 19.sp, textAlign = TextAlign.Center)
     }
 }
 
@@ -670,89 +828,100 @@ internal fun ColumnScope.LoginSmsSection(
     LoginDivider(currentLanguage)
     OutlinedButton(
         onClick = onToggleSmsForm,
-        modifier = Modifier.fillMaxWidth().height(64.dp),
-        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
+        shape = CanonItemShape,
         border = BorderStroke(1.dp, CanonGreen2),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = CanonGreen2)
     ) {
-        Icon(Icons.Default.Phone, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(26.dp))
-        Spacer(Modifier.width(14.dp))
-        Text(appTextFor(currentLanguage, "Войти по номеру телефона", "Телефон номеры аша инеү"), color = CanonGreen2, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Icon(Icons.Default.Phone, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(16.dp))
+        Text(appTextFor(currentLanguage, "Войти по номеру телефона", "Телефон номеры аша инеү"), color = CanonGreen2, fontSize = LoginBody, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
     }
     if (showPhone) {
         Text(
             text = if (step == 0) appTextFor(currentLanguage, "Номер будет скрыт до подтверждения брони.", "Телефон номеры бронь раҫланғанға тиклем йәшерелә.")
             else appTextFor(currentLanguage, "Код отправлен на $phone", "Код $phone номерыңа ебәрелде"),
             color = CanonMuted,
-            fontSize = 16.sp,
-            lineHeight = 22.sp
+            fontSize = LoginBody,
+            lineHeight = 24.sp
         )
         if (step == 0) {
             OutlinedTextField(
                 value = phone,
                 onValueChange = onPhoneChange,
-                placeholder = { Text(appTextFor(currentLanguage, "Номер телефона", "Телефон номеры"), fontSize = 16.sp) },
+                placeholder = { Text(appTextFor(currentLanguage, "Номер телефона", "Телефон номеры"), fontSize = LoginBody) },
                 leadingIcon = {
                     Icon(Icons.Default.PhoneLocked, contentDescription = null, tint = CanonMuted)
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                textStyle = TextStyle(fontSize = LoginBody, color = CanonText),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(58.dp),
+                    .heightIn(min = 64.dp),
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp)
+                shape = CanonItemShape
             )
         } else {
             OutlinedTextField(
                 value = name,
                 onValueChange = onNameChange,
-                placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = 16.sp) },
+                placeholder = { Text(appTextFor(currentLanguage, "Ваше имя (необязательно)", "Исемегеҙ (мотлаҡ түгел)"), fontSize = LoginBody) },
                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted) },
-                modifier = Modifier.fillMaxWidth().height(58.dp),
+                textStyle = TextStyle(fontSize = LoginBody, color = CanonText),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp)
+                shape = CanonItemShape
             )
             OutlinedTextField(
                 value = code,
                 onValueChange = onCodeChange,
-                placeholder = { Text(appTextFor(currentLanguage, "Код из SMS", "SMS коды"), fontSize = 16.sp) },
+                placeholder = { Text(appTextFor(currentLanguage, "Код из SMS", "SMS коды"), fontSize = LoginBody) },
                 leadingIcon = {
                     Icon(Icons.Default.Lock, contentDescription = null, tint = CanonMuted)
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                textStyle = TextStyle(fontSize = LoginTitle, fontWeight = FontWeight.Black, letterSpacing = 6.sp, color = CanonText),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(58.dp),
+                    .heightIn(min = 72.dp),
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp)
+                shape = CanonItemShape
             )
-            TextButton(onClick = onChangePhone) {
-                Text(appTextFor(currentLanguage, "Изменить номер", "Номерҙы үҙгәртеү"), color = CanonGreen2)
+            TextButton(onClick = onChangePhone, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(appTextFor(currentLanguage, "Изменить номер", "Номерҙы үҙгәртеү"), color = CanonGreen2, fontSize = LoginBody)
             }
         }
-        error?.let {
-            Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 19.sp)
-        }
+        // Та же карточка ошибки, что и в Telegram-потоке: текст + «что делать» + «Повторить».
+        LoginErrorBanner(
+            currentLanguage = currentLanguage,
+            text = error,
+            onRetry = onSmsPrimary,
+        )
         Button(
             onClick = onSmsPrimary,
             enabled = !loading,   // гард двойного тапа; пустое поле ловит колбэк (показывает ошибку) — поведение 1:1
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp)
+                .heightIn(min = 64.dp)
                 .testTag(TAG_LOGIN_SMS_PRIMARY_BTN),
-            shape = RoundedCornerShape(14.dp),
+            shape = CanonItemShape,
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
         ) {
             if (loading) {
-                CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
             } else {
                 Text(
                     text = if (step == 0) appTextFor(currentLanguage, "Получить код", "Код алыу") else appTextFor(currentLanguage, "Войти", "Инеү"),
                     fontWeight = FontWeight.Black,
-                    fontSize = 16.sp
+                    fontSize = LoginBody
                 )
             }
         }
+        LoginLoadingHint(
+            visible = loading,
+            text = if (step == 0) appTextFor(currentLanguage, "Отправляем код…", "Код ебәрәбеҙ…")
+            else appTextFor(currentLanguage, "Проверяем код…", "Кодты тикшерәбеҙ…"),
+        )
     }   // конец if (showPhone)
 }
 
@@ -761,7 +930,7 @@ internal fun LoginDivider(currentLanguage: AppLanguage) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(18.dp)
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Box(
             modifier = Modifier
@@ -772,7 +941,7 @@ internal fun LoginDivider(currentLanguage: AppLanguage) {
         Text(
             text = appTextFor(currentLanguage, "или", "йәки"),
             color = CanonMuted,
-            fontSize = 16.sp,
+            fontSize = LoginCaption,
             fontWeight = FontWeight.Bold
         )
         Box(
@@ -790,26 +959,40 @@ private fun BrandHero(
     onToggleLanguage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Появление геро. Флаг включается ПОСЛЕ первой композиции — иначе анимация мертва (цель берётся
+    // на первом кадре). Фото наезжает (1.06→1.0), бренд приходит первым, обещания — следом.
+    var appear by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appear = true }
+    val photoIn by animateFloatAsState(
+        if (appear) 1f else 1.06f, tween(1600, easing = EaseOutExpo), label = "heroPhoto",
+    )
+    val brandIn by animateFloatAsState(
+        if (appear) 1f else 0f, tween(620, delayMillis = 80, easing = EaseOutExpo), label = "heroBrand",
+    )
+    val featuresIn by animateFloatAsState(
+        if (appear) 1f else 0f, tween(680, delayMillis = 300, easing = EaseOutExpo), label = "heroFeatures",
+    )
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp))
+            .clip(RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp))
             .background(CanonGreen2)
     ) {
+        // matchParentSize (а не fillMaxSize): фото и вуали ТЯНУТСЯ под геро, но не решают его высоту —
+        // высоту задаёт колонка с текстом, поэтому крупный шрифт растит блок, а не обрезается им.
         Image(
             painter = painterResource(R.drawable.login_salavat_yulaev_hero),
             contentDescription = null,
             modifier = Modifier
-                .fillMaxSize()
+                .matchParentSize()
                 .graphicsLayer {
-                    scaleX = 1.0f
-                    scaleY = 1.0f
-                    translationY = 0f
+                    scaleX = photoIn
+                    scaleY = photoIn
                 },
             contentScale = ContentScale.Crop
         )
         Box(
             Modifier
-                .fillMaxSize()
+                .matchParentSize()
                 .background(
                     Brush.verticalGradient(
                         0f to CanonGreen2.copy(alpha = 0.60f),
@@ -821,7 +1004,7 @@ private fun BrandHero(
         )
         Box(
             Modifier
-                .fillMaxSize()
+                .matchParentSize()
                 .background(
                     Brush.horizontalGradient(
                         0f to CanonGreen2.copy(alpha = 0.40f),
@@ -837,23 +1020,23 @@ private fun BrandHero(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(top = 16.dp, end = 24.dp)
+                .padding(top = 16.dp, end = LoginGutter)
         )
 
         Surface(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(top = 16.dp, start = 24.dp)
-                .size(54.dp),
-            shape = RoundedCornerShape(18.dp),
+                .padding(top = 16.dp, start = LoginGutter)
+                .size(56.dp),
+            shape = RoundedCornerShape(20.dp),
             color = Color.White,
             shadowElevation = 6.dp
         ) {
             Image(
                 painter = painterResource(R.drawable.yuldash_logo),
-                contentDescription = null,
-                modifier = Modifier.padding(7.dp),
+                contentDescription = appTextFor(currentLanguage, "Логотип Юлдаш", "Юлдаш логотибы"),
+                modifier = Modifier.padding(8.dp),
                 contentScale = ContentScale.Fit
             )
         }
@@ -862,19 +1045,35 @@ private fun BrandHero(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(top = 104.dp, start = 24.dp, end = 24.dp)
+                // Нижнее поле держит «воздух» под обещаниями: 120dp из них перекроет карточка формы,
+                // остальное — открытый кадр. Высота геро = высота этой колонки (см. matchParentSize выше).
+                .padding(top = 104.dp, start = LoginGutter, end = LoginGutter, bottom = 184.dp)
         ) {
-            Text("Юлдаш", color = Color.White, fontSize = 64.sp, lineHeight = 66.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(5.dp))
-            Text(
-                text = appTextFor(currentLanguage, "Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
-                color = Color.White.copy(alpha = 0.94f),
-                fontSize = 24.sp,
-                lineHeight = 29.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(Modifier.height(18.dp))
-            LoginHeroFeatures(currentLanguage)
+            Column(
+                modifier = Modifier.graphicsLayer {
+                    alpha = brandIn
+                    translationY = (1f - brandIn) * 24.dp.toPx()
+                }
+            ) {
+                Text("Юлдаш", color = Color.White, fontSize = LoginDisplay, lineHeight = 56.sp, fontWeight = FontWeight.Black)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = appTextFor(currentLanguage, "Поездки между своими", "Үҙебеҙҙекеләр араһында юллашыу"),
+                    color = Color.White.copy(alpha = 0.94f),
+                    fontSize = LoginTitle,
+                    lineHeight = 32.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Spacer(Modifier.height(24.dp))
+            Box(
+                modifier = Modifier.graphicsLayer {
+                    alpha = featuresIn
+                    translationY = (1f - featuresIn) * 16.dp.toPx()
+                }
+            ) {
+                LoginHeroFeatures(currentLanguage)
+            }
         }
 
     }
@@ -883,7 +1082,7 @@ private fun BrandHero(
 // Переключатель языка — тот же сегментированный стиль, что на онбординге (белая «таблетка», активный чип зелёный).
 @Composable
 internal fun LoginHeroFeatures(currentLanguage: AppLanguage) {
-    Column(verticalArrangement = Arrangement.spacedBy(15.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         LoginHeroFeature(
             icon = Icons.Default.Lock,
             title = appTextFor(currentLanguage, "Вход без пароля", "Парольһеҙ инеү"),
@@ -909,21 +1108,22 @@ private fun LoginHeroFeature(icon: ImageVector, title: String, body: String) {
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Surface(
-            modifier = Modifier.size(54.dp),
+            modifier = Modifier.size(56.dp),
             shape = RoundedCornerShape(16.dp),
             color = CanonGreen2.copy(alpha = 0.92f),
             shadowElevation = 4.dp
         ) {
+            // Иконка декоративная: смысл несёт заголовок рядом, дублировать его для TalkBack не нужно.
             Icon(
                 icon,
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.padding(13.dp)
+                modifier = Modifier.padding(16.dp)
             )
         }
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = Color.White, fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black)
-            Text(body, color = Color.White.copy(alpha = 0.92f), fontSize = 16.sp, lineHeight = 20.sp)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = Color.White, fontSize = LoginBody, lineHeight = 24.sp, fontWeight = FontWeight.Black)
+            Text(body, color = Color.White.copy(alpha = 0.92f), fontSize = LoginCaption, lineHeight = 19.sp)
         }
     }
 }
@@ -941,24 +1141,35 @@ internal fun LoginLangToggle(
         border = BorderStroke(1.dp, CanonBorder),
         shadowElevation = 3.dp
     ) {
-        Row(Modifier.padding(2.dp)) {
+        Row(Modifier.padding(4.dp)) {
             LoginLangChip("РУС", currentLanguage == AppLanguage.Ru) { if (currentLanguage != AppLanguage.Ru) onToggleLanguage() }
             LoginLangChip("БАШ", currentLanguage == AppLanguage.Ba) { if (currentLanguage != AppLanguage.Ba) onToggleLanguage() }
         }
     }
 }
 
+// Чип языка. Тач-цель ≥48dp через defaultMinSize: он задаёт МИНИМАЛЬНЫЕ КОНСТРЕЙНТЫ внутреннему
+// clickable, поэтому нажимается вся «таблетка». minimumInteractiveComponentSize так не умеет — он
+// раздвигает раскладку ВОКРУГ маленького clickable, и палец мимо букв не попадал.
+// Смена языка — не мгновенный перескок цвета, а короткий перелив (animateColorAsState).
 @Composable
 private fun LoginLangChip(text: String, active: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(
+        if (active) CanonGreen2 else Color.Transparent, tween(240, easing = EaseOutExpo), label = "langChipBg",
+    )
+    val fg by animateColorAsState(
+        if (active) Color.White else CanonMuted, tween(240, easing = EaseOutExpo), label = "langChipFg",
+    )
     Box(
         modifier = Modifier
-            .minimumInteractiveComponentSize()
+            .defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)
             .clip(RoundedCornerShape(999.dp))
-            .clickable(onClick = onClick)
-            .background(if (active) CanonGreen2 else Color.Transparent)
-            .padding(horizontal = 12.dp, vertical = 5.dp)
+            .background(bg)
+            .clickable(onClickLabel = appText("Сменить язык: $text", "Телде алмаштырыу: $text"), onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Black)
+        Text(text, color = fg, fontSize = LoginCaption, fontWeight = FontWeight.Black)
     }
 }
 
@@ -967,15 +1178,15 @@ internal fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Mod
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Default.Shield, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(19.dp))
+            Icon(Icons.Default.Shield, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
             Text(
                 text = appTextFor(currentLanguage, "Безопасность поездок — наш приоритет", "Сәфәр хәүефһеҙлеге — беҙҙең өҫтөнлөк"),
                 color = CanonGreen2,
-                fontSize = 14.sp,
-                lineHeight = 18.sp,
+                fontSize = LoginCaption,
+                lineHeight = 19.sp,
                 fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center
             )
@@ -983,8 +1194,8 @@ internal fun SafetyFooter(currentLanguage: AppLanguage, modifier: Modifier = Mod
         Text(
             text = appTextFor(currentLanguage, "Юлдаш заботится о вас", "Юлдаш һеҙҙең хаҡта хәстәрләй"),
             color = CanonMuted,
-            fontSize = 13.sp,
-            lineHeight = 17.sp,
+            fontSize = LoginCaption,
+            lineHeight = 19.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center
         )
@@ -1004,36 +1215,46 @@ internal fun LoginConsent(currentLanguage: AppLanguage, modifier: Modifier = Mod
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(
             text = appTextFor(currentLanguage, "Входя, ты принимаешь", "Инеп, һин ҡабул итәһең:"),
             color = CanonMuted,
-            fontSize = 12.sp,
-            lineHeight = 16.sp,
+            fontSize = LoginCaption,
+            lineHeight = 19.sp,
             textAlign = TextAlign.Center
         )
+        // Ссылки — тач-цель ≥48dp по высоте (вертикальный паддинг у самого clickable), а не «попади в 12sp».
         Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = appTextFor(currentLanguage, "Условия", "Шарттарҙы"),
                 color = CanonGreen2,
-                fontSize = 12.sp,
+                fontSize = LoginCaption,
+                lineHeight = 19.sp,
                 fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { open("https://yulbash.ru/terms/") }
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(
+                        onClickLabel = appTextFor(currentLanguage, "Открыть условия", "Шарттарҙы асыу"),
+                    ) { open("https://yulbash.ru/terms/") }
+                    .padding(horizontal = 8.dp, vertical = 16.dp)
             )
-            Text(" · ", color = CanonMuted, fontSize = 12.sp)
+            Text("·", color = CanonMuted, fontSize = LoginCaption)
             Text(
                 text = appTextFor(currentLanguage, "Политику конфиденциальности", "Конфиденциаллек сәйәсәтен"),
                 color = CanonGreen2,
-                fontSize = 12.sp,
+                fontSize = LoginCaption,
+                lineHeight = 19.sp,
                 fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { open("https://yulbash.ru/privacy/") }
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .weight(1f, fill = false)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(
+                        onClickLabel = appTextFor(currentLanguage, "Открыть политику конфиденциальности", "Конфиденциаллек сәйәсәтен асыу"),
+                    ) { open("https://yulbash.ru/privacy/") }
+                    .padding(horizontal = 8.dp, vertical = 16.dp)
             )
         }
     }

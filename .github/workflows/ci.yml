@@ -123,3 +123,47 @@ jobs:
       - name: Build release (R8 minify check)
         working-directory: android
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+  # Compose-тесты экранов (app/src/test, Robolectric) — их не компилирует ни assembleDebug, ни
+  # локальная сборка Александра, поэтому «уехавшая» сигнатура в тесте до сих пор никем не ловилась.
+  #
+  # ОТДЕЛЬНОЙ РАБОТОЙ, а не шагом внутри android-build: Robolectric поднимает эмулируемый Android
+  # на каждый класс и идёт минутами. Внутри android-build он съедал бюджет 30 минут у сборки APK —
+  # то есть медленный тест мог уронить проверку, которая к нему отношения не имеет.
+  #
+  # ПОКА НЕ БЛОКИРУЮЩАЯ: в CI эти тесты не гонялись ни разу, их состояние неизвестно, и ронять
+  # релизный PR неизвестностью нельзя. Как увидим стабильно зелёный прогон — снять
+  # continue-on-error и сделать блокирующей (тем же путём, что прошла android-build).
+  android-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45          # Robolectric медленный: свой запас, чужой сборке не мешает
+    continue-on-error: true      # ← снять, когда прогон станет стабильно зелёным
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          # ЗДЕСЬ 21, а в сборке APK — 17, и это не описка.
+          # Яндекс MapKit 4.39.0 внутри собран под Java 21 (проверено: 920 классов, class-версия 65).
+          # Сборке приложения это не мешает — она пропускает классы через D8/R8. А JVM-тест грузит
+          # их как есть, и JDK 17 отказывается: UnsupportedClassVersionError. Так падали ВСЕ тесты
+          # экранов, которые рисуют что-либо с картой (а её импортируют профиль, создание поездки
+          # и доступность — то есть почти всё). Тесты при этом были совершенно правильные.
+          # Версию сборки приложения не трогаем: она зелёная, и `jvmTarget`/`compileOptions`
+          # остаются 17 — итоговый байт-код приложения от этой строки не меняется.
+          java-version: "21"
+          distribution: temurin
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Тесты экранов (Robolectric + Compose)
+        run: chmod +x ./gradlew && ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+      # Отчёт нужен именно при падении: по нему видно, какой тест и на чём упал.
+      - name: Отчёт о тестах (даже если упали)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-report
+          path: android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore

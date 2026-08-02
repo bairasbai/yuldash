@@ -1296,7 +1296,7 @@ internal fun ActiveTripScreen(
                                     Icon(
                                         Icons.Default.Star,
                                         contentDescription = starCd,
-                                        tint = if (n <= myStars) CanonStar else CanonBorder,
+                                        tint = if (n <= myStars) CanonStar else CanonMuted,
                                         modifier = Modifier.size(48.dp),
                                     )
                                 }

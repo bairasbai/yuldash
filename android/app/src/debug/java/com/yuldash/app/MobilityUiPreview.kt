@@ -103,62 +103,88 @@ private fun TaxiSearchingPreview() {
 }
 
 @Preview(
-    name = "Такси · поездка · BA · dark",
-    widthDp = 390,
-    heightDp = 960,
-    showBackground = true,
-    uiMode = Configuration.UI_MODE_NIGHT_YES,
-    fontScale = 1.3f,
+    name = "P0 · пассажир active · 320 · BA dark 1.5",
+    widthDp = 320, heightDp = 640, showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f,
 )
 @Composable
-private fun TaxiActiveBashkirDarkPreview() {
+private fun TaxiPassengerActive320Preview() = TaxiPassengerActiveProductionPreview()
+
+@Preview(
+    name = "P0 · пассажир active · 390 · BA dark 1.5",
+    widthDp = 390, heightDp = 844, showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f,
+)
+@Composable
+private fun TaxiPassengerActive390Preview() = TaxiPassengerActiveProductionPreview()
+
+@Preview(
+    name = "P0 · оффер водителя · 320 · BA dark 1.5",
+    widthDp = 320, heightDp = 640, showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f,
+)
+@Composable
+private fun TaxiDriverOffer320Preview() = TaxiDriverOfferProductionPreview()
+
+@Preview(
+    name = "P0 · оффер водителя · 390 · BA dark 1.5",
+    widthDp = 390, heightDp = 844, showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f,
+)
+@Composable
+private fun TaxiDriverOffer390Preview() = TaxiDriverOfferProductionPreview()
+
+@Preview(
+    name = "P0 · active-trip водителя · 320 · BA dark 1.5",
+    widthDp = 320, heightDp = 640, showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f,
+)
+@Composable
+private fun TaxiDriverTrip320Preview() = TaxiDriverTripProductionPreview()
+
+@Preview(
+    name = "P0 · active-trip водителя · 390 · BA dark 1.5",
+    widthDp = 390, heightDp = 844, showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES, fontScale = 1.5f,
+)
+@Composable
+private fun TaxiDriverTrip390Preview() = TaxiDriverTripProductionPreview()
+
+@Composable
+private fun TaxiPassengerActiveProductionPreview() {
     MobilityPreviewTheme(darkTheme = true, language = AppLanguage.Ba) {
-        Column(
-            Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            MobilityScreenIntro(
-                mode = MobilityMode.Taxi,
-                title = appText("Поездка началась", "Сәфәр башланды"),
-                subtitle = appText(
-                    "Маршрут и статус всегда перед глазами.",
-                    "Маршрут һәм статус һәр саҡ күҙ алдында.",
-                ),
-                badge = appText("в пути", "юлда"),
-            )
-            TaxiMapFrame(nearbyCount = 1) { MobilityPreviewMap() }
-            Surface(
-                color = CanonSurface,
-                shape = CanonCardShape,
-                border = BorderStroke(1.dp, CanonBorder),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(
-                    Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    MobilityRouteTimeline(
-                        from = appText("Улица Салавата Юлаева, 14", "Салауат Юлаев урамы, 14"),
-                        to = appText("Автовокзал Баймак", "Баймаҡ автовокзалы"),
-                    )
-                    TaxiTripProgress(status = "onboard")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PreviewPill(appText("Ринат · 4,9", "Ринат · 4,9"), true)
-                        PreviewPill(appText("Белая Granta", "Аҡ Granta"), false)
-                    }
-                }
-            }
-            AppButton(
-                text = appText("Связаться с водителем", "Водитель менән бәйләнеш"),
-                onClick = {},
-                style = AppButtonStyle.Primary,
-            )
-            AppButton(
-                text = appText("Безопасность", "Хәүефһеҙлек"),
-                onClick = {},
-                style = AppButtonStyle.Secondary,
-            )
-        }
+        InstantDriverEnRouteCard(
+            order = previewPassengerActiveOrder(),
+            onCancel = {},
+            enableLiveTracking = false,
+            mapContent = { modifier -> Box(modifier) { MobilityPreviewMap() } },
+        )
+    }
+}
+
+@Composable
+private fun TaxiDriverOfferProductionPreview() {
+    MobilityPreviewTheme(darkTheme = true, language = AppLanguage.Ba) {
+        InstantOfferOverlay(
+            order = previewDriverOfferOrder(),
+            onAccept = {},
+            onDecline = {},
+        )
+    }
+}
+
+@Composable
+private fun TaxiDriverTripProductionPreview() {
+    val order = previewDriverTripOrder()
+    MobilityPreviewTheme(darkTheme = true, language = AppLanguage.Ba) {
+        InstantDriverTripScreen(
+            orderId = order.id,
+            onBack = {},
+            onFinished = {},
+            initialOrder = order,
+            observeRemote = false,
+            mapContent = { modifier -> Box(modifier) { MobilityPreviewMap() } },
+        )
     }
 }
 
@@ -541,4 +567,39 @@ private fun previewInstantOrder(status: String) = InstantOrderDto(
     driverPhone = "",
     passengerName = "Айгуль",
     passengerPhone = "",
+)
+
+private fun previewPassengerActiveOrder() = previewInstantOrder(status = "arriving").copy(
+    driverId = 77,
+    etaMin = 3.0,
+    waitingStartedAt = java.time.Instant.now().minusSeconds(75).toString(),
+    cancelFeeNowKop = 15_000,
+    driverName = "Ринат",
+    driverCar = "Белая Lada Granta",
+    driverPlate = "А123ВС 102",
+    driverVerified = true,
+    driverRating = 4.9,
+    driverPhone = "+70000000000",
+)
+
+private fun previewDriverOfferOrder() = previewInstantOrder(status = "offered").copy(
+    role = "driver",
+    offerExpiresAt = java.time.Instant.now().plusSeconds(45).toString(),
+    driverGrossKop = 32_900,
+    driverFeeKop = 987,
+    driverNetKop = 31_913,
+    driverFeePercent = 3.0,
+)
+
+private fun previewDriverTripOrder() = previewInstantOrder(status = "onboard").copy(
+    role = "driver",
+    passengerId = 44,
+    passengerName = "Айгуль",
+    passengerPhone = "+70000000000",
+    entrance = "Подъезд 2",
+    comment = "Синие ворота, буду ждать у калитки",
+    driverGrossKop = 32_900,
+    driverFeeKop = 987,
+    driverNetKop = 31_913,
+    driverFeePercent = 3.0,
 )
