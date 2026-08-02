@@ -253,7 +253,7 @@ private fun formatTaxiMultiplier(value: Double): String =
 
 /** Прозрачная расшифровка серверной цены: клиент только показывает факторы и не считает цену. */
 @Composable
-internal fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
+private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
     if (estimate == null || estimate.pricingVersion != "v2") return
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
