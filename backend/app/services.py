@@ -38,9 +38,12 @@ VOICE_DIR = os.path.join(MEDIA_DIR, "voice")
 CHAT_DIR = os.path.join(MEDIA_DIR, "chat")   # фото в чате — публично (как голосовые)
 PRIVATE_DIR = os.path.join(_BASE, "private")
 DOC_DIR = os.path.join(PRIVATE_DIR, "docs")
+# Фото-доказательства споров (порт из pr88): лица/номера/травмы — ПРИВАТНО, ретеншен не трогает.
+EVIDENCE_DIR = os.path.join(PRIVATE_DIR, "evidence")
 os.makedirs(VOICE_DIR, exist_ok=True)
 os.makedirs(CHAT_DIR, exist_ok=True)
 os.makedirs(DOC_DIR, exist_ok=True)
+os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
 
 def public_media_url(path: str) -> str:
@@ -49,6 +52,10 @@ def public_media_url(path: str) -> str:
 
 def secure_docs_url(name: str) -> str:
     return f"{settings.media_base_url.rstrip('/')}/secure/docs/{name}"
+
+
+def secure_evidence_url(name: str) -> str:
+    return f"{settings.media_base_url.rstrip('/')}/secure/evidence/{name}"
 
 
 def _detect_image_ext(data: bytes) -> "str | None":
@@ -257,14 +264,16 @@ def push_notification(
     ref_kind: str = "",
     ref_id: "int | None" = None,
     push: bool = True,
+    data: "dict | None" = None,
 ) -> None:
     """Единая точка события: пишет строку в Центр уведомлений (двуязычно RU+BA) И шлёт FCM-push.
 
     Ставится в тех же местах, где раньше был голый send_push → лента уведомлений и пуш всегда
     синхронны. Запись идёт в СВОЕЙ сессии: commit в переданной session сбросил бы (expire) ORM-
     объекты вызывающего до сериализации ответа (напр. Booking в response_model → пустой ответ).
-    Уведомление вторично — ошибку БД глотаем и логируем, основную операцию не валим. Push шлём
-    на RU (FCM однострочный); в самой ленте пользователь видит текст на языке приложения.
+    Уведомление вторично — ошибку БД глотаем и логируем, основную операцию не валим. Push идёт
+    на ЯЗЫКЕ ПОЛУЧАТЕЛЯ (User.language, порт из notification-fixes): правило «любая надпись —
+    на двух языках» действует и для уведомлений; в ленте оба текста хранятся всегда.
     """
     try:
         with Session(engine) as s:
@@ -282,7 +291,20 @@ def push_notification(
     except Exception as e:  # noqa: BLE001 — уведомление вторично, основную операцию не валим
         log.warning(f"[NOTIFY] db error: {e}")
     if push:
-        send_push(session, user_id, title_ru, body_ru)
+        # Язык получателя: BA-пользователю пуш уходит на башкирском (клиент пишет выбор
+        # языка в /me/update). Пустой BA-текст → фолбэк на RU (никогда не шлём пустоту).
+        recipient = session.get(User, user_id)
+        if recipient and recipient.language == "ba" and (title_ba or body_ba):
+            title, body = (title_ba or title_ru), (body_ba or body_ru)
+        else:
+            title, body = title_ru, body_ru
+        # data — опциональный payload для клиентского роутинга (канал/deep-link), напр.
+        # {"type": "chat", "id": booking_id} у чат-пушей. Без data зовём по-старому
+        # (4 позиционных): тест-двойники и старые обёртки send_push не ломаются.
+        if data:
+            send_push(session, user_id, title, body, data)
+        else:
+            send_push(session, user_id, title, body)
 
 
 # ----------------------------- Подписка на маршрут (RouteWatch) -----------------------------

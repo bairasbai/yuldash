@@ -10,10 +10,15 @@ package com.yuldash.app
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
@@ -25,6 +30,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,7 +43,9 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeliveryDining
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Person
@@ -72,6 +80,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
@@ -80,6 +89,62 @@ import com.yuldash.app.data.CourierEstimateDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.ParcelDto
 import kotlinx.coroutines.launch
+
+// ───────────────── Типографика доставки: ровно ЧЕТЫРЕ размера ─────────────────
+// Больше кеглей = «самоделка»: до этого прохода на трёх экранах доставки жило 16 разных
+// размеров (11,12,13,14,15,16,17,18,20,22,24,26,28,30,32,44) — глаз не понимал, что главнее.
+// Роли жёсткие, других размеров в ParcelsScreen/CourierScreen/CourierOnboardingScreen нет:
+//   Display — ОДНА главная цифра на карточку (код вручения, сумма, счётчик, рейтинг)
+//   Title   — заголовок экрана/секции и крупный денежный акцент в ленте
+//   Body    — содержательный текст; Black/Bold = заголовок строки или карточки
+//   Caption — подписи, пояснения, чипы, статусы
+// Размеры в sp → уважают системный шрифт и глобальный тумблер «Крупный шрифт» (FontScalePrefs).
+internal val DeliveryDisplay = 30.sp
+internal val DeliveryDisplayLine = 34.sp
+internal val DeliveryTitle = 20.sp
+internal val DeliveryTitleLine = 26.sp
+internal val DeliveryBody = 15.sp
+internal val DeliveryBodyLine = 21.sp
+internal val DeliveryCaption = 13.sp
+internal val DeliveryCaptionLine = 18.sp
+
+/** Заголовок раздела формы. Один вид на все три экрана доставки — раньше каждый раздел
+ *  подписывался вручную своим кеглем (15/17/20), и разделы выглядели разной важности. */
+@Composable
+internal fun DeliverySectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text, color = CanonText, fontWeight = FontWeight.Black,
+        fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, modifier = modifier,
+    )
+}
+
+/** Пояснение под полем/блоком: спокойный мелкий текст. [tone] — обычно CanonMuted, у лимитов CanonRed. */
+@Composable
+internal fun DeliveryHint(text: String, modifier: Modifier = Modifier, tone: Color = CanonMuted) {
+    Text(text, color = tone, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, modifier = modifier)
+}
+
+/**
+ * Ошибка формы: карточка с иконкой вместо голой красной строки — её было легко не заметить
+ * ровно тогда, когда заметить нужнее всего. Пусто → блок схлопнут и не занимает место.
+ */
+@Composable
+internal fun DeliveryErrorCard(message: String?, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = message != null,
+        enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+        exit = fadeOut(tween(140)) + shrinkVertically(tween(160)),
+        modifier = modifier,
+    ) {
+        Surface(color = CanonDangerBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonDangerBorder)) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonRed, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(message ?: "", color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+            }
+        }
+    }
+}
 
 // ─────────────────────────── Хелперы посылок ───────────────────────────
 
@@ -109,25 +174,56 @@ private fun parcelStatusStyle(status: String): ParcelStatusStyle = when (status.
     "in_transit" -> ParcelStatusStyle(CanonMint, CanonGreen2, "В пути", "Юлда")
     "delivered" -> ParcelStatusStyle(CanonMint, CanonGreen2, "Доставлена", "Тапшырылды")
     "canceled", "cancelled" -> ParcelStatusStyle(CanonDangerBg, CanonRed, "Отменена", "Кире алынған")
+    // Возврат: получателя нет дома / отказался — курьер везёт посылку обратно отправителю.
+    // Без этих двух веток статусы падали в else и врали пользователю «Ждёт курьера».
+    "returning" -> ParcelStatusStyle(CanonWarnBg, CanonWarn, "Везут обратно", "Кире алып киләләр")
+    "returned" -> ParcelStatusStyle(CanonWarnBg, CanonWarn, "Вернулась", "Кире ҡайтты")
     else -> ParcelStatusStyle(CanonWarnBg, CanonWarn, "Ждёт курьера", "Курьерҙы көтә")
 }
 
+/**
+ * Бейдж статуса посылки. Статус меняется у человека на глазах («Ждёт курьера» → «У курьера» →
+ * «В пути» → «Доставлена»), и раньше он подменялся мгновенно — читалось как сбой отрисовки.
+ * Теперь подложка и текст переезжают плавно: цвета через animateColorAsState, сама надпись —
+ * через AnimatedContent (уходит вверх, новая приходит снизу).
+ */
 @Composable
 internal fun ParcelStatusChip(status: String) {
     val s = parcelStatusStyle(status)
-    Surface(color = s.bg, shape = RoundedCornerShape(10.dp)) {
-        Text(appText(s.ru, s.ba), color = s.fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+    val bg by animateColorAsState(s.bg, tween(320), label = "pstatus-bg")
+    val fg by animateColorAsState(s.fg, tween(320), label = "pstatus-fg")
+    Surface(color = bg, shape = RoundedCornerShape(12.dp)) {
+        AnimatedContent(
+            targetState = appText(s.ru, s.ba),
+            transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(160)) },
+            label = "pstatus-label",
+        ) { label ->
+            Text(
+                label, color = fg, fontWeight = FontWeight.Bold,
+                fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 
-/** Строка «маршрут»: Откуда → Куда. */
+/** Строка «маршрут»: Откуда → Куда. Города сжимаются, а не уезжают за экран:
+ *  башкирские названия длиннее русских, и без weight+ellipsis «Ҡара-Йылға» ломал карточку. */
 @Composable
 private fun ParcelRouteRow(from: String, to: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(Icons.Default.Place, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-        Text(from.ifBlank { "—" }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Text("→", color = CanonMuted, fontSize = 14.sp)
-        Text(to.ifBlank { "—" }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(
+            from.ifBlank { "—" }, color = CanonText, fontWeight = FontWeight.Bold,
+            fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+        )
+        Text("→", color = CanonMuted, fontSize = DeliveryBody)
+        Text(
+            to.ifBlank { "—" }, color = CanonText, fontWeight = FontWeight.Bold,
+            fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+        )
     }
 }
 
@@ -139,31 +235,33 @@ private fun ParcelRouteRow(from: String, to: String) {
 internal fun ParcelSettlementBlock(s: com.yuldash.app.data.ParcelSettlementDto, forCourier: Boolean) {
     val hasGoods = s.goodsActualKop > 0
     Surface(color = CanonWarnBg, shape = CanonItemShape) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(16.dp))
-                Text(appText("Купи и привези", "Ал да килтер"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                Text(appText("Купи и привези", "Ал да килтер"), color = CanonWarn, fontWeight = FontWeight.Black, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
             }
             if (hasGoods) SettlementAmountRow(appText("За товар", "Тауар өсөн"), kopToRub(s.goodsActualKop))
             SettlementAmountRow(appText("Доставка", "Илтеү"), kopToRub(s.deliveryKop))
             if (hasGoods) {
-                Surface(color = CanonSurface, shape = RoundedCornerShape(10.dp)) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(appText("Получатель платит", "Алыусы түләй"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                        Text(kopToRub(s.totalDueKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                // Итог получателя — главная цифра блока, поэтому в колонку: длинная башкирская
+                // подпись и сумма в одной строке отжимали друг друга.
+                Surface(color = CanonSurface, shape = RoundedCornerShape(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(appText("Получатель платит", "Алыусы түләй"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+                        Text(kopToRub(s.totalDueKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
                     }
                 }
             } else {
                 Text(
                     if (forCourier) appText("Укажи, сколько потратил на товар, — сумма для получателя посчитается сама.", "Тауарға күпме тотонғаныңды күрһәт — алыусыға сумма үҙе иҫәпләнер.")
                     else appText("Курьер купит товар на свои. Стоимость появится здесь после покупки — получатель вернёт её плюс доставку.", "Курьер тауарҙы үҙ аҡсаһына алыр. Хаҡы һатып алғас бында күренер — алыусы уны һәм илтеүҙе кире ҡайтарыр."),
-                    color = CanonWarn, fontSize = 12.sp, lineHeight = 17.sp,
+                    color = CanonWarn, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
                 )
             }
             if (s.settled) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
-                    Text(appText("Расчёт закрыт", "Иҫәп ябылды"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                    Text(appText("Расчёт закрыт", "Иҫәп ябылды"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                 }
             }
         }
@@ -173,18 +271,19 @@ internal fun ParcelSettlementBlock(s: com.yuldash.app.data.ParcelSettlementDto, 
 @Composable
 private fun SettlementAmountRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = CanonWarn, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Text(value, color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text(label, color = CanonWarn, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, modifier = Modifier.weight(1f))
+        Text(value, color = CanonWarn, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
     }
 }
 
-/** Мягкая кнопка «Открыть спор» на карточке доставки. */
+/** Мягкая кнопка «Открыть спор» на карточке доставки. Тач-цель 48dp: у голого TextButton
+ *  высота 40dp — по спеке доступности мало, а промах здесь стоит нервов в конфликтной ситуации. */
 @Composable
 internal fun ParcelDisputeButton(onClick: () -> Unit) {
-    TextButton(onClick = onClick) {
+    TextButton(onClick = onClick, modifier = Modifier.heightIn(min = 48.dp)) {
         Icon(Icons.Default.ReportProblem, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
     }
 }
 
@@ -202,29 +301,30 @@ internal fun ParcelDisputeDialog(parcel: ParcelDto, onDismiss: () -> Unit, onOpe
     AlertDialog(
         onDismissRequest = { if (!submitting) onDismiss() },
         containerColor = CanonSurface,
-        title = { Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonText, fontWeight = FontWeight.Black) },
+        title = { Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(appText("Расскажи, что случилось. Мы посмотрим детали заказа и поможем.", "Нимә булғанын яҙ. Беҙ заказ мәғлүмәтен ҡарап ярҙам итербеҙ."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(appText("Расскажи, что случилось. Мы посмотрим детали заказа и поможем.", "Нимә булғанын яҙ. Беҙ заказ мәғлүмәтен ҡарап ярҙам итербеҙ."), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                 OutlinedTextField(
                     value = reason,
                     onValueChange = { reason = it; err = null },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(appText("Что случилось", "Нимә булды")) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     minLines = 3,
                     isError = err != null,
                 )
                 Text(
                     if (declared > 0) appText("Ориентир при споре — объявленная ценность: ", "Бәхәстә ориентир — иғлан ителгән хаҡ: ") + kopToRub(declared) + "."
                     else appText("Ценность не объявлена — решаем по договорённости между своими.", "Хаҡ иғлан ителмәгән — үҙ-ара килешеү буйынса хәл итәбеҙ."),
-                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
                 )
-                if (err != null) Text(err ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                DialogErrorLine(err)
             }
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.heightIn(min = 48.dp),
                 enabled = !submitting && reason.isNotBlank(),
                 onClick = {
                     submitting = true; err = null
@@ -235,10 +335,21 @@ internal fun ParcelDisputeDialog(parcel: ParcelDto, onDismiss: () -> Unit, onOpe
                         submitting = false
                     }
                 },
-            ) { Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+            ) { Text(appText("Открыть спор", "Бәхәс асыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = DeliveryBody) }
         },
-        dismissButton = { TextButton(enabled = !submitting, onClick = onDismiss) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+        dismissButton = { TextButton(modifier = Modifier.heightIn(min = 48.dp), enabled = !submitting, onClick = onDismiss) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted, fontSize = DeliveryBody) } },
     )
+}
+
+/** Ошибка внутри диалога: одинаковая на всех диалогах доставки, появляется плавно, а не рывком. */
+@Composable
+internal fun DialogErrorLine(message: String?) {
+    AnimatedVisibility(visible = message != null, enter = fadeIn(tween(200)), exit = fadeOut(tween(140))) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CanonRed, modifier = Modifier.size(16.dp))
+            Text(message ?: "", color = CanonRed, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, fontWeight = FontWeight.Bold)
+        }
+    }
 }
 
 // ─────────────────── C3: оценка доставки (общее для двух экранов) ───────────────────
@@ -257,9 +368,13 @@ internal fun ParcelRateButton(onClick: () -> Unit) {
 /** Строка «Спасибо, оценка учтена» — вместо кнопки после оценки. */
 @Composable
 internal fun ParcelRatedRow() {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(
+        Modifier.heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(16.dp))
-        Text(appText("Спасибо, оценка учтена", "Рәхмәт, баһа иҫәпкә алынды"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text(appText("Спасибо, оценка учтена", "Рәхмәт, баһа иҫәпкә алынды"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
     }
 }
 
@@ -281,19 +396,24 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
     AlertDialog(
         onDismissRequest = { if (!submitting) onDismiss() },
         containerColor = CanonSurface,
-        title = { Text(appText("Оценить доставку", "Илтеүҙе баһалау"), color = CanonText, fontWeight = FontWeight.Black) },
+        title = { Text(appText("Оценить доставку", "Илтеүҙе баһалау"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(whoQuestion, color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Text(whoQuestion, color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     (1..5).forEach { i ->
                         val filled = i <= stars
                         val starDesc = appText("Поставить $i из 5", "5-тән $i ҡуйырға")
+                        // Цвет звезды догоняет палец, а не перещёлкивается: 5 звёзд разом
+                        // меняли тон рывком — дёшево выглядело именно в момент благодарности.
+                        val tint by animateColorAsState(if (filled) CanonStar else CanonMuted, tween(220), label = "star$i")
                         Icon(
                             if (filled) Icons.Default.Star else Icons.Default.StarBorder,
                             contentDescription = starDesc,
-                            tint = if (filled) CanonStar else CanonMuted,
-                            modifier = Modifier.minimumInteractiveComponentSize().size(42.dp).padding(2.dp).bounceClick { stars = i; err = null },
+                            tint = tint,
+                            // 48dp — тач-цель целиком, иконка 36dp внутри. Раньше clickable вешался
+                            // ПОСЛЕ padding, и живая зона была 38dp — мимо звезды промахивались.
+                            modifier = Modifier.size(48.dp).bounceClick { stars = i; err = null }.padding(6.dp),
                         )
                     }
                 }
@@ -302,14 +422,15 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
                     onValueChange = { comment = it.take(300); err = null },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(appText("Пару слов (необязательно)", "Бер-ике һүҙ (мотлаҡ түгел)")) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     minLines = 2,
                 )
-                if (err != null) Text(err ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                DialogErrorLine(err)
             }
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.heightIn(min = 48.dp),
                 enabled = !submitting && stars in 1..5,
                 onClick = {
                     val note = comment.trim().takeIf { it.isNotBlank() }
@@ -321,9 +442,9 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
                         submitting = false
                     }
                 },
-            ) { Text(appText("Отправить оценку", "Оценка ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+            ) { Text(appText("Отправить оценку", "Оценка ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryBody) }
         },
-        dismissButton = { TextButton(enabled = !submitting, onClick = onDismiss) { Text(appText("Позже", "Һуңыраҡ"), color = CanonMuted) } },
+        dismissButton = { TextButton(modifier = Modifier.heightIn(min = 48.dp), enabled = !submitting, onClick = onDismiss) { Text(appText("Позже", "Һуңыраҡ"), color = CanonMuted, fontSize = DeliveryBody) } },
     )
 }
 
@@ -360,14 +481,20 @@ internal fun ParcelsScreen(onBack: () -> Unit) {
 
 @Composable
 private fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(220), label = "ptab")
+    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(220), label = "ptab-bg")
+    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(220), label = "ptab-line")
+    val ink by animateColorAsState(if (active) CanonGreen2 else CanonMutedStrong, tween(220), label = "ptab-ink")
     Surface(
         onClick = onClick, color = bg, shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = modifier.height(48.dp),
+        border = BorderStroke(1.dp, line),
+        modifier = modifier.heightIn(min = 48.dp),
     ) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Black, fontSize = 14.sp)
+        Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+            Text(
+                label, color = ink, fontWeight = FontWeight.Black,
+                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+            )
         }
     }
 }
@@ -395,6 +522,12 @@ private fun SendParcelTab(onSent: () -> Unit) {
     var rulesAccepted by remember { mutableStateOf(false) }
     var urgency by remember { mutableStateOf("bypath") }          // bypath | now
     var shoppingList by remember { mutableStateOf("") }
+    // Объявленная ценность: поля в форме не было вообще, поэтому спор о повреждении ВСЕГДА падал
+    // в ветку «ценность не объявлена» — доказывать было нечем (аудит 2026-07-26).
+    var declaredRub by remember { mutableStateOf("") }
+    // Сколько отправитель платит попутчику. У «по пути» цены не было ВООБЩЕ: курьер видел
+    // маршрут и размер, а за сколько везти — нигде (аудит 2026-07-26). Пусто = «по-соседски».
+    var priceRub by remember { mutableStateOf("") }
     var productRub by remember { mutableStateOf("") }
     var estimate by remember { mutableStateOf<CourierEstimateDto?>(null) }
     var fromLat by remember { mutableStateOf<Double?>(null) }
@@ -417,7 +550,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
     ) {
         item {
@@ -426,7 +559,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
                     "Отправь посылку своим: по пути с попутчиком дёшево, или закажи курьера — быстро и надёжно.",
                     "Үҙебеҙҙекеләргә бандероль ебәр: юлдаш менән юл ыңғайы арзан, йәки курьер заказла — тиҙ һәм ышаныслы.",
                 ),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
             )
         }
         // Тип доставки
@@ -461,7 +594,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
         }
         // Размер
         item {
-            Text(appText("Размер посылки", "Бандероль ҙурлығы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            DeliverySectionTitle(appText("Размер посылки", "Бандероль ҙурлығы"))
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -473,10 +606,12 @@ private fun SendParcelTab(onSent: () -> Unit) {
         // Срочность (курьер / купи-привези)
         if (isCourier) {
             item {
-                Text(appText("Когда доставить", "Ҡасан илтергә"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                // Блок появляется только у курьерских типов — значит въезжает мягко,
+                // а не выпрыгивает посреди формы (appearIn стартует с нуля, не с цели).
+                DeliverySectionTitle(appText("Когда доставить", "Ҡасан илтергә"), Modifier.appearIn())
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.appearIn(1), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     UrgencyChip(
                         appText("По пути", "Юл ыңғайы"), appText("дешевле", "арзаныраҡ"),
                         urgency == "bypath", Modifier.weight(1f),
@@ -491,17 +626,21 @@ private fun SendParcelTab(onSent: () -> Unit) {
         // Купи и привези: список покупок + сумма товара
         if (deliveryType == "buy_bring") {
             item {
-                ParcelField(shoppingList, { shoppingList = it }, appText("Что купить", "Нимә алырға"), appText("Например: хлеб, молоко, лекарство из аптеки", "Мәҫәлән: икмәк, һөт, дарыуханан дарыу"), minLines = 2)
+                Box(Modifier.appearIn()) {
+                    ParcelField(shoppingList, { shoppingList = it }, appText("Что купить", "Нимә алырға"), appText("Например: хлеб, молоко, лекарство из аптеки", "Мәҫәлән: икмәк, һөт, дарыуханан дарыу"), minLines = 2)
+                }
             }
             item {
-                ParcelField(productRub, { productRub = it.filter(Char::isDigit).take(5); estimate = null }, appText("Сумма покупки, ₽", "Һатып алыу суммаһы, ₽"), "0", phone = true)
+                Box(Modifier.appearIn(1)) {
+                    ParcelField(productRub, { productRub = it.filter(Char::isDigit).take(5); estimate = null }, appText("Сумма покупки, ₽", "Һатып алыу суммаһы, ₽"), "0", phone = true)
+                }
             }
             item {
                 val overLimit = productRubInt != null && productRubInt > 5000
-                Text(
+                DeliveryHint(
                     if (overLimit) appText("Лимит покупки — 5000 ₽. Уменьши сумму.", "Һатып алыу лимиты — 5000 ₽. Сумманы кәметер.")
                     else appText("Курьер купит на эту сумму, а получатель вернёт её при вручении.", "Курьер шул суммаға алыр, алыусы тапшырғанда кире ҡайтарыр."),
-                    color = if (overLimit) CanonRed else CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    tone = if (overLimit) CanonRed else CanonMuted,
                 )
             }
         }
@@ -509,9 +648,50 @@ private fun SendParcelTab(onSent: () -> Unit) {
         item {
             ParcelField(description, { description = it }, appText("Что за посылка", "Нимә бул"), appText("Например: документы, книга, гостинец", "Мәҫәлән: документтар, китап, күстәнәс"), minLines = 2)
         }
+        // Сколько заплатишь попутчику. Только для «по пути»: у курьерских типов цену считает
+        // сервер (EstimateCard ниже). Раньше поля не было, и человек соглашался везти вслепую.
+        if (!isCourier) {
+            item {
+                ParcelField(
+                    priceRub, { priceRub = it.filter(Char::isDigit).take(6) },
+                    appText("Сколько заплатишь попутчику, ₽", "Юлдашҡа күпме түләйһең, ₽"),
+                    "0", phone = true,
+                )
+            }
+            item {
+                DeliveryHint(
+                    if ((priceRub.toIntOrNull() ?: 0) > 0)
+                        appText(
+                            "Отдашь эти деньги попутчику лично — Юлдаш к ним не прикасается.",
+                            "Был аҡсаны юлдашҡа үҙең бирәһең — Юлдаш уға ҡағылмай.",
+                        )
+                    else appText(
+                        "Оставь пусто — значит по-соседски, бесплатно. Так и увидит попутчик.",
+                        "Буш ҡалдыр — тимәк күрше хаҡы, бушлай. Юлдаш шулай күрер.",
+                    ),
+                )
+            }
+        }
+        // Объявленная ценность. Поля не было вообще — и любой спор о повреждении падал в ветку
+        // «ценность не объявлена»: доказывать было нечем, ориентира для компенсации не существовало.
+        item {
+            ParcelField(
+                declaredRub, { declaredRub = it.filter(Char::isDigit).take(6) },
+                appText("Ценность посылки, ₽ (необязательно)", "Бандероль хаҡы, ₽ (мотлаҡ түгел)"),
+                "0", phone = true,
+            )
+        }
+        item {
+            DeliveryHint(
+                appText(
+                    "Если что-то случится, это будет ориентиром при разборе. Не страховка — но без цифры спорить не о чем.",
+                    "Берәй хәл булһа, был ҡарағанда ориентир булыр. Страховка түгел — әммә һанһыҙ бәхәсләшер нәмә юҡ.",
+                ),
+            )
+        }
         // Получатель
         item {
-            Text(appText("Получатель", "Алыусы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            DeliverySectionTitle(appText("Получатель", "Алыусы"))
         }
         item {
             ParcelField(receiverName, { receiverName = it }, appText("Имя получателя", "Алыусы исеме"), appText("Кто встретит курьера", "Курьерҙы кем ҡаршылай"), cap = true)
@@ -519,9 +699,10 @@ private fun SendParcelTab(onSent: () -> Unit) {
         item {
             ParcelField(receiverPhone, { receiverPhone = it }, appText("Телефон получателя", "Алыусы телефоны"), "+7 …", phone = true)
         }
-        // Оценка стоимости (курьер / купи-привези) — показываем ЧЕСТНО, из чего сложилась цена
+        // Оценка стоимости (курьер / купи-привези) — показываем ЧЕСТНО, из чего сложилась цена.
+        // Это главный момент формы: цена посчиталась → карточка всплывает, а не возникает.
         estimate?.let { est ->
-            if (isCourier) item { EstimateCard(est) }
+            if (isCourier) item { Box(Modifier.appearIn()) { EstimateCard(est) } }
         }
         // Обязательный чекбокс правил
         item {
@@ -539,13 +720,11 @@ private fun SendParcelTab(onSent: () -> Unit) {
                         "Курьер — обычный попутчик, а не служба доставки. Не клади ценное, хрупкое или запрещённое. Ответственность за содержимое — на тебе.",
                         "Курьер — ябай юлдаш, доставка хеҙмәте түгел. Ҡиммәтле, ватыҡ йәки тыйылған әйберҙе һалма. Эстәлеге өсөн яуаплылыҡ — һиндә.",
                     ),
-                    color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(14.dp),
+                    color = CanonGreen2, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, modifier = Modifier.padding(16.dp),
                 )
             }
         }
-        if (error != null) {
-            item { Text(error ?: "", color = CanonRed, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
-        }
+        item { DeliveryErrorCard(error) }
         item {
             when {
                 // Попутка — как в M3: сразу создаём посылку.
@@ -560,6 +739,13 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 fromCity = fromCity.trim(), toCity = toCity.trim(), size = size,
                                 description = description.trim(), receiverName = receiverName.trim(),
                                 receiverPhone = receiverPhone.trim(), rulesAccepted = rulesAccepted,
+                                // Цена попутчику и объявленная ценность: раньше «по пути»
+                                // не слал ни того, ни другого — курьер вёз вслепую, а спор
+                                // всегда падал в ветку «ценность не объявлена».
+                                // Потолок тот же, что на сервере (100 000 ₽): без него шесть
+                                // цифр в поле давали 422 вместо понятного ответа.
+                                priceKop = ((priceRub.toIntOrNull() ?: 0) * 100).coerceIn(0, 100_000_00),
+                                declaredValueKop = ((declaredRub.toIntOrNull() ?: 0) * 100).coerceIn(0, 100_000_00),
                             )
                                 .onSuccess { created = it }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -616,6 +802,9 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 rulesAccepted = rulesAccepted, deliveryType = deliveryType, urgency = urgency,
                                 codAmountKop = if (deliveryType == "buy_bring") (productRubInt ?: 0) * 100 else null,
                                 shoppingList = if (deliveryType == "buy_bring") shoppingList.trim() else null,
+                                // Потолок как на сервере — шесть цифр в поле иначе дают 422.
+                                declaredValueKop = declaredRub.toIntOrNull()?.takeIf { it > 0 }
+                                    ?.let { (it * 100).coerceAtMost(100_000_00) },
                             )
                                 .onSuccess { created = it }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -642,39 +831,59 @@ private fun DeliveryTypeCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
 ) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "dtype")
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "dtype-bg")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "dtype-line")
+    // Толщина рамки тоже переезжает плавно: скачок 1→2dp читался как «дёрнулось».
+    val lineWidth by animateDpAsState(if (selected) 2.dp else 1.dp, tween(200), label = "dtype-w")
+    val iconBg by animateColorAsState(if (selected) CanonGreen2 else CanonMint, tween(200), label = "dtype-ic")
     Surface(
         onClick = onClick, color = bg, shape = CanonItemShape,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
+        border = BorderStroke(lineWidth, line),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = if (selected) CanonGreen2 else CanonMint, shape = RoundedCornerShape(12.dp)) {
-                Icon(icon, contentDescription = null, tint = if (selected) Color.White else CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = iconBg, shape = RoundedCornerShape(12.dp)) {
+                Icon(icon, contentDescription = null, tint = if (selected) Color.White else CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
             }
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                Text(subtitle, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                Text(subtitle, color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
             }
-            if (selected) Icon(Icons.Default.CheckCircle, contentDescription = appText("Выбрано", "Һайланды"), tint = CanonGreen2, modifier = Modifier.size(22.dp))
+            AnimatedVisibility(visible = selected, enter = scaleIn(tween(200)) + fadeIn(tween(200)), exit = fadeOut(tween(120))) {
+                Icon(Icons.Default.CheckCircle, contentDescription = appText("Выбрано", "Һайланды"), tint = CanonGreen2, modifier = Modifier.padding(start = 12.dp).size(24.dp))
+            }
         }
     }
 }
 
-/** Чип срочности доставки. */
+/** Чип срочности доставки. heightIn вместо height: башкирское «Юл ыңғайы · арзаныраҡ» длиннее
+ *  русского, и при крупном системном шрифте вторая строка обрезалась жёсткой высотой. */
 @Composable
 private fun UrgencyChip(title: String, subtitle: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "urg-bg")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "urg-line")
+    val lineWidth by animateDpAsState(if (selected) 2.dp else 1.dp, tween(200), label = "urg-w")
     Surface(
         onClick = onClick,
-        color = if (selected) CanonMint else CanonSurface,
+        color = bg,
         shape = CanonItemShape,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
-        modifier = modifier.height(64.dp),
+        border = BorderStroke(lineWidth, line),
+        modifier = modifier.heightIn(min = 64.dp),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalArrangement = Arrangement.Center) {
-            Text(title, color = if (selected) CanonGreen2 else CanonText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = CanonMuted, fontSize = 12.sp, maxLines = 1)
+        Column(
+            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                title, color = if (selected) CanonGreen2 else CanonText,
+                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, fontWeight = FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle, color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -683,14 +892,14 @@ private fun UrgencyChip(title: String, subtitle: String, selected: Boolean, modi
 @Composable
 private fun EstimateCard(est: CourierEstimateDto) {
     Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(2.dp, CanonGreen2)) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(appText("Доставка", "Илтеү"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Text("≈ " + kopToRub(est.priceKop), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = 32.sp)
+        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(appText("Доставка", "Илтеү"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+            Text("≈ " + kopToRub(est.priceKop), color = CanonGreen, fontWeight = FontWeight.Black, fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine)
             val commEst = if (est.breakdown.commissionEstimated) appText(" ≈ ориентировочно", " ≈ самаға") else ""
             Text(
                 appText("Из них наша комиссия ", "Шуларҙан беҙҙең комиссия ") + kopToRub(est.commissionKop) + commEst +
                     appText(" — остальное получит курьер.", " — ҡалғанын курьер алыр."),
-                color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
             )
             Surface(color = CanonMint, shape = CanonItemShape) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -707,8 +916,8 @@ private fun EstimateCard(est: CourierEstimateDto) {
 @Composable
 private fun EstimateRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = CanonGreen2, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Text(value, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text(label, color = CanonGreen2, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, modifier = Modifier.weight(1f))
+        Text(value, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
     }
 }
 
@@ -740,16 +949,19 @@ private fun ParcelSizeCard(size: String, selected: Boolean, onClick: () -> Unit)
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) CanonGreen2 else CanonBorder),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = if (selected) CanonGreen2 else CanonMint, shape = RoundedCornerShape(12.dp)) {
-                Icon(Icons.Default.Inventory2, contentDescription = null, tint = if (selected) Color.White else CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
+                Icon(Icons.Default.Inventory2, contentDescription = null, tint = if (selected) Color.White else CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
             }
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(parcelSizeLabel(size), color = CanonText, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                Text(parcelSizeHint(size), color = CanonMuted, fontSize = 12.sp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(parcelSizeLabel(size), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
+                Text(parcelSizeHint(size), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
             }
-            if (selected) Icon(Icons.Default.CheckCircle, contentDescription = appText("Выбрано", "Һайланды"), tint = CanonGreen2, modifier = Modifier.size(22.dp))
+            // Галочка не выскакивает рывком: как в карточке типа доставки — вырастает с затуханием.
+            AnimatedVisibility(visible = selected, enter = scaleIn(tween(200)) + fadeIn(tween(200)), exit = fadeOut(tween(120))) {
+                Icon(Icons.Default.CheckCircle, contentDescription = appText("Выбрано", "Һайланды"), tint = CanonGreen2, modifier = Modifier.padding(start = 12.dp).size(24.dp))
+            }
         }
     }
 }
@@ -763,26 +975,32 @@ private fun RulesCheckbox(checked: Boolean, onToggle: () -> Unit) {
         border = BorderStroke(if (checked) 2.dp else 1.dp, if (checked) CanonGreen2 else CanonBorder),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Заливка квадратика переезжает плавно — иначе согласие «щёлкает» рывком.
+            val boxBg by animateColorAsState(if (checked) CanonGreen2 else Color.Transparent, tween(200), label = "rules-box")
+            val boxLine by animateColorAsState(if (checked) CanonGreen2 else CanonMuted, tween(200), label = "rules-line")
             Surface(
-                color = if (checked) CanonGreen2 else Color.Transparent,
-                shape = RoundedCornerShape(7.dp),
-                border = BorderStroke(2.dp, if (checked) CanonGreen2 else CanonMuted),
+                color = boxBg,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(2.dp, boxLine),
                 modifier = Modifier.size(24.dp),
             ) {
-                if (checked) Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.padding(2.dp))
+                AnimatedVisibility(visible = checked, enter = scaleIn(tween(180)) + fadeIn(tween(180)), exit = fadeOut(tween(120))) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.padding(2.dp))
+                }
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     appText("Подтверждаю правила доставки", "Илтеү ҡағиҙәләрен раҫлайым"),
-                    color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                    color = CanonText, fontWeight = FontWeight.Bold,
+                    fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
                 )
                 Text(
                     appText(
                         "Не отправляю запрещённое: деньги, документы на предъявителя, лекарства без рецепта, скоропорт, оружие.",
                         "Тыйылғанды ебәрмәйем: аҡса, күрһәтеүсегә документтар, рецептһыҙ дарыу, тиҙ боҙолған аҙыҡ, ҡорал.",
                     ),
-                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                    color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
                 )
             }
         }
@@ -801,28 +1019,37 @@ private fun ParcelCreatedView(p: ParcelDto, onDone: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         item {
-            Surface(color = CanonMint, shape = CircleShape) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp).size(36.dp))
+            // Печать «готово» вырастает после первого кадра — иначе экран успеха просто «появляется».
+            // Ставить visible = true сразу нельзя: AnimatedVisibility тогда не проигрывает ничего.
+            var sealShown by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { sealShown = true }
+            AnimatedVisibility(visible = sealShown, enter = scaleIn(tween(420)) + fadeIn(tween(420))) {
+                Surface(color = CanonMint, shape = CircleShape) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(16.dp).size(36.dp))
+                }
             }
         }
         item {
-            Text(appText("Посылка создана!", "Бандероль булдырылды!"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 22.sp, textAlign = TextAlign.Center)
+            Text(appText("Посылка создана!", "Бандероль булдырылды!"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine, textAlign = TextAlign.Center)
         }
         item {
-            Text(appText("Как только попутчик её возьмёт — ты увидишь курьера и его телефон.", "Юлдаш уны алыу менән — курьерҙы һәм телефонын күрерһең."), color = CanonMuted, fontSize = 15.sp, textAlign = TextAlign.Center)
+            Text(appText("Как только попутчик её возьмёт — ты увидишь курьера и его телефон.", "Юлдаш уны алыу менән — курьерҙы һәм телефонын күрерһең."), color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine, textAlign = TextAlign.Center)
         }
         // Крупный код вручения
         item {
             Surface(color = CanonSurface, shape = CanonCardShape, border = BorderStroke(2.dp, CanonGreen2)) {
-                Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(appText("Код вручения", "Тапшырыу коды"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 44.sp, textAlign = TextAlign.Center)
+                Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(appText("Код вручения", "Тапшырыу коды"), color = CanonMuted, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+                    Text(
+                        p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black,
+                        fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine, textAlign = TextAlign.Center,
+                    )
                     if (p.confirmCode.isNotBlank()) {
                         Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
-                            Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(appText("Скопировать", "Күсереп алыу"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(appText("Скопировать", "Күсереп алыу"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                             }
                         }
                     }
@@ -836,14 +1063,14 @@ private fun ParcelCreatedView(p: ParcelDto, onDone: () -> Unit) {
                         "Передай этот код получателю (например, в сообщении). Курьер спросит его при вручении — так посылка попадёт в нужные руки.",
                         "Был кодты алыусыға тапшыр (мәҫәлән, хәбәрҙә). Курьер уны тапшырғанда һорар — шулай бандероль кәрәкле ҡулға етер.",
                     ),
-                    color = CanonGreen2, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(14.dp),
+                    color = CanonGreen2, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, modifier = Modifier.padding(16.dp),
                 )
             }
         }
         item {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ParcelRouteRow(p.fromCity, p.toCity)
-                Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonMuted, fontSize = 13.sp)
+                Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
             }
         }
         item { AppButton(appText("Готово", "Әҙер"), onDone, style = AppButtonStyle.Primary) }
@@ -881,7 +1108,7 @@ private fun MyParcelsTab() {
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
     ) {
         when {
@@ -916,10 +1143,10 @@ private fun MyParcelsTab() {
         AlertDialog(
             onDismissRequest = { cancelTarget = null },
             containerColor = CanonSurface,
-            title = { Text(appText("Отменить посылку?", "Бандеролде кире алаһыңмы?"), color = CanonText, fontWeight = FontWeight.Black) },
-            text = { Text(appText("Посылка исчезнет из ленты курьеров. Отменить можно, пока её не доставили.", "Бандероль курьерҙар лентаһынан юғала. Тапшырылғансы кире алып була."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) },
+            title = { Text(appText("Отменить посылку?", "Бандеролде кире алаһыңмы?"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
+            text = { Text(appText("Посылка исчезнет из ленты курьеров. Отменить можно, пока её не доставили.", "Бандероль курьерҙар лентаһынан юғала. Тапшырылғансы кире алып була."), color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine) },
             confirmButton = {
-                TextButton(onClick = {
+                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                     busyId = target.id
                     scope.launch {
                         ApiClient.cancelParcel(target.id)
@@ -928,9 +1155,9 @@ private fun MyParcelsTab() {
                         busyId = 0
                     }
                     cancelTarget = null
-                }) { Text(appText("Отменить посылку", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                }) { Text(appText("Отменить посылку", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = DeliveryBody) }
             },
-            dismissButton = { TextButton(onClick = { cancelTarget = null }) { Text(appText("Оставить", "Ҡалдырыу"), color = CanonMuted) } },
+            dismissButton = { TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { cancelTarget = null }) { Text(appText("Оставить", "Ҡалдырыу"), color = CanonMuted, fontSize = DeliveryBody) } },
         )
     }
 
@@ -961,16 +1188,27 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ParcelRouteRow(p.fromCity, p.toCity)
-                    Text(parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""), color = CanonMuted, fontSize = 13.sp)
+                    Text(
+                        parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""),
+                        color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                    )
                 }
                 ParcelStatusChip(p.status)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Person, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonText, fontSize = 13.sp)
-                Spacer(Modifier.weight(1f))
-                if (p.feeKop > 0) Text(kopToRub(p.feeKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Spacer(Modifier.width(8.dp))
+                // weight отдан имени: длинное «Получатель: …» сжимается многоточием и НЕ
+                // выталкивает сумму за экран (башкирская подпись длиннее русской).
+                Text(
+                    appText("Получатель: ", "Алыусы: ") + p.receiverName, color = CanonText,
+                    fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                // Цифра здесь — сколько отправитель платит курьеру. Раньше показывался наш
+                // сервисный сбор, и человек читал его как цену доставки (аудит 2026-07-26).
+                if (p.priceKop > 0) Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
             }
             // Курьер (когда принята)
             p.courier?.let { cr ->
@@ -980,21 +1218,25 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
                         Surface(color = CanonSurface, shape = CircleShape) {
                             Icon(Icons.Default.LocalShipping, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
                         }
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(cr.name.ifBlank { courierFallback }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                cr.name.ifBlank { courierFallback }, color = CanonText, fontWeight = FontWeight.Bold,
+                                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 val crRating = cr.rating
                                 if (crRating != null && crRating > 0) {
-                                    Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
-                                    Spacer(Modifier.width(3.dp))
-                                    Text(String.format("%.1f", crRating) + (if (cr.ratingCount > 0) " · ${cr.ratingCount}" else ""), color = CanonMuted, fontSize = 12.sp)
+                                    Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(String.format("%.1f", crRating) + (if (cr.ratingCount > 0) " · ${cr.ratingCount}" else ""), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                                     Spacer(Modifier.width(8.dp))
                                 } else {
-                                    Text(appText("новый курьер", "яңы курьер"), color = CanonMuted, fontSize = 12.sp)
+                                    Text(appText("новый курьер", "яңы курьер"), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                                     Spacer(Modifier.width(8.dp))
                                 }
-                                if (cr.phone.isNotBlank()) Text(cr.phone, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                if (cr.phone.isNotBlank()) Text(cr.phone, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                             }
                         }
                     }
@@ -1002,11 +1244,14 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             }
             // Онлайн-трекинг: пока курьер везёт — видим его на карте (тот же движок, что у такси).
             if (p.courier != null && (p.status == "accepted" || p.status == "in_transit")) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(appText("Курьер в пути — следи на карте", "Курьер юлда — картала күҙәт"), color = CanonMuted, fontSize = 12.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(appText("Курьер в пути — следи на карте", "Курьер юлда — картала күҙәт"), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                     ParcelTrackMap(p, asCourier = false)
                 }
             }
+            // Трекинг-ссылка получателю: он без приложения смотрит доставку в браузере.
+            // Ручка была готова с G1, кнопки не существовало — фича жила только на сервере.
+            if (active) ParcelTrackLinkBlock(p.id)
             // C2: расчёт «купи и привези» — что получатель заплатит (товар + доставка)
             if (p.deliveryType == "buy_bring") {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = false) }
@@ -1014,12 +1259,15 @@ private fun MyParcelCard(p: ParcelDto, busy: Boolean, rated: Boolean, onCancel: 
             // Код вручения — вижу как отправитель, пока не доставлено
             if (p.confirmCode.isNotBlank() && active) {
                 Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Код вручения (передай получателю)", "Тапшырыу коды (алыусыға бир)"), color = CanonMuted, fontSize = 12.sp)
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(appText("Код вручения (передай получателю)", "Тапшырыу коды (алыусыға бир)"), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 26.sp, modifier = Modifier.weight(1f))
+                            Text(
+                                p.confirmCode, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black,
+                                fontSize = DeliveryDisplay, lineHeight = DeliveryDisplayLine, modifier = Modifier.weight(1f),
+                            )
                             Surface(onClick = { clipboard.setText(AnnotatedString(p.confirmCode)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonMint, shape = RoundedCornerShape(12.dp)) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(9.dp).size(20.dp))
+                                Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
                             }
                         }
                     }
@@ -1096,7 +1344,7 @@ private fun AvailableParcelsTab() {
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
         item {
@@ -1105,7 +1353,7 @@ private fun AvailableParcelsTab() {
                     "Едешь в другой город? Захвати посылку по пути — получишь сбор Юлдаша.",
                     "Икенсе ҡалаға бараһыңмы? Юл ыңғайы бандероль ал — Юлдаш сборын алырһың.",
                 ),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp,
+                color = CanonMuted, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
             )
         }
         if (cities.isNotEmpty()) {
@@ -1153,15 +1401,23 @@ private fun AvailableParcelsTab() {
 
 @Composable
 private fun ParcelFilterChip(label: String, active: Boolean, onClick: () -> Unit) {
+    // Фильтр городов переключается часто — цвета переезжают, а не подменяются кадром.
+    val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(200), label = "pchip-bg")
+    val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(200), label = "pchip-line")
+    val ink by animateColorAsState(if (active) CanonGreen2 else CanonMutedStrong, tween(200), label = "pchip-ink")
     Surface(
         onClick = onClick,
-        color = if (active) CanonMint else CanonSurface,
+        color = bg,
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
+        border = BorderStroke(1.dp, line),
         modifier = Modifier.height(48.dp),
     ) {
         Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(
+                label, color = ink, fontWeight = FontWeight.Bold,
+                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -1172,19 +1428,31 @@ private fun AvailableParcelCard(p: ParcelDto, busy: Boolean, onTake: () -> Unit)
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
-                    Icon(Icons.Default.Inventory2, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(10.dp).size(22.dp))
+                    Icon(Icons.Default.Inventory2, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(12.dp).size(24.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ParcelRouteRow(p.fromCity, p.toCity)
-                    Text(parcelSizeLabel(p.size), color = CanonMuted, fontSize = 13.sp)
+                    Text(parcelSizeLabel(p.size), color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
                 }
-                if (p.feeKop > 0) Text(kopToRub(p.feeKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                // Что получит попутчик. Раньше здесь стоял НАШ сбор — курьер видел «30 ₽» и
+                // думал, что это его деньги, а про свою оплату не знал ничего (аудит 2026-07-26).
+                if (p.priceKop > 0) {
+                    Text(kopToRub(p.priceKop), color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine)
+                } else {
+                    Text(
+                        appText("По-соседски", "Күрше хаҡы"), color = CanonMuted, fontWeight = FontWeight.Bold,
+                        fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                    )
+                }
             }
             if (p.description.isNotBlank()) {
-                Text(p.description, color = CanonText, fontSize = 14.sp, lineHeight = 19.sp)
+                Text(p.description, color = CanonText, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
             }
-            Text(appText("Телефон получателя откроется, когда возьмёшь посылку.", "Алыусы телефоны бандеролде алғас асыла."), color = CanonMuted, fontSize = 12.sp)
+            Text(
+                appText("Телефон получателя откроется, когда возьмёшь посылку.", "Алыусы телефоны бандеролде алғас асыла."),
+                color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+            )
             AppButton(
                 text = appText("Взять посылку", "Бандеролде алыу"),
                 onClick = onTake,
@@ -1229,7 +1497,7 @@ private fun CarryingParcelsTab() {
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
         when {
@@ -1281,10 +1549,10 @@ private fun CarryingParcelsTab() {
         AlertDialog(
             onDismissRequest = { if (!saving) goodsTarget = null },
             containerColor = CanonSurface,
-            title = { Text(appText("Стоимость покупки", "Һатып алыу хаҡы"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Стоимость покупки", "Һатып алыу хаҡы"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(appText("Сколько ты потратил на товар? Получатель вернёт эту сумму плюс доставку.", "Тауарға күпме тотондоң? Алыусы был сумманы һәм илтеүҙе кире ҡайтарыр."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DeliveryHint(appText("Сколько ты потратил на товар? Получатель вернёт эту сумму плюс доставку.", "Тауарға күпме тотондоң? Алыусы был сумманы һәм илтеүҙе кире ҡайтарыр."))
                     OutlinedTextField(
                         value = rub,
                         onValueChange = { rub = it.filter(Char::isDigit).take(5); goodsError = null },
@@ -1296,12 +1564,13 @@ private fun CarryingParcelsTab() {
                         singleLine = true,
                         isError = goodsError != null,
                     )
-                    Text(appText("Лимит покупки — 5000 ₽.", "Һатып алыу лимиты — 5000 ₽."), color = CanonMuted, fontSize = 12.sp)
-                    if (goodsError != null) Text(goodsError ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    DeliveryHint(appText("Лимит покупки — 5000 ₽.", "Һатып алыу лимиты — 5000 ₽."))
+                    DialogErrorLine(goodsError)
                 }
             },
             confirmButton = {
                 TextButton(
+                    modifier = Modifier.heightIn(min = 48.dp),
                     enabled = !saving && goodsOk,
                     onClick = {
                         val kop = (rubInt ?: 0) * 100
@@ -1316,9 +1585,9 @@ private fun CarryingParcelsTab() {
                             saving = false
                         }
                     },
-                ) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+                ) { Text(appText("Сохранить", "Һаҡлау"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryBody) }
             },
-            dismissButton = { TextButton(enabled = !saving, onClick = { goodsTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+            dismissButton = { TextButton(modifier = Modifier.heightIn(min = 48.dp), enabled = !saving, onClick = { goodsTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted, fontSize = DeliveryBody) } },
         )
     }
 
@@ -1348,10 +1617,10 @@ private fun CarryingParcelsTab() {
         AlertDialog(
             onDismissRequest = { if (!submitting) deliverTarget = null },
             containerColor = CanonSurface,
-            title = { Text(appText("Код вручения", "Тапшырыу коды"), color = CanonText, fontWeight = FontWeight.Black) },
+            title = { Text(appText("Код вручения", "Тапшырыу коды"), color = CanonText, fontWeight = FontWeight.Black, fontSize = DeliveryTitle, lineHeight = DeliveryTitleLine) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(appText("Спроси код у получателя и введи его. Так подтвердим, что посылка попала по адресу.", "Кодты алыусынан һора һәм индер. Шулай бандероль дөрөҫ ергә барғанын раҫлайбыҙ."), color = CanonMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DeliveryHint(appText("Спроси код у получателя и введи его. Так подтвердим, что посылка попала по адресу.", "Кодты алыусынан һора һәм индер. Шулай бандероль дөрөҫ ергә барғанын раҫлайбыҙ."))
                     OutlinedTextField(
                         value = code,
                         onValueChange = { code = it; codeError = null },
@@ -1361,11 +1630,12 @@ private fun CarryingParcelsTab() {
                         singleLine = true,
                         isError = codeError != null,
                     )
-                    if (codeError != null) Text(codeError ?: "", color = CanonRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    DialogErrorLine(codeError)
                 }
             },
             confirmButton = {
                 TextButton(
+                    modifier = Modifier.heightIn(min = 48.dp),
                     enabled = !submitting && code.isNotBlank(),
                     onClick = {
                         submitting = true; codeError = null
@@ -1379,9 +1649,9 @@ private fun CarryingParcelsTab() {
                             submitting = false
                         }
                     },
-                ) { Text(appText("Подтвердить вручение", "Тапшырыуҙы раҫлау"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
+                ) { Text(appText("Подтвердить вручение", "Тапшырыуҙы раҫлау"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryBody) }
             },
-            dismissButton = { TextButton(enabled = !submitting, onClick = { deliverTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+            dismissButton = { TextButton(modifier = Modifier.heightIn(min = 48.dp), enabled = !submitting, onClick = { deliverTarget = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted, fontSize = DeliveryBody) } },
         )
     }
 }
@@ -1405,23 +1675,30 @@ private fun CarryingParcelCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ParcelRouteRow(p.fromCity, p.toCity)
-                    Text(parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""), color = CanonMuted, fontSize = 13.sp)
+                    Text(
+                        parcelSizeLabel(p.size) + (if (p.description.isNotBlank()) "  ·  ${p.description}" else ""),
+                        color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                    )
                 }
                 ParcelStatusChip(p.status)
             }
             // Получатель + телефон (виден курьеру)
             Surface(color = CanonMint, shape = CanonItemShape) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(p.receiverName, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            p.receiverName, color = CanonText, fontWeight = FontWeight.Bold,
+                            fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     if (p.receiverPhone.isNotBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Phone, contentDescription = appText("Телефон получателя", "Алыусы телефоны"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(p.receiverPhone, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(p.receiverPhone, color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine)
                         }
                     }
                 }
@@ -1430,8 +1707,12 @@ private fun CarryingParcelCard(
             if (buyBring) {
                 p.settlement?.let { ParcelSettlementBlock(it, forCourier = true) }
             }
-            if (p.feeKop > 0) {
-                Text(appText("Твой сбор: ", "Һинең сбор: ") + kopToRub(p.feeKop), color = CanonMuted, fontSize = 13.sp)
+            // Деньги курьера — это то, что платит отправитель. Наш сервисный сбор сюда не
+            // подписываем: раньше он стоял под словом «Твой сбор», хотя это не его деньги.
+            if (p.priceKop > 0) {
+                DeliveryHint(appText("Тебе заплатят: ", "Һиңә түләйәсәктәр: ") + kopToRub(p.priceKop))
+            } else {
+                DeliveryHint(appText("По-соседски, без оплаты", "Күрше хаҡы, түләүһеҙ"))
             }
             if (!delivered) {
                 if (needGoods) {
@@ -1442,12 +1723,9 @@ private fun CarryingParcelCard(
                         icon = Icons.Default.ShoppingBag,
                         enabled = !busy,
                     )
-                    Text(
-                        appText("Сначала укажи стоимость покупки — потом сможешь вручить.", "Тәүҙә һатып алыу хаҡын күрһәт — шунан тапшыра алырһың."),
-                        color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
-                    )
+                    DeliveryHint(appText("Сначала укажи стоимость покупки — потом сможешь вручить.", "Тәүҙә һатып алыу хаҡын күрһәт — шунан тапшыра алырһың."))
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (p.status == "accepted") {
                         AppButton(
                             text = appText("В пути", "Юлда"),
@@ -1478,6 +1756,102 @@ private fun CarryingParcelCard(
             if (p.status == "in_transit" || delivered) {
                 ParcelDisputeButton(onClick = onDispute)
             }
+        }
+    }
+}
+
+
+/**
+ * «Отправить ссылку получателю» — он следит за доставкой в браузере, без установки приложения.
+ * Телефоны в ссылке не светятся. Отозвать можно тут же: опечатка в номере → ссылка ушла чужому
+ * человеку, который иначе 72 часа видел бы точки А/Б и живую позицию курьера.
+ */
+@Composable
+private fun ParcelTrackLinkBlock(parcelId: Int) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var link by remember(parcelId) { mutableStateOf<String?>(null) }
+    var smsSent by remember(parcelId) { mutableStateOf(false) }
+    var busy by remember(parcelId) { mutableStateOf(false) }
+    var err by remember(parcelId) { mutableStateOf<String?>(null) }
+    val failMsg = appText("Не получилось. Проверь сеть.", "Булманы. Селтәрҙе тикшер.")
+    val chooser = appText("Отправить ссылку", "Һылтанманы ебәреү")
+
+    val url = link
+    if (url == null) {
+        TextButton(
+            onClick = {
+                if (busy) return@TextButton
+                busy = true; err = null
+                scope.launch {
+                    ApiClient.createParcelTrackLink(parcelId)
+                        .onSuccess { link = it.url; smsSent = it.smsSent }
+                        .onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg }
+                    busy = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            enabled = !busy,
+        ) {
+            Icon(Icons.Default.IosShare, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            // Пока ссылка создаётся на сервере, кнопка молчала и выглядела «не нажалась».
+            // Теперь надпись меняется — и меняется плавно, а не подменяется кадром.
+            AnimatedContent(
+                targetState = busy,
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
+                label = "tracklink-cta",
+            ) { working ->
+                Text(
+                    if (working) appText("Готовим ссылку…", "Һылтанма әҙерләнә…")
+                    else appText("Дать получателю ссылку для слежения", "Алыусыға күҙәтеү һылтанмаһы биреү"),
+                    color = CanonGreen2, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine, fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        DialogErrorLine(err)
+        return
+    }
+
+    Surface(color = CanonMint, shape = CanonItemShape) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                if (smsSent) appText("Ссылка отправлена получателю по SMS", "Һылтанма алыусыға SMS менән ебәрелде")
+                else appText("Ссылка готова — отправь её получателю", "Һылтанма әҙер — алыусыға ебәр"),
+                color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+            )
+            Text(url, color = CanonText, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppButton(
+                    text = appText("Отправить", "Ебәреү"),
+                    onClick = { shareRide(ctx, url, chooser) },
+                    style = AppButtonStyle.Secondary,
+                    icon = Icons.Default.IosShare,
+                    fillWidth = false,
+                    modifier = Modifier.weight(1f),
+                )
+                AppButton(
+                    text = appText("Отозвать", "Кире алыу"),
+                    onClick = {
+                        if (busy) return@AppButton
+                        busy = true
+                        scope.launch {
+                            ApiClient.revokeParcelTrackLink(parcelId).onSuccess { link = null; smsSent = false }
+                            busy = false
+                        }
+                    },
+                    style = AppButtonStyle.Secondary,
+                    loading = busy,
+                    fillWidth = false,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            DeliveryHint(
+                appText(
+                    "Ошиблись номером? Отзови ссылку — она сразу перестанет работать.",
+                    "Номерҙа хата булдымы? Һылтанманы кире ал — ул шунда уҡ эшләмәй башлай.",
+                ),
+            )
         }
     }
 }

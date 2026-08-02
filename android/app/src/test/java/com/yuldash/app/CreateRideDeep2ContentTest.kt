@@ -91,6 +91,9 @@ class CreateRideDeep2ContentTest {
                 pickup = pickup, pinned = pinned,
                 womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
                 baggage = baggage, airConditioner = airConditioner, smoking = smoking,
+                // «Только для своих», «тихая поездка» и промежуточные остановки — параметры
+                // появились в форме позже, тесты про них не знали и перестали компилироваться.
+                onlyTrusted = false, quiet = false, waypoints = emptyList(),
                 priceHint = 0, loading = loading, error = error,
                 onFromChange = {}, onToChange = {}, onSeatsChange = {}, onPriceChange = {},
                 onCommentChange = {}, onSelectType = {}, onSelectRecurrence = {},
@@ -99,6 +102,7 @@ class CreateRideDeep2ContentTest {
                 onOpenDatePicker = {}, onUsePriceHint = {},
                 onWomenOnly = onWomenOnly, onChildSeat = onChildSeat, onPetsAllowed = onPetsAllowed,
                 onBaggage = onBaggage, onAirConditioner = onAirConditioner, onSmoking = onSmoking,
+                onOnlyTrusted = {}, onQuiet = {}, onWaypointsChange = {},
                 onPublish = onPublish, onCancel = onCancel,
             )
         }
@@ -211,8 +215,9 @@ class CreateRideDeep2ContentTest {
     }
 
     // ─────────── Тумблеры условий: клик по Switch дёргает колбэк (тумблер обязан что-то делать) ───────────
-    // 6 PrefToggleRow → 6 Switch. Кликаем по конкретному по индексу в onAllNodes(isToggleable()),
-    // порядок в дереве = порядок в коде (women, child, pets, baggage, AC, smoking).
+    // PrefToggleRow → Switch. Кликаем по конкретному по индексу в onAllNodes(isToggleable()),
+    // порядок в дереве = порядок в коде: women, child, pets, baggage, AC, quiet, smoking,
+    // дальше «только для своих». Добавили тумблер в середину — индексы ниже сдвинулись.
 
     @Test
     fun womenOnlyToggle_off_click_firesTrue() {
@@ -258,7 +263,8 @@ class CreateRideDeep2ContentTest {
     fun smokingToggle_on_click_firesFalse() {
         var v: Boolean? = null
         composeRule.setContent { Content(language = AppLanguage.Ru, smoking = true, onSmoking = { v = it }) }
-        composeRule.onAllNodes(isToggleable())[5].performClick()   // 6-й = «Можно курить», включён → просит false
+        composeRule.onAllNodes(isToggleable())[6].performClick()   // 7-й = «Можно курить», включён → просит false
+        // Было 6-м, стало 7-м: между кондиционером и курением встала «Тихая поездка».
         assertEquals(false, v)
     }
 

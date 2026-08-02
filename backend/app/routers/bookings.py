@@ -8,7 +8,8 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..errors import herr
-from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Ride, RideStatus, User
+from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Rating, Ride, RideStatus, User
+from ..safety_logic import CANCEL_REASONS, ensure_active
 from ..security import current_user, gen_otp
 from ..services import booking_and_ride_for_user, geocode_city, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
@@ -89,6 +90,7 @@ class BookingDetailsOut(BaseModel):
 
 @router.post("/bookings", response_model=Booking)
 def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) реально блокирует бронь
     if body.seats < 1:
         raise herr(400, "Количество мест должно быть больше 0", "Урын һаны 0-дан күберәк булырға тейеш")
     # FOR UPDATE: блокируем строку поездки на время транзакции → нет овербукинга при гонке.
@@ -366,7 +368,10 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
         booking.status = BookingStatus.cancelled
         booking.cancelled_at = utcnow()
         booking.contact_then_cancel = contact_opened
-        booking.cancel_reason = ((body.reason or "").strip()[:80] or None) if body else None
+        # Белый список кодов (порт из pr88): произвольная строка в БД не попадает, неизвестный
+        # код (старый/будущий клиент) не теряем — сводим к "other".
+        _raw_reason = ((body.reason or "").strip()[:80] or None) if body else None
+        booking.cancel_reason = _raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None)
         booking.cancelled_by = user.id   # «Надёжность»: поздняя отмена бьёт по инициатору (safety_logic.reliability_for)
         ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
         session.add(booking)
@@ -480,6 +485,16 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
     passengers_by_id = {
         u.id: u for u in session.exec(select(User).where(User.id.in_(passenger_ids))).all()
     } if passenger_ids else {}
+    # Что водитель уже поставил по каждой брони. Без этого список после перезагрузки снова
+    # показывал пустые звёзды по оценённым пассажирам — человек ставил оценку второй раз,
+    # не понимая, засчиталась ли первая. Одним запросом пачкой (анти-N+1).
+    my_stars = {
+        r.booking_id: r.stars
+        for r in session.exec(
+            select(Rating).where(Rating.rater_id == user.id,
+                                 Rating.booking_id.in_([b.id for b in bookings]))
+        ).all()
+    } if bookings else {}
     out: list = []
     for b in bookings:
         ride = rides_by_id.get(b.ride_id)
@@ -491,5 +506,7 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             "passenger_rating": (round(avg, 1) if cnt > 0 else None),
             "route": (f"{ride.from_city} → {ride.to_city}" if ride else ""),
             "status": b.status,
+            # 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить).
+            "my_stars": my_stars.get(b.id, 0),
         })
     return out

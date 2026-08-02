@@ -83,13 +83,21 @@ internal val CanonWarn: Color @Composable get() = if (appIsDark()) Color(0xFFE8B
 // Мягкий сливово-розовый, отличается от зелёного «проверен»/«на линии», но остаётся спокойным.
 internal val CanonWomanBg: Color @Composable get() = if (appIsDark()) Color(0xFF2E1A27) else Color(0xFFF7E9F1)
 internal val CanonWoman: Color @Composable get() = if (appIsDark()) Color(0xFFE39BC4) else Color(0xFF8E3B6B)  // текст/иконка на CanonWomanBg ≥4.5:1
-// Золото рейтинга (звёзды). Plain val — читается и из @Composable, и из не-composable (Canvas). Золото видно в обеих темах.
-internal val CanonStar: Color = Color(0xFFE7A921)
+// Золото рейтинга (звёзды). Адаптивное: яркое золото на белой карточке давало контраст 2.08 —
+// ниже порога 3:1 для значащей графики (в выборе оценки звёзды И ЕСТЬ информация, а не украшение).
+// В светлой теме глубокая охра (3.43), в тёмной прежнее яркое золото (7.68). Проверяется
+// расчётом: tools/contrast.py.
+internal val CanonStar: Color @Composable get() = if (appIsDark()) Color(0xFFE7A921) else Color(0xFFBE7D00)
 // Режимы поездки (переключатель пассажира): Такси = ЖЁЛТЫЙ (привычный цвет такси), Попутка = ЗЕЛЁНЫЙ (бренд «свои»).
 // Акцент окрашивает активный сегмент, кнопку действия и индикатор-полоску. Оба варианта — светлый/тёмный.
 internal val CanonTaxi: Color @Composable get() = if (appIsDark()) Color(0xFFF2C14E) else Color(0xFFE8A200)       // акцент такси (кнопка/полоска/иконка)
 internal val CanonTaxiBg: Color @Composable get() = if (appIsDark()) Color(0xFF3A2E12) else Color(0xFFFFEFC2)      // мягкая подложка активного сегмента «Такси»
-internal val CanonTaxiInk: Color = Color(0xFF3A2A00)                                                               // тёмный текст на жёлтом (читаем в обеих темах)
+internal val CanonTaxiInk: Color = Color(0xFF3A2A00)                                                               // тёмный текст НА ЖЁЛТОМ (CanonTaxi жёлтый в обеих темах — ink подходит всегда)
+// Текст на ПОДЛОЖКЕ такси (CanonTaxiBg), а это разные вещи: подложка в тёмной теме
+// тёмно-коричневая, и тёмный CanonTaxiInk на ней давал контраст 1.05 — то есть госномер
+// машины в бейдже был не виден вообще. А смысл бейджа именно в том, чтобы пассажир сверил
+// номер и не сел в чужую машину. Светлая тема 12.16, тёмная 10.61 (tools/contrast.py).
+internal val CanonTaxiText: Color @Composable get() = if (appIsDark()) Color(0xFFFFE3A1) else Color(0xFF3A2A00)
 internal val CanonPooling: Color @Composable get() = if (appIsDark()) Color(0xFF27A463) else Color(0xFF0B6B3A)     // акцент попутки (бренд-зелёный)
 internal val CanonPoolingBg: Color @Composable get() = if (appIsDark()) Color(0xFF0F2419) else Color(0xFFE7F5EC)   // мягкая подложка активного сегмента «Попутка»
 // Тонкая зелёная разделительная линия (border карточек) — была хардкод 0x1A0B6B3A в нескольких экранах.

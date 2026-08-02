@@ -20,7 +20,7 @@ import org.robolectric.annotation.GraphicsMode
  * состояниях (загрузка-скелетон / ошибка+повтор / пусто / активная поездка / клики) — то, что раньше было 0%.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "w411dp-h2600dp")   // высокое окно: экран вырос, иначе половина уезжает за край
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ProfileDeep2ContentTest {
 
@@ -49,7 +49,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = true, error = false, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -65,7 +65,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = true, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -81,7 +81,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = true, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = { retried = true }, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = { retried = true }, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -96,7 +96,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -114,7 +114,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -129,7 +129,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 3, requestCount = 5, ratingText = "4.8",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -146,7 +146,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 1, requestCount = 0, ratingText = "—",
                     activeRide = ride(), activeStatus = "pending",
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -164,7 +164,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 1, requestCount = 0, ratingText = "—",
                     activeRide = ride(), activeStatus = "confirmed",
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -184,7 +184,7 @@ class ProfileDeep2ContentTest {
                     loading = false, error = false, activeCount = 1, requestCount = 0, ratingText = "—",
                     activeRide = r, activeStatus = "confirmed",
                     onRetry = {}, onMyTrips = {}, onOpenBooking = { ride, status -> openedRide = ride; openedStatus = status },
-                    onFindRide = {}, onCreateRequest = {}, onSafety = {},
+                    onFindRide = {}, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }
@@ -201,7 +201,7 @@ class ProfileDeep2ContentTest {
                 PassengerCabinetContent(
                     loading = false, error = false, activeCount = 0, requestCount = 0, ratingText = "—",
                     activeRide = null, activeStatus = null,
-                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = { found = true }, onCreateRequest = {}, onSafety = {},
+                    onRetry = {}, onMyTrips = {}, onOpenBooking = { _, _ -> }, onFindRide = { found = true }, onCreateRequest = {}, onSafety = {}, onInstantOrder = {},
                 )
             }
         }

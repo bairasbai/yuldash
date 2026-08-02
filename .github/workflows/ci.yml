@@ -10,9 +10,10 @@ on:
     branches: [main]
 
 # Новый пуш в ту же ветку/PR отменяет предыдущий незавершённый прогон — минуты не горят вхолостую.
+# Но только для PR: на main отмена оставляла бы «дыры» в истории прогонов при частых пушах.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend-tests:
@@ -122,3 +123,52 @@ jobs:
       - name: Build release (R8 minify check)
         working-directory: android
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+  # Compose-тесты экранов (app/src/test, Robolectric) — их не компилирует ни assembleDebug, ни
+  # локальная сборка Александра, поэтому «уехавшая» сигнатура в тесте до сих пор никем не ловилась.
+  #
+  # ОТДЕЛЬНОЙ РАБОТОЙ, а не шагом внутри android-build: Robolectric поднимает эмулируемый Android
+  # на каждый класс и идёт минутами. Внутри android-build он съедал бюджет 30 минут у сборки APK —
+  # то есть медленный тест мог уронить проверку, которая к нему отношения не имеет.
+  #
+  # БЛОКИРУЮЩАЯ с 2026-08-02. Вводилась осторожно, тем же путём, что и android-build: сначала
+  # не блокирующей (состояние тестов не знал никто — они не компилировались месяцами), потом,
+  # когда прогон стал стабильно зелёным — блокирующей. Основание: ТРИ полных прогона подряд,
+  # 1092 теста, 0 падений, каждый прогон ~13 мин (то есть тесты реально отрабатывали, а не
+  # брались из кеша). Красный прогон теперь честно валит PR.
+  #
+  # Если когда-нибудь замигает по таймингам: вернуть `continue-on-error: true` этой строкой —
+  # проверка снова станет справочной, и никого не заблокирует. Локальную сборку APK она не
+  # трогает в любом случае — это отдельная работа.
+  android-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45          # Robolectric медленный: свой запас, чужой сборке не мешает
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          # ЗДЕСЬ 21, а в сборке APK — 17, и это не описка.
+          # Яндекс MapKit 4.39.0 внутри собран под Java 21 (проверено: 920 классов, class-версия 65).
+          # Сборке приложения это не мешает — она пропускает классы через D8/R8. А JVM-тест грузит
+          # их как есть, и JDK 17 отказывается: UnsupportedClassVersionError. Так падали ВСЕ тесты
+          # экранов, которые рисуют что-либо с картой (а её импортируют профиль, создание поездки
+          # и доступность — то есть почти всё). Тесты при этом были совершенно правильные.
+          # Версию сборки приложения не трогаем: она зелёная, и `jvmTarget`/`compileOptions`
+          # остаются 17 — итоговый байт-код приложения от этой строки не меняется.
+          java-version: "21"
+          distribution: temurin
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Тесты экранов (Robolectric + Compose)
+        run: chmod +x ./gradlew && ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+      # Отчёт нужен именно при падении: по нему видно, какой тест и на чём упал.
+      - name: Отчёт о тестах (даже если упали)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-report
+          path: android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore

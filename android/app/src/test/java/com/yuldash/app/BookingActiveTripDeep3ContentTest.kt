@@ -8,6 +8,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
@@ -161,7 +163,8 @@ class BookingActiveTripDeep3ContentTest {
         }
         // Роль теперь из ApiClient.cachedRole() (null без логина → строка роли не рисуется, «Баймаҡ» убран).
         // Проверяем имя-фолбэк «Я» и подпись о телефоне.
-        composeRule.onNodeWithText("Я").assertIsDisplayed()
+        // «Я» встречается дважды: буква в кружке-аватаре и само имя. Проверяем, что видно хотя бы одно.
+        composeRule.onAllNodesWithText("Я").onFirst().assertIsDisplayed()
         composeRule.onNodeWithText("Телефон скрыт до подтверждения").assertIsDisplayed()
     }
 

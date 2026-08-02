@@ -327,6 +327,8 @@ internal fun YuldashApp() {
     var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
     var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
+    var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
+    var incidentId by rememberSaveable { mutableStateOf(0) }           // «Справедливость»: id открытого спора
     var supportTicketId by rememberSaveable { mutableStateOf(0) }      // Поддержка: id открытого обращения (deep-link/список)
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
     var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
@@ -337,12 +339,22 @@ internal fun YuldashApp() {
     // (роль/мои заявки/доверенные контакты) перечитались ПОСЛЕ логина, а не только один раз на Splash
     // (иначе после входа в этой же сессии эти данные оставались пустыми до перезапуска приложения).
     var sessionVersion by remember { mutableStateOf(0) }
-    LaunchedEffect(sessionVersion) { ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" } }
+    LaunchedEffect(sessionVersion) {
+        ApiClient.me().onSuccess { isAdmin = it.optString("role") == "admin" }
+        // Язык на сервер и после входа: LaunchedEffect(language) отработал ещё до логина,
+        // когда слать было некому — иначе пуши остались бы русскими до смены языка вручную.
+        ApiClient.fireUpdateLanguage(if (language == AppLanguage.Ba) "ba" else "ru")
+    }
     // Android 13+ требует РАНТАЙМ-разрешение на уведомления — без него пуши тихо не показываются
     // (FCM настроен end-to-end, но без этого запроса доставка на новых телефонах = no-op).
     // Просим один раз, когда пользователь уже в приложении (не на онбординге/входе).
     // Язык дублируем на диск (AppPrefs): FCM и фоновые сервисы живут вне Compose и берут его оттуда.
-    LaunchedEffect(language) { AppPrefs.setLanguage(context, language) }
+    LaunchedEffect(language) {
+        AppPrefs.setLanguage(context, language)
+        // И на сервер: пуши приходят на языке пользователя. Поле сервер принимал давно,
+        // но клиент его не слал — башкироязычный получал русские уведомления.
+        ApiClient.fireUpdateLanguage(if (language == AppLanguage.Ba) "ba" else "ru")
+    }
     // Полноэкранный оффер такси (B7a-2): тап/фуллскрин уведомления «Новый заказ» → MainActivity
     // ставит NavSignals → открываем кабинет водителя (там InstantOfferOverlay). Ждём, пока сплэш
     // отработает (он перезаписал бы screen), и не дёргаем навигацию на входе/онбординге.
@@ -365,6 +377,17 @@ internal fun YuldashApp() {
             instantChatOrderId = wantInstantChat
             NavSignals.openInstantChat.value = 0
             screen = Screen.InstantChat
+        }
+    }
+    // Чек за такси-поездку: кнопка в финальной карточке заказа (и у пассажира, и у водителя).
+    val wantTaxiReceipt by NavSignals.openTaxiReceipt
+    LaunchedEffect(wantTaxiReceipt, screen) {
+        if (wantTaxiReceipt <= 0) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (ApiClient.isLoggedIn()) {
+            taxiReceiptOrderId = wantTaxiReceipt
+            NavSignals.openTaxiReceipt.value = 0
+            screen = Screen.TaxiReceipt
         }
     }
     val wantSosForOrder by NavSignals.openSosForOrder
@@ -854,6 +877,7 @@ internal fun YuldashApp() {
                 onSettings = { screen = Screen.Settings },
                 onPrivacy = { screen = Screen.Privacy },
                 onTrust = { if (ApiClient.isLoggedIn()) screen = Screen.Trust else screen = Screen.Login },
+                onFairness = { if (ApiClient.isLoggedIn()) screen = Screen.FairnessCenter else screen = Screen.Login },
                 onConsents = { if (ApiClient.isLoggedIn()) screen = Screen.Consents else screen = Screen.Login },
                 onHelp = { screen = Screen.Help },
                 onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
@@ -1011,7 +1035,10 @@ internal fun YuldashApp() {
                 onPromoAdmin = { screen = Screen.AdminPromo },
                 onParcelsAdmin = { screen = Screen.AdminParcels },
                 onCourierAdmin = { screen = Screen.AdminCourier },
-                onIncomeCalc = { screen = Screen.IncomeCalculator }
+                onIncomeCalc = { screen = Screen.IncomeCalculator },
+                onSosFeed = { screen = Screen.AdminSos },
+                onIncidents = { screen = Screen.AdminIncidents },
+                onRatings = { screen = Screen.AdminRatings },
             )
             Screen.IncomeCalculator -> IncomeCalculatorScreen(onBack = { goBack() })
             Screen.AdminDrivers -> AdminDriversScreen(onBack = { goBack() })
@@ -1057,7 +1084,11 @@ internal fun YuldashApp() {
                 onInstantTrip = { id -> instantTripOrderId = id; screen = Screen.InstantDriverTrip },
                 onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
                 onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
-                onEarnings = { if (ApiClient.isLoggedIn()) screen = Screen.DriverEarnings else screen = Screen.Login }
+                onEarnings = { if (ApiClient.isLoggedIn()) screen = Screen.DriverEarnings else screen = Screen.Login },
+                onTaxiRides = { if (ApiClient.isLoggedIn()) screen = Screen.DriverTaxiRides else screen = Screen.Login },
+                onTaxiDocs = { if (ApiClient.isLoggedIn()) screen = Screen.TaxiDocuments else screen = Screen.Login },
+                onPretrip = { if (ApiClient.isLoggedIn()) screen = Screen.PretripCheck else screen = Screen.Login },
+                onMyResponses = { if (ApiClient.isLoggedIn()) screen = Screen.DriverResponses else screen = Screen.Login },
             )
             Screen.InstantOrder -> InstantOrderScreen(
                 onBack = { goBack() },
@@ -1095,6 +1126,11 @@ internal fun YuldashApp() {
             Screen.AdminWaitlist -> AdminWaitlistScreen(onBack = { goBack() })
             Screen.AdminTaxiPulse -> AdminTaxiPulseScreen(onBack = { goBack() })
             Screen.RequestsFeed -> RequestsFeedScreen(onBack = { goBack() })
+            Screen.DriverResponses -> DriverResponsesScreen(
+                onBack = { goBack() },
+                // Согласился на встречную цену → сразу в поездку, как при обычном accept у пассажира.
+                onOpenTrip = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip },
+            )
             Screen.RequestResponses -> ResponsesScreen(
                 requestId = responsesRequestId,
                 onBack = { goBack() },
@@ -1187,6 +1223,27 @@ internal fun YuldashApp() {
             Screen.DriverEarnings -> DriverEarningsScreen(onBack = { goBack() })
             Screen.SavedPlaces -> SavedPlacesScreen(onBack = { goBack() })
             Screen.TripReceipt -> TripReceiptScreen(bookingId = receiptBookingId, onBack = { goBack() })
+            Screen.TaxiReceipt -> TaxiReceiptScreen(
+                orderId = taxiReceiptOrderId,
+                onBack = { goBack() },
+                // «Забыл вещь» открыл чат заказа на 48 часов → ведём прямо туда.
+                onOpenChat = { id -> instantChatOrderId = id; screen = Screen.InstantChat },
+            )
+            Screen.DriverTaxiRides -> DriverTaxiRidesScreen(
+                onBack = { goBack() },
+                onOpenReceipt = { id -> taxiReceiptOrderId = id; screen = Screen.TaxiReceipt },
+            )
+            Screen.AdminSos -> AdminSosScreen(onBack = { goBack() })
+            Screen.TaxiDocuments -> TaxiDocumentsScreen(onBack = { goBack() })
+            Screen.PretripCheck -> PretripCheckScreen(onBack = { goBack() })
+            Screen.FairnessCenter -> FairnessCenterScreen(
+                onBack = { goBack() },
+                onOpenIncident = { id -> incidentId = id; screen = Screen.IncidentDetail },
+            )
+            Screen.IncidentDetail -> IncidentDetailScreen(incidentId = incidentId, onBack = { goBack() })
+            Screen.AdminIncidents -> AdminIncidentsScreen(onBack = { goBack() })
+            Screen.AdminRatings -> AdminRatingsScreen(onBack = { goBack() })
+            Screen.CourierEarnings -> CourierEarningsScreen(onBack = { goBack() })
             Screen.AppReview -> AppReviewScreen(onBack = { goBack() })
             Screen.AdminReviews -> AdminReviewsScreen(onBack = { goBack() })
             Screen.AdminAds -> AdminAdsScreen(onBack = { goBack() })
@@ -1223,6 +1280,7 @@ internal fun YuldashApp() {
             Screen.Courier -> CourierScreen(
                 onBack = { goBack() },
                 onBecomeCourier = { screen = Screen.CourierOnboarding },
+                onEarnings = { screen = Screen.CourierEarnings },
             )
             Screen.AdminCourier -> AdminCourierScreen(onBack = { goBack() })
         }
@@ -1895,6 +1953,7 @@ internal fun HomeScreen(
     onTrustedContacts: () -> Unit,
     onCallbackHelp: () -> Unit,
     onAdsCabinet: () -> Unit,
+    onFairness: () -> Unit = {},   // «Центр справедливости» — вход из профиля
     onMyStats: () -> Unit = {},
     onCoupons: () -> Unit = {},
     onPartnerCabinet: () -> Unit = {},
@@ -1993,6 +2052,7 @@ internal fun HomeScreen(
                     onTrustedContacts = onTrustedContacts,
                     onCallbackHelp = onCallbackHelp,
                     onAdsCabinet = onAdsCabinet,
+                    onFairness = onFairness,
                     onMyStats = onMyStats,
                     onCoupons = onCoupons,
                     onPromo = onPromo,
@@ -2085,7 +2145,7 @@ internal fun YuldashBottomBar(
             )
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Request,
-                label = appText("Заявка", "Заявка"),
+                label = appText("Заявка", "Ғариза"),
                 iconRes = R.drawable.yu_request_add,
                 onClick = { onSelect(HomeTab.Request) }
             )

@@ -12,7 +12,8 @@
 других на ЕГО поездках — поездка исчезает), чат-сообщения, рейтинги (поставленные и
 полученные), доверенные контакты, шеринги поездок, SOS, жалобы, блокировки, платежи,
 события/объявления рекламы, FCM-токены, refresh-токены, коды входа, telegram-сессии,
-события загрузок, отзывы о приложении, обращения в поддержку (тикеты + весь тред).
+события загрузок, отзывы о приложении, обращения в поддержку (тикеты + весь тред),
+споры «Справедливости» (я — сторона) + профиль безопасности (страйки/паузы).
 
 Что ОТВЯЗЫВАЕТСЯ (не удаляем чужое, лишь убираем ссылку на юзера): у тех, кого он
 пригласил, `User.referred_by` → NULL; объявления, созданные им как админом для других
@@ -30,11 +31,13 @@ from sqlmodel import Session, select
 from .models import (
     Ad, AdEvent, AppReview, Block, Booking, CommissionDebt, Consent, Coupon,
     CouponRedemption, CourierApplication, CourierProfile, DeviceBan, DeviceToken,
-    DriverProfile, DriverSchedule, InstantOrder, InviteCode, LedgerEntry, Message,
+    DriverProfile, DriverSchedule, Incident, InstantOrder, InviteCode, LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
     Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
-    RouteWatch, SavedPlace, SosEvent, SupportMessage, SupportTicket, TaxiApplication, TaxiWorkDay,
-    TgAuth, Trust, TripShare, TrustedContact, UploadEvent, User, WaitlistEntry,
+    RouteWatch, SafetyProfile, SavedPlace, SosEvent, SupportMessage, SupportTicket,
+    PreTripCheck, TaxiApplication, TaxiWorkDay, TgAuth, Trust, TripShare, TrustedContact,
+    UploadEvent, User,
+    WaitlistEntry,
 )
 from .storage import get_storage
 
@@ -50,7 +53,7 @@ def _safe_unlink_media(url: str) -> None:
         return
     storage = get_storage()
     # Не знаем область по URL — чистим во всех (лишние вызовы безвредны, delete идемпотентен).
-    for area in ("docs", "chat", "voice"):
+    for area in ("docs", "chat", "voice", "evidence"):
         storage.delete(f"{area}/{name}")
     storage.delete(name)   # legacy: файлы прямо в корне MEDIA_DIR
 
@@ -78,6 +81,12 @@ def delete_user_account(session: Session, user: User) -> None:
         media_urls += [ta.selfie_url, ta.permit_photo_url, ta.osago_url, ta.criminal_record_url]
     media_urls += list(session.exec(select(Message.voice_url).where(Message.sender_id == uid)).all())
     media_urls += list(session.exec(select(RideRequest.voice_url).where(RideRequest.passenger_id == uid)).all())
+    # Фото-доказательства МОИХ споров (лица/номера/травмы — чувствительное): мои как заявителя
+    # и мои как обвинённого. Чужие фото в тех же спорах не трогаем (не наши данные).
+    for csv_ in session.exec(select(Incident.evidence_urls).where(Incident.reporter_id == uid)).all():
+        media_urls += [u for u in (csv_ or "").split(",") if u]
+    for csv_ in session.exec(select(Incident.respondent_evidence_urls).where(Incident.respondent_id == uid)).all():
+        media_urls += [u for u in (csv_ or "").split(",") if u]
 
     # 2) id связанных сущностей — для FK-безопасного каскада.
     ride_ids = list(session.exec(select(Ride.id).where(Ride.driver_id == uid)).all())
@@ -121,7 +130,8 @@ def delete_user_account(session: Session, user: User) -> None:
     if parcel_ids:
         rating.append(Rating.parcel_id.in_(parcel_ids))
     dele(Rating, *rating)
-    # 3.3 Шеринги поездок: по удаляемым броням + моим контактам + удаляемым заказам.
+    # 3.3 Шеринги поездок: по удаляемым броням + моим контактам + удаляемым заказам + моим посылкам
+    # (G1: трекинг-ссылка получателя живёт с contact_id=NULL — ловится только по parcel_id).
     shares = []
     if booking_ids:
         shares.append(TripShare.booking_id.in_(booking_ids))
@@ -129,22 +139,43 @@ def delete_user_account(session: Session, user: User) -> None:
         shares.append(TripShare.contact_id.in_(contact_ids))
     if order_ids:
         shares.append(TripShare.order_id.in_(order_ids))
+    if parcel_ids:
+        shares.append(TripShare.parcel_id.in_(parcel_ids))
     if shares:
         dele(TripShare, *shares)
-    # 3.4 SOS: мои + по удаляемым броням/заказам.
+    # 3.4 SOS: мои события удаляем (это МОИ данные), но ОБЕЗЛИЧИВАЕМ те, где я фигурант
+    # чужого происшествия по общей поездке — см. пояснение к 3.5.
     sos = [SosEvent.user_id == uid]
-    if booking_ids:
-        sos.append(SosEvent.booking_id.in_(booking_ids))
-    if order_ids:
-        sos.append(SosEvent.order_id.in_(order_ids))
     dele(SosEvent, *sos)
-    # 3.5 Жалобы: мной поданные/на меня + по удаляемым заказам/посылкам.
-    rep = [Report.reporter_id == uid, Report.target_user_id == uid]
+    sos_unlink = []
+    if booking_ids:
+        sos_unlink.append(SosEvent.booking_id.in_(booking_ids))
     if order_ids:
-        rep.append(Report.order_id.in_(order_ids))
+        sos_unlink.append(SosEvent.order_id.in_(order_ids))
+    if sos_unlink:
+        session.execute(update(SosEvent).where(or_(*sos_unlink))
+                        .values(booking_id=None, order_id=None, note=""))
+    # 3.5 Жалобы. МОИ (я автор) — удаляем целиком: это мои персональные данные.
+    # Жалобы НА МЕНЯ — НЕ удаляем, а обезличиваем (обнуляем ссылку на меня и стираем текст).
+    #
+    # Почему так (аудит 2026-07-26): раньше удалялись и те, где человек — обвиняемый, и
+    # нарушитель одним тапом стирал доказательства против себя: три жалобы за поведение →
+    # «удалить аккаунт» → чисто. При этом факт разбора нужен платформе для защиты законного
+    # интереса (ст. 6 152-ФЗ) и на случай запроса полиции/суда. Ровно тот же приём уже
+    # применён к бану устройства (3.22): строка живёт, персональная ссылка снимается.
+    # Обезличенная строка не содержит ни ссылки на пользователя, ни его текста — только факт,
+    # дату и категорию, поэтому generic-инвариант «ноль ссылок на user.id» по-прежнему держится.
+    dele(Report, Report.reporter_id == uid)
+    session.execute(update(Report).where(Report.target_user_id == uid)
+                    .values(target_user_id=None, reason=""))
+    rep_ctx = []
+    if order_ids:
+        rep_ctx.append(Report.order_id.in_(order_ids))
     if parcel_ids:
-        rep.append(Report.parcel_id.in_(parcel_ids))
-    dele(Report, *rep)
+        rep_ctx.append(Report.parcel_id.in_(parcel_ids))
+    if rep_ctx:
+        session.execute(update(Report).where(or_(*rep_ctx))
+                        .values(order_id=None, parcel_id=None))
     # 3.6 Платежи: мои + по моим поездкам/объявлениям/броням/заказам/подпискам бизнеса.
     pay = [Payment.user_id == uid]
     if ride_ids:
@@ -166,6 +197,16 @@ def delete_user_account(session: Session, user: User) -> None:
         ledg.append(LedgerEntry.order_id.in_(order_ids))
     dele(CommissionDebt, *debt)
     dele(LedgerEntry, *ledg)
+    # 3.7-bis «Справедливость»: споры, где я сторона (тексты обеих сторон = ПДн), + споры по
+    # удаляемым броням (FK incident.booking_id). В чужих спорах, решённых мной как админом,
+    # само решение не трогаем — только отвязываем ссылку (FK resolved_by). Профиль безопасности
+    # (страйки/паузы) удаляем целиком. Без этого шага delete(Booking)/delete(User) падает по FK.
+    inc = [Incident.reporter_id == uid, Incident.respondent_id == uid]
+    if booking_ids:
+        inc.append(Incident.booking_id.in_(booking_ids))
+    dele(Incident, *inc)
+    session.execute(update(Incident).where(Incident.resolved_by == uid).values(resolved_by=None))
+    session.execute(delete(SafetyProfile).where(SafetyProfile.user_id == uid))
     # 3.8 Брони (после всех детей, что на них ссылаются).
     if booking_ids:
         session.execute(delete(Booking).where(Booking.id.in_(booking_ids)))
@@ -212,6 +253,10 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(delete(TaxiApplication).where(TaxiApplication.user_id == uid))
     session.execute(delete(DriverSchedule).where(DriverSchedule.driver_id == uid))
     session.execute(delete(TaxiWorkDay).where(TaxiWorkDay.driver_id == uid))
+    # Предрейсовые подтверждения — заявления человека О САМОМ СЕБЕ. Третьей стороне они вреда
+    # не наносят и уликами против кого-то не являются, поэтому стираем вместе с аккаунтом
+    # (в отличие от жалоб, где мы обезличиваем, но сохраняем — там есть пострадавший).
+    session.execute(delete(PreTripCheck).where(PreTripCheck.driver_id == uid))
     # 3.17 Уведомления, подписки на маршрут, сохранённые/недавние адреса (личные данные).
     session.execute(delete(Notification).where(Notification.user_id == uid))
     # Поддержка: сначала сообщения тредов (FK на тикет), затем сами тикеты (152-ФЗ — стираем всё).

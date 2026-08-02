@@ -652,7 +652,11 @@ internal fun PayAgreementBlock(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 payMethodKeys.forEach { key ->
-                    NearbyFilterChip(payMethodIcon(key), payMethodLabel(key), method == key) { onMethod(key) }
+                    // Способ оплаты — решение про деньги, тач-цель ≥ 48dp (§4.5), не мелкий фильтр.
+                    NearbyFilterChip(
+                        payMethodIcon(key), payMethodLabel(key), method == key,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { onMethod(key) }
                 }
             }
             OutlinedTextField(
@@ -1292,7 +1296,7 @@ internal fun ActiveTripScreen(
                                     Icon(
                                         Icons.Default.Star,
                                         contentDescription = starCd,
-                                        tint = if (n <= myStars) CanonStar else CanonBorder,
+                                        tint = if (n <= myStars) CanonStar else CanonMuted,
                                         modifier = Modifier.size(48.dp),
                                     )
                                 }
@@ -1914,7 +1918,7 @@ internal fun TripRouteHeaderCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(driver ?: appText("Водитель", "Водитель"), color = CanonMuted)
+                Text(driver ?: appText("Водитель", "Йөрөтөүсе"), color = CanonMuted)
                 time?.let { Spacer(Modifier.width(10.dp)); Text(it, color = CanonMuted) }
             }
         }
@@ -2008,7 +2012,7 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
             TripPassRow(Icons.Default.Route, appText("Маршрут", "Юл"), "${pass.fromCity} → ${pass.toCity}")
             if (pass.departAt.isNotBlank()) TripPassRow(Icons.Default.Schedule, appText("Время", "Ваҡыт"), formatDepart(pass.departAt))
             val driverLine = listOf(pass.driverName, pass.driverCar).filter { it.isNotBlank() }.joinToString(" · ")
-            if (driverLine.isNotBlank()) TripPassRow(Icons.Default.Person, appText("Водитель", "Водитель"), driverLine)
+            if (driverLine.isNotBlank()) TripPassRow(Icons.Default.Person, appText("Водитель", "Йөрөтөүсе"), driverLine)
             if (pass.driverPhone.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TripPassRow(Icons.Default.Phone, appText("Телефон", "Телефон"), pass.driverPhone, modifier = Modifier.weight(1f))

@@ -205,7 +205,11 @@ class CoreLogicTest {
         assertEquals("From", ride.from)
         assertEquals("To", ride.to)
         assertEquals("02.01, 03:04", ride.time)
-        assertEquals("Водитель", ride.driver)
+        // Пустое имя водителя ЗДЕСЬ и остаётся пустым — это осознанное решение, а не потеря.
+        // Раньше слой данных подставлял русское «Водитель», и башкирский интерфейс показывал
+        // русское слово. Теперь подпись «Водитель»/«Йөрөтөүсе» ставит слой отрисовки через
+        // appText — на нужном языке. Тест держал старое поведение и падал.
+        assertEquals("", ride.driver)
         assertEquals("Kia Rio", ride.car)
         assertEquals(1200, ride.price)
         assertEquals(2, ride.seats)

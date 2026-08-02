@@ -102,7 +102,10 @@ internal fun WalletScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
         ) {
-            item { WalletBalanceCard(balance, loading) }
+            // Подпись под балансом зависит от того, включены ли выплаты. В Модели А деньги идут
+            // мимо платформы, и обещание «доступно к выводу» под нулевым балансом читалось как
+            // «мои деньги куда-то делись» (аудит 2026-07-26).
+            item { WalletBalanceCard(balance, loading, payoutEnabled = payout?.enabled) }
 
             // Вывод на карту (Модель Б). enabled решает СЕРВЕР: false → честная заглушка «скоро»,
             // true → карта + сумма + «Вывести». Клиент оживёт сам, когда включат флаг — без обновления.
@@ -153,7 +156,7 @@ internal fun WalletScreen(onBack: () -> Unit) {
 
 /** Крупная карточка баланса. Фиксированный ink-зелёный градиент (белый текст читаем в обеих темах). */
 @Composable
-private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean) {
+private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payoutEnabled: Boolean? = null) {
     Card(
         modifier = Modifier.fillMaxWidth().appearIn(0),
         shape = CanonCardShape,
@@ -185,7 +188,16 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean) {
                 color = Color.White, fontSize = 44.sp, lineHeight = 48.sp, fontWeight = FontWeight.Black,
             )
             Text(
-                appText("Доступно к выводу через СБП", "СБП аша сығарырға мөмкин"),
+                when (payoutEnabled) {
+                    true -> appText("Доступно к выводу через СБП", "СБП аша сығарырға мөмкин")
+                    // Выплаты выключены (Модель А): за поездки платят напрямую тебе, здесь —
+                    // только бонусы и возвраты. Так честнее, чем обещать вывод, которого нет.
+                    false -> appText(
+                        "Здесь бонусы и возвраты. За поездки платят тебе напрямую.",
+                        "Бында бонустар һәм ҡайтарыуҙар. Сәфәрҙәр өсөн һиңә туранан-тура түләйҙәр.",
+                    )
+                    else -> appText("Бонусы и возвраты", "Бонустар һәм ҡайтарыуҙар")
+                },
                 color = Color.White.copy(alpha = 0.82f), fontSize = 13.sp, lineHeight = 17.sp,
             )
         }

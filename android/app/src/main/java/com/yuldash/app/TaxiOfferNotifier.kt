@@ -27,11 +27,16 @@ internal object TaxiOfferNotifier {
     const val EXTRA_OPEN_ORDER = "yuldash_open_instant_order"
     private const val NOTIF_ID = 4713   // фиксированный: новый оффер заменяет прошлое уведомление
 
-    /** Канал (once). Важность MAX + звук/вибрация — оффер живёт ~20с, его нельзя проспать. */
-    private fun ensureChannel(ctx: Context, lang: AppLanguage) {
+    /**
+     * Канал. Важность MAX + звук/вибрация — оффер живёт ~20с, его нельзя проспать.
+     * Зовём и при старте приложения (YuldashApplication), чтобы канал был в системных настройках
+     * сразу, и перед каждым показом. Повторный вызов для существующего канала обновляет только
+     * имя/описание (Android игнорирует смену важности и звука) — значит смена языка в профиле
+     * честно переименовывает канал, а настройки пользователя не сбрасываются.
+     */
+    fun ensureChannel(ctx: Context, lang: AppLanguage) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
-        if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         val ch = NotificationChannel(
             CHANNEL_ID,
             appTextFor(lang, "Заказы такси", "Такси заказдары"),
@@ -84,7 +89,9 @@ internal object TaxiOfferNotifier {
         val to = toText.ifBlank { appTextFor(lang, "Точка Б", "Б нөктәһе") }
         val silent = !AppPrefs.sounds(ctx)   // тумблер «Звуки» — беззвучно, но всплывает
         val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            // Иконка статус-бара обязана быть МОНОХРОМНОЙ (Android красит её в один цвет по альфе).
+            // Было R.mipmap.ic_launcher — цветной лаунчер превращался в белый квадрат.
+            .setSmallIcon(R.drawable.ic_stat_notification)
             .setContentTitle(appTextFor(lang, "Новый заказ 🚕", "Яңы заказ 🚕"))
             .setContentText("$from → $to · $priceRub ₽")
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -118,4 +125,7 @@ internal object NavSignals {
     // пассажира (он сам подхватывает активный заказ, orderId не нужен).
     val openInstantOrder = mutableStateOf(false)
     val openSosForOrder = mutableStateOf(0)      // orderId → открыть SOS с контекстом заказа
+    // Чек за такси-поездку (аудит 2026-07-26): кнопка живёт в финальной карточке заказа —
+    // глубоко внутри экрана такси, в т.ч. встроенного в главную. 0 = сигнала нет.
+    val openTaxiReceipt = mutableStateOf(0)      // orderId → открыть чек за поездку
 }

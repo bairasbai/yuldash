@@ -50,8 +50,10 @@ def _ban_out(session: Session, ban: DeviceBan) -> DeviceBanOut:
 def admin_ban_device(body: DeviceBanIn, user: User = Depends(current_user),
                      session: Session = Depends(get_session)):
     """Забанить устройство: по device_id или по user_id (его последнее устройство).
-    Идемпотентно. Забаненное устройство не регистрируется и не входит (обход бана
-    новым номером закрыт). Блокируешь юзера — баним и его устройство этой же ручкой."""
+    Идемпотентно. Забаненное устройство не регистрируется и не входит по СВОЕМУ device_id.
+    Честно: X-Device-Id задаёт клиент → техничный обход сменой заголовка возможен; это барьер
+    от «нового номера на том же телефоне», не от целевого атакующего (усиление — Play Integrity,
+    бэклог). Блокируешь юзера — баним и его устройство этой же ручкой."""
     _require_admin(user)
     device_id = af.normalize_device_id(body.device_id)
     target_user_id = body.user_id

@@ -19,6 +19,7 @@ from ..services import (
     booking_and_ride_for_user, is_blocked, manager, notify_chat_message,
     public_media_url, push_notification, send_push, user_bookings,
 )
+from ..timeutil import utcnow
 
 router = APIRouter(tags=["chat"])
 
@@ -49,6 +50,13 @@ def _order_for_chat(session: Session, order_id: int, user_id: int, write: bool) 
     if not (is_passenger or is_driver):
         raise HTTPException(403, "Нет доступа к чату этого заказа")
     allowed = ORDER_CHAT_WRITABLE if write else ORDER_CHAT_READABLE
+    # Забытые вещи: участник завершённого заказа нажал «забыл вещь» → чат снова открыт на запись
+    # до lost_item_until (48ч). Иначе связаться было НЕЧЕМ: телефон виден только пока заказ
+    # активен, а чат после done — только на чтение. Телефон в машине = потерян навсегда.
+    if write and order.status not in allowed:
+        until = getattr(order, "lost_item_until", None)
+        if until is not None and until > utcnow():
+            return order
     if order.status not in allowed:
         # До accept — чата ещё нет; после done/отмены запись закрыта (история читается).
         raise HTTPException(409, "Поездка завершена — чат только для чтения"
@@ -96,6 +104,7 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
 
     other_id = driver_id if user_id == passenger_id else passenger_id
     manager.register(booking_id, websocket)
+    msgs = 0
     try:
         while True:
             data = await websocket.receive_text()
@@ -104,6 +113,16 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
             except (json.JSONDecodeError, ValueError):
                 continue   # битый (не-JSON) кадр — игнорируем, соединение НЕ роняем
             if payload.get("type") == "message":
+                # Периодическая перепроверка токена (паритет с гео-WS, порт из notification-fixes):
+                # logout/ревокация должны рвать и ОТКРЫТЫЙ чат-сокет, иначе он живёт до разрыва сети.
+                msgs += 1
+                if msgs % 15 == 0:
+                    with Session(engine) as s2:
+                        try:
+                            authenticate_ws(token or "", s2)
+                        except Exception:
+                            await websocket.close(code=1008, reason="Token revoked")
+                            break
                 # `with` → коннект возвращается в пул сразу (без утечки сессий на каждое сообщение).
                 with Session(engine) as session:
                     # Блокировка (как в REST send_message): заблокированный не пишет — тихо игнор.
@@ -130,10 +149,13 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                     # Push другой стороне (она может быть офлайн / не в чате). send_push — блокирующий
                     # сетевой вызов к FCM; в async-WS гоним через threadpool, иначе залипший запрос к
                     # Google морозит event-loop и ВСЕ WS-соединения воркера.
+                    # data.type=chat → клиент кладёт пуш в канал «Сообщения» (иначе чат звенел бы
+                    # в «Поездках» даже у заглушивших его) + extras для deep-link в нужный чат.
                     await run_in_threadpool(
                         send_push, session, other_id,
                         (sender.name if sender else None) or "Новое сообщение",
                         (msg.text or "Сообщение")[:120],
+                        {"type": "chat", "id": booking_id},
                     )
     except WebSocketDisconnect:
         pass
@@ -171,6 +193,7 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
     other_id = driver_id if user_id == passenger_id else passenger_id
     key = _order_chat_key(order_id)
     manager.register(key, websocket)
+    msgs = 0
     try:
         while True:
             data = await websocket.receive_text()
@@ -179,6 +202,14 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
             except (json.JSONDecodeError, ValueError):
                 continue   # битый кадр — игнор, соединение не роняем (как в booking-чате)
             if payload.get("type") == "message":
+                msgs += 1
+                if msgs % 15 == 0:   # ревокация читается и в открытом сокете (как в booking-чате)
+                    with Session(engine) as s2:
+                        try:
+                            authenticate_ws(token or "", s2)
+                        except Exception:
+                            await websocket.close(code=1008, reason="Token revoked")
+                            break
                 with Session(engine) as session:
                     if is_blocked(session, user_id, other_id):
                         continue
@@ -211,6 +242,7 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
                         send_push, session, other_id,
                         (sender.name if sender else None) or "Новое сообщение",
                         (msg.text or "Сообщение")[:120],
+                        {"type": "chat", "id": order_id},   # канал «Сообщения» + deep-link (см. booking-чат)
                     )
     except WebSocketDisconnect:
         pass
@@ -246,7 +278,8 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
         "from_admin": msg.from_admin,
         "timestamp": msg.created_at.isoformat(),
     })
-    send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120])
+    send_push(session, other_id, user.name or "Новое сообщение", (msg.text or "Голосовое сообщение")[:120],
+              {"type": "chat", "id": order_id})   # канал «Сообщения» + deep-link
     return msg
 
 
@@ -303,6 +336,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         user.name or "Новое сообщение", user.name or "Яңы хәбәр",
         preview, preview,
         ref_kind="booking", ref_id=booking_id,
+        data={"type": "chat", "id": booking_id},   # канал «Сообщения» + deep-link
     )
     return msg
 

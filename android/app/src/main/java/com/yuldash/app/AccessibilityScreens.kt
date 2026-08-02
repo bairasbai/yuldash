@@ -991,7 +991,7 @@ internal fun CreatePassengerRequestContent(
                             OutlinedTextField(
                                 value = comment,
                                 onValueChange = onCommentChange,
-                                label = { Text(appText("Комментарий", "Комментарий")) },
+                                label = { Text(appText("Комментарий", "Аңлатма")) },
                                 placeholder = { Text(appText("Например: буду с ребёнком", "Мәҫәлән: бала менән булам")) },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).heightIn(min = 96.dp),
                                 shape = RoundedCornerShape(16.dp)
@@ -1142,7 +1142,7 @@ internal fun FamilyOrderFormContent(
         item { Text(appText("Кто поедет?", "Кем бара?"), color = CanonGreen, fontSize = 28.sp, fontWeight = FontWeight.Black) }
         item { OutlinedTextField(value = passenger, onValueChange = onPassengerChange, label = { Text(appText("Имя пассажира", "Пассажир исеме")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
         item { OutlinedTextField(value = phone, onValueChange = onPhoneChange, label = { Text(appText("Телефон пассажира", "Пассажир телефоны")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) }
-        item { Text(appText("Маршрут", "Маршрут"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp) }
+        item { Text(appText("Маршрут", "Юл"), color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp) }
         item {
             if (fromField != null) fromField() else OutlinedTextField(
                 value = from, onValueChange = {},

@@ -52,6 +52,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(M.CourierProfile(user_id=uid))
         s.add(M.DriverSchedule(driver_id=uid, from_city="A", to_city="B"))
         s.add(M.TaxiWorkDay(driver_id=uid, day=date(2026, 7, 13)))
+        # Предрейсовые подтверждения (580-ФЗ): заявления человека о самом себе — уходят с аккаунтом.
+        s.add(M.PreTripCheck(driver_id=uid, day=date(2026, 7, 13),
+                             health_ok=True, car_ok=True, no_alcohol=True))
         # --- уведомления, подписки, рефералы, бан устройства ---
         s.add(M.Notification(user_id=uid, ntype="test", title="t", body="b"))
         s.add(M.RouteWatch(user_id=uid, from_city="A", to_city="B", expires_at=utcnow() + timedelta(days=7)))
@@ -85,6 +88,26 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(M.WaitlistEntry(phone=phone))
         s.commit()
 
+        # --- «Справедливость»: споры (я — сторона; по моей броне; решённый МНОЙ чужой) + профиль ---
+        ride = M.Ride(driver_id=uid, from_city="A", to_city="B", depart_at=utcnow())
+        s.add(ride); s.commit(); s.refresh(ride)
+        my_booking = M.Booking(ride_id=ride.id, passenger_id=oid, status=M.BookingStatus.done)
+        s.add(my_booking); s.commit(); s.refresh(my_booking)
+        s.add(M.Incident(booking_id=my_booking.id, reporter_id=oid, respondent_id=uid, type="rude"))
+        s.add(M.Incident(reporter_id=uid, respondent_id=oid, type="harassment"))
+        s.add(M.SafetyProfile(user_id=uid, strikes=1))
+        # Чужой спор, решённый удаляемым как админом → должен ОСТАТЬСЯ, но resolved_by → NULL.
+        other2 = M.User(phone=f"{phone}-o2", name="Other2", verified=True)
+        s.add(other2); s.commit(); s.refresh(other2)
+        foreign_inc = M.Incident(reporter_id=oid, respondent_id=other2.id, type="rude",
+                                 status="resolved", resolved_by=uid)
+        s.add(foreign_inc); s.commit(); s.refresh(foreign_inc)
+        foreign_inc_id = foreign_inc.id
+        # --- G1: трекинг-ссылка МОЕЙ посылки (contact_id=NULL → ловится только по parcel_id) ---
+        s.add(M.TripShare(parcel_id=parcel.id, token="del-parcel-share-token-123456"))
+        s.commit()
+        parcel_id = parcel.id
+
         # --- обращение в поддержку + тред (сообщения user и admin) ---
         ticket = M.SupportTicket(user_id=uid, subject="Вопрос")
         s.add(ticket); s.commit(); s.refresh(ticket)
@@ -113,3 +136,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # лист ожидания по телефону тоже вычищен (у него нет FK на user — проверяем отдельно)
         wl = s.exec(select(M.WaitlistEntry).where(M.WaitlistEntry.phone == phone)).first()
         assert wl is None
+        # «Справедливость»: чужой спор жив, но ссылка «решил я» отвязана (данные чужие — не наши).
+        fi = s.get(M.Incident, foreign_inc_id)
+        assert fi is not None and fi.resolved_by is None
+        # G1: шеринг посылки не осиротел (FK на parceldelivery, user-скан его не видит).
+        ps = s.exec(select(M.TripShare).where(M.TripShare.parcel_id == parcel_id)).all()
+        assert ps == []

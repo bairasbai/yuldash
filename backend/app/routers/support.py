@@ -8,6 +8,7 @@
 Ответ поддержки уходит пользователю через единую точку `services.push_notification`
 (строка в Центре уведомлений + FCM, best-effort — как в чате/бронях).
 """
+from datetime import timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,7 +20,7 @@ from ..models import (
     SupportMessage, SupportSender, SupportTicket, SupportTicketStatus, User, UserRole,
 )
 from ..security import current_user
-from ..services import push_notification
+from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["support"])
@@ -99,6 +100,36 @@ def _msg_out(m: SupportMessage) -> TicketMessageOut:
     return TicketMessageOut(id=m.id, sender=sender, body=m.body, created_at=_iso(m.created_at))
 
 
+# Анти-спам админ-канала: не чаще одного сигнала на тикет за это окно (человек может писать
+# несколько сообщений подряд — будить админа на каждое не нужно).
+_ADMIN_PING_COOLDOWN_MIN = 10
+_last_admin_ping: dict = {}
+
+
+def _notify_admin_new_ticket(ticket: SupportTicket, user: User, text: str, new: bool = True) -> None:
+    """Сигнал админу об обращении в поддержку.
+
+    Раньше уведомлений НЕ БЫЛО ВООБЩЕ (аудит 2026-07-26): человек писал в поддержку из
+    приложения, сообщение падало в базу и лежало там, пока админ сам не откроет список.
+    Для такси и доставки поддержка — последняя инстанция при любой проблеме, и тишина в
+    ответ читается как «им всё равно»."""
+    now = utcnow()
+    last = _last_admin_ping.get(ticket.id)
+    if last is not None and (now - last) < timedelta(minutes=_ADMIN_PING_COOLDOWN_MIN):
+        return
+    _last_admin_ping[ticket.id] = now
+    try:
+        notify_admin_telegram(
+            ("🆘 Новое обращение в поддержку" if new else "💬 Новое сообщение в обращении")
+            + f"\nТикет: #{ticket.id}\n"
+            f"Тема: {ticket.subject or '—'}\n"
+            f"От: {user.name or '—'} ({user.phone or '—'})\n"
+            f"Текст: {(text or '')[:300]}"
+        )
+    except Exception:  # noqa: BLE001 — уведомление вторично, обращение уже сохранено
+        pass
+
+
 # ------------------------------ пользователь ------------------------------
 @router.post("/support/tickets", response_model=TicketThreadOut)
 def create_ticket(body: CreateTicketIn, user: User = Depends(current_user),
@@ -113,6 +144,7 @@ def create_ticket(body: CreateTicketIn, user: User = Depends(current_user),
     session.add(msg)
     session.commit()
     session.refresh(msg)
+    _notify_admin_new_ticket(ticket, user, body.body.strip())
     return TicketThreadOut(
         id=ticket.id, subject=ticket.subject, status=ticket.status.value,
         created_at=_iso(ticket.created_at), updated_at=_iso(ticket.updated_at),
@@ -175,6 +207,8 @@ def add_message(ticket_id: int, body: MessageIn, user: User = Depends(current_us
     t.updated_at = now
     session.add(t)
     session.commit()
+    # Сигнал админу — только на сообщения ПОЛЬЗОВАТЕЛЯ (ответ админа будить его самого не должен).
+    _notify_admin_new_ticket(t, user, body.body.strip(), new=False)
     return get_ticket(ticket_id, user, session)
 
 

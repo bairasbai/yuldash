@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from typing import List, Literal, Optional
 
 from ..db import get_session
+from ..config import settings
 from ..logs import log
 from ..models import Block, Booking, BookingStatus, InstantOrder, Report, Ride, SosEvent, TripShare, TrustedContact, User, UserRole
 from ..security import current_user
@@ -91,8 +92,81 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         f"Контактов уведомлено (SMS): {notified}\n"
         f"Детали: {body.note or '—'}"
     )
+    # 🌙 SMS админу вдобавок к Telegram. Раньше весь ночной контур безопасности сводился к
+    # ОДНОМУ сообщению в Telegram: админ спит — никто не узнает, что сигнал вообще был
+    # (списка SOS не существовало, статус не менялся никогда). Аудит 2026-07-26.
+    if settings.sos_sms_to_admin:
+        admin_phones = [p.strip() for p in (settings.admin_phones or "").split(",") if p.strip()]
+        if admin_phones:
+            background.add_task(
+                _send_sos_sms, admin_phones,
+                f"SOS Юлдаш: {user.name or 'пользователь'}, {body.category}, "
+                f"тел {user.phone or '—'}. Открой админку.",
+            )
     log.info(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
     return event
+
+
+# ----------------------------- Админ: лента SOS (аудит 2026-07-26) -----------------------------
+class SosHandleIn(BaseModel):
+    note: str = Field("", max_length=500)
+
+
+@router.get("/admin/sos")
+def admin_sos_list(status: str = "open", limit: int = 100,
+                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Лента сигналов SOS: открытые сверху. Раньше её НЕ СУЩЕСТВОВАЛО — сигнал уходил одним
+    сообщением в Telegram, поле status не менялось никем и никогда, и если сообщение не
+    прочитали (ночь, шумный чат), следа о происшествии не оставалось нигде."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    q = select(SosEvent).order_by(SosEvent.created_at.desc()).limit(max(1, min(limit, 300)))
+    if status in ("open", "handled"):
+        q = q.where(SosEvent.status == status)
+    rows = session.exec(q).all()
+    out = []
+    for e in rows:
+        u = session.get(User, e.user_id)
+        route = ""
+        if e.order_id:
+            o = session.get(InstantOrder, e.order_id)
+            if o:
+                route = f"{o.from_text or '?'} → {o.to_text or '?'}"
+        elif e.booking_id:
+            b = session.get(Booking, e.booking_id)
+            r = session.get(Ride, b.ride_id) if b else None
+            if r:
+                route = f"{r.from_city} → {r.to_city}"
+        out.append({
+            "id": e.id, "status": e.status, "category": e.category, "note": e.note,
+            "created_at": e.created_at, "handled_at": e.handled_at, "handled_note": e.handled_note,
+            "user_id": e.user_id,
+            "user_name": (u.name if u else "") or "—",
+            "user_phone": (u.phone if u else "") or "—",   # админу телефон нужен, чтобы позвонить
+            "booking_id": e.booking_id, "order_id": e.order_id, "route": route,
+        })
+    return out
+
+
+@router.post("/admin/sos/{event_id}/handle")
+def admin_sos_handle(event_id: int, body: SosHandleIn | None = None,
+                     user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """«Принял» — сигнал взят в работу: кто, когда, что сделал. Без этой отметки нельзя было
+    отличить разобранный SOS от потерянного, и авто-эскалация была невозможна."""
+    if user.role != UserRole.admin:
+        raise HTTPException(403, "Только для админа")
+    e = session.get(SosEvent, event_id)
+    if not e:
+        raise HTTPException(404, "Событие не найдено")
+    if e.status == "handled":
+        return {"ok": True, "already": True, "status": e.status}
+    e.status = "handled"
+    e.handled_at = utcnow()
+    e.handled_by = user.id
+    e.handled_note = ((body.note if body else "") or "").strip()[:500]
+    session.add(e)
+    session.commit()
+    return {"ok": True, "status": e.status, "handled_at": e.handled_at}
 
 
 class CallbackIn(BaseModel):
@@ -150,7 +224,7 @@ class ReportOut(BaseModel):
     order_id: Optional[int] = None
     booking_id: Optional[int] = None
     parcel_id: Optional[int] = None   # C2: спор по доставке (category=parcel_dispute)
-    target_user_id: int = 0
+    target_user_id: Optional[int] = None
 
 
 def _report_counterparty(session: Session, user: User, body: ReportIn) -> int:
@@ -202,7 +276,8 @@ def admin_reports(status: Optional[str] = None, category: Optional[str] = None,
     ids: set = set()
     for r in reports:
         ids.add(r.reporter_id)
-        ids.add(r.target_user_id)
+        if r.target_user_id is not None:      # обвиняемый мог удалить аккаунт (обезличено)
+            ids.add(r.target_user_id)
     users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()}
     out: list = []
     for r in reports:
@@ -316,7 +391,7 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
     session.add(r)
     session.commit()
     session.refresh(r)
-    if r.category in quality.SEVERE_CATEGORIES:
+    if r.category in quality.SEVERE_CATEGORIES and r.target_user_id is not None:
         if body.keep_pause:
             # Оставить: «до разбора» → честная таймерная пауза (не вечная).
             quality.unpause_taxi(session, r.target_user_id)
@@ -325,8 +400,25 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                                reason=quality.PAUSE_REASON_REPORTS)
         else:
             quality.maybe_release_review_pause(session, r.target_user_id)
+    # 💸 «Пассажир не заплатил» подтверждена → снимаем с водителя комиссию за ЭТУ поездку.
+    # Раньше жалоба ставила только пометку на заказе, а долг оставался: водителя кинули на
+    # 300 ₽, и он ещё должен нам 24 ₽ сверху (аудит 2026-07-26). Одна такая история в
+    # райцентре расходится по всей деревне и ломает доверие «между своими».
+    if r.category == "unpaid" and r.order_id:
+        from .. import debt as debt_mod
+        try:
+            if debt_mod.void_debt_for_order(session, r.order_id):
+                session.commit()
+                order = session.get(InstantOrder, r.order_id)
+                if order and order.driver_id:
+                    send_push(session, order.driver_id, "Комиссия за поездку списана",
+                              "Жалоба «пассажир не заплатил» подтверждена — комиссию за эту "
+                              "поездку с тебя сняли. · Комиссия алынды.")
+        except Exception as e:  # noqa: BLE001 — разбор жалобы важнее, чем побочка со списанием
+            log.warning(f"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {e}")
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
-    quality.apply_ladder_after_resolve(session, r.target_user_id)
+    if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
+        quality.apply_ladder_after_resolve(session, r.target_user_id)
     return _admin_report_out(session, r)
 
 
@@ -514,21 +606,55 @@ def roadside_help(
     """«Я застрял / нужна помощь на трассе» — уровень мягче паники SOS, но реальный: координаты
     уходят доверенным контактам, событие пишется в SOS-ленту админа. Доступно только участнику поездки."""
     booking_and_ride_for_user(session, booking_id, user)   # 403/404 если чужой/нет брони
+    return _roadside(session, background, user, body, booking_id=booking_id)
+
+
+@router.post("/instant/orders/{order_id}/stuck", response_model=SosEvent)
+def roadside_help_order(
+    order_id: int,
+    body: StuckIn,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """То же для ТАКСИ-заказа. Зимний протокол работал только для попуток, хотя именно в такси
+    зимой четыре часа трассы Сибай–Уфа: застрявшему в такси идти было некуда, кроме красной
+    кнопки SOS (аудит 2026-07-26). Доступно обеим сторонам заказа."""
+    _order_for_participant(session, order_id, user)   # общий гейт участия (404/403), не дублируем
+    return _roadside(session, background, user, body, order_id=order_id)
+
+
+def _roadside(session: Session, background: BackgroundTasks, user: User, body: "StuckIn",
+              booking_id: Optional[int] = None, order_id: Optional[int] = None) -> SosEvent:
+    """Общая механика «застрял»: событие в ленту админа + SMS доверенным + Telegram.
+    Одна реализация на попутку и такси — иначе они разойдутся при первой же правке."""
     link = _maps_link(body.lat, body.lng)
     where = f" Место: {link}" if link else ""
     # Событие в SOS-ленту админа фиксируем СИНХРОННО (не теряем сигнал о помощи).
     note = (f"Застрял на трассе (зимний протокол). {body.note}".strip() + where).strip()
-    event = SosEvent(user_id=user.id, booking_id=booking_id, category="breakdown", note=note)
+    event = SosEvent(user_id=user.id, booking_id=booking_id, order_id=order_id,
+                     category="breakdown", note=note)
     session.add(event)
     session.commit()
     session.refresh(event)
     # Телефоны доверенных собираем ПОКА сессия открыта; SMS/Telegram — в фон (не держим коннект,
     # не заставляем человека на морозе ждать sms.ru). Координаты в stdout НЕ пишем (152-ФЗ).
-    contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
-    phones = [c.phone for c in contacts if c.phone]
-    who = user.name or user.phone
-    msg = f"Юлдаш: {who} застрял на трассе, нужна помощь.{where}".strip()
-    background.add_task(_send_sos_sms, phones, msg)
+    # Кеп SMS — тот же, что у /sos (событие пишем всегда, глушим только рассылку): без него
+    # мэш-кнопка «застрял» = безлимитный поток SMS доверенным за счёт платформы.
+    recent = session.exec(
+        select(SosEvent.id).where(
+            SosEvent.user_id == user.id, SosEvent.created_at >= utcnow() - timedelta(hours=1),
+        )
+    ).all()
+    phones = []
+    if len(recent) <= SOS_SMS_PER_HOUR:   # <=: только что записанное событие уже в счёте
+        contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
+        phones = [c.phone for c in contacts if c.phone]
+        who = user.name or user.phone
+        msg = f"Юлдаш: {who} застрял на трассе, нужна помощь.{where}".strip()
+        background.add_task(_send_sos_sms, phones, msg)
+    else:
+        log.info(f"[ROADSIDE] user={user.id} SMS подавлены (кеп {SOS_SMS_PER_HOUR}/час), событие записано")
     background.add_task(
         notify_admin_telegram,
         f"🛟 Помощь на трассе (Юлдаш)\n"
@@ -537,7 +663,8 @@ def roadside_help(
         f"Контактов уведомлено: {len(phones)}\n"
         f"Детали: {body.note or '—'}{where}"
     )
-    log.info(f"[ROADSIDE] user={user.id} booking={booking_id} contacts_notified={len(phones)}")
+    log.info(f"[ROADSIDE] user={user.id} booking={booking_id} order={order_id} "
+             f"contacts_notified={len(phones)}")
     return event
 
 

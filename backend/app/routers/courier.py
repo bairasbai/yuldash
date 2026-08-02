@@ -16,7 +16,7 @@
 приём/движение статуса/доставка по коду — эндпоинты /parcels/{id}/accept|/status и /parcels/carrying
 (они уже курьер-сторона); для courier/buy_bring-типов accept гейтится _guard_courier (см. parcels.py).
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,10 +29,12 @@ from ..db import get_session
 from ..errors import herr
 from ..models import (CourierApplication, CourierProfile, ParcelDelivery, Payment, Rating,
                       Settlement, User, UserRole)
+from ..safety_logic import ensure_active
 from ..security import current_user
 from ..services import haversine_km, notify_admin_telegram, send_push, user_rating
 from ..timeutil import utcnow
 from . import parcels as parcels_mod
+from .. import debt as debt_mod   # переиспользуем _local_day_expr: одна логика «локального дня» на проект
 
 router = APIRouter(tags=["courier"])
 
@@ -122,6 +124,25 @@ def _guard_courier(user: User, session: Session) -> None:
 
 def _my_profile(session: Session, user_id: int) -> Optional[CourierProfile]:
     return session.exec(select(CourierProfile).where(CourierProfile.user_id == user_id)).first()
+
+
+def _guard_courier_debt(session: Session, courier_id: int) -> None:
+    """Неоплаченная комиссия ≥ порога → новых заказов не берём.
+
+    У такси такая блокировка была с самого начала, у курьера — не было ВООБЩЕ: можно было
+    возить месяцами и не заплатить ни рубля (аудит 2026-07-26). Текст объясняет, сколько
+    и где оплатить, а не просто отказывает: человек должен понимать, как вернуться в строй.
+    Уже взятые заказы не трогаем — довезти надо.
+    """
+    owed = _commission_owed_kop(session, courier_id)
+    if owed < settings.courier_debt_block_threshold_kop:
+        return
+    rub = owed // 100
+    raise herr(
+        403,
+        f"Накопилась комиссия {rub} ₽. Оплати её в кабинете курьера — и снова сможешь брать заказы.",
+        f"{rub} һум комиссия йыйылған. Курьер кабинетында түлә — шунан яңынан заказ ала алаһың.",
+    )
 
 
 def _guard_not_paused(prof: Optional[CourierProfile]) -> None:
@@ -310,6 +331,9 @@ def _application_payload(app: CourierApplication) -> dict:
         "transport": app.transport,
         "status": app.status,
         "selfie_url": app.selfie_url or "",
+        "full_name": getattr(app, "full_name", "") or "",
+        "car_plate": getattr(app, "car_plate", "") or "",
+        "rules_accepted": bool(getattr(app, "rules_accepted", False)),
         "invited_by": app.invited_by,
         "reject_reason": app.reject_reason or "",
         "created_at": app.created_at.isoformat() if app.created_at else None,
@@ -338,6 +362,11 @@ def _profile_payload(p: Optional[CourierProfile]) -> Optional[dict]:
 class CourierApplyIn(BaseModel):
     transport: str = Field("car", max_length=16)
     selfie_url: str = Field("", max_length=500)
+    # Кто и на чём везёт (аудит 2026-07-26). Необязательные в схеме, но проверяются ниже:
+    # у старого приложения этих полей нет, и жёсткий 422 выбил бы всех, кто ещё не обновился.
+    full_name: str = Field("", max_length=120)
+    car_plate: str = Field("", max_length=16)
+    rules_accepted: bool = False
 
 
 @router.post("/courier/apply")
@@ -352,6 +381,26 @@ def courier_apply(body: CourierApplyIn, user: User = Depends(current_user),
     selfie = (body.selfie_url or "").strip()
     if not selfie:
         raise herr(422, "Пришли селфи с документом", "Документ менән селфи ебәр")
+    full_name = (body.full_name or "").strip()[:120]
+    car_plate = (body.car_plate or "").strip().upper()[:16]
+    # Мы доверяем курьеру чужую посылку — знать о нём хотя бы столько же, сколько о попутчике,
+    # это минимум приличия. Но ЖЁСТКОЕ требование включается флагом: старое приложение этих
+    # полей не шлёт, и включённая проверка мгновенно закрыла бы регистрацию новых курьеров
+    # (тот же приём, что с предрейсовым подтверждением). Включать после выката приложения.
+    if settings.courier_identity_required:
+        if not full_name or len(full_name.split()) < 2:
+            raise herr(422, "Укажи фамилию и имя как в документе",
+                       "Документтағыса фамилия һәм исемде яҙ")
+        if not car_plate:
+            raise herr(422, "Укажи госномер машины — по нему тебя узнают",
+                       "Машинаның дәүләт номерын яҙ — уның буйынса һине таныйҙар")
+        if not body.rules_accepted:
+            raise herr(422, "Нужно согласиться с правилами доставки",
+                       "Илтеү ҡағиҙәләре менән килешергә кәрәк")
+    elif full_name and len(full_name.split()) < 2:
+        # Прислали, но одним словом — это опечатка, а не «старый клиент»: скажем сразу.
+        raise herr(422, "Укажи фамилию и имя как в документе",
+                   "Документтағыса фамилия һәм исемде яҙ")
     app = _my_application(session, user.id)
     if app and app.status in ("pending", "approved"):
         raise herr(409, "Заявка уже на рассмотрении", "Ғариза ҡаралыуҙа инде")
@@ -359,6 +408,10 @@ def courier_apply(body: CourierApplyIn, user: User = Depends(current_user),
         app = CourierApplication(user_id=user.id)
     app.transport = transport
     app.selfie_url = selfie
+    app.full_name = full_name
+    app.car_plate = car_plate
+    app.rules_accepted = bool(body.rules_accepted)
+    app.rules_accepted_at = utcnow() if body.rules_accepted else None
     app.invited_by = user.referred_by
     app.status = "pending"
     app.reject_reason = ""
@@ -497,6 +550,7 @@ def courier_online(body: CourierOnlineIn, user: User = Depends(current_user),
         raise herr(422, "Выбери зону работы", "Эш зонаһын һайла")
     prof = _my_profile(session, user.id)
     _guard_not_paused(prof)   # C3: на мягкой паузе по качеству на линию не выходим
+    _guard_courier_debt(session, user.id)   # неоплаченная комиссия ≥ порога → сначала рассчитайся
     if prof is None:
         prof = CourierProfile(user_id=user.id)
     prof.online = True
@@ -612,8 +666,8 @@ class CourierOrderIn(BaseModel):
     rules_accepted: bool = False
     delivery_type: str = Field("courier", max_length=16)   # courier | buy_bring
     urgency: str = Field("bypath", max_length=16)
-    declared_value_kop: int = Field(0, ge=0, le=100_000_00)   # объявленная ценность ≤ 1 млн ₽
-    cod_amount_kop: int = Field(0, ge=0, le=100_000_00)       # buy_bring: наложка ≤ 1 млн ₽
+    declared_value_kop: int = Field(0, ge=0, le=100_000_00)   # объявленная ценность ≤ 100 000 ₽
+    cod_amount_kop: int = Field(0, ge=0, le=100_000_00)       # buy_bring: наложка ≤ 100 000 ₽
     shopping_list: str = Field("", max_length=2000)        # buy_bring: что купить (уходит в description)
 
 
@@ -624,6 +678,9 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
     Для buy_bring cod_amount_kop обязателен и ≤ COURIER_COD_CAP_KOP (защита курьера).
     Возвращает заявку + confirm_code (как M3): отправитель передаёт код получателю."""
     _guard_courier_enabled()   # заказать курьера можно только когда режим включён (заказчик — не курьер)
+    # Пауза «Справедливости» (§2) распространяется и на доставку: отстранённый за нарушения
+    # не заводит новые заказы. Раньше проверки не было — пауза была декорацией (аудит 2026-07-26).
+    ensure_active(session, user.id)
     dtype = (body.delivery_type or "").strip()
     if dtype not in _COURIER_TYPES:
         raise herr(422, "Выбери тип доставки", "Доставка төрөн һайла")
@@ -700,6 +757,9 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         )
     except Exception:
         pass
+    # Пуш курьерам на линии: раньше заявка висела в пустоте, пока кто-то сам не откроет список
+    # и не обновит его — три курьера ехали мимо и не знали о ней (аудит 2026-07-26).
+    parcels_mod._notify_couriers_new_parcel(session, parcel)
     out = parcels_mod._parcel_for_sender(parcel, session)
     out["price_kop"] = priced["price_kop"]       # полная цена доставки (курьеру платят напрямую)
     out["breakdown"] = priced["breakdown"]
@@ -815,6 +875,56 @@ def courier_me(user: User = Depends(current_user), session: Session = Depends(ge
     }
 
 
+@router.get("/courier/earnings")
+def courier_earnings(period: str = "week", user: User = Depends(current_user),
+                     session: Session = Depends(get_session)):
+    """Заработок курьера за период (week|month|all): всего, доставок, по дням.
+
+    У водителя такой экран есть, у курьера не было: он видел только «должен Юлдашу столько-то»,
+    и работа выглядела как один сплошной долг (аудит 2026-07-26). Считаем как у водителя —
+    SQL-агрегатом по локальному дню, только СВОИ данные.
+
+    База — цена доставки за вычетом комиссии платформы: это «чистыми», то есть ровно то,
+    что человек оставляет себе. Деньги идут мимо платформы (Модель А) — мы лишь показываем счёт.
+    """
+    _guard_courier(user, session)
+    period = period if period in ("week", "month", "all") else "week"
+    conds = [
+        ParcelDelivery.courier_id == user.id,
+        ParcelDelivery.status == "delivered",
+        ParcelDelivery.delivery_type.in_(_COURIER_TYPES),
+        ParcelDelivery.delivered_at.is_not(None),
+    ]
+    if period != "all":
+        tz = timedelta(hours=settings.local_tz_offset_hours)
+        ln = utcnow() + tz
+        days_back = 6 if period == "week" else 29
+        start_local = datetime(ln.year, ln.month, ln.day) - timedelta(days=days_back)
+        conds.append(ParcelDelivery.delivered_at >= start_local - tz)
+
+    # В БД цена доставки — delivery_price_kop (в API она отдаётся как price_kop);
+    # берём поле модели, а не имя из JSON, иначе агрегат молча считал бы не то.
+    net_expr = (func.coalesce(ParcelDelivery.delivery_price_kop, 0)
+                - func.coalesce(ParcelDelivery.commission_kop, 0))
+    total_row = session.exec(
+        select(func.coalesce(func.sum(net_expr), 0),
+               func.coalesce(func.sum(ParcelDelivery.commission_kop), 0),
+               func.count()).where(*conds)
+    ).one()
+    day_expr = debt_mod._local_day_expr(session, ParcelDelivery.delivered_at)
+    rows = session.exec(
+        select(day_expr.label("day"), func.coalesce(func.sum(net_expr), 0), func.count())
+        .where(*conds).group_by(day_expr).order_by(day_expr)
+    ).all()
+    return {
+        "period": period,
+        "net_kop": int(total_row[0] or 0),          # чистыми курьеру, копейки
+        "commission_kop": int(total_row[1] or 0),   # комиссия платформы за тот же период
+        "deliveries": int(total_row[2] or 0),
+        "by_day": [{"date": str(r[0]), "net_kop": int(r[1] or 0), "deliveries": int(r[2] or 0)} for r in rows],
+    }
+
+
 # ---------------------------------------------------------------------------
 # C3 — Рейтинг курьера: взаимная оценка доставки (после вручения)
 # ---------------------------------------------------------------------------
@@ -895,7 +1005,9 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
         ).order_by(Payment.id.desc())
     ).first()
     if existing:
-        if existing.method == "yookassa" and existing.provider_id:
+        # Перепроверка у провайдера — ТОЛЬКО когда провайдер реально yookassa: при откате на
+        # mock/sbp_manual fetch_payment честно отвечает «succeeded» (мок) → активация без денег.
+        if settings.payments_provider == "yookassa" and existing.method == "yookassa" and existing.provider_id:
             try:
                 info = fetch_payment(existing.provider_id)
             except Exception:

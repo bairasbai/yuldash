@@ -3,6 +3,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_JWT_SECRET = "dev-secret-change-me"
 
 
+def _phone_key(phone: str) -> str:
+    """Нормализованный ключ телефона для сравнения (последние 10 цифр, без +/8/пробелов).
+    +79990001122 и 89990001122 → один ключ 9990001122."""
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
 class Settings(BaseSettings):
     """Настройки берутся из .env (см .env.example)."""
     env: str = "dev"
@@ -51,6 +58,26 @@ class Settings(BaseSettings):
     safety_suspend_3_days: int = 30          # 3-я и далее → 30д
     safety_strike_decay_days: int = 60       # страйки «сгорают» за N дней хорошего поведения (§4)
     safety_reliability_window: int = 30      # «Надёжность» считаем по последним N терминальным броням
+    # SOS-контур (аудит 2026-07-26). Раньше сигнал уходил ОДНИМ сообщением в Telegram и всё:
+    # админ спит — никто не узнает. Теперь: SMS админу + повторный сигнал, если не принят.
+    sos_sms_to_admin: bool = True            # дублировать SOS на телефоны админов (SMS)
+    sos_escalate_after_min: int = 10         # не принят за N минут → повторный сигнал
+    # Фоновый воркер такси (app/taxi_worker.py) — закрывает зависшие заказы и активирует предзаказы.
+    taxi_worker_enabled: bool = True
+    order_stuck_hours: int = 6               # заказ «в пути» дольше N часов → авто-закрытие (телефон сел)
+    order_offer_stale_min: int = 3           # оффер висит дольше N минут без ответа → двигаем дальше
+    order_wait_max_min: int = 20             # сколько максимум ждём машину в очереди «рядом никого»
+    order_retry_every_min: int = 2           # как часто воркер перезапускает поиск для ждущих
+    # Сроки документов водителя (app/doc_check.py): напоминание и снятие допуска к такси.
+    docs_warn_days: int = 14                 # за сколько дней начинать напоминать
+    docs_warn_again_days: int = 3            # второе напоминание — когда осталось совсем мало
+    docs_remind_missing_days: int = 14       # как часто просить одобренного дозаполнить сроки
+    # Предрейсовое подтверждение (580-ФЗ, честный минимум): самочувствие, машина, алкоголь.
+    # ВЫКЛЮЧЕНО ПО УМОЛЧАНИЮ НАМЕРЕННО: старое приложение не умеет подтверждать готовность,
+    # и включённый гейт мгновенно оставил бы без работы ВСЕХ действующих таксистов — они
+    # физически не смогли бы выйти на линию. Включать (PRETRIP_CHECK_REQUIRED=true) после
+    # выката версии приложения с экраном подтверждения. Сам экран и ручки работают всегда.
+    pretrip_check_required: bool = False
     safety_late_cancel_before_depart_min: int = 60  # отмена в этом окне до выезда (или после) — «поздняя»
 
     # --- Telegram-вход (бот) ---
@@ -159,6 +186,30 @@ class Settings(BaseSettings):
     owner_sbp_name: str = ""               # имя получателя как в СБП (напр. «Александр А.»)
     debt_due_days: int = 7                 # срок оплаты долга с момента начисления (дней)
     debt_block_threshold_kop: int = 100000  # порог блокировки такси: 1000 ₽ долга (в копейках)
+    # Сколько раз «слово» водителя («Я оплатил») снимает блокировку до подтверждения админом.
+    # Аудит 2026-07-26: без лимита кнопку жали бесконечно — отклонили и нажал снова, комиссию
+    # можно было не платить вообще. Доверяем, но не бесконечно: после N отказов ждём подтверждения.
+    debt_max_declares: int = 2
+    # Компенсация курьеру, если отправитель отменил доставку, когда курьер уже выехал (коп).
+    # Модель А: только фиксируем сумму в заказе, деньги идут мимо платформы («на доверии»).
+    courier_cancel_fee_kop: int = 10000    # 100 ₽
+    # Порог блокировки курьера по неоплаченной комиссии — как у такси (debt_block_threshold_kop).
+    # Раньше блокировки не было вообще: курьер мог возить месяцами и не платить ни рубля.
+    courier_debt_block_threshold_kop: int = 100000   # 1000 ₽
+    # ФИО + госномер + согласие с правилами при регистрации курьера. ВЫКЛЮЧЕНО ПО УМОЛЧАНИЮ:
+    # старое приложение этих полей не шлёт, и включённая проверка мгновенно закрыла бы
+    # регистрацию новых курьеров. Включать (COURIER_IDENTITY_REQUIRED=true) после выката
+    # приложения с расширенной формой. Поля принимаются и сохраняются в любом случае, а модератор
+    # видит пропуски в очереди заявок и может не одобрять «пустую» анкету.
+    courier_identity_required: bool = False
+    # Сервисный сбор платформы за доставку «по пути» (PARCEL_FEES 30/60/120 ₽ в parcels.py).
+    # ВЫКЛЮЧЕН ПО УМОЛЧАНИЮ и это честно, а не забывчивость: пути оплаты у него нет. Попутчик,
+    # который завёз коробку по дороге, — не курьер: кабинета и долга у него нет, выставить счёт
+    # некому. Бабушке-отправителю счёт мы тоже не выставляем. Пока сбор начислялся «в воздух»,
+    # а отчёт админа показывал его как «собрано» — цифра означала деньги, которых нет
+    # (аудит 2026-07-26). Включать (PARCEL_FEE_ENABLED=true) в тот день, когда путь оплаты
+    # появится; тариф уже лежит в PARCEL_FEES и правится там же.
+    parcel_fee_enabled: bool = False
 
     # --- 8-часовой лимит + отдых водителя (волна 2, §8). Только ТАКСИ-время (попутка не считается) ---
     # На линии ≥ taxi_shift_limit_hours за местный день → такси-гейт (presence/offer/accept) до
@@ -238,6 +289,13 @@ class Settings(BaseSettings):
     # Один URL на всё: общий rate-limit между воркерами + WS-чат pub/sub между процессами.
     # Пусто → rate-limit in-memory на воркер, WS — локальный режим (один воркер). Пример: redis://127.0.0.1:6379/0
     redis_url: str = ""
+
+    # --- Пул соединений к БД (только Postgres). Формула безопасности:
+    #   (db_pool_size + db_max_overflow) × воркеров ≤ Postgres max_connections − резерв.
+    # Прод: 5 воркеров × (8+7)=15 = 75 < 100 (дефолт PG). Меняешь число воркеров — пересчитай тут.
+    # Дальше по масштабу — PgBouncer (transaction pooling): пул перестаёт быть узким местом.
+    db_pool_size: int = 8
+    db_max_overflow: int = 7
 
     # --- Наблюдаемость (Sentry + алерты) ---
     # Sentry: сбор ошибок/трейсбеков. Пусто → полный no-op (ничего не инициализируется и не шлётся).
@@ -357,6 +415,12 @@ class Settings(BaseSettings):
             problems.append("YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY обязательны при PAYMENTS_PROVIDER=yookassa")
         if self.payments_provider == "sbp_manual" and not self.sbp_phone:
             problems.append("SBP_PHONE обязателен при PAYMENTS_PROVIDER=sbp_manual")
+        # Платёжный номер СБП раздаётся в ответе оплаты ВСЕМ вошедшим, а автоадмин выдаётся
+        # по номеру из ADMIN_PHONES → совпадение = раскрытый номер становится ключом к роли admin.
+        if self.payments_provider == "sbp_manual" and self.sbp_phone:
+            admin_keys = {_phone_key(p) for p in self.admin_phones.split(",") if p.strip()}
+            if _phone_key(self.sbp_phone) in admin_keys:
+                problems.append("SBP_PHONE не должен совпадать с ADMIN_PHONES (раскрытый платёжный номер = ключ к админке)")
         # Выплаты включены в проде без ключей выплат ЮKassa = «нажали вывод, а денег нет».
         if self.payouts_enabled and not (self.yookassa_payout_agent_id and self.yookassa_payout_secret_key):
             problems.append("YOOKASSA_PAYOUT_AGENT_ID и YOOKASSA_PAYOUT_SECRET_KEY обязательны при PAYOUTS_ENABLED=true")

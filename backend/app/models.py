@@ -363,6 +363,9 @@ class RecentPlace(SQLModel, table=True):
 
 
 class Booking(SQLModel, table=True):
+    # Композитный индекс под скан rate-reminder'а (status=done AND rate_reminded=false);
+    # на проде добавляется миграцией m_audit_hardening, здесь — паритет для свежих БД (create_all).
+    __table_args__ = (Index("ix_booking_status_rate_reminded", "status", "rate_reminded"),)
     id: Optional[int] = Field(default=None, primary_key=True)
     ride_id: int = Field(index=True, foreign_key="ride.id")
     passenger_id: int = Field(index=True, foreign_key="user.id")
@@ -464,10 +467,16 @@ class SosEvent(SQLModel, table=True):
     user_id: int = Field(index=True, foreign_key="user.id")
     booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")
     order_id: Optional[int] = Field(default=None, foreign_key="instantorder.id")   # SOS из такси-заказа (B7b-2)
-    category: str = "other"                 # medical / breakdown / other
+    category: str = "other"                 # medical / breakdown / accident / threat / other
     note: str = ""
-    status: str = "open"                    # open / handled
-    created_at: datetime = Field(default_factory=utcnow)
+    status: str = Field(default="open", index=True)     # open / handled
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    # Кто и когда принял сигнал (аудит 2026-07-26). Раньше SOS уходил ОДНИМ сообщением в Telegram
+    # и всё: списка сигналов у админа не было, статус не менялся никогда — уснул, и следа нет.
+    handled_at: Optional[datetime] = None
+    handled_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    handled_note: str = ""                  # что сделали (для истории/полиции)
+    escalated_at: Optional[datetime] = None # когда ушёл повторный сигнал (не принят вовремя)
 
 
 class Report(SQLModel, table=True):
@@ -477,7 +486,10 @@ class Report(SQLModel, table=True):
     ехали вместе. status: new → reviewing → resolved | rejected (разбор у админа, человек в контуре)."""
     id: Optional[int] = Field(default=None, primary_key=True)
     reporter_id: int = Field(index=True, foreign_key="user.id")
-    target_user_id: int = Field(index=True, foreign_key="user.id")
+    # NULL = обвиняемый удалил аккаунт: строку НЕ стираем, а обезличиваем (см. account.py, шаг 3.5).
+    # Иначе нарушитель одним тапом уничтожал доказательства против себя — три жалобы за поведение,
+    # «удалить аккаунт», и разбирать нечего (аудит 2026-07-26).
+    target_user_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id")
     reason: str = ""                                       # свободный текст — детали (опционально)
     category: str = Field(default="other", index=True)     # перечень в quality.REPORT_CATEGORIES
     order_id: Optional[int] = Field(default=None, foreign_key="instantorder.id")   # быстрый заказ
@@ -495,13 +507,22 @@ class Incident(SQLModel, table=True):
     решает соразмерно по лестнице и объясняет обеим. Дополняет Report, не заменяет. См. docs/trust-safety.md."""
     id: Optional[int] = Field(default=None, primary_key=True)
     booking_id: Optional[int] = Field(default=None, index=True, foreign_key="booking.id")
+    # Спор по доставке (аудит 2026-07-26): «груз разбит/потерян» — та же машина разбора, что
+    # и по поездке. Без этого поля типы parcel_damage/parcel_lost были заведены, но недостижимы:
+    # код требовал booking_id и отвечал 400. Ровно один из двух контекстов заполнен.
+    parcel_id: Optional[int] = Field(default=None, index=True, foreign_key="parceldelivery.id")
+    order_id: Optional[int] = Field(default=None, index=True, foreign_key="instantorder.id")
     reporter_id: int = Field(index=True, foreign_key="user.id")     # кто заявил
     respondent_id: int = Field(index=True, foreign_key="user.id")   # на кого (обвиняемый)
     type: str = Field(index=True)            # код (passenger_no_show, harassment, parcel_damage, …)
     reporter_role: str = ""                  # passenger/driver/courier/sender/recipient
     description: str = ""                    # версия заявителя (≤2000)
     status: str = Field(default="open", index=True)  # open/awaiting_response/under_review/resolved/appealed/closed
-    suspected_bump: bool = False             # авто-детект «бампинга» (заполняется в фазе 4)
+    suspected_bump: bool = False             # авто-детект «бампинга» (детект отложен — см. decisions 2026-07-25)
+    # Фото-доказательства (порт из pr88): CSV своих URL (/secure/evidence/...), ≤10 шт.
+    # Спор «слово против слова» без фото нерешаем; файлы приватны (лица/номера/травмы).
+    evidence_urls: str = ""                  # доказательства заявителя
+    respondent_evidence_urls: str = ""       # доказательства обвинённого (право на защиту)
     respondent_statement: str = ""           # объяснение обвинённого (≤2000)
     responded_at: Optional[datetime] = None
     resolution: str = ""                     # none/dismissed/warning/strike/suspend/ban/mutual_resolved
@@ -510,6 +531,12 @@ class Incident(SQLModel, table=True):
     compensation_kop: int = 0                # предложенная компенсация (не списываем автоматически)
     appeal_text: str = ""                    # текст апелляции (≤2000)
     appeal_status: str = ""                  # ""/requested/upheld/overturned
+    # Что РЕАЛЬНО применено к профилю обвинённого этим спором (для честного отката при пере-
+    # решении после апелляции: «оставить в силе» не должно наказывать второй раз, «отменить» —
+    # снимает именно то, что наложил этот спор, не трогая чужие).
+    applied_warning: bool = False
+    applied_strike: bool = False
+    applied_suspended_until: Optional[datetime] = None
     resolved_by: Optional[int] = Field(default=None, foreign_key="user.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
@@ -569,10 +596,20 @@ class RequestResponse(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     request_id: int = Field(index=True, foreign_key="riderequest.id")
     driver_id: int = Field(index=True, foreign_key="user.id")
-    price: int = 0
+    price: int = 0                           # ПЕРВАЯ цена водителя (не меняется — история торга)
     comment: str = ""
     status: str = "offered"                  # offered / accepted / declined
     created_at: datetime = Field(default_factory=utcnow)
+    # --- Торг о цене, второй круг (2026-07-27) ---
+    # Раньше отклик был «бери или уходи»: водитель назвал цену, пассажир мог только принять или
+    # молча уйти. В деревне торговаться — привычка, а не неудобство, и половина сделок гибла
+    # на разнице в 50 ₽, которую обе стороны были готовы пройти навстречу.
+    current_price: int = 0                   # цена, которая сейчас НА СТОЛЕ (0 у старых строк → берём price)
+    last_offer_by: str = Field(default="driver", max_length=16)   # чей ход был последним: driver | passenger
+    bargain_rounds: int = 0                  # сколько встречных сделано всего (лимит — см. requests.py)
+    # Компактная история «d:500,p:400,d:450» — видят ОБЕ стороны. Отдельная таблица под 2-3 хода
+    # не нужна, а без истории торг превращается в «я же говорил другую цену» (CSV — как evidence_urls).
+    bargain_history: str = Field(default="", max_length=200)
 
 
 # ---- Фаза 2: «Быстрый заказ» (такси-режим) — presence/тариф/заказ/matcher ----
@@ -602,6 +639,12 @@ class Tariff(SQLModel, table=True):
     per_min: float = 0.0             # ₽ за минуту
     min_price: int = 0               # минимальная цена поездки, ₽
     k: float = 1.0                   # surge-коэффициент (v1 = 1.0, поле на будущее)
+    # Ночной/утренний коэффициент (аудит 2026-07-26): в −30 в 5 утра по дневной цене никто не
+    # поедет. Окно задаётся часами по местному времени (может переходить через полночь: 22→6).
+    # night_k = 1.0 → надбавки нет. Применяется ПОСЛЕ суржа, общий потолок — surge_max_k.
+    night_k: float = 1.0
+    night_from_hour: int = 22        # с какого часа действует ночной коэффициент
+    night_to_hour: int = 6           # до какого часа (не включая)
     active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -619,6 +662,14 @@ class InstantOrder(SQLModel, table=True):
     to_lng: float = 0.0
     from_text: str = ""
     to_text: str = ""
+    # Как найти пассажира: в селе «Ленина 12» — это пять домов без табличек. Комментарий и
+    # подъезд уходят водителю ВМЕСТЕ с оффером (до этого чат недоступен — его нет до accept).
+    comment: str = ""                # «за магазином, синие ворота», «позвони — выйду»
+    entrance: str = ""               # подъезд/квартира/этаж
+    # Заказ ДЛЯ ДРУГОГО человека (сын из Уфы вызывает такси маме в Баймаке). Если заполнено —
+    # водителю в карточке показываем это имя и ЭТОТ телефон (иначе он звонит заказчику в другой город).
+    for_name: str = ""
+    for_phone: str = ""
     category: str = "standard"
     status: InstantOrderStatus = Field(default=InstantOrderStatus.created, index=True)
     # Предзаказ «на время» (MVP): если задан и в будущем — заказ создаётся в статусе `scheduled`
@@ -667,6 +718,16 @@ class InstantOrder(SQLModel, table=True):
     done_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None
     expired_at: Optional[datetime] = None
+    # «Рядом никого»: заказ не нашёл машину, но пассажир согласился подождать — фоновый воркер
+    # (app/taxi_worker.py) перезапустит поиск, пока не истечёт wait_until. Без этого в райцентре
+    # ночью заказ умирает за 2 секунды («Рядом никого») и человек уходит к конкуренту.
+    wait_until: Optional[datetime] = Field(default=None, index=True)
+    retry_count: int = 0             # сколько раз воркер перезапускал поиск (для лога/потолка)
+    # Забытые вещи: пассажир нажал «забыл вещь» → чат заказа снова открыт до этого времени.
+    lost_item_until: Optional[datetime] = None
+    # «Сказать рәхмәт» после такси-заказа (дедуп). Раньше благодарность была только у попуток —
+    # водителю такси, который помог занести коляску, сказать спасибо было нечем.
+    thanked: bool = False
 
 
 class RouteWatch(SQLModel, table=True):
@@ -833,6 +894,11 @@ class CommissionDebt(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow, index=True)
     due_at: Optional[datetime] = None                     # срок оплаты (created_at + debt_due_days)
     paid_declared_at: Optional[datetime] = None           # когда водитель нажал «Я оплатил»
+    # Сколько раз заявляли оплату по этому долгу (аудит 2026-07-26). Раньше кнопку «Я оплатил»
+    # можно было жать бесконечно: pending снимает блок, админ отклонил → нажал снова → работает.
+    # После DEBT_MAX_DECLARES отклонённых заявок «слово» больше не снимает блокировку.
+    declare_count: int = 0
+    note: str = ""                                        # почему списан вручную (история для админа)
     confirmed_at: Optional[datetime] = None               # когда админ подтвердил
     # Один заказ = максимум одна запись долга. DB-барьер против гонки двойного «done»
     # (двойной тап/ретрай): check-then-insert без него мог создать две записи на один order_id.
@@ -877,11 +943,48 @@ class TaxiApplication(SQLModel, table=True):
     selfie_url: Optional[str] = None               # селфи с правами в руках — сверка лица с документом
     criminal_record_url: Optional[str] = None      # справка о несудимости (Госуслуги/МВД) — опц., рекомендуется
     birth_date: date_type = date_type(1970, 1, 1)  # для проверки «возраст 20+»
-    license_since_year: int = 0                    # год получения прав (стаж от 2 лет)
+    license_since_year: int = 0                    # год получения прав (стаж от 3 лет, 580-ФЗ)
+    # Сроки документов (аудит 2026-07-26). Раньше документы были ТОЛЬКО картинками: одобрили
+    # в июле — человек возит с просроченным ОСАГО в декабре, а мы «проверенная служба».
+    # Фоновая проверка (app/doc_check.py) напоминает за 14/3 дня и снимает допуск к такси.
+    osago_until: Optional[date_type] = Field(default=None, index=True)
+    permit_until: Optional[date_type] = Field(default=None, index=True)
+    # Диагностическая карта (техосмотр) — 580-ФЗ требует исправную машину, а в коде техосмотра
+    # не было вообще. Дата хранится рядом с остальными сроками, контроль — тот же doc_check.
+    inspection_until: Optional[date_type] = Field(default=None, index=True)
+    docs_expired: bool = Field(default=False, index=True)   # допуск снят до обновления документов
+    docs_warned_at: Optional[datetime] = None               # когда слали последнее напоминание (анти-спам)
     status: TaxiApplicationStatus = Field(default=TaxiApplicationStatus.pending, index=True)
     comment: Optional[str] = None                  # комментарий админа при отклонении
     created_at: datetime = Field(default_factory=utcnow)
     reviewed_at: Optional[datetime] = None         # когда админ одобрил/отклонил
+
+
+class PreTripCheck(SQLModel, table=True):
+    """Предрейсовое подтверждение таксиста за ОДИН местный день (580-ФЗ, честный минимум).
+
+    Закон требует предрейсовый медосмотр и контроль исправности машины. Медцентра у нас нет
+    и не будет — но «ничего» тоже неправильный ответ: раньше в коде не было ни одного
+    упоминания осмотра (аудит 2026-07-26). Поэтому перед первым выходом на линию водитель
+    один раз в день подтверждает три вещи ЯВНО, своим действием, и это остаётся записью:
+    самочувствие, исправность машины, отсутствие алкоголя.
+
+    Это самодекларация, а не медосмотр — так и написано водителю в интерфейсе, и так же
+    честно должно звучать в любом отчёте. Ценность в двух вещах: человек осознанно ставит
+    галочку (а не «как-нибудь доеду»), и при разборе ДТП видно, что он в этот день заявил.
+
+    Один день = одна строка (UniqueConstraint). Отозвать нельзя: запись — след, а не тумблер.
+    Попутки это не касается — она не такси и предрейсового контроля не требует.
+    """
+    __table_args__ = (UniqueConstraint("driver_id", "day", name="uq_pretripcheck_driver_day"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    day: date_type = Field(index=True)      # МЕСТНЫЙ день (UTC + local_tz_offset_hours), как TaxiWorkDay
+    health_ok: bool = False                 # «чувствую себя хорошо, могу вести»
+    car_ok: bool = False                    # «машина исправна: тормоза, свет, резина»
+    no_alcohol: bool = False                # «алкоголь и лекарства, влияющие на реакцию, не принимал»
+    note: str = Field(default="", max_length=300)   # что-то заметил, но всё же выехал (для разбора)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class TaxiWorkDay(SQLModel, table=True):
@@ -982,10 +1085,11 @@ class ReferralBonus(SQLModel, table=True):
 
 
 class DeviceBan(SQLModel, table=True):
-    """Бан устройства (анти-фрод B8-1, обход бана новым номером).
+    """Бан устройства (анти-фрод B8-1, барьер от «нового номера на том же телефоне»).
 
     Клиент шлёт стабильный X-Device-Id (ANDROID_ID) со всеми запросами; забаненное
-    устройство не может регистрироваться/входить, каким бы новым номером ни пытались.
+    устройство не входит по своему id. Заголовок контролирует клиент → целевой обход
+    сменой X-Device-Id возможен (усиление — Play Integrity, бэклог); честная оценка, не «закрыто».
     Банит ТОЛЬКО админ (человек в контуре); снять — DELETE /admin/bans/device/{device_id}.
     user_id — кому принадлежало устройство при бане (для админа, опционально)."""
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -1184,7 +1288,7 @@ class ParcelDelivery(SQLModel, table=True):
     receiver_name: str = ""                                                   # имя получателя (публично курьеру)
     receiver_phone: str = ""                                                  # ПРИВАТНО: отдаём только принявшему курьеру
     fee_kop: int = Field(default=0, sa_type=BigInteger)                                                          # символический сервисный сбор платформы (коп), фиксируется при создании
-    status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled
+    status: str = Field(default="created", max_length=16, index=True)        # created|accepted|in_transit|delivered|canceled|returning|returned
     confirm_code: str = Field(default="", index=True, max_length=12)         # короткий код вручения (получатель называет курьеру)
     created_at: datetime = Field(default_factory=utcnow, index=True)          # растущая таблица: индекс под сорт/чистку по дате
     accepted_at: Optional[datetime] = None
@@ -1216,6 +1320,18 @@ class ParcelDelivery(SQLModel, table=True):
     # Получатель рассчитался с курьером (товар + доставка). Ставится при вручении buy_bring.
     settled: bool = False
     settled_at: Optional[datetime] = None
+    # --- Ветка «что-то пошло не так» (аудит 2026-07-26) ---
+    # Возврат: получателя нет / отказался / не выходит на связь. Курьер везёт посылку обратно.
+    # Статусы: ... | returning (везу обратно) | returned (вернул отправителю).
+    return_reason: str = Field(default="", max_length=200)   # почему возвращаем (видят обе стороны)
+    returned_at: Optional[datetime] = None
+    delivery_attempts: int = 0                                # сколько раз пытались вручить
+    # Фото-фиксация на границах ответственности: «взял целой» / «отдал целой». Приватные URL
+    # (/secure/evidence) — без них спор «ты разбил» ↔ «оно уже было» нерешаем ни для кого.
+    pickup_photo_url: str = ""                                # фото при заборе у отправителя
+    delivery_photo_url: str = ""                              # фото при вручении получателю
+    # Компенсация курьеру за отмену «на полпути» (Модель А: только фиксируем сумму, деньги мимо нас).
+    cancel_fee_kop: int = Field(default=0, sa_type=BigInteger)
 
 
 class CourierApplication(SQLModel, table=True):
@@ -1230,6 +1346,13 @@ class CourierApplication(SQLModel, table=True):
     transport: str = Field(default="car", max_length=16)     # car (легковой) | cargo (грузовой/каблук)
     status: str = Field(default="pending", index=True, max_length=16)  # pending | approved | rejected
     selfie_url: str = ""                                     # селфи с документом — сверка лица (L1)
+    # Кто и на чём везёт (аудит 2026-07-26). Раньше «стать курьером» = селфи + выбор «легковой/
+    # грузовой»: ни ФИО, ни номера машины, ни согласия с правилами. Человеку доверяли чужую
+    # посылку, зная о нём меньше, чем о попутчике.
+    full_name: str = Field(default="", max_length=120)        # ФИО как в документе (сверка с селфи)
+    car_plate: str = Field(default="", max_length=16)         # госномер — по нему узнают машину
+    rules_accepted: bool = False                              # согласие с правилами доставки
+    rules_accepted_at: Optional[datetime] = None
     invited_by: Optional[int] = Field(default=None, foreign_key="user.id")  # кто пригласил (доверие «между своими»)
     reject_reason: str = ""                                  # причина отклонения (курьер увидит, подаст снова)
     created_at: datetime = Field(default_factory=utcnow)

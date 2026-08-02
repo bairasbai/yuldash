@@ -215,8 +215,9 @@ class SosVerifyDeepContentTest {
     @Test
     fun sos_sent_showsSentInfoCard() {
         setSos(sent = true)
-        scrollTo("Уведомление отправлено")
-        composeRule.onNodeWithText("Уведомление отправлено").assertIsDisplayed()
+        // Карточку переименовали: «Уведомление отправлено» → «Сигнал отправлен».
+        scrollTo("Сигнал отправлен")
+        composeRule.onNodeWithText("Сигнал отправлен").assertIsDisplayed()
     }
 
     @Test

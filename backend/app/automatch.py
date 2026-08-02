@@ -27,10 +27,18 @@ from .timeutil import utcnow
 
 
 def _best_response(session: Session, responses: list[RequestResponse]) -> RequestResponse:
-    """Лучший отклик: выше рейтинг водителя → ниже цена (0/неуказанная — в конец) → раньше откликнулся."""
+    """Лучший отклик: выше рейтинг водителя → ниже цена (0/неуказанная — в конец) → раньше откликнулся.
+
+    Цену берём ту, что НА СТОЛЕ (после торга), а не первое предложение водителя: иначе сравнивали
+    бы числа, от которых стороны уже отошли. Здесь это почти всегда одно и то же (авто-подбор
+    работает только для пассажиров без приложения, а они торговаться не могут), но сравнение
+    должно опираться на ту же цену, по которой создастся поездка."""
+    from .routers.requests import price_on_table   # локальный импорт — без цикла на старте
+
     def rank(r: RequestResponse):
         avg, _ = user_rating(session, r.driver_id)
-        price_rank = r.price if r.price and r.price > 0 else float("inf")
+        p = price_on_table(r)
+        price_rank = p if p > 0 else float("inf")
         return (-avg, price_rank, r.id)
     return sorted(responses, key=rank)[0]
 

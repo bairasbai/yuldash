@@ -192,6 +192,52 @@ def driver_earnings(session: Session, driver_id: int, period: str = "week",
     return {"period": period, "total": total_sum, "trips": total_trips, "by_day": by_day}
 
 
+def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
+    """Список ЗАВЕРШЁННЫХ поездок водителя с расшифровкой денег: цена, комиссия, чистыми.
+
+    Раньше такого списка не существовало вообще: /instant/orders/mine фильтрует только по
+    пассажиру, а заработок отдавался одной суммой за день. Спор «Юлдаш говорит 4200, я
+    насчитал 4600 — где мои 400?» было нечем закрыть, и в таксопарке это причина №1 ухода
+    водителя (аудит 2026-07-26). Комиссию берём фактическую — из начисленного долга по
+    заказу (та самая сумма, которую он реально должен), а не пересчитываем задним числом."""
+    limit = max(1, min(int(limit or 100), 200))
+    orders = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.driver_id == driver_id,
+            InstantOrder.status == InstantOrderStatus.done,
+        ).order_by(InstantOrder.done_at.desc(), InstantOrder.id.desc()).limit(limit)
+    ).all()
+    if not orders:
+        return {"rides": [], "total_price": 0, "total_fee_kop": 0, "total_net_kop": 0}
+    debts = {d.order_id: d for d in session.exec(
+        select(CommissionDebt).where(CommissionDebt.order_id.in_([o.id for o in orders]))
+    ).all() if d.order_id is not None}
+    rides, total_price, total_fee = [], 0, 0
+    for o in orders:
+        price_rub = int(o.price_final if o.price_final is not None else o.price_estimate)
+        d = debts.get(o.id)
+        # Долга нет (промо 0% / грошовый заказ / списан) → комиссия по этой поездке ноль.
+        fee_kop = int(d.amount_kop) if d and d.status != DebtStatus.paid else (
+            int(d.amount_kop) if d else 0
+        )
+        total_price += price_rub
+        total_fee += fee_kop
+        rides.append({
+            "order_id": o.id,
+            "done_at": o.done_at,
+            "from": o.from_text or "", "to": o.to_text or "",
+            "price": price_rub,                       # ₽, как показываем пассажиру
+            "fee_kop": fee_kop,                       # комиссия платформы, копейки
+            "net_kop": price_rub * 100 - fee_kop,     # «чистыми» водителю
+            "paid": bool(o.paid),
+            "payment_method": o.payment_method or "",
+            "fee_status": (d.status.value if d and hasattr(d.status, "value") else
+                           (d.status if d else "none")),
+        })
+    return {"rides": rides, "total_price": total_price, "total_fee_kop": total_fee,
+            "total_net_kop": total_price * 100 - total_fee}
+
+
 def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -> int:
     """Комиссия платформы по завершённому такси-заказу, копейки.
     База = финальная цена (или оценка) в ₽ → копейки; процент — лесенка по стажу
@@ -286,9 +332,20 @@ def taxi_block_reason(session: Session, driver_id: int, now=None) -> Optional[st
 
     Блокируем, если есть ПРОСРОЧЕННЫЙ неоплаченный долг (due_at < now) ИЛИ сумма неоплаченного
     долга превысила порог debt_block_threshold_kop. Долг в статусе pending (водитель заявил
-    оплату, ждём админа) НЕ блокирует — работаем «на доверии». Ничего не должен → None."""
+    оплату, ждём админа) НЕ блокирует — работаем «на доверии». Ничего не должен → None.
+
+    ⚠️ Доверяем, но не бесконечно (аудит 2026-07-26). Раньше кнопку «Я оплатил» можно было
+    жать без счёта: заявил → pending → блок снят; админ отклонил → долг вернулся в unpaid →
+    нажал снова → снова работает. Комиссию можно было не платить вообще, а это вся выручка
+    платформы. Теперь долг, по которому «слово» давали больше debt_max_declares раз, в
+    pending блокировку НЕ снимает — ждём подтверждения деньгами."""
     now = now or utcnow()
     unpaid = _unpaid(session, driver_id)
+    # Долги, где доверие исчерпано: обещали оплату N+ раз, подтверждения так и нет.
+    abused = [d for d in _pending(session, driver_id)
+              if (d.declare_count or 0) > settings.debt_max_declares]
+    if abused:
+        return "declare_abuse"
     if not unpaid:
         return None
     if any(d.due_at is not None and d.due_at < now for d in unpaid):
@@ -338,13 +395,18 @@ def debt_summary(session: Session, driver_id: int) -> dict:
 
 def declare_paid(session: Session, driver_id: int) -> int:
     """Водитель заявил оплату: все его unpaid-долги → pending (ждут подтверждения админом).
-    Возврат: сумма переведённого в pending (копейки). Ничего не должен → 0."""
+    Возврат: сумма переведённого в pending (копейки). Ничего не должен → 0.
+
+    Считаем, сколько раз по каждому долгу давали «слово»: после debt_max_declares отказов
+    заявка больше не снимает блокировку (см. taxi_block_reason) — иначе комиссию можно было
+    не платить вообще, бесконечно нажимая кнопку."""
     now = utcnow()
     unpaid = _unpaid(session, driver_id)
     total = 0
     for d in unpaid:
         d.status = DebtStatus.pending
         d.paid_declared_at = now
+        d.declare_count = (d.declare_count or 0) + 1
         session.add(d)
         total += d.amount_kop
     if unpaid:

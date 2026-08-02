@@ -238,16 +238,27 @@ class AccessibilityDeep4ContentTest {
                 onWomenOnlyChange = onWomenOnlyChange, onChildSeatChange = onChildSeatChange, onPetsChange = onPetsChange,
                 onWheelchairChange = {}, onBaggageChange = {}, onNonSmokingChange = {},
                 onAirConditionerChange = {},
+                // «Только для своих» — параметр появился в экране, тест про него не знал.
+                onlyTrusted = false, onOnlyTrustedChange = {},
                 onSubmit = onSubmit,
                 // Слоты полей адреса не передаём → Content рисует простые OutlinedTextField (без гео-сети).
             )
         }
     }
 
+    /** Раскрыть блок «Дополнительно»: условия поездки, «только для своих» и комментарий свёрнуты
+     *  по умолчанию (осознанно — чтобы форма не пугала объёмом). Без этого их просто нет на экране. */
+    private fun expandExtras(ba: Boolean = false) {
+        composeRule.onNodeWithText(if (ba) "Өҫтәмә" else "Дополнительно").performClick()
+    }
+
     @Test
     fun passenger_conditionsSection_showsTitleAndToggleLabels() {
         composeRule.setContent { PassengerContent() }
-        composeRule.onNodeWithText("Условия поездки").assertIsDisplayed()
+        // Отдельного заголовка «Условия поездки» больше нет — блок свернули под «Дополнительно»,
+        // а что внутри, перечислено в его подписи. Проверяем подпись по вхождению и сами тумблеры.
+        composeRule.onNodeWithText("Условия поездки", substring = true).assertIsDisplayed()
+        expandExtras()
         composeRule.onNodeWithText("Только женщины").assertIsDisplayed()
         composeRule.onNodeWithText("Детское кресло").assertIsDisplayed()
         composeRule.onNodeWithText("Еду с животным").assertIsDisplayed()
@@ -259,7 +270,8 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent {
             PassengerContent(language = AppLanguage.Ba, selectedCategoryText = "Ғәҙәти")
         }
-        composeRule.onNodeWithText("Сәфәр шарттары").assertIsDisplayed()
+        composeRule.onNodeWithText("Сәфәр шарттары", substring = true).assertIsDisplayed()
+        expandExtras(ba = true)
         composeRule.onNodeWithText("Тик ҡатын-ҡыҙ").assertIsDisplayed()
     }
 
@@ -268,6 +280,8 @@ class AccessibilityDeep4ContentTest {
         composeRule.setContent { PassengerContent() }
         composeRule.onNodeWithText("Мест").assertIsDisplayed()
         composeRule.onNodeWithText("Цена, ₽").assertIsDisplayed()
+        // Комментарий переехал в свёрнутый блок «Дополнительно» — раскрываем, как человек.
+        expandExtras()
         composeRule.onNodeWithText("Комментарий").assertIsDisplayed()
     }
 
@@ -302,6 +316,8 @@ class AccessibilityDeep4ContentTest {
     fun passenger_womenOnlyToggle_firesCallback() {
         var toggled: Boolean? = null
         composeRule.setContent { PassengerContent(onWomenOnlyChange = { toggled = it }) }
+        // Тумблеров нет, пока блок «Дополнительно» свёрнут — сначала раскрываем.
+        expandExtras()
         // Первый свитч в секции «Условия поездки» — «Только женщины» (по порядку PrefToggleRow).
         composeRule.onAllNodes(isToggleable())[0].performClick()
         assertEquals(true, toggled)

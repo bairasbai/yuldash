@@ -70,7 +70,10 @@ def create_app() -> FastAPI:
     # Sentry — до создания приложения (чтобы перехват стоял с первого запроса каждого
     # воркера). Без SENTRY_DSN это полный no-op — прод работает как раньше.
     init_sentry()
-    app = FastAPI(title="Yuldash API", version=API_VERSION, lifespan=lifespan)
+    # В проде прячем интерактивную схему (/docs, /redoc, /openapi.json): она раскрывает
+    # карту всех приватных admin/payment/moderation-эндпоинтов. В dev — доступна для удобства.
+    doc_urls = {"docs_url": None, "redoc_url": None, "openapi_url": None} if settings.is_prod else {}
+    app = FastAPI(title="Yuldash API", version=API_VERSION, lifespan=lifespan, **doc_urls)
     # Порядок: последний add_middleware — внешний (выполняется первым).
     # Хотим: лимит запросов отсекает раньше всего → добавляем его последним.
     app.add_middleware(DailyDigestMiddleware)   # дневная сводка админу (B9b-3): дешёвый гейт, отправка в фоне

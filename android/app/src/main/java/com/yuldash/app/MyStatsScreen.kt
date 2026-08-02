@@ -32,7 +32,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Co2
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Savings
@@ -137,6 +139,9 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
                 stats != null -> {
                     val s = stats!!
                     item { StatsShareCard(s, name, language) }
+                    // Бейджи (G8): бэкенд считал их с самого начала, а приложение не звало —
+                    // награда существовала только в базе, человек её никогда не видел.
+                    item { AchievementsSection() }
 
                     // Детальные плитки 2×2.
                     item {
@@ -490,4 +495,72 @@ private fun shareText(context: Context, caption: String) {
         putExtra(Intent.EXTRA_TEXT, caption)
     }
     context.startActivity(Intent.createChooser(intent, caption).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
+
+/**
+ * Бейджи профиля — тёплое «спасибо, что ты с нами», а не рейтинг: на распределение заказов
+ * они не влияют (так и в бэкенде). Незаработанные показываем с прогрессом, а не прячем:
+ * видеть «ещё 3 поездки» приятнее, чем не знать о награде вовсе.
+ *
+ * Секция сама грузит данные и молча исчезает при ошибке — это украшение, из-за которого
+ * экран статистики ломаться не должен.
+ */
+@Composable
+private fun AchievementsSection() {
+    var data by remember { mutableStateOf<com.yuldash.app.data.AchievementsDto?>(null) }
+    LaunchedEffect(Unit) { ApiClient.getMyAchievements().onSuccess { data = it } }
+    val d = data ?: return
+    if (d.items.isEmpty()) return
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(appText("Твои значки", "Һинең билдәләрең"), color = CanonText,
+                fontWeight = FontWeight.Black, fontSize = 18.sp)
+            Spacer(Modifier.width(8.dp))
+            Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
+                Text("${d.earnedCount}/${d.items.size}", color = CanonGreen2, fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp))
+            }
+        }
+        d.items.forEach { b -> AchievementRow(b) }
+        Text(
+            appText(
+                "Значки — это про тепло, а не про рейтинг: на заказы они никак не влияют.",
+                "Билдәләр — йылылыҡ хаҡында, рейтинг хаҡында түгел: заказдарға улар тәьҫир итмәй.",
+            ),
+            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp,
+        )
+    }
+}
+
+@Composable
+private fun AchievementRow(b: com.yuldash.app.data.AchievementDto) {
+    Surface(
+        color = if (b.earned) CanonMint else CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, if (b.earned) CanonGreen2 else CanonBorder),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (b.earned) Icons.Default.EmojiEvents else Icons.Default.Lock,
+                contentDescription = null,
+                tint = if (b.earned) CanonGold else CanonMuted,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(appText(b.ru, b.ba), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                if (!b.earned) {
+                    Text(
+                        appText("Ещё ${(b.goal - b.value).coerceAtLeast(0)} до значка", "Билдәгә тағы ${(b.goal - b.value).coerceAtLeast(0)}"),
+                        color = CanonMuted, fontSize = 12.sp,
+                    )
+                }
+            }
+            if (b.earned) {
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
 }

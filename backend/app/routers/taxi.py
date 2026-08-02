@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..errors import herr
 from ..models import (
-    Booking, DriverProfile, InstantOrder, InstantOrderStatus as S, TaxiApplication,
+    Booking, DriverProfile, InstantOrder, InstantOrderStatus as S, PreTripCheck, TaxiApplication,
     TaxiApplicationStatus, TaxiCity, User, UserRole,
 )
 from ..security import current_user
@@ -26,13 +26,14 @@ from ..timeutil import utcnow
 from .. import antifraud as af_mod
 from .. import geo as geo_mod
 from .. import instant_service as isv
+from .. import pretrip as pretrip_mod
 from .. import taxi as taxi_mod
 from .drivers import _ensure_owned_doc_url
 
 router = APIRouter(tags=["taxi"])
 
 MIN_AGE_YEARS = 20        # возраст 20+ (бизнес-правило, юрист подтвердит минимум)
-MIN_LICENSE_YEARS = 2     # стаж от 2 лет
+MIN_LICENSE_YEARS = 3     # стаж от 3 лет (580-ФЗ; было 2 — расхождение с законом, аудит 2026-07-26)
 
 
 # ------------------------------ доступность такси ------------------------------
@@ -59,8 +60,29 @@ class TaxiApplyIn(BaseModel):
     # Проверки водителя, Уровень 1: селфи с правами в руках (сверка лица) + справка о несудимости (опц.).
     selfie_url: str = Field("", max_length=500)
     criminal_record_url: str = Field("", max_length=500)
+    # Сроки документов (580-ФЗ, аудит 2026-07-26). Необязательные НАМЕРЕННО: поля появились
+    # позже живого приложения, и жёсткое требование выбило бы 422 всем, кто ещё не обновился.
+    # Кто их не заполнил — получает напоминания от app/doc_check.py, а модератор видит пропуск
+    # в очереди заявок (`docs_missing`) и может не одобрять до заполнения.
+    osago_until: Optional[date] = None          # до какого числа действует ОСАГО
+    permit_until: Optional[date] = None         # срок разрешения на такси
+    inspection_until: Optional[date] = None     # диагностическая карта (техосмотр)
     # Класс машины (§6): водитель ЗАЯВЛЯЕТ в онбординге, админ подтверждает/меняет при approve.
     car_class: Literal["economy", "comfort"] = "economy"
+
+
+class TaxiDocsIn(BaseModel):
+    """Обновление сроков и фото документов БЕЗ пере-подачи заявки.
+
+    Нужно уже одобренным: ОСАГО кончается каждый год, и заставлять человека заново проходить
+    модерацию из-за нового полиса — значит гарантированно оставить его без работы на пару дней.
+    Присланные поля перезаписываются, пропущенные остаются как были (частичное обновление).
+    """
+    osago_until: Optional[date] = None
+    permit_until: Optional[date] = None
+    inspection_until: Optional[date] = None
+    osago_url: Optional[str] = Field(None, max_length=500)
+    permit_photo_url: Optional[str] = Field(None, max_length=500)
 
 
 def _set_car_class(session: Session, user_id: int, car_class: Optional[str]) -> None:
@@ -91,10 +113,52 @@ def _validate_apply(body: TaxiApplyIn) -> None:
         raise herr(400, "Год получения прав не может быть в будущем", "Права алған йыл киләсәктә була алмай")
     if today.year - body.license_since_year < MIN_LICENSE_YEARS:
         raise herr(400, f"Нужен стаж вождения от {MIN_LICENSE_YEARS} лет", f"Руль артында {MIN_LICENSE_YEARS} йыл стаж кәрәк")
+    # Сроки документов: если указаны — только в будущем. Просроченный документ в момент подачи
+    # это не «почти готов», это отказ; лучше сказать сразу, чем одобрить и снять допуск назавтра.
+    _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until)
+
+
+def _validate_doc_dates(osago: Optional[date], permit: Optional[date], inspection: Optional[date]) -> None:
+    """Общая проверка сроков (подача заявки и обновление документов — одно правило)."""
+    today = utcnow().date()
+    for value, ru, ba in (
+        (osago, "ОСАГО", "ОСАГО"),
+        (permit, "разрешения на такси", "такси рөхсәтенең"),
+        (inspection, "диагностической карты", "диагностика картаһының"),
+    ):
+        if value is None:
+            continue
+        if value < today:
+            raise herr(400, f"Срок {ru} уже истёк — обнови документ и укажи новую дату",
+                       f"{ba} ваҡыты үткән — документты яңыртып, яңы датаны күрһәт")
+        if value.year > today.year + 20:
+            raise herr(400, "Проверь дату — она слишком далеко в будущем",
+                       "Датаны тикшер — ул артыҡ алыҫ киләсәктә")
+
+
+def _doc_dates(app: TaxiApplication) -> dict:
+    """Сроки документов + производные флаги для экрана (клиент не считает даты сам)."""
+    today = utcnow().date()
+    dates = {
+        "osago_until": getattr(app, "osago_until", None),
+        "permit_until": getattr(app, "permit_until", None),
+        "inspection_until": getattr(app, "inspection_until", None),
+    }
+    filled = [d for d in dates.values() if d is not None]
+    soonest = min(filled) if filled else None
+    return {
+        **{k: (v.isoformat() if v else None) for k, v in dates.items()},
+        "docs_expired": bool(getattr(app, "docs_expired", False)),
+        # Пропущенные сроки: модератору — сигнал «не одобряй вслепую», водителю — что дозаполнить.
+        "docs_missing": [k for k, v in dates.items() if v is None],
+        # Сколько дней до ближайшего истечения (None = сроков нет; отрицательное = просрочен).
+        "docs_days_left": ((soonest - today).days if soonest else None),
+    }
 
 
 def _application_payload(app: TaxiApplication) -> dict:
     return {
+        **_doc_dates(app),
         "id": app.id,
         "status": app.status.value,
         "inn": app.inn,
@@ -135,6 +199,11 @@ def taxi_apply(body: TaxiApplyIn, user: User = Depends(current_user), session: S
     app.criminal_record_url = criminal_url
     app.birth_date = body.birth_date
     app.license_since_year = body.license_since_year
+    app.osago_until = body.osago_until
+    app.permit_until = body.permit_until
+    app.inspection_until = body.inspection_until
+    app.docs_expired = False        # свежая заявка с проверенными датами — допуск не снят
+    app.docs_warned_at = None
     app.status = TaxiApplicationStatus.pending
     app.comment = None
     app.reviewed_at = None
@@ -155,10 +224,108 @@ def my_taxi_application(user: User = Depends(current_user), session: Session = D
     return _application_payload(app)
 
 
+@router.post("/taxi/documents")
+def update_taxi_documents(body: TaxiDocsIn, user: User = Depends(current_user),
+                          session: Session = Depends(get_session)):
+    """Обновить сроки (и фото) документов, НЕ пере-подавая заявку.
+
+    Раньше выхода не было вообще: продлил ОСАГО — а сказать об этом системе нечем, кроме
+    повторной подачи заявки, которая сбрасывает статус в pending и оставляет человека без
+    работы до следующей модерации. Это наказание за законопослушность (аудит 2026-07-26).
+
+    Допуск возвращается СРАЗУ, как только все заполненные даты снова в будущем: ждать ночного
+    прогона app/doc_check.py, чтобы поехать, водитель не должен. Обратное (снятие допуска)
+    делает только фоновая задача — чтобы случайная опечатка не выбила человека с линии мгновенно.
+    """
+    app = taxi_mod.my_application(session, user.id)
+    if not app:
+        raise HTTPException(404, "Заявка не подана")
+    _validate_doc_dates(body.osago_until, body.permit_until, body.inspection_until)
+    if body.osago_until is not None:
+        app.osago_until = body.osago_until
+    if body.permit_until is not None:
+        app.permit_until = body.permit_until
+    if body.inspection_until is not None:
+        app.inspection_until = body.inspection_until
+    # Фото — только СВОИ загруженные защищённые документы (анти-подмена чужих URL).
+    if body.osago_url is not None and body.osago_url.strip():
+        app.osago_url = _ensure_owned_doc_url(body.osago_url, user, None)
+    if body.permit_photo_url is not None and body.permit_photo_url.strip():
+        app.permit_photo_url = _ensure_owned_doc_url(body.permit_photo_url, user, None)
+    today = utcnow().date()
+    dates = [d for d in (app.osago_until, app.permit_until, app.inspection_until) if d is not None]
+    if app.docs_expired and dates and all(d >= today for d in dates):
+        app.docs_expired = False
+        app.docs_warned_at = None
+    session.add(app)
+    session.commit()
+    session.refresh(app)
+    return _application_payload(app)
+
+
+# ------------------------------ предрейсовое подтверждение (580-ФЗ) ------------------------------
+class PreTripIn(BaseModel):
+    """Три пункта готовности. Все обязательны — «частично готов» это не готов."""
+    health_ok: bool = False
+    car_ok: bool = False
+    no_alcohol: bool = False
+    note: str = Field("", max_length=300)
+
+
+@router.get("/taxi/pretrip")
+def get_pretrip(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Подтвердил ли водитель готовность на сегодня (для экрана «Выйти на линию»)."""
+    return pretrip_mod.payload(session, user.id)
+
+
+@router.post("/taxi/pretrip")
+def confirm_pretrip(body: PreTripIn, user: User = Depends(current_user),
+                    session: Session = Depends(get_session)):
+    """Подтвердить готовность на сегодня. Запись остаётся — это след, а не тумблер.
+
+    Мы честно называем это самодекларацией, а не медосмотром: медцентра у платформы нет.
+    Но осознанное действие работает и без врача, а при разборе ДТП видно, что человек заявил.
+    """
+    pretrip_mod.confirm(session, user.id, body.health_ok, body.car_ok, body.no_alcohol, body.note)
+    return pretrip_mod.payload(session, user.id)
+
+
 # ------------------------------ админ: заявки ------------------------------
 def _require_admin(user: User) -> None:
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для админа")
+
+
+@router.get("/admin/taxi/pretrip")
+def admin_pretrip_journal(day: Optional[date] = None, user: User = Depends(current_user),
+                          session: Session = Depends(get_session)):
+    """Журнал предрейсовых подтверждений за день (по умолчанию — сегодня).
+
+    Смысл записи: при разборе ДТП или проверки видно, что водитель заявил в этот день.
+    Отдаём только факт и заметку — никаких координат и телефонов пассажиров тут нет.
+    """
+    _require_admin(user)
+    target = day or pretrip_mod.local_day()
+    rows = session.exec(
+        select(PreTripCheck).where(PreTripCheck.day == target).order_by(PreTripCheck.created_at.desc())
+    ).all()
+    if not rows:
+        return {"day": target.isoformat(), "items": []}
+    ids = {r.driver_id for r in rows}
+    users = {u.id: u for u in session.exec(select(User).where(User.id.in_(ids))).all()}
+    return {
+        "day": target.isoformat(),
+        "items": [
+            {
+                "driver_id": r.driver_id,
+                "name": ((users.get(r.driver_id).name if users.get(r.driver_id) else "") or "Водитель"),
+                "phone": ((users.get(r.driver_id).phone if users.get(r.driver_id) else "") or ""),
+                "confirmed_at": r.created_at.isoformat(),
+                "note": r.note or "",
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.get("/admin/taxi-applications")

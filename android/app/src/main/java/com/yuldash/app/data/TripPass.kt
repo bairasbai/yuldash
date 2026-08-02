@@ -137,6 +137,15 @@ object TripPassStore {
     fun remove(context: Context, bookingId: Int) {
         runCatching { sp(context).edit().remove(KEY_PREFIX + bookingId).apply() }
     }
+
+    /**
+     * Стереть ВСЕ паспорта — выход из аккаунта / удаление аккаунта.
+     * В паспорте лежат имя и телефон пассажира: на общем телефоне это чужие ПДн (152-ФЗ),
+     * следующий вошедший не должен их видеть. Контекст не нужен: зовётся после init().
+     */
+    fun clearAll() {
+        runCatching { prefs?.edit()?.clear()?.apply() }
+    }
 }
 
 /** Одно отложенное исходящее действие. */
@@ -204,6 +213,16 @@ object Outbox {
         val list = readAll(context)
         list.add(action)
         writeAll(context, list)
+    }
+
+    /**
+     * Выбросить всю очередь — выход из аккаунта. Иначе неотправленные сообщения и статусы
+     * прошлого пользователя ушли бы ОТ НОВОГО аккаунта при первом же появлении сети.
+     * Контекст не нужен: зовётся после init().
+     */
+    fun clearAll() {
+        runCatching { prefs?.edit()?.remove(KEY)?.apply() }
+        version.value = version.value + 1
     }
 
     fun newMessage(bookingId: Int, text: String) =

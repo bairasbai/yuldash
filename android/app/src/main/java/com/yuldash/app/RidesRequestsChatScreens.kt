@@ -635,7 +635,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
             ) {
                 SmallAvatar(dto.driverAvatar, dto.driverName, 30)
                 Spacer(Modifier.width(8.dp))
-                Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(dto.driverName.ifBlank { appText("Водитель", "Йөрөтөүсе") }, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (dto.driverOnline) { Spacer(Modifier.width(6.dp)); OnlineBadge() }
                 if (dto.driverIsWoman) { Spacer(Modifier.width(6.dp)); WomanDriverBadge() }
                 Spacer(Modifier.weight(1f))
@@ -1163,9 +1163,18 @@ internal fun PrefToggleRow(iconRes: Int, label: String, checked: Boolean, onChec
 
 // Чип-фильтр «Ближайших» — переключаемый (зелёный = активен).
 @Composable
-internal fun NearbyFilterChip(icon: ImageVector, label: String, active: Boolean, onToggle: () -> Unit) {
+internal fun NearbyFilterChip(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    // Внешний модификатор: там, где чип — не фильтр в ленте, а ОСНОВНОЙ выбор (способ оплаты,
+    // категория SOS), вызывающий поднимает высоту до 48dp — минимальная тач-цель (§4.5).
+    // Surface пробрасывает min-constraints внутрь, поэтому содержимое остаётся по центру.
+    modifier: Modifier = Modifier,
+    onToggle: () -> Unit,
+) {
     Surface(
-        modifier = Modifier.bounceClick(onToggle),
+        modifier = modifier.bounceClick(onToggle),
         color = if (active) CanonGreen2 else CanonSurface,
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, if (active) Color.Transparent else CanonBorder)
@@ -2188,6 +2197,7 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
     var error by remember { mutableStateOf(false) }
     var accepting by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableStateOf(0) }
+    var counterFor by remember { mutableStateOf<com.yuldash.app.data.ResponseDto?>(null) }
     val failMsg = appText("Не получилось принять", "Ҡабул итеп булманы")
     // Сбой загрузки откликов больше не выглядит как «откликов нет» — ошибка + «Повторить».
     LaunchedEffect(requestId, reloadTick) { loading = true; error = false; ApiClient.getRequestResponses(requestId).onSuccess { resps = it }.onFailure { error = true }; loading = false }
@@ -2207,10 +2217,41 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
                         .onFailure { Toast.makeText(ctx, failMsg, Toast.LENGTH_SHORT).show(); accepting = false }
                 }
             },
+            // Торг: своя цена и «не договорились». Ошибку сервера показываем как есть — она
+            // двуязычная и объясняет причину («сейчас ход другой стороны», «торг окончен»).
+            onCounter = { r -> counterFor = r },
+            onDecline = { r ->
+                if (accepting) return@ResponsesContent
+                accepting = true; val id = r.id
+                scope.launch {
+                    ApiClient.declineResponse(id)
+                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_SHORT).show() }
+                    accepting = false; reloadTick++
+                }
+            },
             modifier = Modifier.padding(padding),
         )
     }
+    counterFor?.let { target ->
+        CounterPriceDialog(
+            current = target.onTable,
+            roundsLeft = (BARGAIN_MAX_TOTAL_UI - target.bargainRounds).coerceAtLeast(1),
+            busy = accepting,
+            onDismiss = { counterFor = null },
+            onSend = { price ->
+                accepting = true; val id = target.id
+                scope.launch {
+                    ApiClient.counterOffer(id, price)
+                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_LONG).show() }
+                    accepting = false; counterFor = null; reloadTick++
+                }
+            },
+        )
+    }
 }
+
+/** Сколько встречных всего допускает сервер (BARGAIN_MAX_ROUNDS × 2) — для подписи «осталось ходов». */
+internal const val BARGAIN_MAX_TOTAL_UI = 6
 
 /**
  * Чистый рендер списка откликов водителей: все состояния (загрузка / ошибка+повтор / пусто / список).
@@ -2224,10 +2265,13 @@ internal fun ResponsesContent(
     accepting: Boolean,
     onRetry: () -> Unit,
     onAccept: (com.yuldash.app.data.ResponseDto) -> Unit,
+    // Торг о цене: параметры со значениями по умолчанию — старые вызовы (и тесты) не ломаются.
+    onCounter: (com.yuldash.app.data.ResponseDto) -> Unit = {},
+    onDecline: (com.yuldash.app.data.ResponseDto) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item { Text(appText("Выберите водителя — поездка начнётся, откроется чат.", "Водитель һайла — сәфәр башлана, чат асыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
+        item { Text(appText("Выберите водителя — поездка начнётся, откроется чат. Цена не подходит — предложи свою.", "Водитель һайла — сәфәр башлана, чат асыла. Хаҡ ярамаһа — үҙеңдекен тәҡдим ит."), color = CanonMuted, fontSize = 14.sp, lineHeight = 19.sp) }
         if (loading) {
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (error) {
@@ -2244,15 +2288,33 @@ internal fun ResponsesContent(
                             Text(r.driverName, color = CanonText, fontWeight = FontWeight.Black, fontSize = 16.sp)
                             r.driverRating?.let { Spacer(Modifier.width(6.dp)); Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp)); Text(" $it", color = CanonMuted, fontSize = 13.sp) }
                             Spacer(Modifier.weight(1f))
-                            if (r.price > 0) Text("${r.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            // Цена НА СТОЛЕ (после торга), а не первое предложение водителя:
+                            // поездка создастся именно по ней.
+                            if (r.onTable > 0) Text("${r.onTable} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 18.sp)
                         }
                         if (r.comment.isNotBlank()) Text(r.comment, color = CanonMuted, fontSize = 14.sp)
-                        Button(
-                            onClick = { onAccept(r) },
-                            enabled = !accepting,
-                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-                        ) { Text(appText("Поехать с этим водителем", "Был водитель менән барырға"), fontWeight = FontWeight.Black) }
+                        BargainSummary(r)
+                        // Старый сервер не шлёт флаги торга → ведём себя как раньше: пока торга
+                        // не было, пассажир принимает цену водителя.
+                        val canTake = r.canAccept || (r.bargainRounds == 0 && r.lastOfferBy == "driver")
+                        if (canTake) {
+                            Button(
+                                onClick = { onAccept(r) },
+                                enabled = !accepting,
+                                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
+                            ) { Text(appText("Поехать с этим водителем", "Был водитель менән барырға"), fontWeight = FontWeight.Black) }
+                        }
+                        if (r.canCounter) {
+                            TextButton(onClick = { onCounter(r) }, enabled = !accepting, modifier = Modifier.fillMaxWidth()) {
+                                Text(appText("Предложить свою цену", "Үҙ хаҡыңды тәҡдим итеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (r.status == "offered" && (canTake || r.canCounter)) {
+                            TextButton(onClick = { onDecline(r) }, enabled = !accepting, modifier = Modifier.fillMaxWidth()) {
+                                Text(appText("Не договорились", "Килешмәнек"), color = CanonMuted, fontSize = 13.sp)
+                            }
+                        }
                     }
                 }
             }

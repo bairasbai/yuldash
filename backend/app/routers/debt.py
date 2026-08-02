@@ -13,6 +13,7 @@
 для роли admin. Блокируется ТОЛЬКО такси (instant); ПОПУТКА (Ride/Booking) не трогается.
 """
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from .. import debt as debt_mod
@@ -20,6 +21,7 @@ from ..db import get_session
 from ..models import CommissionDebt, DebtStatus, User, UserRole
 from ..security import current_user
 from ..services import notify_admin_telegram, send_push
+from ..timeutil import utcnow
 
 router = APIRouter(tags=["debt"])
 
@@ -141,6 +143,47 @@ def admin_confirm(debt_id: int, user: User = Depends(current_user), session: Ses
         send_push(session, driver_id, "Долг подтверждён",
                   "Оплата долга по комиссии принята. Можно возить такси 🚕")
     return {"ok": True, "status": "paid", "paid_kop": paid_kop or 0}
+
+
+@router.get("/driver/taxi-rides")
+def my_taxi_rides(limit: int = 100, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Мои завершённые ТАКСИ-заказы с расшифровкой: цена, комиссия, чистыми. Только СВОИ (по токену).
+    Закрывает вопрос «почему сумма не сходится» — раньше водитель видел только итог за день.
+
+    Путь именно taxi-rides: `/driver/rides` уже занят списком плановых поездок-попуток
+    (rides.py) — одинаковый путь молча перехватывался бы первым зарегистрированным роутером."""
+    return debt_mod.driver_rides(session, user.id, limit)
+
+
+class ForgiveIn(BaseModel):
+    reason: str = Field("", max_length=300)
+
+
+@router.post("/admin/debts/{debt_id}/forgive")
+def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
+                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Списать долг по-человечески: пассажир не заплатил, поездка сорвалась, спорная ситуация.
+
+    Раньше у админа было только «подтвердить» и «отклонить» — простить было НЕЧЕМ, и водитель
+    оставался должен комиссию за поездку, где ему не заплатили (аудит 2026-07-26). Технически
+    можно было «подтвердить» оплату, которой не было, но это врало бы в отчётах о собранной
+    комиссии. Здесь долг гасится честно и с причиной."""
+    _require_admin(user)
+    debt = session.get(CommissionDebt, debt_id)
+    if not debt:
+        raise HTTPException(404, "Долг не найден")
+    if debt.status == DebtStatus.paid:
+        return {"ok": True, "status": "paid", "already": True}
+    reason = ((body.reason if body else "") or "").strip()[:300]
+    debt.status = DebtStatus.paid
+    debt.confirmed_at = utcnow()
+    debt.note = (f"Списан админом: {reason}" if reason else "Списан админом")[:300]
+    session.add(debt)
+    session.commit()
+    send_push(session, debt.driver_id, "Долг списан",
+              (f"Комиссия списана: {reason}" if reason else "Комиссия по этой поездке списана.")
+              + " · Комиссия алынды.")
+    return {"ok": True, "status": "paid", "forgiven_kop": debt.amount_kop, "reason": reason}
 
 
 @router.post("/admin/debts/{debt_id}/reject")

@@ -20,18 +20,22 @@ admin через _require_admin (обычный HTTPException-строка), у�
 получатель называет при передаче → status=delivered. Сбор fee_kop по delivered — доход платформы.
 """
 import secrets
-from typing import Optional
+from datetime import timedelta
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from ..config import settings
 from ..db import get_session
 from ..errors import herr
-from ..models import ParcelDelivery, Report, User, UserRole
+from ..models import ParcelDelivery, User, UserRole
+from ..safety_logic import (ensure_active,
+                            is_own_media_url)
 from ..security import current_user
-from ..services import notify_admin_telegram, send_push
+from ..services import notify_admin_telegram, push_notification, send_push
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["parcels"])
@@ -47,8 +51,37 @@ _CODE_LEN = 6
 
 # Статусы движения посылки у курьера (accepted → in_transit → delivered).
 _COURIER_MOVE = ("in_transit", "delivered")
-# Заявка «в работе» у курьера (для /carrying): принята, но ещё не завершена/не отменена.
-_CARRYING_STATUSES = ("accepted", "in_transit")
+# Заявка «в работе» у курьера (для /carrying): принята и ещё не завершена. `returning` тоже в
+# работе — коробка физически у курьера, он везёт её ОБРАТНО отправителю (аудит 2026-07-26:
+# раньше такой посылки не было ни в одном списке — «в пути» навсегда).
+_CARRYING_STATUSES = ("accepted", "in_transit", "returning")
+
+# Посылка на руках у курьера: отсюда он может сняться (release) или начать возврат (return-start).
+_COURIER_HOLDS = ("accepted", "in_transit")
+# Финальные статусы: движения больше нет (нужны для идемпотентности и понятных 409).
+_FINAL_STATUSES = ("delivered", "canceled", "returned")
+# Статусы, в которых отмена отправителем даёт курьеру компенсацию (он уже выехал за посылкой).
+_CANCEL_FEE_STATUSES = ("accepted", "in_transit")
+# Типы доставки, где у комиссии платформы есть РЕАЛЬНЫЙ путь оплаты: одобренный курьер видит
+# долг в кабинете и гасит его через /courier/pay-commission. У «по пути» такого пути нет —
+# поэтому в отчёте админа эти деньги считаются отдельно и не называются «собрано»
+# (дубль _COURIER_TYPES из courier.py: импортировать оттуда нельзя — цикл, courier импортирует нас).
+_BILLABLE_TYPES = ("courier", "buy_bring")
+
+# Анти-абуз отказов курьера: снялся с заказа больше стольких раз за окно → сигнал админу
+# (не блокируем автоматически — «между своими» разбирается человеком).
+_RELEASE_ABUSE_LIMIT = 3
+_RELEASE_ABUSE_WINDOW_DAYS = 7
+# Тип записи в Центре уведомлений, по которой считаем отказы курьера за окно. Отдельной таблицы
+# «отказы» нет, а courier_id при снятии обнуляется — след остаётся только здесь (≤16 символов).
+_NOTIF_RELEASE = "courier_release"
+
+# Типы спора по доставке (подмножество safety_logic.INCIDENT_TYPES, раздел «B. Курьер / посылки»).
+_PARCEL_INCIDENT_TYPES = ("parcel_damage", "parcel_lost", "parcel_delay",
+                          "recipient_absent", "wrong_contents")
+# Тип по умолчанию для старого клиента (он шлёт только текст `reason`): НЕ severe, чтобы обычная
+# жалоба шла в двусторонний разбор (обвинённый объясняется), а не будила админа среди ночи.
+_DEFAULT_INCIDENT_TYPE = "parcel_damage"
 
 
 # ---------- Тела запросов ----------
@@ -65,11 +98,30 @@ class ParcelIn(BaseModel):
     from_lng: Optional[float] = None
     to_lat: Optional[float] = None
     to_lng: Optional[float] = None
+    # Объявленная ценность (коп) — ориентир при споре. Раньше форма «по пути» её не слала, и в
+    # разборе всегда была ветка «ценность не объявлена» (аудит 2026-07-26). Потолок 100 000 ₽.
+    declared_value_kop: int = Field(0, ge=0, le=100_000_00)
+    # Сколько отправитель платит курьеру за доставку (коп). У «по пути» цены не было ВООБЩЕ:
+    # курьер видел маршрут и размер, а за сколько везти — нигде (аудит 2026-07-26). Теперь
+    # отправитель называет сумму сам, и она видна ДО принятия. 0 — тоже честный ответ:
+    # «по-соседски, бесплатно», и так и подписано. Деньги идут напрямую (Модель А). Потолок 100 000 ₽.
+    price_kop: int = Field(0, ge=0, le=100_000_00)
+
+
+class ParcelAcceptIn(BaseModel):
+    """Тело /accept — необязательное (старый клиент шлёт пустой POST, это по-прежнему работает)."""
+    pickup_photo_url: str = Field("", max_length=500)   # фото «взял целой» (только НАШ URL)
 
 
 class ParcelStatusIn(BaseModel):
     status: str = Field("", max_length=16)
     code: str = Field("", max_length=12)   # обязателен только для перехода в delivered
+    delivery_photo_url: str = Field("", max_length=500)   # фото «отдал целой» (только НАШ URL)
+
+
+class ParcelReasonIn(BaseModel):
+    """Причина (снятие курьера / возврат / админ-действие) — видна обеим сторонам, ≤200."""
+    reason: str = Field("", max_length=200)
 
 
 def _gen_code(session: Session) -> str:
@@ -138,6 +190,21 @@ def _parcel_base(p: ParcelDelivery, blur_coords: bool = False) -> dict:
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "accepted_at": p.accepted_at.isoformat() if p.accepted_at else None,
         "delivered_at": p.delivered_at.isoformat() if p.delivered_at else None,
+        # --- Ветка «что-то пошло не так» (аудит 2026-07-26), аддитивно: старый клиент игнорирует.
+        # Фото сюда НЕ кладём: они только для сторон и админа (см. _parcel_for_sender/_courier).
+        "return_reason": getattr(p, "return_reason", "") or "",
+        "returned_at": p.returned_at.isoformat() if getattr(p, "returned_at", None) else None,
+        "delivery_attempts": getattr(p, "delivery_attempts", 0) or 0,
+        "cancel_fee_kop": getattr(p, "cancel_fee_kop", 0) or 0,   # компенсация курьеру за отмену
+    }
+
+
+def _photos(p: ParcelDelivery) -> dict:
+    """Фото-фиксация границ ответственности («взял целой» / «отдал целой»). Отдаём только
+    сторонам сделки и админу — в открытом списке заявок их не показываем."""
+    return {
+        "pickup_photo_url": getattr(p, "pickup_photo_url", "") or "",
+        "delivery_photo_url": getattr(p, "delivery_photo_url", "") or "",
     }
 
 
@@ -164,6 +231,7 @@ def _parcel_for_sender(p: ParcelDelivery, session: Session) -> dict:
     """Для отправителя: базовое + мой confirm_code (я его передаю получателю) + инфо курьера, если принята.
     Телефон ПОЛУЧАТЕЛЯ отправитель и так знает сам — возвращаем как есть (это его собственные данные)."""
     out = _parcel_base(p)
+    out.update(_photos(p))
     out["receiver_phone"] = p.receiver_phone
     out["confirm_code"] = p.confirm_code
     out["courier"] = _courier_public(session.get(User, p.courier_id), session) if p.courier_id else None
@@ -176,11 +244,19 @@ def _parcel_available(p: ParcelDelivery) -> dict:
     return _parcel_base(p, blur_coords=True)
 
 
-def _parcel_for_courier(p: ParcelDelivery) -> dict:
-    """Для принявшего курьера: базовое + телефон получателя (открыт после accept). Код вручения
-    курьер НЕ видит заранее — его называет получатель при передаче (иначе подтверждение бессмысленно)."""
+def _parcel_for_courier(p: ParcelDelivery, session: Optional[Session] = None) -> dict:
+    """Для принявшего курьера: базовое + телефоны ОБЕИХ сторон (открыты после accept). Код вручения
+    курьер НЕ видит заранее — его называет получатель при передаче (иначе подтверждение бессмысленно).
+
+    sender_phone (аудит 2026-07-26): раньше курьеру отдавали ТОЛЬКО receiver_phone — приехал
+    забирать, дома никого, позвонить отправителю нечем, разворачивается. До accept телефон
+    по-прежнему скрыт (этот сериализатор используется только после принятия заказа)."""
     out = _parcel_base(p)
+    out.update(_photos(p))
     out["receiver_phone"] = p.receiver_phone
+    sender = session.get(User, p.sender_id) if (session is not None and p.sender_id) else None
+    out["sender_phone"] = (sender.phone or "") if sender else ""
+    out["sender_name"] = (sender.name or "") if sender else ""
     return out
 
 
@@ -192,7 +268,18 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     (он передаёт код получателю вне приложения; получатель назовёт его курьеру при вручении).
 
     Валидация: from_city/to_city/receiver_name обязательны (422); size ∈ PARCEL_FEES (422);
-    rules_accepted обязателен True (422). fee_kop = PARCEL_FEES[size], фиксируется в заявке."""
+    rules_accepted обязателен True (422).
+
+    Деньги (аудит 2026-07-26):
+    - `price_kop` — сколько отправитель платит курьеру. Фиксируем в заявке и показываем курьеру
+      ДО принятия: раньше он брал посылку, не зная, заплатят ли вообще.
+    - `fee_kop` — сервисный сбор платформы. Начисляем ТОЛЬКО если settings.parcel_fee_enabled:
+      пока платить его некому и нечем (см. комментарий у флага), а «начислили и показали как
+      собранное» — это выдуманная выручка."""
+    # Гейт «Справедливости»: приостановленный за нарушения (напр. кража груза) не заводит новые
+    # доставки. Раньше проверки не было ни здесь, ни в accept — отстранённый в тот же день брал
+    # следующую посылку, и пауза была декорацией (аудит 2026-07-26).
+    ensure_active(session, user.id)
     from_city = body.from_city.strip()
     to_city = body.to_city.strip()
     receiver_name = body.receiver_name.strip()
@@ -220,7 +307,11 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
         description=body.description.strip(),
         receiver_name=receiver_name,
         receiver_phone=body.receiver_phone.strip(),
-        fee_kop=PARCEL_FEES[size],
+        fee_kop=(PARCEL_FEES[size] if settings.parcel_fee_enabled else 0),
+        # Сколько отправитель платит курьеру (0 = «по-соседски», это честный вариант).
+        delivery_price_kop=int(body.price_kop or 0),
+        # Объявленная ценность — ориентир при разборе спора (0 = не объявлена).
+        declared_value_kop=int(body.declared_value_kop or 0),
         status="created",
         confirm_code=_gen_code(session),
     )
@@ -232,12 +323,49 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
             f"📦 Новая посылка на доставку\n"
             f"ID: {parcel.id}\n"
             f"Маршрут: {parcel.from_city} → {parcel.to_city}\n"
-            f"Размер: {parcel.size} · сбор {parcel.fee_kop // 100} ₽\n"
+            f"Размер: {parcel.size} · курьеру {parcel.delivery_price_kop // 100} ₽"
+            + (f" · сбор {parcel.fee_kop // 100} ₽" if parcel.fee_kop else "") + "\n"
             f"От: {user.name or 'отправитель'}"
         )
     except Exception:
         pass
+    _notify_couriers_new_parcel(session, parcel)
     return _parcel_for_sender(parcel, session)
+
+
+def _notify_couriers_new_parcel(session: Session, parcel: ParcelDelivery) -> int:
+    """Пуш курьерам на линии о новой заявке. Возврат: скольким отправили.
+
+    Раньше уведомлений курьерам не было вообще: заявка висела в пустоте, пока кто-то сам не
+    откроет список и не обновит его. Бабушке срочно нужно лекарство из Сибая, три курьера в
+    этот момент едут мимо — и не знают (аудит 2026-07-26). Для «по пути» не шлём: там заявку
+    берёт попутчик, у которого и так свой маршрут, а рассылка была бы спамом."""
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "poputka":
+        return 0
+    try:
+        from ..models import CourierProfile
+        rows = session.exec(
+            select(CourierProfile).where(CourierProfile.online == True)  # noqa: E712
+        ).all()
+        sent = 0
+        for prof in rows:
+            if prof.user_id == parcel.sender_id:
+                continue                       # свою же посылку курьеру не предлагаем
+            # Город работы задан и не совпадает с точкой забора → мимо (пустой = берёт всё).
+            work_city = (getattr(prof, "work_city", "") or "").strip().casefold()
+            if work_city and parcel.from_city and work_city != parcel.from_city.strip().casefold():
+                continue
+            push_notification(
+                session, prof.user_id, "parcel",
+                "Новая доставка рядом 📦", "Яҡында яңы доставка 📦",
+                f"{parcel.from_city} → {parcel.to_city}. Открой «Курьер», чтобы взять.",
+                f"{parcel.from_city} → {parcel.to_city}. Алыр өсөн «Курьер»ҙы ас.",
+                ref_kind="parcel", ref_id=parcel.id,
+            )
+            sent += 1
+        return sent
+    except Exception:  # noqa: BLE001 — уведомления вторичны, создание заявки важнее
+        return 0
 
 
 @router.get("/parcels/mine")
@@ -251,14 +379,27 @@ def parcels_mine(user: User = Depends(current_user), session: Session = Depends(
 
 @router.post("/parcels/{parcel_id}/cancel")
 def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Отменить свою заявку, пока не доставлена. Чужая → 404 (IDOR закрыт); уже delivered/canceled → 409."""
-    parcel = session.get(ParcelDelivery, parcel_id)
+    """Отменить свою заявку, пока не доставлена. Чужая → 404 (IDOR закрыт); уже delivered/canceled → 409.
+
+    Компенсация курьеру (аудит 2026-07-26): отмена в статусе accepted/in_transit — курьер уже
+    выехал (мог проехать 40 км) и раньше получал только пуш. Теперь фиксируем cancel_fee_kop =
+    settings.courier_cancel_fee_kop и говорим об этом обоим. Модель А: деньги идут мимо платформы,
+    мы только фиксируем сумму — стороны договариваются напрямую."""
+    # Под row-lock: одновременный accept курьером и cancel отправителем иначе разъезжаются
+    # (курьер «принял» уже отменённую посылку).
+    parcel = session.exec(
+        select(ParcelDelivery).where(ParcelDelivery.id == parcel_id).with_for_update()
+    ).one_or_none()
     if not parcel or parcel.sender_id != user.id:
         raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     if parcel.status == "delivered":
         raise herr(409, "Посылка уже доставлена", "Бандероль инде еткерелгән")
     if parcel.status == "canceled":
         raise herr(409, "Заявка уже отменена", "Заявка инде кире алынған")
+    if parcel.status == "returned":
+        raise herr(409, "Посылка уже возвращена", "Бандероль инде кире ҡайтарылған")
+    if parcel.status == "returning":
+        raise herr(409, "Курьер уже везёт посылку обратно", "Курьер бандерольде кире алып ҡайта инде")
     # B5: для «Купи и привези» после закупки товара курьером (goods_actual_kop>0) отмена запрещена —
     # иначе курьер остаётся с товаром и без денег. Разбирается только через спор (parcel_dispute).
     if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "buy_bring" \
@@ -266,14 +407,31 @@ def parcel_cancel(parcel_id: int, user: User = Depends(current_user), session: S
         raise herr(409, "Курьер уже купил товар — отмена только через спор",
                    "Курьер тауарҙы һатып алған — кире алыу тик бәхәс аша")
     prev_courier = parcel.courier_id
+    # Курьер уже в пути → фиксируем компенсацию (он потратил время и бензин).
+    fee_kop = settings.courier_cancel_fee_kop if (prev_courier and parcel.status in _CANCEL_FEE_STATUSES) else 0
     parcel.status = "canceled"
+    parcel.cancel_fee_kop = fee_kop
     session.add(parcel)
     session.commit()
     session.refresh(parcel)
+    route = f"{parcel.from_city} → {parcel.to_city}"
     if prev_courier:  # курьер уже вёз — предупредим (best-effort), без телефонов
         try:
-            send_push(session, prev_courier, "Доставка отменена",
-                      f"Отправитель отменил посылку {parcel.from_city} → {parcel.to_city}.")
+            if fee_kop > 0:
+                push_notification(
+                    session, prev_courier, "parcel",
+                    "Доставка отменена", "Доставка кире алынды",
+                    f"{route} · отправитель отменил. Компенсация {fee_kop // 100} ₽ — договоритесь напрямую.",
+                    f"{route} · ебәреүсе кире алды. Компенсация {fee_kop // 100} һ — үҙ-ара килешегеҙ.",
+                    ref_kind="parcel", ref_id=parcel.id,
+                )
+            else:
+                push_notification(
+                    session, prev_courier, "parcel",
+                    "Доставка отменена", "Доставка кире алынды",
+                    f"Отправитель отменил посылку {route}.", f"Ебәреүсе {route} бандеролен кире алды.",
+                    ref_kind="parcel", ref_id=parcel.id,
+                )
         except Exception:
             pass
     return _parcel_for_sender(parcel, session)
@@ -310,9 +468,15 @@ def parcels_available(
 
 
 @router.post("/parcels/{parcel_id}/accept")
-def parcel_accept(parcel_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
+                  user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Стать курьером заявки (created→accepted). Нельзя принять свою (409) или уже принятую/иную (409).
-    Отменённой/несуществующей нет → 404. После принятия курьер видит телефон получателя."""
+    Отменённой/несуществующей нет → 404. После принятия курьер видит телефоны отправителя и получателя.
+
+    pickup_photo_url (опц.) — фото «взял целой». Принимаем ТОЛЬКО свой URL (/media, /secure/evidence):
+    чужой хост при открытии у оппонента слил бы его IP. Чужой/пустой — молча игнорируем."""
+    # Приостановленный за нарушения не берёт новые посылки (см. комментарий в parcel_create).
+    ensure_active(session, user.id)
     # H1: под row-lock — иначе два курьера параллельно проходят проверку `created` и оба «берут»
     # посылку (last-write-wins на courier_id). FOR UPDATE сериализует: второй ждёт коммита первого
     # и видит уже `accepted` → 409. (На SQLite no-op, но тесты однопоточные.)
@@ -326,11 +490,17 @@ def parcel_accept(parcel_id: int, user: User = Depends(current_user), session: S
     # C1: courier/buy_bring-заказы берут только одобренные курьеры на линии (гейт).
     # «По пути» (poputka) — как раньше, без гейта (любой попутчик помогает).
     if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "poputka":
-        from .courier import _guard_courier   # локальный импорт — избегаем циклической зависимости
+        from .courier import _guard_courier, _guard_courier_debt   # локальный импорт — избегаем цикла
         _guard_courier(user, session)
+        # Комиссия платформы копится долгом (Модель А). У такси блокировка была с начала,
+        # у курьера — не было вообще: можно было возить месяцами и не платить (аудит 2026-07-26).
+        _guard_courier_debt(session, user.id)
     parcel.courier_id = user.id
     parcel.status = "accepted"
     parcel.accepted_at = utcnow()
+    photo = ((body.pickup_photo_url if body else "") or "").strip()
+    if photo and is_own_media_url(photo):
+        parcel.pickup_photo_url = photo
     session.add(parcel)
     session.commit()
     session.refresh(parcel)
@@ -339,7 +509,7 @@ def parcel_accept(parcel_id: int, user: User = Depends(current_user), session: S
                   f"{user.name or 'Курьер'} везёт твою посылку {parcel.from_city} → {parcel.to_city}.")
     except Exception:
         pass
-    return _parcel_for_courier(parcel)
+    return _parcel_for_courier(parcel, session)
 
 
 @router.post("/parcels/{parcel_id}/status")
@@ -395,6 +565,150 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
     return _parcel_for_courier(parcel)
 
 
+@router.post("/parcels/{parcel_id}/release")
+def parcel_release(parcel_id: int, body: Optional[ParcelReasonIn] = None,
+                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Курьер снимает себя с заказа: «не смогу везти».
+
+    Раньше отказаться было НЕЛЬЗЯ — снятия courier_id не существовало нигде в коде. Замело
+    дорогу на Баймак, курьер заболел, сломалась машина: посылка у него дома, заказ мёртвый,
+    отправитель ничего не понимает (аудит 2026-07-26). Для зимнего Башкортостана это норма.
+
+    Посылка возвращается в общий список (created), отправитель получает пуш с причиной.
+    Анти-абуз: слишком частые отказы — сигнал админу, но НЕ авто-блокировка: «между своими»
+    разбирается человеком (может, у человека правда неделя тяжёлая)."""
+    parcel = session.exec(
+        select(ParcelDelivery).where(ParcelDelivery.id == parcel_id).with_for_update()
+    ).one_or_none()
+    if not parcel or parcel.courier_id != user.id:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    if parcel.status not in _COURIER_HOLDS:
+        raise herr(409, "На этом этапе сняться уже нельзя — открой спор",
+                   "Был этапта баш тартып булмай — бәхәс ас")
+    reason = ((body.reason if body else "") or "").strip()[:200]
+    sender_id = parcel.sender_id
+    parcel.courier_id = None
+    parcel.status = "created"
+    parcel.accepted_at = None
+    parcel.pickup_photo_url = ""          # фото «взял целой» относилось к прошлому курьеру
+    parcel.return_reason = reason
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    # След отказа: courier_id обнулён, отдельной таблицы нет — считаем по записям Центра уведомлений.
+    try:
+        push_notification(
+            session, user.id, _NOTIF_RELEASE,
+            "Ты снялся с доставки", "Доставканан баш тарттың",
+            f"{parcel.from_city} → {parcel.to_city}. Посылка снова в общем списке.",
+            f"{parcel.from_city} → {parcel.to_city}. Бандероль кире дөйөм исемлектә.",
+            ref_kind="parcel", ref_id=parcel.id, push=False,
+        )
+        push_notification(
+            session, sender_id, "parcel",
+            "Курьер не смог везти", "Курьер алып бара алманы",
+            (f"Причина: {reason}. " if reason else "") + "Ищем другого курьера — посылка снова в поиске.",
+            (f"Сәбәбе: {reason}. " if reason else "") + "Башҡа курьер эҙләйбеҙ.",
+            ref_kind="parcel", ref_id=parcel.id,
+        )
+    except Exception:  # noqa: BLE001 — уведомления вторичны
+        pass
+    _check_release_abuse(session, user)
+    return _parcel_base(parcel)
+
+
+def _check_release_abuse(session: Session, user: User) -> None:
+    """Частые отказы курьера за окно → сигнал админу (без авто-наказания)."""
+    try:
+        from ..models import Notification
+        since = utcnow() - timedelta(days=_RELEASE_ABUSE_WINDOW_DAYS)
+        n = len(session.exec(
+            select(Notification.id).where(
+                Notification.user_id == user.id,
+                Notification.type == _NOTIF_RELEASE,
+                Notification.created_at >= since,
+            ).limit(_RELEASE_ABUSE_LIMIT + 1)
+        ).all())
+        if n > _RELEASE_ABUSE_LIMIT:
+            notify_admin_telegram(
+                f"🚩 Частые отказы курьера (Юлдаш): пользователь #{user.id}, "
+                f"{n} снятий за {_RELEASE_ABUSE_WINDOW_DAYS} дней — стоит посмотреть."
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@router.post("/parcels/{parcel_id}/return-start")
+def parcel_return_start(parcel_id: int, body: Optional[ParcelReasonIn] = None,
+                        user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Курьер везёт посылку ОБРАТНО: получателя нет дома / отказался / не выходит на связь.
+
+    Раньше возврата не существовало вообще — в статусах были только «доставлена» и «отменена».
+    Курьер физически вёз коробку назад, а в приложении заказ навсегда висел «в пути»: закрыть
+    его не мог никто, даже админ (аудит 2026-07-26)."""
+    parcel = session.exec(
+        select(ParcelDelivery).where(ParcelDelivery.id == parcel_id).with_for_update()
+    ).one_or_none()
+    if not parcel or parcel.courier_id != user.id:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    if parcel.status not in _COURIER_HOLDS:
+        raise herr(409, "Возврат доступен, пока посылка у тебя", "Кире ҡайтарыу бандероль һиндә саҡта мөмкин")
+    parcel.status = "returning"
+    parcel.return_reason = ((body.reason if body else "") or "").strip()[:200]
+    parcel.delivery_attempts = (parcel.delivery_attempts or 0) + 1
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    try:
+        push_notification(
+            session, parcel.sender_id, "parcel",
+            "Посылку везут обратно", "Бандерольде кире алып киләләр",
+            (f"Причина: {parcel.return_reason}. " if parcel.return_reason else "")
+            + "Курьер возвращает посылку тебе.",
+            (f"Сәбәбе: {parcel.return_reason}. " if parcel.return_reason else "")
+            + "Курьер бандерольде һиңә кире ҡайтара.",
+            ref_kind="parcel", ref_id=parcel.id,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return _parcel_for_courier(parcel, session)
+
+
+@router.post("/parcels/{parcel_id}/return-done")
+def parcel_return_done(parcel_id: int, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    """Курьер вернул посылку отправителю → заказ закрыт (returned).
+
+    Комиссию платформы за возврат НЕ берём: услуга не оказана, груз не доставлен."""
+    parcel = session.exec(
+        select(ParcelDelivery).where(ParcelDelivery.id == parcel_id).with_for_update()
+    ).one_or_none()
+    if not parcel or parcel.courier_id != user.id:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    if parcel.status == "returned":
+        return _parcel_for_courier(parcel, session)      # идемпотентно
+    if parcel.status != "returning":
+        raise herr(409, "Сначала начни возврат", "Башта кире ҡайтарыуҙы башла")
+    parcel.status = "returned"
+    parcel.returned_at = utcnow()
+    parcel.commission_kop = 0            # услуга не оказана — комиссии нет
+    parcel.commission_paid = True        # и в «к оплате» она попасть не должна
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    try:
+        push_notification(
+            session, parcel.sender_id, "parcel",
+            "Посылка вернулась к тебе", "Бандероль һиңә ҡайтты",
+            "Курьер вернул посылку. Комиссию за возврат мы не берём.",
+            "Курьер бандерольде кире ҡайтарҙы. Кире ҡайтарыу өсөн комиссия алмайбыҙ.",
+            ref_kind="parcel", ref_id=parcel.id,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return _parcel_for_courier(parcel, session)
+
+
 @router.get("/parcels/carrying")
 def parcels_carrying(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Что я везу: принятые мной и ещё не завершённые (accepted|in_transit), новые сверху.
@@ -412,49 +726,47 @@ def parcels_carrying(user: User = Depends(current_user), session: Session = Depe
 
 class DisputeIn(BaseModel):
     reason: str = Field("", max_length=1000)   # что случилось (повреждение/недоставка/расчёт)
+    type: str = Field("", max_length=32)       # см. _DISPUTE_TYPES; пусто = совместимость со старым клиентом
+    evidence_urls: Optional[List[str]] = Field(None, max_length=10)   # фото «до/после» (наши /secure/evidence)
 
 
 @router.post("/parcels/{parcel_id}/dispute")
-def parcel_dispute(parcel_id: int, body: DisputeIn, user: User = Depends(current_user),
-                   session: Session = Depends(get_session)):
-    """Открыть спор по доставке (ответственность). Кто может: участник заказа — отправитель ИЛИ
-    курьер (получатель без аккаунта действует через отправителя). Чужой заказ → 404 (IDOR закрыт).
+def parcel_dispute(parcel_id: int, body: DisputeIn, background: BackgroundTasks,
+                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Открыть спор по доставке — через настоящую «Справедливость», а не урезанную жалобу.
 
-    Ориентир при разборе — объявленная ценность (declared_value_kop); без объявления — по
-    договорённости (текст на клиенте). Спор — это Report(category=parcel_dispute, parcel_id=…),
-    попадает в общую админ-ленту жалоб. Уведомление админа — best-effort."""
+    Было (аудит 2026-07-26): спор создавал обычный Report — одно текстовое поле, БЕЗ фото, без
+    ответа второй стороны и без поля компенсации. Курьер даже не узнавал, что на него пожаловались.
+    А полноценная система разбора уже existовала, и типы parcel_damage/parcel_lost/parcel_delay/
+    recipient_absent были заведены — но недостижимы: у спора не было привязки к посылке.
+
+    Стало: Incident(parcel_id=…) — обвинённый получает пуш и может объясниться, обе стороны
+    прикладывают фото (/upload/evidence), у админа есть компенсация и лестница решений.
+    Кто может: отправитель или назначенный курьер (получатель без аккаунта — через отправителя)."""
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel or user.id not in (parcel.sender_id, parcel.courier_id):
         raise herr(404, "Посылка не найдена", "Бандероль табылманы")
-    # Цель жалобы — вторая сторона; если курьер ещё не назначен, привязываем к отправителю.
     counterparty = parcel.courier_id if user.id == parcel.sender_id else parcel.sender_id
-    if not counterparty:
-        counterparty = parcel.sender_id
-    report = Report(
-        reporter_id=user.id,
-        target_user_id=counterparty,
-        reason=(body.reason or "").strip(),
-        category="parcel_dispute",
-        parcel_id=parcel.id,
+    if not counterparty or counterparty == user.id:
+        raise herr(409, "Курьер ещё не назначен — спорить не с кем",
+                   "Курьер әле билдәләнмәгән — бәхәсләшергә кем менән юҡ")
+    dispute_type = (body.type or "").strip() or _DEFAULT_INCIDENT_TYPE
+    if dispute_type not in _PARCEL_INCIDENT_TYPES:
+        raise herr(422, "Неизвестный тип спора", "Билдәһеҙ бәхәс төрө")
+    role = "sender" if user.id == parcel.sender_id else "courier"
+    from .incidents import create_incident
+    inc = create_incident(
+        session, reporter=user, respondent_id=counterparty, type=dispute_type,
+        description=(body.reason or "").strip(), parcel_id=parcel.id, reporter_role=role,
+        background=background, evidence_urls=body.evidence_urls,
     )
-    session.add(report)
-    session.commit()
-    session.refresh(report)
-    try:  # админу — best-effort, без ПДн (телефоны не включаем)
-        notify_admin_telegram(
-            f"⚠️ Спор по доставке\nReport ID: {report.id}\nПосылка ID: {parcel.id}\n"
-            f"Маршрут: {parcel.from_city} → {parcel.to_city}\n"
-            f"Тип: {getattr(parcel, 'delivery_type', 'poputka')}"
-        )
-    except Exception:
-        pass
     return {
-        "id": report.id,
+        "id": inc.id,
         "parcel_id": parcel.id,
-        "category": report.category,
-        "status": report.status,
+        "type": inc.type,
+        "status": inc.status,
         "declared_value_kop": getattr(parcel, "declared_value_kop", 0) or 0,
-        "created_at": report.created_at.isoformat() if report.created_at else None,
+        "created_at": inc.created_at.isoformat() if inc.created_at else None,
     }
 
 
@@ -477,15 +789,36 @@ def _parcel_admin(p: ParcelDelivery) -> dict:
 @router.get("/admin/parcels")
 def admin_parcels(limit: int = 200, offset: int = 0,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Все заявки (контроль/поддержка) + statement дохода платформы: сумма fee по delivered."""
+    """Все заявки (контроль/поддержка) + ЧЕСТНЫЙ statement по деньгам доставки.
+
+    Раньше здесь была одна строка «собрано» = сумма fee_kop по доставленным. Она врала: сбор
+    «по пути» не выставляется никому (платить его некому — попутчик не курьер), то есть цифра
+    показывала деньги, которых нет (аудит 2026-07-26). Теперь три разных числа, и каждое
+    означает ровно то, что написано:
+
+    - collected_fee_kop — РЕАЛЬНО оплаченные курьерами комиссии (деньги дошли);
+    - owed_commission_kop — начислено курьерам и ещё не оплачено (долг, путь оплаты есть);
+    - unbilled_fee_kop — сбор по «по пути»: начислен тарифом, но никому не выставлен (не выручка).
+    """
     _require_admin(user)
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     rows = session.exec(
         select(ParcelDelivery).order_by(ParcelDelivery.id.desc()).offset(offset).limit(limit)
     ).all()
+    _delivered_billable = (ParcelDelivery.status == "delivered",
+                           ParcelDelivery.delivery_type.in_(_BILLABLE_TYPES))
     collected = session.exec(
-        select(func.coalesce(func.sum(ParcelDelivery.fee_kop), 0)).where(ParcelDelivery.status == "delivered")
+        select(func.coalesce(func.sum(ParcelDelivery.commission_kop), 0))
+        .where(*_delivered_billable, ParcelDelivery.commission_paid == True)   # noqa: E712
+    ).one()
+    owed = session.exec(
+        select(func.coalesce(func.sum(ParcelDelivery.commission_kop), 0))
+        .where(*_delivered_billable, ParcelDelivery.commission_paid == False)  # noqa: E712
+    ).one()
+    unbilled = session.exec(
+        select(func.coalesce(func.sum(ParcelDelivery.fee_kop), 0))
+        .where(ParcelDelivery.status == "delivered")
     ).one()
     delivered_count = session.exec(
         select(func.count()).select_from(ParcelDelivery).where(ParcelDelivery.status == "delivered")
@@ -494,6 +827,126 @@ def admin_parcels(limit: int = 200, offset: int = 0,
         "parcels": [_parcel_admin(p) for p in rows],
         "statement": {
             "delivered_count": int(delivered_count or 0),
-            "collected_fee_kop": int(collected or 0),   # доход платформы по доставленным
+            "collected_fee_kop": int(collected or 0),      # деньги дошли (курьеры оплатили комиссию)
+            "owed_commission_kop": int(owed or 0),         # начислено, ещё не оплачено
+            "unbilled_fee_kop": int(unbilled or 0),        # сбор «по пути» — выставить некому
         },
     }
+
+
+# ---------- Админ: рычаги на «зависшую» доставку (аудит 2026-07-26) ----------
+# Раньше по посылкам была ОДНА ручка — GET /admin/parcels (просмотр). Звонит бабушка из
+# Темясово: «посылка две недели висит, курьер трубку не берёт» — а сделать нельзя ничего:
+# ни отменить, ни переназначить, ни закрыть. Единственный способ был — лезть руками в базу.
+
+def _notify_parties(session: Session, parcel: ParcelDelivery, title_ru: str, title_ba: str,
+                    body_ru: str, body_ba: str) -> None:
+    """Уведомить обе стороны доставки (best-effort, без ПДн)."""
+    for uid in {parcel.sender_id, parcel.courier_id} - {None}:
+        try:
+            push_notification(session, uid, "parcel", title_ru, title_ba, body_ru, body_ba,
+                              ref_kind="parcel", ref_id=parcel.id)
+        except Exception:  # noqa: BLE001 — уведомления вторичны
+            pass
+
+
+@router.post("/admin/parcels/{parcel_id}/cancel")
+def admin_cancel_parcel(parcel_id: int, body: Optional[ParcelReasonIn] = None,
+                        user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Принудительно отменить доставку (разбор вручную, обе стороны получают причину)."""
+    _require_admin(user)
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise HTTPException(404, "Посылка не найдена")
+    if parcel.status in _FINAL_STATUSES:
+        return {"ok": True, "status": parcel.status, "already": True}
+    reason = ((body.reason if body else "") or "").strip()[:200]
+    parcel.status = "canceled"
+    parcel.return_reason = reason
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    _notify_parties(session, parcel, "Доставка отменена", "Доставка кире алынды",
+                    (f"Причина: {reason}. " if reason else "") + "Отменено поддержкой Юлдаша.",
+                    (f"Сәбәбе: {reason}. " if reason else "") + "Юлдаш ярҙамы кире алды.")
+    return {"ok": True, "status": parcel.status, "reason": reason}
+
+
+@router.post("/admin/parcels/{parcel_id}/release-courier")
+def admin_release_courier(parcel_id: int, body: Optional[ParcelReasonIn] = None,
+                          user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Снять курьера с доставки: он пропал, не отвечает, физически не может довезти.
+    Посылка возвращается в общий список и её сможет взять другой курьер."""
+    _require_admin(user)
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise HTTPException(404, "Посылка не найдена")
+    if parcel.status in _FINAL_STATUSES:
+        raise HTTPException(409, "Доставка уже завершена")
+    prev_courier = parcel.courier_id
+    reason = ((body.reason if body else "") or "").strip()[:200]
+    parcel.courier_id = None
+    parcel.status = "created"
+    parcel.accepted_at = None
+    parcel.pickup_photo_url = ""      # фото относилось к снятому курьеру
+    parcel.return_reason = reason
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    if prev_courier:
+        try:
+            push_notification(session, prev_courier, "parcel",
+                              "Тебя сняли с доставки", "Һине доставканан алдылар",
+                              (f"Причина: {reason}. " if reason else "") + "Вопросы — напиши в поддержку.",
+                              (f"Сәбәбе: {reason}. " if reason else "") + "Һорауҙар — ярҙамға яҙ.",
+                              ref_kind="parcel", ref_id=parcel.id)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        push_notification(session, parcel.sender_id, "parcel",
+                          "Ищем другого курьера", "Башҡа курьер эҙләйбеҙ",
+                          "Прежний курьер снят с доставки, посылка снова в поиске.",
+                          "Элекке курьер алынды, бандероль яңынан эҙләүҙә.",
+                          ref_kind="parcel", ref_id=parcel.id)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "status": parcel.status, "released_courier_id": prev_courier}
+
+
+class AdminCloseIn(BaseModel):
+    status: str = Field("returned", max_length=16)   # delivered | returned | canceled
+    reason: str = Field("", max_length=200)
+
+
+@router.post("/admin/parcels/{parcel_id}/close")
+def admin_close_parcel(parcel_id: int, body: AdminCloseIn,
+                       user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Принудительно закрыть доставку по итогам разбора (когда стороны договорились вне приложения).
+
+    Комиссию берём только за реально доставленное: при returned/canceled обнуляем — услуга
+    не оказана, брать деньги не за что."""
+    _require_admin(user)
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel:
+        raise HTTPException(404, "Посылка не найдена")
+    status = (body.status or "").strip()
+    if status not in _FINAL_STATUSES:
+        raise HTTPException(422, f"status: {' | '.join(_FINAL_STATUSES)}")
+    reason = (body.reason or "").strip()[:200]
+    parcel.status = status
+    parcel.return_reason = reason
+    now = utcnow()
+    if status == "delivered":
+        parcel.delivered_at = parcel.delivered_at or now
+    elif status == "returned":
+        parcel.returned_at = parcel.returned_at or now
+    if status in ("returned", "canceled"):
+        parcel.commission_kop = 0
+        parcel.commission_paid = True
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    _notify_parties(session, parcel, "Доставка закрыта", "Доставка ябылды",
+                    (f"Итог: {status}. " if status else "") + (reason or "Решение поддержки Юлдаша."),
+                    (f"Һөҙөмтә: {status}. " if status else "") + (reason or "Юлдаш ярҙамы ҡарары."))
+    return {"ok": True, "status": parcel.status, "reason": reason}

@@ -27,6 +27,12 @@ MSG_CITY_OFF = {
     "ru": "Такси скоро в твоём городе 🚕 А пока поезжай попуткой",
     "ba": "Тиҙҙән таксиы һинең ҡалаңда ла булыр 🚕 Ә әлегә юлдаш булып бар",
 }
+# Документы просрочены: причина отказа отличается от «заявка не одобрена» — человек должен
+# понимать, что дело не в модерации, а в сроке ОСАГО/разрешения (пуш об этом шлёт doc_check.py).
+MSG_DOCS_EXPIRED = {
+    "ru": "Истёк срок документов (ОСАГО или разрешение). Обнови их — и такси снова откроется. Попутка работает.",
+    "ba": "Документтарҙың ваҡыты сыҡҡан (ОСАГО йәки рөхсәт). Яңырт — такси кире асыла. Юлдаш эшләй.",
+}
 MSG_OK = {
     "ru": "Такси доступно",
     "ba": "Такси эшләй",
@@ -86,6 +92,21 @@ def my_application(session: Session, user_id: int) -> Optional[TaxiApplication]:
 
 
 def is_approved_taxi_driver(session: Session, user_id: int) -> bool:
-    """Гейт (b): есть ли одобренная заявка таксиста (580-ФЗ)."""
+    """Гейт (b): есть ли одобренная заявка таксиста (580-ФЗ) с ДЕЙСТВУЮЩИМИ документами.
+
+    Раньше проверка была разовой: одобрили в июле — человек считался годным вечно и возил
+    с просроченным ОСАГО в декабре, а мы «проверенная служба» (аудит 2026-07-26). Теперь
+    фоновая задача app/doc_check.py ставит docs_expired, когда истёк срок ОСАГО или разрешения,
+    и допуск к такси снимается до обновления документа. ПОПУТКА при этом продолжает работать —
+    она не требует разрешения на такси."""
     app = my_application(session, user_id)
-    return app is not None and app.status == TaxiApplicationStatus.approved
+    if app is None or app.status != TaxiApplicationStatus.approved:
+        return False
+    return not getattr(app, "docs_expired", False)
+
+
+def taxi_docs_expired(session: Session, user_id: int) -> bool:
+    """Заявка одобрена, но документы просрочены — для честного текста отказа (MSG_DOCS_EXPIRED)."""
+    app = my_application(session, user_id)
+    return (app is not None and app.status == TaxiApplicationStatus.approved
+            and bool(getattr(app, "docs_expired", False)))

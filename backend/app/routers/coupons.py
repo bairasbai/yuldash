@@ -18,6 +18,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func
+from sqlalchemy import update as sa_update
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -216,7 +217,8 @@ def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: S
     code = (body.code or "").strip().upper()
     red = None
     if code:
-        red = session.exec(select(CouponRedemption).where(CouponRedemption.code == code)).first()
+        # Row-lock кода: два кассира с одним QR не погасят его дважды (оба «ok» = спор с клиентом).
+        red = session.exec(select(CouponRedemption).where(CouponRedemption.code == code).with_for_update()).first()
     if not red:
         raise herr(404, "Код не найден", "Код табылманы")
     coupon = session.get(Coupon, red.coupon_id)
@@ -231,9 +233,11 @@ def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: S
     red.status = "redeemed"
     red.redeemed_at = utcnow()
     red.redeemed_by = user.id
-    coupon.redeemed_count += 1
+    # Инкремент на стороне БД: read-modify-write в Python терял бы параллельные погашения
+    # разных кодов (счётчик — основа statement'а партнёру по 10 ₽/погашение).
+    session.exec(sa_update(Coupon).where(Coupon.id == coupon.id)
+                 .values(redeemed_count=Coupon.redeemed_count + 1))
     session.add(red)
-    session.add(coupon)
     session.commit()
     holder = session.get(User, red.user_id)
     return {

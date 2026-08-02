@@ -1,0 +1,13 @@
+[Unit]
+Description=Yuldash taxi worker (activate pre-orders, close stuck orders, retry search when no drivers)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=yuldash
+WorkingDirectory=/opt/yuldash
+# Явный EnvironmentFile (как у остальных юнитов): без него задача живёт на pydantic-.env из CWD
+# и при переезде layout'а молча ушла бы на дефолтный SQLite вместо прод-БД. «-» = нет файла → не падать.
+EnvironmentFile=-/opt/yuldash/.env
+ExecStart=/opt/yuldash/.venv/bin/python -m app.taxi_worker
+Nice=10
