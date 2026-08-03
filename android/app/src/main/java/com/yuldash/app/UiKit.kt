@@ -187,8 +187,10 @@ internal fun AppCard(
 @Composable
 internal fun SectionHeader(title: String, subtitle: String? = null, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(title, color = CanonText, fontWeight = FontWeight.Black, fontSize = 20.sp)
-        if (subtitle != null) Text(subtitle, color = CanonMuted, fontSize = 13.sp)
+        // По шкале: заголовок раздела крупный, но НЕ жирный до крика (19 SemiBold вместо 20 Black).
+        // Иерархию здесь держит размер, а не вес — так работает спокойная премиальность.
+        Text(title, color = CanonText, style = CanonHeading)
+        if (subtitle != null) Text(subtitle, color = CanonMuted, style = CanonCaption)
     }
 }
 

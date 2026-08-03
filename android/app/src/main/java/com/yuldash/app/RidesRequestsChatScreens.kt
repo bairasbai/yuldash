@@ -586,8 +586,13 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
+            // Зазор xs, а не sm: карточка ФИКСИРОВАННОЙ высоты 152dp, а родитель режет всё, что
+            // не влезло, причём срезает ВЕРХ — пропадают маршрут и время, остаются цена с кнопкой.
+            // Пять строк + четыре зазора по 8dp + поля 24dp давали ~154dp, то есть перебор.
+            // Поймано в тёмной теме на эмуляторе; тесты и компилятор молчат — обрезанный текст
+            // в дереве элементов присутствует, он просто не на экране.
             modifier = Modifier.fillMaxSize().padding(horizontal = CanonSpace.lg, vertical = CanonSpace.md),
-            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
