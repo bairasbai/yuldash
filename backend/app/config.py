@@ -537,6 +537,19 @@ class Settings(BaseSettings):
             warn.append("FIREBASE_CREDENTIALS пуст — push не отправляются, водители не увидят заказы на погашенном экране")
         if self.is_prod and not self.sentry_dsn.strip():
             warn.append("SENTRY_DSN пуст — падения у людей останутся невидимыми")
+        # Публичные документы на yulbash.ru/terms прямо обещают: «Комиссия с поездок не берётся,
+        # расчёты производятся напрямую между пользователями». Пока денежные флаги выключены —
+        # это правда. Включили хоть один, не переписав документы, — сервис публично обещает одно,
+        # а делает другое. На это ссылаются при споре и при проверке, поэтому предупреждаем громко.
+        money_on = [n for n, v in (("PARCEL_FEE_ENABLED", self.parcel_fee_enabled),
+                                   ("PAYOUTS_ENABLED", self.payouts_enabled),
+                                   ("TIPS_MONEY_ENABLED", self.tips_money_enabled)) if v]
+        if money_on:
+            warn.append(
+                "Включены денежные функции (" + ", ".join(money_on) + "), а публичная оферта на "
+                "yulbash.ru/terms обещает «комиссия не берётся» — обновите web/components/legal-content.ts "
+                "и решите вопрос со статусом (физлицу брать комиссию нельзя)"
+            )
         return warn
 
 

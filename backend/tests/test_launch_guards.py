@@ -83,3 +83,21 @@ def test_force_update_off_is_warned(monkeypatch):
     """Выключенное принудительное обновление — не ошибка, но о нём должны знать до релиза."""
     _prod_ok(monkeypatch)
     assert any("MIN_APP_VERSION_CODE" in w for w in settings.launch_warnings())
+
+
+# ------------------------------ оферта vs денежные флаги ------------------------------
+def test_money_flag_without_docs_update_warns():
+    """Оферта обещает «комиссия не берётся». Включили деньги — предупреждаем, что документ врёт."""
+    from app.config import Settings
+    s = Settings(env="prod", taxi_enabled=False, redis_url="", parcel_fee_enabled=True)
+    warns = " ".join(s.launch_warnings())
+    assert "PARCEL_FEE_ENABLED" in warns
+    assert "legal-content" in warns
+
+
+def test_no_money_flags_no_offer_warning():
+    """Флаги выключены — оферта правдива, лишним предупреждением не шумим."""
+    from app.config import Settings
+    s = Settings(env="prod", taxi_enabled=False, redis_url="",
+                 parcel_fee_enabled=False, payouts_enabled=False, tips_money_enabled=False)
+    assert not any("legal-content" in w for w in s.launch_warnings())
