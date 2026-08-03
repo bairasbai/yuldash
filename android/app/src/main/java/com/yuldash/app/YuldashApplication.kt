@@ -44,6 +44,48 @@ class YuldashApplication : Application() {
             options.release = "yuldash@" + BuildConfig.VERSION_NAME
             // Приватность (152-ФЗ): не отправлять PII — телефоны/координаты/токены.
             options.isSendDefaultPii = false
+            // Второй рубеж. isSendDefaultPii=false запрещает Sentry ПРИКЛАДЫВАТЬ тела и заголовки,
+            // но не спасает, если номер попал ВНУТРЬ текста ошибки или в адрес запроса — а адреса
+            // приезжают сюда сами, хлебными крошками сетевого слоя. Чистим перед отправкой.
+            options.setBeforeSend { event, _ ->
+                runCatching { scrubSentryEvent(event) }.getOrNull()   // не смогли вычистить → не шлём
+            }
+            options.setBeforeBreadcrumb { crumb, _ ->
+                runCatching {
+                    crumb.message = crumb.message?.let { scrubPersonal(it) }
+                    crumb
+                }.getOrNull()
+            }
         }
     }
+}
+
+// ------------------------------ вычистка личных данных ------------------------------
+// Чистим осознанно грубо: лучше затереть лишнее в тексте ошибки, чем отправить чужой телефон.
+// Для отладки нужен вид сбоя и стек, а не персональные данные из него. Зеркало серверного
+// `observability.py::scrub_text` — правила держим одинаковыми с обеих сторон.
+private val SCRUB: List<Pair<Regex, String>> = listOf(
+    // телефон в любом написании: разделителем считаем только пробел/дефис/точку/скобки
+    Regex("""(?<!\d)(?:\+?7|8)[ \-.()]{0,3}(?:\d[ \-.()]{0,3}){9}\d(?!\d)""") to "<телефон>",
+    // координаты в адресе — это местоположение человека
+    Regex("""\b(lat|lng|lon|latitude|longitude)=-?\d+\.\d+""", RegexOption.IGNORE_CASE) to "$1=<коорд>",
+    // JWT: три base64-куска через точку. Токен = доступ к аккаунту
+    Regex("""\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b""") to "<токен>",
+    Regex("""\b(token|access_token|refresh_token|code|otp|password|secret|api_key|key)=[^&\s"']+""",
+        RegexOption.IGNORE_CASE) to "$1=<скрыто>",
+)
+
+/** Вычистить личные данные из строки. Публичная — используется и тестами. */
+internal fun scrubPersonal(s: String): String =
+    SCRUB.fold(s) { acc, (rx, repl) -> rx.replace(acc, repl) }
+
+/** Пройтись по тем полям события, куда реально попадает текст: сообщение и значения исключений. */
+private fun scrubSentryEvent(event: io.sentry.SentryEvent): io.sentry.SentryEvent {
+    event.message?.let { m ->
+        m.message = m.message?.let(::scrubPersonal)
+        m.formatted = m.formatted?.let(::scrubPersonal)
+    }
+    event.exceptions?.forEach { ex -> ex.value = ex.value?.let(::scrubPersonal) }
+    event.breadcrumbs?.forEach { c -> c.message = c.message?.let(::scrubPersonal) }
+    return event
 }

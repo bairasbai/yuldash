@@ -8,10 +8,64 @@
 gunicorn-воркеров, и из тестов, и чтобы отсутствие пакета `sentry-sdk` не роняло
 импорт приложения (мягкий фолбэк).
 """
+import re
+
 from .config import settings
 from .logs import log
 
 _sentry_ready = False
+
+# ------------------------------ вычистка личных данных ------------------------------
+# `send_default_pii=False` запрещает Sentry ПРИКЛАДЫВАТЬ тела, куки и IP — но не спасает,
+# если телефон попал ВНУТРЬ текста ошибки, в адрес запроса или в хлебную крошку. Пример:
+# HTTPException(422, f"Номер {phone} занят") улетит в облако вместе с номером.
+# Поэтому чистим на выходе — последний рубеж перед отправкой наружу (§8 CLAUDE.md).
+#
+# Чистим осознанно грубо: лучше затереть лишнее в тексте ошибки, чем отправить чужой телефон.
+# Разработчику для отладки нужен вид сбоя и стек, а не персональные данные из него.
+_SCRUB = (
+    # телефон в любом написании — та же логика, что в antifraud: разделителем считаем
+    # только пробел/дефис/точку/скобки, буква цепочку рвёт
+    (re.compile(r"(?<!\d)(?:\+?7|8)[ \-.()]{0,3}(?:\d[ \-.()]{0,3}){9}\d(?!\d)"), "<телефон>"),
+    # координаты в query-строке: /rides?lat=54.05&lng=58.31 — это местоположение человека
+    (re.compile(r"\b(lat|lng|lon|latitude|longitude)=-?\d+\.\d+", re.IGNORECASE), r"\1=<коорд>"),
+    # JWT: три base64-куска через точку. Токен = доступ к аккаунту
+    (re.compile(r"\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"), "<токен>"),
+    # секреты в параметрах
+    (re.compile(r"\b(token|access_token|refresh_token|code|otp|password|secret|api_key|key)=[^&\s\"']+",
+                re.IGNORECASE), r"\1=<скрыто>"),
+)
+_SCRUB_MAX_DEPTH = 12
+
+
+def scrub_text(s: str) -> str:
+    for rx, repl in _SCRUB:
+        s = rx.sub(repl, s)
+    return s
+
+
+def _scrub(value, depth: int = 0):
+    """Рекурсивно вычистить строки в событии. Глубина ограничена: событие Sentry —
+    чужая структура, зацикливаться на ней наблюдаемость права не имеет."""
+    if depth > _SCRUB_MAX_DEPTH:
+        return value
+    if isinstance(value, str):
+        return scrub_text(value)
+    if isinstance(value, dict):
+        return {k: _scrub(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        out = [_scrub(v, depth + 1) for v in value]
+        return type(value)(out) if isinstance(value, tuple) else out
+    return value
+
+
+def before_send(event, hint):   # noqa: ARG001 — hint нужен по контракту Sentry
+    """Последний рубеж перед отправкой. Любая ошибка чистки → событие НЕ отправляем:
+    лучше потерять отчёт о сбое, чем отправить наружу чужой телефон."""
+    try:
+        return _scrub(event)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def init_sentry() -> bool:
@@ -41,6 +95,9 @@ def init_sentry() -> bool:
             integrations=integrations,
             # Не тащим тела запросов/куки/ip в Sentry — там телефоны и токены (152-ФЗ).
             send_default_pii=False,
+            # Второй рубеж: чистим то, что просочилось в текст ошибки или в адрес.
+            before_send=before_send,
+            before_send_transaction=before_send,   # у трейсов в имени лежит URL
         )
         _sentry_ready = True
         log.info(f"[SENTRY] инициализирован (env={settings.env})")
