@@ -2191,8 +2191,14 @@ object ApiClient {
             .onSuccess { Analytics.log("instant_order_accept") }
 
     /** Водитель пропускает оффер → matcher предлагает следующему. */
-    suspend fun instantDecline(id: Int): Result<InstantOrderDto> =
-        call("POST", "/instant/orders/$id/decline", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+    /** Водитель не берёт заказ. `reason` (far|cheap|direction|busy|break|other) — не наказание,
+     *  а диагностика: без причины видно только «не берут», и матчинг продолжает слать те же
+     *  заказы тем же людям. Пусто = старое поведение, отказ проходит в любом случае. */
+    suspend fun instantDecline(id: Int, reason: String = ""): Result<InstantOrderDto> {
+        val body = JSONObject()
+        if (reason.isNotBlank()) body.put("reason", reason)
+        return call("POST", "/instant/orders/$id/decline", body, auth = true).map { it.toInstantOrderDto() }
+    }
 
     /** Водитель поехал к пассажиру: accepted → arriving. */
     suspend fun instantArrived(id: Int): Result<InstantOrderDto> =
@@ -3037,6 +3043,9 @@ object ApiClient {
                 phone = it.optString("phone"),
             )
         },
+        weightKg = o.optDouble("weight_kg", 0.0),
+        cargoType = o.optString("cargo_type"),
+        fragile = o.optBoolean("fragile", false),
         deliveryType = o.optString("delivery_type", "poputka"),
         urgency = o.optString("urgency"),
         declaredValueKop = o.optInt("declared_value_kop"),
@@ -3083,6 +3092,9 @@ object ApiClient {
         priceKop: Int = 0, declaredValueKop: Int = 0,
         fromAddress: String = "", toAddress: String = "",
         deliverBy: String = "",
+        // Что везём: вес отвечает на «унесу ли», тип — на «возьмусь ли», хрупкость — на «как положить».
+        // Размер (small/medium/large) ни на один из этих вопросов не отвечает.
+        weightKg: Double = 0.0, cargoType: String = "", fragile: Boolean = false,
     ): Result<ParcelDto> {
         val body = JSONObject()
             .put("from_city", fromCity).put("to_city", toCity)
@@ -3097,6 +3109,7 @@ object ApiClient {
             .put("to_lat", toLat ?: JSONObject.NULL).put("to_lng", toLng ?: JSONObject.NULL)
         putParcelAddresses(body, fromAddress, toAddress)
         putParcelDeliverBy(body, deliverBy)
+        putParcelCargo(body, weightKg, cargoType, fragile)
         return call("POST", "/parcels", body, auth = true)
             .map { parseParcel(it) }.onSuccess { Analytics.log("parcel_create") }
     }
@@ -3111,6 +3124,14 @@ object ApiClient {
      *  навязанный дедлайн отпугивает курьеров, а пустая строка на сервере значила бы «на сегодня». */
     private fun putParcelDeliverBy(body: JSONObject, deliverBy: String) {
         if (deliverBy.isNotBlank()) body.put("deliver_by", deliverBy.trim())
+    }
+
+    /** Что везём — одинаково для «по пути» и для заказа курьера: две копии разъехались бы
+     *  при первой правке. Пустые значения не шлём — сервер поймёт их как «не указано». */
+    private fun putParcelCargo(body: JSONObject, weightKg: Double, cargoType: String, fragile: Boolean) {
+        if (weightKg > 0.0) body.put("weight_kg", weightKg)
+        if (cargoType.isNotBlank()) body.put("cargo_type", cargoType.trim())
+        if (fragile) body.put("fragile", true)
     }
 
     /** Отправитель: мои посылки (с кодом вручения и курьером, если принята). */
@@ -3159,6 +3180,16 @@ object ApiClient {
         pickupPhotoUrl?.takeIf { it.isNotBlank() }?.let { body.put("pickup_photo_url", it) }
         return call("POST", "/parcels/$id/status", body, auth = true).map { parseParcel(it) }
             .onSuccess { Analytics.log("parcel_status_$status") }
+    }
+
+    /** Курьер приехал, но получателя нет — попытка зафиксирована, посылка ОСТАЁТСЯ у курьера.
+     *  Отдельно от возврата: раньше «никого нет дома» имело один исход — везти коробку за 60 км
+     *  обратно, хотя человек вернётся через два часа. */
+    suspend fun parcelAttemptFailed(id: Int, reason: String = ""): Result<ParcelDto> {
+        val body = JSONObject()
+        if (reason.isNotBlank()) body.put("reason", reason.trim())
+        return call("POST", "/parcels/$id/attempt-failed", body, auth = true).map { parseParcel(it) }
+            .onSuccess { Analytics.log("parcel_attempt_failed") }
     }
 
     /** Курьер: активные + короткая история завершённых доставок.
@@ -3314,6 +3345,7 @@ object ApiClient {
         declaredValueKop: Int? = null, codAmountKop: Int? = null, shoppingList: String? = null,
         fromAddress: String = "", toAddress: String = "",
         deliverBy: String = "",
+        weightKg: Double = 0.0, cargoType: String = "", fragile: Boolean = false,
     ): Result<ParcelDto> {
         val body = JSONObject()
             .put("from_city", fromCity).put("to_city", toCity)
@@ -3328,6 +3360,7 @@ object ApiClient {
         shoppingList?.takeIf { it.isNotBlank() }?.let { body.put("shopping_list", it) }
         putParcelAddresses(body, fromAddress, toAddress)
         putParcelDeliverBy(body, deliverBy)
+        putParcelCargo(body, weightKg, cargoType, fragile)
         return call("POST", "/courier/orders", body, auth = true).map { parseParcel(it) }
             .onSuccess { Analytics.log("courier_order_$deliveryType") }
     }
@@ -5375,6 +5408,11 @@ data class ParcelDto(
     val deliveredAt: String?,
     val courier: ParcelCourierDto?,
     // C1: курьер Юлдаша (профессиональная доставка). Для обычной попутки deliveryType="poputka".
+    // Что за груз (разбор №2). Видны ДО принятия, в том числе в открытом списке: именно по ним
+    // курьер решает «берусь или нет». 0 / "" / false = отправитель не указал.
+    val weightKg: Double = 0.0,
+    val cargoType: String = "",             // documents|medicine|food|clothes|tech|other
+    val fragile: Boolean = false,
     val deliveryType: String = "poputka",   // poputka | courier | buy_bring
     val urgency: String = "",                // bypath | now (для courier/buy_bring)
     val declaredValueKop: Int = 0,           // объявленная ценность (courier)

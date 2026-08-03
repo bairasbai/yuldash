@@ -651,4 +651,86 @@ class ApiClientTaxiCourierTest {
         assertEquals(true, mine.discountAvailable)
         assertNull(mine.discountUsedOrderId)
     }
+
+    // ==================== Разбор №2 (2026-08-03): новый контракт ====================
+
+    /** Причина отказа водителя — диагностика матчинга. Без неё видно только «не берут». */
+    @Test
+    fun instantDecline_sendsReasonWhenGiven() = runBlocking {
+        server.enqueue(json("""{"id":7,"status":"searching"}"""))
+        ApiClient.instantDecline(7, reason = "far").getOrThrow()
+        val req = server.takeRequest()
+        assertEquals("/instant/orders/7/decline", req.path)
+        assertTrue(req.body.readUtf8().contains("far"))
+    }
+
+    /** Пустая причина не должна попасть в тело: сервер понял бы её как категорию. */
+    @Test
+    fun instantDecline_omitsEmptyReason() = runBlocking {
+        server.enqueue(json("""{"id":8,"status":"searching"}"""))
+        ApiClient.instantDecline(8).getOrThrow()
+        assertTrue(!server.takeRequest().body.readUtf8().contains("reason"))
+    }
+
+    /** Вес/тип/хрупкость видны курьеру ДО принятия — по ним он и решает, берётся ли. */
+    @Test
+    fun parcel_parsesCargoFields() = runBlocking {
+        server.enqueue(
+            json(
+                """{"items":[{"id":3,"sender_id":1,"courier_id":null,"from_city":"Баймак",
+                   "to_city":"Сибай","size":"medium","description":"мёд","receiver_name":"Гөлнара",
+                   "fee_kop":0,"status":"created","created_at":"2026-08-03T09:00:00",
+                   "weight_kg":12.5,"cargo_type":"food","fragile":true}]}"""
+            )
+        )
+        val card = ApiClient.getAvailableParcels().getOrThrow().first()
+        assertEquals(12.5, card.weightKg, 0.001)
+        assertEquals("food", card.cargoType)
+        assertEquals(true, card.fragile)
+    }
+
+    /** Старый сервер полей не отдаёт — клиент обязан подставить «не указано», а не упасть. */
+    @Test
+    fun parcel_cargoFieldsDefaultWhenServerIsOlder() = runBlocking {
+        server.enqueue(
+            json(
+                """{"items":[{"id":4,"sender_id":1,"courier_id":null,"from_city":"Акъяр",
+                   "to_city":"Сибай","size":"small","description":"","receiver_name":"Азат",
+                   "fee_kop":0,"status":"created","created_at":"2026-08-03T09:00:00"}]}"""
+            )
+        )
+        val card = ApiClient.getAvailableParcels().getOrThrow().first()
+        assertEquals(0.0, card.weightKg, 0.001)
+        assertEquals("", card.cargoType)
+        assertEquals(false, card.fragile)
+    }
+
+    /** Отправка груза: нулевые значения не шлём — они значат «отправитель не указал». */
+    @Test
+    fun createParcel_sendsOnlyFilledCargoFields() = runBlocking {
+        server.enqueue(json("""{"id":5,"sender_id":1,"courier_id":null,"from_city":"Баймак",
+            "to_city":"Сибай","size":"small","description":"","receiver_name":"Х","fee_kop":0,
+            "status":"created","created_at":"2026-08-03T09:00:00"}"""))
+        ApiClient.createParcel(
+            fromCity = "Баймак", toCity = "Сибай", size = "small", description = "",
+            receiverName = "Х", receiverPhone = "+79990000000", rulesAccepted = true,
+            weightKg = 3.0, cargoType = "medicine", fragile = false,
+        ).getOrThrow()
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("weight_kg"))
+        assertTrue(body.contains("medicine"))
+        assertTrue("хрупкость по умолчанию не шлём", !body.contains("fragile"))
+    }
+
+    /** «Не застал получателя»: посылка остаётся у курьера, а не разворачивается за 60 км. */
+    @Test
+    fun parcelAttemptFailed_hitsTheRightEndpoint() = runBlocking {
+        server.enqueue(json("""{"id":6,"sender_id":1,"courier_id":2,"from_city":"Сибай",
+            "to_city":"Акъяр","size":"small","description":"","receiver_name":"Х","fee_kop":0,
+            "status":"in_transit","created_at":"2026-08-03T09:00:00","delivery_attempts":1}"""))
+        val p = ApiClient.parcelAttemptFailed(6, reason = "никого нет дома").getOrThrow()
+        val req = server.takeRequest()
+        assertEquals("/parcels/6/attempt-failed", req.path)
+        assertEquals("in_transit", p.status)
+    }
 }

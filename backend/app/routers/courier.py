@@ -700,6 +700,10 @@ class CourierOrderIn(BaseModel):
     # СРОК: «нужно доставить не позже этого дня» (ГГГГ-ММ-ДД). Не прислали → «когда получится».
     # Окно и текст ошибки — общие с посылкой «по пути» (parcels.validate_deliver_by).
     deliver_by: Optional[date] = None
+    # Что везём — те же поля, что у посылки «по пути» (один язык на оба режима доставки).
+    weight_kg: float = Field(0.0, ge=0, le=100)
+    cargo_type: str = Field("", max_length=16)
+    fragile: bool = False
 
     @field_validator("deliver_by", mode="before")
     @classmethod
@@ -740,6 +744,7 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
     # Срок «к какому дню нужно» — та же функция, что у посылки «по пути»: одно окно, один текст
     # ошибки. Отдельная копия проверки разъехалась бы при первой же правке (уроки, «один шов»).
     deliver_by = parcels_mod.validate_deliver_by(body.deliver_by)
+    cargo_type = parcels_mod.validate_cargo_type(body.cargo_type)
 
     cod_amount_kop = 0
     description = body.description.strip()
@@ -760,6 +765,35 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         COURIER_BUY_BRING_EXTRA_PERCENT if dtype == "buy_bring" else 0.0)
     priced = _price(body.from_lat, body.from_lng, body.to_lat, body.to_lng, size, urgency,
                     percent=est_percent)
+
+    # Дедуп двойного тапа — тот же шов, что у посылки «по пути» (разбор №2). Заказ курьера
+    # дороже обычной посылки (комиссия + выкуп товара), поэтому дубль тут стоит реальных денег.
+    # Ключ и окно берём из parcels_mod, чтобы правило было ОДНО: две копии разъедутся при
+    # первой правке (см. lessons.md про «один шов»).
+    session.exec(select(User).where(User.id == user.id).with_for_update()).first()
+    twin = session.exec(
+        select(ParcelDelivery).where(
+            ParcelDelivery.sender_id == user.id,
+            ParcelDelivery.from_city == from_city,
+            ParcelDelivery.to_city == to_city,
+            ParcelDelivery.receiver_phone == body.receiver_phone.strip(),
+            ParcelDelivery.size == size,
+            ParcelDelivery.delivery_type == dtype,
+            ParcelDelivery.from_address == body.from_address.strip(),
+            ParcelDelivery.to_address == body.to_address.strip(),
+            ParcelDelivery.description == description,
+            ParcelDelivery.deliver_by == deliver_by,
+            ParcelDelivery.declared_value_kop == int(body.declared_value_kop or 0),
+            ParcelDelivery.cod_amount_kop == cod_amount_kop,
+            ParcelDelivery.weight_kg == float(body.weight_kg or 0.0),
+            ParcelDelivery.cargo_type == cargo_type,
+            ParcelDelivery.fragile == bool(body.fragile),
+            ParcelDelivery.status == "created",
+            ParcelDelivery.created_at >= utcnow() - timedelta(seconds=parcels_mod._DUPLICATE_WINDOW_SEC),
+        ).order_by(ParcelDelivery.id.desc())
+    ).first()
+    if twin is not None:
+        return parcels_mod._parcel_for_sender(twin, session)
 
     parcel = ParcelDelivery(
         sender_id=user.id,
@@ -788,6 +822,9 @@ def courier_order_create(body: CourierOrderIn, user: User = Depends(current_user
         urgency=urgency,
         # «Нужно не позже этого дня» (None = не срочно, когда получится).
         deliver_by=deliver_by,
+        weight_kg=float(body.weight_kg or 0.0),
+        cargo_type=cargo_type,
+        fragile=bool(body.fragile),
         status="created",
         confirm_code=parcels_mod._gen_code(session),
     )

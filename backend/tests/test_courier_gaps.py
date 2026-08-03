@@ -179,7 +179,8 @@ def test_declared_value_and_photos_are_stored(client, user_factory):
     нерешаем ни для одной стороны."""
     courier = _make_courier(client, user_factory)
     sender = user_factory(name="ГапФото")
-    pid = _order(client, sender, declared_value_kop=150000)["id"]
+    order = _order(client, sender, declared_value_kop=150000)
+    pid, code = order["id"], order["confirm_code"]
     assert _parcel(pid).declared_value_kop == 150000
     ok_url = "https://yulbash.ru/secure/evidence/pickup.jpg"
     r = client.post(f"/parcels/{pid}/accept", headers=courier["auth"],
@@ -190,6 +191,14 @@ def test_declared_value_and_photos_are_stored(client, user_factory):
     client.post(f"/parcels/{pid}/status", headers=courier["auth"],
                 json={"status": "in_transit", "delivery_photo_url": "http://evil.example/x.jpg"})
     assert _parcel(pid).delivery_photo_url == ""
+    # Фото вручения СОХРАНЯЕТСЯ. Раньше этого никто не проверял: тест выше ловил только чужой
+    # хост и проходил бы даже с полностью отключённым присвоением — что и было в жизни.
+    # Телефон снимок слал, экран писал «Фото приложено ✓», сервер его выбрасывал.
+    give_url = "https://yulbash.ru/secure/evidence/delivered.jpg"
+    r = client.post(f"/parcels/{pid}/status", headers=courier["auth"],
+                    json={"status": "delivered", "code": code, "delivery_photo_url": give_url})
+    assert r.status_code == 200, r.text
+    assert _parcel(pid).delivery_photo_url == give_url
 
 
 # ============== Уведомления курьерам о новых заказах ==============

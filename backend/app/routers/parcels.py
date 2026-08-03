@@ -73,6 +73,27 @@ _BILLABLE_TYPES = ("courier", "buy_bring")
 # а опечатка в календаре: посылка «к 2027 году» не помогает ни отправителю, ни курьеру.
 _DELIVER_BY_MAX_DAYS = 30
 
+# Окно, внутри которого одинаковая заявка от одного человека считается ПОВТОРНЫМ ТАПОМ, а не
+# второй посылкой. Минуты хватает с запасом: авто-ретрай запроса и «нажал ещё раз, потому что
+# не отреагировало» укладываются в секунды. Отправить вторую такую же посылку тому же человеку
+# через минуту — сценарий настолько редкий, что цена ошибки (подождать минуту) ничтожна рядом
+# с ценой дубля (две заявки у курьеров, двойная оплата, спор).
+_DUPLICATE_WINDOW_SEC = 60
+
+# Что за груз. Закрытый список: свободный текст никто не фильтрует и не агрегирует, а курьеру
+# нужно одно слово, по которому он за секунду решит — берусь или нет. «Лекарство» и «рассада»
+# требуют разного обращения, но в описании они выглядели одинаково.
+CARGO_TYPES = {"documents", "medicine", "food", "clothes", "tech", "other"}
+
+
+def validate_cargo_type(value: str) -> str:
+    """Пусто = не указан (так шлёт старый клиент, это валидно). Незнакомое → «другое»:
+    ронять заявку из-за категории нельзя, посылка важнее ярлыка."""
+    v = (value or "").strip().lower()
+    if not v:
+        return ""
+    return v if v in CARGO_TYPES else "other"
+
 # Анти-абуз отказов курьера: снялся с заказа больше стольких раз за окно → сигнал админу
 # (не блокируем автоматически — «между своими» разбирается человеком).
 _RELEASE_ABUSE_LIMIT = 3
@@ -139,6 +160,12 @@ class ParcelIn(BaseModel):
     # «Нужно доставить не позже этого дня» (ГГГГ-ММ-ДД). Не прислали / null → «не срочно,
     # когда получится» (поведение как раньше). Проверка окна — validate_deliver_by.
     deliver_by: Optional[date] = None
+    # Что именно везём. Всё опционально (старый клиент не шлёт → 0/пусто/false, как раньше).
+    # Потолок веса 100 кг: выше — это уже не «посылка между своими», а грузоперевозка,
+    # для которой нужен другой транспорт и другая ответственность.
+    weight_kg: float = Field(0.0, ge=0, le=100)
+    cargo_type: str = Field("", max_length=16)
+    fragile: bool = False
 
     @field_validator("deliver_by", mode="before")
     @classmethod
@@ -254,6 +281,10 @@ def _parcel_base(p: ParcelDelivery, blur_coords: bool = False) -> dict:
         "to_lng": _blur(p.to_lng),
         "size": p.size,
         "description": p.description,
+        # Условия груза — видны ДО принятия: именно по ним курьер решает, берётся ли он вообще.
+        "weight_kg": float(getattr(p, "weight_kg", 0.0) or 0.0),
+        "cargo_type": getattr(p, "cargo_type", "") or "",
+        "fragile": bool(getattr(p, "fragile", False)),
         "receiver_name": p.receiver_name,
         "fee_kop": p.fee_kop,
         "status": p.status,
@@ -395,9 +426,44 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
         raise herr(422, "Выбери размер посылки", "Бандероль үлсәмен һайла")
     if not body.rules_accepted:
         raise herr(422, "Прими правила доставки", "Доставка ҡағиҙәләрен ҡабул ит")
+    cargo_type = validate_cargo_type(body.cargo_type)
     # Срок «к какому дню нужно» (опционально). Проверяем ДО создания: заявка с сроком из
     # прошлого родилась бы уже просроченной.
     deliver_by = validate_deliver_by(body.deliver_by)
+
+    # Двойное создание (разбор №2, 2026-08-03). У такси серверный гард был, у доставки — нет:
+    # держалось всё на `enabled = !working` в приложении. Лаг сети или авто-ретрай запроса —
+    # и у человека две одинаковые посылки, обе видны курьерам, за обе он платит.
+    # Одну активную на человека, как у такси, тут запретить НЕЛЬЗЯ: отправить сразу три посылки
+    # разным людям — нормальный сценарий. Поэтому дедуп по СОДЕРЖИМОМУ в коротком окне:
+    # тот же отправитель, маршрут, получатель и размер за последнюю минуту = тот же самый тап.
+    # Лочим строку отправителя, иначе два одновременных запроса оба пройдут SELECT и оба вставят.
+    session.exec(select(User).where(User.id == user.id).with_for_update()).first()
+    twin = session.exec(
+        select(ParcelDelivery).where(
+            ParcelDelivery.sender_id == user.id,
+            ParcelDelivery.from_city == from_city,
+            ParcelDelivery.to_city == to_city,
+            ParcelDelivery.receiver_phone == body.receiver_phone.strip(),
+            ParcelDelivery.size == size,
+            # Сверяем ВЕСЬ смысл заявки, а не только маршрут: повторный тап шлёт байт в байт
+            # тот же запрос, а «исправил адрес и отправил заново» — это уже другая заявка,
+            # и схлопнуть её означало бы потерять правку.
+            ParcelDelivery.from_address == body.from_address.strip(),
+            ParcelDelivery.to_address == body.to_address.strip(),
+            ParcelDelivery.description == body.description.strip(),
+            ParcelDelivery.deliver_by == deliver_by,
+            ParcelDelivery.declared_value_kop == int(body.declared_value_kop or 0),
+            ParcelDelivery.delivery_price_kop == int(body.price_kop or 0),
+            ParcelDelivery.weight_kg == float(body.weight_kg or 0.0),
+            ParcelDelivery.cargo_type == cargo_type,
+            ParcelDelivery.fragile == bool(body.fragile),
+            ParcelDelivery.status == "created",
+            ParcelDelivery.created_at >= utcnow() - timedelta(seconds=_DUPLICATE_WINDOW_SEC),
+        ).order_by(ParcelDelivery.id.desc())
+    ).first()
+    if twin is not None:
+        return _parcel_for_sender(twin, session)
 
     parcel = ParcelDelivery(
         sender_id=user.id,
@@ -422,6 +488,11 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
         declared_value_kop=int(body.declared_value_kop or 0),
         # «Нужно не позже этого дня» (None = не срочно, когда получится).
         deliver_by=deliver_by,
+        # Что везём: вес отвечает на «унесу ли», тип — на «возьмусь ли» (лекарство ≠ рассада),
+        # «хрупкое» — на «как положить». Размер ни на один из этих вопросов не отвечает.
+        weight_kg=float(body.weight_kg or 0.0),
+        cargo_type=cargo_type,
+        fragile=bool(body.fragile),
         status="created",
         confirm_code=_gen_code(session),
     )
@@ -667,6 +738,14 @@ def parcel_status(parcel_id: int, body: ParcelStatusIn, user: User = Depends(cur
             raise herr(422, "Неверный код получения", "Ялған алыу коды")
         parcel.status = "delivered"
         parcel.delivered_at = utcnow()
+        # Фото «отдал целой» — вторая граница ответственности, парная к pickup_photo_url выше.
+        # Поле объявлено в схеме и в модели с самого начала, но присвоения не было НИГДЕ: снимок
+        # приходил с телефона, экран рисовал «Фото приложено ✓» — и сервер его молча выбрасывал.
+        # В споре «привёз битой» доказательства не оказывалось, хотя курьер был уверен, что снял.
+        # Чужой хост не принимаем: открытие такой ссылки оппонентом слило бы его IP.
+        delivery_photo = (body.delivery_photo_url or "").strip()
+        if delivery_photo and is_own_media_url(delivery_photo):
+            parcel.delivery_photo_url = delivery_photo
         # C4: комиссия платформы финализируется ЗДЕСЬ — теперь известен назначенный курьер и его
         # стаж (лесенка 3/5/8 + промо + минимум + надбавка buy_bring). При создании commission_kop
         # был лишь оценкой. Для «по пути» (poputka) не трогаем (там свой fee_kop из конфига).
@@ -790,6 +869,55 @@ def _check_release_abuse(session: Session, user: User) -> None:
             )
     except Exception:  # noqa: BLE001
         pass
+
+
+@router.post("/parcels/{parcel_id}/attempt-failed")
+def parcel_attempt_failed(parcel_id: int, body: Optional[ParcelReasonIn] = None,
+                          user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """«Приехал — никого нет дома», но посылка остаётся у курьера и он попробует ещё раз.
+
+    Зачем отдельно от возврата (разбор №2, 2026-08-03). Раньше у сценария «получателя нет» был
+    ровно один исход — везти коробку обратно. Между Сибаем и Акъяром это 60 км в один конец,
+    и всё ради того, что человек вышел в магазин и вернётся через два часа. Курьер терял
+    полдня, отправитель — доставку, а посылка — смысл.
+
+    Что делает: фиксирует попытку и говорит отправителю, что нужно связаться с получателем.
+    Статус НЕ меняется — посылка по-прежнему «в пути», курьер везёт её дальше по своим делам
+    и заедет позже. Возврат остаётся отдельной, осознанной кнопкой: если не вышло и со второго
+    раза, никого не заставляем ездить бесконечно.
+
+    Число попыток видно обеим сторонам (`delivery_attempts`) — это и мера терпения курьера,
+    и аргумент в споре «он даже не приезжал».
+    """
+    parcel = session.exec(
+        select(ParcelDelivery).where(ParcelDelivery.id == parcel_id).with_for_update()
+    ).one_or_none()
+    if not parcel or parcel.courier_id != user.id:
+        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+    if parcel.status != "in_transit":
+        raise herr(409, "Отметить неудачную попытку можно, пока посылка в пути",
+                   "Уңышһыҙ барыуҙы бандероль юлда саҡта билдәләп була")
+    reason = ((body.reason if body else "") or "").strip()[:200]
+    parcel.delivery_attempts = (parcel.delivery_attempts or 0) + 1
+    if reason:
+        parcel.return_reason = reason   # последняя причина неудачи; при возврате перезапишется
+    session.add(parcel)
+    session.commit()
+    session.refresh(parcel)
+    attempts = parcel.delivery_attempts or 1
+    try:
+        push_notification(
+            session, parcel.sender_id, "parcel",
+            "Курьер не застал получателя", "Курьер алыусыны тапманы",
+            (f"Причина: {reason}. " if reason else "")
+            + f"Попытка {attempts}. Свяжись с получателем и напиши курьеру, когда заехать.",
+            (f"Сәбәбе: {reason}. " if reason else "")
+            + f"{attempts}-се тапҡыр. Алыусы менән бәйләнеш тот һәм курьерға ҡасан килергә яҙ.",
+            ref_kind="parcel", ref_id=parcel.id, data=_parcel_data(parcel.id),
+        )
+    except Exception:  # noqa: BLE001 — уведомление не должно ломать отметку попытки
+        pass
+    return _parcel_for_courier(parcel, session)
 
 
 @router.post("/parcels/{parcel_id}/return-start")

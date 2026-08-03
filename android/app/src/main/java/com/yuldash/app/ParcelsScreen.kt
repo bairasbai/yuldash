@@ -31,6 +31,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,6 +74,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -209,6 +213,55 @@ internal fun parcelSizeHint(size: String): String = when (size.lowercase()) {
     "medium" -> appText("небольшая коробка, книга", "бәләкәй ҡумта, китап")
     "large" -> appText("сумка, крупная коробка", "һумка, ҙур ҡумта")
     else -> ""
+}
+
+// ─────────────────── Что за груз: вес · тип · хрупкость ───────────────────
+// Размер (small/medium/large) отвечает ровно на ОДИН вопрос — «влезет ли». Курьер же перед
+// «беру / не беру» решает три совсем других:
+//   • «унесу ли»    — коробка 40×40 бывает и подушкой на 3 кг, и картошкой на 40 кг;
+//   • «возьмусь ли» — лекарства, техника и продукты означают разную ответственность и разную спешку;
+//   • «как положить» — хрупкое нельзя ставить под низ и класть в общую кучу.
+// Поэтому вес, тип и «хрупкое» живут отдельно от размера и видны курьеру ДО принятия заказа.
+// Все три поля необязательные: без них заказ всё равно должен уходить, поэтому пустое значение
+// (0 / "" / false) нигде не рисуется — пустая строка «Вес: —» хуже, чем её отсутствие.
+
+/** Потолок веса в форме. Больше 100 кг — это уже грузоперевозка, а не посылка «между своими». */
+internal const val PARCEL_MAX_WEIGHT_KG = 100
+
+/** Коды типов груза (те же, что понимает сервер) в порядке показа в форме.
+ *  Порядок не алфавитный, а по частоте в селе: документы и лекарства возят чаще всего. */
+internal val PARCEL_CARGO_TYPES = listOf("documents", "medicine", "food", "clothes", "tech", "other")
+
+/** Двуязычная подпись типа груза. Лежит рядом с parcelSizeLabel и по той же причине:
+ *  её читают И форма отправителя, И карточка курьера — две копии разъехались бы при первой правке. */
+@Composable
+internal fun cargoTypeLabel(code: String): String = when (code.lowercase()) {
+    "documents" -> appText("Документы", "Документтар")
+    "medicine" -> appText("Лекарства", "Дарыуҙар")
+    "food" -> appText("Продукты", "Аҙыҡ-түлек")
+    "clothes" -> appText("Одежда", "Кейем")
+    "tech" -> appText("Техника", "Техника")
+    "other" -> appText("Другое", "Башҡаһы")
+    else -> code   // незнакомый код с сервера показываем как есть, а не прячем
+}
+
+/** Значок типа груза. Не украшение: в ленте из десятка заказов курьер узнаёт «лекарства»
+ *  по картинке раньше, чем успевает прочитать подпись. */
+internal fun cargoTypeEmoji(code: String): String = when (code.lowercase()) {
+    "documents" -> "📄"
+    "medicine" -> "💊"
+    "food" -> "🥫"
+    "clothes" -> "👕"
+    "tech" -> "📱"
+    else -> "📦"
+}
+
+/** Вес одной строкой, без лишних нулей: 4.0 → «4 кг», 3.5 → «3,5 кг».
+ *  Форма спрашивает целые килограммы, но дробное значение может прийти с сервера — не врём. */
+@Composable
+internal fun parcelWeightLabel(weightKg: Double): String {
+    val value = if (weightKg % 1.0 == 0.0) deliveryDecimal(weightKg, 0) else deliveryDecimal(weightKg, 1)
+    return value + appText(" кг", " кг")
 }
 
 // ─────────────────── Срок доставки: «к какому дню нужно» ───────────────────
@@ -1128,6 +1181,13 @@ private fun SendParcelTab(onSent: () -> Unit) {
     var fromAddress by rememberSaveable { mutableStateOf("") }
     var toAddress by rememberSaveable { mutableStateOf("") }
     var size by rememberSaveable { mutableStateOf("") }
+    // Что за груз. Размер говорит только «влезет ли»; эти три поля отвечают курьеру на
+    // «унесу ли», «возьмусь ли» и «как положить» (подробнее — у PARCEL_CARGO_TYPES выше).
+    // Вес держим строкой: пользователь стирает поле до пустого, а 0.0 и «не указано» —
+    // одно и то же, и превращать одно в другое на каждом нажатии клавиши незачем.
+    var weightInput by rememberSaveable { mutableStateOf("") }
+    var cargoType by rememberSaveable { mutableStateOf("") }
+    var fragile by rememberSaveable { mutableStateOf(false) }
     var description by rememberSaveable { mutableStateOf("") }
     var receiverName by rememberSaveable { mutableStateOf("") }
     var receiverPhone by rememberSaveable { mutableStateOf("") }
@@ -1163,6 +1223,11 @@ private fun SendParcelTab(onSent: () -> Unit) {
         (shoppingList.isNotBlank() && productRubInt != null && productRubInt in 1..5000)
     val baseFilled = fromCity.isNotBlank() && toCity.isNotBlank() && size.isNotBlank()
     val receiverOk = receiverName.isNotBlank() && receiverPhone.isNotBlank()
+    // Вес: пусто = «не указан» и это нормально. Перебор по весу не молчим и не «подрезаем»
+    // втихую до 100 — иначе человек уверен, что заказал 150 кг, а курьер увидит 100.
+    val weightKgInt = weightInput.toIntOrNull()
+    val weightOk = weightInput.isBlank() || (weightKgInt != null && weightKgInt <= PARCEL_MAX_WEIGHT_KG)
+    val overWeight = weightInput.isNotBlank() && !weightOk
 
     // Мастер по шагам. Раньше это была ОДНА простыня из ~15 блоков: человек видел сразу все поля
     // (включая необязательные) и не понимал, сколько ещё осталось. Три коротких шага — как в
@@ -1175,7 +1240,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
     // Валидация ПОШАГОВАЯ: дальше не пускаем, пока шаг не заполнен. Это и есть смысл мастера —
     // ошибку видно сразу, а не в конце длинной формы.
     val routeOk = fromCity.isNotBlank() && toCity.isNotBlank()
-    val parcelOk = size.isNotBlank() && buyBringOk
+    val parcelOk = size.isNotBlank() && buyBringOk && weightOk
     val stepTitle = when (step) {
         stepRoute -> appText("Куда и как", "Ҡайҙа һәм нисек")
         stepParcel -> appText("Что за посылка", "Ниндәй бандероль")
@@ -1192,6 +1257,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
         // A successful submit starts a fresh draft, preventing accidental duplicate orders.
         deliveryType = "poputka"
         fromCity = ""; toCity = ""; fromAddress = ""; toAddress = ""; size = ""; description = ""
+        weightInput = ""; cargoType = ""; fragile = false
         receiverName = ""; receiverPhone = ""; rulesAccepted = false
         urgency = "bypath"; shoppingList = ""; declaredRub = ""; deliverBy = ""
         priceRub = ""; productRub = ""; estimate = null
@@ -1317,6 +1383,40 @@ private fun SendParcelTab(onSent: () -> Unit) {
                     ParcelSizeCard(s, selected = size == s) { size = s; estimate = null }
                 }
             }
+        }
+        // Что за груз — сразу за размером, потому что отвечает на СОСЕДНИЕ вопросы. Размер
+        // говорит «влезет ли в багажник», а курьер перед «беру / не беру» решает ещё три:
+        // «унесу ли» (коробка 40×40 — это и подушка 3 кг, и картошка 40 кг), «возьмусь ли»
+        // (лекарства и техника — разная ответственность) и «как положить» (хрупкое — не вниз).
+        // Все три поля необязательные: пропустил — заказ всё равно уходит.
+        if (step == stepParcel) item {
+            DeliverySectionTitle(appText("Что за груз", "Ниндәй йөк"))
+        }
+        if (step == stepParcel) item {
+            ParcelField(
+                weightInput, { weightInput = it.filter(Char::isDigit).take(3) },
+                appText("Вес", "Ауырлыҡ"),
+                appText("Примерно, в килограммах", "Яҡынса, килограммда"),
+                phone = true,
+            )
+        }
+        if (step == stepParcel) item {
+            DeliveryHint(
+                if (overWeight) appText(
+                    "Больше $PARCEL_MAX_WEIGHT_KG кг — это уже грузоперевозка, а не посылка. Уменьши вес.",
+                    "$PARCEL_MAX_WEIGHT_KG кг-дан артыҡ — был инде йөк ташыу, бандероль түгел. Ауырлыҡты кәметер.",
+                ) else appText(
+                    "Необязательно, но курьер сразу поймёт, унесёт ли один. Точность до грамма не нужна — хватит «на глаз».",
+                    "Мотлаҡ түгел, әммә курьер шунда уҡ яңғыҙы күтәрә аламы-юҡмы аңлар. Граммға тиклем теүәллек кәрәкмәй — «күҙ менән» етә.",
+                ),
+                tone = if (overWeight) CanonRed else CanonMuted,
+            )
+        }
+        if (step == stepParcel) item {
+            ParcelCargoTypePicker(cargoType) { cargoType = it }
+        }
+        if (step == stepParcel) item {
+            ParcelFragileSwitch(fragile) { fragile = !fragile }
         }
         // Срок: к какому дню нужно. Спрашиваем у ВСЕХ типов, включая «по пути» — именно там
         // человек и не понимает, сегодня посылка уедет или через неделю.
@@ -1485,6 +1585,11 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                 fromAddress = fromAddress.trim(), toAddress = toAddress.trim(),
                                 // Срок «к какому дню нужно». Пусто = «не срочно» и в тело не попадёт.
                                 deliverBy = deliverBy,
+                                // Что везём. 0 / "" / false до сервера не доедут — их отсекает
+                                // сам ApiClient, чтобы «не указано» не превращалось в «ноль кг».
+                                weightKg = (weightKgInt ?: 0).coerceIn(0, PARCEL_MAX_WEIGHT_KG).toDouble(),
+                                cargoType = cargoType,
+                                fragile = fragile,
                             )
                                 .onSuccess { showCreatedReceipt(it) }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -1554,6 +1659,11 @@ private fun SendParcelTab(onSent: () -> Unit) {
                                     ?.let { (it * 100).coerceAtMost(100_000_00) },
                                 fromAddress = fromAddress.trim(), toAddress = toAddress.trim(),
                                 deliverBy = deliverBy,
+                                // Что везём — те же три поля, что и у «по пути»: заказ курьера
+                                // отличается ценой и сроками, а не тем, что внутри коробки.
+                                weightKg = (weightKgInt ?: 0).coerceIn(0, PARCEL_MAX_WEIGHT_KG).toDouble(),
+                                cargoType = cargoType,
+                                fragile = fragile,
                             )
                                 .onSuccess { showCreatedReceipt(it) }
                                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: sendErr }
@@ -1874,6 +1984,128 @@ private fun ParcelField(
             capitalization = if (cap) KeyboardCapitalization.Words else KeyboardCapitalization.Sentences,
         ),
     )
+}
+
+/**
+ * Тип груза — одиночный выбор из шести чипов.
+ *
+ * Не поле для текста: «что внутри» отправитель уже пишет в описании своими словами, а курьеру
+ * нужен ОДИН понятный признак, по которому решается «возьмусь или нет» — лекарства везут срочно,
+ * технику осторожно, продукты не в жару. Чипы вместо списка, потому что вариантов мало и все
+ * должны быть видны сразу, без разворачивания.
+ *
+ * FlowRow: башкирские подписи длиннее русских («Аҙыҡ-түлек»), и при крупном системном шрифте
+ * жёсткий ряд из трёх колонок обрезал бы текст — здесь чипы просто переносятся на новую строку.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ParcelCargoTypePicker(value: String, onValue: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            appText("Что внутри", "Эсендә нимә"),
+            color = CanonText, fontWeight = FontWeight.Bold,
+            fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().selectableGroup(),
+        ) {
+            PARCEL_CARGO_TYPES.forEach { code ->
+                ParcelCargoChip(
+                    label = cargoTypeEmoji(code) + "  " + cargoTypeLabel(code),
+                    selected = value == code,
+                    // Повторное нажатие снимает выбор. Поле необязательное, и «передумал»
+                    // не должно требовать перезаполнения всей формы.
+                    onClick = { onValue(if (value == code) "" else code) },
+                )
+            }
+        }
+        DeliveryHint(
+            appText(
+                "Необязательно. Нажми ещё раз, чтобы снять выбор.",
+                "Мотлаҡ түгел. Һайлауҙы алып ташлар өсөн тағы бер тапҡыр баҫ.",
+            ),
+        )
+    }
+}
+
+/** Один чип типа груза. Тач-цель 48dp, цвета переезжают плавно — как у остальных выборов формы. */
+@Composable
+private fun ParcelCargoChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(200), label = "cargo-bg")
+    val line by animateColorAsState(if (selected) CanonGreen2 else CanonBorder, tween(200), label = "cargo-line")
+    val lineWidth by animateDpAsState(if (selected) 2.dp else 1.dp, tween(200), label = "cargo-w")
+    val ink by animateColorAsState(if (selected) CanonGreen2 else CanonText, tween(200), label = "cargo-ink")
+    Surface(
+        onClick = onClick, color = bg, shape = CanonItemShape,
+        border = BorderStroke(lineWidth, line),
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                this.selected = selected
+            },
+    ) {
+        Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+            Text(
+                label, color = ink, fontWeight = FontWeight.Bold,
+                fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * «Хрупкое» — переключатель, а не ещё один чип: это не «что везём», а обещание, как с посылкой
+ * обойдутся. Подложка предупреждающая (CanonWarnBg/CanonWarn), чтобы включённое состояние
+ * читалось как пометка на коробке, а не как обычная галочка в форме.
+ */
+@Composable
+private fun ParcelFragileSwitch(checked: Boolean, onToggle: () -> Unit) {
+    val bg by animateColorAsState(if (checked) CanonWarnBg else CanonSurface, tween(200), label = "fragile-bg")
+    val line by animateColorAsState(if (checked) CanonWarn else CanonBorder, tween(200), label = "fragile-line")
+    val lineWidth by animateDpAsState(if (checked) 2.dp else 1.dp, tween(200), label = "fragile-w")
+    val ink by animateColorAsState(if (checked) CanonWarn else CanonMuted, tween(200), label = "fragile-ink")
+    Surface(
+        onClick = onToggle, color = bg, shape = CanonItemShape,
+        border = BorderStroke(lineWidth, line),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.Switch
+                toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
+            },
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.ReportProblem, contentDescription = null, tint = ink, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    appText("Хрупкое", "Ватыла торған"),
+                    color = CanonText, fontWeight = FontWeight.Bold,
+                    fontSize = DeliveryBody, lineHeight = DeliveryBodyLine,
+                )
+                Text(
+                    appText(
+                        "Курьер положит отдельно и не поставит под низ",
+                        "Курьер айырым һалыр һәм аҫҡа ҡуймаҫ",
+                    ),
+                    color = CanonMuted, fontSize = DeliveryCaption, lineHeight = DeliveryCaptionLine,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            // Ползунок зелёный, как все включённые тумблеры приложения: он говорит «признак
+            // включён», а тревожный смысл несут подложка и рамка карточки.
+            Switch(
+                checked = checked,
+                onCheckedChange = { onToggle() },
+                colors = SwitchDefaults.colors(checkedTrackColor = CanonGreen2),
+            )
+        }
+    }
 }
 
 @Composable
