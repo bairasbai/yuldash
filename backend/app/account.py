@@ -32,7 +32,7 @@ from sqlmodel import Session, select
 
 from .errors import herr
 from .models import (
-    Ad, AdEvent, AppReview, Block, Booking, CommissionDebt, Consent, Coupon,
+    Ad, AdEvent, AppReview, Block, Booking, CommissionDebt, Consent, Coupon, OfferDecline,
     CouponRedemption, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
     DriverProfile, DriverSchedule, Incident, InstantOrder, InstantOrderStatus, InviteCode,
     LedgerEntry, Message,
@@ -423,6 +423,8 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(delete(DriverProfile).where(DriverProfile.user_id == uid))
     # 3.21 Доверие: мой уровень «свой», мои инвайт-коды, мои согласия (152-ФЗ — стираем всё).
     session.execute(delete(Consent).where(Consent.user_id == uid))
+    # Журнал причин отказа от офферов — обезличивать нечего, это статистика по ушедшему.
+    session.execute(delete(OfferDecline).where(OfferDecline.driver_id == uid))
     session.execute(delete(InviteCode).where(InviteCode.owner_id == uid))
     session.execute(delete(Trust).where(Trust.user_id == uid))
     # Отвязать цепочку: те, кого я пригласил в круг своих, остаются «своими», но ссылку на меня убираем (FK).

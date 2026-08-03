@@ -27,8 +27,8 @@ from .config import settings
 from . import pricing
 from . import promo_ride
 from .models import (
-    Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, Tariff,
-    TripShare, TrustedContact, User,
+    Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus as S, OfferDecline,
+    Tariff, TripShare, TrustedContact, User,
 )
 from .services import blocked_user_ids, haversine_km, send_push, send_text, user_rating
 from .timeutil import utcnow
@@ -592,6 +592,46 @@ def order_strike_times(session: Session, passenger_id: int, since) -> list:
             if o.no_show or (o.cancel_fee_kop > 0 and o.cancel_by == Actor.passenger.value)]
 
 
+def driver_cancel_times(session: Session, driver_id: int, since) -> list:
+    """Когда водитель бросал УЖЕ ПРИНЯТЫЕ заказы за окно (разбор №2, 2026-08-03).
+
+    Считаем только отмены после `accepted_at`: отказ от оффера — это нормально и ничего не
+    стоит пассажиру, а вот «принял, посмотрел адрес и отменил» отбрасывает человека в поиск
+    с нуля, и до сих пор это не стоило водителю ничего.
+
+    `no_show` исключаем: там водитель как раз всё сделал по правилам — доехал, отждал, отметил.
+    Наказывать за это значило бы учить водителей молча уезжать вместо честной отметки.
+    """
+    rows = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.driver_id == driver_id,
+            InstantOrder.status == S.cancelled,
+            InstantOrder.cancel_by == Actor.driver.value,
+            InstantOrder.cancelled_at >= since,
+        )
+    ).all()
+    return [o.cancelled_at for o in rows if o.accepted_at is not None and not o.no_show]
+
+
+def driver_pause_until(session: Session, driver_id: int, now=None):
+    """Пауза ОФФЕРОВ водителю за брошенные заказы. Возврат: конец паузы или None."""
+    now = now or utcnow()
+    since = now - timedelta(days=settings.driver_cancel_window_days)
+    strikes = driver_cancel_times(session, driver_id, since)
+    if len(strikes) < settings.driver_cancel_limit:
+        return None
+    until = max(strikes) + timedelta(hours=settings.driver_cancel_pause_hours)
+    return until if until > now else None
+
+
+def driver_pause_message() -> str:
+    """Текст паузы водителю: объясняем причину и срок, без обвинений."""
+    h = settings.driver_cancel_pause_hours
+    return (f"Заказы приходят с паузой {h} ч: несколько принятых заказов подряд были отменены. "
+            f"Пассажир после такой отмены ищет машину заново. "
+            f"Заказдар {h} сәғәт туҡтатылды: ҡабул ителгән заказдар бер нисә тапҡыр кире алынды.")
+
+
 def strike_pause_until(session: Session, passenger_id: int, now=None):
     """Пауза такси-заказов за страйки. Страйк = платная отмена пассажира ИЛИ no-show.
     ≥ strike_limit страйков за strike_window_days → пауза strike_pause_hours от последнего
@@ -856,6 +896,8 @@ def eligible(session: Session, ids: list, order: InstantOrder) -> list:
             continue
         if comfort_only and (p.car_class or "economy") != "comfort":
             continue          # NULL = economy: комфорт-заказ обычной машине не предлагаем
+        if driver_pause_until(session, did) is not None:
+            continue          # бросал принятые заказы — пауза офферов (разбор №2)
         out.append(did)
     return out
 
@@ -1015,7 +1057,7 @@ def reconcile_offer(session: Session, order: InstantOrder) -> InstantOrder:
     return order
 
 
-def decline_offer(session: Session, order_id: int, driver_id: int) -> InstantOrder:
+def decline_offer(session: Session, order_id: int, driver_id: int, reason: str = "") -> InstantOrder:
     """Водитель отклонил оффер → следующий кандидат. Идемпотентно."""
     order = session.get(InstantOrder, order_id)
     if not order:
@@ -1023,6 +1065,14 @@ def decline_offer(session: Session, order_id: int, driver_id: int) -> InstantOrd
     if order.status != S.offered or order.current_offer_driver_id != driver_id:
         # оффер уже не актуален (принят/протух/отдан другому) — не ошибка
         return order
+    if reason:
+        # Журнал причин (разбор №2). Пишем ДО перехода, но отдельным try: сорвавшаяся запись
+        # статистики не должна мешать водителю отказаться — отказ важнее аналитики.
+        try:
+            session.add(OfferDecline(order_id=order_id, driver_id=driver_id, reason=reason[:32]))
+            session.commit()
+        except Exception:  # noqa: BLE001
+            session.rollback()
     return advance_after_no_accept(session, order)
 
 

@@ -1159,6 +1159,28 @@ class InviteCode(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class OfferDecline(SQLModel, table=True):
+    """Почему водитель не взял предложенный заказ (разбор №2, 2026-08-03).
+
+    До этого отказ был безмолвным: платформа видела «заказ не берут» и продолжала слать
+    такие же заказы тем же людям. Причина превращает это в диагноз — далеко подавать,
+    мало денег, неудобное направление, водитель на перерыве. Из этого видно, что чинить:
+    радиус подачи, тариф или расписание.
+
+    Это ЖУРНАЛ, а не наказание: за отказ санкций нет и не планируется. Иначе водитель
+    перестанет отказываться честно и просто уйдёт в офлайн — а это хуже и для пассажира,
+    и для нас (машина есть, но её не видно).
+
+    Персональных данных нет: id заказа, id водителя, слово-причина. Чистится ретеншеном
+    (`cleanup.py`) — поштучные отказы нужны недолго, важна статистика.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    order_id: int = Field(index=True, foreign_key="instantorder.id")
+    driver_id: int = Field(index=True, foreign_key="user.id")
+    reason: str = Field(default="", max_length=32)   # far / cheap / direction / busy / break / other
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class Consent(SQLModel, table=True):
     """Реестр согласий (152-ФЗ): доказуемый факт и время согласия пользователя на
     оферту / политику конфиденциальности / обработку геолокации. Одна строка на вид согласия.
@@ -1318,6 +1340,14 @@ class ParcelDelivery(SQLModel, table=True):
     to_lng: Optional[float] = None
     size: str = Field(default="small", max_length=16)                        # small|medium|large (сбор зависит от размера)
     description: str = ""                                                     # что за посылка (без запрещёнки)
+    # ЧТО ИМЕННО ВЕЗЁМ (разбор №2, 2026-08-03). Раньше был только «размер» — курьер соглашался
+    # на «большую» и находил у подъезда мешок картошки на 40 кг, который не поднимет и не увезёт
+    # на легковой. Размер отвечает на «влезет ли», вес — на «унесу ли», а это разные вопросы.
+    # Всё три поля УСЛОВИЯ заказа, а не персональные данные: курьер видит их ДО принятия,
+    # в том числе в открытом списке (в отличие от телефона и адреса).
+    weight_kg: float = Field(default=0.0)                                    # 0 = не указан (не обязателен)
+    cargo_type: str = Field(default="", max_length=16)                       # documents|medicine|food|clothes|tech|other
+    fragile: bool = False                                                     # «хрупкое»: везти аккуратно, не класть под низ
     receiver_name: str = ""                                                   # имя получателя (публично курьеру)
     receiver_phone: str = ""                                                  # ПРИВАТНО: отдаём только принявшему курьеру
     fee_kop: int = Field(default=0, sa_type=BigInteger)                                                          # символический сервисный сбор платформы (коп), фиксируется при создании

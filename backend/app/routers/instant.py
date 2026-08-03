@@ -471,14 +471,37 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
     ).first()
     if other_active is not None:
         raise HTTPException(409, "У тебя уже есть активная поездка — заверши её сначала")
+    # Пауза за брошенные заказы (разбор №2): офферы такому водителю не шлём, но заказ может
+    # прийти и другим путём (ссылка, повторный тап по старому уведомлению) — закрываем и здесь.
+    if isv.driver_pause_until(session, user.id) is not None:
+        raise HTTPException(403, isv.driver_pause_message())
     order = isv.transition(session, order_id, isv.Actor.driver, S.accepted, user.id, idempotent=False)
     return isv.order_payload(session, order, user)
 
 
+class DeclineIn(BaseModel):
+    """Почему водитель не взял заказ (опц.: старый клиент тела не шлёт).
+
+    Зачем спрашиваем: без причины платформа видит только «не берут» и продолжает слать те же
+    заказы тем же людям. С причиной становится видно, что чинить — далеко подавать, мало денег,
+    неудобное направление. Это диагностика матчинга, а не наказание: на отказ никаких санкций
+    нет и не будет, иначе водители начнут просто уходить в офлайн вместо честного отказа.
+    """
+    reason: Optional[str] = Field(None, max_length=32)
+
+
+# Причины отказа от оффера. Закрытый список — свободный текст никто не читает и не агрегирует.
+_DECLINE_REASONS = {"far", "cheap", "direction", "busy", "break", "other"}
+
+
 @router.post("/instant/orders/{order_id}/decline")
-def decline(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def decline(order_id: int, body: DeclineIn | None = None,
+            user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель отклоняет оффер → matcher предлагает следующему. Идемпотентно."""
-    order = isv.decline_offer(session, order_id, user.id)
+    reason = ((body.reason if body else "") or "").strip().lower()
+    if reason and reason not in _DECLINE_REASONS:
+        reason = "other"      # незнакомое значение не роняет отказ: отказаться важнее, чем классифицировать
+    order = isv.decline_offer(session, order_id, user.id, reason=reason)
     return isv.order_payload(session, order, user)
 
 

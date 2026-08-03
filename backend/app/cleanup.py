@@ -30,6 +30,7 @@ TG_DAYS = 1          # telegram-сессии входа
 UPLOAD_DAYS = 2      # события загрузки (квота 24ч)
 TOKEN_DAYS = 1       # протухшие/отозванные refresh-токены
 ADEVENT_DAYS = 90    # показы/клики рекламы (поштучно потом не нужны)
+DECLINE_DAYS = 90    # причины отказа водителей от офферов (нужна статистика, не строки)
 ANALYTICS_DAYS = 90  # анонимные продуктовые события веб-версии (воронка) — поштучно не нужны
 NOTIF_DAYS = 90      # старые уведомления (быстрорастущий объём: строка на каждый пуш)
 SOS_DAYS = 180       # ТОЛЬКО закрытые (handled) SOS; открытые не трогаем
@@ -41,7 +42,7 @@ TRIP_DAYS = 180      # старые завершённые поездки/зая
 # Но SQL строится f-строкой по имени таблицы, поэтому явно ограничиваем набор — страховка от
 # будущей правки, где в table случайно попадёт внешнее значение (см. review-plan 2026-07-03, P3).
 _ALLOWED_TABLES = frozenset({
-    "message", "otpcode", "tgauth", "uploadevent", "refreshtoken", "adevent",
+    "message", "otpcode", "tgauth", "uploadevent", "refreshtoken", "adevent", "offerdecline",
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
     "booking", "ride", "notification", "instantorder", "parceldelivery",
     "analyticsevent",
@@ -62,6 +63,7 @@ def _rules(now):
          "refreshtoken", "(revoked = true OR expires_at < :now) AND created_at < :c",
          {"now": now, "c": cut(TOKEN_DAYS)}),
         ("показы/клики рекламы >90д", "adevent", "created_at < :c", {"c": cut(ADEVENT_DAYS)}),
+        ("причины отказа от офферов >90д", "offerdecline", "created_at < :c", {"c": cut(DECLINE_DAYS)}),
         ("аналитика веб (события) >90д", "analyticsevent", "created_at < :c", {"c": cut(ANALYTICS_DAYS)}),
         ("уведомления >90д", "notification", "created_at < :c", {"c": cut(NOTIF_DAYS)}),
         # --- Фаза 2: старое завершённое (осторожно, с гардами) ---

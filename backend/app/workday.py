@@ -127,12 +127,63 @@ def blocking_workday(session: Session, driver_id: int, now: Optional[datetime] =
     return wd if now < unlock_at(wd) else None
 
 
+# ------------------------------ недельный лимит ------------------------------
+def week_seconds(session: Session, driver_id: int, now: Optional[datetime] = None) -> int:
+    """Сколько такси-времени водитель наездил за последние 7 местных дней.
+
+    Зачем (разбор №2, 2026-08-03): дневной лимит был, недельного — нет. Восемь часов в день
+    семь дней подряд — это 56 часов за руль без единого выходного, и формально всё в порядке.
+    Именно так и накапливается усталость, из-за которой случаются ночные аварии на трассе
+    Сибай–Уфа: каждый отдельный день выглядит нормальным.
+    """
+    today = local_day(now)
+    since = today - timedelta(days=6)      # сегодня + шесть предыдущих = неделя
+    rows = session.exec(
+        select(TaxiWorkDay).where(
+            TaxiWorkDay.driver_id == driver_id,
+            TaxiWorkDay.day >= since,
+            TaxiWorkDay.day <= today,
+        )
+    ).all()
+    return sum(int(r.seconds_online or 0) for r in rows)
+
+
+def week_limit_sec() -> int:
+    return settings.taxi_week_limit_hours * 3600
+
+
+def week_block_until(session: Session, driver_id: int, now: Optional[datetime] = None) -> Optional[datetime]:
+    """Достигнут недельный потолок → до какого момента водитель отдыхает.
+
+    Отдых считаем до начала следующего местного дня: неделя — скользящая, и завтра самый
+    старый день выпадет из окна, освободив часы. Это мягче фиксированной «недели с
+    понедельника»: водитель не оказывается заблокированным на пять суток подряд.
+    """
+    if settings.taxi_week_limit_hours <= 0:
+        return None                                   # 0 = лимит выключен
+    now = now or utcnow()
+    if week_seconds(session, driver_id, now) < week_limit_sec():
+        return None
+    tomorrow_local = datetime.combine(local_day(now) + timedelta(days=1), time_type(hour=0))
+    return tomorrow_local - _tz()
+
+
+def week_block_message() -> str:
+    h = settings.taxi_week_limit_hours
+    return (f"За неделю уже {h} часов за рулём — сегодня отдыхай 🌙 Завтра снова на линию."
+            f" · Аҙнаға {h} сәғәт руль артында — бөгөн ял ит 🌙 Иртәгә йәнә линияға.")
+
+
 def guard_taxi_rested(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
     """Гейт такси (в стиле долгового): блок отдыха → 403 с тёплым текстом.
     Вешается на presence/offer/accept; переходы активного заказа НЕ трогает."""
     now = now or utcnow()
     wd = blocking_workday(session, driver_id, now)
     if wd is None:
+        # Дневной лимит не сработал — проверяем недельный. Порядок именно такой: дневной
+        # конкретнее и его текст понятнее («ты сегодня 8 часов за рулём»).
+        if week_block_until(session, driver_id, now) is not None:
+            raise HTTPException(403, week_block_message())
         return
     _maybe_winter_advice(session, driver_id, wd, now)
     raise HTTPException(403, rest_block_message())

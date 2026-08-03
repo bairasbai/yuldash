@@ -703,14 +703,21 @@ internal fun InstantOrderScreen(
     // Связь с сервером при поллинге активного заказа потеряна → мягкий баннер «пробуем ещё», не молчим.
     var pollOffline by remember { mutableStateOf(false) }
     var restoreTick by remember { mutableIntStateOf(0) }
+    // Заказ, по которому человек уже нажал «Отменить» и мы спрашиваем причину. Держим id, а не
+    // копию заказа: сумму подачи диалог возьмёт из живого заказа — пока человек читает, поллинг
+    // успевает её обновить, а платить он будет по свежей.
+    var cancelReasonForId by remember { mutableIntStateOf(0) }
     val ctx = LocalContext.current
     val cancelFailMsg = appText(
         "Не получилось отменить заказ. Проверь сеть и повтори.",
         "Заказды кире алып булманы. Селтәрҙе тикшереп ҡабатла.",
     )
-    fun cancelOrder(id: Int) {
+    // Причина (long_wait|found_other|wrong_address|plans_changed|price|other) опциональна: пустая
+    // строка = прежнее поведение. Раньше её не слали вообще, и в статистике было видно только
+    // «отменил» — а «долго ждать» и «дорого» лечатся по-разному: первое матчингом, второе ценой.
+    fun cancelOrder(id: Int, reason: String = "") {
         scope.launch {
-            ApiClient.instantCancel(id)
+            ApiClient.instantCancel(id, reason = reason)
                 .onSuccess { order = it }
                 .onFailure {
                     Toast.makeText(
@@ -861,16 +868,19 @@ internal fun InstantOrderScreen(
                             scheduledConfirmTo = scheduled.toText
                         },
                     )
+                    // Отмену не гасим сразу: сперва короткий вопрос «почему», и только потом запрос.
+                    // В «Водитель едет» перед этим отрабатывает своё предупреждение о платной
+                    // подаче — порядок «деньги → причина → отмена» специально не меняем.
                     "searching" -> current?.let { o ->
                         InstantSearchingCard(
                             order = o,
-                            onCancel = { cancelOrder(o.id) },
+                            onCancel = { cancelReasonForId = o.id },
                         )
                     }
                     "enroute" -> current?.let { o ->
                         InstantDriverEnRouteCard(
                             order = o,
-                            onCancel = { cancelOrder(o.id) },
+                            onCancel = { cancelReasonForId = o.id },
                         )
                     }
                     "expired" -> current?.let { o ->
@@ -947,6 +957,18 @@ internal fun InstantOrderScreen(
                 enter = fadeIn(), exit = fadeOut(),
                 modifier = Modifier.align(Alignment.TopCenter),
             ) { InstantOfflineBanner() }
+            // Вопрос «почему отменяешь» живёт СНАРУЖИ AnimatedContent: внутри он умирал бы
+            // вместе с уходящей фазой прямо под пальцем.
+            // Показываем, только пока заказ жив: если за это время его закрыл водитель, гасить
+            // уже нечего — окно уходит само, вместо ошибки «заказ не найден» в ответ на касание.
+            current?.takeIf { it.id == cancelReasonForId && !it.isTerminal }?.let { o ->
+                InstantCancelReasonDialog(
+                    feeKop = o.cancelFeeNowKop,
+                    onPick = { code -> cancelReasonForId = 0; cancelOrder(o.id, code) },
+                    onSkip = { cancelReasonForId = 0; cancelOrder(o.id) },
+                    onDismiss = { cancelReasonForId = 0 },
+                )
+            }
         }
     }
 }
@@ -2468,6 +2490,177 @@ internal fun InstantDriverEnRouteCard(
     }
 }
 
+// ------------------------------ Причина отмены / отказа ------------------------------
+/**
+ * Одна строка выбора причины — общая для пассажира (диалог отмены) и для водителя (панель
+ * «почему не взял»). Заводим её одну на два места специально: два почти одинаковых чипа
+ * в одном файле через месяц разъезжаются по цвету и высоте, и экран начинает выглядеть
+ * самодельным. Форма и тач-цель те же, что у остальных чипов файла (≥48dp).
+ */
+@Composable
+private fun InstantReasonChip(
+    label: String,
+    modifier: Modifier = Modifier,
+    picked: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    // Выбранная причина подсвечивается мятой не для красоты: палец должен получить ответ
+    // «попал» раньше, чем экран успеет смениться. Переход цвета — плавный, без мигания.
+    val bg by animateColorAsState(if (picked) CanonMint else CanonBg, tween(200), label = "reasonBg")
+    val fg by animateColorAsState(if (picked) CanonGreen2 else CanonText, tween(200), label = "reasonFg")
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        color = bg,
+        shape = InstantControlShape,
+        border = BorderStroke(1.dp, if (picked) CanonGreen2 else CanonBorder),
+        modifier = modifier.heightIn(min = 48.dp),
+    ) {
+        Box(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            // Башкирская строка длиннее русской — потому высота минимальная, а не фиксированная:
+            // текст переносится, а не обрезается.
+            Text(
+                label,
+                color = fg, fontSize = TxBody, lineHeight = LhBody,
+                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** Причины отмены пассажиром: код уходит на сервер, подпись — человеку. Порядок не случайный:
+ *  сверху то, что случается чаще всего («долго ждать»), внизу «другое» — так почти никто не
+ *  докручивает до конца списка, и ответ занимает одно касание. */
+@Composable
+private fun instantCancelReasons(): List<Pair<String, String>> = listOf(
+    "long_wait" to appText("Долго ждать машину", "Машинаны оҙаҡ көтөргә"),
+    "found_other" to appText("Уехал(а) другим способом", "Башҡа юл менән киттем"),
+    "wrong_address" to appText("Ошибся адресом", "Адресты яңылыш яҙғанмын"),
+    "plans_changed" to appText("Планы изменились", "Пландар үҙгәрҙе"),
+    "price" to appText("Дорого", "Ҡиммәт"),
+    "other" to appText("Другая причина", "Башҡа сәбәп"),
+)
+
+/**
+ * «Почему отменяешь?» — короткий вопрос перед отменой заказа.
+ *
+ * Причина НИКОГДА не стоит между человеком и отменой: «Пропустить» гасит заказ сразу, тап мимо
+ * окна возвращает к заказу целым. Отмена важнее статистики — если бы вопрос мог заблокировать
+ * отмену, человек на морозе остался бы с ненужной машиной ради нашего графика.
+ *
+ * Если отмена уже платная, сумма подачи стоит прямо в этом окне: предупреждение о деньгах в
+ * «Водитель едет» показалось раньше, и прятать сумму за вопросом про статистику нельзя —
+ * человек подтверждает, глядя на цифру, а не по памяти.
+ *
+ * @param feeKop плата за подачу в копейках; 0 — отмена бесплатная, полоса про деньги не рисуется.
+ */
+@Composable
+private fun InstantCancelReasonDialog(
+    feeKop: Int,
+    onPick: (String) -> Unit,
+    onSkip: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Material-диалог появляется мгновенно, без анимации. Поэтому содержимое «доезжает» само:
+    // подъём на 20dp с проявлением — то же спокойное движение, что у смены фаз заказа выше.
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val appear by animateFloatAsState(if (shown) 1f else 0f, tween(280), label = "cancelReasonAppear")
+    // Защёлка от второго касания: отмена — необратимое действие, и на медленном телефоне палец
+    // успевает нажать дважды, пока окно закрывается. Второй тап должен уйти в никуда.
+    var picked by remember { mutableStateOf<String?>(null) }
+    val reasons = instantCancelReasons()
+    val feeRub = feeKop / 100
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CanonSurface,
+        shape = CanonCardShape,
+        title = {
+            Text(
+                appText("Почему отменяешь?", "Ниңә кире алаһың?"),
+                color = CanonText, fontSize = TxTitle, lineHeight = LhTitle, fontWeight = FontWeight.Black,
+            )
+        },
+        text = {
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .graphicsLayer { alpha = appear; translationY = (1f - appear) * 20.dp.toPx() },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Деньги — первой строкой. Человек уже подтвердил их в предыдущем окне, но
+                // между подтверждением и последним касанием сумма не должна исчезать с экрана.
+                if (feeKop > 0) {
+                    Surface(color = CanonWarnBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            appText(
+                                "Отмена сейчас платная: $feeRub ₽ за подачу — переведи водителю.",
+                                "Хәҙер кире алыу түләүле: килеү өсөн $feeRub ₽ — водителгә күсер.",
+                            ),
+                            color = CanonWarn, fontSize = TxCaption, lineHeight = LhCaption,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+                Text(
+                    appText(
+                        "Ответ не обязателен. Он нужен нам, чтобы машины подъезжали быстрее.",
+                        "Яуап мотлаҡ түгел. Ул машиналар тиҙерәк килһен өсөн кәрәк.",
+                    ),
+                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                )
+                reasons.forEach { (code, label) ->
+                    InstantReasonChip(
+                        label = label,
+                        picked = picked == code,
+                        enabled = picked == null,
+                        modifier = Modifier.fillMaxWidth(),
+                        // Одно касание = и причина, и отмена. Второй кнопки «подтвердить» тут нет
+                        // сознательно: решение человек уже принял на прошлом экране.
+                        onClick = { picked = code; onPick(code) },
+                    )
+                }
+                Text(
+                    appText(
+                        "Не хочешь отвечать — нажми «Пропустить», заказ всё равно отменится.",
+                        "Яуап бирергә теләмәһәң — «Үткәреп ебәреү»гә баҫ, заказ барыбер кире алына.",
+                    ),
+                    color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = picked == null,
+                onClick = onSkip,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(
+                    appText("Пропустить", "Үткәреп ебәреү"),
+                    color = CanonRed, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(
+                enabled = picked == null,
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(
+                    appText("Не отменять", "Кире алмайым"),
+                    color = CanonGreen2, fontSize = TxBody, lineHeight = LhBody, fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+    )
+}
+
 // ------------------------------ Безопасность в поездке (B7b-2) ------------------------------
 /** SOS + «Поделиться поездкой»: доверие = продукт (§8). Обе кнопки ≥48dp, спокойные цвета. */
 @Composable
@@ -3385,6 +3578,9 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
     var offer by remember { mutableStateOf<InstantOrderDto?>(null) }
     var accepting by remember { mutableStateOf(false) }
     var presenceFails by remember { mutableIntStateOf(0) }   // подряд-неудачи heartbeat → «нет связи»
+    // Заказ, от которого водитель ТОЛЬКО ЧТО отказался и по которому мы необязательным шагом
+    // спрашиваем «почему». Отказ уже ушёл на сервер — тут остался один вопрос, не блокирующий.
+    var declineAskFor by remember { mutableStateOf<Int?>(null) }
     val acceptTakenMsg = appText("Заказ уже взял другой водитель", "Заказды башҡа водитель алды")
     val acceptNetMsg = appText("Не удалось взять заказ. Проверь связь и попробуй снова.", "Заказды алып булманы. Бәйләнеште тикшереп ҡабатла.")
 
@@ -3421,6 +3617,21 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
     }
 
     val current = offer
+    // Вопрос «почему не взял» рисуем ДО оверлея: сиблинги в Box накладываются по порядку, и
+    // пришедший следом новый оффер обязан перекрыть панель целиком, а не наоборот — иначе она
+    // на доли секунды висит над кнопкой «Взять заказ».
+    InstantDeclineReasonPanel(
+        // Новый оффер на экране → вопрос про прошлый молча уходит: время водителя дороже статистики.
+        // Ушёл с линии — тем более: с выключенным тумблером отчитываться уже не перед кем.
+        orderId = declineAskFor.takeIf { current == null && online },
+        onPick = { id, code ->
+            declineAskFor = null
+            // Причина досылается ВТОРЫМ запросом: сам отказ уже прошёл, заказ ушёл следующему.
+            // Упало — молчим: это диагностика матчинга, водителю про неё знать незачем.
+            scope.launch { ApiClient.instantDecline(id, reason = code) }
+        },
+        onDismiss = { declineAskFor = null },
+    )
     if (online && current != null) {
         InstantOfferOverlay(
             order = current,
@@ -3449,10 +3660,20 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
                     accepting = false
                 }
             },
+            // Дедлайн оффера истёк — отказ без вопросов: водитель ничего не решал, спрашивать нечего.
             onDecline = {
                 if (accepting) return@InstantOfferOverlay
                 scope.launch { ApiClient.instantDecline(current.id) }
                 offer = null
+            },
+            // Водитель сам нажал «Пропустить». Сначала ОТКАЗ — заказ мгновенно уходит следующему
+            // и не ждёт, пока водитель за рулём выберет причину. Вопрос — уже вдогонку.
+            onSkipTap = {
+                if (accepting) return@InstantOfferOverlay
+                val declinedId = current.id
+                scope.launch { ApiClient.instantDecline(declinedId) }
+                offer = null
+                declineAskFor = declinedId
             },
         )
     }
@@ -3485,9 +3706,136 @@ internal fun InstantDriverOnlineController(online: Boolean, onOpenTrip: (Int) ->
     }
 }
 
-// ------------------------------ Полноэкранный входящий оффер ------------------------------
+/** Причины отказа водителя: код уходит на сервер, подпись — человеку. Порядок — от самого
+ *  частого («далеко подавать») к «другому»: почти всегда хватает первой строки. */
 @Composable
-internal fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = false, onAccept: () -> Unit, onDecline: () -> Unit) {
+private fun instantDeclineReasons(): List<Pair<String, String>> = listOf(
+    "far" to appText("Далеко подавать", "Килергә алыҫ"),
+    "cheap" to appText("Мало денег", "Аҡса аҙ"),
+    "direction" to appText("Не по пути", "Юл ыңғайы түгел"),
+    "busy" to appText("Уже занят", "Мәшғүлмен"),
+    "break" to appText("Перерыв", "Тәнәфес"),
+    "other" to appText("Другое", "Башҡаһы"),
+)
+
+/**
+ * «Почему не взял?» — вопрос ПОСЛЕ отказа, а не вместо него.
+ *
+ * У оффера тикает обратный отсчёт, и любой вопрос до отказа съедал бы чужие секунды: пока
+ * водитель за рулём выбирает причину, пассажир ждёт машину, которая уже не приедет. Поэтому
+ * отказ уходит по первому касанию, заказ сразу идёт следующему водителю, а панель появляется
+ * следом и ничего не держит: не ответил за десять секунд — она молча исчезла.
+ *
+ * Отказ здесь ни при каких условиях не наказывается и не блокируется — это диагностика
+ * матчинга. Без причин видно только «не берут», и сервер продолжает слать те же заказы тем же
+ * людям: «далеко подавать» и «мало денег» лечатся совершенно по-разному.
+ *
+ * @param orderId заказ, по которому спрашиваем; null — панели нет (и она плавно уходит).
+ */
+@Composable
+private fun InstantDeclineReasonPanel(
+    orderId: Int?,
+    onPick: (Int, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Последний заданный вопрос: во время анимации ухода orderId уже null, а чипы под пальцем
+    // ещё живут — им нужен тот же заказ, а не ноль.
+    var askId by remember { mutableIntStateOf(0) }
+    var picked by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(orderId) {
+        if (orderId == null) return@LaunchedEffect
+        askId = orderId
+        picked = null
+        delay(10_000)
+        onDismiss()   // вопрос без ответа не висит над кабинетом: водитель работает, а не отчитывается
+    }
+    val reasons = instantDeclineReasons()
+    Box(
+        Modifier.fillMaxSize().navigationBarsPadding().padding(16.dp),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        AnimatedVisibility(
+            visible = orderId != null,
+            // Панель выезжает снизу и так же спокойно уходит — как системные подсказки iOS.
+            enter = fadeIn(tween(240)) + slideInVertically(tween(320)) { it / 2 },
+            exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
+        ) {
+            Surface(
+                color = CanonSurface,
+                shape = CanonCardShape,
+                border = BorderStroke(1.dp, CanonBorder),
+                shadowElevation = 12.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                appText("Почему не взял?", "Ниңә алманың?"),
+                                color = CanonText, fontSize = TxBody, lineHeight = LhBody,
+                                fontWeight = FontWeight.Black,
+                            )
+                            Text(
+                                appText(
+                                    "Заказ уже ушёл дальше. Ответ не обязателен — он помогает не слать тебе лишнее.",
+                                    "Заказ артабан китте инде. Яуап мотлаҡ түгел — ул һиңә артыҡ заказ килмәһен өсөн.",
+                                ),
+                                color = CanonMuted, fontSize = TxCaption, lineHeight = LhCaption,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            onClick = onDismiss,
+                            shape = CircleShape,
+                            color = CanonBg,
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = appText("Закрыть вопрос", "Һорауҙы ябыу"),
+                                    tint = CanonMuted, modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
+                    // Две колонки: шесть коротких причин видны разом, без прокрутки и без поиска
+                    // нужной — водитель отвечает одним касанием и возвращается к дороге.
+                    reasons.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pair.forEach { (code, label) ->
+                                InstantReasonChip(
+                                    label = label,
+                                    picked = picked == code,
+                                    enabled = picked == null,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { picked = code; onPick(askId, code) },
+                                )
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------ Полноэкранный входящий оффер ------------------------------
+/**
+ * @param onDecline отказ БЕЗ участия водителя: серверный дедлайн истёк или пришёл битым.
+ * @param onSkipTap водитель сам нажал «Пропустить». Отделено от [onDecline] специально: спросить
+ *   «почему не взял?» осмысленно только у того, кто действительно решал, а не у того, кто просто
+ *   не успел ответить. Не задан → кнопка работает как раньше, через [onDecline].
+ */
+@Composable
+internal fun InstantOfferOverlay(
+    order: InstantOrderDto,
+    accepting: Boolean = false,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onSkipTap: (() -> Unit)? = null,
+) {
     // Водитель за рулём смотрит на дорогу, а не в телефон: у оффера в приложении не было
     // ни звука, ни вибрации — заказ можно было просто не заметить (аудит P1-10).
     // Короткий «тук» в момент появления карточки; на новый заказ — новый «тук».
@@ -3633,7 +3981,9 @@ internal fun InstantOfferOverlay(order: InstantOrderDto, accepting: Boolean = fa
                 )
                 AppButton(
                     text = appText("Пропустить", "Үткәреп ебәреү"),
-                    onClick = onDecline,
+                    // Скорость отказа не трогаем: тап отдаёт заказ дальше немедленно, а причину
+                    // (если водитель захочет) спрашивает уже панель поверх кабинета.
+                    onClick = { if (onSkipTap != null) onSkipTap() else onDecline() },
                     style = AppButtonStyle.Secondary,
                     enabled = !accepting,
                     height = 48.dp,
@@ -4001,9 +4351,18 @@ internal fun InstantDriverTripScreen(
                             "Пассажир машинала инде. Дауам итеү хәүефле булһа ғына кире ал; һуңынан бәхәс йәки ярҙам ас.",
                         )
                     } else {
+                        // Про паузу говорим ЗАРАНЕЕ (разбор №2): с этой версии несколько
+                        // отменённых принятых заказов подряд ставят офферы на паузу. Наказание,
+                        // о котором человек узнаёт постфактум, читается как поломка приложения —
+                        // а он всего лишь не знал правила. Один раз — ничего не будет, и это
+                        // тоже сказано прямо, чтобы честная отмена не выглядела угрозой.
                         appText(
-                            "Пассажир получит уведомление, заказ закроется. Это действие нельзя отменить.",
-                            "Пассажирға хәбәр бара, заказ ябыла. Был эште кире ҡайтарып булмай.",
+                            "Пассажир получит уведомление, заказ закроется. Это действие нельзя отменить. " +
+                                "Один раз — ничего страшного, но если отменять принятые заказы часто, " +
+                                "новые заказы какое-то время приходить не будут.",
+                            "Пассажирға хәбәр бара, заказ ябыла. Был эште кире ҡайтарып булмай. " +
+                                "Бер тапҡыр — бер ни ҙә булмай, әммә ҡабул ителгән заказдарҙы йыш кире алһаң, " +
+                                "яңы заказдар бер аҙ ваҡыт килмәйәсәк.",
                         )
                     },
                     color = CanonMuted,
