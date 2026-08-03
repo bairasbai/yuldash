@@ -586,23 +586,23 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.fillMaxSize().padding(horizontal = CanonSpace.lg, vertical = CanonSpace.md),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "${dto.fromCity} → ${dto.toCity}",
                     modifier = Modifier.weight(1f),
-                    fontWeight = FontWeight.Black, fontSize = 16.sp,
+                    style = CanonBodyStrong,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 if (dto.category.isNotBlank() && dto.category != "regular") {
                     val (ic, ru, ba) = rideTypeMeta(dto.category)
                     Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
-                        Row(Modifier.padding(horizontal = 7.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.padding(horizontal = CanonSpace.sm, vertical = CanonSpace.xs), verticalAlignment = Alignment.CenterVertically) {
                             Icon(ic, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(12.dp))
                             Spacer(Modifier.width(3.dp))
-                            Text(appText(ru, ba), color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(appText(ru, ba), color = CanonGreen2, style = CanonMicro)
                         }
                     }
                     Spacer(Modifier.width(6.dp))
@@ -614,14 +614,14 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(5.dp))
-                Text(formatDepart(dto.departAt), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(formatDepart(dto.departAt), color = CanonMuted, style = CanonCaption)
                 if (soonest) {
                     Spacer(Modifier.width(8.dp))
                     Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
                         Text(
                             appText("ближайшая", "иң яҡыны"),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            color = CanonGreen2, fontSize = 13.sp, fontWeight = FontWeight.Black
+                            color = CanonGreen2, style = CanonMicro
                         )
                     }
                 }
@@ -634,13 +634,13 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
             ) {
                 SmallAvatar(dto.driverAvatar, dto.driverName, 30)
                 Spacer(Modifier.width(8.dp))
-                Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(dto.driverName.ifBlank { appText("Водитель", "Водитель") }, style = CanonCaption, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (dto.driverOnline) { Spacer(Modifier.width(6.dp)); OnlineBadge() }
                 if (dto.driverIsWoman) { Spacer(Modifier.width(6.dp)); WomanDriverBadge() }
                 Spacer(Modifier.weight(1f))
                 Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(3.dp))
-                Text(dto.driverRating.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(dto.driverRating.toString(), style = CanonCaption)
             }
             // F8: стаж/поездки водителя — в гибкой зоне (weight), высоту карточки не увеличивает.
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
@@ -652,11 +652,11 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                     Spacer(Modifier.width(3.dp))
                     Text(
                         if (km < 1.0) appText("рядом", "янда") else appText("${fmtKm(km)} км", "${fmtKm(km)} км"),
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CanonText
+                        style = CanonCaption, color = CanonText
                     )
                     Spacer(Modifier.width(10.dp))
                 }
-                Text("${dto.price} ₽", color = CanonGreen2, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                Text("${dto.price} ₽", color = CanonGreen2, style = CanonHeading)
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = onOpen,
