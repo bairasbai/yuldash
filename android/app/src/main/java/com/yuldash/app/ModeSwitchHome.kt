@@ -24,8 +24,10 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,7 +36,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,6 +65,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -197,7 +202,19 @@ internal fun PassengerModeHome(
     }
 }
 
-/** Два больших сегмента + маленькая ссылка «Чем отличается?». */
+/** Переключатель режимов — сегментный контрол, как в iOS.
+ *
+ * Было: три отдельные карточки высотой 66dp+ (иконка над заголовком, под ним подпись, снизу
+ * полоска-индикатор) плюс строка со ссылками — вместе больше 120dp, то есть шестая часть
+ * экрана, ЗАНЯТАЯ НАВСЕГДА. А это не контент, это переключатель: человек трогает его раз
+ * за сессию, а смотрит на него всё время. Три обведённые плитки к тому же спорят по весу
+ * с настоящим содержимым карточек ниже.
+ *
+ * Стало: одна цельная пилюля, внутри которой активный сегмент ПЛАВНО ЕЗДИТ на своё место.
+ * Иконка и заголовок встали в строку, подписи («по пути, дешевле») уехали из плиток в одну
+ * строку под контролом — они полезны, но занимать три плитки не должны. Итог ~80dp вместо
+ * ~120dp, и блок перестал перетягивать внимание на себя.
+ */
 @Composable
 private fun ModeSwitchBar(
     mode: RideMode,
@@ -205,119 +222,117 @@ private fun ModeSwitchBar(
     onExplain: () -> Unit,
     onCourierMode: () -> Unit = {},
 ) {
+    val items = listOf(
+        Triple(RideMode.Pooling, R.drawable.yu_mode_rideshare, appText("Попутка", "Юлдаш")),
+        Triple(RideMode.Taxi, R.drawable.yu_mode_taxi, appText("Такси", "Такси")),
+        Triple(RideMode.Courier, R.drawable.yu_mode_courier, appText("Курьер", "Курьер")),
+    )
+    val index = items.indexOfFirst { it.first == mode }.coerceAtLeast(0)
+    val accent = when (mode) {
+        RideMode.Pooling -> CanonPooling
+        RideMode.Taxi -> CanonTaxi
+        RideMode.Courier -> CanonCourier
+    }
+    val activeBg = when (mode) {
+        RideMode.Pooling -> CanonPoolingBg
+        RideMode.Taxi -> CanonTaxiBg
+        RideMode.Courier -> CanonCourierBg
+    }
+    val subtitle = when (mode) {
+        RideMode.Pooling -> appText("по пути, дешевле", "юл уҙа, арзаныраҡ")
+        RideMode.Taxi -> appText("машина сейчас", "машина хәҙер")
+        RideMode.Courier -> appText("отправить посылку", "бандероль ебәреү")
+    }
     Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 2.dp)) {
-        // Три режима в ряд — подписи короткие: в треть ширины длинная фраза не читается.
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            ModeSegment(
-                modifier = Modifier.weight(1f),
-                iconRes = R.drawable.yu_mode_rideshare,
-                title = appText("Попутка", "Юлдаш"),
-                subtitle = appText("по пути, дешевле", "юл уҙа, арзаныраҡ"),
-                active = mode == RideMode.Pooling,
-                accent = CanonPooling,
-                activeBg = CanonPoolingBg,
-                onClick = { onSelect(RideMode.Pooling) },
-            )
-            ModeSegment(
-                modifier = Modifier.weight(1f),
-                iconRes = R.drawable.yu_mode_taxi,
-                title = appText("Такси", "Такси"),
-                subtitle = appText("машина сейчас", "машина хәҙер"),
-                active = mode == RideMode.Taxi,
-                accent = CanonTaxi,
-                activeBg = CanonTaxiBg,
-                onClick = { onSelect(RideMode.Taxi) },
-            )
-            ModeSegment(
-                modifier = Modifier.weight(1f),
-                iconRes = R.drawable.yu_mode_courier,
-                title = appText("Курьер", "Курьер"),
-                subtitle = appText("отправить посылку", "бандероль ебәреү"),
-                active = mode == RideMode.Courier,
-                accent = CanonCourier,
-                activeBg = CanonCourierBg,
-                onClick = { onSelect(RideMode.Courier) },
-            )
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = CanonSurface,
+            border = BorderStroke(1.dp, CanonBorder),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            BoxWithConstraints(Modifier.padding(3.dp)) {
+                // Ширина одного сегмента известна только здесь — от неё считается сдвиг пилюли.
+                val segW = maxWidth / items.size
+                val offset by animateDpAsState(segW * index, tween(260), label = "mode_pill")
+                Box(
+                    Modifier
+                        .offset(x = offset)
+                        .width(segW)
+                        .height(MODE_SEG_HEIGHT)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(activeBg)
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    items.forEachIndexed { i, (m, iconRes, title) ->
+                        val on = i == index
+                        val tint by animateColorAsState(if (on) accent else CanonMuted, tween(220), label = "mode_tint")
+                        val cd = appText(
+                            if (on) "$title, выбрано" else "$title, выбрать",
+                            if (on) "$title, һайланды" else "$title, һайлау",
+                        )
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .height(MODE_SEG_HEIGHT)
+                                .clip(RoundedCornerShape(13.dp))
+                                .clickable(onClickLabel = cd) { onSelect(m) }
+                                .semantics { contentDescription = cd },
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(painterResource(iconRes), contentDescription = null,
+                                tint = tint, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                title,
+                                color = if (on) CanonText else CanonMuted,
+                                fontSize = 14.sp,
+                                fontWeight = if (on) FontWeight.Black else FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
         }
+        // Подпись выбранного режима + ссылки — ОДНОЙ строкой. Раньше подписи стояли в каждой
+        // плитке (три штуки разом), а ссылки жили отдельной строкой ниже: две строки там,
+        // где хватает одной.
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth().padding(top = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Вторая сторона курьера — сама работа. Раньше «Возить» жило вкладкой внутри «Посылок»,
-            // но там оно показывалось всем подряд и работало по другому списку заказов. Теперь работа
-            // курьера — отдельный экран, и дверь к ней должна быть там же, где человек выбрал «Курьер»,
-            // а не только в глубине профиля: иначе курьер свою работу просто не найдёт.
+            AnimatedContent(
+                targetState = subtitle,
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
+                label = "mode_subtitle",
+                modifier = Modifier.weight(1f),
+            ) { text ->
+                Text(text, color = CanonMuted, fontSize = 12.sp, lineHeight = 16.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 4.dp))
+            }
+            // Вторая сторона курьера — сама работа. Дверь к ней стоит там же, где человек выбрал
+            // «Курьер», а не в глубине профиля: иначе курьер свою работу просто не найдёт.
             AnimatedVisibility(visible = mode == RideMode.Courier) {
-                TextButton(onClick = onCourierMode) {
-                    Text(
-                        appText("Хочу возить", "Йөрөтөргә теләйем"),
-                        color = CanonCourier, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                    )
+                TextButton(onClick = onCourierMode, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(appText("Хочу возить", "Йөрөтөргә теләйем"),
+                        color = CanonCourier, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = onExplain) {
-                Text(appText("Чем отличается?", "Айырмаһы нимәлә?"), color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            TextButton(onClick = onExplain, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text(appText("Чем отличается?", "Айырмаһы нимәлә?"),
+                    color = CanonMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
     }
 }
 
-/** Один сегмент переключателя: крупный (≥64dp), эмодзи+заголовок+подпись, активный подсвечен цветом режима. */
-@Composable
-private fun ModeSegment(
-    modifier: Modifier = Modifier,
-    iconRes: Int,
-    title: String,
-    subtitle: String,
-    active: Boolean,
-    accent: Color,
-    activeBg: Color,
-    onClick: () -> Unit,
-) {
-    val container by animateColorAsState(if (active) activeBg else CanonSurface, tween(220), label = "seg_bg")
-    val borderColor by animateColorAsState(if (active) accent else CanonBorder, tween(220), label = "seg_border")
-    val borderW by animateDpAsState(if (active) 2.dp else 1.dp, tween(220), label = "seg_bw")
-    val cd = appText(
-        if (active) "$title, выбрано" else "$title, выбрать",
-        if (active) "$title, һайланды" else "$title, һайлау",
-    )
-    Surface(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = 66.dp).semantics { contentDescription = cd },
-        shape = RoundedCornerShape(20.dp),
-        color = container,
-        border = BorderStroke(borderW, borderColor),
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Иконка НАД заголовком, а не рядом: сегментов стало три, и в треть ширины экрана
-            // строка «иконка + текст» не помещается — заголовок обрезался бы многоточием.
-            Icon(painterResource(iconRes), contentDescription = null,
-                tint = if (active) accent else CanonMuted, modifier = Modifier.size(26.dp))
-            Spacer(Modifier.height(4.dp))
-            Text(title, color = CanonText, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Spacer(Modifier.height(2.dp))
-            Text(
-                subtitle,
-                color = if (active) accent else CanonMuted,
-                fontSize = 11.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-            )
-            // Индикатор-полоска активного режима (акцентный цвет).
-            val stripW by animateDpAsState(if (active) 26.dp else 0.dp, tween(240), label = "seg_strip")
-            Spacer(Modifier.height(6.dp))
-            Box(
-                Modifier.height(3.dp).width(stripW).clip(RoundedCornerShape(2.dp)).background(accent)
-            )
-        }
-    }
-}
+// Высота сегмента. 44dp — минимум, при котором строка «иконка + заголовок» не выглядит зажатой,
+// а тач-цель остаётся комфортной (стандарт 48dp добирается вертикальным зазором контейнера).
+private val MODE_SEG_HEIGHT = 44.dp
 
 /** Дружелюбная подсказка простыми словами и крупным текстом: чем Такси отличается от Попутки. */
 @OptIn(ExperimentalMaterial3Api::class)

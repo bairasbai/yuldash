@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -356,6 +357,10 @@ private fun MobilityMetricChip(icon: ImageVector, text: String, modifier: Modifi
     }
 }
 
+// Постоянное место под кружок шага. Берём по САМОМУ крупному состоянию (18dp) с небольшим
+// запасом, чтобы линия рельса шла ровно на одной высоте на всех шагах.
+private val RAIL_DOT_SLOT = 20.dp
+
 @Composable
 internal fun MobilityProgressRail(
     labels: List<String>,
@@ -379,29 +384,46 @@ internal fun MobilityProgressRail(
     ) {
         labels.forEachIndexed { index, label ->
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // Высота строки одинаковая у ВСЕХ шагов (RAIL_DOT_SLOT). Иначе получалась
+                // «лесенка»: у текущего шага кружок крупнее (18dp против 14dp), строка из-за
+                // него выше, а линия, выровненная по центру, оказывалась на 2dp ниже соседней —
+                // на экране рельс заметно ломался посередине (замечено Александром на скриншоте
+                // «Мои», 2026-08-03). Заодно уходит вторая половина беды: пока место под кружок
+                // «плавало», отрезки линии слева и справа получались разной длины.
+                Row(
+                    Modifier.fillMaxWidth().height(RAIL_DOT_SLOT),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     if (index > 0) {
                         Box(
                             Modifier.weight(1f).height(2.dp)
                                 .background(if (index <= currentIndex) accent else CanonBorder),
                         )
                     } else Spacer(Modifier.weight(1f))
-                    Box(
-                        Modifier.size(if (index == currentIndex) 18.dp else 14.dp)
-                            .background(
-                                if (index <= currentIndex) accent else CanonSurface,
-                                CircleShape,
-                            )
-                            .then(
-                                if (index > currentIndex) Modifier.background(CanonSurface, CircleShape)
-                                else Modifier,
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (index < currentIndex) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonOnAccent, modifier = Modifier.size(12.dp))
-                        } else if (index == currentIndex) {
-                            Box(Modifier.size(6.dp).background(CanonOnAccent, CircleShape))
+                    // Внешняя коробка — постоянного размера, меняется только сам кружок внутри.
+                    Box(Modifier.size(RAIL_DOT_SLOT), contentAlignment = Alignment.Center) {
+                        Box(
+                            Modifier.size(if (index == currentIndex) 18.dp else 14.dp)
+                                .background(
+                                    if (index <= currentIndex) accent else CanonSurface,
+                                    CircleShape,
+                                )
+                                // Будущим шагам — обводка. Без неё белый кружок на белой карточке
+                                // не виден вообще, и рельс читается как «линия, дыра, линия»:
+                                // именно это бросилось в глаза на скриншоте (2026-08-03).
+                                // Пройденным и текущему обводка не нужна — они залиты цветом.
+                                .then(
+                                    if (index > currentIndex)
+                                        Modifier.border(2.dp, CanonBorder, CircleShape)
+                                    else Modifier,
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (index < currentIndex) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonOnAccent, modifier = Modifier.size(12.dp))
+                            } else if (index == currentIndex) {
+                                Box(Modifier.size(6.dp).background(CanonOnAccent, CircleShape))
+                            }
                         }
                     }
                     if (index < labels.lastIndex) {

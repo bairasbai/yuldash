@@ -15,6 +15,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -461,31 +463,35 @@ internal fun MapScreen(
                     }
                 }
                 item {
-                    // F4: «Когда едем» — видим ВСЕГДА (даже при пустой выдаче: выбрал «Сегодня»,
-                    // пусто → должен смочь вернуться на «Все дни»). Даты — по часам устройства.
-                    val today = java.time.LocalDate.now()
-                    // Тач-цель чипа ≥48dp (§4.5): Surface пробрасывает min-высоту внутрь, текст остаётся по центру.
-                    val chipTouch = Modifier.heightIn(min = 48.dp)
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        NearbyFilterChip(Icons.Default.CalendarMonth, appText("Все дни", "Бөтә көндәр"), dateFilter == null, modifier = chipTouch) { dateFilter = null }
-                        NearbyFilterChip(Icons.Default.Schedule, appText("Сегодня", "Бөгөн"), dateFilter == today.toString(), modifier = chipTouch) {
-                            dateFilter = if (dateFilter == today.toString()) null else today.toString()
-                        }
-                        NearbyFilterChip(Icons.Default.Schedule, appText("Завтра", "Иртәгә"), dateFilter == today.plusDays(1).toString(), modifier = chipTouch) {
-                            dateFilter = if (dateFilter == today.plusDays(1).toString()) null else today.plusDays(1).toString()
-                        }
-                    }
-                }
-                item {
                     if (nearby.isNotEmpty()) {
                       // Тач-цель ≥48dp (§4.5) + зазор справа у каждого чипа. Зазор ИМЕННО у чипа, а не
                       // spacedBy у Row: скрытый «Сбросить» тогда не оставляет пустой отступ слева.
                       val chipTouch = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
                       Column {
+                        // ПОЯСНЕНИЕ к строке ниже (2026-08-03, «где ближайшая поездка?»): раньше
+                        // фильтры шли ДВУМЯ рядами — «когда едем» и «условия поездки». Вместе
+                        // ~110dp, и они выталкивали за нижний край сами карточки поездок: человек
+                        // видел заголовок «Ближайшие поездки», фильтры к ним — и ни одной поездки.
+                        // Ряды сведены в один: он и так прокручивается вбок, ничего не потерялось,
+                        // а экран стал ниже на целый ряд. Группы разделены тонкой чертой, чтобы
+                        // «Сегодня» и «Детское кресло» не читались как один список.
                         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                            // F4: «Когда едем» — видим ВСЕГДА (даже при пустой выдаче: выбрал
+                            // «Сегодня», пусто → должен смочь вернуться на «Все дни»).
+                            val today = java.time.LocalDate.now()
+                            NearbyFilterChip(Icons.Default.CalendarMonth, appText("Все дни", "Бөтә көндәр"), dateFilter == null, modifier = chipTouch) { dateFilter = null }
+                            NearbyFilterChip(Icons.Default.Schedule, appText("Сегодня", "Бөгөн"), dateFilter == today.toString(), modifier = chipTouch) {
+                                dateFilter = if (dateFilter == today.toString()) null else today.toString()
+                            }
+                            NearbyFilterChip(Icons.Default.Schedule, appText("Завтра", "Иртәгә"), dateFilter == today.plusDays(1).toString(), modifier = chipTouch) {
+                                dateFilter = if (dateFilter == today.plusDays(1).toString()) null else today.plusDays(1).toString()
+                            }
+                            // Черта между «когда» и «на чём»: две разные мысли в одном ряду.
+                            Box(
+                                Modifier.align(Alignment.CenterVertically)
+                                    .padding(end = 8.dp).width(1.dp).height(22.dp)
+                                    .background(CanonBorder)
+                            )
                             // «Сбросить · N» — выезжает слева, как только включён хоть один фильтр,
                             // и уезжает обратно, когда фильтров нет (не занимает место зря).
                             AnimatedVisibility(
@@ -715,7 +721,19 @@ private fun MapHero(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(352.dp)   // сетка 4dp
+                // 280dp вместо прежних 352dp (замечание Александра 2026-08-03: «где ближайшая
+                // поездка?»). Карта тут ПРЕВЬЮ, а не рабочий инструмент: точку на ней не выбрать,
+                // маршрут строится в отдельном потоке. При этом она съедала почти половину экрана
+                // и выталкивала за нижний край «Ближайшие поездки» — то есть ровно тот список,
+                // ради которого приложение и открывают.
+                //
+                // Почему 280, а не 240, как было в первой попытке: на 240dp кнопки масштаба
+                // (правый верхний угол, две по 48dp) и плавающая карточка-подсказка (низ, ~125dp)
+                // сходились в одной полосе, и карточка наезжала на «−». Сузить карточку было бы
+                // костылём: она полноширинная по смыслу, а тесно ей стало из-за высоты. 280dp
+                // дают между ними ~30dp воздуха — и список поездок всё равно поднимается
+                // на экран (первая карточка выглядывает снизу и сама говорит «листай дальше»).
+                .height(280.dp)   // сетка 4dp
         ) {
             if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank() && nativeMapVisible) {
                 YandexMapCard(
@@ -850,7 +868,16 @@ private fun HomeHeader(onSos: () -> Unit) {
                 overflow = TextOverflow.Ellipsis
             )
         }
-        // Тумблер день/ночь: иконка солнца в тёмной теме (тап → светлая), луны в светлой (тап → тёмная).
+        // Тумблер день/ночь: солнце в тёмной теме (тап → светлая), луна в светлой (тап → тёмная).
+        //
+        // Раньше это был квадрат 48dp с рамкой — ровно той же формы и с той же обводкой, что у
+        // кнопки SOS рядом. Только SOS залита красным и подписана, а тут тонкая иконка болталась
+        // в пустой белой коробке: читалось как сломанный близнец SOS (замечено Александром,
+        // 2026-08-03). И по смыслу они не ровня — SOS про жизнь, тема про удобство глазам.
+        //
+        // Стало: круг вместо скруглённого квадрата (другая форма сразу снимает конкуренцию),
+        // мягкая заливка без обводки, иконка крупнее — она больше не плавает в пустоте.
+        // Смена солнце↔луна с поворотом: понятно, что кнопка сработала, без единой надписи.
         val themeCtx = LocalContext.current
         val isDarkNow = appIsDark()
         Surface(
@@ -861,21 +888,29 @@ private fun HomeHeader(onSos: () -> Unit) {
                     themeCtx.getSharedPreferences("yuldash_theme", Context.MODE_PRIVATE)
                         .edit().putBoolean("dark_override", newDark).apply()
                 }
-                .size(48.dp),   // тач-цель 48dp (a11y §4.5): было 44dp
-            shape = RoundedCornerShape(16.dp),
-            color = CanonSurface,
-            border = BorderStroke(1.dp, CanonBorder)
+                .size(48.dp),   // тач-цель 48dp (a11y §4.5)
+            shape = CircleShape,
+            color = CanonMint,
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    painterResource(if (isDarkNow) R.drawable.yu_sun else R.drawable.yu_moon),
-                    contentDescription = appText(
-                        if (isDarkNow) "Светлая тема" else "Тёмная тема",
-                        if (isDarkNow) "Яҡты тема" else "Ҡараңғы тема"
-                    ),
-                    tint = CanonGreen2,
-                    modifier = Modifier.size(20.dp)
-                )
+                AnimatedContent(
+                    targetState = isDarkNow,
+                    transitionSpec = {
+                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.6f))
+                            .togetherWith(fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.6f))
+                    },
+                    label = "theme_icon",
+                ) { dark ->
+                    Icon(
+                        painterResource(if (dark) R.drawable.yu_sun else R.drawable.yu_moon),
+                        contentDescription = appText(
+                            if (dark) "Светлая тема" else "Тёмная тема",
+                            if (dark) "Яҡты тема" else "Ҡараңғы тема"
+                        ),
+                        tint = CanonGreen2,
+                        modifier = Modifier.size(23.dp)
+                    )
+                }
             }
         }
         Spacer(Modifier.width(8.dp))
