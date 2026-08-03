@@ -93,12 +93,12 @@ internal fun MobilityScreenIntro(
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Заголовок экрана по шкале: 24 Bold вместо 27 Black. Он и так самый крупный
+                // текст на экране — крик сверху не добавляет ему веса, а только шума.
                 Text(
                     title,
                     color = CanonText,
-                    fontSize = 27.sp,
-                    lineHeight = 31.sp,
-                    fontWeight = FontWeight.Black,
+                    style = CanonTitle,
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 if (!badge.isNullOrBlank()) {
@@ -106,14 +106,13 @@ internal fun MobilityScreenIntro(
                         Text(
                             badge,
                             color = accent,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            style = CanonMicro,   // метка режима — подпись, а не второй заголовок
+                            modifier = Modifier.padding(horizontal = CanonSpace.sm, vertical = CanonSpace.xs),
                         )
                     }
                 }
             }
-            Text(subtitle, color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 19.sp)
+            Text(subtitle, color = CanonMutedStrong, style = CanonCaption)
         }
     }
 }
