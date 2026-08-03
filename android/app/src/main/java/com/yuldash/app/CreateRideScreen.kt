@@ -363,11 +363,13 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                 val priceVal = price.toIntOrNull() ?: 300
                 val seatsVal = (seats.toIntOrNull() ?: 2).coerceAtLeast(1)   // мест не меньше 1
                 // Берём выбранную дату из пикера ("dd.MM.yyyy, HH:mm"); если пусто/не распарсилось — now+3ч.
-                val isoFmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                // Время выезда шлём С ЧАСОВЫМ ПОЯСОМ. Раньше уходила голая строка «10:00», и сервер
+                // считал её десятью часами UTC — поездка уезжала на 5 часов (разбор №2). Пояс
+                // снимает догадку: сервер переводит точно, где бы ни был телефон.
                 val departIso = runCatching {
                     val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(dateTime)
-                    isoFmt.format(picked!!)
-                }.getOrElse { isoFmt.format(java.util.Date(System.currentTimeMillis() + 3 * 3600_000L)) }
+                    isoWithOffset(picked!!.time)
+                }.getOrElse { isoWithOffset(System.currentTimeMillis() + 3 * 3600_000L) }
                 val ride = Ride(
                     id = "local-${System.currentTimeMillis()}",
                     from = fromVal, to = toVal,

@@ -18,7 +18,7 @@ from .. import workday as workday_mod
 from ..safety_logic import ensure_active
 from ..schemas import RideIn, RideOut
 from ..security import current_user, current_user_optional
-from ..timeutil import utcnow
+from ..timeutil import client_dt_to_utc, utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
 from ..services import (
     CITY_COORDS, blocked_user_ids, boost_then_depart_order, cache_get_json, cache_set_json, drivers_bundle,
@@ -103,6 +103,10 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
                 body.pickup_lat = pt.lat
             if body.pickup_lng is None:
                 body.pickup_lng = pt.lng
+    # Время выезда → наивный UTC. Без этого уфимские 10:00 ложились в БД как 10:00 UTC и
+    # поездка «уезжала» на 5 часов (разбор №2). Старые версии приложения шлют время без пояса —
+    # трактуем его как местное, поэтому они чинятся без обновления на телефоне.
+    body.depart_at = client_dt_to_utc(body.depart_at)
     # pickup_point_id — не колонка Ride (только сигнал привязки), исключаем из дампа.
     dump = body.model_dump(exclude={"pickup_point_id"})
     ride = Ride(driver_id=user.id, seats_left=body.seats_total, **dump, **geo)
@@ -172,6 +176,8 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     if body.comment is not None and body.comment != ride.comment:
         ride.comment = body.comment
         changed.append("комментарий")
+    if body.depart_at is not None:
+        body.depart_at = client_dt_to_utc(body.depart_at)
     if body.depart_at is not None and body.depart_at != ride.depart_at:
         if live:
             raise herr(409, "С активными бронями время не меняют — отмените рейс и создайте новый", "Актив брондар менән ваҡытты үҙгәртеп булмай — рейсты кире алып, яңыһын төҙө")

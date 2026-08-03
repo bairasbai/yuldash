@@ -1,7 +1,10 @@
 package com.yuldash.app
 
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Test
+import java.util.TimeZone
 
 /**
  * Крайние ветки чистых хелперов форматирования (JVM, без Android-фреймворка).
@@ -10,6 +13,21 @@ import org.junit.Test
  * Запуск: gradlew :app:testDebugUnitTest
  */
 class HelpersEdgeTest {
+
+    // Пояс фиксируем: время показывается в часах человека, и без этого тест зависел бы от
+    // того, в каком городе его запустили (разбор №2, 2026-08-03).
+    private var savedTz: TimeZone? = null
+
+    @Before
+    fun fixTimeZone() {
+        savedTz = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Yekaterinburg"))   // Уфа, UTC+5
+    }
+
+    @After
+    fun restoreTimeZone() {
+        savedTz?.let { TimeZone.setDefault(it) }
+    }
 
     // fmtKm: ноль → d<10 → "%.1f" → "0.0" (не спецкейс "10.0").
     @Test
@@ -47,13 +65,13 @@ class HelpersEdgeTest {
         assertEquals("11", fmtKm(10.5))
     }
 
-    // formatDepart: чистая полночь — секунды/часы обрезаются до "ДД.ММ, ЧЧ:ММ".
+    // formatDepart: полночь ПО UTC — на экране это 05:00 по Уфе, а не 00:00.
     @Test
     fun formatDepart_midnightFormatsToDayMonthAndZeroTime() {
-        assertEquals("31.12, 00:00", formatDepart("2026-12-31T00:00:00"))
+        assertEquals("31.12, 05:00", formatDepart("2026-12-31T00:00:00"))
     }
 
-    // formatDepart: пустая строка → substring(8,10) кидает исключение → catch возвращает вход ("").
+    // formatDepart: пустая строка не разбирается ни как дата, ни как момент → возвращаем вход ("").
     @Test
     fun formatDepart_emptyStringReturnsInput() {
         assertEquals("", formatDepart(""))

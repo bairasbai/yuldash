@@ -1827,12 +1827,27 @@ internal fun arrivalCheckAfterMs(fromLat: Double?, fromLng: Double?, toLat: Doub
     return travelMs + ARRIVAL_CHECK_GRACE_MS
 }
 
+/** Момент времени → ISO С ЧАСОВЫМ ПОЯСОМ («2026-08-05T10:00:00+05:00») для отправки на сервер.
+ *
+ *  Единственный правильный способ назвать серверу время: без пояса он вынужден догадываться,
+ *  а догадка была неверной — уфимские часы принимались за UTC, и поездка «уезжала» на 5 часов
+ *  (разбор №2, 2026-08-03). Такси-предзаказ так делал с самого начала, попутка и заявка — нет;
+ *  теперь во всём приложении одно правило. */
+internal fun isoWithOffset(ms: Long): String =
+    java.time.OffsetDateTime.ofInstant(java.time.Instant.ofEpochMilli(ms), java.time.ZoneId.systemDefault())
+        .withNano(0).toString()
+
 /** ISO выезда (UTC-наивный с сервера) → epoch millis. Терпимо к 'Z'/смещению/долям секунды. */
 internal fun parseIsoUtcMillis(iso: String): Long? = try {
-    val s = iso.substringBefore('.').substringBefore('+').removeSuffix("Z").take(19)
-    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-    fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
-    fmt.parse(s)?.time
+    // Если пояс указан явно — верим ему, а не соглашению. Раньше «+05:00» просто отрезался,
+    // и время сдвигалось на этот же пояс. Сервер такие строки не шлёт, но клиент их теперь
+    // ФОРМИРУЕТ (isoWithOffset), и однажды они вернутся эхом — пусть читается правильно.
+    runCatching { java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrElse {
+        val s = iso.substringBefore('.').substringBefore('+').removeSuffix("Z").take(19)
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+        fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        fmt.parse(s)?.time
+    }
 } catch (e: Exception) {
     null
 }

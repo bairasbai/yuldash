@@ -726,9 +726,10 @@ internal fun CreatePassengerRequestScreen(
                 }
                 val priceVal = price.toIntOrNull() ?: 0
                 // Выбранное «dd.MM.yyyy, HH:mm» → ISO для сервера (иначе желаемое время терялось).
+                // С часовым поясом — иначе сервер примет местные часы за UTC (разбор №2).
                 val desiredIso = runCatching {
                     val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(time)
-                    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(picked!!)
+                    isoWithOffset(picked!!.time)
                 }.getOrNull()
                 submitting = true
                 scope.launch {

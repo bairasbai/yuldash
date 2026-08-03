@@ -12,14 +12,17 @@ def test_edit_ride_free_when_no_bookings(client, user_factory):
     outsider = user_factory("EditOutsider", role=UserRole.driver)
     assert client.patch(f"/rides/{ride['id']}", headers=outsider["auth"], json={"price": 400}).status_code == 403
     # без броней можно всё: цена вверх, время, места
+    # Время шлём С ПОЯСОМ, как теперь делает приложение: 08:00 по Уфе = 03:00 UTC, и в БД
+    # обязан лежать UTC. Раньше тест закреплял ошибку — ждал, что 08:00 сохранится как 08:00,
+    # то есть что поездка «уедет» на 5 часов вперёд (разбор №2, миграция y_utc_depart).
     r = client.patch(f"/rides/{ride['id']}", headers=drv["auth"], json={
-        "price": 700, "depart_at": "2030-02-01T08:00:00", "seats_total": 4, "comment": "заеду через Темясово",
+        "price": 700, "depart_at": "2030-02-01T08:00:00+05:00", "seats_total": 4, "comment": "заеду через Темясово",
     })
     assert r.status_code == 200
     body = r.json()
     assert body["price"] == 700 and body["seats_total"] == 4 and body["seats_left"] == 4
     assert body["comment"] == "заеду через Темясово"
-    assert body["depart_at"].startswith("2030-02-01T08:00")
+    assert body["depart_at"].startswith("2030-02-01T03:00")
 
 
 def test_edit_ride_restricted_with_bookings(client, user_factory):

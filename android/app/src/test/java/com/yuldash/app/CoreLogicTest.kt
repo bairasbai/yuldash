@@ -7,8 +7,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.After
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.util.TimeZone
 
 /**
  * Каркас JVM unit-тестов «с нуля» (раньше у приложения было 0 тестов).
@@ -18,6 +21,22 @@ import org.junit.Test
  * Тесты экранов (Compose UI) и инструментальные — отдельная задача (нужен androidTest + устройство/эмулятор).
  */
 class CoreLogicTest {
+
+    // Время с сервера приходит в UTC, а на экране показывается в часах человека — значит
+    // ожидания зависят от пояса машины, где гоняются тесты. Фиксируем уфимский пояс: тест
+    // должен падать из-за кода, а не из-за того, что его запустили в другом городе.
+    private var savedTz: TimeZone? = null
+
+    @Before
+    fun fixTimeZone() {
+        savedTz = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Yekaterinburg"))   // Уфа, UTC+5
+    }
+
+    @After
+    fun restoreTimeZone() {
+        savedTz?.let { TimeZone.setDefault(it) }
+    }
 
     @Test
     fun appTextFor_picksRussianForRu() {
@@ -51,9 +70,18 @@ class CoreLogicTest {
 
     @Test
     fun formatDepart_formatsBackendIsoForRideCards() {
-        assertEquals("23.06, 05:57", formatDepart("2026-06-23T05:57:00"))
-        assertEquals("03.07, 12:44", formatDepart("2026-07-03T12:44:19.838345"))
+        // Сервер отдаёт UTC, человек читает свои часы: 05:57 UTC = 10:57 по Уфе. Раньше строка
+        // резалась ножницами и показывала UTC как есть — время SOS в админке из-за этого
+        // было на 5 часов раньше настоящего (разбор №2, 2026-08-03).
+        assertEquals("23.06, 10:57", formatDepart("2026-06-23T05:57:00"))
+        assertEquals("03.07, 17:44", formatDepart("2026-07-03T12:44:19.838345"))
         assertEquals("bad-date", formatDepart("bad-date"))
+    }
+
+    @Test
+    fun formatDepart_respectsExplicitOffsetWhenServerSendsOne() {
+        // Строка с поясом читается по поясу, а не по соглашению: 10:00+05:00 = 05:00 UTC = 10:00 Уфа.
+        assertEquals("05.08, 10:00", formatDepart("2026-08-05T10:00:00+05:00"))
     }
 
     @Test
@@ -204,7 +232,7 @@ class CoreLogicTest {
         assertEquals("42", ride.id)
         assertEquals("From", ride.from)
         assertEquals("To", ride.to)
-        assertEquals("02.01, 03:04", ride.time)
+        assertEquals("02.01, 08:04", ride.time)   // 03:04 UTC = 08:04 по Уфе
         // Пустое имя ОСТАЁТСЯ пустым — это не потеря данных, а осознанное решение (MainActivity.toUiRide):
         // подстановка «Водитель»/«Йөрөтөүсе» живёт на слое отрисовки через appText. Если подставлять
         // здесь, в маппере, в башкирском интерфейсе вылезет русское слово — язык на этом слое неизвестен.

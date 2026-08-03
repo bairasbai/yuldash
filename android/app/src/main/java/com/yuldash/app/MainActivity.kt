@@ -574,9 +574,20 @@ internal fun FrequentTrip.timeHintText(): String = appText(timeHint, timeHintBa)
 
 /** ISO-дата сервера "2026-06-22T22:24:07" → "22.06, 22:24" для карточки поездки. */
 internal fun formatDepart(iso: String): String = try {
-    val d = iso.substringBefore('T')
-    val t = iso.substringAfter('T')
-    "${d.substring(8, 10)}.${d.substring(5, 7)}, ${t.substring(0, 5)}"
+    // Сервер отдаёт время в UTC — его надо ПЕРЕВЕСТИ в часы человека, а не показать как есть.
+    // Раньше строка просто резалась ножницами, поэтому «03:15» у SOS-сигнала в админке значило
+    // на самом деле 08:15 по Уфе, а время выезда попутки совпадало случайно — из-за парной
+    // ошибки на записи (см. разбор №2 и миграцию y_utc_depart). Обе половины чиним разом:
+    // в базе лежит настоящий UTC, здесь он превращается в местное время телефона.
+    val ms = parseIsoUtcMillis(iso)
+    if (ms == null) iso else {
+        val c = java.util.Calendar.getInstance().apply { timeInMillis = ms }
+        String.format(
+            java.util.Locale.US, "%02d.%02d, %02d:%02d",
+            c.get(java.util.Calendar.DAY_OF_MONTH), c.get(java.util.Calendar.MONTH) + 1,
+            c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE),
+        )
+    }
 } catch (e: Exception) {
     iso
 }

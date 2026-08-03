@@ -22,7 +22,7 @@ from ..services import (
     record_pickup_choice, rides_out, user_rating,
 )
 from ..safety_logic import ensure_active
-from ..timeutil import utcnow
+from ..timeutil import client_dt_to_utc, utcnow
 from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
 
@@ -58,6 +58,9 @@ class RequestIn(BaseModel):
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует новую заявку
+    # Желаемое время → наивный UTC (разбор №2): без этого заявка «на 10:00» жила в ленте
+    # до 17:00 по Уфе. Время без пояса от старых версий приложения считаем местным.
+    body.desired_at = client_dt_to_utc(body.desired_at)
     # Геокодим концы маршрута (для карты водителя и радиус-поиска заявок) — как у POST /rides.
     frm = geocode_city(body.from_city) or (None, None)
     to = geocode_city(body.to_city) or (None, None)
@@ -180,7 +183,7 @@ def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_u
         session.refresh(target)
     req = RideRequest(
         passenger_id=target.id, from_city=body.from_city, to_city=body.to_city,
-        desired_at=body.desired_at, seats=body.seats, comment=body.comment,
+        desired_at=client_dt_to_utc(body.desired_at), seats=body.seats, comment=body.comment,
         for_relative_name=(body.name or None),
     )
     session.add(req)
@@ -226,6 +229,7 @@ def edit_request(request_id: int, body: RequestEditIn, user: User = Depends(curr
     if req.status != "active":
         raise HTTPException(400, "Править можно только активную заявку")
     changed = False
+    body.desired_at = client_dt_to_utc(body.desired_at)   # правка времени — то же соглашение, что и создание
     for field in ("from_city", "to_city", "desired_at", "seats", "max_price", "comment"):
         val = getattr(body, field)
         if val is not None and val != getattr(req, field):
