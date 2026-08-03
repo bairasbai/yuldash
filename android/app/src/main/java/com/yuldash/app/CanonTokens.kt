@@ -8,7 +8,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 // Дизайн-токены: адаптивная палитра Canon* (светлый/тёмный) + формы карточек.
 // Вынесено из MainActivity.kt (Фаза 0 разрезки). Тот же пакет com.yuldash.app → импортов не нужно.
@@ -124,3 +127,72 @@ internal val CanonOnAccent: Color = Color(0xFFFFFFFF)
 internal val CanonScrim: Color = Color(0xE6000000)
 internal val CanonCardShape = RoundedCornerShape(28.dp)
 internal val CanonItemShape = RoundedCornerShape(22.dp)
+
+
+// ============================== ШКАЛЫ: отступы, текст, глубина, движение ==============================
+// Заведены 2026-08-03 после замера: в экранах жило 88 разных значений отступов (из них 18 не
+// кратны четырём) и 43 разных кегля. Каждый экран изобретал своё — поэтому приложение и не
+// читалось «дорого»: дороговизна в спокойном стиле держится на повторяемости, а не на украшениях.
+//
+// Правило: в экранах брать отсюда. Нужного значения нет — добавить ступень ЗДЕСЬ, а не написать
+// число на месте. Одно исключение — оптические подгонки в 1–2dp внутри одного компонента
+// (выравнивание иконки к тексту), их в шкалу не тащим.
+
+/** Отступы. Сетка 4pt: любое значение кратно четырём, ступеней семь — этого хватает на всё. */
+internal object CanonSpace {
+    val xs = 4.dp      // иконка ↔ подпись, зазор внутри чипа
+    val sm = 8.dp      // строки внутри одного блока
+    val md = 12.dp     // внутренние поля карточки
+    val lg = 16.dp     // поля экрана, зазор между карточками
+    val xl = 24.dp     // между смысловыми блоками
+    val xxl = 32.dp    // отбивка крупного заголовка
+    val huge = 48.dp   // воздух в пустых состояниях
+}
+
+/** Глубина. Тень вместо рамки: рамка читается дёшево, мягкая тень — дорого.
+ *  Три уровня, больше не нужно: лист лежит на карточке, карточка на фоне. */
+internal object CanonDepth {
+    val flat = 0.dp        // элемент лежит в потоке
+    val card = 2.dp        // карточка над фоном
+    val raised = 8.dp      // плавающая кнопка, подсказка над картой
+    val sheet = 16.dp      // шторка снизу, диалог
+}
+
+/** Движение. Три длительности на всё приложение — иначе анимации живут вразнобой
+ *  и это читается как несобранность. Короче 150мс глаз не замечает, длиннее 350мс раздражает. */
+internal object CanonMotion {
+    const val QUICK = 180      // нажатие, смена иконки, мелкий чип
+    const val NORMAL = 260     // появление карточки, переход вкладки
+    const val SLOW = 320       // шторка снизу, крупный экран
+}
+
+// ------------------------------ типографика ------------------------------
+// Замер показал главную беду: 1022 текста из 1074 были жирными (Black 516 + Bold 506) против
+// 52 нежирных. Когда выделено ВСЁ — не выделено ничто, и глаз читает это как крик.
+// Здесь наоборот: основной текст обычного веса, жирность — редкий инструмент.
+// Межстрочный ~1.3 у крупного и ~1.45 у мелкого: мелкому нужно больше воздуха, чтобы не слипаться.
+
+/** Крупное число: цена, заработок, сумма. Единственное место, где уместен большой жирный шрифт. */
+internal val CanonDisplay = TextStyle(fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold)
+
+/** Заголовок экрана. */
+internal val CanonTitle = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
+
+/** Заголовок блока внутри экрана. SemiBold, а не Bold: блоков много, крик не нужен. */
+internal val CanonHeading = TextStyle(fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold)
+
+/** ОСНОВНОЙ текст. Normal — это и есть главное изменение против «всё жирное». 16sp, а не 13sp:
+ *  тринадцать было самым частым кеглем и это мелко, у Apple и Тинькофф основной 15–17. */
+internal val CanonBody = TextStyle(fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Normal)
+
+/** Акцент внутри основного текста: имя, город, цена в строке. Тот же кегль, другой вес. */
+internal val CanonBodyStrong = TextStyle(fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.SemiBold)
+
+/** Вторичный текст: пояснения, подзаголовки. */
+internal val CanonCaption = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal)
+
+/** Микротекст: подписи под иконками, метки, время. Medium — чтобы мелкое не «плыло». */
+internal val CanonMicro = TextStyle(fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium)
+
+/** Надпись на кнопке. Единственный жирный из мелких: кнопка обязана читаться первой. */
+internal val CanonButton = TextStyle(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
