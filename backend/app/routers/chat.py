@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
-from ..antifraud import phishing_flag
+from ..antifraud import moderate_text
 from ..db import engine, get_session
 from ..errors import herr
 from ..models import (
@@ -176,7 +176,7 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                     text = (payload.get("text") or "")[:4000]
                     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
                     msg = Message(booking_id=booking_id, sender_id=user_id, text=text,
-                                  flag=phishing_flag(text),
+                                  flag=moderate_text(text, check_contact=False),
                                   from_admin=bool(sender and sender.role == UserRole.admin))
                     session.add(msg)
                     session.commit()
@@ -266,7 +266,7 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
                     text = (payload.get("text") or "")[:4000]
                     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
                     msg = Message(order_id=order_id, sender_id=user_id, text=text,
-                                  flag=phishing_flag(text),
+                                  flag=moderate_text(text, check_contact=True),
                                   from_admin=bool(sender and sender.role == UserRole.admin))
                     session.add(msg)
                     session.commit()
@@ -305,7 +305,7 @@ def send_order_message(order_id: int, body: MessageIn, user: User = Depends(curr
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise HTTPException(422, "Недопустимая ссылка на медиа")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
-    msg = Message(order_id=order_id, sender_id=user.id, flag=phishing_flag(body.text),
+    msg = Message(order_id=order_id, sender_id=user.id, flag=moderate_text(body.text, check_contact=True),
                   from_admin=(user.role == UserRole.admin), **body.model_dump())
     session.add(msg)
     session.commit()
@@ -400,7 +400,7 @@ async def parcel_chat_ws(websocket: WebSocket, parcel_id: int):
                     text = (payload.get("text") or "")[:4000]
                     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
                     msg = Message(parcel_id=parcel_id, sender_id=user_id, text=text,
-                                  flag=phishing_flag(text),
+                                  flag=moderate_text(text, check_contact=True),
                                   from_admin=bool(sender and sender.role == UserRole.admin))
                     session.add(msg)
                     session.commit()
@@ -441,7 +441,7 @@ def send_parcel_message(parcel_id: int, body: MessageIn, user: User = Depends(cu
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise herr(422, "Недопустимая ссылка на медиа", "Ярамаған медиа һылтанмаһы")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
-    msg = Message(parcel_id=parcel_id, sender_id=user.id, flag=phishing_flag(body.text),
+    msg = Message(parcel_id=parcel_id, sender_id=user.id, flag=moderate_text(body.text, check_contact=True),
                   from_admin=(user.role == UserRole.admin), **body.model_dump())
     session.add(msg)
     session.commit()
@@ -489,7 +489,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     if body.voice_url and not body.voice_url.startswith(public_media_url("")):
         raise HTTPException(422, "Недопустимая ссылка на медиа")
     # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
-    msg = Message(booking_id=booking_id, sender_id=user.id, flag=phishing_flag(body.text),
+    msg = Message(booking_id=booking_id, sender_id=user.id, flag=moderate_text(body.text, check_contact=False),
                   from_admin=(user.role == UserRole.admin), **body.model_dump())
     session.add(msg)
     session.commit()
@@ -568,7 +568,9 @@ def edit_message(booking_id: int, message_id: int, body: MessageEditIn,
         raise HTTPException(400, "Пустое сообщение")
     msg.text = text
     msg.edited = True
-    msg.flag = phishing_flag(text)   # B8-6: обход через «отправил безобидное → отредактировал в фишинг» закрыт
+    # B8-6: обход «отправил безобидное → отредактировал» закрыт. Зону берём из самого
+    # сообщения: у попутки (booking) телефон не помечаем, у такси и курьера — помечаем.
+    msg.flag = moderate_text(text, check_contact=msg.booking_id is None)
     session.add(msg)
     session.commit()
     session.refresh(msg)

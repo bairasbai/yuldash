@@ -22,6 +22,7 @@ from ..services import (
     record_pickup_choice, rides_out, user_rating,
 )
 from ..safety_logic import ensure_active
+from ..antifraud import moderate_open_text
 from ..timeutil import client_dt_to_utc, utcnow
 from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
@@ -181,6 +182,10 @@ def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_u
         session.add(target)
         session.commit()
         session.refresh(target)
+    # Модерация открытого поля. В личном чате попутки телефон не трогаем (соседи так и
+    # договариваются), но заявку и отклик видят ВСЕ — это уже публичное объявление,
+    # и номер там висит для кого угодно. Помечаем, текст не меняем, сохранение не рвём.
+    moderate_open_text(body.comment, target.id)
     req = RideRequest(
         passenger_id=target.id, from_city=body.from_city, to_city=body.to_city,
         desired_at=client_dt_to_utc(body.desired_at), seats=body.seats, comment=body.comment,
@@ -230,6 +235,7 @@ def edit_request(request_id: int, body: RequestEditIn, user: User = Depends(curr
         raise HTTPException(400, "Править можно только активную заявку")
     changed = False
     body.desired_at = client_dt_to_utc(body.desired_at)   # правка времени — то же соглашение, что и создание
+    moderate_open_text(body.comment, req.passenger_id)   # правка — тот же путь, что создание
     for field in ("from_city", "to_city", "desired_at", "seats", "max_price", "comment"):
         val = getattr(body, field)
         if val is not None and val != getattr(req, field):
@@ -370,6 +376,10 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     if dup:
         return {"ok": True, "id": dup.id}     # идемпотентно — повторный отклик не плодим
     # current_price = цена НА СТОЛЕ: пока торга не было, это первое предложение водителя.
+    # Модерация открытого поля. В личном чате попутки телефон не трогаем (соседи так и
+    # договариваются), но заявку и отклик видят ВСЕ — это уже публичное объявление,
+    # и номер там висит для кого угодно. Помечаем, текст не меняем, сохранение не рвём.
+    moderate_open_text(body.comment, user.id)
     resp = RequestResponse(request_id=request_id, driver_id=user.id, price=body.price,
                            comment=body.comment, current_price=body.price, last_offer_by="driver")
     session.add(resp)

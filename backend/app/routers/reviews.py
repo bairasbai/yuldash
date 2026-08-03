@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from ..antifraud import moderate_open_text
 from ..db import get_session
 from ..models import AppReview, Rating, User, UserRole
 from ..security import current_user
@@ -48,6 +49,7 @@ def create_review(body: AppReviewIn, user: User = Depends(current_user), session
     text = (body.text or "").strip()
     if len(text) < 10:
         raise HTTPException(400, "Отзыв слишком короткий")
+    moderate_open_text(text, getattr(user, "id", None))   # отзыв публичный — телефон и грубость помечаем
     if len(text) > 600:
         raise HTTPException(400, "Отзыв слишком длинный")
     review = AppReview(
