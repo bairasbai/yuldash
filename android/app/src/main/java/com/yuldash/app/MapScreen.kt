@@ -423,7 +423,11 @@ internal fun MapScreen(
                         )
                     }
                 }
-                item {
+                // key обязателен: без него LazyColumn переиспользует ячейку по индексу, и состояние
+                // анимации появления (appearIn стартует с alpha=0) достаётся чужому содержимому —
+                // заголовок остаётся невидимым НАВСЕГДА. Ловится только глазами: в дерево элементов
+                // прозрачный узел тоже не попадает, поэтому и тесты, и uiautomator молчат.
+                item(key = "nearby_header") {
                     Box(Modifier.appearIn(2)) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),   // маленькая пауза заголовок → карточка
@@ -432,11 +436,11 @@ internal fun MapScreen(
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
                                     appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр"),
-                                    color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Black,
+                                    color = CanonText, style = CanonHeading,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis
                                 )
                                 if (focusFrom != null && focusTo != null) {
-                                    Text("$focusFrom → $focusTo", color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("$focusFrom → $focusTo", color = CanonGreen2, style = CanonMicro, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                             // Счётчик — пилюля с мягкой сменой цифры (фильтры/обновление ленты меняют её на лету).
@@ -462,7 +466,7 @@ internal fun MapScreen(
                         }
                     }
                 }
-                item {
+                item(key = "nearby_filters") {
                     // УСЛОВИЕ ПОКАЗА (2026-08-03, найдено независимой проверкой). Раньше здесь стояло
                     // просто `nearby.isNotEmpty()` — и это был тупик: выбрал «Сегодня», на сегодня
                     // поездок нет → выдача пуста → строка фильтров исчезает ВМЕСТЕ с кнопкой «Все дни»,
@@ -825,7 +829,7 @@ private fun MapHero(
             ) {
                 Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Найти попутку", "Юлдаш табыу"), fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(appText("Найти попутку", "Юлдаш табыу"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Button(
                 onClick = onDriver,
@@ -836,7 +840,7 @@ private fun MapHero(
             ) {
                 Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(appText("Я водитель", "Мин водитель"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -863,15 +867,13 @@ private fun HomeHeader(onSos: () -> Unit) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 timeGreeting(ApiClient.cachedName() ?: appText("друг", "дуҫ")),
-                color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                color = CanonMuted, style = CanonCaption,
                 maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             Text(
                 appText("Куда поедем?", "Ҡайҙа барабыҙ?"),
                 color = CanonGreen,
-                fontSize = 28.sp,
-                lineHeight = 32.sp,
-                fontWeight = FontWeight.Black,
+                style = CanonTitle,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
