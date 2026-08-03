@@ -24,6 +24,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,7 +35,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -64,7 +64,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -254,6 +253,12 @@ private fun ModeSwitchBar(
                 // Ширина одного сегмента известна только здесь — от неё считается сдвиг пилюли.
                 val segW = maxWidth / items.size
                 val offset by animateDpAsState(segW * index, tween(260), label = "mode_pill")
+                // ПОДЛОЖКА выбранного режима. Тонкая рамка цветом режима — не украшение.
+                // Проверка контраста (2026-08-03): подложка и фон контрола — соседние токены,
+                // в тёмной теме CanonPoolingBg на CanonSurface дают 1.02:1, то есть пилюли
+                // не видно вообще. Раньше выбор держали рамка 2dp и полоска снизу, при
+                // переписывании в сегментный контрол их убрали и опереться стало не на что.
+                // Рамка возвращает пилюле собственную границу, не делая её кричащей.
                 Box(
                     Modifier
                         .offset(x = offset)
@@ -261,6 +266,7 @@ private fun ModeSwitchBar(
                         .height(MODE_SEG_HEIGHT)
                         .clip(RoundedCornerShape(13.dp))
                         .background(activeBg)
+                        .border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(13.dp))
                 )
                 Row(Modifier.fillMaxWidth()) {
                     items.forEachIndexed { i, (m, iconRes, title) ->
@@ -330,9 +336,12 @@ private fun ModeSwitchBar(
     }
 }
 
-// Высота сегмента. 44dp — минимум, при котором строка «иконка + заголовок» не выглядит зажатой,
-// а тач-цель остаётся комфортной (стандарт 48dp добирается вертикальным зазором контейнера).
-private val MODE_SEG_HEIGHT = 44.dp
+// Высота сегмента = высота тач-цели, потому что кликабелен именно сегмент.
+// Было 44dp с оговоркой «48 доберётся зазором контейнера» — оговорка неверна: 3dp паддинга
+// лежат СНАРУЖИ кликабельной области, а `clickable` (в отличие от готовых Material-кнопок)
+// сам минимальную тач-цель не расширяет. То есть палец имел ровно 44dp — ниже правила §4.5.
+// 48dp, и никаких рассуждений про то, где добирается остальное.
+private val MODE_SEG_HEIGHT = 48.dp
 
 /** Дружелюбная подсказка простыми словами и крупным текстом: чем Такси отличается от Попутки. */
 @OptIn(ExperimentalMaterial3Api::class)

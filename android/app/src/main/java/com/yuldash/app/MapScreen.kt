@@ -463,7 +463,15 @@ internal fun MapScreen(
                     }
                 }
                 item {
-                    if (nearby.isNotEmpty()) {
+                    // УСЛОВИЕ ПОКАЗА (2026-08-03, найдено независимой проверкой). Раньше здесь стояло
+                    // просто `nearby.isNotEmpty()` — и это был тупик: выбрал «Сегодня», на сегодня
+                    // поездок нет → выдача пуста → строка фильтров исчезает ВМЕСТЕ с кнопкой «Все дни»,
+                    // и снять фильтр нечем (в пустой заглушке только «Обновить», а он повторяет тот же
+                    // запрос). То же с «Детским креслом» и любым другим условием.
+                    // Поэтому: фильтры видно, пока есть ЧТО фильтровать ИЛИ пока хоть один фильтр
+                    // включён. Второе слагаемое — и есть путь назад. Когда фильтров нет и поездок нет,
+                    // ряд прячем: пустой экран не должен начинаться с восьми неработающих кнопок.
+                    if (nearby.isNotEmpty() || dateFilter != null || prefFilter.isNotEmpty()) {
                       // Тач-цель ≥48dp (§4.5) + зазор справа у каждого чипа. Зазор ИМЕННО у чипа, а не
                       // spacedBy у Row: скрытый «Сбросить» тогда не оставляет пустой отступ слева.
                       val chipTouch = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
@@ -882,6 +890,10 @@ private fun HomeHeader(onSos: () -> Unit) {
         val isDarkNow = appIsDark()
         Surface(
             modifier = Modifier
+                // clip ДО нажатия: Surface дописывает свой .clip(shape) ПОСЛЕ нашего модификатора,
+                // поэтому волна от пальца до той обрезки не доходит и вылезает углами за круг.
+                // На прежней квадратной плашке этого не было видно, на круге — видно сразу.
+                .clip(CircleShape)
                 .bounceClick {
                     val newDark = !isDarkNow
                     ThemePrefs.darkOverride = newDark
@@ -1675,20 +1687,22 @@ private fun YandexMapCard(
                 }
             }
         }
-        // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
-        MapZoomControls(
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp),
-            onZoomIn = {
-                val cam = mapView.mapWindow.map.cameraPosition
-                val t = if (LocationPrefs.sharingEnabled) (lastUserPoint ?: cam.target) else cam.target
-                mapView.mapWindow.map.move(CameraPosition(t, (cam.zoom + 1f).coerceAtMost(18f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
-            },
-            onZoomOut = {
-                val cam = mapView.mapWindow.map.cameraPosition
-                val t = if (LocationPrefs.sharingEnabled) (lastUserPoint ?: cam.target) else cam.target
-                mapView.mapWindow.map.move(CameraPosition(t, (cam.zoom - 1f).coerceAtLeast(3f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
-            }
-        )
+        // ПРАВЫЙ БЛОК УПРАВЛЕНИЯ КАРТОЙ — «где я» и масштаб В ОДНУ СТРОКУ, не столбиком.
+        //
+        // Почему так (2026-08-03, найдено независимой проверкой). Столбиком не помещается
+        // арифметически: зум-стек 97dp + зазор + «где я» 48dp = 169dp сверху, а плавающей
+        // карточке снизу нужно 146dp. Вместе 315dp при высоте карты 280dp — карточка
+        // накрывала «где я» на 34dp и перехватывала касания. Растить карту обратно нельзя:
+        // ради этих 72dp её и ужимали, чтобы поездки поднялись над сгибом.
+        // В строке высота блока = высота самого большого элемента, то есть 97dp вместо 169dp.
+        // 16 + 97 + зазор + 146 = 267 < 280 — помещается с запасом 13dp.
+        // Заодно честнее по смыслу: «где я» и масштаб — соседние по частоте действия,
+        // держать их рядом привычнее, чем разносить по вертикали (так у 2ГИС).
+        Row(
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp).zIndex(6f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
         // Кнопка «к себе» (как в Яндекс.Картах): центр на моей позиции; если выключено — включает.
         Surface(
             onClick = {
@@ -1703,8 +1717,7 @@ private fun YandexMapCard(
                     else -> locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                 }
             },
-            // top=120: зум-стек (2×48dp + делитель = 97dp от top=16 → низ 113dp); «где я» ниже с зазором ~7dp, по сетке 4dp.
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 120.dp, end = 16.dp).size(48.dp).zIndex(6f),  // тач-цель ≥48dp
+            modifier = Modifier.size(48.dp),   // тач-цель ≥48dp
             shape = RoundedCornerShape(16.dp),
             color = CanonSurface,   // адаптивно: белая кнопка была нечитаема-инородна в тёмной теме
             shadowElevation = 4.dp
@@ -1719,6 +1732,20 @@ private fun YandexMapCard(
                 )
             }
         }
+        // Кнопки масштаба (как в Яндекс.Картах): правый верх, под чипом расстояния.
+        MapZoomControls(
+            onZoomIn = {
+                val cam = mapView.mapWindow.map.cameraPosition
+                val t = if (LocationPrefs.sharingEnabled) (lastUserPoint ?: cam.target) else cam.target
+                mapView.mapWindow.map.move(CameraPosition(t, (cam.zoom + 1f).coerceAtMost(18f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
+            },
+            onZoomOut = {
+                val cam = mapView.mapWindow.map.cameraPosition
+                val t = if (LocationPrefs.sharingEnabled) (lastUserPoint ?: cam.target) else cam.target
+                mapView.mapWindow.map.move(CameraPosition(t, (cam.zoom - 1f).coerceAtLeast(3f), cam.azimuth, cam.tilt), Animation(Animation.Type.SMOOTH, 0.25f), null)
+            }
+        )
+        }   // конец правого блока управления картой
         if (showPrivacyNotice && selectedRequest == null) {
             Card(
                 modifier = Modifier

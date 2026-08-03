@@ -1,51 +1,65 @@
+<!--
+  Солнце тумблера «день/ночь». Пара к yu_moon.xml — рисуется в той же кнопке, поочерёдно.
+
+  Зачем перерисовано (2026-08-03, по независимой проверке). Луну пришлось переложить на
+  сплошную заливку — старая была построена битой дугой и вырождалась в волосок. После этого
+  солнце и луна в ОДНОЙ кнопке разошлись по весу примерно втрое: луна — плотное пятно,
+  солнце — тонкие линии 2.2 при диске радиусом 7 из поля 48. При смене темы иконка заметно
+  «прыгала» с кляксы на паутинку.
+
+  Стало: тот же вьюпорт 24, что у луны, диск сплошной заливкой r=5, восемь лучей штрихом 2.6
+  с круглыми концами от r=7 до r=10. Доля «чернил» ≈0.24 против ≈0.30 у луны — разница
+  в пределах того, что глаз читает как одну пару, а не как два разных значка.
+
+  Дуг, кроме идиомы круга `a r,r 0 1 0 2r,0` (радиус ровно равен половине хорды), здесь нет —
+  того класса ошибки, из-за которого чинили луну, тут возникнуть неоткуда.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
     android:height="48dp"
-    android:viewportWidth="48"
-    android:viewportHeight="48">
+    android:viewportWidth="24"
+    android:viewportHeight="24">
     <path
         android:fillColor="#FF0B6B4B"
-        android:strokeColor="#FF0B6B4B"
-        android:strokeWidth="2.2"
-        android:pathData="M17 24a7 7 0 1 0 14 0a7 7 0 1 0 -14 0Z"/>
+        android:pathData="M7,12a5,5 0 1 0 10,0a5,5 0 1 0 -10,0Z"/>
     <path
         android:strokeColor="#FF0B6B4B"
-        android:strokeWidth="2.2"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M24 8L24 13"/>
+        android:pathData="M12,2L12,5"/>
     <path
         android:strokeColor="#FF0B6B4B"
-        android:strokeWidth="2.2"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M24 35L24 40"/>
+        android:pathData="M12,19L12,22"/>
     <path
         android:strokeColor="#FF0B6B4B"
-        android:strokeWidth="2.2"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M8 24L13 24"/>
+        android:pathData="M2,12L5,12"/>
     <path
         android:strokeColor="#FF0B6B4B"
-        android:strokeWidth="2.2"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M35 24L40 24"/>
+        android:pathData="M19,12L22,12"/>
     <path
         android:strokeColor="#FF0B6B4B"
-        android:strokeWidth="2.2"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M13 13L16 16"/>
+        android:pathData="M4.93,4.93L7.05,7.05"/>
     <path
         android:strokeColor="#FF0B6B4B"
-        android:strokeWidth="2.2"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M32 32L35 35"/>
+        android:pathData="M16.95,16.95L19.07,19.07"/>
     <path
         android:strokeColor="#FF0B6B4B"
-        android:strokeWidth="2.2"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M32 16L35 13"/>
+        android:pathData="M16.95,7.05L19.07,4.93"/>
     <path
         android:strokeColor="#FF0B6B4B"
-        android:strokeWidth="2.2"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M16 32L13 35"/>
+        android:pathData="M7.05,16.95L4.93,19.07"/>
 </vector>
