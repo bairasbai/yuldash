@@ -190,6 +190,43 @@ def _clean_media():
     print(f"  медиа-файлы (фото/голос >{MEDIA_DAYS}д): {verb} {removed} шт, {freed // (1024 * 1024)} МБ")
 
 
+# ------------------------------ закрытие прошедших поездок ------------------------------
+# Не удаление, а смена статуса — поэтому отдельно от правил ретеншена выше.
+#
+# Что было не так (найдено на проде 2026-08-03). У поездки не существовало состояния
+# «просрочена»: только active / done / cancelled. Лента прячет поездку через
+# RIDE_PAST_GRACE_HOURS после времени выезда, но статус ей не менял НИКТО. Итог — три поездки
+# от 5, 6 и 15 июля висели active третью неделю: пассажирам не видно, а у водителя в «моих
+# поездках» они навсегда числились текущими. Закрыть их было нечем.
+#
+# Правило разное, потому что случаи разные:
+#   есть подтверждённые брони -> done     поездка состоялась, её просто забыли закрыть;
+#   броней нет               -> expired  никто не поехал, «выполненной» её называть нечестно.
+# Разделение не косметическое: на done строится статистика поездок и рейтинг водителя,
+# и приписать туда несостоявшиеся — значит соврать в цифрах.
+RIDE_CLOSE_GRACE_HOURS = 6   # запас к RIDE_PAST_GRACE_HOURS=2: выехать могли позже, чем объявили
+
+
+def close_past_rides(now=None) -> tuple:
+    """Закрыть поездки, время которых прошло. Возвращает (сколько done, сколько expired)."""
+    now = now or utcnow()
+    cut = now - timedelta(hours=RIDE_CLOSE_GRACE_HOURS)
+    done = expired = 0
+    with engine.begin() as conn:
+        # done: прошедшие активные, у которых была хотя бы одна подтверждённая бронь
+        done = conn.execute(text(
+            "UPDATE ride SET status = 'done' "
+            "WHERE status = 'active' AND depart_at < :cut AND EXISTS ("
+            "  SELECT 1 FROM booking b WHERE b.ride_id = ride.id AND b.status = 'confirmed')"
+        ), {"cut": cut}).rowcount or 0
+        # expired: всё остальное прошедшее и активное — никто не поехал
+        expired = conn.execute(text(
+            "UPDATE ride SET status = 'expired' "
+            "WHERE status = 'active' AND depart_at < :cut"
+        ), {"cut": cut}).rowcount or 0
+    return done, expired
+
+
 def main():
     now = utcnow()
     mode = "СУХОЙ ПРОГОН (ничего не удаляется)" if DRY else "РЕАЛЬНАЯ чистка"
@@ -212,6 +249,15 @@ def main():
         except Exception as e:  # одна таблица упала — не роняем всю чистку
             print(f"  {label}: ОШИБКА {type(e).__name__}: {e}")
     _clean_media()
+    # Прошедшие поездки: не удаляем, а закрываем — иначе висят active вечно (см. выше).
+    if DRY:
+        print("  прошедшие поездки: в сухом прогоне не трогаем")
+    else:
+        try:
+            d, e = close_past_rides(now)
+            print(f"  прошедшие поездки: закрыто как состоявшиеся {d}, как несостоявшиеся {e}")
+        except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
+            print(f"  прошедшие поездки: ОШИБКА {type(ex).__name__}: {ex}")
     print(f"=== Итог: строк {'к удалению' if DRY else 'удалено'} — {total} ===")
 
 
