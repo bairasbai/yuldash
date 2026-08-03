@@ -19,6 +19,7 @@ from ..errors import herr
 from ..models import Ad, DeviceToken, DriverProfile, OtpCode, Payment, RequestResponse, TgAuth, User, UserRole
 from ..security import current_user, gen_otp, is_placeholder_phone, issue_tokens, revoke_all_refresh, rotate_refresh
 from ..services import send_push, send_sms, user_rating
+from ..trust_service import record_login_consents
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["auth"])
@@ -127,6 +128,7 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
         # НЕ вызываем _maybe_promote_admin: ревьюер — всегда обычный пассажир без прав,
         # даже если этот номер случайно совпал со списком админов.
         remember_login_device(session, user, x_device_id)
+        record_login_consents(session, user.id)   # 152-ФЗ: оферта/политика/18+ с датой
         tokens = issue_tokens(session, user.id)
         session.refresh(user)
         return {**tokens, "user": user}
@@ -155,6 +157,7 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
     _maybe_promote_admin(session, user)   # автоадмин по телефону (SMS-вход)
     # Анти-фрод (B8-1/2): фиксируем устройство; вход с нового → push+SMS-сигнал (не блокируем).
     remember_login_device(session, user, x_device_id)
+    record_login_consents(session, user.id)   # 152-ФЗ: оферта/политика/18+ с датой
     tokens = issue_tokens(session, user.id)   # commit внутри → user протухает
     session.refresh(user)                     # перечитываем, чтобы сериализовать в ответ
     return {**tokens, "user": user}
@@ -480,6 +483,7 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
     session.refresh(user)
     # Анти-фрод (B8-1/2): фиксируем устройство; вход с нового → push+SMS-сигнал (не блокируем).
     remember_login_device(session, user, x_device_id)
+    record_login_consents(session, user.id)   # 152-ФЗ: оферта/политика/18+ с датой
     tokens = issue_tokens(session, user.id)   # commit внутри → user протухает
     session.refresh(user)
     return {**tokens, "user": user}

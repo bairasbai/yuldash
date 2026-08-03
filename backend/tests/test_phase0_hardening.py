@@ -98,6 +98,10 @@ _PROD_BASE = dict(
     env="prod", jwt_secret="x" * 20, cors_origins="https://yulbash.ru",
     database_url="postgresql://u:p@h/db", media_base_url="https://yulbash.ru",
     payments_provider="sbp_manual",
+    # taxi_enabled/redis_url задаём ЯВНО: без этого Settings() подхватывает локальный .env
+    # разработчика, и прод-гвард такси (REDIS_URL обязателен) ронял тест, не имеющий
+    # к такси отношения. Тест про прод-конфиг обязан быть детерминированным.
+    taxi_enabled=False, redis_url="",
 )
 
 

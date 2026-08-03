@@ -205,7 +205,7 @@ class LoginDeepContentTest {
     @Test
     fun consent_russian_showsTextAndBothLinks() {
         composeRule.setContent { LoginConsent(AppLanguage.Ru) }
-        composeRule.onNodeWithText("Входя, ты принимаешь").assertIsDisplayed()
+        composeRule.onNodeWithText("Входя, ты подтверждаешь, что тебе есть 18 лет, и принимаешь").assertIsDisplayed()
         composeRule.onNodeWithText("Условия").assertIsDisplayed()
         composeRule.onNodeWithText("Политику конфиденциальности").assertIsDisplayed()
     }
@@ -213,7 +213,7 @@ class LoginDeepContentTest {
     @Test
     fun consent_bashkir_showsTextAndBothLinks() {
         composeRule.setContent { LoginConsent(AppLanguage.Ba) }
-        composeRule.onNodeWithText("Инеп, һин ҡабул итәһең:").assertIsDisplayed()
+        composeRule.onNodeWithText("Инеп, һин 18 йәшең тулғанын раҫлайһың һәм ҡабул итәһең:").assertIsDisplayed()
         composeRule.onNodeWithText("Шарттарҙы").assertIsDisplayed()
         composeRule.onNodeWithText("Конфиденциаллек сәйәсәтен").assertIsDisplayed()
     }
@@ -241,6 +241,6 @@ class LoginDeepContentTest {
     fun selectionStep_rendersConsentBlock() {
         // tgMode=false → внизу формы есть согласие. Ниже сгиба → скроллим к тексту согласия.
         form(tgMode = false, language = AppLanguage.Ru)
-        composeRule.onNodeWithText("Входя, ты принимаешь").assertIsDisplayed()
+        composeRule.onNodeWithText("Входя, ты подтверждаешь, что тебе есть 18 лет, и принимаешь").assertIsDisplayed()
     }
 }

@@ -114,6 +114,25 @@ val keystoreProps = Properties().apply {
 }
 val hasReleaseKeystore = keystoreProps.getProperty("storePassword") != null
 
+// Неподписанный релиз — самый тихий способ потерять вечер (разбор №2, 2026-08-03).
+// Раньше без keystore.properties `signingConfig` просто не назначался: сборка проходила
+// ЗЕЛЁНОЙ и выдавала APK, который не ставится на телефон и не принимается стором. Понятно это
+// становилось уже при заливке. Теперь падаем сразу и с инструкцией.
+// Проверяем только задачи, которые реально делают релизный артефакт: `assembleReleaseAndroidTest`
+// и `testReleaseUnitTest` подписываются отладочным ключом и к релизу отношения не имеют,
+// поэтому их не трогаем — иначе сломали бы CI, где keystore нет и не должно быть.
+val releaseArtifactTasks = setOf("assembleRelease", "bundleRelease", "packageRelease", "installRelease")
+gradle.taskGraph.whenReady {
+    if (!hasReleaseKeystore && allTasks.any { it.name in releaseArtifactTasks }) {
+        throw GradleException(
+            "Релизная сборка без подписи. Нужен файл android/keystore.properties " +
+                "(storeFile, storePassword, keyAlias, keyPassword) — он в .gitignore и в git не попадает. " +
+                "Без него APK не установится на телефон и не пройдёт модерацию стора. " +
+                "Для проверки без ключа собирай debug: gradlew :app:assembleDebug"
+        )
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)

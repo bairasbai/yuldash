@@ -85,10 +85,12 @@ def test_otp_is_single_use(client):
 def test_seed_demo_forbidden_in_prod(monkeypatch):
     """P2: прод-гвард запрещает seed_demo (фейковые водители в реальной БД)."""
     from app.config import Settings
+    # taxi_enabled/redis_url — явно: иначе Settings() тянет локальный .env разработчика,
+    # и прод-гвард такси роняет тест, который про seed_demo.
     s = Settings(env="prod", jwt_secret="x" * 20, cors_origins="https://yulbash.ru",
                  payments_provider="sbp_manual", sbp_phone="+79990000000",
                  database_url="postgresql://x", media_base_url="https://yulbash.ru",
-                 seed_demo=True)
+                 seed_demo=True, taxi_enabled=False, redis_url="")
     try:
         s.validate_production()
         assert False, "ожидали RuntimeError на seed_demo=True в проде"
@@ -104,7 +106,8 @@ def test_weak_jwt_secret_forbidden_in_prod():
     from app.config import Settings
     base = dict(env="prod", cors_origins="https://yulbash.ru", payments_provider="sbp_manual",
                 sbp_phone="+79990000000", database_url="postgresql://x",
-                media_base_url="https://yulbash.ru", seed_demo=False)
+                media_base_url="https://yulbash.ru", seed_demo=False,
+                taxi_enabled=False, redis_url="")   # не зависим от локального .env
     # compose-фолбэк — длинный, но dev → должен отвергаться
     s = Settings(jwt_secret="dev-secret-change-me-please-1234", **base)
     try:

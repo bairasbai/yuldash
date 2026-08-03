@@ -1216,8 +1216,17 @@ internal fun LoginConsent(currentLanguage: AppLanguage, modifier: Modifier = Mod
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        // 18+ стоит В ОДНОЙ строке с офертой, а не отдельной галочкой (разбор №2, 2026-08-03).
+        // В оферте возрастное ограничение было, в приложении — нигде; для такси и денег это
+        // первый вопрос стора. Отдельный чекбокс дал бы лишний тап на самом чувствительном
+        // экране (тут люди и так отваливаются), а юридически значим факт: текст виден рядом
+        // с кнопкой, и сам вход пишет согласие `age18` в реестр на сервере с датой.
         Text(
-            text = appTextFor(currentLanguage, "Входя, ты принимаешь", "Инеп, һин ҡабул итәһең:"),
+            text = appTextFor(
+                currentLanguage,
+                "Входя, ты подтверждаешь, что тебе есть 18 лет, и принимаешь",
+                "Инеп, һин 18 йәшең тулғанын раҫлайһың һәм ҡабул итәһең:",
+            ),
             color = CanonMuted,
             fontSize = LoginCaption,
             lineHeight = 19.sp,

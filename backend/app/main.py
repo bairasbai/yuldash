@@ -37,6 +37,8 @@ API_V1_PREFIX = "/api/v1"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.validate_production()
+    for _w in settings.launch_warnings():
+        print(f"[launch] ВНИМАНИЕ: {_w}", flush=True)
     init_db()
     with Session(engine) as session:
         if settings.seed_demo:
