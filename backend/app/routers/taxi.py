@@ -537,6 +537,9 @@ def admin_taxi_pulse(user: User = Depends(current_user), session: Session = Depe
         # Анти-фрод (B8-3): сколько пользователей сегодня помечено GPS-подозрительными
         # (3+ телепорта за час; их точки игнорируются, разбирается человек).
         "gps_suspects_today": af_mod.gps_suspects_today(isv._redis()),
+        # Модерация текста: сколько пользователей за сегодня набрали порог помеченных текстов
+        # (телефон в открытом объявлении, грубость, фишинг). Тоже только сигнал — решает человек.
+        "text_suspects_today": af_mod.text_suspects_today(isv._redis()),
         # Анти-фрод (B8-8): отмены после открытия телефона/чата за день (такси + попутка).
         "contact_then_cancel_today": ctc_today,
         "avg_search_sec_today": (round(sum(waits) / len(waits), 1) if waits else None),

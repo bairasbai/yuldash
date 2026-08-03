@@ -1863,7 +1863,7 @@ internal fun ChatContent(
                 Box(Modifier.fillMaxWidth().animateItem()) {   // плавное появление/перестановка пузыря в списке
                     ChatFeedBubble(
                         text = m.text, voiceUrl = m.voiceUrl, deleted = m.deleted, mine = m.senderId == myId,
-                        warn = m.flag == "warn", fromAdmin = m.fromAdmin,
+                        flag = m.flag, fromAdmin = m.fromAdmin,
                     )
                 }
             }
@@ -1921,7 +1921,7 @@ internal fun ChatContent(
 @Composable
 private fun ChatFeedBubble(
     text: String, voiceUrl: String?, deleted: Boolean, mine: Boolean,
-    warn: Boolean = false, fromAdmin: Boolean = false,
+    flag: String = "", fromAdmin: Boolean = false,   // метка сервера: warn / contact / abuse
 ) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
         if (fromAdmin && !deleted) YuldashOfficialBadge(Modifier.padding(bottom = 2.dp))
@@ -1951,14 +1951,45 @@ private fun ChatFeedBubble(
             }
         }
         }
-        if (warn && !mine && !deleted) PhishingWarnPlate(Modifier.padding(top = 3.dp))
+        if (flag.isNotEmpty() && !deleted) ChatFlagPlate(flag, mine, Modifier.padding(top = 3.dp))
     }
 }
 
 
-/** B8-6: плашка под подозрительным сообщением собеседника (сервер пометил flag=warn). */
+/** Плашка под сообщением по метке сервера. Три вида, и КОМУ показывать — тоже три разных ответа.
+ *
+ *  warn    — фишинг. Показываем ПОЛУЧАТЕЛЮ: предупреждаем того, у кого пытаются увести деньги.
+ *  contact — телефон или увод в мессенджер. Показываем ОТПРАВИТЕЛЮ: это он рискует, объясняем чем.
+ *            Собеседнику показывать нечего — он ничего не сделал.
+ *  abuse   — грубость. Показываем ПОЛУЧАТЕЛЮ: он уже прочитал, помогаем понять, что делать.
+ *            Отправителю не показываем: нотация в ответ на эмоцию только злит.
+ *
+ *  Сообщение при этом доставлено и видно — сервер ничего не блокирует, плашка только объясняет.
+ */
 @Composable
-internal fun PhishingWarnPlate(modifier: Modifier = Modifier) {
+internal fun ChatFlagPlate(flag: String, mine: Boolean, modifier: Modifier = Modifier) {
+    val forMe = when (flag) {
+        "warn", "abuse" -> !mine     // читает получатель
+        "contact" -> mine            // читает отправитель
+        else -> false
+    }
+    if (!forMe) return
+    val text = when (flag) {
+        "warn" -> appText(
+            "Никому не сообщай коды из SMS. Юлдаш никогда их не просит",
+            "СМС-тағы кодтарҙы бер кемгә лә әйтмә. Юлдаш уларҙы бер ҡасан да һорамай",
+        )
+        "contact" -> appText(
+            "Договариваться мимо приложения небезопасно: поездка не будет застрахована, " +
+                "и решить спор будет нельзя",
+            "Ҡулланманан тыш килешеү хәүефһеҙ түгел: сәфәр иминләштерелмәй, " +
+                "бәхәсте хәл итеп булмай",
+        )
+        else -> appText(
+            "Сообщение содержит грубые слова",
+            "Хәбәрҙә ҡытыр һүҙҙәр бар",
+        )
+    }
     Row(
         modifier = modifier
             .background(CanonWarnBg, RoundedCornerShape(10.dp))
@@ -1966,10 +1997,7 @@ internal fun PhishingWarnPlate(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "⚠️ " + appText(
-                "Никому не сообщай коды из SMS. Юлдаш никогда их не просит",
-                "СМС-тағы кодтарҙы бер кемгә лә әйтмә. Юлдаш уларҙы бер ҡасан да һорамай",
-            ),
+            "⚠️ $text",
             color = CanonWarn, fontSize = 12.sp, lineHeight = 16.sp,
         )
     }

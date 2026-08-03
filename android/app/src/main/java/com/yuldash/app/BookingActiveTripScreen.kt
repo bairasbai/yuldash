@@ -1549,7 +1549,7 @@ internal fun ActiveTripScreen(
                     queued = m.id in queuedIds,
                     deleted = m.deleted,
                     edited = m.edited,
-                    warn = m.flag == "warn",
+                    flag = m.flag,
                     fromAdmin = m.fromAdmin,
                     canEdit = saved && m.senderId == myId && m.voiceUrl == null && !m.deleted,
                     canDeleteAll = saved && m.senderId == myId && !m.deleted,
@@ -2166,7 +2166,7 @@ internal fun MessageBubble(
     queued: Boolean = false,
     deleted: Boolean = false,
     edited: Boolean = false,
-    warn: Boolean = false,       // B8-6: сервер пометил flag=warn → плашка получателю
+    flag: String = "",           // метка сервера: warn (фишинг) / contact (телефон) / abuse (грубость)
     fromAdmin: Boolean = false,  // B8-9: бейдж «Юлдаш ✓» (только серверный флаг)
     canEdit: Boolean = false,
     canDeleteAll: Boolean = false,
@@ -2258,9 +2258,10 @@ internal fun MessageBubble(
             }
         }
     }
-        if (warn && !mine && !deleted) {
-            // B8-6: предупреждение получателю — сообщение похоже на развод (коды из SMS/карта/увод оплаты).
-            PhishingWarnPlate(Modifier.padding(top = 3.dp))
+        if (flag.isNotEmpty() && !deleted) {
+            // Кому показывать — решает сама плашка: фишинг и грубость видит получатель,
+            // предупреждение про телефон — отправитель (рискует именно он).
+            ChatFlagPlate(flag, mine, Modifier.padding(top = 3.dp))
         }
         if (edited && !deleted) {
             Text(
